@@ -25,12 +25,12 @@
  *
  * Every hook the `default` renderer emits is emitted here too (hidden where
  * this design draws no control for it). The Core behaviours this renderer
- * opts into are listed in `features` (runtime.js `feat()`); the ones whose
- * backend does not exist yet (`env.capabilities`: order card, instant
- * answers, track order) draw nothing. The "closed the conversation" line,
- * the rating card under it, the chat bar's menu, a message's reactions and
- * the reply to a message left while away are drawn by the extras
- * (presentation-t2-x.js) once Core handed them over.
+ * opts into are listed in `features` (runtime.js `feat()`), each only as
+ * far as Core serves it (`env.capabilities`). The "closed the conversation"
+ * line, the rating card under it, the chat bar's menu, a message's
+ * reactions, the reply to a message left while away, an AI answer's order
+ * card and the help articles offered while a first message is written are
+ * drawn by the extras (presentation-t2-x.js) once Core handed them over.
  */
 (function () {
   'use strict';
@@ -96,6 +96,9 @@
       saveEmail: 'ثبت ایمیل',
       skip: 'نه ممنون، همین‌جا منتظر می‌مانم',
       replyTo: 'پاسخ را به {email} می‌فرستیم.',
+      track: 'پیگیری سفارش',
+      trackSub: 'وضعیت سفارشتان را همین‌جا بپرسید',
+      trackMsg: 'پیگیری سفارشم',
     },
     en: {
       hiBack: 'Hi {name}, welcome back 👋',
@@ -145,6 +148,9 @@
       saveEmail: 'Save email',
       skip: "No thanks, I'll wait here",
       replyTo: "We'll send the reply to {email}.",
+      track: 'Track an order',
+      trackSub: 'Ask about your order here',
+      trackMsg: 'Track my order',
     },
     tr: {
       hiBack: 'Merhaba {name}, tekrar hoş geldin 👋',
@@ -189,6 +195,9 @@
       saveEmail: 'E-postayı kaydet',
       skip: 'Hayır teşekkürler, burada beklerim',
       replyTo: 'Yanıtı {email} adresine göndereceğiz.',
+      track: 'Sipariş takibi',
+      trackSub: 'Siparişinizi buradan sorun',
+      trackMsg: 'Siparişimi takip et',
     },
   };
 
@@ -1038,6 +1047,9 @@
             '</div>' + actionsHtml + react +
           '</div>';
         }
+        // An answer about one order: its card under the text (the extras').
+        var order = !visitor && caps.orderCard && m.metadata && m.metadata.kind === 'order_status' && m.metadata.order;
+        if (order && order.number) items += x('orderCardHtml', [order]);
 
         html += '<div class="msg-row ' + cls + (isLast ? ' is-last' : '') + (isFirst ? ' is-first' : '') +
           (failed ? ' is-failed' : '') + '">' + avatarHtml +
@@ -1477,8 +1489,9 @@
         : '';
 
       // Quiet rows, each only when it has something behind it (at most three):
-      // continue the open conversation, all conversations, the help center.
-      // (Track order needs a store context the widget does not have yet.)
+      // continue the open conversation, all conversations, the help center,
+      // track an order (a store that answers order questions: `config.commerce`;
+      // its first message is sent as a topic's, runtime-ext.js).
       var rows = [];
       if (vm.chatEnabled) {
         var latest = open[0];
@@ -1507,6 +1520,9 @@
           : catNames.length ? L('helpSub', { n: fmtNum(articles.length), c: listJoin(catNames) })
           : L('arts', { n: fmtNum(articles.length) });
         rows.push(rowHtml('data-view="help"', tileHtml('book'), tf('help', 'Help center'), helpSub));
+      }
+      if (vm.chatEnabled && (config.commerce || {}).trackOrder === true) {
+        rows.push(rowHtml('data-home-action="track-order" data-topic="' + esc(L('trackMsg')) + '"', tileHtml('box'), L('track'), L('trackSub')));
       }
       rows = rows.slice(0, 3);
 
@@ -1562,11 +1578,14 @@
       return parts.map(function (p, i) { return i % 2 ? '<mark>' + esc(p) + '</mark>' : esc(p); }).join('');
     }
 
+    /** A search's result: the words it matched (`matches`) marked, in its `snippet` when the server cut one. */
     function kbArticleItemHtml(a, query) {
+      var ex = a.snippet || a.excerpt;
+      if (Array.isArray(a.matches)) query = a.matches.join(' ');
       return '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' + esc(a.slug) + '">' +
         '<span class="it" aria-hidden="true">' + ico('book', 18, 1.7) + '</span>' +
         '<span class="tx"><span class="tt">' + markedHtml(a.title, query) + '</span>' +
-          (a.excerpt ? '<small>' + markedHtml(a.excerpt, query) + '</small>' : '') +
+          (ex ? '<small>' + markedHtml(ex, query) + '</small>' : '') +
         '</span>' +
       '</button>';
     }
@@ -1665,9 +1684,12 @@
       vm = vm || {};
       var a = vm.article || {};
       var mins = Number(a.readingMinutes) || 0;
+      // Its author (feature `kbAuthor`): the initial and the name, as 03·08 draws them.
+      var by = String(a.author || '').trim();
       return '<div class="art wy-scroll">' +
           '<h1>' + esc(a.title || '') + '</h1>' +
-          (mins ? '<div class="am"><span>' + ico('clock', 15, 1.8) + esc(L('read', { n: fmtNum(mins) })) + '</span></div>' : '') +
+          (mins || by ? '<div class="am">' + (by ? '<span>' + avatarHtml(by, null, 24) + esc(by) + '</span>' : '') +
+            (mins ? '<span>' + ico('clock', 15, 1.8) + esc(L('read', { n: fmtNum(mins) })) + '</span>' : '') + '</div>' : '') +
           '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
         '</div>' +
         kbArticleFeedbackHtml(vm.feedback) + ctaHtml(vm);
@@ -1893,6 +1915,8 @@
     // The extras' surfaces.
     function closedHtml(m, csat) { return x('closedHtml', [m, csat]); }
     function chatMenuHtml(menu) { return x('chatMenuHtml', [menu]); }
+    // The help articles offered while a first message is written (runtime-late.js puts the tray in).
+    function kbSuggestHtml(vm) { return x('kbSuggestHtml', [vm]); }
 
     return {
 
@@ -1923,6 +1947,11 @@
         // (runtime-late.js), as far as Core serves them.
         reactions: !!caps.reactions,
         awayThread: !!caps.awayThread,
+        // Help articles while the first message is written, a download's
+        // progress, an article's author.
+        instantAnswers: !!caps.instantAnswers,
+        dlProgress: !!caps.dlProgress,
+        kbAuthor: !!caps.kbAuthor,
       },
       extend: extend,
       shellHtml: shellHtml,
@@ -1955,6 +1984,7 @@
       kbEmptyHtml: kbEmptyHtml,
       kbLoadingHtml: kbLoadingHtml,
       kbArticleFeedbackHtml: kbArticleFeedbackHtml,
+      kbSuggestHtml: kbSuggestHtml,
 
       // Loading UX (optional presentation contract).
       skeletonHtml: skeletonHtml,

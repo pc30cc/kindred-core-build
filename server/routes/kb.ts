@@ -36,13 +36,15 @@ import type { ServerConfig } from '../config.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
-import { applyKbUnlockedFilter, resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
+import { resolveKbLock } from '../services/knowledge-base/locks.js';
+import { publicArticles } from '../services/knowledge-base/publicArticles.js';
 import {
   kbSearchOrFilter,
   kbSearchWindow,
   kbSearchWords,
   rankKbSearchRows,
 } from '../services/knowledge-base/widgetSearch.js';
+import { kbMatchedWords, kbSnippet } from '../services/knowledge-base/widgetSuggest.js';
 
 const SUPPORTED_LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -143,26 +145,6 @@ interface KbArticleRow {
   category_id?: string | null;
 }
 
-/**
- * The published articles of a workspace the public may read: an article the
- * plan has locked (over max_kb_articles, simple billing phase 4) is left out
- * of every list and its own page answers 404. While locks are off, or
- * unreadable, `lock` is inactive and this is the plain published query.
- *
- * Synchronous on purpose: the query builder is a thenable, so an async
- * helper returning it would run it instead of handing it back for chaining.
- */
-function publicArticles<Cols extends string>(config: ServerConfig, workspaceId: string, columns: Cols, lock: KbLock) {
-  return applyKbUnlockedFilter(
-    getServiceClient(config)
-      .from('knowledge_base_articles')
-      .select(columns)
-      .eq('workspace_id', workspaceId)
-      .eq('status', 'published'),
-    lock,
-  );
-}
-
 export const widgetKbRouter: Router = express.Router();
 
 /**
@@ -249,27 +231,64 @@ const articleSchema = z.object({
   slug: z.string().min(1).max(200),
 });
 
+const ARTICLE_COLUMNS = 'id, title, slug, excerpt, content, locale, updated_at, category_id';
+const AUTHOR_NAME_MAX = 80;
+
+/**
+ * The name the article view shows as its author (`meta=1` only): the
+ * author's profile name while they are still a member of the workspace,
+ * else null. A failed read is null too: the byline is decoration.
+ */
+async function articleAuthorName(config: ServerConfig, workspaceId: string, authorUserId: unknown): Promise<string | null> {
+  if (typeof authorUserId !== 'string' || !authorUserId) return null;
+  try {
+    const sb = getServiceClient(config);
+    const [{ data: member }, { data: profile }] = await Promise.all([
+      sb.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).eq('user_id', authorUserId).limit(1).maybeSingle(),
+      sb.from('profiles').select('full_name').eq('id', authorUserId).maybeSingle(),
+    ]);
+    if (!member) return null;
+    const name = String((profile as { full_name?: unknown } | null)?.full_name ?? '').replace(/\s+/g, ' ').trim();
+    return name ? name.slice(0, AUTHOR_NAME_MAX) : null;
+  } catch {
+    return null;
+  }
+}
+
 widgetKbRouter.get('/article', async (req: Request, res: Response) => {
   const config = configOf(req);
   const parsed = articleSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
 
   const { workspace_id, slug } = parsed.data;
+  // `meta=1` (the article view of a renderer declaring the author byline,
+  // runtime-ext.js `kbMeta`) adds `author_name`. Without it the query and
+  // the answer are exactly what they always were.
+  const withMeta = req.query.meta === '1';
 
   const kbLock = await resolveKbLock(config, workspace_id);
   // Language-agnostic: a slug resolves to its published article whatever
   // locale it was authored in. A locked article is not found.
-  const { data: rows } = await publicArticles(
-    config, workspace_id, 'id, title, slug, excerpt, content, locale, updated_at, category_id', kbLock,
-  )
+  const read = (columns: string) => publicArticles(config, workspace_id, columns, kbLock)
     .eq('slug', slug)
     .order('updated_at', { ascending: false })
     .limit(1);
+  let { data: rows, error } = await read(withMeta ? `${ARTICLE_COLUMNS}, author_user_id` : ARTICLE_COLUMNS);
+  // A database before migration 276 has no author column: the article
+  // without its byline, never a 404.
+  if (withMeta && error && (error as { code?: string }).code === '42703') {
+    ({ data: rows, error } = await read(ARTICLE_COLUMNS));
+  }
   const article = (rows && rows[0]) || null;
 
 
   if (!article) return res.status(404).json({ error: 'not_found' });
 
+  if (withMeta) {
+    const { author_user_id: authorUserId, ...rest } = article as KbArticleRow & { author_user_id?: unknown };
+    // The name only: an operator's user id never reaches a visitor.
+    return res.json({ article: { ...rest, author_name: await articleAuthorName(config, workspace_id, authorUserId) } });
+  }
   return res.json({ article });
 });
 
@@ -279,6 +298,9 @@ const searchSchema = z.object({
   q: z.string().min(1).max(200),
   limit: z.coerce.number().int().min(1).max(20).optional().default(8),
 });
+
+/** A help result's snippet length (instant answers keep theirs shorter). */
+const KB_SEARCH_SNIPPET = 160;
 
 widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   const config = configOf(req);
@@ -311,7 +333,18 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
     return res.json({ results: [] });
   }
 
-  return res.json({ locale, q, results: byWord ? rankKbSearchRows(rows || [], words, limit) : rows || [] });
+  if (!byWord) return res.json({ locale, q, results: rows || [] });
+  // Word by word, each result also carries the words it matched (the widget
+  // marks them, escaped) and a snippet of its summary around the first one.
+  return res.json({
+    locale,
+    q,
+    results: rankKbSearchRows(rows || [], words, limit).map((row) => ({
+      ...row,
+      snippet: kbSnippet(row.excerpt, words, KB_SEARCH_SNIPPET),
+      matches: kbMatchedWords(row, words),
+    })),
+  });
 
 });
 

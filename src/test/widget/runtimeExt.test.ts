@@ -83,6 +83,8 @@ describe('runtime.js and runtime-ext.js agree', () => {
       // The late features (runtime-late.js): reactions, steps, away, queue.
       'data-msg-react', 'toggleReaction', '/reactions', 'data-prechat-step', 'prechatStepsHtml', 'offline-email',
       'client_message_id: req', 'awayReply', '/api/widget/queue', 'data-ph-away',
+      // Round 4: instant answers, the order card, the emoji search, download progress, the author.
+      'kb-suggest', 'suggestArticles', 'data-kb-suggest', 'order_status', 'data-emoji-search', 'runtime-emoji', 'dl-on', 'author_name',
     ]) expect(RUNTIME.includes(name), name).toBe(false);
   });
 });

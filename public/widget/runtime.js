@@ -89,8 +89,12 @@
       // `reactions`, `prechatSteps`, `awayThread`, `queuePosition`: a
       // message's reactions, the pre-chat one question at a time, the
       // message left while the team is away and the place in the queue
-      // (runtime-late.js, with the routes they call).
-      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true },
+      // (runtime-late.js, with the routes they call). `orderCard`,
+      // `instantAnswers`, `emojiSearch`, `dlProgress`, `kbAuthor`: an AI
+      // answer's order card, help articles while the first message is
+      // written, the emoji picker's search, a download's progress and an
+      // article's author (runtime-late.js; the author's `meta=1`, runtime-ext.js).
+      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true, queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true },
     });
   }
 
@@ -4895,6 +4899,8 @@
           sessionToken: ctx.sessionToken,
           locale: ctx.locale,
           slug: slug,
+          // `meta=1` (its author) only for a renderer that draws it.
+          meta: ext('kbMeta'),
           onResult: function (r) {
             if (pendingSlug !== slug) return;
             articleLoading = false;
@@ -5068,8 +5074,9 @@
       if (!id) return Promise.resolve(null);
       if (__mediaBlobCache[id]) return __mediaBlobCache[id];
       var url = (ctx.config.apiBase || ctx.apiBase || '') + '/api/widget/attachments/' + encodeURIComponent(id);
+      // The body is read by the template's Core (`media`, its progress) when it asks to.
       var p = ctx.fetchWith(url, { method: 'GET' })
-        .then(function (r) { if (!r.ok) throw new Error('attachment_fetch_failed'); return r.blob(); })
+        .then(function (r) { if (!r.ok) throw new Error('attachment_fetch_failed'); return ext('media', r, id) || r.blob(); })
         .then(function (blob) { return URL.createObjectURL(blob); })
         .catch(function () { delete __mediaBlobCache[id]; return null; });
       __mediaBlobCache[id] = p;

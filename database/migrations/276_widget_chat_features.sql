@@ -28,12 +28,17 @@
 -- 4. The queue (assignment mode 'manual'): chat_queue_stats keeps, per
 --    workspace, a moving average of how long a queued chat waits per place in
 --    the queue, sampled by a trigger on conversations when a queued row gets
---    its operator (first assignment only: assigned_to NULL → someone, while
---    open or pending, queued_at set, routing_outcome 'manual_queue');
---    chat_queue_status(ws, conversation) answers the place in the queue and,
---    once 3 claims were measured in the last 14 days and the estimate is at
---    most 180 minutes, the wait in minutes. The partial index
---    conversations_manual_queue_idx serves both.
+--    its operator (a claim: assigned_to NULL → someone, while open or
+--    pending, queued_at set, routing_outcome 'manual_queue'), measured from
+--    its latest entry into the queue; chat_queue_status(ws, conversation)
+--    answers the place in the queue and, once 3 claims were measured in the
+--    last 14 days and the estimate is at most 180 minutes, the wait in
+--    minutes. The partial index conversations_manual_queue_idx (the rows
+--    waiting: unassigned, open or pending, not spam) serves both. A
+--    hand-back (someone → NULL on a queued row) keeps the conversation's
+--    place (queued_at) and records, in its metadata, when it came back
+--    (queue_reentered_at) and at which place (queue_entry_position), so the
+--    next claim is measured from there.
 -- 5. knowledge_base_articles.author_user_id: the operator shown as the
 --    article's author in the widget (name from profiles); NULL = none. No
 --    backfill: no creator was ever recorded, so existing articles show none.
@@ -50,14 +55,15 @@
 -- whole run); this file then finds it and builds nothing:
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_manual_queue_idx
 --     ON public.conversations (workspace_id, (metadata->>'queued_at'))
---     WHERE assigned_to IS NULL AND (metadata->>'routing_outcome') = 'manual_queue';
+--     WHERE assigned_to IS NULL AND (metadata->>'routing_outcome') = 'manual_queue'
+--       AND status IN ('open', 'pending') AND is_spam = false;
 -- An interrupted CONCURRENTLY build leaves an invalid index of that name: the
 -- file then stops and says so (drop it with DROP INDEX CONCURRENTLY and build
 -- it again).
 --
 -- Locks: the new tables' foreign keys take SHARE ROW EXCLUSIVE on workspaces,
 -- conversations, conversation_messages and profiles for an instant; the
--- trigger the same on conversations; the new column ACCESS EXCLUSIVE on
+-- triggers the same on conversations; the new column ACCESS EXCLUSIVE on
 -- knowledge_base_articles for an instant, and its partial index SHARE (writes
 -- to the articles wait) while it reads that small table; the queue index the
 -- same on conversations, unless it was built beforehand as above. Nothing
@@ -338,13 +344,16 @@ BEGIN
 END $$;
 
 -- Built CONCURRENTLY beforehand on a live database (see the header): then
--- nothing is built here and no lock is taken on conversations.
+-- nothing is built here and no lock is taken on conversations. Only the rows
+-- that wait (unassigned, open or pending, not spam): resolved and spam rows
+-- that routing once queued never enter it, so it stays the queue's size.
 DO $$
 BEGIN
   IF to_regclass('public.conversations_manual_queue_idx') IS NULL THEN
     CREATE INDEX conversations_manual_queue_idx
       ON public.conversations (workspace_id, (metadata->>'queued_at'))
-      WHERE assigned_to IS NULL AND (metadata->>'routing_outcome') = 'manual_queue';
+      WHERE assigned_to IS NULL AND (metadata->>'routing_outcome') = 'manual_queue'
+        AND status IN ('open', 'pending') AND is_spam = false;
   ELSIF NOT EXISTS (
     SELECT 1 FROM pg_index WHERE indexrelid = 'public.conversations_manual_queue_idx'::regclass AND indisvalid
   ) THEN
@@ -355,7 +364,9 @@ END $$;
 -- The visitor's place: 1 + the queued conversations of the workspace that
 -- were queued before it (queued_at, then id, so two places never share a
 -- number). Every channel counts: it is the team's one Unassigned queue. No
--- row when the conversation is not waiting in the queue.
+-- row when the conversation is not waiting in the queue. Both reads carry
+-- the index's whole predicate (assigned_to IS NULL, routing_outcome, status
+-- open or pending, not spam), so both are served by it.
 CREATE OR REPLACE FUNCTION public.chat_queue_status(p_workspace_id uuid, p_conversation_id uuid)
 RETURNS TABLE (queue_position integer, wait_minutes integer)
 LANGUAGE sql
@@ -397,8 +408,10 @@ $fn_queue_status$;
 COMMENT ON FUNCTION public.chat_queue_status(uuid, uuid) IS
   'The place of a manually queued conversation in its workspace''s queue and the estimated wait in minutes (NULL until 3 claims were measured in the last 14 days, or above 180 minutes). No row when the conversation is not waiting. Server-only. Migration 276.';
 
--- One sample per first assignment of a queued row: the seconds it waited,
--- per place it entered at. Cosmetic: any error is swallowed, so an
+-- One sample per claim of a queued row: the seconds it waited since its
+-- latest entry into the queue (queued_at, or a later queue_reentered_at
+-- after a hand-back), per place it entered at. Cosmetic: any error is
+-- swallowed, so an
 -- assignment never fails because of it. Nor does it wait: the workspace's
 -- stats row is locked by every claim until that claim commits, and a lock
 -- held longer (a claim inside a longer transaction) would otherwise hold the
@@ -414,11 +427,16 @@ SET search_path = public, pg_temp
 SET lock_timeout = '100ms'
 AS $fn_queue_claim$
 DECLARE
+  v_since timestamptz;
   v_wait double precision;
   v_place double precision;
 BEGIN
   BEGIN
-    v_wait := extract(epoch FROM (now() - (OLD.metadata->>'queued_at')::timestamptz));
+    v_since := (OLD.metadata->>'queued_at')::timestamptz;
+    IF OLD.metadata ? 'queue_reentered_at' THEN
+      v_since := greatest(v_since, (OLD.metadata->>'queue_reentered_at')::timestamptz);
+    END IF;
+    v_wait := extract(epoch FROM (now() - v_since));
     v_place := v_wait / greatest(coalesce((OLD.metadata->>'queue_entry_position')::integer, 1), 1);
     IF v_place > 0 AND v_wait < 86400 THEN
       INSERT INTO public.chat_queue_stats AS s (workspace_id, seconds_per_place, samples, updated_at)
@@ -450,6 +468,61 @@ BEGIN
             AND OLD.metadata ? 'queued_at'
             AND (OLD.metadata->>'routing_outcome') = 'manual_queue')
       EXECUTE FUNCTION public.chat_queue_record_claim();
+  END IF;
+END $$;
+
+-- A hand-back of a queued conversation (someone → NULL, still open or
+-- pending, not spam, routing_outcome 'manual_queue'): it keeps its place
+-- (queued_at), and its metadata records when it came back and at which
+-- place, in the same UPDATE. The claim sampler then measures the next wait
+-- from that moment, and routing tells the visitor again
+-- (server/services/chatRouting.ts). Cosmetic as well: any error leaves the
+-- row as the UPDATE wrote it. Reads only the queue's own index; no lock.
+CREATE OR REPLACE FUNCTION public.chat_queue_record_return()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $fn_queue_return$
+DECLARE
+  v_place integer;
+BEGIN
+  BEGIN
+    SELECT 1 + count(*)::integer INTO v_place
+      FROM public.conversations c
+     WHERE c.workspace_id = NEW.workspace_id
+       AND c.assigned_to IS NULL
+       AND (c.metadata->>'routing_outcome') = 'manual_queue'
+       AND c.status IN ('open', 'pending')
+       AND c.is_spam = false
+       AND c.id <> NEW.id
+       AND (c.metadata->>'queued_at') <= (NEW.metadata->>'queued_at')
+       AND ((c.metadata->>'queued_at') < (NEW.metadata->>'queued_at') OR c.id < NEW.id);
+    NEW.metadata := NEW.metadata || jsonb_build_object(
+      'queue_reentered_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      'queue_entry_position', v_place
+    );
+  EXCEPTION WHEN others THEN
+    NULL;
+  END;
+  RETURN NEW;
+END;
+$fn_queue_return$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'trg_conversations_queue_return' AND tgrelid = 'public.conversations'::regclass
+  ) THEN
+    CREATE TRIGGER trg_conversations_queue_return
+      BEFORE UPDATE OF assigned_to ON public.conversations
+      FOR EACH ROW
+      WHEN (OLD.assigned_to IS NOT NULL AND NEW.assigned_to IS NULL
+            AND NEW.status IN ('open', 'pending')
+            AND NEW.is_spam = false
+            AND NEW.metadata ? 'queued_at'
+            AND (NEW.metadata->>'routing_outcome') = 'manual_queue')
+      EXECUTE FUNCTION public.chat_queue_record_return();
   END IF;
 END $$;
 
@@ -512,6 +585,7 @@ BEGIN
   FOREACH f IN ARRAY ARRAY[
     'public.chat_queue_status(uuid, uuid)',
     'public.chat_queue_record_claim()',
+    'public.chat_queue_record_return()',
     'public.tg_conversation_message_reactions_touch_message()'
   ] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);

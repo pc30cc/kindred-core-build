@@ -18,9 +18,11 @@
  * only for a renderer that declares features; `ext` decides when it answers),
  * the late pack (the renderer's extras and the real runtime-late.js, which
  * runtime-ext.js requests after the first paint; `late` decides how they
- * answer) and an optional realtime driver whose typing events (with a
- * payload), reaction events and message frames the test fires. `api`
- * answers a route before the fake does (the routes of runtime-late.js).
+ * answer), the emoji search's keywords (the real runtime-emoji.js; `emoji`
+ * decides how it answers) and an optional realtime driver whose typing
+ * events (with a payload), reaction events and message frames the test
+ * fires. `api` answers a route before the fake does (the routes of
+ * runtime-late.js; `raw` hands back a response object, a streamed body).
  */
 import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -64,8 +66,11 @@ interface DriverHooks {
   onConnectionState?: (state: string) => void;
   onReaction?: (p: unknown) => void;
 }
-/** A test's own answer for a request: `status` (default 200) and its JSON `body`. */
-export interface ApiAnswer { status?: number; body?: unknown }
+/**
+ * A test's own answer for a request: `status` (default 200) and its JSON
+ * `body`, or `raw`, the response object itself (a streamed body, headers).
+ */
+export interface ApiAnswer { status?: number; body?: unknown; raw?: unknown }
 
 export interface Call { surface: string; args: unknown[] }
 
@@ -95,6 +100,12 @@ export interface BootOptions {
   extrasModule?: unknown;
   /** What the runtime-late.js request leaves as window.__gs_mod_late: default the real file. */
   lateModule?: unknown;
+  /**
+   * How the runtime-emoji.js request (the emoji search's keywords) answers:
+   * 'load' (after a tick, the real file; default), 'hold' (until
+   * releaseEmoji()) or 'fail' (onerror for both names).
+   */
+  emoji?: 'load' | 'hold' | 'fail';
   config?: Record<string, unknown>;
   conversations?: ConversationSeed[];
   /** Keeps the thread list's answer until releaseConversations() (home paints its skeleton meanwhile). */
@@ -158,6 +169,8 @@ export interface Harness {
   releaseLate: () => void;
   /** Answers the held thread list requests (`holdConversations`). */
   releaseConversations: () => void;
+  /** Answers the held runtime-emoji.js request (`emoji: 'hold'`). */
+  releaseEmoji: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
 }
 
@@ -275,6 +288,7 @@ export function boot(opts: BootOptions = {}): Harness {
   const heldExt: Array<() => void> = [];
   const heldLate: Array<() => void> = [];
   const heldConversations: Array<() => void> = [];
+  const heldEmoji: Array<() => void> = [];
   const realTemplate = opts.renderer === 't1' || opts.renderer === 't2' ? opts.renderer : null;
   const realAppend = document.head.appendChild.bind(document.head);
   vi.spyOn(document.head, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
@@ -291,6 +305,16 @@ export function boot(opts: BootOptions = {}): Harness {
         }
         if (opts.ext === 'hold') { heldExt.push(load); return node; }
         if (opts.ext !== 'tick') { load(); return node; }
+      }
+      if (/runtime-emoji\b/.test(script.src)) {
+        if (opts.emoji === 'fail') {
+          setTimeout(() => { if (typeof script.onerror === 'function') script.onerror(new Event('error')); }, 0);
+          return node;
+        }
+        const answer = () => { new Function(read('public/widget/runtime-emoji.js')).call(window); load(); };
+        if (opts.emoji === 'hold') heldEmoji.push(answer);
+        else setTimeout(answer, 0);
+        return node;
       }
       const extrasReq = /\/presentation-[a-z0-9-]+-x\b/.test(script.src);
       if (extrasReq || /runtime-late\b/.test(script.src)) {
@@ -327,7 +351,7 @@ export function boot(opts: BootOptions = {}): Harness {
     }
     const own = opts.api ? opts.api(u, init) : undefined;
     if (own) {
-      return Promise.resolve(own).then((a) => jsonResponse(a.body ?? {}, (a.status ?? 200) < 400, a.status ?? 200));
+      return Promise.resolve(own).then((a) => (a.raw ? a.raw : jsonResponse(a.body ?? {}, (a.status ?? 200) < 400, a.status ?? 200)));
     }
     if (u.includes('/api/widget/conversations') && u.includes('/read')) return Promise.resolve(jsonResponse({ ok: true }));
     if (u.includes('/api/widget/conversations')) {
@@ -469,6 +493,7 @@ export function boot(opts: BootOptions = {}): Harness {
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
     releaseLate: () => { while (heldLate.length) heldLate.shift()!(); },
     releaseConversations: () => { while (heldConversations.length) heldConversations.shift()!(); },
+    releaseEmoji: () => { while (heldEmoji.length) heldEmoji.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };
 }

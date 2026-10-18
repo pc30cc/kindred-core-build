@@ -12,6 +12,16 @@
  *     the article with more of the words comes first;
  *   - the help center (its search page, and the route without
  *     `match=words`) keeps its one-phrase search, as before;
+ *   - each word-by-word result also carries its snippet and matched words;
+ *     without `match=words` the rows are exactly what they always were;
+ *   - instant answers (GET /api/widget/kb-suggest, widgetSuggest.ts): the
+ *     same data layer parses their title/summary filter whatever the draft
+ *     holds; only published, widget-visible articles; reading time from the
+ *     article's text;
+ *   - the article view's `meta=1` (the author byline): `author_name` from the
+ *     author's profile while they are a member, never their id; without
+ *     `meta=1` the answer is exactly today's; before migration 276 (no
+ *     column) the article answers without a byline, never a 404;
  *   - the article vote's middle face: with migration 275 the database takes
  *     'neutral'; without it the CHECK refuses the row with SQLSTATE 23514,
  *     which the feedback route (server/routes/widget.ts) answers as 400
@@ -42,6 +52,8 @@ suite('help search: word by word, whatever the visitor typed', () => {
   let config: never;
   let ws = '';
   let articleId = '';
+  let author = '';
+  let outsider = '';
   const q = async (sql: string, p: unknown[] = []) => (await chain.db.query(sql, p)).rows as Row[];
   const slugs = (rows: Row[] | undefined) => (rows ?? []).map((r) => String(r.slug));
 
@@ -61,6 +73,11 @@ suite('help search: word by word, whatever the visitor typed', () => {
     ws = randomUUID();
     who.workspaceId = ws;
     await q(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1, 'Niloufar', $2, $3)`, [ws, `nil-${ws.slice(0, 8)}`, owner]);
+    author = randomUUID();
+    await q(`INSERT INTO public.profiles (id, email, full_name) VALUES ($1, $2, 'سارا  رضایی')`, [author, `sara-${author.slice(0, 6)}@test.local`]);
+    outsider = randomUUID();
+    await q(`INSERT INTO public.profiles (id, email, full_name) VALUES ($1, $2, 'Outsider')`, [outsider, `out-${outsider.slice(0, 6)}@test.local`]);
+    await q(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'agent')`, [ws, author]);
     const articles: Array<[string, string, string, string, string]> = [
       // slug, title, excerpt, content, updated_at
       ['track', 'زمان ارسال و پیگیری سفارش', 'کد رهگیری را پیامک می‌کنیم', 'متن', '2026-10-01T00:00:00Z'],
@@ -82,6 +99,10 @@ suite('help search: word by word, whatever the visitor typed', () => {
     app = express();
     app.use((req, _res, next) => { (req as unknown as { serverConfig: unknown }).serverConfig = config; next(); });
     app.use('/api/widget/kb', widgetKbRouter);
+    // The instant answers' handler (its token, origin and rate limits are
+    // widget.ts's, covered by src/test/widget/kbSuggest.test.ts).
+    const { handleKbSuggest } = await import('../../../server/routes/widgetKbSuggest.js');
+    app.get('/api/widget/kb-suggest', handleKbSuggest);
     app.use('/', publicKbRouter);
   }, 600_000);
 
@@ -119,6 +140,97 @@ suite('help search: word by word, whatever the visitor typed', () => {
     const api = await request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: 'ارسال سفارش' });
     expect(api.status).toBe(200);
     expect(slugs(api.body.results)).toEqual([]);
+  });
+
+  it('match=words results carry their snippet and the words they matched; the phrase search\'s rows are as they were', async () => {
+    const res = await search('پیگیری سفارش');
+    expect(res.body.results[0]).toMatchObject({ slug: 'track', snippet: 'کد رهگیری را پیامک می‌کنیم', matches: ['پیگیری', 'سفارش'] });
+    const phrase = await request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: 'زمان' });
+    for (const row of phrase.body.results) expect(Object.keys(row).sort()).toEqual(['excerpt', 'id', 'locale', 'slug', 'title']);
+  });
+
+  describe('instant answers (kb-suggest)', () => {
+    const suggest = (text: string, extra: Record<string, string> = {}) =>
+      request(app).get('/api/widget/kb-suggest').query({ workspace_id: ws, q: text, locale: 'fa', ...extra });
+
+    beforeAll(async () => {
+      const rows: Array<[string, string, string, string, boolean]> = [
+        // slug, title, excerpt, status, visible_in_widget
+        ['warranty', 'گارانتی کالا', 'شرایط گارانتی و تعمیر', 'published', true],
+        ['warranty-hidden', 'گارانتی کالا (داخلی)', 'فقط برای تیم', 'published', false],
+        ['warranty-draft', 'گارانتی کالا (پیش‌نویس)', '', 'draft', true],
+      ];
+      for (const [slug, title, excerpt, status, visible] of rows) {
+        await q(`INSERT INTO public.knowledge_base_articles (id, workspace_id, slug, locale, title, content, excerpt, status, visible_in_widget)
+                 VALUES ($1, $2, $3, 'fa', $4, $5, $6, $7, $8)`,
+          [randomUUID(), ws, slug, title, `<p>${'کلمه '.repeat(650)}</p>`, excerpt, status, visible]);
+      }
+      const { __resetKbSuggestCachesForTests } = await import('../../../server/services/knowledge-base/widgetSuggest.js');
+      __resetKbSuggestCachesForTests();
+    });
+
+    it('only published articles shown in the widget, with matches, snippet and reading time', async () => {
+      const res = await suggest('سلام، گارانتی کالا چطوره؟');
+      expect(res.status).toBe(200);
+      expect(res.body.results).toEqual([{
+        slug: 'warranty', title: 'گارانتی کالا', snippet: 'شرایط گارانتی و تعمیر', matches: ['گارانتی', 'کالا'], readingMinutes: 3,
+      }]);
+    });
+
+    it('title and summary only: a word only in an article\'s text finds nothing', async () => {
+      expect((await suggest('برگردانید')).body.results).toEqual([]);
+      // «سفارش» is in a title (track) and in the returns article's text only.
+      expect((await suggest('سفارش')).body.results.map((r: Row) => r.slug)).toEqual(['track']);
+    });
+
+    it('whatever the draft holds, the filter parses and nothing outside the workspace is read', async () => {
+      for (const text of ['گارانتی, (کالا)', 'گارانتی%_*\\', 'گارانتی "x" {y}', 'title.eq.گارانتی', 'گارانتی:کالا', 'گارانتی) OR (1=1']) {
+        const res = await suggest(text);
+        expect(res.status, text).toBe(200);
+        expect(res.body.results.map((r: Row) => r.slug), text).toEqual(['warranty']);
+      }
+    });
+
+    it('a draft of greetings reads nothing, and finds nothing', async () => {
+      expect((await suggest('سلام وقت بخیر')).body).toEqual({ results: [] });
+    });
+  });
+
+  describe('the article view\'s author (meta=1)', () => {
+    const article = (slug: string, meta?: string) =>
+      request(app).get('/api/widget/kb/article').query({ workspace_id: ws, slug, ...(meta ? { meta } : {}) });
+
+    it('without meta=1: exactly today\'s answer, even with an author set', async () => {
+      await q(`UPDATE public.knowledge_base_articles SET author_user_id = $2 WHERE workspace_id = $1 AND slug = 'track'`, [ws, author]);
+      const res = await article('track');
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body.article).sort()).toEqual(['category_id', 'content', 'excerpt', 'id', 'locale', 'slug', 'title', 'updated_at']);
+      expect(JSON.stringify(res.body)).not.toContain(author);
+    });
+
+    it('meta=1: the author\'s name, never their id; none set or not a member: null', async () => {
+      const res = await article('track', '1');
+      expect(res.body.article.author_name).toBe('سارا رضایی');
+      expect(res.body.article).not.toHaveProperty('author_user_id');
+      expect(JSON.stringify(res.body)).not.toContain(author);
+      expect((await article('shipping', '1')).body.article.author_name).toBeNull();
+      await q(`UPDATE public.knowledge_base_articles SET author_user_id = $2 WHERE workspace_id = $1 AND slug = 'shipping'`, [ws, outsider]);
+      expect((await article('shipping', '1')).body.article.author_name).toBeNull();
+      // Any other value of meta is today's answer.
+      expect((await article('track', 'yes')).body.article).not.toHaveProperty('author_name');
+      expect((await article('nope', '1')).status).toBe(404);
+    });
+
+    it('before migration 276 (no author column): the article without a byline, never a 404', async () => {
+      await q(`ALTER TABLE public.knowledge_base_articles RENAME COLUMN author_user_id TO author_user_id_hidden`);
+      try {
+        const res = await article('track', '1');
+        expect(res.status).toBe(200);
+        expect(res.body.article).toMatchObject({ slug: 'track', author_name: null });
+      } finally {
+        await q(`ALTER TABLE public.knowledge_base_articles RENAME COLUMN author_user_id_hidden TO author_user_id`);
+      }
+    });
   });
 
   it('the vote\'s neutral face: stored with migration 275, refused with SQLSTATE 23514 without it', async () => {

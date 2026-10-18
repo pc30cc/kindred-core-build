@@ -89,8 +89,9 @@ if (!existsSync(SRC_DIR)) {
 // Files that get content-hashed filenames
 // `runtime-ext.js`: the renderer features, loaded only by a template that
 // declares some; `runtime-late.js`: the late features, loaded after the
-// first paint with the renderer's extras (docs/operations/WIDGET_TEMPLATE_RULES.md §2).
-const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-ext.js', 'runtime-late.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+// first paint with the renderer's extras (docs/operations/WIDGET_TEMPLATE_RULES.md §2);
+// `runtime-emoji.js`: the emoji search's keywords, loaded on its first use.
+const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-ext.js', 'runtime-late.js', 'runtime-emoji.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
 
 // Presentation layer (template system) — DISCOVERED, never hard-coded.
 // Any `presentation-<id>.js` / `presentation-<id>.css` dropped into

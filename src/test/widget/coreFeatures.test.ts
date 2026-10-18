@@ -117,11 +117,12 @@ describe('env and the gate', () => {
     await flush(20);
     expect(capabilities(h).kbNeutral).toBe(true);
     // The rating after a chat, the chat's menu, reactions, the pre-chat in
-    // steps, the message left away and the queue place are served
-    // (runtime-late.js); the order card and instant answers are not yet.
-    for (const k of ['csat', 'chatMenu', 'reactions', 'prechatSteps', 'awayThread', 'queuePosition']) expect(capabilities(h)[k], k).toBe(true);
-    expect(capabilities(h).orderCard).toBe(false);
-    expect(capabilities(h).instantAnswers).toBe(false);
+    // steps, the message left away, the queue place, the order card, instant
+    // answers, the emoji search, a download's progress and an article's
+    // author are served (runtime-late.js; the author's meta=1, runtime-ext.js).
+    for (const k of ['csat', 'chatMenu', 'reactions', 'prechatSteps', 'awayThread', 'queuePosition', 'orderCard', 'instantAnswers', 'emojiSearch', 'dlProgress', 'kbAuthor']) {
+      expect(capabilities(h)[k], k).toBe(true);
+    }
     const vm = h.lastCall('homeHtml')![0] as Record<string, unknown>;
     expect(vm.visitorName).toBe('علی');
     expect(vm).not.toHaveProperty('unreadTotal');

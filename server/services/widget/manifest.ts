@@ -32,6 +32,9 @@ interface WidgetManifest {
   // The late features (loaded after the first paint, only by a template
   // whose renderer has extras).
   'runtime-late.js'?: string;
+  // The emoji picker's search keywords (loaded on the search's first use,
+  // only by a template whose renderer declares features).
+  'runtime-emoji.js'?: string;
   'runtime-call.js'?: string;
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
@@ -55,6 +58,7 @@ type WidgetCoreAssetKey =
   | 'runtime-kb.js'
   | 'runtime-ext.js'
   | 'runtime-late.js'
+  | 'runtime-emoji.js'
   | 'runtime-call.js'
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
@@ -267,6 +271,7 @@ function fallbackManifest(): WidgetManifest {
     'runtime-kb.js': 'runtime-kb.js',
     'runtime-ext.js': 'runtime-ext.js',
     'runtime-late.js': 'runtime-late.js',
+    'runtime-emoji.js': 'runtime-emoji.js',
     'runtime-call.js': 'runtime-call.js',
     'runtime-rt-centrifugo.js': 'runtime-rt-centrifugo.js',
     'runtime-rt-supabase.js': 'runtime-rt-supabase.js',

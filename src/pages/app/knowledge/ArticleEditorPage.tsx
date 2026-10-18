@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
+import { useAuth } from '@/features/auth/AuthContext';
 import { useKBArticles, useCreateKBArticle, useUpdateKBArticle, useKBLockedText, isKBArticleLocked } from '@/hooks/useKnowledgeBase';
 import { KnowledgeBaseApiError } from '@/lib/knowledge-base-api';
 import { Button } from '@/components/ui/button';
@@ -29,12 +31,16 @@ export interface KnowledgeBaseArticleInput {
   locale: string;
   status: 'draft' | 'published' | 'archived';
   visible_in_widget: boolean;
+  author_user_id?: string | null;
 }
 
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
   locale: string; status: string;
 };
+
+/** The author select's "no author shown" choice (stored as null). */
+const AUTHOR_NONE = '__none';
 
 type SeoTipId = 'titleLength' | 'excerptLength' | 'cleanSlug' | 'wordCount' | 'headings';
 
@@ -73,6 +79,8 @@ export default function ArticleEditorPage() {
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
   const { data: articles, isLoading: articlesLoading } = useKBArticles(workspace?.id);
+  const { user } = useAuth();
+  const { data: members } = useWorkspaceMembers(workspace?.id);
   const createArticle = useCreateKBArticle(workspace?.id);
   const updateArticle = useUpdateKBArticle(workspace?.id);
 
@@ -87,6 +95,16 @@ export default function ArticleEditorPage() {
   };
   const [form, setForm] = useState<FormData>(emptyForm);
   const [hydrated, setHydrated] = useState(isNew);
+  // The author shown in the widget (a workspace member, or none). Sent only
+  // when changed here: a new article's default is its creator (the server's),
+  // an existing one keeps what it has.
+  const [authorChoice, setAuthorChoice] = useState<string | null>(null);
+  const storedAuthor = isNew ? (user?.id ?? null) : (existing?.author_user_id ?? null);
+  const authorValue = (() => {
+    const id = authorChoice ?? storedAuthor ?? AUTHOR_NONE;
+    // Someone who is no longer a member is not shown in the widget either.
+    return id !== AUTHOR_NONE && members && !members.some((m) => m.user_id === id) ? AUTHOR_NONE : id;
+  })();
 
   useEffect(() => {
     if (isNew || hydrated || !existing) return;
@@ -132,6 +150,7 @@ export default function ArticleEditorPage() {
       locale: form.locale,
       status: form.status as KnowledgeBaseArticleInput['status'],
       visible_in_widget: true,
+      ...(authorChoice !== null ? { author_user_id: authorChoice === AUTHOR_NONE ? null : authorChoice } : {}),
     };
     try {
       if (id) {
@@ -152,6 +171,8 @@ export default function ArticleEditorPage() {
           ? t('knowledgeBase.editor.permissionDenied')
           : err?.code === 'kb_article_locked'
             ? lockedText('saveBlocked')
+          : err?.code === 'invalid_author'
+            ? t('knowledgeBase.editor.authorHint')
           : err?.upgradeRequired
             ? t('knowledgeBase.editor.quotaReached')
             : undefined;
@@ -254,6 +275,20 @@ export default function ArticleEditorPage() {
                 </Select>
               </div>
             )}
+          </div>
+
+          <div>
+            <label htmlFor="kb-article-author" className="text-xs font-medium text-muted-foreground mb-1.5 block">{t('knowledgeBase.editor.authorLabel')}</label>
+            <Select value={authorValue} onValueChange={(v) => setAuthorChoice(v)}>
+              <SelectTrigger id="kb-article-author" data-kb-author className="sm:max-w-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTHOR_NONE}>{t('knowledgeBase.editor.authorNone')}</SelectItem>
+                {(members ?? []).map((m) => (
+                  <SelectItem key={m.user_id} value={m.user_id}>{m.full_name || m.email || m.user_id}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground mt-1">{t('knowledgeBase.editor.authorHint')}</p>
           </div>
 
           <div>

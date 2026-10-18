@@ -48,6 +48,7 @@ import type { RuntimeDecisionStageResult } from './runtimeDecisionStage.js';
 import type { RetrievalStageResult } from './retrievalStage.js';
 import type { AnswerStageResult } from './answerStage.js';
 import { repairCommerceLinks, urlsFromToolResults, verifyStoreLinks } from '../commerce-tools/answerLinks.js';
+import type { OrderStatusCard } from '../commerce-tools/orderCard.js';
 
 export interface GenerationStageResult {
   aiResult: Awaited<ReturnType<typeof executeAICompletion>>;
@@ -61,6 +62,11 @@ export interface GenerationStageResult {
   memoryPatch?: MemoryPatch | null;
   /** vNext — freshness/guidance observability for the run log. */
   vnextMeta?: Record<string, unknown> | null;
+  /**
+   * The order card the reply carries (commerce-tools/orderCard.ts): built by
+   * the commerce stage beside its tool results, never part of the prompt.
+   */
+  orderCard?: OrderStatusCard | null;
 }
 
 export async function runGenerationStage(
@@ -233,6 +239,7 @@ export async function runGenerationStage(
     locale, connections: commerceConnections ?? undefined, ...commerceSite,
   }).catch(() => ({ toolResults: [], toolsUsed: [] } as Awaited<ReturnType<typeof runCommerceToolStage>>));
   const commerceUrls = [...urlsFromToolResults(commerceStage.toolResults), ...(commerceStage.allowedUrls ?? [])];
+  const orderCard = commerceStage.orderCard ?? null;
   // The signed-in store customer changed (or signed out) in this browser:
   // turns from before that must not carry the previous customer's private
   // answers into this prompt (combined with the WHMCS cutoff below).
@@ -749,5 +756,5 @@ export async function runGenerationStage(
     return { terminal: { ran: false, action: 'skipped', reason: `stale_${freshPost.reason || 'superseded'}`, runId } };
   }
 
-  return { aiResult, actionsMeta, actionHandoffExecuted, aiControl, memoryPatch, vnextMeta };
+  return { aiResult, actionsMeta, actionHandoffExecuted, aiControl, memoryPatch, vnextMeta, ...(orderCard ? { orderCard } : {}) };
 }

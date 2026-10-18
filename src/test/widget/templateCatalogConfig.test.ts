@@ -156,14 +156,17 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     const intl = await body('international');
     expect(intl.templateId).toBe('intl');
     expect(Object.keys(intl.modules as Record<string, unknown>)).toEqual(before);
-    expect(JSON.stringify(intl)).not.toMatch(/runtime-late|-x\.js/);
+    expect(JSON.stringify(intl)).not.toMatch(/runtime-late|-x\.js|runtime-emoji/);
     for (const id of ['t1', 't2']) {
       await fresh((t) => { withCatalog()(t); choose(id)(t); });
       const b = await body();
       expect(b.templateId).toBe(id);
       const modules = b.modules as Record<string, unknown>;
-      expect(Object.keys(modules)).toEqual(['chat', 'kb', 'ext', 'late', 'extras', 'rt_resolver', 'rt_centrifugo', 'rt_supabase']);
+      expect(Object.keys(modules)).toEqual(['chat', 'kb', 'ext', 'emoji', 'late', 'extras', 'rt_resolver', 'rt_centrifugo', 'rt_supabase']);
       expect(String(modules.late)).toMatch(/\/widget\/runtime-late(\.[0-9a-f]{8}\.js|\.js\?v=[^&]+)$/);
+      // The emoji keyword data, requested only when the picker's search is used.
+      expect(String(modules.emoji)).toMatch(/\/widget\/runtime-emoji(\.[0-9a-f]{8}\.js|\.js\?v=[^&]+)$/);
+      expect(JSON.stringify(b).match(/runtime-emoji/g)).toHaveLength(1);
       expect(String(modules.extras)).toMatch(new RegExp(`/widget/presentation-${id}-x(\\.[0-9a-f]{8}\\.js|\\.js\\?v=[^&]+)$`));
       // The loader never asks for them: nowhere but in `modules`.
       expect(JSON.stringify(b).match(/runtime-late|-x\./g)).toHaveLength(2);

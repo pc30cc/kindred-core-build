@@ -43,6 +43,25 @@
  *   queuePosition  the visitor's place in the queue on the queued row
  *              (`view.queue`): GET /api/widget/queue every 30 s while that
  *              row is the thread's last word and the thread is on screen
+ *   instantAnswers  help articles that answer the message being written, over
+ *              the composer (`R.kbSuggestHtml`, its tray put in here), until the
+ *              team (an operator or the AI, not its greeting) first answers:
+ *              GET /api/widget/kb-suggest (runtime-kb.js) once the typing
+ *              stopped for 250 ms (never inside an IME composition; the request
+ *              before it aborted; answers kept per draft), a row opens its
+ *              article and back returns to the chat and its draft; Escape
+ *              closes the tray for that draft; a refusal (429) or a failure
+ *              stops asking for 30 s
+ *   dlProgress an attachment's bytes read as they come (runtime.js hook
+ *              `media`): `.dl-on` and `--dl` (0..1) on its download control
+ *              or voice note while they do; without a length, Core's own read
+ *   emojiSearch the picker's search field (shown here): the keywords
+ *              (runtime-emoji.js, ModuleLoader name `emoji`) loaded on its first
+ *              use, what does not match hidden (a group with nothing left, and
+ *              a repeat of an emoji already shown), Enter picks the first one,
+ *              Escape empties the field before it closes the picker
+ *   (any)      a search result's `snippet` and `matches` (the server's, with
+ *              `match=words`) for `kbHtml`
  *
  * Public API (window.__gs_mod_late): `v`, the version of the contract with
  * runtime-ext.js (the `api` below; runtime-ext refuses another version, so
@@ -904,6 +923,7 @@
     }
     api.wrap('messagesHtml', function (orig, s, extra, view) {
       if (view) {
+        view.away = awayOn();
         view.awayReply = replyVm(s);
         var a = root.activeElement;
         keep = a && a.hasAttribute && a.hasAttribute('data-fb') ? { a: a.selectionStart, b: a.selectionEnd } : null;
@@ -1073,6 +1093,285 @@
     return poll;
   }
 
+  // ═══ Help articles while the first message is written (`instantAnswers`) ═══
+  function suggest(api) {
+    var ctx = api.ctx;
+    var config = ctx.config || {};
+    var chatStore = api.chatStore;
+    var shellStore = api.shellStore;
+    var kbUI = api.kbUI;
+    var zone = api.chatQ('[data-composer-zone]');
+    var input = api.chatQ('[data-msg-input]');
+    var bar = api.chatQ('[data-input-bar]');
+    if (!zone || !input || !bar || (config.features || {}).knowledgeBase === false) return;
+    var cache = {};       // draft -> its articles, for this page
+    var html = '';        // the tray on screen ('' none)
+    var timer = null;
+    var abort = null;     // the request on its way (to abort for a newer one)
+    var asking = null;    // the draft it asks about
+    var seq = 0;
+    var composing = false;
+    var dismissed = null; // the draft whose tray Escape closed
+    var pausedUntil = 0;  // after a refusal or a failure
+    var opening = false;  // a row's article is being opened
+    var fromChat = false; // the article on screen came from the tray
+    /** The draft as asked about: lower case, one space, at most 120 characters. */
+    function draft() { return String(input.value || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 120); }
+    function teamAnswered() {
+      return (chatStore.get().messages || []).some(function (m) {
+        return m.sender !== 'visitor' && m.senderType !== 'system' && !(m.metadata && m.metadata.source === 'ai_agent_intro');
+      });
+    }
+    /** The tray may show for draft `q`: the chat on screen, the composer open, the team silent so far. */
+    function wanted(q) {
+      var sh = shellStore.get();
+      return !!sh.isOpen && sh.activeTab === 'chat' && !input.disabled && !bar.classList.contains('is-locked') && bar.style.display !== 'none'
+        && q.replace(/[\s!-\/:-@[-`{-~،؛؟«»…]+/g, '').length >= 3 && q !== dismissed && !teamAnswered();
+    }
+    function paint(results) {
+      var next = results && results.length ? api.P.kbSuggestHtml({ results: results }) || '' : '';
+      if (next === html) return;
+      var old = zone.querySelector('[data-kb-suggest]');
+      if (old) old.parentNode.removeChild(old);
+      html = next;
+      if (next) zone.insertAdjacentHTML('afterbegin', next);
+    }
+    function hide() { paint(null); }
+    function ask(q) {
+      if (abort) { try { abort.abort(); } catch (_) {} }
+      var ctl = null;
+      try { ctl = new AbortController(); } catch (_) {}
+      var my = ++seq;
+      abort = ctl;
+      asking = q;
+      api.ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
+        var mod = api.ModuleLoader.modules.kb;
+        if (!mod || !mod.suggestArticles || my !== seq) { if (my === seq) asking = null; return; }
+        mod.suggestArticles({
+          apiBase: ctx.apiBase, workspaceId: ctx.workspaceId, locale: ctx.locale, fetchWith: ctx.fetchWith,
+          query: q, limit: 2, signal: ctl ? ctl.signal : null,
+          onResult: function (r) {
+            if (my === seq) abort = asking = null;
+            if (r.ok) cache[q] = r.results || [];
+            // Refused (the pace) or failed: quietly nothing, for a while.
+            else { pausedUntil = Date.now() + 30000; hide(); return; }
+            onDraft();
+          },
+        });
+      });
+    }
+    /** The draft changed (or what the tray depends on): its answer at once, else asked after a pause. */
+    function onDraft() {
+      clearTimeout(timer);
+      timer = null;
+      var q = draft();
+      if (!wanted(q)) { hide(); return; }
+      if (Object.prototype.hasOwnProperty.call(cache, q)) { paint(cache[q]); return; }
+      // Its answer is on its way already.
+      if (composing || Date.now() < pausedUntil || asking === q) return;
+      timer = setTimeout(function () {
+        timer = null;
+        if (draft() === q && wanted(q)) ask(q);
+      }, 250);
+    }
+    input.addEventListener('compositionstart', function () { composing = true; });
+    input.addEventListener('compositionend', function () { composing = false; onDraft(); });
+    input.addEventListener('input', function (e) { if (!(composing || (e && e.isComposing))) onDraft(); });
+    // Escape closes the tray (for this draft) before anything else it would close.
+    zone.addEventListener('keydown', function (e) {
+      var tray = zone.querySelector('[data-kb-suggest]');
+      if (e.key !== 'Escape' || !tray || composing || e.isComposing || (e.target !== input && !tray.contains(e.target))) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dismissed = draft();
+      hide();
+      focusOn(input);
+    });
+    // A row opens its article in the help view; back from it returns here.
+    zone.addEventListener('click', function (e) {
+      var row = e.target && e.target.closest ? e.target.closest('[data-kb-suggest] [data-kb-action="open"]') : null;
+      var slug = row && row.getAttribute('data-kb-slug');
+      if (!slug) return;
+      hide();
+      opening = true;
+      api.switchTab('help');
+      kbUI.openArticle(slug);
+    });
+    api.on('kbOpen', function () { fromChat = opening; opening = false; });
+    // runtime-ext.js stepped back already (the article closed): the chat, not the list.
+    api.on('kbBack', function () {
+      if (!fromChat) return;
+      fromChat = false;
+      // An article still on its way is not painted over the chat.
+      if (kbUI.x.loading) kbUI.resetToList();
+      api.switchTab('chat');
+      onDraft();
+      return true;
+    });
+    // A message sent (the draft empties), the team's first answer, another
+    // view or thread: the tray follows.
+    chatStore.subscribe(function () { if (html || draft()) onDraft(); });
+    shellStore.subscribe(function (sh) {
+      if (sh.activeTab !== 'help') fromChat = false;
+      if (html || draft()) onDraft();
+    });
+  }
+
+  // ═══ A download's progress (`dlProgress`) ═══
+  // Core hands over an attachment's response before reading it (hook
+  // `media`): with a length (its header, else the size the message says)
+  // and a readable body, its chunks are read here, `.dl-on` and `--dl`
+  // (0..1, at most once a frame) on the attachment's controls meanwhile
+  // (looked up each time: a repaint never keeps an old one), and the bytes
+  // go back to Core as the blob it caches. The transfer itself is Core's
+  // shared one (the thread's next paint uses it): never aborted halfway.
+  function downloads(api) {
+    function sizeOf(id) {
+      var m = (api.chatStore.get().messages || []).filter(function (x) { return x.attachment && String(x.attachment.id) === id; })[0];
+      return m ? Number(m.attachment.size_bytes) || 0 : 0;
+    }
+    /** The controls showing attachment `id`: its download link, its voice note. */
+    function hosts(id) {
+      var out = [];
+      var root = api.chatQ('[data-chat-messages]');
+      if (root) api.each(root, '[data-att-download], [data-att-media-src]', function (el) {
+        if (el.getAttribute('data-att-download') !== id && el.getAttribute('data-att-media-src') !== id) return;
+        var host = el.closest('[data-audio-player]') || (el.hasAttribute('data-att-download') ? el : null);
+        if (host && out.indexOf(host) < 0) out.push(host);
+      });
+      return out;
+    }
+    function paint(id, f) {
+      hosts(id).forEach(function (el) {
+        el.classList.toggle('dl-on', f != null);
+        if (f != null) { el.style.setProperty('--dl', f.toFixed(3)); el.setAttribute('aria-busy', 'true'); }
+        else { el.style.removeProperty('--dl'); el.removeAttribute('aria-busy'); }
+      });
+    }
+    api.on('media', function (r, id) {
+      id = String(id);
+      var total = (r && r.headers && Number(r.headers.get('content-length'))) || sizeOf(id);
+      if (!total || !r.body || typeof r.body.getReader !== 'function' || typeof Blob === 'undefined') return;
+      var reader = r.body.getReader();
+      var type = r.headers.get('content-type') || '';
+      var parts = [];
+      var got = 0;
+      var frame = 0;
+      return new Promise(function (resolve, reject) {
+        function pump() {
+          reader.read().then(function (c) {
+            if (c.done) {
+              if (frame) cancelAnimationFrame(frame);
+              paint(id, null);
+              resolve(new Blob(parts, { type: type }));
+              return;
+            }
+            parts.push(c.value);
+            got += c.value.length;
+            if (!frame) frame = requestAnimationFrame(function () { frame = 0; paint(id, Math.min(1, got / total)); });
+            pump();
+          }, function (e) {
+            if (frame) cancelAnimationFrame(frame);
+            paint(id, null);
+            reject(e);
+          });
+        }
+        pump();
+      });
+    });
+  }
+
+  // ═══ The emoji picker's search (`emojiSearch`) ═══
+  /** Search form of a text: lower case, one Persian ی / ک / ا, no ZWNJ or vowel marks, Latin digits. */
+  function emojiNorm(s) {
+    return String(s || '').toLowerCase().replace(/[يى]/g, 'ی').replace(/ك/g, 'ک')
+      .replace(/[آأإ]/g, 'ا').replace(/ة/g, 'ه').replace(/ؤ/g, 'و')
+      .replace(/[‌‍ـً-ٰٟ]/g, '')
+      .replace(/[۰-۹٠-٩]/g, function (c) { return String(c.charCodeAt(0) & 15); });
+  }
+  function emojiFind(api) {
+    var picker = api.chatQ('[data-emoji-picker]');
+    var btn = api.chatQ('[data-emoji-btn]');
+    if (!picker || !btn) return;
+    var words = null;     // emoji -> its keywords, searchable (runtime-emoji.js)
+    var asked = false;
+    function field() { return picker.querySelector('[data-emoji-search]'); }
+    /** Shows what matches the field (everything while the keywords load, or without them). */
+    function filter() {
+      var el = field();
+      var q = el && words ? emojiNorm(el.value).split(/\s+/).filter(Boolean) : [];
+      var seen = {};
+      picker.classList.toggle('is-searching', !!q.length);
+      api.each(picker, '[data-emoji-group]', function (g) {
+        var any = false;
+        api.each(g, '[data-emoji]', function (b) {
+          var e = b.getAttribute('data-emoji');
+          var kw = words && words[e];
+          var ok = !q.length || (!seen[e] && !!kw && q.every(function (t) { return kw.some(function (w) { return w.indexOf(t) === 0; }); }));
+          if (ok && q.length) seen[e] = 1;
+          b.hidden = !ok;
+          any = any || ok;
+        });
+        g.hidden = !any;
+      });
+      var none = picker.querySelector('[data-emoji-none]');
+      if (none) none.hidden = !q.length || picker.querySelector('[data-emoji]:not([hidden])') != null;
+    }
+    function load() {
+      if (asked) return;
+      asked = true;
+      api.ModuleLoader.loadFor(api.ctx, 'emoji', 'runtime-emoji.js', function (mod) {
+        var el = field();
+        if (!mod || mod.v !== 1 || typeof mod.list !== 'string' || !Array.isArray(mod.words)) {
+          // No keywords: no search (never a field that finds nothing), the whole grid.
+          if (el) { el.value = ''; el.parentNode.hidden = true; }
+          filter();
+          return;
+        }
+        // Each emoji's words in every language, as the search compares them.
+        var langs = mod.words.map(function (w) { return String(w).split('|'); });
+        words = {};
+        mod.list.split(' ').forEach(function (e, i) {
+          words[e] = emojiNorm(langs.map(function (l) { return l[i] || ''; }).join(' ')).split(/\s+/).filter(Boolean);
+        });
+        filter();
+      });
+    }
+    // The field comes with the extras' grid (painted right after this module is in).
+    Promise.resolve().then(function () {
+      var el = field();
+      if (el) el.parentNode.hidden = false;
+    });
+    picker.addEventListener('focusin', function (e) { if (e.target === field()) load(); });
+    picker.addEventListener('input', function (e) {
+      if (e.target !== field()) return;
+      load();
+      filter();
+    });
+    picker.addEventListener('keydown', function (e) {
+      var el = field();
+      if (e.target !== el || e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var first = el.value.trim() && picker.querySelector('[data-emoji]:not([hidden])');
+        if (first && words) first.click();
+      } else if (e.key === 'Escape' && el.value) {
+        // A query first; an empty field lets the picker close.
+        e.preventDefault();
+        e.stopPropagation();
+        el.value = '';
+        filter();
+      }
+    });
+    // Opened again: the whole grid.
+    btn.addEventListener('click', function () {
+      var el = field();
+      if (picker.hidden || !el || !el.value) return;
+      el.value = '';
+      filter();
+    });
+  }
+
   function create(api) {
     var kicks = [];
     if (api.feat('csat') || api.feat('chatMenu')) afterChat(api);
@@ -1080,6 +1379,17 @@
     if (api.feat('prechatSteps')) steps(api);
     if (api.feat('awayThread')) away(api);
     if (api.feat('queuePosition')) kicks.push(queue(api));
+    if (api.feat('instantAnswers')) suggest(api);
+    if (api.feat('dlProgress')) downloads(api);
+    if (api.feat('emojiSearch')) emojiFind(api);
+    // A search's own words and its window of the summary, as the server cut them.
+    api.on('kbVm', function (vm) {
+      var got = api.kbStore.get().searchResults || [];
+      (vm.results || []).forEach(function (r, i) {
+        var a = got[i];
+        if (a && a.slug === r.slug) { r.snippet = a.snippet || null; r.matches = Array.isArray(a.matches) ? a.matches : null; }
+      });
+    });
     // Once the pack is in (right after this), a thread already on screen
     // gets what it adds: its data asked for, and one repaint.
     Promise.resolve().then(function () {

@@ -267,6 +267,11 @@ export interface KnowledgeBaseArticle {
    */
   visible_in_widget: boolean;
   used_by_ai: boolean;
+  /**
+   * The member shown as the article's author in the widget (migration 276;
+   * absent on a database before it). null: no author shown.
+   */
+  author_user_id?: string | null;
   created_at: string;
   updated_at: string;
 }

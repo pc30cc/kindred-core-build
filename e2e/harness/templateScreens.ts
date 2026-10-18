@@ -139,8 +139,13 @@ interface Fixture {
   qna: string[];
   /** POST /api/widget/message answers 500 (a send that fails). */
   messageFails?: boolean;
-  /** A state's own help center (categories, articles, search answers, article body); default the shared one. */
-  kb?: { categories: unknown[]; articles: Array<Record<string, unknown>>; search: Record<string, unknown[]>; body?: string };
+  /**
+   * A state's own help center (categories, articles, search answers, article
+   * body, the articles' author with meta=1); default the shared one.
+   */
+  kb?: { categories: unknown[]; articles: Array<Record<string, unknown>>; search: Record<string, unknown[]>; body?: string; author?: string };
+  /** GET /api/widget/kb-suggest: the articles offered for a draft, by the draft (runtime-late.js, t2). */
+  suggest?: Record<string, unknown[]>;
   /** GET /api/widget/conversations/:id/csat (the rating card, the transcript); default: nothing to rate, no transcript. */
   csat?: Record<string, unknown>;
   /** GET /api/widget/conversations/:id/reactions, by conversation: message id -> [{ emoji, count, mine }]. */
@@ -347,13 +352,15 @@ const T2_HELP_KB = {
     t2Art('track-order', 'چطور سفارشم را پیگیری کنم؟', 'k-orders'),
     ...t2Many(4, 'k-orders', 'o'), ...t2Many(4, 'k-pay', 'p'), ...t2Many(3, 'k-returns', 'r'), ...t2Many(6, 'k-account', 'a'),
   ],
+  // With match=words the server cuts a snippet round the words it matched (03·07).
   search: {
     ارسال: [
-      t2Art('shipping-cost', 'زمان و هزینه ارسال', 'k-orders', 'هزینه‌ی ارسال برای خریدهای بالای ۲ میلیون تومان رایگان است…'),
-      t2Art('after-shipping', 'پیگیری مرسوله بعد از ارسال', 'k-orders', 'کد رهگیری را پیامک می‌کنیم؛ وضعیت را در حساب کاربری هم می‌بینید…'),
-      t2Art('provinces', 'ارسال به شهرستان‌ها', 'k-orders', 'سفارش‌های شهرستان با پست پیشتاز ۳ تا ۵ روزه می‌رسند…'),
+      { ...t2Art('shipping-cost', 'زمان و هزینه ارسال', 'k-orders', 'زمان ارسال، هزینه‌ها و ارسال رایگان'), snippet: 'هزینه‌ی ارسال برای خریدهای بالای ۲ میلیون تومان رایگان است…', matches: ['ارسال'] },
+      { ...t2Art('after-shipping', 'پیگیری مرسوله بعد از ارسال', 'k-orders', 'کد رهگیری و وضعیت مرسوله'), snippet: 'کد رهگیری را پیامک می‌کنیم؛ وضعیت را در حساب کاربری هم می‌بینید…', matches: ['ارسال'] },
+      { ...t2Art('provinces', 'ارسال به شهرستان‌ها', 'k-orders', 'پست پیشتاز و زمان رسیدن'), snippet: 'سفارش‌های شهرستان با پست پیشتاز ۳ تا ۵ روزه می‌رسند…', matches: ['ارسال'] },
     ],
   },
+  author: 'سارا',
   body:
     '<p>بعد از ارسال سفارش، کد رهگیری را برایتان پیامک و ایمیل می‌کنیم. همیشه می‌توانید آن را در ' +
     '<a href="https://example.com/account/orders">حساب کاربری، بخش سفارش‌ها</a> هم ببینید.</p>' +
@@ -405,8 +412,46 @@ function t2Workspace(f: Fixture, topics?: Array<{ label: string; icon: string }>
   };
   f.threads = { ...f.threads, ...T2_THREADS };
 }
-const t2Home = (f: Fixture) => { t2Workspace(f); f.kb = T2_HOME_KB; };
+/** Home (01–03): a store that answers order questions (the track-order row, `config.commerce`). */
+const t2Home = (f: Fixture) => { t2Workspace(f); f.kb = T2_HOME_KB; f.config.commerce = { trackOrder: true }; };
 const t2Help = (f: Fixture) => { t2Workspace(f); f.kb = T2_HELP_KB; };
+/** 04 (the order card): Sara's answer carries the order (`metadata.kind` 'order_status'). */
+const order = (o: Record<string, unknown>) => ({
+  source: 'ai_agent', kind: 'order_status',
+  order: { v: 1, number: '48213', summary: 'کفش رانینگ، سایز ۴۲', more: 0, status: 'shipped', statusLabel: null, step: 2, arrives: null, trackingUrl: 'https://tracking.post.ir/?id=48213', ...o },
+});
+/** A local calendar day `days` from today, as the store sends `arrives`. */
+const dayAhead = (days: number) => {
+  const { y, m, d } = tehranToday();
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+};
+/** The weekday after today that is a Thursday (02·04 «تحویل: پنجشنبه»), within six days. */
+const thursday = () => {
+  const { y, m, d } = tehranToday();
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return dayAhead(((4 - dow + 7) % 7) || 7);
+};
+const t2Order = (o: Record<string, unknown>, text = 'سلام علی! بررسی کردم؛ سفارشتان امروز صبح ارسال شد.') => (f: Fixture) => {
+  t2Live(f);
+  f.threads = {
+    ...f.threads,
+    'c-live': [
+      visitor('d1', 'سلام، سفارشم را دوشنبه ثبت کردم ولی هنوز کد رهگیری نیامده.', at(19, 42)),
+      sara('d2', text, at(19, 44), { metadata: order(o) }),
+      visitor('d3', 'عالیه، ممنون!', at(19, 46)),
+    ],
+  };
+};
+/** 06: the articles offered for «مرجوعی کفش» (two of them, the word marked). */
+const T2_SUGGEST = {
+  'مرجوعی کفش': [
+    { slug: 'returns', title: 'شرایط مرجوعی کالا', snippet: '', matches: ['مرجوعی'], readingMinutes: 2 },
+    { slug: 'refund-time', title: 'بازگشت وجه بعد از مرجوعی چقدر طول می‌کشد؟', snippet: '', matches: ['مرجوعی'], readingMinutes: 1 },
+  ],
+};
+/** An attachment whose bytes stop two thirds of the way (its download's progress). */
+const SLOW_DOWNLOAD = 'att-dl';
 /** 05: the operator's line under the invoice got the visitor's heart. */
 const T2_MEDIA_REACTIONS = { 'c-media': { e3: [{ emoji: '\u2764\uFE0F', count: 1, mine: true }] } };
 const t2Live = (f: Fixture) => { t2Workspace(f); f.identity = RETURNING; f.conversations = [T2_OPEN]; };
@@ -764,6 +809,49 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await pause(page, 500);
     },
   },
+  // 06 with the search: «قلب» found, then a word nothing answers.
+  't1-emoji-search': {
+    keepFocus: true,
+    setup: (f) => t1Thread(f, 'c-t1-emoji'),
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-emoji');
+      await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون');
+      await page.locator('[data-emoji-btn]').click();
+      await pause(page, 300);
+      await page.locator('[data-emoji-search]').fill('قلب');
+      await pause(page, 600);
+    },
+  },
+  't1-emoji-none': {
+    keepFocus: true,
+    setup: (f) => t1Thread(f, 'c-t1-emoji'),
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-emoji');
+      await page.locator('[data-emoji-btn]').click();
+      await pause(page, 300);
+      await page.locator('[data-emoji-search]').fill('زرافه');
+      await pause(page, 600);
+    },
+  },
+  // 04·05's voice note still loading and the invoice downloading (each two thirds there).
+  't1-downloading': {
+    setup: (f) => {
+      t1Thread(f, 'c-t1-files');
+      f.threads = {
+        ...f.threads,
+        'c-t1-files': [
+          sara('g2', '', at(20, 6), { attachment: { ...MEDIA.pdf, id: SLOW_DOWNLOAD } }),
+          visitor('g3', '', at(20, 7), { attachment: { ...MEDIA.voice, id: SLOW_DOWNLOAD + '-voice' }, seen_at: null }),
+        ],
+      };
+    },
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-files');
+      await page.locator(`[data-att-download="${SLOW_DOWNLOAD}"]`).first().click();
+      await pause(page, 600);
+      await page.mouse.move(0, 0);
+    },
+  },
   't1-help': {
     home: true,
     keepFocus: true,
@@ -775,7 +863,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
   },
   't1-article': {
     home: true,
-    setup: (f) => { f.kb = { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: T1_ARTICLE_BODY }; },
+    setup: (f) => { f.kb = { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: T1_ARTICLE_BODY, author: 'سارا' }; },
     drive: async ({ page }) => { await inst(page, "i.setTab('help', 'track-order');"); await pause(page, 600); },
   },
   't1-mobile-home': { mobile: true, home: true },
@@ -836,11 +924,13 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
         { label: 'مرجوعی و بازگشت وجه', icon: 'return' }, { label: 'موضوع دیگر', icon: 'chat' },
       ]);
       f.config.welcomeMessage = 'سلام! سؤالتان را بنویسید یا یکی از موضوع‌ها را انتخاب کنید.';
+      f.suggest = T2_SUGGEST;
     },
     drive: async ({ page }) => {
       await newConversation(page);
       await page.locator('[data-msg-input]').fill('مرجوعی کفش');
-      await pause(page, 300);
+      // The articles offered for the draft (instant answers: 250 ms, then the answer).
+      await pause(page, 900);
     },
   },
   't2-help-search': {
@@ -954,6 +1044,33 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     keepFocus: true,
     setup: (f) => { f.identity = RETURNING; f.conversations = [RECENT]; f.csat = { ...AFTER_CHAT, closed_id: null, rateable: false }; },
     drive: async ({ page }) => { await openThread(page, 'c-sara'); await openMenu(page); },
+  },
+  // 04: an answer about an order and its card (shipped, a delivery day, the tracking link).
+  't2-order-shipped': {
+    setup: t2Order({ arrives: thursday() }),
+    drive: async ({ page }) => { await openThread(page, 'c-live'); await typing(page); },
+  },
+  't2-order-completed': {
+    setup: t2Order({ status: 'completed', step: 3, trackingUrl: null, summary: 'کفش رانینگ، سایز ۴۲', more: 2 }, 'سفارشتان تحویل داده شده است.'),
+    drive: async ({ page }) => { await openThread(page, 'c-live'); },
+  },
+  't2-order-cancelled': {
+    setup: t2Order({ status: 'cancelled', step: null, trackingUrl: null }, 'این سفارش لغو شده است.'),
+    drive: async ({ page }) => { await openThread(page, 'c-live'); },
+  },
+  // 05: the invoice downloading (the arc two thirds round).
+  't2-downloading': {
+    setup: (f) => {
+      t2Live(f);
+      f.conversations = [{ ...T2_OPEN, id: 'c-media' }];
+      f.threads = { ...f.threads, 'c-media': T2_THREADS['c-media'].map((m) => (m.id === 'e2' ? { ...m, attachment: { ...MEDIA.pdf, id: SLOW_DOWNLOAD } } : m)) };
+    },
+    drive: async ({ page }) => {
+      await openThread(page, 'c-media');
+      await page.locator(`[data-att-download="${SLOW_DOWNLOAD}"]`).click();
+      await pause(page, 600);
+      await page.mouse.move(0, 0);
+    },
   },
   't2-mobile-home': { mobile: true, home: true, setup: t2Home },
   't2-mobile-chat': {
@@ -1104,18 +1221,29 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
     if (p.includes('/api/widget/ai-agent/qna-suggestions')) {
       return json({ questions: fixture.qna.map((question, i) => ({ id: `q${i}`, question })) });
     }
-    const kb = fixture.kb || { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: ARTICLE_BODY };
+    const kb: NonNullable<Fixture['kb']> = fixture.kb || { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: ARTICLE_BODY };
     if (p.includes('/api/widget/kb/categories')) return json({ locale, categories: kb.categories, articles: kb.articles });
     if (p.includes('/api/widget/kb/article')) {
       const slug = url.searchParams.get('slug');
       const a = kb.articles.find((x) => x.slug === slug);
+      // Its author only with meta=1, as the server (a renderer that draws it asks).
+      const meta = url.searchParams.get('meta') === '1' && kb.author ? { author_name: kb.author } : {};
       return a
-        ? json({ article: { ...a, content: kb.body || ARTICLE_BODY, updated_at: at(10, 0, 3) } })
+        ? json({ article: { ...a, content: kb.body || ARTICLE_BODY, updated_at: at(10, 0, 3), ...meta } })
         : json({ error: 'not_found' }, 404);
     }
     if (p.includes('/api/widget/kb/search')) {
       const q = (url.searchParams.get('q') || '').trim();
-      return json({ locale, q, results: kb.search[q] || [] });
+      // The snippet and the matched words only for match=words (runtime-ext.js), as the server.
+      const words = url.searchParams.get('match') === 'words';
+      return json({ locale, q, results: (kb.search[q] || []).map((r) => {
+        if (words) return r;
+        const { snippet: _s, matches: _m, ...rest } = r as Record<string, unknown>;
+        return rest;
+      }) });
+    }
+    if (p.endsWith('/api/widget/kb-suggest')) {
+      return json({ results: (fixture.suggest || {})[(url.searchParams.get('q') || '').trim()] || [] });
     }
     if (p.includes('/api/')) return json({});
     return route.fulfill({ status: 200, contentType: 'text/html', body: hostPage(fontsFile, locale) });
@@ -1212,6 +1340,15 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
       const w = window as unknown as Record<string, unknown>;
       w.__GS_WIDGET_TEST_HOOKS__ = true;
       if (home) sessionStorage.setItem(`gs:view:${ws}`, JSON.stringify({ tab: 'home', conversationId: null }));
+      // An attachment whose bytes stop two thirds of the way (a route cannot
+      // stream): its body a stream that never ends, with its whole length.
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const u = String(input instanceof Request ? input.url : input);
+        if (!/\/api\/widget\/attachments\/att-dl/.test(u)) return realFetch(input, init);
+        const body = new ReadableStream({ start(c) { c.enqueue(new Uint8Array(163_840)); } });
+        return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/pdf', 'content-length': '245760' } }));
+      };
     }, [WORKSPACE, !!spec.home] as const);
     await page.goto(`${ORIGIN}/host`);
     // The renderer's extras and Core's late module are on the page before

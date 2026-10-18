@@ -115,6 +115,16 @@ describe('t1: the thread, away', () => {
     expect(chatSends(h).map((p) => p.body.conversationId)).toEqual(['c-away']);
   });
 
+  it('the message left reads «{time} · ارسال شد» (07·09), not a tick (`view.away`)', async () => {
+    const h = start();
+    await toChat(h);
+    await send(h, 'سلام، برای سفارش عمده تخفیف دارید؟');
+    const meta = () => h.q('[data-chat-messages] .msg-row.visitor .msg-meta')!;
+    expect(meta().querySelector('.msg-sent')!.textContent).toBe(t(h)('msgSent'));
+    expect(meta().querySelector('.msg-ticks')).toBeNull();
+    expect(h.lastCall('messagesHtml')![2]).toMatchObject({ away: true });
+  });
+
   it('a failed first message retried sends the same id (no second conversation)', async () => {
     let n = 0;
     const h = start({ route: (u, b) => (u.endsWith('/offline-messages') ? (++n === 1 ? { status: 500, body: { error: 'x' } } : OK(u, b)) : OK(u, b)) });

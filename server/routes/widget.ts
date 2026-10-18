@@ -44,6 +44,8 @@ import {
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
+import { kbSuggestGlobalCeiling } from '../middleware/security.js';
+import { handleKbSuggest } from './widgetKbSuggest.js';
 import { getWidgetAssetName, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
 import {
@@ -1577,6 +1579,13 @@ widgetRouter.post('/conversations/:id/reactions', widgetRateLimit('default'), as
   }
 });
 
+
+// ═══════════════════════════════════════════════
+// GET /kb-suggest — instant answers for a first message being written
+// (t1/t2 Core only; routes/widgetKbSuggest.ts). Its own per-visitor bucket
+// first, so a request it refuses does not spend the process ceiling.
+// ═══════════════════════════════════════════════
+widgetRouter.get('/kb-suggest', widgetRateLimit('kb_suggest'), kbSuggestGlobalCeiling, handleKbSuggest);
 
 // ═══════════════════════════════════════════════
 // GET /help-articles — Knowledge base articles
@@ -4021,17 +4030,22 @@ async function notifyOfflineCapture(
         html,
         text,
         templateSlug: 'offline_message_received',
-        // The template (offline_message_received) puts the visitor's name,
-        // address and message into its HTML: escaped. The same values fill
-        // its subject and text part, where an `&`, `<`, `>` or `"` then
-        // reads as its entity; an apostrophe is left as it is (no shipped
-        // template quotes an attribute with it).
+        // What the visitor typed, as typed, for the template's subject and
+        // text part; its HTML part gets the escaped copies (htmlData), so
+        // there it is text, never markup, and nowhere does an `&` read as
+        // `&amp;`.
         templateData: {
           conversation_id: payload.conversationId,
+          contact_name: payload.name || '',
+          contact_email: payload.email || '',
+          message_body: payload.message,
+          action_url: inboxUrl,
+        },
+        htmlData: {
           contact_name: escapeMailText(payload.name || ''),
           contact_email: escapeMailText(payload.email || ''),
           message_body: escapeMailText(payload.message),
-          action_url: inboxUrl,
+          action_url: escapeMailText(inboxUrl),
         },
         locale: payload.locale,
       });

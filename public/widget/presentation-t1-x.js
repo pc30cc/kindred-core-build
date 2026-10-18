@@ -20,7 +20,11 @@
  *   fallback) is refused. Change `v` here and in the renderer together
  *   whenever a surface's arguments or H change.
  *
- *   emojiPickerHtml()   the grouped emoji picker (feature `emojiTabs`): a tab per group
+ *   emojiPickerHtml()   the grouped emoji picker (feature `emojiTabs`): a tab per group, and
+ *                       on top the search field (feature `emojiSearch`: [data-emoji-search],
+ *                       its label hidden until Core, which hides what does not match, shows
+ *                       it) with the "no emoji found" line under the groups ([data-emoji-none],
+ *                       hidden)
  *   chatMenuHtml(menu)  the chat bar's ⋯ and its menu (feature `chatMenu`): menu = { open, items },
  *                       item { action: 'transcript', state ('idle' | 'sending' | 'sent' |
  *                       'failed' | 'no'), to } | { action: 'sound', on }. Hooks:
@@ -48,11 +52,11 @@
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (as the renderer's own; the menu's keys are the names of
   // docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'cats moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo'.split(' ');
+  var COPY_KEYS = 'cats emojiSearch emojiNoResults moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo'.split(' ');
   var DICT = {
-    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، اسم‌تون چیه؟|ممنون {name} جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.|ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.|اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|برای پیامک پیگیری|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.|ایمیل برای دریافت پاسخ|ایمیل برای پاسخ|ثبت ایمیل|پیام خودکار|پیامتون ثبت شد.|پاسخ را به {email} می‌فرستیم.',
-    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email, so we can send you our replies?|What’s your email, so we can send you our replies?|If you like, add your phone number and we’ll text you updates.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|For text updates|Submit|{n} in line · about {min} min|{n} in line|Got your message! Leave your email and we’ll send you the reply.|Email for the reply|Email for the reply|Save email|Automated message|Got your message!|We’ll send the reply to {email}.',
-    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|İsterseniz telefon numaranızı da ekleyin, size SMS ile haber verelim.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|SMS bildirimleri için|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! Yanıtı gönderebilmemiz için e-postanızı bırakın.|Yanıt için e-posta|Yanıt için e-posta|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Yanıtı {email} adresine göndereceğiz.',
+    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|جستجوی شکلک|شکلکی پیدا نشد|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، اسم‌تون چیه؟|ممنون {name} جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.|ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.|اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|برای پیامک پیگیری|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.|ایمیل برای دریافت پاسخ|ایمیل برای پاسخ|ثبت ایمیل|پیام خودکار|پیامتون ثبت شد.|پاسخ را به {email} می‌فرستیم.',
+    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Search emoji|No emoji found|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email, so we can send you our replies?|What’s your email, so we can send you our replies?|If you like, add your phone number and we’ll text you updates.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|For text updates|Submit|{n} in line · about {min} min|{n} in line|Got your message! Leave your email and we’ll send you the reply.|Email for the reply|Email for the reply|Save email|Automated message|Got your message!|We’ll send the reply to {email}.',
+    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Emoji ara|Emoji bulunamadı|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|İsterseniz telefon numaranızı da ekleyin, size SMS ile haber verelim.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|SMS bildirimleri için|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! Yanıtı gönderebilmemiz için e-postanızı bırakın.|Yanıt için e-posta|Yanıt için e-posta|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Yanıtı {email} adresine göndereceğiz.',
   };
 
   // Grouped emoji for the picker, one group per name in `cats`.
@@ -85,7 +89,11 @@
         P('M5.5 18.5C5.5 10.6 10.4 5.7 18.5 5c0 8.6-5 13.5-13 13.5Z') + P('m5.5 18.5 7-7'),
         P('M5 9.5h11v4.3a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z') + P('M16 10.5h1.2a2.4 2.4 0 0 1 0 4.8H16') + P('M9 3.8v2.4M12.4 3.8v2.4'),
       ];
-      return '<div class="ep-cats" role="tablist" aria-label="' + esc(t('emojiPicker')) + '">' + cats.map(function (c, i) {
+      // The search (feature `emojiSearch`): Core shows it, and loads the keywords on its first use.
+      var find = esc(XL('emojiSearch'));
+      return '<label class="ep-sr" hidden>' + svg(H.D.search, 16, 2) + '<input type="search" data-emoji-search enterkeyhint="search" autocomplete="off" spellcheck="false" aria-label="' +
+          find + '" placeholder="' + find + '"></label>' +
+        '<div class="ep-cats" role="tablist" aria-label="' + esc(t('emojiPicker')) + '">' + cats.map(function (c, i) {
           return '<button type="button" class="ep-cat" role="tab" aria-selected="' + (i ? 'false' : 'true') + '" data-emoji-tab="' + i +
             '" aria-label="' + esc(c) + '">' + svg(icons[i], 19) + '</button>';
         }).join('') + '</div>' +
@@ -94,7 +102,7 @@
             row.split(' ').map(function (e) {
               return '<button type="button" class="ep-e" data-emoji="' + e + '">' + e + '</button>';
             }).join('') + '</div></div>';
-        }).join('') + '</div>';
+        }).join('') + '<p class="ep-none" data-emoji-none role="status" hidden>' + esc(XL('emojiNoResults')) + '</p></div>';
     }
 
     // The chat bar's ⋯ (before the shell's close) and its menu.

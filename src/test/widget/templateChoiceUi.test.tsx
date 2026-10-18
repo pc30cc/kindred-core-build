@@ -222,7 +222,10 @@ describe('WidgetLivePreview — the effective template', () => {
     expect(p.templateId).toBe('t1');
     expect(p.config.templateId).toBe('t1');
     expect(p.config.templateOptions).toEqual({ navStyle: 'vd', navMode: 'none', topics: [] });
-    expect(p.capabilities).toMatchObject({ kbNeutral: true, csat: true, chatMenu: true, reactions: true, prechatSteps: true, awayThread: true, queuePosition: true, orderCard: false });
+    expect(p.capabilities).toMatchObject({
+      kbNeutral: true, csat: true, chatMenu: true, reactions: true, prechatSteps: true, awayThread: true, queuePosition: true,
+      orderCard: true, instantAnswers: true, emojiSearch: true, dlProgress: true, kbAuthor: true,
+    });
   });
 
   it('the default preview stays as it was: default template, no options', () => {

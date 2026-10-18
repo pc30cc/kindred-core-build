@@ -15,7 +15,7 @@
  * Geometry against the design's PNGs is checked with the screenshot harness
  * (e2e/harness/templateScreens.ts --template t2), not here.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -289,7 +289,10 @@ describe('t2: strings are escaped, addresses are allow-listed', () => {
 });
 
 /** What Core serves today (runtime.js env.capabilities). */
-const SERVED = { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true };
+const SERVED = {
+  kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true,
+  queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true,
+};
 
 describe('t2: the Core behaviours it declares are the ones it draws', () => {
   const r = () => make({ capabilities: SERVED, config: { templateOptions: { topics: [{ label: 'زمان ارسال', icon: 'truck' }] } } });
@@ -402,14 +405,26 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
       const h = parse(withExtras(r()).messagesHtml({ messages: [msg({ sender: 'visitor', senderType: 'contact' })] }, undefined, { awayReply: { at: 0, status: 'ask' } }));
       expect(h.querySelector('.away-reply form [data-fb="email"]')).not.toBeNull();
     },
+    // Tested below: the tray (extras), the arc (stylesheet), the byline.
+    instantAnswers: () => {
+      const h = parse(withExtras(r()).kbSuggestHtml({ results: [{ slug: 'a', title: 'مرجوعی', matches: ['مرجوعی'] }] }));
+      expect(h.querySelector('[data-kb-suggest] [data-kb-action="open"][data-kb-slug="a"] mark')).not.toBeNull();
+    },
+    dlProgress: () => {
+      expect(T2_CSS).toContain('.dl-on.msg-att-action::after, .dl-on .wy-ap-play::after {');
+    },
+    kbAuthor: () => {
+      const h = parse(r().kbArticleHtml({ article: { title: 't', author: 'سارا', readingMinutes: 2, contentHtml: '' } }));
+      expect(h.querySelector('.am')!.textContent).toBe('سسارا۲ دقیقه مطالعه');
+    },
   };
 
   it('declares exactly the behaviours it implements', () => {
     expect(Object.keys(r().features).sort()).toEqual(Object.keys(checks).sort());
     expect(Object.values(r().features).every((v) => v === true)).toBe(true);
-    // A Core that does not serve them gets neither reactions nor the away thread.
+    // A Core that does not serve them gets none of them.
     const off = make().features;
-    for (const f of ['reactions', 'awayThread']) expect(off[f], f).toBe(false);
+    for (const f of ['reactions', 'awayThread', 'instantAnswers', 'dlProgress', 'kbAuthor']) expect(off[f], f).toBe(false);
   });
   for (const [name, check] of Object.entries(checks)) it(name, check);
 
@@ -423,8 +438,8 @@ describe('t2: nothing is drawn for a capability Core cannot serve', () => {
   const cases = [
     { csat: false, reactions: false, orderCard: false, instantAnswers: false, kbNeutral: false },
     // Even a Core that says yes gets nothing without its view-model and the
-    // extras (reactions: `view.react`), and nothing at all for what this
-    // renderer does not implement yet.
+    // extras (reactions: `view.react`; the order card and the tray come with
+    // the extras), and no track-order row without a store (`config.commerce`).
     { csat: true, reactions: true, orderCard: true, instantAnswers: true, kbNeutral: false },
   ];
   for (const capabilities of cases) {
@@ -789,7 +804,8 @@ describe('t2: review fixes', () => {
   });
 
   it('painted without Core\'s module (`.ext-off`), the ask field opens a chat and the topics are set aside', () => {
-    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off :has(> [data-topic]) { display: none; }');
+    // The topic chips' rows, and the track-order row (a topic too): never the list it sits in.
+    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off :has(> .chip[data-topic]), .ext-off .r[data-topic] { display: none; }');
     expect(T2_CSS).toContain('.ext-off .ask .send { position: static; transform: none; }');
     expect(T2_CSS).toContain(".ext-off .ask .send::before { content: ''; position: absolute; inset: 0; }");
     expect(T2_CSS).toMatch(/\.field \{\s*position: relative;/);
@@ -1177,5 +1193,288 @@ describe('t2: the message left while the team is away (extras, feature `awayThre
     expect(reply({ status: 'saved', email: 'a@b.io' }, 'en').querySelector('.msg.operator')!.textContent).toBe('Your message is saved.');
     expect(reply({ status: 'ask' }, 'en').getAttribute('data-ph-away')).toBe('Add anything else…');
     expect(reply({ status: 'ask' }, 'tr').querySelector('.msg-meta')!.textContent).toBe('Otomatik yanıt');
+  });
+});
+
+// ─── Issue #340 round 4: the order card, track order, instant answers ───
+
+/** An AI answer about one order (`metadata.kind` 'order_status'), as the server stores it. */
+const ORDER = (order: Vm, over: Vm = {}): Vm => msg({
+  __id: 'ai-1', senderType: 'ai', senderName: 'دستیار', body: 'سلام علی! سفارشتان امروز صبح ارسال شد.',
+  metadata: { source: 'ai_agent', kind: 'order_status', order: { v: 1, number: '48213', summary: null, more: 0, status: 'shipped', statusLabel: null, step: 2, arrives: null, trackingUrl: null, ...order } },
+  ...over,
+});
+/** A local calendar day `days` from today, as the server sends `arrives`. */
+const dayIso = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+};
+
+describe('t2: an AI answer\'s order card (02·04, extras, capability `orderCard`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const card = (order: Vm, locale?: string, over?: Vm) => parse(r(locale).messagesHtml({ messages: [ORDER(order, over)] }, undefined, {})).querySelector('.card');
+  const steps = (c: Element) => Array.from(c.querySelectorAll('.steps li')).map((li) => li.className + (li.getAttribute('aria-current') ? '@' : ''));
+
+  it('sits under the answer\'s text, in the same run, before its time line', () => {
+    const h = parse(r().messagesHtml({ messages: [ORDER({})] }, undefined, {}));
+    const col = h.querySelector('.msg-row.operator .msg-col')!;
+    const lines = Array.from(col.querySelectorAll(':scope > .msg-line'));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].querySelector('.msg-text')!.textContent).toBe('سلام علی! سفارشتان امروز صبح ارسال شد.');
+    expect(lines[1].querySelector('.msg.operator.has-card > .card[role="group"]')).not.toBeNull();
+    expect(lines[1].nextElementSibling!.classList.contains('msg-footline')).toBe(true);
+  });
+
+  it('titles the order in Persian digits, with its status pill and the four steps up to the current one', () => {
+    const c = card({ summary: 'کفش رانینگ، سایز ۴۲', more: 2 })!;
+    expect(c.getAttribute('aria-label')).toBe('سفارش ۴۸۲۱۳');
+    expect(c.querySelector('.th svg[aria-hidden="true"]')).not.toBeNull();
+    expect(c.querySelector('.tt b')!.textContent).toBe('سفارش ۴۸۲۱۳');
+    expect(c.querySelector('.tt small')!.textContent).toBe('کفش رانینگ، سایز ۴۲ +۲');
+    expect(c.querySelector('.pill')!.textContent).toBe('ارسال شد');
+    expect(c.querySelector('.pill')!.classList.contains('done')).toBe(false);
+    expect(Array.from(c.querySelectorAll('.steps li')).map((li) => li.textContent)).toEqual(['ثبت', 'آماده‌سازی', 'ارسال', 'تحویل']);
+    expect(steps(c)).toEqual(['ok', 'ok', 'now@', '']);
+    expect(c.querySelector('.steps')!.getAttribute('style')).toBe('--f:0.667');
+    expect(c.querySelector('ol.steps')).not.toBeNull();
+  });
+
+  it('draws every status with its copy, step and look; completed is all four done', () => {
+    const cases: Array<[Vm, string, string[] | null, boolean]> = [
+      [{ status: 'pending', step: 0 }, 'در انتظار پرداخت', ['now@', '', '', ''], false],
+      [{ status: 'on_hold', step: 0 }, 'در انتظار بررسی', ['now@', '', '', ''], false],
+      [{ status: 'processing', step: 1 }, 'در حال آماده‌سازی', ['ok', 'now@', '', ''], false],
+      [{ status: 'shipped', step: 2 }, 'ارسال شد', ['ok', 'ok', 'now@', ''], false],
+      [{ status: 'completed', step: 3 }, 'تکمیل شد', ['ok', 'ok', 'ok', 'ok'], true],
+      [{ status: 'cancelled', step: null }, 'لغو شد', null, true],
+      [{ status: 'refunded', step: null }, 'مسترد شد', null, true],
+      [{ status: 'failed', step: null }, 'ناموفق', null, true],
+    ];
+    for (const [order, pill, st, done] of cases) {
+      const c = card(order)!;
+      expect(c.querySelector('.pill')!.textContent, String(order.status)).toBe(pill);
+      expect(c.querySelector('.pill')!.classList.contains('done'), String(order.status)).toBe(done);
+      if (st) expect(steps(c), String(order.status)).toEqual(st);
+      else expect(c.querySelector('.steps'), String(order.status)).toBeNull();
+    }
+    expect(card({ status: 'completed', step: 3 })!.querySelector('.steps')!.getAttribute('style')).toBe('--f:1');
+    // A store's own status name wins; an unknown status without one has no pill.
+    expect(card({ status: 'unknown', statusLabel: 'در صف ارسال', step: null })!.querySelector('.pill.done')!.textContent).toBe('در صف ارسال');
+    expect(card({ status: 'unknown', step: null })!.querySelector('.pill')).toBeNull();
+    expect(card({ status: 'constructor', step: 1 })!.querySelector('.pill')).toBeNull();
+  });
+
+  it('shows the item line, the delivery day and the tracking link only when present', () => {
+    const bare = card({})!;
+    expect(bare.querySelector('.tt small')).toBeNull();
+    expect(bare.querySelector('.ft')).toBeNull();
+    const link = card({ trackingUrl: 'https://post.ir/track?id=1&x=2' })!.querySelector('.ft a.trk')!;
+    expect(link.getAttribute('href')).toBe('https://post.ir/track?id=1&x=2');
+    expect(r().messagesHtml({ messages: [ORDER({ trackingUrl: 'https://post.ir/track?id=1&x=2' })] }, undefined, {})).toContain('href="https://post.ir/track?id=1&amp;x=2"');
+    expect([link.getAttribute('target'), link.getAttribute('rel')]).toEqual(['_blank', 'noopener noreferrer']);
+    expect(link.textContent).toBe('پیگیری مرسوله');
+    expect(card({ more: 3 })!.querySelector('.tt small')).toBeNull();
+  });
+
+  it('never links an unsafe address, and escapes every field', () => {
+    for (const url of ['javascript:alert(1)', 'data:text/html,x', '/relative', 'https://a b.ir', 'https://x.ir/"><img src=x>', "https://x.ir/'x", 'https://x.ir/' + 'a'.repeat(500)]) {
+      expect(card({ trackingUrl: url })!.querySelector('a'), url).toBeNull();
+    }
+    const evil = '<img src=x onerror=1>';
+    const c = card({ number: evil, summary: evil, statusLabel: evil, status: 'unknown', arrives: evil })!;
+    expect(c.querySelector('img')).toBeNull();
+    expect(c.querySelector('.tt b')!.textContent).toBe('سفارش <img src=x onerror=۱>');
+    expect(c.querySelector('.tt small')!.textContent).toBe(evil);
+    expect(c.querySelector('.pill')!.textContent).toBe(evil);
+    expect(c.querySelector('.ft')).toBeNull();
+  });
+
+  describe('the delivery day', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    it('is the weekday within six days, else the day and month; past or unreadable days are not shown', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 9, 18, 10, 0));
+      const day = (iso: string, locale = 'fa') => card({ arrives: iso }, locale)?.querySelector('.ft span');
+      const weekday = (d: number, tag: string) => new Intl.DateTimeFormat(tag, { weekday: 'long' }).format(new Date(2026, 9, 18 + d, 12));
+      expect(day('2026-10-22')!.textContent).toBe('تحویل: ' + weekday(4, 'fa-IR-u-ca-persian'));
+      expect(day('2026-10-22')!.querySelector('b')!.textContent).toBe(weekday(4, 'fa-IR-u-ca-persian'));
+      expect(day('2026-10-18')!.textContent).toBe('تحویل: ' + weekday(0, 'fa-IR-u-ca-persian'));
+      expect(day('2026-11-16')!.textContent).toBe('تحویل: ' + new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long' }).format(new Date(2026, 10, 16, 12)));
+      expect(day('2026-10-22', 'en')!.textContent).toBe('Arrives ' + weekday(4, 'en-US'));
+      expect(day('2026-10-22', 'tr')!.textContent).toBe('Teslimat: ' + weekday(4, 'tr-TR'));
+      expect(day('2026-10-17')).toBeFalsy();
+      expect(day('soon')).toBeFalsy();
+      // The day alone (no link) still gets its footer, with the truck.
+      expect(card({ arrives: '2026-10-20' })!.querySelector('.ft svg')).not.toBeNull();
+    });
+  });
+
+  it('speaks en and tr, left to right', () => {
+    const en = card({ summary: 'Running shoes', more: 1, trackingUrl: 'https://t.example/1' }, 'en')!;
+    expect(en.querySelector('.tt b')!.textContent).toBe('Order 48213');
+    expect(en.querySelector('.tt small')!.textContent).toBe('Running shoes +1');
+    expect(Array.from(en.querySelectorAll('.steps li')).map((li) => li.textContent)).toEqual(['Placed', 'Packed', 'Shipped', 'Delivered']);
+    expect(en.querySelector('.trk')!.textContent).toBe('Track package');
+    expect(parse(r('en').messagesHtml({ messages: [ORDER({})] }, undefined, {})).firstElementChild!.closest('[dir]')).toBeNull();
+    const tr = card({ status: 'completed', step: 3 }, 'tr')!;
+    expect(tr.querySelector('.tt b')!.textContent).toBe('Sipariş 48213');
+    expect(tr.querySelector('.pill')!.textContent).toBe('Tamamlandı');
+  });
+
+  it('is the text only before the extras, without the capability, on a visitor\'s message or without a number', () => {
+    const none = (h: string) => expect(parse(h).querySelector('.card')).toBeNull();
+    none(make({ capabilities: SERVED }).messagesHtml({ messages: [ORDER({})] }, undefined, {}));
+    none(withExtras(make({ capabilities: { ...SERVED, orderCard: false } })).messagesHtml({ messages: [ORDER({})] }, undefined, {}));
+    none(r().messagesHtml({ messages: [ORDER({}, { sender: 'visitor', senderType: 'contact' })] }, undefined, {}));
+    none(r().messagesHtml({ messages: [ORDER({ number: '' })] }, undefined, {}));
+    none(r().messagesHtml({ messages: [msg({ metadata: { kind: 'order_status' } })] }, undefined, {}));
+    // The text is there in every case.
+    expect(parse(make({ capabilities: SERVED }).messagesHtml({ messages: [ORDER({})] }, undefined, {})).querySelector('.msg-text')!.textContent)
+      .toBe('سلام علی! سفارشتان امروز صبح ارسال شد.');
+  });
+
+  it('is in the page while the answer types out, hidden by the stylesheet until it is done', () => {
+    const m = ORDER({});
+    const h = parse(r().messagesHtml({ messages: [m] }, undefined, { typewriter: { id: m.__id, tokens: ['سلام', ' علی'], revealedCount: 1 } }));
+    expect(h.querySelector('[data-typing-active]')).not.toBeNull();
+    expect(h.querySelector('.card')).not.toBeNull();
+    expect(T2_CSS).toContain('.msg-col:has([data-typing-active]) .card { display: none; }');
+    expect(T2_CSS).toContain('.no-enter .card, .no-enter .steps::after { animation: none; }');
+    // The track's fill and the current step's pulse, both directions.
+    expect(T2_CSS).toContain("[dir='rtl'] .steps::after { transform-origin: right; }");
+    expect(T2_CSS).toMatch(/@keyframes t2-now \{/);
+    expect(T2_CSS).toMatch(/@keyframes t2-fill \{/);
+  });
+});
+
+describe('t2: the track-order row (01·01, 01·03; `config.commerce.trackOrder`)', () => {
+  const STORE = { commerce: { trackOrder: true } };
+  const home = (vm: Vm, config: Vm = STORE, locale = 'fa') => parse(make({ locale, config, capabilities: SERVED })
+    .homeHtml({ rtl: locale === 'fa', isOnline: true, chatEnabled: true, kbEnabled: true, ...vm }));
+  const rows = (h: Element) => Array.from(h.querySelectorAll('.list > .r')).map((b) => b.querySelector('.t1')!.textContent);
+
+  it('comes after the help center, its first message the localized «پیگیری سفارشم» (a topic Core sends)', () => {
+    const h = home({});
+    expect(rows(h)).toEqual(['مرکز راهنما', 'پیگیری سفارش']);
+    const row = h.querySelector('.r[data-home-action="track-order"]')!;
+    expect(row.getAttribute('data-topic')).toBe('پیگیری سفارشم');
+    expect(row.querySelector('.t2x')!.textContent).toBe('وضعیت سفارشتان را همین‌جا بپرسید');
+    expect(row.querySelector('.it svg')).not.toBeNull();
+    expect(row.querySelector('.ch')).not.toBeNull();
+  });
+
+  it('is there while the team is away (01·03)', () => {
+    expect(rows(home({ isOnline: false }))).toEqual(['مرکز راهنما', 'پیگیری سفارش']);
+  });
+
+  it('is only for a store that answers order questions, with the chat on', () => {
+    expect(home({}, {}).querySelector('[data-home-action="track-order"]')).toBeNull();
+    expect(home({}, { commerce: { trackOrder: 'yes' } }).querySelector('[data-home-action="track-order"]')).toBeNull();
+    expect(home({ chatEnabled: false }).querySelector('[data-home-action="track-order"]')).toBeNull();
+  });
+
+  it('keeps the rows at three: a returning visitor (01·02) has no room for it', () => {
+    const conv = { id: 'c1', status: 'open', preview: 'سلام', operatorName: 'سارا' };
+    expect(rows(home({ conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'گفتگوهای شما', 'مرکز راهنما']);
+    expect(rows(home({ kbEnabled: false, conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'گفتگوهای شما', 'پیگیری سفارش']);
+  });
+
+  it('speaks en and tr', () => {
+    const en = home({}, STORE, 'en').querySelector('[data-home-action="track-order"]')!;
+    expect([en.querySelector('.t1')!.textContent, en.querySelector('.t2x')!.textContent, en.getAttribute('data-topic')])
+      .toEqual(['Track an order', 'Ask about your order here', 'Track my order']);
+    const tr = home({}, STORE, 'tr').querySelector('[data-home-action="track-order"]')!;
+    expect([tr.querySelector('.t1')!.textContent, tr.querySelector('.t2x')!.textContent, tr.getAttribute('data-topic')])
+      .toEqual(['Sipariş takibi', 'Siparişinizi buradan sorun', 'Siparişimi takip et']);
+  });
+});
+
+describe('t2: help articles while the first message is written (02·06, extras, feature `instantAnswers`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const A = (slug: string, title: string, matches: string[], readingMinutes: number | null = 2) => ({ slug, title, snippet: '', matches, readingMinutes });
+
+  it('is a labelled region (no live region) with at most two rows that open their article', () => {
+    const t = parse(r().kbSuggestHtml({ results: [A('returns', 'شرایط مرجوعی کالا', ['مرجوعی']), A('refund', 'بازگشت وجه بعد از مرجوعی چقدر طول می‌کشد؟', ['مرجوعی'], 1), A('x', 'سوم', [])] }));
+    const tray = t.querySelector('.tray[data-kb-suggest][role="region"]')!;
+    expect(tray.getAttribute('aria-labelledby')).toBe('kbs-h');
+    expect(tray.querySelector('#kbs-h')!.textContent).toBe('پاسخ‌های آماده از مرکز راهنما');
+    expect(tray.hasAttribute('aria-live')).toBe(false);
+    const rows = Array.from(tray.querySelectorAll('button.ta[data-kb-action="open"]'));
+    expect(rows.map((b) => b.getAttribute('data-kb-slug'))).toEqual(['returns', 'refund']);
+    expect(rows.map((b) => b.querySelector('small')!.textContent)).toEqual(['۲ دقیقه مطالعه', '۱ دقیقه مطالعه']);
+    expect(rows[0].querySelector('.tt')!.innerHTML).toBe('شرایط <mark>مرجوعی</mark> کالا');
+  });
+
+  it('marks the matched words escaped, regex characters included; nothing for no results', () => {
+    const t = parse(r().kbSuggestHtml({ results: [A('"><x', '<b>ارسال</b> با c++ و (کد)', ['ارسال', 'c++', '(کد)', 'x'])] }));
+    const row = t.querySelector('[data-kb-slug]')!;
+    expect(row.getAttribute('data-kb-slug')).toBe('"><x');
+    expect(row.querySelector('.tt b')).toBeNull();
+    expect(Array.from(row.querySelectorAll('mark')).map((m) => m.textContent)).toEqual(['ارسال', 'c++', '(کد)']);
+    expect(row.querySelector('.tt')!.textContent).toBe('<b>ارسال</b> با c++ و (کد)');
+    expect(r().kbSuggestHtml({ results: [] })).toBe('');
+    expect(r().kbSuggestHtml({ results: [{ slug: '', title: 'x' }] })).toBe('');
+    expect(parse(r().kbSuggestHtml({ results: [A('a', 'x', [], null)] })).querySelector('small')).toBeNull();
+    expect(make({ capabilities: SERVED }).kbSuggestHtml({ results: [A('a', 'x', [])] })).toBe('');
+  });
+
+  it('speaks en and tr', () => {
+    expect(parse(r('en').kbSuggestHtml({ results: [A('a', 'Returns', [], 3)] })).querySelector('h4')!.textContent).toBe('Answers from the help center');
+    expect(parse(r('en').kbSuggestHtml({ results: [A('a', 'Returns', [], 3)] })).querySelector('small')!.textContent).toBe('3 min read');
+    expect(parse(r('tr').kbSuggestHtml({ results: [A('a', 'İade', [], 3)] })).querySelector('h4')!.textContent).toBe('Yardım merkezinden yanıtlar');
+  });
+
+  it('has its look in the stylesheet, out of the frame Core builds', () => {
+    expect(T2_CSS).toMatch(/\.tray \{ margin: 0 12px 8px;/);
+    expect(parse(make({ capabilities: SERVED }).chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG })).querySelector('[data-kb-suggest]')).toBeNull();
+  });
+});
+
+describe('t2: help search results with the server\'s snippet and matches (03·07)', () => {
+  const results = (rs: Vm[], query = 'ارسال') => parse(make({ capabilities: SERVED }).kbHtml({ state: 'results', query, results: rs }));
+
+  it('shows the snippet over the summary, the matched words marked (escaped)', () => {
+    const h = results([{ slug: 'a', title: 'زمان و هزینه ارسال', excerpt: 'خلاصه', snippet: '…هزینه‌ی ارسال برای خریدهای بالای ۲ میلیون…', matches: ['ارسال'] }]);
+    const item = h.querySelector('[data-kb-slug="a"]')!;
+    expect(item.querySelector('small')!.innerHTML).toBe('…هزینه‌ی <mark>ارسال</mark> برای خریدهای بالای ۲ میلیون…');
+    expect(item.querySelector('.tt mark')!.textContent).toBe('ارسال');
+  });
+
+  it('keeps the summary and the query\'s words without them, and escapes both', () => {
+    const plain = results([{ slug: 'a', title: 'ارسال', excerpt: '<img src=x> ارسال' }]);
+    expect(plain.querySelector('small')!.innerHTML).toBe('&lt;img src=x&gt; <mark>ارسال</mark>');
+    const evil = results([{ slug: 'a', title: 't', snippet: '<img src=x onerror=1>', matches: ['img', '['] }], 'zz');
+    expect(evil.querySelector('small img')).toBeNull();
+    expect(evil.querySelector('small mark')!.textContent).toBe('img');
+  });
+});
+
+describe('t2: an article\'s author (03·08, feature `kbAuthor`)', () => {
+  const am = (article: Vm, locale = 'fa') => parse(make({ locale, capabilities: SERVED }).kbArticleHtml({ article: { title: 'چطور', contentHtml: '', ...article } })).querySelector('.am');
+
+  it('draws the initial on its tile and the name, then the reading time', () => {
+    const line = am({ author: 'سارا', readingMinutes: 2 })!;
+    const spans = Array.from(line.children);
+    expect(spans.map((s) => s.textContent)).toEqual(['سسارا', '۲ دقیقه مطالعه']);
+    expect(spans[0].querySelector('.av.s24[aria-hidden="true"]')!.textContent).toBe('س');
+    expect(am({ author: 'سارا' })!.children).toHaveLength(1);
+  });
+
+  it('draws nothing of it without a name, and escapes it', () => {
+    expect(am({ author: ' ', readingMinutes: 2 })!.querySelector('.av')).toBeNull();
+    expect(am({})).toBeNull();
+    const evil = am({ author: '<img src=x onerror=1>' })!;
+    expect(evil.querySelector('img')).toBeNull();
+    expect(evil.textContent).toBe('<<img src=x onerror=1>');
+  });
+});
+
+describe('t2: a download\'s progress (feature `dlProgress`, the stylesheet\'s)', () => {
+  it('draws an arc from the top on the download control and the voice note\'s play button, in place of the spinner', () => {
+    const rule = /\.dl-on\.msg-att-action::after, \.dl-on \.wy-ap-play::after \{([^}]*)\}/.exec(T2_CSS)![1];
+    expect(rule).toContain('conic-gradient(currentColor calc(var(--dl, 0) * 360deg), transparent 0)');
+    expect(rule).toContain('animation: none');
+    expect(T2_CSS).toContain('.dl-on .wy-ap-spinner { display: none; }');
   });
 });

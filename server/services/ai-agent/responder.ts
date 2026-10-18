@@ -14,6 +14,7 @@ import {
 import { ensureOutboundIntent } from '../channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from '../channels/telegram/offlineDelivery.js';
 import { resolveWorkspaceAgentLogoUrl, type AgentSettings } from './settings.js';
+import type { OrderStatusCard } from './commerce-tools/orderCard.js';
 
 export interface InsertAiMessageInput {
   workspaceId: string;
@@ -32,6 +33,12 @@ export interface InsertAiMessageInput {
   agentLogoUrl?: string | null;
   /** Answer-strategy decision type — read back by the retrieval query builder. */
   decisionType?: string | null;
+  /**
+   * The order this reply answered about (commerce-tools/orderCard.ts). Stored
+   * as `metadata.kind = 'order_status'` + `metadata.order`; without one the
+   * metadata is exactly what it always was.
+   */
+  orderCard?: OrderStatusCard | null;
 }
 
 export async function insertAiMessage(
@@ -65,6 +72,9 @@ export async function insertAiMessage(
     decision_type: input.decisionType ?? null,
     answer_strategy: { decision_type: input.decisionType ?? null },
     ...(offlineScreenQueued ? { channel_delivery_skip: 'true', telegram_offline_screen: true } : {}),
+    // Only templates that draw the card read these; every other reader (the
+    // default widget, the inbox, channels, the apps) shows the body.
+    ...(input.orderCard ? { kind: 'order_status', order: input.orderCard } : {}),
   };
 
   const { data: row, error } = await sb

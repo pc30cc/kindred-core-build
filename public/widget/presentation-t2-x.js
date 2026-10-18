@@ -50,17 +50,31 @@
  *                         "no thanks") }. Hooks: [data-fb=email], [data-fb-submit] (the
  *                         form's submit), [data-fb-status], [data-fb-skip], and
  *                         [data-ph-away] (the composer's placeholder meanwhile).
+ *   orderCardHtml(o)      an AI answer's order card (`metadata.kind` 'order_status', drawn
+ *                         under the answer's text): o = `metadata.order` = { v: 1, number,
+ *                         summary, more, status ('pending' | 'on_hold' | 'processing' |
+ *                         'shipped' | 'completed' | 'cancelled' | 'refunded' | 'failed' |
+ *                         'unknown'), statusLabel (the store's own name, preferred),
+ *                         step (0..3 | null: no progress), arrives ('YYYY-MM-DD' | null),
+ *                         trackingUrl }. The item line, the delivery day and the tracking
+ *                         link only when present; the link only to an http(s) address, in
+ *                         a new tab. Hidden by the stylesheet while the answer types out.
+ *   kbSuggestHtml(vm)     the help articles that answer a first message being written
+ *                         (feature `instantAnswers`, put above the composer by Core):
+ *                         vm = { results: [{ slug, title, matches (words), readingMinutes }] },
+ *                         two at most; '' for none. Hooks: [data-kb-suggest] (the tray),
+ *                         [data-kb-action="open"][data-kb-slug] (a row).
  */
 (function () {
   'use strict';
 
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (the names of docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore'.split(' ');
+  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore orderTitle orderStepPlaced orderStepPreparing orderStepShipped orderStepDelivered orderArrives orderTrackPackage orderStatusPending orderStatusOnHold orderStatusProcessing orderStatusShipped orderStatusCompleted orderStatusCancelled orderStatusRefunded orderStatusFailed simpleInstantAnswers'.split(' ');
   var DICT = {
-    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…',
-    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…',
-    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…',
+    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…|سفارش {number}|ثبت|آماده‌سازی|ارسال|تحویل|تحویل: {day}|پیگیری مرسوله|در انتظار پرداخت|در انتظار بررسی|در حال آماده‌سازی|ارسال شد|تکمیل شد|لغو شد|مسترد شد|ناموفق|پاسخ‌های آماده از مرکز راهنما',
+    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…|Order {number}|Placed|Packed|Shipped|Delivered|Arrives {day}|Track package|Awaiting payment|On hold|Processing|Shipped|Completed|Cancelled|Refunded|Failed|Answers from the help center',
+    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…|Sipariş {number}|Alındı|Hazırlanıyor|Kargoda|Teslim edildi|Teslimat: {day}|Kargoyu takip et|Ödeme bekleniyor|Beklemede|Hazırlanıyor|Kargoya verildi|Tamamlandı|İptal edildi|İade edildi|Başarısız|Yardım merkezinden yanıtlar',
   };
 
   // Icons this file adds (24px grid, as the renderer's ico()).
@@ -83,6 +97,16 @@
   // The design's heart (filled by the stylesheet where it is given).
   var HEART_ICON = P('M12 20.5s-7.5-4.6-7.5-10.1A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8c0 5.5-7.5 10.1-7.5 10.1z');
   var HEART = '\u2764\uFE0F';
+  // The instant answers' sparkle.
+  var SPARK = P('M12 3.5c.6 3.9 2.6 5.9 6.5 6.5-3.9.6-5.9 2.6-6.5 6.5-.6-3.9-2.6-5.9-6.5-6.5 3.9-.6 5.9-2.6 6.5-6.5z') + P('M18.5 15.5v4M16.5 17.5h4');
+  // An order's statuses: the copy key of each, and whether it is over (the quiet pill).
+  var ORDER_STATUS = {
+    pending: 'Pending', on_hold: 'OnHold', processing: 'Processing', shipped: 'Shipped',
+    completed: 'Completed', cancelled: 'Cancelled', refunded: 'Refunded', failed: 'Failed',
+  };
+  var ORDER_ACTIVE = { pending: 1, on_hold: 1, processing: 1, shipped: 1 };
+  var ORDER_STEPS = ['Placed', 'Preparing', 'Shipped', 'Delivered'];
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
   function create(H) {
     var esc = H.esc;
@@ -230,7 +254,81 @@
         '</div></div>';
     }
 
-    return { closedHtml: closedHtml, chatMenuHtml: chatMenuHtml, reactHtml: reactHtml, reactBtnHtml: reactBtnHtml, awayReplyHtml: awayReplyHtml };
+    // ── An AI answer's order card (`metadata.kind` 'order_status') ──
+    /** The day an order arrives: its weekday within six days, else its day and month; '' when past or unreadable. */
+    function dayLabel(iso) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+      if (!m) return '';
+      var d = new Date(+m[1], m[2] - 1, +m[3], 12);
+      var now = new Date();
+      var days = Math.round((d - new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)) / 864e5);
+      if (isNaN(days) || days < 0) return '';
+      var tag = H.lang === 'fa' ? 'fa-IR-u-ca-' + (H.config.calendar === 'gregorian' ? 'gregory' : 'persian') : H.lang === 'tr' ? 'tr-TR' : 'en-US';
+      try {
+        return new Intl.DateTimeFormat(tag, days < 7 ? { weekday: 'long' } : { day: 'numeric', month: 'long' }).format(d);
+      } catch (_) { return ''; }
+    }
+    /** Copy with one `{name}` filled by escaped bold text (the rest escaped too). */
+    function boldIn(key, name, value) {
+      var parts = XL(key).split('{' + name + '}');
+      return esc(parts[0]) + '<b>' + esc(value) + '</b>' + esc(parts[1] || '');
+    }
+    function orderCardHtml(o) {
+      var status = Object.prototype.hasOwnProperty.call(ORDER_STATUS, o.status) ? o.status : 'unknown';
+      var label = String(o.statusLabel || '').trim() || (status === 'unknown' ? '' : XL('orderStatus' + ORDER_STATUS[status]));
+      var title = XL('orderTitle', { number: H.digits(String(o.number)) });
+      var summary = String(o.summary || '').trim();
+      var more = Math.floor(Number(o.more)) || 0;
+      var step = status === 'completed' ? 3 : o.step === 0 || o.step === 1 || o.step === 2 || o.step === 3 ? o.step : -1;
+      var steps = '';
+      if (step >= 0) {
+        steps = '<ol class="steps" style="--f:' + (status === 'completed' ? 1 : (step / 3).toFixed(3)) + '">' + ORDER_STEPS.map(function (k, i) {
+          var done = i < step || status === 'completed';
+          var now = !done && i === step;
+          return '<li' + (done ? ' class="ok"' : now ? ' class="now" aria-current="step"' : '') + '><i></i>' + esc(XL('orderStep' + k)) + '</li>';
+        }).join('') + '</ol>';
+      }
+      var day = dayLabel(o.arrives);
+      var url = String(o.trackingUrl || '').trim();
+      var link = /^https?:\/\/[^\s"'<>\\]+$/i.test(url) && url.length <= 500
+        ? '<a class="trk" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(XL('orderTrackPackage')) + '</a>' : '';
+      return '<div class="msg-line"><div class="msg operator has-card"><div class="card" role="group" aria-label="' + esc(title) + '">' +
+        '<div class="ch1"><span class="th" aria-hidden="true">' + H.ico('box', 26, 1.6) + '</span>' +
+          '<span class="tt"><b>' + esc(title) + '</b>' + (summary ? '<small>' + esc(summary) + (more > 0 ? ' <bdi dir="ltr">+' + esc(H.fmtNum(more)) + '</bdi>' : '') + '</small>' : '') + '</span>' +
+          (label ? '<span class="pill' + (ORDER_ACTIVE[status] ? '' : ' done') + '">' + esc(label) + '</span>' : '') + '</div>' +
+        steps +
+        (day || link ? '<div class="ft">' + (day ? H.ico('truck', 18, 1.7) + '<span>' + boldIn('orderArrives', 'day', day) + '</span>' : '') + link + '</div>' : '') +
+      '</div></div></div>';
+    }
+
+    // ── Help articles while the first message is written (`instantAnswers`) ──
+    /** Escaped text with these words marked (escaped too). */
+    function marked(text, words) {
+      words = (Array.isArray(words) ? words : []).map(String).filter(function (w) { return w.length > 1; });
+      text = String(text || '');
+      if (!words.length) return esc(text);
+      return text.split(new RegExp('(' + words.map(escRe).join('|') + ')', 'gi')).map(function (p, i) {
+        return i % 2 ? '<mark>' + esc(p) + '</mark>' : esc(p);
+      }).join('');
+    }
+    function kbSuggestHtml(vm) {
+      var rows = ((vm && vm.results) || []).filter(function (a) { return a && a.slug && a.title; }).slice(0, 2);
+      if (!rows.length) return '';
+      return '<div class="tray" data-kb-suggest role="region" aria-labelledby="kbs-h"><h4 id="kbs-h">' + svg(SPARK, 16, 1.7) + esc(XL('simpleInstantAnswers')) + '</h4>' +
+        rows.map(function (a) {
+          var min = Math.floor(Number(a.readingMinutes)) || 0;
+          return '<button type="button" class="ta" data-kb-action="open" data-kb-slug="' + esc(a.slug) + '">' +
+            '<span class="it" aria-hidden="true">' + H.ico('book', 18, 1.7) + '</span>' +
+            '<span class="tx"><span class="tt">' + marked(a.title, a.matches) + '</span>' +
+              (min > 0 ? '<small>' + esc(H.L('read', { n: H.fmtNum(min) })) + '</small>' : '') + '</span>' +
+            H.ico('fwd', 18, 2, 'ch dirf') + '</button>';
+        }).join('') + '</div>';
+    }
+
+    return {
+      closedHtml: closedHtml, chatMenuHtml: chatMenuHtml, reactHtml: reactHtml, reactBtnHtml: reactBtnHtml, awayReplyHtml: awayReplyHtml,
+      orderCardHtml: orderCardHtml, kbSuggestHtml: kbSuggestHtml,
+    };
   }
 
   window.__gs_mod_extras = { id: 't2', v: 2, create: create };

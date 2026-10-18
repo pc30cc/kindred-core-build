@@ -362,9 +362,17 @@ async function insertRoutingSystemMessage(
 // before it (`metadata.queued_at`; every channel counts: it is the team's one
 // Unassigned queue), and the wait is that place times the workspace's moving
 // average of seconds per place (chat_queue_stats, sampled by 276's trigger
-// at each first assignment, from `queued_at` and `queue_entry_position`).
+// at each claim, from `queued_at` and `queue_entry_position`).
 // chat_queue_status() answers both; the partial index
 // conversations_manual_queue_idx makes it one short range read.
+//
+// A hand-back (an operator unassigns it, or a paused seat is released) puts
+// the conversation back in the queue at the place its `queued_at` keeps:
+// 276's trigger on the unassignment records when (`queue_reentered_at`) and
+// at which place (`queue_entry_position`), so the next claim's sample
+// measures this wait, not the time an operator held it; and the next routing
+// run posts a new `routing_in_queue` row (once per return,
+// `queue_return_notice_at`), so the visitor's queue pill comes back.
 
 /**
  * How long an earlier `queued_at` stays the conversation's entry into the
@@ -497,27 +505,40 @@ function notifyHandoffOnce(
 }
 
 /**
+ * Whether routing owes the visitor a new queue row for a hand-back: the
+ * conversation returned to the queue (`queue_reentered_at`, stamped by 276's
+ * trigger on the unassignment) and that return has not been announced yet.
+ * Pure; exported for its tests.
+ */
+export function queueReturnToAnnounce(metadata: Record<string, unknown>): string | null {
+  const returned = typeof metadata.queue_reentered_at === 'string' ? metadata.queue_reentered_at : null;
+  return returned && metadata.queue_return_notice_at !== returned ? returned : null;
+}
+
+/**
  * When `assignedTo`'s seat is paused by the plan, hands the conversation
  * back to the queue (only if it is still theirs) and announces it. Returns
- * true when it was released. Never throws.
+ * the conversation's metadata as the release left it (276's trigger stamps
+ * a queued conversation's return there), or null when nothing was released.
+ * Never throws.
  */
 async function releaseIfSeatLocked(
   config: ServerConfig,
   workspaceId: string,
   conversationId: string,
   assignedTo: string,
-): Promise<boolean> {
+): Promise<Record<string, unknown> | null> {
   try {
     const state = await resolveLockState(config, workspaceId, ['member']);
-    if (!isMemberLocked(state, assignedTo)) return false;
+    if (!isMemberLocked(state, assignedTo)) return null;
     const { data, error } = await getServiceClient(config)
       .from('conversations')
       .update({ assigned_to: null })
       .eq('id', conversationId)
       .eq('workspace_id', workspaceId)
       .eq('assigned_to', assignedTo)
-      .select('id');
-    if (error || !Array.isArray(data) || data.length === 0) return false;
+      .select('id, metadata');
+    if (error || !Array.isArray(data) || data.length === 0) return null;
     try {
       await publishOperatorEvent(config, {
         kind: 'conversation_updated',
@@ -529,10 +550,11 @@ async function releaseIfSeatLocked(
         updated_at: new Date().toISOString(),
       });
     } catch { /* best-effort */ }
-    return true;
+    const released = (data[0] as { metadata?: unknown }).metadata;
+    return released && typeof released === 'object' && !Array.isArray(released) ? released as Record<string, unknown> : {};
   } catch (err) {
     console.warn('[chat-routing] seat-lock release failed:', err instanceof Error ? err.message : err);
-    return false;
+    return null;
   }
 }
 
@@ -554,12 +576,17 @@ export async function routeConversationToOperator(
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
     if (!conv) return { outcome: 'error', assignedTo: null };
-    const metadata = ((conv as { metadata?: Record<string, unknown> | null }).metadata || {}) as Record<string, unknown>;
+    let metadata = ((conv as { metadata?: Record<string, unknown> | null }).metadata || {}) as Record<string, unknown>;
 
     // Held by a member whose seat the plan paused: back to the queue, and
-    // routed below like any unassigned conversation.
-    if (conv.assigned_to && await releaseIfSeatLocked(config, args.workspaceId, args.conversationId, conv.assigned_to as string)) {
+    // routed below like any unassigned conversation (from the metadata the
+    // release left, which holds a queued conversation's return stamp).
+    const released = conv.assigned_to
+      ? await releaseIfSeatLocked(config, args.workspaceId, args.conversationId, conv.assigned_to as string)
+      : null;
+    if (released) {
       (conv as { assigned_to: string | null }).assigned_to = null;
+      metadata = { ...metadata, ...released };
     }
 
     if (conv.assigned_to) {
@@ -603,15 +630,19 @@ export async function routeConversationToOperator(
       // conversation entered it. Saved before the visitor's queue row is
       // published, so the widget's first read of its place already finds it.
       const queuedAt = queueEntryStamp(metadata);
+      // Handed back since its last notice: the visitor waits again, and is
+      // told so again (once per return).
+      const returned = queueReturnToAnnounce(metadata);
       await tagOutcome(
         config, args.workspaceId, args.conversationId, metadata, 'manual_queue',
         {
           ...(noticeAlreadySent ? {} : { routing_notice_sent: true }),
           ...(queuedAt ? { queued_at: queuedAt } : {}),
+          ...(returned ? { queue_return_notice_at: returned } : {}),
         },
       );
       if (queuedAt) await recordQueueEntryPosition(config, args.workspaceId, args.conversationId);
-      if (!noticeAlreadySent) {
+      if (!noticeAlreadySent || returned) {
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
           'Your message is in the support queue.',

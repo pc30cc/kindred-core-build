@@ -131,18 +131,30 @@ templates: `docs/operations/EDITIONS.md`.
   order instead) put them on the page before painting.
   `src/test/widget/runtimeExt.test.ts` checks who asks and when, the
   all-or-nothing rule and the one repaint. Sizes on 2026-10-18, after issue
-  #340's rounds 1–3 (gzip 5, as shipped, both brands): runtime.js 54.8 KB
+  #340's rounds 1–4 (gzip 5, as shipped, both brands): runtime.js 54.8 KB
   (+0.2 KB for the issue so far: round 2's closed-row guards, the hook
-  points `send`, `away`, `inline`, `reaction`, the typing payload and the
-  capability flips), runtime-ext.js
-  7.2 KB (of 8; the pack's loader, the late module's API, those hooks' own
-  empty handlers and the typing name), runtime-late.js 8.2 KB (of 12: the
-  rating card, the chat bar's menu, reactions, the pre-chat one question at
-  a time, the message left while away, the place in the queue),
-  presentation-t1-x.js 4.7 KB and presentation-t2-x.js 4.0 KB (of 12 each;
-  t1's emoji grid and every late surface, out of the first paint); the
-  renderers keep their first-open budgets (t1 19.3 KB, t2 19.6 KB in the
-  Iranian build, 19.2 / 19.4 KB in RESPOK's, of 20).
+  points `send`, `away`, `inline`, `reaction`, `kbMeta`, `media`, the typing
+  payload and the capability flips), runtime-ext.js
+  7.3 KB (of 8; the pack's loader, the late module's API, those hooks' own
+  empty handlers, the typing name and an article's author), runtime-late.js
+  10.3 KB (of 12: the rating card, the chat bar's menu, reactions, the
+  pre-chat one question at a time, the message left while away, the place
+  in the queue, the help articles offered while a first message is written,
+  a download's progress, the emoji search), presentation-t1-x.js 4.8 KB and
+  presentation-t2-x.js 5.9 KB (of 12 each; t1's emoji grid and its search
+  field, t2's order card and articles tray, every late surface, out of the
+  first paint); the renderers keep their first-open budgets (t1 19.4 KB,
+  t2 19.9 KB in the Iranian build, 19.3 / 19.8 KB in RESPOK's, of 20: t2
+  has 62 B left, so its next surface goes in its extras).
+- The emoji search's keywords (`public/widget/runtime-emoji.js`, ModuleLoader
+  name `emoji`, `config.modules.emoji` for a template with `coreFeatures`):
+  pure data (the renderer rules apply: no network, storage or host), the
+  words in English, Persian and Turkish of every emoji t1 and Core draw,
+  from the Unicode CLDR annotations (Unicode License v3, noted in its
+  header) with the Persian reviewed. runtime-late.js asks for it on the
+  search field's first use only, so a visitor who never searches never
+  downloads it; 3.8 KB of a 4 KB budget. An emoji added to a picker gets
+  its words there too (`emojiSearch.test.ts` checks every one).
 - A feature's server data is sent on request only, so the API serves
   `default` as before: the thread list's and a history's assigned operator
   (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
@@ -239,6 +251,7 @@ one is a decision, with the reason in the commit and here.
 | chat `runtime-late.js` | 12 KB | after the first paint of a template with extras |
 | chat renderer extras (each `presentation-<renderer>-x.js`; not in the template total) | 12 KB | after the first paint |
 | chat `runtime-fab.css` (when it exists) | 2 KB | page views of a workspace wearing a launcher style |
+| chat `runtime-emoji.js` | 4 KB | the emoji search's first use |
 | call `l.js` | 3 KB | every page view |
 | call `runtime.css` | 5 KB | first page view |
 | call presentation | 10 KB | first page view |

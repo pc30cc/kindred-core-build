@@ -100,6 +100,12 @@ import {
 import { PLATFORM_STATUS_UNAVAILABLE } from '../ai-agent/platformGuards.js';
 import { loadEffectiveCallChannels, type EffectiveCallChannels } from '../calls/controlPlane.js';
 import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../platformRegion.js';
+import { listWorkspaceConnections } from '../commerce/connectionSelection.js';
+import { getProviderDescriptor } from '../commerce/connectors/registry.js';
+import { isDirectProvider } from '../commerce/providers.js';
+import { getOpenCartPolicy } from '../commerce/opencartPolicy.js';
+import type { CommerceConnectionRow } from '../commerce/gateway.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Defaults and pre-chat policy (moved from server/routes/widget.ts)
@@ -397,6 +403,7 @@ const DEGRADED_TTL_MS = 5_000;
 const NEGATIVE_TTL_MS = 15_000;
 const PLATFORM_TTL_MS = 30_000;
 const QUOTA_TTL_MS = 60_000;
+const STORE_ORDERS_TTL_MS = 60_000;
 const DEFAULT_MAX_ENTRIES = 2000;
 const DEFAULT_REBUILDS_PER_SEC = 25;
 
@@ -929,6 +936,99 @@ export function getQuotaFull(config: ServerConfig, workspaceId: string): Promise
   return quotaCache.get(key, () => resolveConversationQuotaFull(config, key));
 }
 
+// ─── Track order (t2 home row): `config.commerce` ──────────────────────
+
+/** Healths in which the gateway (or the store) refuses every call. */
+const UNUSABLE_STORE_HEALTH: ReadonlySet<string> = new Set([
+  'disconnected', 'protocol_mismatch', 'plugin_outdated', 'stale_origin', 'authentication_error',
+]);
+
+/**
+ * Can this connection answer the track-order row's message (an order-status
+ * question about the visitor's latest order)? The plan entitlement that turn
+ * needs, or null: the same gates the AI's commerce stage meets on that turn
+ * (commerce-tools/runner.ts, directRunner.ts, commerce/gateway.ts), read
+ * from the row alone.
+ *
+ *  - a store-family provider (WHMCS is billing: no), not revoked, in a
+ *    health the gateway accepts, with `orders.read` negotiated;
+ *  - the owner allows orders, and, for an indexed store (WooCommerce), the
+ *    customer's order history (the latest-order read) on a synced catalogue;
+ *  - a direct store (OpenCart) only while the platform's OpenCart policy is
+ *    on and does not switch orders off.
+ */
+export function trackOrderEntitlementFor(
+  row: Pick<CommerceConnectionRow, 'provider_type' | 'revoked_at' | 'health' | 'capabilities' | 'permissions' | 'catalog_ready'> | null | undefined,
+  openCartPolicy: { enabled: boolean; sections: Record<string, boolean> } | null,
+): 'commerce_customer_history' | 'commerce_orders' | null {
+  if (!row || row.revoked_at) return null;
+  const descriptor = getProviderDescriptor(String(row.provider_type ?? ''));
+  if (!descriptor || descriptor.family !== 'store') return null;
+  if (UNUSABLE_STORE_HEALTH.has(String(row.health ?? ''))) return null;
+  if (!Array.isArray(row.capabilities) || !row.capabilities.includes('orders.read')) return null;
+  const permissions = (row.permissions ?? {}) as Record<string, unknown>;
+  if (permissions.orders !== true) return null;
+  if (isDirectProvider(row.provider_type)) {
+    if (!openCartPolicy?.enabled || openCartPolicy.sections.orders === false) return null;
+    return 'commerce_orders';
+  }
+  if (row.catalog_ready !== true || permissions.customer_history !== true) return null;
+  return 'commerce_customer_history';
+}
+
+interface StoreOrdersAnswer {
+  trackOrder: boolean;
+  /** A read failed: answered "no row" for a few seconds only. */
+  degraded: boolean;
+}
+
+const storeOrdersCache = new MemoCache<StoreOrdersAnswer>({
+  name: 'widget-store-orders',
+  enabled: cachingEnabled,
+  ttlMs: (answer) => capped(answer.degraded ? DEGRADED_TTL_MS : STORE_ORDERS_TTL_MS),
+  serveStale: (answer) => !answer.degraded,
+  max: maxEntries,
+});
+
+async function resolveStoreOrders(config: ServerConfig, workspaceId: string): Promise<StoreOrdersAnswer> {
+  try {
+    const rows = await listWorkspaceConnections(config, workspaceId);
+    if (!rows.length) return { trackOrder: false, degraded: false };
+    const policy = rows.some((r) => isDirectProvider(r.provider_type)) ? await getOpenCartPolicy(config) : null;
+    const features = new Set<string>();
+    for (const row of rows) {
+      const feature = trackOrderEntitlementFor(row, policy);
+      if (feature) features.add(feature);
+    }
+    if (!features.size) return { trackOrder: false, degraded: false };
+    const entitled = (feature: string) => checkEntitlementFromDB(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, feature, {
+      selfHostBillingUnlimited: config.selfHostBillingUnlimited,
+    }).then((r) => r.allowed === true);
+    const [moduleOk, ...featureOk] = await Promise.all([entitled('commerce'), ...[...features].map(entitled)]);
+    return { trackOrder: moduleOk && featureOk.some(Boolean), degraded: false };
+  } catch (err) {
+    console.warn('[widget-config] store order check failed:', err instanceof Error ? err.message : err);
+    return { trackOrder: false, degraded: true };
+  }
+}
+
+/**
+ * Whether the workspace has a store the AI can answer "track my order" for
+ * (trackOrderEntitlementFor + the plan), cached 60 s per workspace and
+ * dropped on `widget:<ws>` (published on a connection's disconnect,
+ * permission change and pairing; health flips ride the TTL). Never throws:
+ * any failure reads as false.
+ */
+export async function getStoreOrders(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  const key = cacheKey(workspaceId);
+  if (!key) return false;
+  try {
+    return (await storeOrdersCache.get(key, () => resolveStoreOrders(config, key))).trackOrder;
+  } catch {
+    return false;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Per-request payloads (no I/O)
 // ═══════════════════════════════════════════════════════════════════════
@@ -1035,6 +1135,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     descriptor: templateDescriptor,
     options: templateOptions,
   } = resolveEffectiveChatTemplate(platform, edition, ws);
+  // The track-order row (t2 home): asked only for a template with Core
+  // features, so `default` / `intl` neither read commerce_connections nor
+  // carry the key.
+  const trackOrder = templateDescriptor?.coreFeatures ? await getStoreOrders(config, workspaceId) : false;
 
   const templateAssets = widgetTemplateAssetKeys(templateId);
   const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
@@ -1262,6 +1366,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     // Additive: the template's options (shared/chatTemplateCatalog.ts), `{}`
     // for a template without any (the Iranian `default`).
     templateOptions,
+    // Additive, only for a Core-features template whose workspace has a
+    // store that can answer order questions (getStoreOrders); absent
+    // otherwise, so other payloads are unchanged.
+    ...(trackOrder ? { commerce: { trackOrder: true } } : {}),
     presentationRegistryUrl: assetUrl(presentationRegistryJsName),
     presentationUrl: assetUrl(presentationJsName),
     presentationStyleUrl: assetUrl(presentationCssName),
@@ -1287,6 +1395,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       // `coreFeatures`): the loader fetches it with that template's files.
       // `default` and `intl` never get it, so their payload is as before.
       ...(templateDescriptor?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
+      // The emoji keyword data (runtime-emoji.js), requested by Core only
+      // when a visitor first uses the picker's search; Core-features
+      // templates only.
+      ...(templateDescriptor?.coreFeatures ? { emoji: assetUrl(getWidgetAssetName('runtime-emoji.js')) } : {}),
       // The late pack of such a template whose renderer has extras: the
       // extras and Core's late module, which runtime-ext.js requests after
       // the first paint (the loader never does). `default` and `intl` have
@@ -1393,9 +1505,11 @@ onInvalidate('widget', (workspaceId, { resync }) => {
     if (resync) {
       snapshots.expireAll();
       quotaCache.expireAll();
+      storeOrdersCache.expireAll();
     } else {
       snapshots.clear();
       quotaCache.clear();
+      storeOrdersCache.clear();
     }
     return;
   }
@@ -1403,6 +1517,7 @@ onInvalidate('widget', (workspaceId, { resync }) => {
   if (!key) return;
   snapshots.invalidate(key);
   quotaCache.invalidate(key);
+  storeOrdersCache.invalidate(key);
 });
 
 // A profile (name, avatar) or availability change: every snapshot whose
@@ -1426,12 +1541,13 @@ onInvalidate('platform', (_key, { resync }) => {
   __resetPlatformAiAgentSettingsCache();
 });
 
-/** Test-only — forget every snapshot, the platform snapshot and quota answers. */
+/** Test-only — forget every snapshot, the platform snapshot, quota and store-order answers. */
 export function __resetWidgetConfigCachesForTests(): void {
   snapshots.clear();
   platformCache.clear();
   lastGoodChatTemplates = null;
   quotaCache.clear();
+  storeOrdersCache.clear();
   rebuildGate.reset();
 }
 

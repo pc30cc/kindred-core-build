@@ -56,6 +56,8 @@ export const BUDGETS = {
     extras: 12_000,
     /** The launcher styles' stylesheet (runtime-fab.css), only for a workspace wearing one. */
     fab: 2_000,
+    /** The emoji search's keywords (runtime-emoji.js), on the search's first use (issue #340). */
+    emoji: 4_000,
   },
   call: {
     /** The call widget mounts at page load, so all of these are page-view bytes. */
@@ -322,6 +324,8 @@ describe('renderers reach no network, no storage and no other host', () => {
     ...callTemplates.map((t) => `${CALL_DIR}/${t.script}`),
     `${CHAT_DIR}/presentation-registry.js`,
     `${CALL_DIR}/presentation-registry.js`,
+    // Core's emoji keywords: pure data, held to the same rules.
+    `${CHAT_DIR}/runtime-emoji.js`,
   ]);
   for (const script of scripts) {
     it(script, () => {
@@ -374,10 +378,11 @@ describe('size budgets (minified as shipped, gzip level 5)', () => {
     });
   }
 
-  it(`Core's renderer features ≤ ${BUDGETS.chat.ext} B and late features ≤ ${BUDGETS.chat.late} B, in both builds`, () => {
+  it(`Core's renderer features ≤ ${BUDGETS.chat.ext} B, late features ≤ ${BUDGETS.chat.late} B and emoji keywords ≤ ${BUDGETS.chat.emoji} B, in both builds`, () => {
     for (const brand of ['iran', 'respok'] as const) {
       expect(shippedGzip(`${CHAT_DIR}/runtime-ext.js`, brand), `runtime-ext.js (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.ext);
       expect(shippedGzip(`${CHAT_DIR}/runtime-late.js`, brand), `runtime-late.js (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.late);
+      expect(shippedGzip(`${CHAT_DIR}/runtime-emoji.js`, brand), `runtime-emoji.js (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.emoji);
     }
   });
 

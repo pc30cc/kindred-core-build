@@ -361,6 +361,7 @@ export class WooCommerceConnector implements CommerceConnector {
     // still read for plugin builds that sent it.
     const trackingNumber = data.trackingNumber ?? data.tracking_number;
     const updatedAt = data.updatedAt ?? data.updated_at;
+    const estimatedDelivery = data.estimatedDelivery ?? data.estimated_delivery;
     return {
       externalOrderId: input.externalOrderId,
       carrier: sanitizeCommerceText(data.carrier, 80),
@@ -368,6 +369,9 @@ export class WooCommerceConnector implements CommerceConnector {
       trackingUrl: sanitizeUrl(data.trackingUrl ?? data.tracking_url),
       status: sanitizeCommerceText(data.status, 80),
       updatedAt: typeof updatedAt === 'string' ? updatedAt : null,
+      // Optional (no plugin build sends it yet): only the order card reads
+      // it, and only its leading YYYY-MM-DD (commerce-tools/orderCard.ts).
+      ...(typeof estimatedDelivery === 'string' ? { estimatedDelivery: estimatedDelivery.slice(0, 40) } : {}),
     };
   }
 
@@ -381,11 +385,18 @@ export class WooCommerceConnector implements CommerceConnector {
     return wireList(data?.orders, limit).map((item) => {
       const o = wire(item);
       const currency = typeof o.currency === 'string' ? o.currency : 'USD';
+      // item_summary / item_count are optional (plugin builds that send the
+      // first product line): read only by the order card, so an order
+      // without them answers exactly as before.
+      const itemSummary = sanitizeCommerceText(o.item_summary, 80);
+      const itemCount = Number(o.item_count);
       return {
         externalId: String(o.external_id ?? o.id ?? ''),
         status: (str(o.status) ?? 'unknown') as OrderStatus,
         total: toMoney(o.total, currency) ?? { amountMinor: '0', currency },
         createdAt: str(o.created_at) ?? new Date(0).toISOString(),
+        ...(itemSummary ? { itemSummary } : {}),
+        ...(itemSummary && Number.isInteger(itemCount) && itemCount > 0 ? { itemCount: Math.min(itemCount, 999) } : {}),
       };
     });
   }

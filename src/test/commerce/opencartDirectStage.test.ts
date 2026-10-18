@@ -321,3 +321,67 @@ it('store identity does not require catalog or private-order permissions', async
   expect(named(result, 'commerce.store')[0]).toMatchObject({ name: 'فروشگاه نمونه وب‌یار' });
   expect(calls.map(c => c.op)).toEqual(['store']);
 });
+
+describe('the order card (beside the evidence, never in it)', () => {
+  it('one order read by number: a card from that detail, and the evidence is what it always was', async () => {
+    link();
+    const r = await ask('status of order 5002');
+    expect(calls.map((c) => c.op)).toEqual(['order']);
+    expect(r.orderCard).toEqual({
+      v: 1, number: '5002', summary: null, more: 0, status: 'unknown', statusLabel: 'Packed', step: null, arrives: null, trackingUrl: null,
+    });
+    expect(named(r, 'commerce.order_details')[0]).toMatchObject({ order_id: '5002', status: 'Packed', status_category: 'other' });
+    expect(JSON.stringify(r.toolResults)).not.toMatch(/order_status|statusLabel|trackingUrl/);
+  });
+
+  it('with tracking asked for: the shipment makes it shipped and gives the link', async () => {
+    link();
+    const original = fakeConnector.getTrackingDirect;
+    const originalOrder = fakeConnector.getOrderDetail;
+    fakeConnector.getOrderDetail = async (c: unknown, cu: CustomerRef, id: string) => ({ ...(await originalOrder(c, cu, id)), status: { name: 'ارسال شده', category: 'processing' } });
+    fakeConnector.getTrackingDirect = async (_c: unknown, _cu: CustomerRef, id: string) => {
+      calls.push({ op: 'tracking', args: [id] });
+      return { externalOrderId: id, available: true, reason: null, shipments: [{ carrier: 'Post', trackingNumber: 'RR1', trackingUrl: 'https://tracking.post.ir/?id=RR1', status: null, updatedAt: null, source: 'ext' }], status: { name: 'ارسال شده', category: 'processing' } } as never;
+    };
+    try {
+      const r = await ask('where is order 5002? tracking number?');
+      expect(calls.map((c) => c.op)).toEqual(['order', 'tracking']);
+      expect(r.orderCard).toMatchObject({ number: '5002', status: 'shipped', step: 2, statusLabel: 'ارسال شده', trackingUrl: 'https://tracking.post.ir/?id=RR1' });
+      expect(named(r, 'commerce.tracking')[0]).toMatchObject({ tracking_available: true, tracking_number: 'RR1' });
+    } finally {
+      fakeConnector.getTrackingDirect = original;
+      fakeConnector.getOrderDetail = originalOrder;
+    }
+  });
+
+  it('a list of orders gets no card, even when the first order is read after it', async () => {
+    link();
+    const r = await ask('has my last order shipped? tracking number?');
+    expect(calls[0]).toMatchObject({ op: 'orders' });
+    expect(r.orderCard).toBeUndefined();
+    expect((await ask('show my orders')).orderCard).toBeUndefined();
+  });
+
+  it('«my last order» after a list is that one order: a card', async () => {
+    link();
+    await ask('show my orders');
+    calls.length = 0;
+    const r = await ask('has my last order shipped? tracking number?');
+    expect(calls.map((c) => c.op)).toEqual(['order', 'tracking']);
+    expect(r.orderCard).toMatchObject({ number: '5002', status: 'unknown', trackingUrl: null });
+  });
+
+  it('a follow-up on a listed order is one order: a card', async () => {
+    link();
+    await ask('show my orders');
+    calls.length = 0;
+    const r = await ask('what about the first one?');
+    expect(calls.map((c) => c.op)).toEqual(['order']);
+    expect(r.orderCard).toMatchObject({ number: '5002' });
+  });
+
+  it('no card without a signed-in customer, or for products', async () => {
+    expect((await ask('status of order 5002')).orderCard).toBeUndefined();
+    expect((await ask('do you have a macbook?')).orderCard).toBeUndefined();
+  });
+});

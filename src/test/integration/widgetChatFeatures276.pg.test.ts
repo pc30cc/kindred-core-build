@@ -19,9 +19,13 @@
  *   T5  chat_queue_status: the place by queued_at (then id), what does not
  *       count, no row for a conversation not waiting, the wait only from 3
  *       samples on, never above 180 minutes, never from stale stats;
- *   T6  the claim trigger samples the first assignment of a queued row only,
- *       averages and restarts after 14 idle days, and never fails the
- *       assignment nor makes it wait for a lock;
+ *   T6  the claim trigger samples a claim of a queued row only (measured
+ *       from its latest entry into the queue), averages and restarts after
+ *       14 idle days, and never fails the assignment nor makes it wait for a
+ *       lock;
+ *   T6b a hand-back keeps the place (queued_at) and records when and at
+ *       which place the conversation came back, in the same UPDATE; the next
+ *       claim is measured from there; anything else is no hand-back;
  *   T7  knowledge_base_articles.author_user_id: a validated key to profiles,
  *       set to NULL when the profile goes;
  *   T8  visitor_conversation_transcript: both editions in fa/en/tr; a re-run
@@ -175,11 +179,12 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
       `SELECT p.oid::regprocedure::text AS sig, p.prosecdef AS definer, p.proconfig AS config
          FROM pg_proc p
         WHERE p.pronamespace = 'public'::regnamespace
-          AND p.proname IN ('chat_queue_status', 'chat_queue_record_claim', 'tg_conversation_message_reactions_touch_message')
+          AND p.proname IN ('chat_queue_status', 'chat_queue_record_claim', 'chat_queue_record_return', 'tg_conversation_message_reactions_touch_message')
         ORDER BY 1`,
     );
     expect(fns).toEqual([
       { sig: 'chat_queue_record_claim()', definer: true, config: ['search_path=public, pg_temp', 'lock_timeout=100ms'] },
+      { sig: 'chat_queue_record_return()', definer: false, config: ['search_path=public, pg_temp'] },
       { sig: 'chat_queue_status(uuid,uuid)', definer: false, config: ['search_path=public, pg_temp'] },
       { sig: 'tg_conversation_message_reactions_touch_message()', definer: false, config: ['search_path=public, pg_temp'] },
     ]);
@@ -298,7 +303,21 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     // The partial index serves the count.
     const def = await one(`SELECT pg_get_indexdef('public.conversations_manual_queue_idx'::regclass) AS d`);
     expect(String(def.d)).toContain(`(workspace_id, ((metadata ->> 'queued_at'::text)))`);
-    expect(String(def.d)).toContain(`WHERE ((assigned_to IS NULL) AND ((metadata ->> 'routing_outcome'::text) = 'manual_queue'::text))`);
+    expect(String(def.d)).toContain(`WHERE ((assigned_to IS NULL) AND ((metadata ->> 'routing_outcome'::text) = 'manual_queue'::text)`
+      + ` AND (status = ANY (ARRAY['open'::conversation_status, 'pending'::conversation_status])) AND (is_spam = false))`);
+    // The place's count (chat_queue_status's own predicate) is served by it
+    // (seqscan off: the planner must find the index's predicate implied).
+    await q('BEGIN');
+    try {
+      await q('SET LOCAL enable_seqscan = off');
+      const pos = (await q(`EXPLAIN SELECT count(*) FROM public.conversations c
+         WHERE c.workspace_id = $1 AND c.assigned_to IS NULL AND (c.metadata->>'routing_outcome') = 'manual_queue'
+           AND (c.metadata->>'queued_at') <= '9999' AND c.status IN ('open', 'pending') AND c.is_spam = false`, [wq]))
+        .map((r) => String(r['QUERY PLAN'])).join('\n');
+      expect(pos).toContain('conversations_manual_queue_idx');
+    } finally {
+      await q('ROLLBACK');
+    }
   });
 
   it('T6 the claim trigger samples the first assignment of a queued row only, and never fails it nor holds it up', async () => {
@@ -381,6 +400,75 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
 
     const trg = await one(`SELECT pg_get_triggerdef(oid) AS d FROM pg_trigger WHERE tgname = 'trg_conversations_queue_claim'`);
     expect(String(trg.d)).toContain('AFTER UPDATE OF assigned_to ON public.conversations FOR EACH ROW WHEN');
+  }, 30_000);
+
+  it('T6b a hand-back keeps the place, records its return, and the next claim is measured from it', async () => {
+    const wr = randomUUID();
+    await workspace(wr);
+    const stats = async () => (await q(`SELECT seconds_per_place AS s, samples AS n FROM public.chat_queue_stats WHERE workspace_id = $1`, [wr]))[0] ?? null;
+    const meta = async (cid: string) => (await one(`SELECT metadata FROM public.conversations WHERE id = $1`, [cid])).metadata as Row;
+    const assign = (cid: string, to: string | null) => q(`UPDATE public.conversations SET assigned_to = $2 WHERE id = $1`, [cid, to]);
+
+    // Three in the queue; the oldest is claimed after waiting an hour.
+    const oldest = await queued(wr, 3600);
+    const second = await queued(wr, 1800);
+    const third = await queued(wr, 900);
+    await assign(oldest, op1);
+    expect((await stats())!.n).toBe(1);
+    expect(Number((await stats())!.s)).toBeCloseTo(3600, -1);
+    // Held by op1 for "an hour" (its stamp moved back), then handed back.
+    const queuedAt = (await one(`SELECT to_char((now() - interval '2 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS at`)).at;
+    await q(`UPDATE public.conversations SET metadata = jsonb_set(metadata, '{queued_at}', to_jsonb($2::text)) WHERE id = $1`, [oldest, queuedAt]);
+    await assign(oldest, null);
+    const back = await meta(oldest);
+    // Its place is kept (queued_at untouched: first), the return is recorded, at place 1.
+    expect(back.queued_at).toBe(queuedAt);
+    expect(typeof back.queue_reentered_at).toBe('string');
+    expect(Math.abs(Date.parse(String(back.queue_reentered_at)) - Date.now())).toBeLessThan(60_000);
+    expect(back.queue_entry_position).toBe(1);
+    expect(await status(wr, oldest)).toMatchObject({ queue_position: 1 });
+    expect(await status(wr, second)).toMatchObject({ queue_position: 2 });
+    expect(await status(wr, third)).toMatchObject({ queue_position: 3 });
+    // Claimed again 30 s after its return: sampled from the return (≈30 s), not from queued_at (2 h).
+    await q(`UPDATE public.conversations SET metadata = jsonb_set(metadata, '{queue_reentered_at}', to_jsonb($2::text)) WHERE id = $1`,
+      [oldest, (await one(`SELECT to_char((now() - interval '30 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS at`)).at]);
+    await assign(oldest, op2);
+    const s = await stats();
+    expect(s!.n).toBe(2);
+    expect(Number(s!.s)).toBeCloseTo(3600 * 0.7 + 30 * 0.3, -1);
+
+    // A later hand-back of the second one: the first is assigned now, so the
+    // second comes back at place 1.
+    await assign(second, op1);
+    await assign(second, null);
+    expect((await meta(second)).queue_entry_position).toBe(1);
+    expect((await meta(third)).queue_reentered_at).toBeUndefined();
+
+    // Not a hand-back: an unqueued conversation, a transfer, a resolved or
+    // spam one, an UPDATE that takes it out of the queue at the same time.
+    const plain = await conversation(wr, { assigned_to: op1 });
+    await assign(plain, null);
+    expect((await meta(plain)).queue_reentered_at).toBeUndefined();
+    const transferred = await queued(wr, 60, { assigned_to: op1 });
+    await assign(transferred, op2);
+    expect((await meta(transferred)).queue_reentered_at).toBeUndefined();
+    const resolved = await queued(wr, 60, { assigned_to: op1, status: 'resolved' });
+    await assign(resolved, null);
+    expect((await meta(resolved)).queue_reentered_at).toBeUndefined();
+    const spam = await queued(wr, 60, { assigned_to: op1, is_spam: true });
+    await assign(spam, null);
+    expect((await meta(spam)).queue_reentered_at).toBeUndefined();
+    const out = await queued(wr, 60, { assigned_to: op1 });
+    await q(`UPDATE public.conversations SET assigned_to = NULL, metadata = metadata - 'routing_outcome' WHERE id = $1`, [out]);
+    expect((await meta(out)).queue_reentered_at).toBeUndefined();
+
+    // A malformed queued_at never fails the hand-back.
+    const broken = await conversation(wr, { assigned_to: op1, metadata: { routing_outcome: 'manual_queue', queued_at: 'yesterday-ish' } });
+    await assign(broken, null);
+    expect((await one(`SELECT assigned_to FROM public.conversations WHERE id = $1`, [broken])).assigned_to).toBeNull();
+
+    const trg = await one(`SELECT pg_get_triggerdef(oid) AS d FROM pg_trigger WHERE tgname = 'trg_conversations_queue_return'`);
+    expect(String(trg.d)).toContain('BEFORE UPDATE OF assigned_to ON public.conversations FOR EACH ROW WHEN');
   }, 30_000);
 
   it('T7 knowledge_base_articles.author_user_id: a validated key to profiles, NULL when the profile goes', async () => {
@@ -529,8 +617,8 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
       'conversation_transcript_emails_workspace_id_fkey',
       'knowledge_base_articles_author_user_id_fkey',
     ]);
-    expect((await q(`SELECT tgname FROM pg_trigger WHERE tgname IN ('trg_conversations_queue_claim', 'trg_conversation_message_reactions_touch_message') ORDER BY 1`))
-      .map((r) => r.tgname)).toEqual(['trg_conversation_message_reactions_touch_message', 'trg_conversations_queue_claim']);
+    expect((await q(`SELECT tgname FROM pg_trigger WHERE tgname IN ('trg_conversations_queue_claim', 'trg_conversations_queue_return', 'trg_conversation_message_reactions_touch_message') ORDER BY 1`))
+      .map((r) => r.tgname)).toEqual(['trg_conversation_message_reactions_touch_message', 'trg_conversations_queue_claim', 'trg_conversations_queue_return']);
     expect((await one(`SELECT count(*)::int AS n FROM pg_policies WHERE tablename = ANY ($1)`, [TABLES])).n).toBe(4);
     expect((await one(`SELECT count(*)::int AS n FROM public.email_templates WHERE slug = 'visitor_conversation_transcript'`)).n).toBe(6);
   }, 30_000);

@@ -63,7 +63,10 @@ const BASE_CONFIG: Vm = {
 };
 const NO_CAPS = { kbNeutral: false, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false };
 /** What Core serves today (runtime.js env.capabilities). */
-const SERVED = { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true };
+const SERVED = {
+  kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true,
+  queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true,
+};
 
 function load() {
   const w = window as unknown as Record<string, unknown>;
@@ -676,6 +679,18 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       const html = extended(r()).messagesHtml({ messages: [msg({ sender: 'visitor', senderType: 'contact' })] }, '', { awayReply: { at: 0, status: 'ask' } });
       expect(parse(html).querySelector('.away-reply form [data-fb="email"]')).not.toBeNull();
     },
+    // Tested below: the picker's field (extras), the arc (stylesheet), the byline.
+    emojiSearch: () => {
+      expect(parse(extended(r()).emojiPickerHtml()).querySelector('label.ep-sr[hidden] input[data-emoji-search]')).not.toBeNull();
+    },
+    dlProgress: () => {
+      expect(T1_CSS).toContain('.dl-on .wy-ap-play::after');
+      expect(T1_CSS).toContain('.dl-on.msg-att-action::after');
+    },
+    kbAuthor: () => {
+      const h = parse(r().kbArticleHtml({ article: { title: 't', author: 'سارا', readingMinutes: 2, contentHtml: '' } }));
+      expect(h.querySelector('.am')!.textContent).toBe('سسارا·۲ دقیقه مطالعه');
+    },
   };
 
   it('declares exactly the behaviours it implements', () => {
@@ -683,7 +698,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
     expect(Object.values(r().features).every((v) => v === true)).toBe(true);
     // A Core that does not serve them gets none of the late pre-chat, queue and away behaviours.
     const off = make({ capabilities: NO_CAPS }).features;
-    for (const f of ['prechatSteps', 'queuePosition', 'awayThread']) expect(off[f], f).toBe(false);
+    for (const f of ['prechatSteps', 'queuePosition', 'awayThread', 'emojiSearch', 'dlProgress', 'kbAuthor']) expect(off[f], f).toBe(false);
   });
   for (const [name, check] of Object.entries(checks)) it(name, check);
 
@@ -696,7 +711,8 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
 describe('t1: nothing is drawn for a capability Core cannot serve', () => {
   const cases = [
     NO_CAPS,
-    // Even a Core that says yes gets nothing: this renderer implements none of them.
+    // Even a Core that says yes gets nothing: this renderer implements none of
+    // them (an AI answer about an order is its text, nothing else).
     { csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, kbNeutral: true },
   ];
   for (const capabilities of cases) {
@@ -1158,7 +1174,7 @@ describe('t1: its own copy', () => {
   it('the extras carry their own copy in fa, en and tr, in key order: one name per emoji group', () => {
     const xkeys = (/var COPY_KEYS = '([^']+)'/.exec(T1_X_SRC) || [])[1]!.split(' ');
     expect(xkeys).toEqual([
-      'cats', 'moreOptions', 'menuSound', 'csatTranscript', 'csatTranscriptSent', 'csatTranscriptFailed', 'csatFailed',
+      'cats', 'emojiSearch', 'emojiNoResults', 'moreOptions', 'menuSound', 'csatTranscript', 'csatTranscriptSent', 'csatTranscriptFailed', 'csatFailed',
       'prechatAskName', 'prechatAskEmail', 'prechatAskEmailNoName', 'prechatAskPhone', 'prechatStep', 'prechatStepSaved',
       'prechatStepEmailInvalid', 'prechatStepEmailExample', 'prechatPhonePhLocal', 'prechatPhoneHint', 'prechatStepSubmit',
       'routingInQueue', 'routingInQueuePosition', 'awayAutoReply', 'fallbackEmailLabel', 'fallbackEmailFormLabel', 'saveEmail',
@@ -1553,5 +1569,84 @@ describe('t1: the message left while the team is away (extras, feature `awayThre
   it('draws nothing without Core\'s view-model (the template\'s own away banner is the stylesheet\'s)', () => {
     expect(parse(r().messagesHtml({ messages: [VISITOR()] }, '', {})).querySelector('.away-reply')).toBeNull();
     expect(parse(make({ capabilities: SERVED }).messagesHtml({ messages: [VISITOR()] }, '', { awayReply: { at: 0, status: 'ask' } })).querySelector('.away-reply')).toBeNull();
+  });
+});
+
+describe('t1: the emoji picker\'s search (extras, feature `emojiSearch`)', () => {
+  const picker = (locale = 'fa') => parse(extended(make({ locale, capabilities: SERVED })).emojiPickerHtml());
+
+  it('puts the field on top, its label hidden until Core shows it, never focused by itself', () => {
+    const p = picker();
+    const label = p.firstElementChild!;
+    expect(label.matches('label.ep-sr[hidden]')).toBe(true);
+    const input = label.querySelector('input[data-emoji-search]') as HTMLInputElement;
+    expect([input.type, input.getAttribute('enterkeyhint'), input.getAttribute('autocomplete'), input.getAttribute('spellcheck')])
+      .toEqual(['search', 'search', 'off', 'false']);
+    expect(input.getAttribute('aria-label')).toBe('جستجوی شکلک');
+    expect(input.getAttribute('placeholder')).toBe('جستجوی شکلک');
+    expect(input.hasAttribute('autofocus')).toBe(false);
+    expect(label.nextElementSibling!.classList.contains('ep-cats')).toBe(true);
+  });
+
+  it('ends the grid with the "no emoji found" line, hidden, in every language', () => {
+    expect(picker().querySelector('.ep-grid > p.ep-none[data-emoji-none][role="status"][hidden]')!.textContent).toBe('شکلکی پیدا نشد');
+    expect(picker('en').querySelector('[data-emoji-none]')!.textContent).toBe('No emoji found');
+    expect(picker('tr').querySelector('[data-emoji-none]')!.textContent).toBe('Emoji bulunamadı');
+    expect(picker('en').querySelector('[data-emoji-search]')!.getAttribute('placeholder')).toBe('Search emoji');
+    expect(picker('tr').querySelector('[data-emoji-search]')!.getAttribute('placeholder')).toBe('Emoji ara');
+    // Core's insert finds emoji by [data-emoji]: the field and the line are not one.
+    expect(picker().querySelectorAll('[data-emoji]').length).toBe(picker().querySelectorAll('button.ep-e[data-emoji]').length);
+  });
+
+  it('has its look in the stylesheet: the field, a taller picker, what Core hides really gone, no tabs while searching', () => {
+    expect(T1_CSS).toMatch(/\.ep-sr \{ display: flex;/);
+    expect(T1_CSS).toContain('.ep-sr[hidden], .epk.is-searching .ep-cats, .ep-e[hidden] { display: none; }');
+    expect(T1_CSS).toContain('.epk:has(.ep-sr:not([hidden])) { height: 290px; }');
+  });
+});
+
+describe('t1: an article\'s author (feature `kbAuthor`)', () => {
+  const r = (locale = 'fa') => make({ locale, capabilities: SERVED });
+  const am = (article: Vm, locale?: string) => parse(r(locale).kbArticleHtml({ article: { title: 'چطور', contentHtml: '', ...article } })).querySelector('.am');
+
+  it('leads the meta line with the name on its initial\'s tile (09·12), then the reading time and the update', () => {
+    const updatedAt = new Date(Date.now() - 3 * 864e5).toISOString();
+    const line = am({ author: ' سارا رضایی ', readingMinutes: 20, updatedAt })!;
+    expect(line.firstElementChild!.matches('.av.s24[aria-hidden="true"]')).toBe(true);
+    expect(line.firstElementChild!.textContent).toBe('س');
+    const parts = Array.from(line.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent);
+    expect(parts[0]).toBe('سارا رضایی');
+    expect(parts[1]).toBe('۲۰ دقیقه مطالعه');
+    expect(parts[2]).toContain('به‌روز شده');
+  });
+
+  it('draws nothing of it without a name, and escapes it', () => {
+    expect(am({ author: '  ', readingMinutes: 2 })!.querySelector('.av')).toBeNull();
+    expect(am({ author: null })).toBeNull();
+    const evil = am({ author: '<img src=x onerror=1>' })!;
+    expect(evil.querySelector('img')).toBeNull();
+    expect(evil.textContent).toContain('<img src=x onerror=1>');
+    expect(am({ author: 'Sara', readingMinutes: 3 }, 'en')!.textContent).toBe('SSara·3 min read');
+  });
+});
+
+describe('t1: a sent message while the team is away (07·09, `view.away`)', () => {
+  const r = () => make({ capabilities: SERVED });
+  const V = (status: string) => msg({ sender: 'visitor', senderType: 'contact', body: 'سلام', status, time: '2026-10-18T19:40:00.000Z' });
+  const meta = (status: string, view: Vm) => parse(r().messagesHtml({ messages: [V(status)] }, '', view)).querySelector('.msg-meta')!;
+
+  it('reads «{time} · ارسال شد» in words, instead of the tick', () => {
+    const m = meta('sent', { away: true });
+    expect(m.querySelector('.msg-ticks')).toBeNull();
+    expect(m.querySelector('.msg-sent')!.textContent).toBe('ارسال شد');
+    expect(m.textContent).toMatch(/^[۰-۹]{2}:[۰-۹]{2}·ارسال شد$/);
+    expect(m.querySelector('.msg-time')!.nextElementSibling!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('keeps the ticks when not away, once delivered or seen, and while sending', () => {
+    expect(meta('sent', {}).querySelector('.msg-ticks[role="img"]')).not.toBeNull();
+    expect(meta('seen', { away: true }).querySelector('.msg-ticks.is-seen')).not.toBeNull();
+    expect(meta('delivered', { away: true }).querySelector('.msg-sent')).toBeNull();
+    expect(meta('sending', { away: true }).querySelector('.msg-ticks.is-sending')).not.toBeNull();
   });
 });

@@ -53,6 +53,13 @@ export interface EmailRequest {
   text?: string;
   templateSlug?: string;
   templateData?: Record<string, string>;
+  /**
+   * Values for the template's HTML part only, over `templateData`: the
+   * caller's HTML-escaped copy of text a visitor typed, so the HTML shows it
+   * as text while the subject and the text part get `templateData`'s raw
+   * value (no `&amp;` where the visitor wrote `&`). Never logged.
+   */
+  htmlData?: Record<string, string>;
   locale?: string;
   /**
    * Send through a provider chosen for this KIND of mail rather than the
@@ -322,7 +329,8 @@ type RenderedTemplate =
 /**
  * The running edition's Super Admin template for `slug`, filled in. Branding
  * defaults ({brand}, {year}, {support_email}) are added so every template
- * renders them, while the caller's templateData always wins.
+ * renders them, while the caller's templateData always wins; `htmlData`
+ * (the HTML-escaped copies) wins over it in the HTML part alone.
  */
 async function renderEditionTemplate(
   config: ServerConfig,
@@ -330,6 +338,7 @@ async function renderEditionTemplate(
   slug: string,
   templateData: Record<string, string> | undefined,
   locale: string | undefined,
+  htmlData?: Record<string, string>,
 ): Promise<RenderedTemplate> {
   const scope = await resolveEmailScope(config, locale);
   if (!scope) return { status: 'edition_unavailable' };
@@ -344,7 +353,7 @@ async function renderEditionTemplate(
   return {
     status: 'ok',
     subject: interpolate(tpl.subject, data),
-    html: interpolate(tpl.html_body, data),
+    html: interpolate(tpl.html_body, htmlData ? { ...data, ...htmlData } : data),
     text: interpolate(tpl.text_body || '', data),
     locale: tpl.locale,
   };
@@ -360,6 +369,8 @@ export interface PlatformEmailRequest {
   /** The running edition's Super Admin template to send, as in EmailRequest. */
   templateSlug?: string;
   templateData?: Record<string, string>;
+  /** As in EmailRequest: the HTML part's escaped values. */
+  htmlData?: Record<string, string>;
   locale?: string;
 }
 
@@ -388,7 +399,7 @@ export async function sendPlatformEmail(
   let text = request.text || '';
   let fromLocale = 'en';
   if (request.templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, request.templateSlug, request.templateData, request.locale);
+    const rendered = await renderEditionTemplate(config, supabase, request.templateSlug, request.templateData, request.locale, request.htmlData);
     if (rendered.status === 'ok') {
       ({ subject, html, text } = rendered);
       fromLocale = rendered.locale;
@@ -429,7 +440,7 @@ export async function sendEmail(
 ): Promise<SendResult> {
   const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 
-  const { workspaceId, to, templateSlug, templateData, locale } = request;
+  const { workspaceId, to, templateSlug, templateData, htmlData, locale } = request;
 
   // `workspaceId === null` is an explicit platform send; an empty string or a
   // missing field is still a caller bug.
@@ -449,7 +460,7 @@ export async function sendEmail(
 
   let tplLocale = locale || 'en';
   if (templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, templateSlug, templateData, locale);
+    const rendered = await renderEditionTemplate(config, supabase, templateSlug, templateData, locale, htmlData);
     if (rendered.status === 'ok') {
       ({ subject, html, text } = rendered);
       tplLocale = rendered.locale;

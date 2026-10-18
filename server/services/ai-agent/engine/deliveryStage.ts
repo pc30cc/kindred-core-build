@@ -166,6 +166,9 @@ export async function runDeliveryStage(
       agentName: display.agentName,
       agentLogoUrl: display.agentLogoUrl,
       decisionType: strategy.decisionType,
+      // Only this insert (the auto reply) carries the order card; handoff,
+      // intro, limit and suggestion messages never do.
+      orderCard: generation.orderCard ?? null,
     });
     if (!inserted.id) {
       const failFinal = await finalizeRun(config, runId, {

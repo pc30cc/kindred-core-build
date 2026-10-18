@@ -4,11 +4,14 @@
  *   GET /api/widget/kb/categories
  *   GET /api/widget/kb/article
  *   GET /api/widget/kb/search
+ *   GET /api/widget/kb-suggest
  *
  * Public API (window.__gs_mod_kb):
  *   loadCategories({ apiBase, workspaceId, locale, sessionToken, onResult })
- *   loadArticle   ({ apiBase, workspaceId, locale, sessionToken, slug, onResult })
+ *   loadArticle   ({ apiBase, workspaceId, locale, sessionToken, slug, meta, onResult })
  *   searchArticles({ apiBase, workspaceId, locale, sessionToken, query, limit, signal, onResult })
+ *   suggestArticles({ apiBase, workspaceId, locale, fetchWith, query, limit, signal, onResult })
+ *                  onResult({ ok, status, results }); an abort answers nothing
  */
 (function () {
   'use strict';
@@ -32,7 +35,7 @@
     var init = { method: 'GET', headers: {} };
     if (signal) init.signal = signal;
     return fetchWith(url, init).then(function (r) {
-      if (!r.ok) throw new Error('http_' + r.status);
+      if (!r.ok) { var e = new Error('http_' + r.status); e.status = r.status; throw e; }
       return r.json();
     });
   }
@@ -61,6 +64,8 @@
         workspace_id: opts.workspaceId,
         locale: opts.locale || 'en',
         slug: opts.slug,
+        // 1 (runtime-ext.js, a renderer drawing the author): `author_name` too.
+        meta: opts.meta,
       });
       doFetch(url, opts)
         .then(function (data) { opts.onResult({ ok: true, article: data.article || null }); })
@@ -85,6 +90,28 @@
         .catch(function (e) {
           if (e && e.name === 'AbortError') return;
           opts.onResult({ ok: false, results: [] });
+        });
+    },
+
+    // The help articles that answer a first message being written
+    // (runtime-late.js `instantAnswers`): its own rate limit, so a 429
+    // (`status`) says to stop asking for a while.
+    suggestArticles: function (opts) {
+      if (!opts || !opts.apiBase || !opts.workspaceId || !opts.query) {
+        if (opts && opts.onResult) opts.onResult({ ok: true, status: 0, results: [] });
+        return;
+      }
+      var url = buildUrl(opts.apiBase, '/api/widget/kb-suggest', {
+        workspace_id: opts.workspaceId,
+        locale: opts.locale || 'en',
+        q: opts.query,
+        limit: opts.limit || 2,
+      });
+      doFetch(url, opts, opts.signal)
+        .then(function (data) { opts.onResult({ ok: true, status: 200, results: (data && data.results) || [] }); })
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') return;
+          opts.onResult({ ok: false, status: (e && e.status) || 0, results: [] });
         });
     },
   };

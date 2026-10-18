@@ -42,6 +42,9 @@ const articleInputSchema = z.object({
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
   category_id: z.string().uuid().nullable().optional().default(null),
   visible_in_widget: z.boolean().optional().default(true),
+  // The member shown as the article's author in the widget (migration 276).
+  // Absent on create: its creator; null: no author shown.
+  author_user_id: z.string().uuid().nullable().optional(),
 });
 const articlePatchSchema = articleInputSchema.partial();
 
@@ -184,6 +187,54 @@ async function isLockedArticle(
   return isKbArticleLocked(kbLock, data as { id: string; created_at: string | null });
 }
 
+/** Whether `userId` is a member of the workspace (the only people an article may name as its author). */
+async function isWorkspaceMember(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
+  const { data, error } = await getServiceClient(config)
+    .from('workspace_members')
+    .select('user_id')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`member lookup failed: ${error.message}`);
+  return !!data;
+}
+
+/**
+ * The `author_user_id` to write. On create, absent means the creator (when
+ * they are a member: a platform admin working in the workspace is not
+ * named); on update, absent means unchanged. null clears it. A uuid must be
+ * a member of the workspace: otherwise 400 invalid_author (written here;
+ * `false` = the response is sent).
+ */
+async function resolveArticleAuthor(
+  g: { config: ServerConfig; workspaceId: string; userId: string },
+  value: string | null | undefined,
+  onCreate: boolean,
+  res: Response,
+): Promise<{ author: string | null | undefined } | false> {
+  try {
+    if (value === undefined) {
+      if (!onCreate) return { author: undefined };
+      return { author: (await isWorkspaceMember(g.config, g.workspaceId, g.userId)) ? g.userId : null };
+    }
+    if (value === null) return { author: null };
+    const id = value.toLowerCase();
+    if (await isWorkspaceMember(g.config, g.workspaceId, id)) return { author: id };
+    res.status(400).json({ error: 'invalid_author' });
+    return false;
+  } catch {
+    res.status(500).json({ error: 'author_lookup_failed' });
+    return false;
+  }
+}
+
+/** A database before migration 276 has no author column (direct driver 42703, PostgREST PGRST204). */
+function isMissingAuthorColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === '42703' || (error.code === 'PGRST204' && /author_user_id/.test(String(error.message || '')));
+}
+
 // ─── Articles ───
 
 
@@ -279,11 +330,17 @@ knowledgeBaseRouter.post('/articles', async (req: Request, res: Response) => {
     );
     if (!ok) return;
   }
-  const { data, error } = await getServiceClient(g.config)
+  const author = await resolveArticleAuthor(g, parsed.data.author_user_id, true, res);
+  if (!author) return;
+  const { author_user_id: _requested, ...fields } = parsed.data;
+  const insert = (row: Record<string, unknown>) => getServiceClient(g.config)
     .from('knowledge_base_articles')
-    .insert({ ...parsed.data, workspace_id: g.workspaceId })
+    .insert(row)
     .select()
     .single();
+  let { data, error } = await insert({ ...fields, workspace_id: g.workspaceId, author_user_id: author.author ?? null });
+  // Before migration 276: the article without its author.
+  if (isMissingAuthorColumn(error)) ({ data, error } = await insert({ ...fields, workspace_id: g.workspaceId }));
   if (error) return res.status(500).json({ error: 'insert_failed' });
   return res.status(201).json({ article: data });
 });
@@ -306,13 +363,20 @@ knowledgeBaseRouter.patch('/articles/:articleId', async (req: Request, res: Resp
     );
     if (!ok) return;
   }
-  const { data, error } = await getServiceClient(g.config)
+  const author = await resolveArticleAuthor(g, parsed.data.author_user_id, false, res);
+  if (!author) return;
+  const { author_user_id: _requested, ...fields } = parsed.data;
+  const update = (row: Record<string, unknown>) => getServiceClient(g.config)
     .from('knowledge_base_articles')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update(row)
     .eq('id', articleId)
     .eq('workspace_id', g.workspaceId)
     .select()
     .single();
+  const row = { ...fields, updated_at: new Date().toISOString() };
+  let { data, error } = await update(author.author === undefined ? row : { ...row, author_user_id: author.author });
+  // Before migration 276: the rest of the edit, without the author.
+  if (author.author !== undefined && isMissingAuthorColumn(error)) ({ data, error } = await update(row));
   if (error) return res.status(500).json({ error: 'update_failed' });
   return res.json({ article: data });
 });

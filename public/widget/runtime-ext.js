@@ -43,6 +43,11 @@
  *                        message left while the team is away, the place in the queue:
  *                        runtime-late.js (this module's hooks `reaction`, `inline`,
  *                        `away`, `send` answer nothing of their own)
+ *   instantAnswers, emojiSearch, dlProgress
+ *                        help articles while the first message is written, the emoji
+ *                        picker's search, a download's progress: runtime-late.js (its
+ *                        `media` hook reads an attachment's body)
+ *   kbAuthor             an article's author (`meta=1`, `article.author`)
  *
  * It also brings the late pack, for a renderer whose descriptor names
  * extras (`presentation-<renderer>-x.js`): the renderer's extras and Core's
@@ -1020,7 +1025,9 @@
           });
         }
         if (feat('homeAsk') || feat('kbSearch')) bindHomeFields(homeKeep);
-        if (feat('topics')) onClick(root, '[data-topic]', function (el) { startConversationWith(el.getAttribute('data-topic')); });
+        // A topic (the track-order row is one) starts one conversation: a
+        // second press on the home it left behind does nothing.
+        if (feat('topics')) onClick(root, '[data-topic]', function (el) { if (el.isConnected) startConversationWith(el.getAttribute('data-topic')); });
       },
       conv: mapConversation,
       noIntro: function () { return introSuppressedEpoch === ConvEpoch.get(); },
@@ -1119,6 +1126,7 @@
           vm.article.updatedAt = article.updated_at || null;
           vm.article.categoryTitle = cat ? cat.name : null;
           vm.article.readingMinutes = Math.max(1, Math.round(words / 200));
+          if (feat('kbAuthor')) vm.article.author = String(article.author_name || '').trim() || null;
         }
       },
       kbPaint: function () {
@@ -1154,6 +1162,8 @@
         return feat('kbSearch');
       },
       kbBack: stepBack,
+      // An article's author is asked for (`meta=1`) only for a renderer that draws it.
+      kbMeta: function () { return feat('kbAuthor') ? 1 : undefined; },
       kbOpen: function () { if (kb.view !== 'article') articleFrom = kb.view; },
       kbRender: function () { if (searchOnRender) { searchOnRender = false; searchNow(); } },
 
@@ -1162,6 +1172,7 @@
       inline: noop,
       away: noop,
       send: noop,
+      media: noop,
     };
     // Each hook runs this module's own handler, then the late module's for
     // it (runtime-late.js `api.on`), in the order they were registered:

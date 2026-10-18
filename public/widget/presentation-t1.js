@@ -737,8 +737,10 @@
             '<span aria-hidden="true">·</span><button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
               '">' + esc(L('retry')) + '</button>';
         } else if (visitor && isLast && receiptsEnabled && m.status) {
+          // Away (`view.away`, runtime-late.js), a sent message says so in words (07·09).
           statusHtml = m.status === 'sending'
             ? '<span class="msg-ticks is-sending" aria-label="' + esc(t('msgSending')) + '"><span class="msg-status-spinner" aria-hidden="true"></span></span>'
+            : view.away && m.status === 'sent' ? '<span aria-hidden="true">·</span><span class="msg-sent">' + esc(t('msgSent')) + '</span>'
             : tickHtml(m.status);
         }
 
@@ -1270,12 +1272,14 @@
     function kbArticleHtml(vm) {
       vm = vm || {};
       var a = vm.article || {};
-      var meta = [];
+      // Its author first (feature `kbAuthor`), on their initial's tile (09·12).
+      var by = String(a.author || '').trim();
+      var meta = by ? [by] : [];
       if (a.readingMinutes) meta.push(fill(L('readT'), { n: fmtNum(a.readingMinutes) }));
       if (a.updatedAt && relTime(a.updatedAt)) meta.push(fill(L('updated'), { time: relTime(a.updatedAt) }));
       return '<div class="art">' +
         '<h1>' + esc(a.title || '') + '</h1>' +
-        (meta.length ? '<p class="am">' + meta.map(esc).join('<span class="dot" aria-hidden="true">·</span>') + '</p>' : '') +
+        (meta.length ? '<p class="am">' + (by ? avatarHtml({ name: by }, 's24') : '') + meta.map(esc).join('<span class="dot" aria-hidden="true">·</span>') + '</p>' : '') +
         '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
       '</div>';
     }
@@ -1416,12 +1420,15 @@
     // is declared for a capability Core cannot serve (`env.capabilities`).
     // `chatMenu`, `prechatSteps`, `queuePosition`, `awayThread`: the chat
     // bar's menu, the pre-chat one question at a time, the place in the
-    // queue and the message left while away, drawn by the extras.
+    // queue and the message left while away, drawn by the extras;
+    // `emojiSearch` (the picker's field, the extras'), `dlProgress` (a
+    // download's arc, the stylesheet's) and `kbAuthor` (an article's author).
     var features = {
       tabs: true, kbSearch: true, kbCategories: true, kbArticleMeta: true, operatorTyping: true, chatHeader: true,
       emptyQna: true, topics: true, prechatOperator: true, prechatSummary: true, recSend: true, vnRate: true,
       clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true,
       prechatSteps: !!caps.prechatSteps, queuePosition: !!caps.queuePosition, awayThread: !!caps.awayThread,
+      emojiSearch: !!caps.emojiSearch, dlProgress: !!caps.dlProgress, kbAuthor: !!caps.kbAuthor,
     };
 
     return {

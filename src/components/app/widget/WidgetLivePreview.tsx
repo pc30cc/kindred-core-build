@@ -596,7 +596,7 @@ export function WidgetLivePreview({
         ],
       },
       // The capabilities Core passes to a renderer (production: runtime.js).
-      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true },
+      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true, queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true },
       // Who answers the sample conversation (the chat bar Core paints for it).
       chatOperator: { name: operatorName || title, avatar: operatorAvatar || '', online: true },
       // The pre-chat one question at a time (a renderer declaring prechatSteps,

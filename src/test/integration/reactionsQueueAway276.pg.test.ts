@@ -351,6 +351,47 @@ suite('reactions, the queue and the away thread on a real database (276)', () =>
     expect(plan).toContain('conversations_manual_queue_idx');
   });
 
+  it('Q2 a hand-back: the place kept, a new queue row from routing, the next claim measured from the return', async () => {
+    const { routeConversationToOperator } = await import('../../../server/services/chatRouting.js');
+    const wsQ = wsOther;
+    const route = (cid: string) => routeConversationToOperator(config, { workspaceId: wsQ, conversationId: cid });
+    const pos = async (cid: string) => (await call('GET', `/api/widget/queue?workspace_id=${wsQ}&conversation_id=${cid}`)).body;
+    const queueRows = async (cid: string) => (await one(
+      `SELECT count(*)::int AS n FROM public.conversation_messages WHERE conversation_id = $1 AND metadata->>'kind' = 'routing_in_queue'`, [cid])).n;
+    await q(`DELETE FROM public.conversations WHERE workspace_id = $1`, [wsQ]);
+    await q(`DELETE FROM public.chat_queue_stats WHERE workspace_id = $1`, [wsQ]);
+
+    const first = await conversation(wsQ);
+    const second = await conversation(wsQ);
+    for (const cid of [first, second]) {
+      await route(cid);
+      await new Promise((r) => setTimeout(r, 3));
+    }
+    expect(await queueRows(first)).toBe(1);
+    const queuedAt = ((await one(`SELECT metadata FROM public.conversations WHERE id = $1`, [first])).metadata as Row).queued_at;
+    // Claimed by Sara, then handed back (the inbox's unassign: assigned_to → NULL).
+    await q(`UPDATE public.conversations SET assigned_to = $2 WHERE id = $1`, [first, sara]);
+    expect(await pos(second)).toEqual({ position: 1, wait_minutes: null });
+    await q(`UPDATE public.conversations SET assigned_to = NULL WHERE id = $1`, [first]);
+    const back = (await one(`SELECT metadata FROM public.conversations WHERE id = $1`, [first])).metadata as Row;
+    expect(back).toMatchObject({ queued_at: queuedAt, queue_entry_position: 1 });
+    expect(typeof back.queue_reentered_at).toBe('string');
+    // Its place again: first.
+    expect(await pos(first)).toEqual({ position: 1, wait_minutes: null });
+    expect(await pos(second)).toEqual({ position: 2, wait_minutes: null });
+    // The next routing run tells the visitor again, once.
+    expect((await route(first)).outcome).toBe('manual_queue');
+    expect(await queueRows(first)).toBe(2);
+    await route(first);
+    expect(await queueRows(first)).toBe(2);
+    // Claimed again: sampled from the return (seconds), not from the first entry.
+    await q(`UPDATE public.conversations SET metadata = jsonb_set(metadata, '{queued_at}', to_jsonb((now() - interval '2 hours')::text)) WHERE id = $1`, [first]);
+    await q(`UPDATE public.conversations SET assigned_to = $2 WHERE id = $1`, [first, ali]);
+    const stats = await one(`SELECT samples, seconds_per_place FROM public.chat_queue_stats WHERE workspace_id = $1`, [wsQ]);
+    expect(Number(stats.samples)).toBe(2);
+    expect(Number(stats.seconds_per_place)).toBeLessThan(600);
+  });
+
   it('A1 the away thread: a replay-safe first message, then the email for the reply', async () => {
     const cmid = 'local_1760778000000_ab12cd';
     const first = await call('POST', '/api/widget/offline-messages', { workspace_id: ws, message: '?', client_message_id: cmid, locale: 'fa' });

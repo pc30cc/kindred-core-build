@@ -1299,8 +1299,9 @@ const csatBodySchema = z.object({
 }).passthrough();
 
 // POST /conversations/:id/csat {closed_id, rating 1..5, comment?} —
-// 200 {ok, rating} | 400 invalid_rating | 403 csat_disabled |
-// 409 not_ratable | 409 already_rated (+ rating) | 503 csat_unavailable.
+// 200 {ok, rating} | 400 invalid_rating | 403 csat_disabled (code
+// CSAT_DISABLED) | 409 not_ratable | 409 already_rated (+ rating) |
+// 503 csat_unavailable.
 widgetRouter.post('/conversations/:id/csat', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, (req.body && req.body.workspace_id) || (req.query.workspace_id as string));
@@ -1314,7 +1315,9 @@ widgetRouter.post('/conversations/:id/csat', widgetRateLimit('message'), async (
       return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
     }
     if (!csatEnabledFor(await workspaceChatTemplate(config, workspaceId))) {
-      return res.status(403).json({ error: 'csat_disabled' });
+      // With its code: the widget's fetchWith takes a code-less 403 for an
+      // expired token (a refresh and the same request again).
+      return res.status(403).json({ error: 'csat_disabled', code: 'CSAT_DISABLED' });
     }
     const rating = await rateClosedConversation(config, {
       workspaceId,
@@ -1342,7 +1345,7 @@ const transcriptBodySchema = z.object({
 
 // POST /conversations/:id/transcript {locale?, tz?} — mails the transcript
 // to the email on the conversation's contact (never one from the request):
-// 200 {ok, to: masked} | 403 transcript_disabled | 409 no_email |
+// 200 {ok, to: masked} | 403 transcript_disabled (code TRANSCRIPT_DISABLED) | 409 no_email |
 // 409 nothing_to_send | 429 rate_limited (+ retry_after) | limit_reached |
 // workspace_limit | 502 send_failed | 503 email_unavailable.
 widgetRouter.post('/conversations/:id/transcript', widgetRateLimit('transcript'), async (req: Request, res: Response) => {
@@ -1366,7 +1369,10 @@ widgetRouter.post('/conversations/:id/transcript', widgetRateLimit('transcript')
       res.setHeader('Retry-After', String(result.retryAfter));
       return res.status(result.status).json({ error: result.error, code: 'RATE_LIMITED', retry_after: result.retryAfter });
     }
-    return res.status(result.status).json({ error: result.error });
+    // A 403 names its code, as csat_disabled does (fetchWith).
+    return res.status(result.status).json(result.status === 403
+      ? { error: result.error, code: 'TRANSCRIPT_DISABLED' }
+      : { error: result.error });
   } catch (err) {
     console.error('[widget-transcript] Error:', err?.message || err);
     return res.status(500).json({ error: 'Internal error' });

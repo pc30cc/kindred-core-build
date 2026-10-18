@@ -260,6 +260,24 @@ describe('t2: the closed line and the rating card', () => {
     expect(csatGets(h)).toEqual([]);
   });
 
+  it('a system row after the closed row (a transfer, a join) keeps its card: nobody said anything (the server\'s rule)', async () => {
+    const notice = (id: string, kind: string) => ({
+      id, role: 'system', sender_type: 'system', text: 'سارا transferred the conversation', time: T(0), conversation_id: 'c1',
+      metadata: { kind, to_name: 'رضا' },
+    });
+    const h = await thread({ messages: [...THREAD, closed(), notice('n1', 'conversation_transferred')] });
+    const card = h.q('[data-csat]')!;
+    expect(card).not.toBeNull();
+    // Under its line, the notice after it.
+    const rows = Array.from(h.shadow.querySelectorAll('[data-chat-messages] .messages > .msg-row'));
+    expect(rows.indexOf(card.closest('.msg-row')!)).toBe(rows.length - 2);
+    expect(csatGets(h)).toHaveLength(1);
+    h.emitMessages([notice('n2', 'routing_agent_joined')]);
+    await flush(10);
+    expect(h.q('[data-csat]')).not.toBeNull();
+    expect(csatGets(h)).toHaveLength(1);
+  });
+
   it('a live closed row: drawn and asked about, never an unread message or a chime; a reply after it takes the card away', async () => {
     const h = await thread({ messages: THREAD, publicEvents: true });
     expect(h.q('[data-csat]')).toBeNull();
@@ -315,7 +333,7 @@ describe('t2: the closed line and the rating card', () => {
     const h = await submitWith(409, { error: 'already_rated', rating: { score: 1, comment: null, rated_at: T(1) } });
     expect(h.q('[data-csat] [role="status"] p')!.textContent).toBe('امتیاز شما: خیلی بد');
   });
-  for (const [status, body] of [[409, { error: 'not_ratable' }], [403, { error: 'csat_disabled' }], [503, { error: 'csat_unavailable' }]] as const) {
+  for (const [status, body] of [[409, { error: 'not_ratable' }], [403, { error: 'csat_disabled', code: 'CSAT_DISABLED' }], [503, { error: 'csat_unavailable' }]] as const) {
     it(`${status} ${body.error}: said once, nothing left to press`, async () => {
       const h = await submitWith(status, body);
       expect(h.q('[data-csat] .er')!.textContent).toBe('دیگر نمی‌شود به این گفتگو امتیاز داد.');
@@ -412,7 +430,7 @@ describe('t2: the transcript by email (the card\'s link)', () => {
   }
   for (const [status, body] of [
     [429, { error: 'limit_reached' }], [429, { error: 'workspace_limit' }], [409, { error: 'no_email' }],
-    [409, { error: 'nothing_to_send' }], [403, { error: 'transcript_disabled' }], [503, { error: 'email_unavailable' }],
+    [409, { error: 'nothing_to_send' }], [403, { error: 'transcript_disabled', code: 'TRANSCRIPT_DISABLED' }], [503, { error: 'email_unavailable' }],
   ] as const) {
     it(`${status} ${body.error}: said, nothing left to press`, async () => {
       const h = await send(status, body);

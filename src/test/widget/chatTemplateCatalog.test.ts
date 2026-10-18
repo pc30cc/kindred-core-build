@@ -9,8 +9,6 @@
  * deploy changes nothing for any visitor.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
   CHAT_TEMPLATE_OPTIONS,
   CHAT_TEMPLATE_OPTION_KEYS,
@@ -356,22 +354,6 @@ describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMod
   it('only Template 2 draws the closed line (descriptor closedNotice): the server writes it for no other workspace', () => {
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
     expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2']);
-  });
-
-  it('a descriptor\'s closedNotice is exactly whether its renderer declares features.closedNotice', () => {
-    const w = window as unknown as Record<string, unknown>;
-    w.MediaRecorder = function () {};
-    const read = (f: string) => readFileSync(resolve(process.cwd(), f), 'utf8');
-    new Function(read('public/widget/presentation-registry.js')).call(window);
-    const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
-    for (const id of Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>) {
-      new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
-      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, unknown> } };
-      const r = mod.create({
-        t: (k: string) => k, escapeHtml: (v: unknown) => String(v), linkifyHtml: (v: unknown) => String(v), linkLabel: '',
-        config: { templateId: id }, locale: 'fa', primaryColor: '#3B82F6', capabilities: {},
-      });
-      expect(!!r.features?.closedNotice, id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
-    }
+    // That it is the renderer's own features.closedNotice: runtimeExt.test.ts.
   });
 });

@@ -83,7 +83,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `data-csat` *(named here)* | The CSAT card root (`role="group"`) | Card container | Core (runtime-late.js) binds the four hooks above inside it | T2 |
 | `data-chat-menu-toggle` *(named here)* | Chat bar ⋯ button (`aria-haspopup="menu"`, `aria-expanded`, `aria-label` = `moreOptions`) | Open the header menu | Click opens or closes `[data-chat-menu]`; drawn only when the menu has an item, never on a new conversation | T1, T2 |
 | `data-chat-menu` *(named here)* | The menu (`role="menu"`, `hidden` while closed) | Header menu | Escape closes it and returns focus to the toggle; an outside click closes it | T1, T2 |
-| `data-chat-menu-action="transcript\|sound"` *(named here)* | Menu items (`role="menuitem"`; the sound item `menuitemcheckbox` with `aria-checked`) | Email the transcript; notification sounds on/off | `transcript`: the same API as `data-csat-transcript`, only while the server says it is available; `sound`: Core's `uiPrefsStore.soundEnabled` (hidden when the workspace turned sound off). No "end conversation" item (owner) | T1, T2 |
+| `data-chat-menu-action="transcript\|sound"` *(named here)* | Menu items (`role="menuitem"`; the sound item `menuitemcheckbox` with `aria-checked`) | Email the transcript; notification sounds on/off | `transcript`: the same API as `data-csat-transcript`, only while the server says it is available; `sound`: Core's `uiPrefsStore.soundEnabled`, remembered for the visitor in `localStorage` `gs:sound:<workspaceId>` (`'0'` while off, removed when on; hidden when the workspace turned sound off). No "end conversation" item (owner) | T1, T2 |
 
 ### 2.2 New values of existing hooks
 
@@ -474,11 +474,15 @@ operator's request. The inbox draws it with `inbox.system.closedBy` / `inbox.sys
 | Endpoint | Body | Answers |
 |---|---|---|
 | `GET /api/widget/conversations/:id/csat` | — (`workspace_id` in the query) | `{ closed_id, rateable, rating: {score, comment, rated_at} \| null, operator: {name, avatar} \| null, transcript: {available, to} }`; 404 `not_found` for a conversation that is not the visitor's |
-| `POST /api/widget/conversations/:id/csat` | `{ workspace_id?, closed_id, rating: 1–5, comment? (≤ 1000) }` | 200 `{ok, rating}`; 400 `invalid_rating`; 403 `csat_disabled` / `CONVERSATION_ACCESS_DENIED`; 409 `not_ratable` / `already_rated` (+ `rating`); 503 `csat_unavailable` |
-| `POST /api/widget/conversations/:id/transcript` | `{ workspace_id?, locale?, tz? }` (never an address) | 200 `{ok, to}` (masked); 403 `transcript_disabled` / `CONVERSATION_ACCESS_DENIED`; 409 `no_email` / `nothing_to_send`; 429 `rate_limited` (+ `retry_after`, `Retry-After`) / `limit_reached` / `workspace_limit`; 502 `send_failed`; 503 `email_unavailable` |
+| `POST /api/widget/conversations/:id/csat` | `{ workspace_id?, closed_id, rating: 1–5, comment? (≤ 1000) }` | 200 `{ok, rating}`; 400 `invalid_rating`; 403 `csat_disabled` (`code: 'CSAT_DISABLED'`) / `CONVERSATION_ACCESS_DENIED`; 409 `not_ratable` / `already_rated` (+ `rating`); 503 `csat_unavailable` |
+| `POST /api/widget/conversations/:id/transcript` | `{ workspace_id?, locale?, tz? }` (never an address) | 200 `{ok, to}` (masked); 403 `transcript_disabled` (`code: 'TRANSCRIPT_DISABLED'`) / `CONVERSATION_ACCESS_DENIED`; 409 `no_email` / `nothing_to_send`; 429 `rate_limited` (+ `retry_after`, `Retry-After`) / `limit_reached` / `workspace_limit`; 502 `send_failed`; 503 `email_unavailable` |
 
+- Each 403 these routes answer carries a `code`: the widget's `fetchWith` (runtime.js) takes a code-less 401/403 for
+  an expired token, refreshes it and sends the request again.
 - Rating rules: only the closed line the thread ends with (other system rows after it do not count; anything said
   does), within 7 days, once (`conversation_ratings.closed_message_id` unique), only when a human operator answered.
+  runtime-late.js picks the card's closed row by the same rule (`lastClosed`), so the card and the server agree on
+  which closure is rated (`src/test/widget/afterChatServer.test.ts` runs the shipped widget against the real routes).
 - Transcript rules: only to the email on the conversation's contact, only when a human operator answered, with a
   platform email provider; 3 sent per conversation, one per 10 minutes, 100 attempts per workspace a day
   (`conversation_transcript_emails`), plus the widget rate-limit category `transcript` (3 per visitor per 10 minutes,

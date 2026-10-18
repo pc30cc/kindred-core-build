@@ -354,9 +354,10 @@ caching, pure renderers, size budgets), enforced for every descriptor by
    renderer that draws the closed line and its rating card also sets
    `closedNotice: true` (the server writes that row only for such
    templates). `coreFeatures`, `extras` and `closedNotice` must match the
-   renderer (`src/test/widget/runtimeExt.test.ts`,
-   `src/test/widget/chatTemplateCatalog.test.ts`); `default` and `intl`
-   have none of them, so their payloads stay byte-identical.
+   renderer, and its `csat` / `chatMenu` features the template's `csat` /
+   `transcriptEmail` options the server checks
+   (`src/test/widget/runtimeExt.test.ts`); `default` and `intl` have none
+   of them, so their payloads stay byte-identical.
 3. Offer it to an edition in `EDITION_*_TEMPLATES` (`offered`), and make it
    the edition's `default` if it should be worn without a choice. The call
    widget settings page lists `offered`; `PUT /api/call-center/settings`

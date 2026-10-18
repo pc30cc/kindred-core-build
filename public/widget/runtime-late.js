@@ -11,8 +11,9 @@
  * and its markup is never drawn without it. Gated like runtime-ext.js: each
  * feature only for a renderer declaring it (`api.feat(name)`).
  *
- *   csat       under the newest "closed the conversation" row (runtime.js
- *              keeps those rows only for a renderer declaring `closedNotice`)
+ *   csat       under the "closed the conversation" row the thread ends with
+ *              (only system rows after it; runtime.js keeps those rows only
+ *              for a renderer declaring `closedNotice`)
  *              the rating card: `view.csat` for `messagesHtml`, from
  *              GET /api/widget/conversations/:id/csat (asked once per
  *              conversation, again when the panel reopens or the thread's
@@ -105,11 +106,20 @@
       var st = api.deriveChatTabState().name;
       return shellStore.get().activeTab === 'chat' && (st === 'AI_CHAT' || st === 'HUMAN_WELCOME' || st === 'ACTIVE_THREAD');
     }
-    /** The thread's newest row, when it is a closed row (the card's place). */
+    /**
+     * The closed row the thread ends with (the card's place): the newest one
+     * with only system rows after it (a join, a transfer); anything somebody
+     * said after it reopened the thread. The server's rule
+     * (conversationClosedNotice.ts latestClosedRow).
+     */
     function lastClosed(s) {
       var msgs = s.messages || [];
-      var m = msgs[msgs.length - 1];
-      return m && m.__id && m.metadata && m.metadata.kind === 'conversation_closed' ? m : null;
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        var m = msgs[i];
+        if (m.__id && m.metadata && m.metadata.kind === 'conversation_closed') return m;
+        if (m.senderType !== 'system') break;
+      }
+      return null;
     }
     function repaint(cid) {
       var s = chatStore.get();
@@ -122,7 +132,7 @@
       api.paintChatHeader();
     }
 
-    // ── The rating card (`csat`): under the newest row when it is a closed row ──
+    // ── The rating card (`csat`): under the closed row the thread ends with ──
     function csatVm(s) {
       var m = lastClosed(s);
       var cid = s.conversationId;

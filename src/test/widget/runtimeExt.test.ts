@@ -38,6 +38,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { boot, click, flush, resetWindow, type BaseRenderer, type Renderer } from './coreFeaturesHarness';
 import { CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
+import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const RUNTIME = read('public/widget/runtime.js');
@@ -114,7 +115,16 @@ describe('which templates build on the module', () => {
       new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
       const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, boolean> } };
       const r = mod.create({ t: (k: string) => k, config: { templateId: id }, locale: 'fa' });
-      expect(!!(r.features && r.features.closedNotice), id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
+      const f = r.features || {};
+      expect(!!f.closedNotice, id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
+      // The server rates (services/conversationRatings.ts csatEnabledFor) and
+      // mails a transcript (visitorTranscript.ts) for the template's own
+      // options: exactly the templates whose renderer draws the card (under
+      // its own closed line) or the ⋯ menu that asks for them.
+      const options = chatTemplateOptionKeys(id);
+      expect(!!f.csat, `${id} csat`).toBe(options.includes('csat'));
+      if (f.csat) expect(f.closedNotice, `${id} csat needs its line`).toBe(true);
+      expect(!!(f.csat || f.chatMenu), `${id} transcript`).toBe(options.includes('transcriptEmail'));
     }
   });
 

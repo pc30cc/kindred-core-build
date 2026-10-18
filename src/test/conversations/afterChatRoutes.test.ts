@@ -360,7 +360,8 @@ describe('POST …/csat', () => {
     for (const [template, options] of [['t2', { csat: false }], ['t1', {}], ['default', {}], ['intl', {}]] as const) {
       state.template = template;
       state.options = options;
-      expect(await rate(cid, { closed_id: closedId, rating: 5 }), template).toMatchObject({ status: 403, body: { error: 'csat_disabled' } });
+      // With a code: the widget's fetchWith refreshes the token on a code-less 403.
+      expect(await rate(cid, { closed_id: closedId, rating: 5 }), template).toMatchObject({ status: 403, body: { error: 'csat_disabled', code: 'CSAT_DISABLED' } });
     }
     expect(ratings()).toHaveLength(0);
   });
@@ -529,10 +530,10 @@ describe('POST …/transcript', () => {
     state.visitor = 'visitor-1';
     __resetWidgetRateLimitsForTests();
     state.options = { transcriptEmail: false };
-    expect(await transcript(cid)).toMatchObject({ status: 403, body: { error: 'transcript_disabled' } });
+    expect(await transcript(cid)).toMatchObject({ status: 403, body: { error: 'transcript_disabled', code: 'TRANSCRIPT_DISABLED' } });
     state.options = {};
     state.template = 'default';
-    expect(await transcript(cid)).toMatchObject({ status: 403, body: { error: 'transcript_disabled' } });
+    expect(await transcript(cid)).toMatchObject({ status: 403, body: { error: 'transcript_disabled', code: 'TRANSCRIPT_DISABLED' } });
     __resetWidgetRateLimitsForTests();
     state.template = 't2';
     state.provider = false;

@@ -25,7 +25,9 @@
  *     unread counts are exactly what they were;
  *   - the thread has moved on since the last such line: a close right after a
  *     reopen with nothing said in between reuses the line already there (and
- *     its rating card), see latestClosedRow.
+ *     its rating card), see latestClosedRow. Two closes of one conversation
+ *     at once are written one after the other in this process (`writing`),
+ *     so they too leave one line.
  *
  * Never throws and is never awaited by the operator's request: the status
  * change is already saved, this is its echo.
@@ -101,12 +103,33 @@ export interface ConversationClosedInput {
 }
 
 /**
+ * The close of each conversation being written in this process. A second
+ * close of the same conversation (two operators' PATCHes landing together, a
+ * PATCH next to a "Send & resolve") waits for the first, so its "is the line
+ * already there" read sees the row the first one wrote: never two lines.
+ */
+const writing = new Map<string, Promise<{ id: string } | null>>();
+
+/**
  * Writes and publishes the closed line when the rules above allow it.
  * Returns the new row's id, or null when none was written (not a widget
  * conversation, a template without the line, the line already there, or any
  * failure).
  */
-export async function recordConversationClosed(
+export function recordConversationClosed(
+  config: ServerConfig,
+  input: ConversationClosedInput,
+): Promise<{ id: string } | null> {
+  const key = input.conversationId;
+  const before = writing.get(key);
+  // writeClosedLine never rejects, so neither does the chain.
+  const run = (before ? before.then(() => writeClosedLine(config, input)) : writeClosedLine(config, input));
+  writing.set(key, run);
+  void run.then(() => { if (writing.get(key) === run) writing.delete(key); });
+  return run;
+}
+
+async function writeClosedLine(
   config: ServerConfig,
   input: ConversationClosedInput,
 ): Promise<{ id: string } | null> {
@@ -166,7 +189,7 @@ export async function recordConversationClosed(
     );
     return { id: row.id as string };
   } catch (err) {
-    console.warn('[conversationClosed] skipped:', err instanceof Error ? err.message : err);
+    console.warn('[conversationClosed] skipped:', (err as { message?: string } | null)?.message || err);
     return null;
   }
 }

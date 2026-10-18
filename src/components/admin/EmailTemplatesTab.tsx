@@ -54,7 +54,9 @@ const CARD_BILLING_SLUGS: readonly string[] = ['billing_card_renewed', 'billing_
 
 const CATEGORIES = [
   { key: 'auth', icon: Shield, slugs: ['email_verify', 'verification_code', 'password_reset', 'magic_link', 'welcome'] },
-  { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'email_test'] },
+  // visitor_conversation_transcript: the chat transcript a visitor asks to be
+  // mailed (services/visitorTranscript.ts, migration 276).
+  { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'email_test', 'visitor_conversation_transcript'] },
   // The operator notification emails, plus the four placeholder slugs that
   // were here before them. `operator_*` are the ones a sender exists for:
   // `services/notificationEmail/producers.ts` renders through each of them.
@@ -80,6 +82,10 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   account_expiry: ['{name}', '{brand}', '{days_left}', '{plan}', '{action_url}'],
   system_alert: ['{brand}', '{title}', '{message}', '{severity}'],
   offline_message_received: ['{brand}', '{contact_name}', '{contact_email}', '{message_body}', '{conversation_id}', '{action_url}'],
+  // {workspace} is HTML-escaped for the body, {workspace_name} plain for the
+  // subject and the text; {transcript} is the table rows, {transcript_text}
+  // the same as plain text.
+  visitor_conversation_transcript: ['{brand}', '{year}', '{workspace}', '{workspace_name}', '{date}', '{transcript}', '{transcript_text}'],
   billing_renewal_reminder: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
   billing_renewed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_expired: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{expired_at}'],

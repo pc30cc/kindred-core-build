@@ -596,7 +596,9 @@ export function WidgetLivePreview({
         ],
       },
       // The capabilities Core passes to a renderer (production: runtime.js).
-      capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
+      capabilities: { kbNeutral: true, csat: true, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false, chatMenu: true },
+      // Who answers the sample conversation (the chat bar Core paints for it).
+      chatOperator: { name: operatorName || title, avatar: operatorAvatar || '', online: true },
       messages: view === 'offline'
         ? [{ sender: 'operator', senderType: 'system', body: offlineMsg, time: nowIso }]
         : [
@@ -872,6 +874,17 @@ export function WidgetLivePreview({
       body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
       var msgHost = body.querySelector('[data-chat-messages]');
       if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
+      /* The chat bar as Core paints it for an existing conversation (feature
+         chatHeader: who answers), with its closed menu button (feature
+         chatMenu: the notification sounds item, drawn by the extras). */
+      var chatHead = body.querySelector('[data-chat-header]');
+      if (chatHead && feat('chatHeader') && typeof R.chatHeaderHtml === 'function') {
+        chatHead.innerHTML = R.chatHeaderHtml({
+          online: view !== 'offline', typing: false, isNew: false,
+          operator: view === 'offline' ? null : GS_PREVIEW.chatOperator,
+          menu: feat('chatMenu') ? { open: false, items: [{ action: 'sound', on: true }] } : null,
+        });
+      }
       /* Typing state is sr-only in the design — no visible typing row. */
     }
 

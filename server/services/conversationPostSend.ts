@@ -130,7 +130,7 @@ export async function applyPostSendAction(
       actor_id: actorId,
       changes: { status: { from: null, to: targetStatus } },
       updated_at: row.changed_at,
-    } as any);
+    });
 
     // The visitor's closed line, after the reply it follows (never throws).
     if (action === 'resolve') {

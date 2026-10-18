@@ -47,7 +47,7 @@ export async function fetchOperatorActivity(workspaceId: string, days: number): 
     { credentials: 'include' },
   );
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error((body as { error?: string })?.error || `Request failed: ${res.status}`);
   return body as OperatorActivityStats;
 }
 

@@ -648,6 +648,16 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(ws.querySelector('.av.c4')!.textContent).toBe('ف');
       expect(ws.querySelector('.tg.done')!.textContent).toBe('حل شده');
     },
+    chatMenu: () => {
+      // The ⋯ comes with the extras and only for a list Core passes (`vm.menu`).
+      const vm = { online: true, isNew: false, operator: { name: 'سارا', online: true } };
+      const menu = { open: false, items: [{ action: 'sound', on: true }] };
+      expect(parse(r().chatHeaderHtml({ ...vm, menu })).querySelector('[data-chat-menu-toggle]')).toBeNull();
+      expect(parse(extended(r()).chatHeaderHtml(vm)).querySelector('[data-chat-menu-toggle]')).toBeNull();
+      const h = parse(extended(r()).chatHeaderHtml({ ...vm, menu }));
+      expect(h.querySelector('.cm > [data-chat-menu-toggle][aria-haspopup="menu"]')).not.toBeNull();
+      expect(h.querySelector('[data-chat-menu][role="menu"] [data-chat-menu-action="sound"]')).not.toBeNull();
+    },
   };
 
   it('declares exactly the behaviours it implements', () => {
@@ -1125,7 +1135,7 @@ describe('t1: its own copy', () => {
 
   it('the extras carry their own copy in fa, en and tr, in key order: one name per emoji group', () => {
     const xkeys = (/var COPY_KEYS = '([^']+)'/.exec(T1_X_SRC) || [])[1]!.split(' ');
-    expect(xkeys).toEqual(['cats']);
+    expect(xkeys).toEqual(['cats', 'moreOptions', 'menuSound', 'csatTranscript', 'csatTranscriptSent', 'csatTranscriptFailed', 'csatFailed']);
     for (const lang of ['fa', 'en', 'tr']) {
       const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T1_X_SRC) || [])[1]!.split('|');
       expect(parts.length, lang).toBe(xkeys.length);
@@ -1218,5 +1228,85 @@ describe('t1: its extras (presentation-t1-x.js)', () => {
     const h = parse(r.chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
     expect(h.querySelector('img[onerror]')).toBeNull();
     expect(h.querySelector('[data-emoji-picker] .ep-cats')!.getAttribute('aria-label')).toBe('"><img src=x onerror=alert(1)>');
+  });
+});
+
+describe('t1: the chat bar\'s menu (extras, feature `chatMenu`)', () => {
+  const VM = { online: true, isNew: false, operator: { name: 'سارا', online: true } };
+  const SOUND = { action: 'sound', on: true };
+  const head = (r: Renderer, menu: unknown) => parse(r.chatHeaderHtml({ ...VM, menu }));
+
+  it('draws nothing without a list from Core, and nothing before the extras (Core repaints when they come)', () => {
+    expect(head(extended(make()), null).querySelector('.cm, [data-chat-menu-toggle]')).toBeNull();
+    expect(head(extended(make()), { open: true, items: [] }).querySelector('.cm, [data-chat-menu-toggle]')).toBeNull();
+    const bare = make();
+    expect(head(bare, { open: false, items: [SOUND] }).querySelector('[data-chat-menu-toggle]')).toBeNull();
+    // A surface was asked for before the extras: taking them asks Core for a repaint.
+    expect((bare.extend as unknown as (m: unknown) => number)(EXTRAS())).toBe(2);
+  });
+
+  it('the ⋯ sits after the person and before the shell\'s close, with its menu under it', () => {
+    const h = head(extended(make()), { open: false, items: [{ action: 'transcript', state: 'idle', to: 'a•••@example.com' }, SOUND] });
+    const kids = Array.from(h.children).map((el) => el.className.split(' ')[0] || el.tagName);
+    expect(kids.indexOf('cm')).toBe(kids.indexOf('who') + 1);
+    const toggle = h.querySelector('.cm > button.ib[data-chat-menu-toggle]')!;
+    expect(toggle.getAttribute('aria-haspopup')).toBe('menu');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-label')).toBe('گزینه‌های بیشتر');
+    const menu = h.querySelector('.cm > [data-chat-menu]')!;
+    expect(menu.getAttribute('role')).toBe('menu');
+    expect(menu.hasAttribute('hidden')).toBe(true);
+    const items = Array.from(menu.querySelectorAll('[data-chat-menu-action]'));
+    expect(items.map((b) => b.getAttribute('data-chat-menu-action'))).toEqual(['transcript', 'sound']);
+    expect(items.map((b) => b.getAttribute('role'))).toEqual(['menuitem', 'menuitemcheckbox']);
+    // Core moves the focus through the items (arrows): none is a tab stop.
+    expect(items.every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);
+    expect(items[0].textContent).toBe('ارسال متن گفتگو به ایمیل');
+    expect(items[1].textContent).toBe('صدای اعلان‌ها');
+    expect(items[1].getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('open: expanded and shown; the sound item says off', () => {
+    const h = head(extended(make()), { open: true, items: [{ action: 'sound', on: false }] });
+    expect(h.querySelector('[data-chat-menu-toggle]')!.getAttribute('aria-expanded')).toBe('true');
+    expect(h.querySelector('[data-chat-menu]')!.hasAttribute('hidden')).toBe(false);
+    expect(h.querySelector('[data-chat-menu-action="sound"]')!.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('the transcript item in each state: sending, sent (the masked address, an isolated run), a retry, no more', () => {
+    const item = (state: string, to = 'a•••@example.com') =>
+      head(extended(make()), { open: true, items: [{ action: 'transcript', state, to }] }).querySelector('[data-chat-menu-action="transcript"]')!;
+    expect(item('idle').hasAttribute('aria-disabled')).toBe(false);
+    expect(item('sending').getAttribute('aria-disabled')).toBe('true');
+    const sent = item('sent');
+    expect(sent.getAttribute('aria-disabled')).toBe('true');
+    expect(sent.textContent).toBe('متن گفتگو به a•••@example.com فرستاده شد');
+    expect(sent.querySelector('b[dir="ltr"]')!.textContent).toBe('a•••@example.com');
+    expect(item('failed').textContent).toBe('ارسال نشد · تلاش دوباره');
+    expect(item('failed').hasAttribute('aria-disabled')).toBe(false);
+    expect(item('no').textContent).toBe('ارسال متن گفتگو ممکن نشد');
+    expect(item('no').getAttribute('aria-disabled')).toBe('true');
+    // The address is the server's, escaped like any value.
+    const evil = item('sent', '<img src=x onerror=alert(1)>');
+    expect(evil.querySelector('img')).toBeNull();
+    expect(evil.querySelector('b')!.textContent).toBe('<img src=x onerror=alert(1)>');
+  });
+
+  it('speaks en and tr', () => {
+    const en = head(extended(make({ locale: 'en' })), { open: true, items: [{ action: 'transcript', state: 'sent', to: 'a•••@x.io' }, SOUND] });
+    expect(en.querySelector('[data-chat-menu-toggle]')!.getAttribute('aria-label')).toBe('More options');
+    expect(Array.from(en.querySelectorAll('[data-chat-menu-action]')).map((b) => b.textContent))
+      .toEqual(['We sent the transcript to a•••@x.io', 'Notification sounds']);
+    const tr = head(extended(make({ locale: 'tr' })), { open: true, items: [{ action: 'transcript', state: 'idle' }, SOUND] });
+    expect(tr.querySelector('[data-chat-menu-toggle]')!.getAttribute('aria-label')).toBe('Diğer seçenekler');
+    expect(Array.from(tr.querySelectorAll('[data-chat-menu-action]')).map((b) => b.textContent))
+      .toEqual(['Sohbet dökümünü e-postama gönder', 'Bildirim sesleri']);
+  });
+
+  it('its stylesheet hangs the menu under the ⋯ at the bar\'s end, in both directions', () => {
+    expect(T1_CSS).toMatch(/\.cm \{ position: relative;/);
+    expect(T1_CSS).toMatch(/\.menu \{ position: absolute; top: calc\(100% \+ 6px\); inset-inline-end: 0;/);
+    expect(T1_CSS).toContain('.menu[hidden] { display: none; }');
+    expect(T1_CSS).not.toMatch(/\.menu[^{]*\{[^}]*\b(left|right):/);
   });
 });

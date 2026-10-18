@@ -18,7 +18,9 @@
  * only for a renderer that declares features; `ext` decides when it answers),
  * the late pack (the renderer's extras and the real runtime-late.js, which
  * runtime-ext.js requests after the first paint; `late` decides how they
- * answer) and an optional realtime driver whose typing events the test fires.
+ * answer) and an optional realtime driver whose typing events (and
+ * message frames) the test fires. `api` answers a route before the fake does
+ * (the rating and transcript routes of runtime-late.js, for one).
  */
 import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -56,7 +58,13 @@ export interface RuntimeInstance {
 }
 interface RuntimeGlobal { init: (config: Dict, shell: Dict) => RuntimeInstance }
 interface ChatModuleCall { conversationId: string; onResult: (r: Dict) => void }
-interface DriverHooks { onTyping: (e: unknown) => void; onConnectionState?: (state: string) => void }
+interface DriverHooks {
+  onTyping: (e: unknown) => void;
+  onMessage?: (e: { messages: unknown[] }) => void;
+  onConnectionState?: (state: string) => void;
+}
+/** A test's own answer for a request: `status` (default 200) and its JSON `body`. */
+export interface ApiAnswer { status?: number; body?: unknown }
 
 export interface Call { surface: string; args: unknown[] }
 
@@ -98,8 +106,12 @@ export interface BootOptions {
   /** query -> results; a query not listed answers []. `hold` keeps answers until release(). */
   kbSearch?: Record<string, unknown[]>;
   holdKbSearch?: boolean;
-  /** Use a realtime driver (typing events) instead of polling. */
+  /** Use a realtime driver (typing events, message frames) instead of polling. */
   realtime?: boolean;
+  /** Answers a request before the fake API does (undefined: the fake answers); a promise holds it. */
+  api?: (url: string, init?: RequestInit) => ApiAnswer | Promise<ApiAnswer> | undefined;
+  /** What the page's public event bus saw (`window.__gs_public_events`): every `message` event. */
+  publicEvents?: boolean;
   /** A microphone and MediaRecorder (jsdom has neither), and uploads that succeed. */
   media?: boolean;
   open?: boolean;
@@ -125,6 +137,14 @@ export interface Harness {
   fetches: string[];
   posts: Array<{ url: string; body: Dict }>;
   emitTyping: () => void;
+  /** A realtime frame with these messages (`realtime: true`). */
+  emitMessages: (messages: Array<Record<string, unknown>>) => void;
+  /** A /poll answer with these messages (without `realtime`: the polling transport). */
+  emitPoll: (messages: Array<Record<string, unknown>>) => void;
+  /** Every count Core gave the launcher's badge (shell.setUnread). */
+  unread: number[];
+  /** The public bus's events (`publicEvents: true`). */
+  events: Array<{ name: string; payload: unknown }>;
   releaseKbSearch: () => void;
   /** Every <script> src the runtime asked for, in order. */
   scripts: string[];
@@ -141,9 +161,11 @@ export const flush = async (n = 12) => {
   for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-function jsonResponse(payload: unknown, ok = true, status = 200) {
+function jsonResponse(payload: unknown, ok = true, status = 200): Record<string, unknown> {
   return {
     ok, status,
+    // fetchWith reads a 401/403's body from a copy.
+    clone: () => jsonResponse(payload, ok, status),
     json: () => Promise.resolve(payload),
     text: () => Promise.resolve(JSON.stringify(payload)),
     blob: () => Promise.resolve(new Blob()),
@@ -176,6 +198,11 @@ export function boot(opts: BootOptions = {}): Harness {
   const posts: Array<{ url: string; body: Dict }> = [];
   let capturedEnv: Dict = {};
   let typingHook: ((e: unknown) => void) | null = null;
+  let messageHook: ((e: { messages: unknown[] }) => void) | null = null;
+  let pollHook: ((msgs: unknown[]) => void) | null = null;
+  const unread: number[] = [];
+  const events: Array<{ name: string; payload: unknown }> = [];
+  if (opts.publicEvents) win.__gs_public_events = { emit: (name: string, payload: unknown) => { events.push({ name, payload }); } };
   const heldSearches: Array<() => void> = [];
 
   if (opts.hint) sessionStorage.setItem('gs:view:ws-test', JSON.stringify(opts.hint));
@@ -192,12 +219,16 @@ export function boot(opts: BootOptions = {}): Harness {
         assignedOperator: opts.assignedOperator ?? null,
       });
     },
-    startPolling() { return { stop() {}, pollNow() {} }; },
+    startPolling(o: { onMessages?: (msgs: unknown[]) => void }) {
+      pollHook = o && o.onMessages ? o.onMessages : null;
+      return { stop() {}, pollNow() {} };
+    },
   };
   if (opts.realtime) {
     win.__gs_mod_rt_centrifugo = {
       create(_ctx: unknown, _resolved: unknown, hooks: DriverHooks) {
         typingHook = hooks.onTyping;
+        messageHook = hooks.onMessage || null;
         return {
           connect() { if (hooks.onConnectionState) hooks.onConnectionState('connected'); },
           disconnect() {},
@@ -287,6 +318,10 @@ export function boot(opts: BootOptions = {}): Harness {
     fetches.push(u);
     if (init && init.method === 'POST' && init.body) {
       try { posts.push({ url: u, body: JSON.parse(String(init.body)) as Dict }); } catch { posts.push({ url: u, body: { raw: init.body } }); }
+    }
+    const own = opts.api ? opts.api(u, init) : undefined;
+    if (own) {
+      return Promise.resolve(own).then((a) => jsonResponse(a.body ?? {}, (a.status ?? 200) < 400, a.status ?? 200));
     }
     if (u.includes('/api/widget/conversations') && u.includes('/read')) return Promise.resolve(jsonResponse({ ok: true }));
     if (u.includes('/api/widget/conversations')) {
@@ -399,7 +434,7 @@ export function boot(opts: BootOptions = {}): Harness {
       ],
       ...(opts.config || {}),
     },
-    { shadowRoot: shadow, shellEl: host, launcher, setUnread() {}, setOperatorTyping() {} },
+    { shadowRoot: shadow, shellEl: host, launcher, setUnread(n: number) { unread.push(n); }, setOperatorTyping() {} },
   );
   if (opts.open !== false) runtime.open();
 
@@ -418,6 +453,10 @@ export function boot(opts: BootOptions = {}): Harness {
     fetches,
     posts,
     emitTyping: () => { if (typingHook) typingHook({ payload: { actor: 'agent' } }); },
+    emitMessages: (messages) => { if (messageHook) messageHook({ messages }); },
+    emitPoll: (messages) => { if (pollHook) pollHook(messages); },
+    unread,
+    events,
     releaseKbSearch: () => { while (heldSearches.length) heldSearches.shift()!(); },
     scripts,
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },

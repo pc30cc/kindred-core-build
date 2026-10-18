@@ -35,7 +35,6 @@ import { chromium, type Browser, type BrowserContext, type Page, type Route } fr
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { FAKE_MEDIA_ARGS, templateAssets } from './widgetHarness';
-import { chatWidgetTemplate } from '../../shared/widgetTemplates';
 
 const root = process.cwd();
 const ORIGIN = 'https://widget.test';
@@ -142,6 +141,8 @@ interface Fixture {
   messageFails?: boolean;
   /** A state's own help center (categories, articles, search answers, article body); default the shared one. */
   kb?: { categories: unknown[]; articles: Array<Record<string, unknown>>; search: Record<string, unknown[]>; body?: string };
+  /** GET /api/widget/conversations/:id/csat (the rating card, the transcript); default: nothing to rate, no transcript. */
+  csat?: Record<string, unknown>;
 }
 
 function baseFixture(): Fixture {
@@ -368,6 +369,30 @@ function t2Workspace(f: Fixture, topics?: Array<{ label: string; icon: string }>
 const t2Home = (f: Fixture) => { t2Workspace(f); f.kb = T2_HOME_KB; };
 const t2Help = (f: Fixture) => { t2Workspace(f); f.kb = T2_HELP_KB; };
 const t2Live = (f: Fixture) => { t2Workspace(f); f.identity = RETURNING; f.conversations = [T2_OPEN]; };
+/** 12: the thread an operator closed, its line, and the rating card (the transcript offered). */
+const T2_CLOSED: Msg[] = [
+  visitor('r1', 'مرسی، مشکلم حل شد!', at(21, 12)),
+  sara('r2', 'خوشحالم که حل شد! روز خوبی داشته باشید.', at(21, 13)),
+  {
+    id: 'r3', role: 'system', sender_type: 'system', text: 'سارا closed the conversation', time: at(21, 14),
+    metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_name: 'سارا', status: 'resolved' },
+  },
+];
+const AFTER_CHAT = {
+  closed_id: 'r3', rateable: true, rating: null, operator: { name: 'سارا', avatar: null },
+  transcript: { available: true, to: 'a•••@example.com' },
+};
+const t2Closed = (f: Fixture) => {
+  t2Live(f);
+  f.conversations = [{ ...T2_OPEN, id: 'c-closed', status: 'resolved', preview: 'خوشحالم که حل شد!', unreadCount: 0 }];
+  f.threads = { ...f.threads, 'c-closed': T2_CLOSED };
+  f.csat = AFTER_CHAT;
+};
+/** The chat bar's ⋯ pressed: its menu open (the transcript offered, the sounds on). */
+async function openMenu(page: Page) {
+  await page.locator('[data-chat-menu-toggle]').click();
+  await pause(page, 400);
+}
 
 export const SCREEN_STATES: Record<string, StateSpec> = {
   'home-first-visit': { home: true },
@@ -759,11 +784,56 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await pause(page, 500);
     },
   },
+  // 12: rating after a chat («عالی» picked), then sent; the bar's menu open (t1 and t2).
+  't2-rating': {
+    setup: t2Closed,
+    drive: async ({ page }) => {
+      await openThread(page, 'c-closed');
+      await pause(page, 300);
+      await page.locator('[data-csat-rate="5"]').click();
+      // The pointer leaves (no hover lift in the shot).
+      await page.mouse.move(0, 0);
+    },
+  },
+  't2-rating-done': {
+    setup: t2Closed,
+    drive: async ({ page }) => {
+      await openThread(page, 'c-closed');
+      await pause(page, 300);
+      await page.locator('[data-csat-rate="5"]').click();
+      await page.locator('[data-csat-submit]').click();
+      await pause(page, 500);
+      await page.locator('[data-csat-transcript]').click();
+      await pause(page, 500);
+    },
+  },
+  't2-menu': {
+    keepFocus: true,
+    setup: (f) => { t2Live(f); f.csat = { ...AFTER_CHAT, closed_id: null, rateable: false }; },
+    drive: async ({ page }) => { await openThread(page, 'c-live'); await openMenu(page); },
+  },
+  't1-menu': {
+    keepFocus: true,
+    setup: (f) => { f.identity = RETURNING; f.conversations = [RECENT]; f.csat = { ...AFTER_CHAT, closed_id: null, rateable: false }; },
+    drive: async ({ page }) => { await openThread(page, 'c-sara'); await openMenu(page); },
+  },
   't2-mobile-home': { mobile: true, home: true, setup: t2Home },
   't2-mobile-chat': {
     mobile: true,
     setup: t2Live,
     drive: async ({ page }) => { await openThread(page, 'c-live'); await typing(page); },
+  },
+  // The phone's full-screen panel: the bar's menu open, and the rating card.
+  't2-mobile-menu': {
+    mobile: true,
+    keepFocus: true,
+    setup: (f) => { t2Live(f); f.csat = { ...AFTER_CHAT, closed_id: null, rateable: false }; },
+    drive: async ({ page }) => { await openThread(page, 'c-live'); await openMenu(page); },
+  },
+  't2-mobile-rating': {
+    mobile: true,
+    setup: t2Closed,
+    drive: async ({ page }) => { await openThread(page, 'c-closed'); await pause(page, 300); },
   },
 };
 
@@ -843,6 +913,17 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
       return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: IMAGE_SVG });
     }
     if (p.includes('/api/widget/conversations') && p.endsWith('/read')) return json({ ok: true });
+    // The rating card and the transcript (runtime-late.js).
+    if (p.includes('/api/widget/conversations') && p.endsWith('/csat')) {
+      if (method === 'POST') {
+        const b = (route.request().postDataJSON() || {}) as Record<string, unknown>;
+        return json({ ok: true, rating: { score: b.rating, comment: b.comment ?? null, rated_at: new Date().toISOString() } });
+      }
+      return json(fixture.csat || { closed_id: null, rateable: false, rating: null, operator: null, transcript: { available: false, to: null } });
+    }
+    if (p.includes('/api/widget/conversations') && p.endsWith('/transcript')) {
+      return json({ ok: true, to: (fixture.csat as { transcript?: { to?: string } } | undefined)?.transcript?.to || 'a•••@example.com' });
+    }
     if (p.includes('/api/widget/conversations')) {
       return json({
         conversations: fixture.conversations.map((c) => ({
@@ -984,8 +1065,7 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
     // runtime.js: runtime-ext.js then applies them before the first paint
     // (the live widget gets them after it), so every shot has them.
     // --late-after leaves them to runtime-ext.js, as the live widget.
-    const extras = chatWidgetTemplate(tpl.id)?.extras;
-    const late = extras && !opts.lateAfter ? [extras, 'runtime-late.js'] : [];
+    const late = tpl.extras && !opts.lateAfter ? [tpl.extras, 'runtime-late.js'] : [];
     for (const f of ['presentation-registry.js', tpl.script, ...late, 'runtime-chat.js', 'runtime.js']) {
       await page.addScriptTag({ url: `${ORIGIN}/widget/${f}` });
     }

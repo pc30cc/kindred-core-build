@@ -1279,7 +1279,11 @@ widgetRouter.get('/conversations/:id/csat', widgetRateLimit('poll'), async (req:
     ]);
     const [state, transcript] = await Promise.all([
       csatState(config, { workspaceId, conversationId: conversation.id, csatEnabled: csatEnabledFor(template), humanAnswered }),
-      transcriptAvailability(config, { workspaceId, conversation, humanAnswered }),
+      // The link is the card's extra: a failed read hides it, never the card.
+      transcriptAvailability(config, { workspaceId, conversation, humanAnswered }).catch((err: unknown) => {
+        console.warn('[widget-csat] transcript availability failed:', (err as { message?: string } | null)?.message || err);
+        return { available: false, to: null };
+      }),
     ]);
     return res.json({ ...state, transcript: { available: transcript.available, to: transcript.to } });
   } catch (err) {

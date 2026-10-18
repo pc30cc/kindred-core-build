@@ -933,9 +933,12 @@
       var lastDayKey = '';
 
       msgs.forEach(function (m, idx) {
+        var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
+        // A closed line that ends the thread stays last, with its card: a row
+        // Core adds (the saved details) goes above it.
+        if (kind === 'conversation_closed' && idx === msgs.length - 1) { html += extraRowHtml || ''; extraRowHtml = ''; }
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
-        var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
         if (kind === 'call_invitation') { html += renderCallInvitationCard(m); return; }
         if (kind === 'call_ended') { html += renderCallEndedRow(m); return; }
         // The line and, under the newest one, the rating card (Core's `view.csat`).

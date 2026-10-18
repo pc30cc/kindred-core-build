@@ -1018,6 +1018,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .csat { flex: 1; min-width: 0; margin: 2px 4px 6px; padding: 18px 16px 16px; border-radius: 22px; background: #fff; text-align: center; box-shadow: 0 0 0 1px var(--line), 0 16px 34px -20px rgba(15, 18, 23, .35); animation: t2-rise .55s var(--ease) .3s backwards; }
 /* Once on screen, a repaint replays nothing. */
 .no-enter :is(.csat, .cf, .faces [aria-pressed='true']) { animation: none; }
+.csat:focus { outline: 0; }
 .csat .av { margin: 0 auto; }
 .csat h3 { margin: 8px 0 2px; font-size: 16px; font-weight: 700; line-height: 1.5; }
 .csat p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
@@ -1029,7 +1030,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .faces [aria-pressed='true'] { animation: t2-pick .7s var(--bounce); }
 .faces button:focus-visible { border-radius: 15px; }
 .cf { margin: 0 auto 2px; animation: t2-pop .5s var(--bounce) backwards; }
-.csat .ta { display: block; width: 100%; height: 64px; padding: 10px 12px; border-radius: 14px; background: var(--paper); font-size: 13px; line-height: 1.6; color: var(--ink); text-align: start; resize: none; transition: background-color .18s ease, box-shadow .2s ease; }
+.csat .ta { display: block; width: 100%; height: 64px; padding: 10px 12px; border: 0; border-radius: 14px; background: var(--paper); font-size: 13px; line-height: 1.6; color: var(--ink); text-align: start; resize: none; transition: background-color .18s ease, box-shadow .2s ease; }
 .csat .ta::placeholder { color: var(--ink-4); }
 .csat .ta:focus, .csat .ta:focus-visible { outline: 0; background: #fff; box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 5px var(--a-2); }
 .csat .btn { margin-top: 10px; }

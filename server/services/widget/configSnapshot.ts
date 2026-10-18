@@ -64,7 +64,7 @@ import {
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, widgetAssetUrl } from './manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from './presentationAssets.js';
 import { readChatTemplateRows } from './templateCatalog.js';
-import { chatWidgetTemplate, widgetDateHints, type ChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
+import { EDITION_CHAT_WIDGET_TEMPLATES, chatWidgetTemplate, widgetDateHints, type ChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
 import {
   resolveChatTemplateCatalog,
   resolveChatTemplateOptions,
@@ -895,6 +895,12 @@ export function resolveEffectiveChatTemplate(
  * for a template's feature (the closed line, the rating after a chat, the
  * transcript by email), so it never disagrees with the widget the visitor
  * has. Throws only when the snapshot build does (as GET /config would fail).
+ *
+ * Without widget settings (no row, or a read that failed: the degraded
+ * snapshot's few seconds) GET /config serves no widget, and the choice is
+ * unknown: it reads as the edition's own template (`default` / `intl`), never
+ * the catalog's default, so a workspace that chose `default` is not taken
+ * for Template 2 while its row cannot be read.
  */
 export async function workspaceChatTemplate(config: ServerConfig, workspaceId: string): Promise<EffectiveChatTemplate> {
   const [snap, platform, edition] = await Promise.all([
@@ -902,6 +908,10 @@ export async function workspaceChatTemplate(config: ServerConfig, workspaceId: s
     getWidgetPlatformSnapshot(config),
     getPlatformEditionOrNull(config),
   ]);
+  if (!snap.settings) {
+    const id = EDITION_CHAT_WIDGET_TEMPLATES[edition ?? 'iran'].default;
+    return { id, descriptor: chatWidgetTemplate(id), options: {} };
+  }
   return resolveEffectiveChatTemplate(platform, edition, snap.settings);
 }
 

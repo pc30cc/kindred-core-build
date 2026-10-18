@@ -35,7 +35,7 @@
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient, type ServiceClient } from '../supabase.js';
-import { isEmailProviderConfigured, resolveEmailScope, sendEmail } from './email/index.js';
+import { isEmailProviderConfigured, resolveEmailScope, sendEmail, type SendResult } from './email/index.js';
 import { recordConversationEvent } from './conversationEvents.js';
 import { humanOperatorAnswered } from './conversationRatings.js';
 import { isRelationMissing } from './billing/entitlementParse.js';
@@ -56,8 +56,11 @@ export const TRANSCRIPTS_PER_WORKSPACE_DAY = 100;
 const MAX_MESSAGES = 200;
 /** Characters of one message's text. */
 const MAX_MESSAGE_CHARS = 4000;
-/** The HTML transcript's size, in characters; the oldest rows go first. */
-const MAX_TRANSCRIPT_CHARS = 200_000;
+/**
+ * The HTML transcript's size in UTF-8 bytes (what the mail carries: Persian
+ * letters are two each); the oldest rows go first.
+ */
+export const MAX_TRANSCRIPT_BYTES = 200 * 1024;
 
 const LEDGER = 'conversation_transcript_emails';
 const emailSchema = z.string().trim().email().max(254);
@@ -282,9 +285,9 @@ export async function buildVisitorTranscript(
     texts.push(`${who} · ${time}\n${lines.join('\n')}`);
   }
   // Within the size cap, the newest rows are kept.
-  let size = rows.reduce((n, r) => n + r.length, 0);
-  while (rows.length > 1 && size > MAX_TRANSCRIPT_CHARS) {
-    size -= (rows.shift() as string).length;
+  let size = rows.reduce((n, r) => n + Buffer.byteLength(r, 'utf8'), 0);
+  while (rows.length > 1 && size > MAX_TRANSCRIPT_BYTES) {
+    size -= Buffer.byteLength(rows.shift() as string, 'utf8');
     texts.shift();
   }
   const first = messages.find((m) => m.text.trim() || m.attachment?.file_name);
@@ -370,6 +373,8 @@ export async function emailVisitorTranscript(
     if (!transcript.count) return { ok: false, status: 409, error: 'nothing_to_send' };
 
     const copy = COPY[locale];
+    // A provider that throws (a network error) has failed like one that
+    // says so: a 502, a 'failed' row the workspace's daily cap counts.
     const result = await sendEmail(config, {
       workspaceId: input.workspaceId,
       to,
@@ -387,7 +392,11 @@ export async function emailVisitorTranscript(
         transcript: transcript.html,
         transcript_text: transcript.text,
       },
-    });
+    }).catch((err: unknown): SendResult => ({
+      success: false,
+      provider: 'unknown',
+      error: (err as { message?: string } | null)?.message || String(err),
+    }));
 
     const status = result.success ? 'sent' : 'failed';
     const { error: ledgerErr } = await sb.from(LEDGER).insert({

@@ -1,16 +1,22 @@
 /**
  * The chat widget template catalog (shared/chatTemplateCatalog.ts): the
  * Super Admin's catalog per edition, what a workspace wears, the merged
- * template options, and the validation of a Super Admin save.
+ * template options (with the after-chat ones of issue #340), and the
+ * validation of a Super Admin save.
  *
  * The rule that matters most: with no catalog (no row, a database from
  * before migration 275) every workspace wears the edition's default, so a
  * deploy changes nothing for any visitor.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   CHAT_TEMPLATE_OPTIONS,
+  CHAT_TEMPLATE_OPTION_KEYS,
+  CHAT_TEMPLATE_PRECHAT_MODES,
   canonicalChatTemplateId,
+  chatTemplateOptionDefaults,
   chatTemplatePickerShown,
   cleanChatTemplateCatalogInput,
   cleanTemplateOptionsInput,
@@ -75,8 +81,8 @@ describe('resolveChatTemplateCatalog — the Super Admin catalog', () => {
     const t1 = c.entries.find((e) => e.id === 't1')!;
     expect(t1.name).toEqual({ fa: 'فیروزه' });
     // An unknown value reads as the code default; topics default to none.
-    expect(t1.options).toEqual({ navStyle: 'vb', navMode: 'both', topics: [] });
-    expect(c.entries.find((e) => e.id === 't2')!.options).toEqual({ topics: [], askExamples: [] });
+    expect(t1.options).toEqual({ navStyle: 'vb', navMode: 'both', topics: [], prechatMode: 'card', transcriptEmail: true });
+    expect(c.entries.find((e) => e.id === 't2')!.options).toEqual({ topics: [], askExamples: [], csat: true, transcriptEmail: true });
     expect(c.entries.find((e) => e.id === 'default')!.options).toEqual({});
   });
 
@@ -159,15 +165,16 @@ describe('template options', () => {
     const c = iranOn({
       t1: { enabled: true, options: { navStyle: 'vc', topics: [{ label: 'ارسال', icon: 'truck' }] } },
     });
-    expect(resolveChatTemplateOptions(c, 't1', {})).toEqual({ navStyle: 'vc', navMode: 'active', topics: [{ label: 'ارسال', icon: 'truck' }] });
-    expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], extra: 1 }))
-      .toEqual({ navStyle: 'vc', navMode: 'none', topics: [{ label: 'ارسال', icon: 'truck' }] });
+    const t1Rest = { prechatMode: 'card', transcriptEmail: true };
+    expect(resolveChatTemplateOptions(c, 't1', {})).toEqual({ navStyle: 'vc', navMode: 'active', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
+    expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], csat: false, extra: 1 }))
+      .toEqual({ navStyle: 'vc', navMode: 'none', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
     // An explicit empty list is the workspace's own choice: no topics.
     expect(resolveChatTemplateOptions(c, 't1', { topics: [] }).topics).toEqual([]);
     // An invalid workspace value falls through to the Super Admin's.
     expect(resolveChatTemplateOptions(c, 't1', { navStyle: 'zz' }).navStyle).toBe('vc');
-    expect(resolveChatTemplateOptions(c, 't2', { askExamples: ['سفارشم کی می‌رسد؟'], navMode: 'none' }))
-      .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'] });
+    expect(resolveChatTemplateOptions(c, 't2', { askExamples: ['سفارشم کی می‌رسد؟'], navMode: 'none', prechatMode: 'steps' }))
+      .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'], csat: true, transcriptEmail: true });
     expect(resolveChatTemplateOptions(c, 'default', { navMode: 'none' })).toEqual({});
   });
 
@@ -290,7 +297,81 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
     const c = resolveChatTemplateCatalog('iran', r.value);
     expect(c.defaultId).toBe('t2');
     expect(enabledChatTemplateIds(c)).toEqual(['t2', 't1']);
-    expect(resolveChatTemplateOptions(c, 't2', {})).toEqual({ topics: [], askExamples: ['کی می‌رسد؟'] });
+    expect(resolveChatTemplateOptions(c, 't2', {})).toEqual({ topics: [], askExamples: ['کی می‌رسد؟'], csat: true, transcriptEmail: true });
     expect(resolveWorkspaceChatTemplate(c, 'default')).toBe('t2');
+  });
+});
+
+describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMode', () => {
+  it('who reads which: the rating card is Template 2\'s, the transcript both new templates\', the step form Template 1\'s', () => {
+    expect(CHAT_TEMPLATE_OPTIONS.t1).toEqual(['navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail']);
+    expect(CHAT_TEMPLATE_OPTIONS.t2).toEqual(['topics', 'askExamples', 'csat', 'transcriptEmail']);
+    expect(CHAT_TEMPLATE_OPTIONS.default).toEqual([]);
+    expect(CHAT_TEMPLATE_OPTIONS.intl).toEqual([]);
+    expect(CHAT_TEMPLATE_OPTION_KEYS).toEqual(expect.arrayContaining(['prechatMode', 'csat', 'transcriptEmail']));
+    expect(CHAT_TEMPLATE_PRECHAT_MODES).toEqual(['card', 'steps']);
+  });
+
+  it('defaults: both switches on, the card form', () => {
+    expect(chatTemplateOptionDefaults('t2')).toMatchObject({ csat: true, transcriptEmail: true });
+    expect(chatTemplateOptionDefaults('t1')).toMatchObject({ prechatMode: 'card', transcriptEmail: true });
+    expect(chatTemplateOptionDefaults('default')).toEqual({});
+  });
+
+  it('only booleans and the two modes are valid; anything else is refused by name or read as the level above', () => {
+    expect(cleanTemplateOptionsInput({ csat: false, transcriptEmail: true, prechatMode: 'steps' }))
+      .toEqual({ ok: true, value: { csat: false, transcriptEmail: true, prechatMode: 'steps' } });
+    for (const bad of ['false', 0, 1, null, 'yes']) {
+      expect(cleanTemplateOptionsInput({ csat: bad }), String(bad)).toMatchObject({ ok: false, key: 'csat' });
+      expect(cleanTemplateOptionsInput({ transcriptEmail: bad }), String(bad)).toMatchObject({ ok: false, key: 'transcriptEmail' });
+    }
+    for (const bad of ['Steps', 'wizard', '', true]) {
+      expect(cleanTemplateOptionsInput({ prechatMode: bad }), String(bad)).toMatchObject({ ok: false, key: 'prechatMode' });
+    }
+    expect(readTemplateOptions({ csat: 'false', transcriptEmail: false, prechatMode: 'wizard' })).toEqual({ transcriptEmail: false });
+  });
+
+  it('merge: a Super Admin default off, a workspace turning it back on; a key the template does not read is dropped', () => {
+    const c = iranOn({ t2: { enabled: true, order: 2, options: { csat: false, transcriptEmail: false } } });
+    expect(resolveChatTemplateOptions(c, 't2', {})).toMatchObject({ csat: false, transcriptEmail: false });
+    expect(resolveChatTemplateOptions(c, 't2', { csat: true })).toMatchObject({ csat: true, transcriptEmail: false });
+    expect(resolveChatTemplateOptions(c, 't2', { csat: 'on' })).toMatchObject({ csat: false });
+    expect(resolveChatTemplateOptions(c, 't1', { csat: false, prechatMode: 'steps' })).not.toHaveProperty('csat');
+    expect(resolveChatTemplateOptions(c, 't1', { prechatMode: 'steps' }).prechatMode).toBe('steps');
+    // A Super Admin save keeps them per template.
+    const saved = cleanChatTemplateCatalogInput('iran', {
+      defaultId: 'default',
+      templates: [
+        { id: 't1', enabled: true, options: { prechatMode: 'steps', transcriptEmail: false, csat: false } },
+        { id: 't2', enabled: true, options: { csat: false } },
+      ],
+    }, null);
+    if (!saved.ok) throw new Error('save refused');
+    expect(saved.value.items?.t1?.options).toEqual({ prechatMode: 'steps', transcriptEmail: false });
+    expect(saved.value.items?.t2?.options).toEqual({ csat: false });
+    expect(cleanChatTemplateCatalogInput('iran', { defaultId: 'default', templates: [{ id: 't2', enabled: true, options: { csat: 'no' } }] }, null))
+      .toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2' });
+  });
+
+  it('only Template 2 draws the closed line (descriptor closedNotice): the server writes it for no other workspace', () => {
+    const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2']);
+  });
+
+  it('a descriptor\'s closedNotice is exactly whether its renderer declares features.closedNotice', () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.MediaRecorder = function () {};
+    const read = (f: string) => readFileSync(resolve(process.cwd(), f), 'utf8');
+    new Function(read('public/widget/presentation-registry.js')).call(window);
+    const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
+    for (const id of Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>) {
+      new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
+      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, unknown> } };
+      const r = mod.create({
+        t: (k: string) => k, escapeHtml: (v: unknown) => String(v), linkifyHtml: (v: unknown) => String(v), linkLabel: '',
+        config: { templateId: id }, locale: 'fa', primaryColor: '#3B82F6', capabilities: {},
+      });
+      expect(!!r.features?.closedNotice, id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
+    }
   });
 });

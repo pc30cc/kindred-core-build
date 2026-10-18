@@ -189,7 +189,8 @@ function averageScore(sum: number, count: number): number | null {
 
 /**
  * Visitors' ratings in the window, per rated operator: { sum, count }. Empty
- * before migration 276; any other failure is the report's 500.
+ * before migration 276, and when the read fails: the satisfaction column is
+ * left out then, never the rest of the report.
  */
 export async function ratingsByOperator(
   sb: ReturnType<typeof getServiceClient>,
@@ -204,8 +205,10 @@ export async function ratingsByOperator(
     .gte('created_at', sinceIso)
     .limit(5000);
   if (error) {
-    if (isRelationMissing(error, 'conversation_ratings')) return out;
-    throw error;
+    if (!isRelationMissing(error, 'conversation_ratings')) {
+      console.warn('[operator-activity] ratings read failed:', error.message);
+    }
+    return out;
   }
   for (const r of (data || []) as Array<{ operator_id: string | null; score: number }>) {
     if (!r.operator_id) continue;

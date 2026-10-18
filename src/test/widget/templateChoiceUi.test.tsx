@@ -56,7 +56,7 @@ describe('effectiveWorkspaceTemplate', () => {
 
   it('the drafted choice while enabled, with the merged options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none', junk: 1 }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [] } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: true } });
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', null, {}, true).id).toBe('default');
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't2', {}, true).id).toBe('default');
   });
@@ -64,7 +64,7 @@ describe('effectiveWorkspaceTemplate', () => {
   it('a plan without widget_appearance previews the default with no workspace options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none' }, false)).toEqual({ id: 'default', options: {} });
     expect(effectiveWorkspaceTemplate({ ...VIEW, defaultId: 't1', planAllowsChoice: false }, 'iran', 'default', { navMode: 'none' }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [] } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true } });
   });
 
   it('the card shows only with two or more templates enabled and 275 applied', () => {
@@ -222,7 +222,7 @@ describe('WidgetLivePreview — the effective template', () => {
     expect(p.templateId).toBe('t1');
     expect(p.config.templateId).toBe('t1');
     expect(p.config.templateOptions).toEqual({ navStyle: 'vd', navMode: 'none', topics: [] });
-    expect(p.capabilities).toMatchObject({ kbNeutral: true, csat: false });
+    expect(p.capabilities).toMatchObject({ kbNeutral: true, csat: true, chatMenu: true, reactions: false });
   });
 
   it('the default preview stays as it was: default template, no options', () => {
@@ -357,6 +357,33 @@ describe('WidgetLivePreview — a renderer\'s declared features, as Core reads t
       expect(current).toEqual(['home:false', 'list:false', 'help:false']);
       expect(badge).toEqual({ text: '', hidden: true });
     }
+  });
+
+  it('chatHeader / chatMenu: the chat bar as Core paints it for an existing conversation (who answers, a closed ⋯); none without them', () => {
+    const chat = (features?: Record<string, boolean>) => {
+      const page = new JSDOM(srcdoc({ view: 'chat', templateId: 't1', operatorName: 'Sara' }), { runScripts: 'outside-only' });
+      const inline = Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((s) => s.textContent).join('\n');
+      page.window.eval(inline);
+      const headers: Vm[] = [];
+      const R = {
+        features,
+        shellHtml: () => '<div data-body></div>',
+        chatFrameHtml: () => '<div data-chat-header>frame bar</div><div data-chat-messages></div>',
+        messagesHtml: () => '<p>thread</p>',
+        chatHeaderHtml: (vm: Vm) => { headers.push(vm); return '<p>bar</p>'; },
+      };
+      (page.window as unknown as { gsRenderPreview: (mod: unknown) => void }).gsRenderPreview({ create: () => R });
+      return { headers, bar: (page.window.document as Document).querySelector('[data-chat-header]')!.innerHTML };
+    };
+    const none = chat();
+    expect(none.headers).toEqual([]);
+    expect(none.bar).toBe('frame bar');
+    const header = chat({ chatHeader: true });
+    expect(header.headers).toHaveLength(1);
+    expect(header.headers[0]).toMatchObject({ isNew: false, online: true, operator: { name: 'Sara', online: true }, menu: null });
+    expect(header.bar).toBe('<p>bar</p>');
+    const menu = chat({ chatHeader: true, chatMenu: true });
+    expect(menu.headers[0].menu).toEqual({ open: false, items: [{ action: 'sound', on: true }] });
   });
 
   it('tabs / kbSearch / visitorName: Core\'s view-model fields, the current tab and the unread badge', () => {

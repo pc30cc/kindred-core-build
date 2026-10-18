@@ -282,13 +282,21 @@ Migration `275_widget_template_catalog.sql`; the rules are
 - **Template options** (`widget_settings.widget_template_options`, one flat
   object; unknown keys dropped, invalid values refused): Template 1 reads
   `navStyle` (`vb` default, `va`, `vc`, `vd`), `navMode` (`active` default,
-  `both`, `icon`, `text`, `none`) and `topics` (up to 4 × `{label ≤ 24, icon}`);
-  Template 2 `topics` and `askExamples` (up to 2 × ≤ 60 characters). Topic
-  icons: `truck`, `return`, `ruler`, `card`, `box`, `chat`, `help`, `gift`,
-  `clock`, `tag`. Merged code defaults → the Super Admin's option defaults →
-  the workspace's, they reach the widget as `config.templateOptions` (`{}` for
-  `default`) next to `templateId`. The dashboard's live preview renders the
-  same effective template and options.
+  `both`, `icon`, `text`, `none`), `topics` (up to 4 × `{label ≤ 24, icon}`),
+  `prechatMode` (`card` default, `steps`) and `transcriptEmail` (boolean,
+  default on); Template 2 `topics`, `askExamples` (up to 2 × ≤ 60
+  characters), `csat` (the rating after a chat, boolean, default on) and
+  `transcriptEmail`. Topic icons: `truck`, `return`, `ruler`, `card`, `box`,
+  `chat`, `help`, `gift`, `clock`, `tag`. Merged code defaults → the Super
+  Admin's option defaults → the workspace's, they reach the widget as
+  `config.templateOptions` (`{}` for `default`) next to `templateId`. The
+  dashboard's live preview renders the same effective template and options.
+  The server reads the same effective template and options
+  (`configSnapshot.ts` `workspaceChatTemplate`) before it writes the closed
+  line (only for a template whose descriptor has `closedNotice`) or serves a
+  rating or a transcript, so it never treats a `default` / `intl` workspace
+  as wearing Template 2. Both editions run the same code and their own
+  email template rows (`visitor_conversation_transcript`, migration 276).
 - **Order of deploys:** every read tolerates a database without 275 (no
   table: no catalog, i.e. today's look; no column: the choice reads as none),
   so RESPOK's backend may start before its migrator. WebYar's database is
@@ -336,7 +344,19 @@ caching, pure renderers, size budgets), enforced for every descriptor by
    presentation script). A chat renderer that declares Core features
    (`features` from `create()`) has `coreFeatures: true`: /config then names
    Core's lazy module runtime-ext.js for it (`modules.ext`) and the loader
-   fetches it with the template's files (WIDGET_TEMPLATE_RULES.md §2).
+   fetches it with the template's files (WIDGET_TEMPLATE_RULES.md §2). Its
+   markup no first paint needs goes in its **extras**,
+   `presentation-<renderer>-x.js` (descriptor `extras`; a skin names its
+   renderer's file, and the handshake id is the renderer's): /config then
+   also names `modules.extras` and Core's late module `modules.late`
+   (runtime-late.js), which runtime-ext.js requests after the first paint
+   and applies together or not at all; the loader is not involved. A
+   renderer that draws the closed line and its rating card also sets
+   `closedNotice: true` (the server writes that row only for such
+   templates). `coreFeatures`, `extras` and `closedNotice` must match the
+   renderer (`src/test/widget/runtimeExt.test.ts`,
+   `src/test/widget/chatTemplateCatalog.test.ts`); `default` and `intl`
+   have none of them, so their payloads stay byte-identical.
 3. Offer it to an edition in `EDITION_*_TEMPLATES` (`offered`), and make it
    the edition's `default` if it should be worn without a choice. The call
    widget settings page lists `offered`; `PUT /api/call-center/settings`

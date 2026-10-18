@@ -31,7 +31,7 @@ describe('default declares no feature and Core stays as it was', () => {
     const h = boot({ renderer: 'default' });
     await flush();
     expect(h.env().capabilities).toEqual({
-      kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false,
+      kbNeutral: true, csat: true, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false, chatMenu: true,
     });
     expect(h.calls.some((c) => c.surface === 'chatHeaderHtml' || c.surface === 'prechatSummaryHtml')).toBe(false);
   });

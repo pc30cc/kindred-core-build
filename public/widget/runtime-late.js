@@ -41,24 +41,21 @@
 (function () {
   'use strict';
 
-  function create(api) {
-    var P = api.P;
+  // ═══ After a chat (`csat`, `chatMenu`) ═══
+  function afterChat(api) {
     var ctx = api.ctx;
-    var feat = api.feat;
     var config = ctx.config || {};
     var chatStore = api.chatStore;
     var shellStore = api.shellStore;
     var uiPrefsStore = api.uiPrefsStore;
     var panel = api.panel;
     var root = panel.getRootNode();
-    var csatOn = feat('csat');
-    var menuOn = feat('chatMenu');
-    if (!csatOn && !menuOn) return {};
+    var csatOn = api.feat('csat');
+    var menuOn = api.feat('chatMenu');
     function opts() { return config.templateOptions || {}; }
     function active() { return root.activeElement; }
     function focusOn(el) { if (el) { try { el.focus({ preventScroll: true }); } catch (_) {} } }
 
-    // ═══ After a chat (`csat`, `chatMenu`) ═══
     // Per conversation, for this page: the server's answer (GET …/csat:
     // { closed_id, rateable, rating, operator, transcript: { available, to } }),
     // the visitor's pick and comment, and where the rating and the transcript
@@ -108,24 +105,39 @@
       var st = api.deriveChatTabState().name;
       return shellStore.get().activeTab === 'chat' && (st === 'AI_CHAT' || st === 'HUMAN_WELCOME' || st === 'ACTIVE_THREAD');
     }
+    /** The thread's newest row, when it is a closed row (the card's place). */
+    function lastClosed(s) {
+      var msgs = s.messages || [];
+      var m = msgs[msgs.length - 1];
+      return m && m.__id && m.metadata && m.metadata.kind === 'conversation_closed' ? m : null;
+    }
     function repaint(cid) {
-      if (String(chatStore.get().conversationId) !== String(cid)) return;
+      var s = chatStore.get();
+      if (String(s.conversationId) !== String(cid)) return;
       var a = active();
-      // A pre-chat card's fields being filled in keep their values: the card
-      // shows with the next paint.
-      if (threadShown() && !(a && a.hasAttribute && a.hasAttribute('data-prechat'))) api.renderBody();
+      // Only a thread with a card to draw is repainted (the menu's answers
+      // change the bar alone). A pre-chat card's fields being filled in keep
+      // their values: the card shows with the next paint.
+      if (csatOn && lastClosed(s) && threadShown() && !(a && a.hasAttribute && a.hasAttribute('data-prechat'))) api.renderBody();
       api.paintChatHeader();
     }
 
     // ── The rating card (`csat`): under the newest row when it is a closed row ──
     function csatVm(s) {
-      var msgs = s.messages || [];
-      var m = msgs[msgs.length - 1];
+      var m = lastClosed(s);
       var cid = s.conversationId;
-      if (!csatOn || opts().csat === false || !cid || !m || !m.__id || !m.metadata || m.metadata.kind !== 'conversation_closed') return null;
+      if (!csatOn || opts().csat === false || !cid || !m) return null;
       var c = convFor(cid);
-      // Another closure: a new card, asked about anew.
-      if (c.at !== m.__id) { c.at = m.__id; c.rating = 0; c.comment = ''; c.state = 'ask'; c.want = true; }
+      // Another closure: a new card, asked about unless the answer in hand is about it.
+      if (c.at !== m.__id) {
+        c.at = m.__id;
+        c.rating = 0;
+        c.comment = '';
+        c.state = 'ask';
+        if (c.srv && c.srv.closed_id === m.__id) {
+          if (c.srv.rating) { c.state = 'done'; c.rating = +c.srv.rating.score || 0; }
+        } else c.want = true;
+      }
       ask(cid);
       var srv = c.srv;
       if (!srv || srv.closed_id !== m.__id || (c.state !== 'done' && c.state !== 'gone' && !srv.rateable)) return null;
@@ -148,7 +160,8 @@
       if (!el || !el.closest || !el.closest('[data-csat]')) return;
       var rate = el.getAttribute('data-csat-rate');
       keep = el.hasAttribute('data-csat-comment') ? { sel: '[data-csat-comment]', a: el.selectionStart, b: el.selectionEnd }
-        : { sel: rate ? '[data-csat-rate="' + rate + '"]' : el.hasAttribute('data-csat-transcript') ? '[data-csat-transcript]' : '[data-csat-submit]' };
+        : { sel: rate ? '[data-csat-rate="' + rate + '"]' : el.hasAttribute('data-csat-transcript') ? '[data-csat-transcript]'
+          : el.hasAttribute('data-csat-submit') ? '[data-csat-submit]' : '[data-csat]' };
     }
     api.wrap('messagesHtml', function (orig, s, extra, view) {
       // A plain thread only (a pre-chat card passed in has none).
@@ -163,7 +176,10 @@
       if (api.transportStore.get().connectionState !== 'online') { c.state = 'error'; repaint(cid); return; }
       c.state = 'sending';
       repaint(cid);
-      call(cid, 'csat', { closed_id: c.at, rating: c.rating, comment: c.comment.trim() || null }, function (status, j) {
+      var at = c.at;
+      call(cid, 'csat', { closed_id: at, rating: c.rating, comment: c.comment.trim() || null }, function (status, j) {
+        // A newer closure has a card of its own.
+        if (c.at !== at) return;
         var rated = status === 200 || (status === 409 && j.error === 'already_rated');
         if (rated) {
           c.state = 'done';
@@ -224,7 +240,8 @@
       if (!k) return;
       var card = host.querySelector('[data-csat]');
       var el = card && card.querySelector(k.sel);
-      if (!el || el.disabled) el = card && (card.querySelector('[data-csat] button:not(:disabled)') || card);
+      // A control gone (sent, rated): the card itself, whose status is read out.
+      if (!el || el.disabled) el = card;
       focusOn(el);
       if (k.a != null && el && el.setSelectionRange) { try { el.setSelectionRange(k.a, k.b); } catch (_) {} }
     });
@@ -254,20 +271,27 @@
       if (soundAllowed) items.push({ action: 'sound', on: !!uiPrefsStore.get().soundEnabled });
       return items.length ? { open: menuOpen && menuCid === cid, items: items } : null;
     }
+    /** The behaviour hook that finds `el` again in a repainted bar (its first `data-*`), or null. */
+    function hookOf(el) {
+      for (var i = 0, at = (el && el.attributes) || []; i < at.length; i++) {
+        var a = at[i];
+        if (a.name.indexOf('data-') === 0 && !/["\\]/.test(a.value)) return '[' + a.name + (a.value ? '="' + a.value + '"' : '') + ']';
+      }
+      return null;
+    }
     api.wrap('chatHeaderHtml', function (orig, vm) {
       vm = vm || {};
       vm.menu = menuVm(vm);
       if (!vm.menu) menuOpen = false;
-      // The bar is rewritten whole: what had the focus in it gets it back.
+      // The bar is rewritten whole: what had the focus in it (the back
+      // button, the ⋯, an item) gets it back; an item gone, the ⋯.
       var el = active();
-      var act = el && header && header.contains(el) && el.getAttribute('data-chat-menu-action');
-      keepHead = act ? '[data-chat-menu-action="' + act + '"]'
-        : el && el.hasAttribute && el.hasAttribute('data-chat-menu-toggle') ? '[data-chat-menu-toggle]' : null;
+      keepHead = el && header && header.contains(el) ? hookOf(el) : null;
       if (keepHead) {
         Promise.resolve().then(function () {
           var sel = keepHead;
           keepHead = null;
-          if (sel && header) focusOn(header.querySelector(sel) || header.querySelector('[data-chat-menu-toggle]'));
+          if (sel && header) focusOn(header.querySelector(sel) || (sel.indexOf('data-chat-menu') > 0 ? header.querySelector('[data-chat-menu-toggle]') : null));
         });
       }
       return orig(vm);
@@ -293,7 +317,6 @@
           var on = !uiPrefsStore.get().soundEnabled;
           uiPrefsStore.set({ soundEnabled: on });
           try { if (on) window.localStorage.removeItem(soundKey); else window.localStorage.setItem(soundKey, '0'); } catch (_) {}
-          api.paintChatHeader();
         } else if (item.getAttribute('aria-disabled') !== 'true') sendTranscript(cid, convFor(cid));
       });
       // Arrows move through the items (from the ⋯ too), Home and End to the ends.
@@ -327,17 +350,31 @@
         var t = ev.target;
         if (menuOpen && !(t && t.closest && t.closest('[data-chat-menu], [data-chat-menu-toggle]'))) setMenu(false);
       }, true);
+      // The sound item follows Core's preference, whoever changes it (the host page too).
+      uiPrefsStore.subscribe(function () { if (menuOpen) api.paintChatHeader(); });
     }
 
     // Another thread, another view or a closed panel closes the menu; a
     // reopened panel asks the server again (a rating given elsewhere), as
-    // does a new address on the contact (the transcript's recipient).
+    // does a new address on the contact (the transcript's recipient). A
+    // thread that comes to exist (its first message answered) or another
+    // one repaints the bar: the ⋯ is the conversation's, and the bar's own
+    // signature does not know it.
+    var barCid = chatStore.get().conversationId;
     chatStore.subscribe(function (s) {
-      if (menuOpen && String(s.conversationId) !== String(menuCid)) setMenu(false);
+      if (String(s.conversationId) === String(barCid)) return;
+      barCid = s.conversationId;
+      if (menuOpen) setMenu(false);
+      else if (menuOn) api.paintChatHeader();
     });
     var wasOpen = !!shellStore.get().isOpen;
     shellStore.subscribe(function (s) {
-      if (s.isOpen && !wasOpen) for (var k in convs) if (Object.prototype.hasOwnProperty.call(convs, k)) convs[k].want = true;
+      if (s.isOpen && !wasOpen) {
+        for (var k in convs) if (Object.prototype.hasOwnProperty.call(convs, k)) convs[k].want = true;
+        // The thread on screen is not repainted by a reopen: asked now.
+        var cid = chatStore.get().conversationId;
+        if (cid && convs[cid]) ask(cid);
+      }
       wasOpen = !!s.isOpen;
       if (menuOpen && (!s.isOpen || s.activeTab !== 'chat')) setMenu(false);
     });
@@ -348,7 +385,10 @@
       email = next;
       for (var k in convs) if (Object.prototype.hasOwnProperty.call(convs, k)) convs[k].want = true;
     });
+  }
 
+  function create(api) {
+    if (api.feat('csat') || api.feat('chatMenu')) afterChat(api);
     return {};
   }
 

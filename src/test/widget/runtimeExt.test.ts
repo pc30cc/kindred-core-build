@@ -103,6 +103,21 @@ describe('which templates build on the module', () => {
     }
   });
 
+  it('a descriptor\'s `closedNotice` (the server writes the closed line) is exactly its renderer\'s `features.closedNotice`', () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.MediaRecorder = function () {};
+    new Function(read('public/widget/presentation-registry.js')).call(window);
+    const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
+    const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2']);
+    for (const id of ids) {
+      new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
+      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, boolean> } };
+      const r = mod.create({ t: (k: string) => k, config: { templateId: id }, locale: 'fa' });
+      expect(!!(r.features && r.features.closedNotice), id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
+    }
+  });
+
   it('a descriptor\'s `extras` is the registry\'s, exactly when its renderer can take extras, and that file is the renderer\'s', () => {
     const w = window as unknown as Record<string, unknown>;
     w.MediaRecorder = function () {};
@@ -378,7 +393,7 @@ describe('the late pack: applied together, or not at all', () => {
     // The late module builds on runtime-ext's own surface.
     const api = created[0];
     expect((api.ctx as { config: Dict }).config.templateId).toBe('tx');
-    for (const k of ['P', 'panel', 'chatQ', 'chatStore', 'shellStore', 'renderBody', 'ModuleLoader', 'feat', 'on', 'loadLatePack']) {
+    for (const k of ['P', 'panel', 'chatQ', 'chatStore', 'shellStore', 'uiPrefsStore', 'renderBody', 'ModuleLoader', 'feat', 'on', 'loadLatePack', 'paintChatHeader']) {
       expect(api[k], k).toBeTruthy();
     }
     expect((api.feat as (n: string) => boolean)('tabs')).toBe(true);

@@ -9188,7 +9188,8 @@
         var m = allIncoming[i] || {};
         // Skip own messages (visitor/contact = the user themselves).
         var sender = m.role || m.sender || m.sender_type || 'agent';
-        if (sender === 'visitor' || sender === 'contact' || closedRow(m)) continue;
+        if (sender === 'visitor' || sender === 'contact') continue;
+        if (closedRow(m)) continue;
         // De-dupe by stable id (prevents reconnect/poll from double-counting).
         var id = m.id || (m.time ? (m.time + ':' + (m.text || m.body || '')) : null);
         if (id) {

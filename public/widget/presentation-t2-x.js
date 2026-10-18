@@ -43,21 +43,11 @@
 
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (the names of docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = ('convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks ' +
-    'csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound').split(' ');
+  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound'.split(' ');
   var DICT = {
-    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|' +
-      'چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|' +
-      'دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|' +
-      'ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها',
-    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|' +
-      'Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|' +
-      'This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|' +
-      'We could not send the transcript|More options|Notification sounds',
-    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|' +
-      'Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|' +
-      'Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|' +
-      'Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri',
+    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها',
+    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds',
+    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri',
   };
 
   // Icons this file adds (24px grid, as the renderer's ico()).
@@ -124,7 +114,7 @@
       var r = Math.round(+c.rating) || 0;
       if (r < 1 || r > 5) r = 0;
       var open = '<div class="msg-row system"><div class="csat' + (c.state === 'done' ? ' done' : '') +
-        '" data-csat role="group" aria-label="' + esc(title) + '">';
+        '" data-csat role="group" tabindex="-1" aria-label="' + esc(title) + '">';
       var close = transcriptHtml(c.transcript) + '</div></div>';
       // Rated: the chosen face and a thanks; no form.
       if (c.state === 'done') {

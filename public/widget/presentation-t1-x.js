@@ -35,12 +35,9 @@
   // docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
   var COPY_KEYS = 'cats moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed'.split(' ');
   var DICT = {
-    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|گزینه‌های بیشتر|صدای اعلان‌ها|' +
-      'ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد',
-    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|More options|Notification sounds|' +
-      'Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent',
-    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Diğer seçenekler|Bildirim sesleri|' +
-      'Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi',
+    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد',
+    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent',
+    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi',
   };
 
   // Grouped emoji for the picker, one group per name in `cats`.

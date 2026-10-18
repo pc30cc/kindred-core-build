@@ -14,7 +14,9 @@
  *   - a refetch (the window regaining focus) keeps unsaved edits, and refills
  *     the form while there are none;
  *   - the preview gets the drafted option defaults cleaned as the server
- *     stores them (a topic row still being typed is left out).
+ *     stores them (a topic row still being typed is left out);
+ *   - the on/off options (Template 2's rating after a chat, the transcript
+ *     by email) are Super Admin defaults like the others.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -28,6 +30,10 @@ import { WidgetCatalogSection } from '@/components/admin/widget/WidgetCatalogSec
 
 type Row = Record<string, unknown>;
 
+/** The option defaults the server answers with (every key each template reads). */
+const T1_OPTIONS = { navStyle: 'vb', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true };
+const T2_OPTIONS = { topics: [], askExamples: [], csat: true, transcriptEmail: true };
+
 function catalog(overrides: Row = {}): Row {
   return {
     edition: 'iran',
@@ -35,8 +41,8 @@ function catalog(overrides: Row = {}): Row {
     defaultId: 'default',
     templates: [
       { id: 'default', enabled: true, order: 0, name: {}, options: {}, optionSpec: {}, chosenBy: 0 },
-      { id: 't1', enabled: false, order: 1, name: {}, options: { navStyle: 'vb', navMode: 'active', topics: [] }, optionSpec: {}, chosenBy: 3 },
-      { id: 't2', enabled: false, order: 2, name: {}, options: { topics: [], askExamples: [] }, optionSpec: {}, chosenBy: 0 },
+      { id: 't1', enabled: false, order: 1, name: {}, options: T1_OPTIONS, optionSpec: {}, chosenBy: 3 },
+      { id: 't2', enabled: false, order: 2, name: {}, options: T2_OPTIONS, optionSpec: {}, chosenBy: 0 },
     ],
     followingDefault: 12,
     limits: { nameMax: 40, orderMax: 99 },
@@ -86,7 +92,7 @@ async function mount() {
 }
 
 const saveButton = () => screen.getByRole('button', { name: 'Save changes' }) as HTMLButtonElement;
-const switchOf = (card: HTMLElement) => within(card).getByRole('switch') as HTMLButtonElement;
+const switchOf = (card: HTMLElement) => within(card).getByRole('switch', { name: 'Enabled' }) as HTMLButtonElement;
 
 describe('WidgetCatalogSection', () => {
   it('one card per template, default names, nothing to save yet', async () => {
@@ -110,8 +116,8 @@ describe('WidgetCatalogSection', () => {
       defaultId: 'default',
       templates: [
         { id: 'default', enabled: true, order: 0, name: { fa: null, en: null, tr: null }, options: {} },
-        { id: 't1', enabled: true, order: 1, name: { fa: null, en: 'Sea', tr: null }, options: { navStyle: 'vb', navMode: 'active', topics: [] } },
-        { id: 't2', enabled: false, order: 2, name: { fa: null, en: null, tr: null }, options: { topics: [], askExamples: [] } },
+        { id: 't1', enabled: true, order: 1, name: { fa: null, en: 'Sea', tr: null }, options: T1_OPTIONS },
+        { id: 't2', enabled: false, order: 2, name: { fa: null, en: null, tr: null }, options: T2_OPTIONS },
       ],
     });
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Templates saved' })));
@@ -243,7 +249,27 @@ describe('WidgetCatalogSection', () => {
     expect(m).not.toBeNull();
     const p = JSON.parse(m![1]) as { templateId: string; config: { templateOptions: unknown } };
     expect(p.templateId).toBe('t1');
-    expect(p.config.templateOptions).toEqual({ navStyle: 'vb', navMode: 'active', topics: [{ label: 'Shipping', icon: 'truck' }] });
+    expect(p.config.templateOptions).toEqual({
+      navStyle: 'vb', navMode: 'active', topics: [{ label: 'Shipping', icon: 'truck' }], prechatMode: 'card', transcriptEmail: true,
+    });
+  });
+
+  it('the rating after a chat and the transcript by email are on/off defaults the save sends', async () => {
+    await mount();
+    const t2 = document.querySelector('[data-catalog-template="t2"]') as HTMLElement;
+    const rating = within(t2).getByRole('switch', { name: 'Rating after a chat' });
+    const mail = within(t2).getByRole('switch', { name: 'Email the transcript' });
+    expect([rating.getAttribute('aria-checked'), mail.getAttribute('aria-checked')]).toEqual(['true', 'true']);
+    fireEvent.click(rating);
+    const t1 = document.querySelector('[data-catalog-template="t1"]') as HTMLElement;
+    // Template 1 has the transcript (its menu) and the pre-chat form, no rating card.
+    expect(within(t1).queryByRole('switch', { name: 'Rating after a chat' })).toBeNull();
+    fireEvent.click(within(t1).getByRole('switch', { name: 'Email the transcript' }));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const sent = puts[0].templates as Row[];
+    expect(sent[1].options).toEqual({ ...T1_OPTIONS, transcriptEmail: false });
+    expect(sent[2].options).toEqual({ ...T2_OPTIONS, csat: false });
   });
 
   it('the preview dialog is described by the template description (no Radix accessibility warning)', async () => {

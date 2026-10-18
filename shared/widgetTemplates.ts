@@ -71,7 +71,7 @@ export interface ChatWidgetTemplate {
    * conversation only for a workspace whose effective template has this
    * (server/services/conversationClosedNotice.ts), so a `default` / `intl`
    * workspace gets no new row at all. Must match the renderer's
-   * `features.closedNotice`.
+   * `features.closedNotice` (src/test/widget/chatTemplateCatalog.test.ts).
    */
   closedNotice: boolean;
 }

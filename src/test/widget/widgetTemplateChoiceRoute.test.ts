@@ -152,13 +152,13 @@ describe('GET /:workspaceId/templates', () => {
       defaultId: 'default',
       templates: [
         { id: 'default', name: 'آشنا', isDefault: true, options: {} },
-        { id: 't1', name: 'فیروزه', isDefault: false, options: { navStyle: 'vc', navMode: 'active', topics: [] } },
+        { id: 't1', name: 'فیروزه', isDefault: false, options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true } },
       ],
       selectedId: 't1',
       selectedOptions: { navMode: 'none' },
       selectedUnavailable: false,
       effectiveId: 't1',
-      effectiveOptions: { navStyle: 'vc', navMode: 'none', topics: [] },
+      effectiveOptions: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: true },
       planAllowsChoice: true,
       canChoose: true,
     });
@@ -244,6 +244,18 @@ describe('PATCH /:workspaceId — widget_template_id / widget_template_options',
     const padded = await patch({ widget_template_options: { askExamples: ['a' + ' '.repeat(50_000) + 'b'] } });
     expect(padded.status).toBe(400);
     expect(padded.json).toMatchObject({ error: 'invalid_template_options', issues: [{ path: 'widget_template_options.askExamples' }] });
+    expect(state.updates).toHaveLength(1);
+  });
+
+  it('options: the after-chat switches and the pre-chat form are saved as booleans and a mode, refused otherwise', async () => {
+    const ok = await patch({ widget_template_options: { csat: false, transcriptEmail: true, prechatMode: 'steps' } });
+    expect(ok.status).toBe(200);
+    expect(state.updates[0].widget_template_options).toEqual({ csat: false, transcriptEmail: true, prechatMode: 'steps' });
+    for (const [key, value] of [['csat', 'false'], ['transcriptEmail', 1], ['prechatMode', 'wizard']] as const) {
+      const bad = await patch({ widget_template_options: { [key]: value } });
+      expect(bad.status, key).toBe(400);
+      expect(bad.json).toMatchObject({ error: 'invalid_template_options', issues: [{ path: `widget_template_options.${key}` }] });
+    }
     expect(state.updates).toHaveLength(1);
   });
 

@@ -6,7 +6,7 @@ import {
   MessageSquare, UserPlus, UserMinus, CheckCircle2, RefreshCw,
   AlertCircle, Hash, Paperclip, Bot, FileText, Star, User,
   Trash2, Flag, Phone, PhoneIncoming, PhoneMissed, PhoneOff, PhoneCall, Voicemail,
-  Timer, AlertTriangle, Send, Video, Ban,
+  Timer, AlertTriangle, Send, Video, Ban, Mail,
 } from 'lucide-react';
 import type { TimelineEvent } from '@/hooks/useConversationTimeline';
 
@@ -53,6 +53,7 @@ export function getTimelineMeta(type: string): TimelineMeta {
     case 'escalation_requested': return { Icon: AlertTriangle, tone: 'warning' };
     case 'department_assigned': return { Icon: UserPlus,       tone: 'info' };
     case 'rated':               return { Icon: Star,           tone: 'success' };
+    case 'transcript_emailed':  return { Icon: Mail,           tone: 'info' };
     case 'sla_breached':        return { Icon: AlertTriangle,  tone: 'danger' };
     case 'queue_long_wait':     return { Icon: Timer,          tone: 'warning' };
     default:                 return { Icon: AlertCircle,   tone: 'neutral' };
@@ -145,6 +146,8 @@ interface TimelinePayload {
   availability_reason?: string;
   department_name?: string;
   score?: number | string;
+  comment?: string | null;
+  status?: string;
   from?: string;
   to?: string;
   tag?: string;
@@ -218,11 +221,26 @@ export function describeEvent(
       };
     case 'rated': {
       const score = Number(p?.score);
+      const comment = typeof p?.comment === 'string' ? p.comment.trim() : '';
       return {
         primary: L('rated', 'Visitor rated the conversation'),
-        secondary: Number.isFinite(score) && score > 0 ? `${'★'.repeat(Math.min(5, Math.round(score)))} ${score}/5` : undefined,
+        secondary: joinParts(
+          Number.isFinite(score) && score > 0 ? `${'★'.repeat(Math.min(5, Math.round(score)))} ${score}/5` : undefined,
+          // The visitor's own words, quoted in the interface's style; one
+          // pass, so text they typed is never read as a placeholder.
+          comment ? L('quoted', '“{{text}}”').replace('{{text}}', () => comment) : undefined,
+        ),
       };
     }
+    // The visitor had the conversation mailed to the address on their
+    // contact (shown masked, as the server recorded it).
+    case 'transcript_emailed':
+      return {
+        primary: p?.status === 'failed'
+          ? L('transcriptEmailFailed', 'Emailing the transcript to the visitor failed')
+          : L('transcriptEmailed', 'Transcript emailed to the visitor'),
+        secondary: typeof p?.to === 'string' && p.to ? p.to : undefined,
+      };
     case 'call_queued':
       return { primary: L('callQueued', 'Call queued'), secondary: channel };
     case 'call_offered':

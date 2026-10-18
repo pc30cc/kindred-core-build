@@ -148,14 +148,15 @@ async function resolveProviderConfig(
 
 /**
  * Whether the platform has an email provider at all (the same reading
- * sendEmail makes, never the override key): a feature that mails a visitor
- * on request (the transcript by email) is offered only then. False when the
- * setting cannot be read.
+ * sendEmail makes, never the override key; `stub` is sendEmail's "not
+ * configured"): a feature that mails a visitor on request (the transcript by
+ * email) is offered only then. False when the setting cannot be read.
  */
 export async function isEmailProviderConfigured(config: ServerConfig): Promise<boolean> {
   try {
     const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
-    return !!(await resolveProviderConfig(supabase));
+    const provider = await resolveProviderConfig(supabase);
+    return !!provider && provider.provider_name !== 'stub';
   } catch {
     return false;
   }

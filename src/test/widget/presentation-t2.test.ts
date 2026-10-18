@@ -87,6 +87,29 @@ const msg = (over: Vm): Vm => ({ __id: 'm' + Math.random(), sender: 'operator', 
 
 beforeAll(load);
 
+const T2_X_SRC = read('public/widget/presentation-t2-x.js');
+/** The renderer's extras module (presentation-t2-x.js), fresh, as Core hands it over. */
+function extrasModule() {
+  const w = window as unknown as Record<string, unknown>;
+  delete w.__gs_mod_extras;
+  new Function(T2_X_SRC).call(window);
+  return w.__gs_mod_extras as { id: string; v: number; create: (h: unknown) => Record<string, Fn> };
+}
+/** A renderer that took its extras. */
+function withExtras(r: Renderer): Renderer {
+  expect((r.extend as unknown as (m: unknown) => number)(extrasModule())).toBeGreaterThan(0);
+  return r;
+}
+/** A `conversation_closed` row as Core keeps it. */
+const closedRow = (id: string, agentName: string | null, over: Vm = {}): Vm => msg({
+  __id: id, sender: 'operator', senderType: 'system', senderName: agentName, body: `${agentName} closed the conversation`,
+  metadata: { kind: 'conversation_closed', by: 'agent', agent_name: agentName, operator_name: agentName, status: 'resolved' }, ...over,
+});
+/** The rating card's view-model (runtime-late.js `view.csat`). */
+const CSAT = (closedId: string, over: Vm = {}): Vm => ({
+  closedId, name: 'سارا', avatar: null, rating: 0, comment: '', state: 'ask', transcript: null, ...over,
+});
+
 describe('t2: registration', () => {
   it('registers under the registry key with id t2 and the shared contract', () => {
     const reg = (window as unknown as { __gs_presentation_registry: { resolve: (id: string) => { globalKey: string; id: string } } })
@@ -350,6 +373,19 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
     clock: () => {
       expect(make().format.clock(14)).toBe('۰:۱۴');
       expect(make({ locale: 'en' }).format.clock(75)).toBe('1:15');
+    },
+    // Drawn by the extras (presentation-t2-x.js), tested below.
+    closedNotice: () => {
+      const h = parse(withExtras(r()).messagesHtml({ messages: [closedRow('c1', 'سارا')] }, undefined, {}));
+      expect(h.querySelector('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+    },
+    csat: () => {
+      const h = parse(withExtras(r()).messagesHtml({ messages: [closedRow('c1', 'سارا')] }, undefined, { csat: CSAT('c1') }));
+      expect(h.querySelectorAll('[data-csat] [data-csat-rate]')).toHaveLength(5);
+    },
+    chatMenu: () => {
+      const h = parse(withExtras(r()).chatHeaderHtml({ online: true, isNew: false, menu: { open: false, items: [{ action: 'sound', on: true }] } }));
+      expect(h.querySelector('[data-chat-menu-toggle][aria-haspopup="menu"]')).not.toBeNull();
     },
   };
 
@@ -751,13 +787,6 @@ describe('t2: review fixes', () => {
 });
 
 describe('t2: its extras (presentation-t2-x.js)', () => {
-  const T2_X_SRC = read('public/widget/presentation-t2-x.js');
-  const extrasModule = () => {
-    const w = window as unknown as Record<string, unknown>;
-    delete w.__gs_mod_extras;
-    new Function(T2_X_SRC).call(window);
-    return w.__gs_mod_extras as { id: string; v: number; create: (h: unknown) => Record<string, Fn> };
-  };
 
   it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
     expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 1, create: create };");
@@ -788,5 +817,211 @@ describe('t2: its extras (presentation-t2-x.js)', () => {
     const frame = parse(r.chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
     expect(frame.querySelector('[data-emoji-picker]')!.innerHTML).toBe('');
     expect(r.emojiPickerHtml).toBeUndefined();
+  });
+});
+
+describe('t2: after a chat — the closed line, the rating card, the transcript (extras)', () => {
+  const thread = (r: Renderer, messages: Vm[], view: Vm = {}) => parse(r.messagesHtml({ messages }, undefined, view));
+  const card = (over: Vm = {}, opts: { locale?: string } = {}) =>
+    thread(withExtras(make(opts)), [closedRow('c1', 'سارا')], { csat: CSAT('c1', over) }).querySelector('.msg-row.system > .csat[data-csat]')!;
+
+  it('the line names who closed it, else the workspace; in fa, en and tr', () => {
+    const line = (name: string | null, locale = 'fa') =>
+      thread(withExtras(make({ locale })), [closedRow('c1', name)]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
+    expect(line('سارا')).toBe('سارا گفتگو را بست');
+    expect(line(null)).toBe('فروشگاه نیلوفر گفتگو را بست');
+    expect(line('Sara', 'en')).toBe('Sara closed the conversation');
+    expect(line('Sara', 'tr')).toBe('Sara sohbeti kapattı');
+  });
+
+  it('before the extras: no line, no card, and taking them asks Core for one repaint', () => {
+    const r = make();
+    const h = thread(r, [closedRow('c1', 'سارا')], { csat: CSAT('c1') });
+    expect(h.querySelector('.msg-system-pill, [data-csat]')).toBeNull();
+    expect((r.extend as unknown as (m: unknown) => number)(extrasModule())).toBe(2);
+  });
+
+  it('the card goes only under the row Core names (`view.csat.closedId`)', () => {
+    const r = withExtras(make());
+    const rows = [closedRow('c0', 'رضا'), msg({ body: 'باز شد' }), closedRow('c1', 'سارا')];
+    expect(thread(r, rows).querySelector('[data-csat]')).toBeNull();
+    const h = thread(r, rows, { csat: CSAT('c1') });
+    expect(h.querySelectorAll('[data-csat]')).toHaveLength(1);
+    const pills = Array.from(h.querySelectorAll('.msg-row.system'));
+    // The card follows the line it answers.
+    expect(pills[pills.length - 1].querySelector('[data-csat]')).not.toBeNull();
+    expect(pills[pills.length - 2].textContent).toBe('سارا گفتگو را بست');
+  });
+
+  it('a closed line that ends the thread stays last with its card: a row Core adds (the saved details) goes above it', () => {
+    const r = withExtras(make());
+    const extra = '<div class="msg-row prechat-summary-row" data-extra-row></div>';
+    const rows = [msg({ senderName: 'سارا', body: 'بفرمایید' }), closedRow('c1', 'سارا')];
+    const h = parse(r.messagesHtml({ messages: rows }, extra, { csat: CSAT('c1') }));
+    const order = Array.from(h.querySelectorAll('.messages > .msg-row')).map((el) =>
+      el.hasAttribute('data-extra-row') ? 'extra' : el.querySelector('[data-csat]') ? 'card' : el.querySelector('.msg-system-pill') ? 'line' : 'bubble');
+    expect(order).toEqual(['bubble', 'extra', 'line', 'card']);
+    // Anywhere else the row stays where Core puts it: after the thread.
+    const reopened = parse(r.messagesHtml({ messages: [...rows, msg({ sender: 'visitor', body: 'یک سؤال دیگر' })] }, extra, {}));
+    const rest = Array.from(reopened.querySelectorAll('.messages > .msg-row'));
+    expect(rest[rest.length - 1].hasAttribute('data-extra-row')).toBe(true);
+  });
+
+  it('a closed line ends the operator\'s run: the bubble before it keeps its avatar and time', () => {
+    const r = withExtras(make());
+    const h = thread(r, [msg({ senderName: 'سارا', body: 'خوشحالم که حل شد!' }), closedRow('c1', 'سارا')]);
+    const bubble = h.querySelector('.msg-row.operator')!;
+    expect(bubble.querySelector('.msg-avatar:not(.msg-avatar-spacer)')).not.toBeNull();
+    expect(bubble.querySelector('.msg-time')).not.toBeNull();
+  });
+
+  it('asks: the operator, the question, five faces from very bad to great (in DOM order), the comment, a send that waits for a pick', () => {
+    const c = card();
+    expect(c.getAttribute('role')).toBe('group');
+    expect(c.getAttribute('aria-label')).toBe('گفتگو با سارا چطور بود؟');
+    expect(c.querySelector('.av.s44')!.textContent).toBe('س');
+    expect(c.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    expect(c.querySelector('p')!.textContent).toBe('نظرتان کمک می‌کند بهتر شویم.');
+    const faces = Array.from(c.querySelectorAll('.faces > button[data-csat-rate]'));
+    expect(faces.map((b) => b.getAttribute('data-csat-rate'))).toEqual(['1', '2', '3', '4', '5']);
+    expect(faces.map((b) => b.getAttribute('aria-label'))).toEqual(['خیلی بد', 'بد', 'معمولی', 'خوب', 'عالی']);
+    expect(faces.every((b) => b.getAttribute('aria-pressed') === 'false' && b.getAttribute('type') === 'button')).toBe(true);
+    // The design's mouths: a frown for very bad, a filled smile for great.
+    expect(faces[0].innerHTML).toContain('M8.5 16.4c1-1.1 2.2-1.7 3.5-1.7s2.5.6 3.5 1.7');
+    expect(faces[2].innerHTML).toContain('M9 15.2h6');
+    expect(faces[4].innerHTML).toContain('fill="currentColor"');
+    const ta = c.querySelector('textarea[data-csat-comment]') as HTMLTextAreaElement;
+    expect(ta.getAttribute('placeholder')).toBe('چیز دیگری هم بگویید (اختیاری)');
+    expect(ta.getAttribute('aria-label')).toBe('چیز دیگری هم بگویید (اختیاری)');
+    expect(ta.getAttribute('maxlength')).toBe('1000');
+    const send = c.querySelector('button.btn[data-csat-submit]')!;
+    expect(send.textContent).toBe('ارسال نظر');
+    expect(send.hasAttribute('disabled')).toBe(true);
+    expect(c.querySelector('[data-csat-transcript]')).toBeNull();
+  });
+
+  it('a pick presses its face and enables send; the comment comes back escaped', () => {
+    const c = card({ rating: 5, comment: '</textarea><img src=x onerror=alert(1)>' });
+    expect(Array.from(c.querySelectorAll('[data-csat-rate]')).map((b) => b.getAttribute('aria-pressed')))
+      .toEqual(['false', 'false', 'false', 'false', 'true']);
+    expect(c.querySelector('[data-csat-submit]')!.hasAttribute('disabled')).toBe(false);
+    expect(c.querySelector('img')).toBeNull();
+    expect((c.querySelector('[data-csat-comment]') as HTMLTextAreaElement).value).toBe('</textarea><img src=x onerror=alert(1)>');
+  });
+
+  it('sending: nothing can be pressed twice; an error says so and lets the visitor send again', () => {
+    const busy = card({ rating: 4, state: 'sending' });
+    expect(Array.from(busy.querySelectorAll('[data-csat-rate]')).every((b) => b.hasAttribute('disabled'))).toBe(true);
+    expect(busy.querySelector('[data-csat-submit]')!.hasAttribute('disabled')).toBe(true);
+    expect(busy.querySelector('[data-csat-submit]')!.getAttribute('aria-busy')).toBe('true');
+    expect(busy.querySelector('[data-csat-comment]')!.hasAttribute('readonly')).toBe(true);
+    const err = card({ rating: 4, state: 'error' });
+    expect(err.querySelector('.er[role="alert"]')!.textContent).toBe('ارسال نشد');
+    expect(err.querySelector('[data-csat-submit]')!.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('rated: the chosen face and a thanks, no form; the transcript link stays', () => {
+    const c = card({ rating: 5, state: 'done', transcript: { state: 'idle', to: 'a•••@example.com' } });
+    expect(c.classList.contains('done')).toBe(true);
+    expect(c.querySelector('.cf')!.innerHTML).toContain('fill="currentColor"');
+    expect(c.querySelector('[role="status"] h3')!.textContent).toBe('از نظرتان سپاسگزاریم!');
+    expect(c.querySelector('[role="status"] p')!.textContent).toBe('امتیاز شما: عالی');
+    expect(c.querySelector('[data-csat-rate], [data-csat-comment], [data-csat-submit]')).toBeNull();
+    expect(c.querySelector('button[data-csat-transcript]')).not.toBeNull();
+  });
+
+  it('no longer ratable: said once, nothing to press', () => {
+    const c = card({ state: 'gone' });
+    expect(c.querySelector('.er')!.textContent).toBe('دیگر نمی‌شود به این گفتگو امتیاز داد.');
+    expect(c.querySelector('[data-csat-rate], [data-csat-comment], [data-csat-submit]')).toBeNull();
+  });
+
+  it('the transcript link: idle, sending, sent to the masked address (an isolated run), a retry, no more', () => {
+    const link = (state: string, to = 'a•••@example.com') => card({ transcript: { state, to } });
+    const idle = link('idle').querySelector('button.lnk2[data-csat-transcript]')!;
+    expect(idle.textContent).toBe('ارسال متن گفتگو به ایمیل');
+    expect(idle.hasAttribute('disabled')).toBe(false);
+    expect(link('sending').querySelector('[data-csat-transcript]')!.hasAttribute('disabled')).toBe(true);
+    const sent = link('sent').querySelector('p.lnk2[role="status"]')!;
+    expect(sent.textContent).toBe('متن گفتگو به a•••@example.com فرستاده شد');
+    expect(sent.querySelector('b[dir="ltr"]')!.textContent).toBe('a•••@example.com');
+    expect(link('sent').querySelector('[data-csat-transcript]')).toBeNull();
+    expect(link('failed').querySelector('[data-csat-transcript]')!.textContent).toBe('ارسال نشد · تلاش دوباره');
+    expect(link('no').querySelector('p.lnk2')!.textContent).toBe('ارسال متن گفتگو ممکن نشد');
+    expect(link('no').querySelector('[data-csat-transcript]')).toBeNull();
+    const evil = link('sent', '<img src=x onerror=alert(1)>');
+    expect(evil.querySelector('img')).toBeNull();
+  });
+
+  it('escapes the operator\'s name and draws a photo only from an allowed address', () => {
+    const c = card({ name: '<b>سارا</b>', avatar: 'javascript:alert(1)' });
+    expect(c.querySelector('b')).toBeNull();
+    expect(c.querySelector('h3')!.textContent).toBe('گفتگو با <b>سارا</b> چطور بود؟');
+    expect(c.querySelector('img')).toBeNull();
+    expect(card({ avatar: 'https://cdn.test/s.png' }).querySelector('.av img')!.getAttribute('src')).toBe('https://cdn.test/s.png');
+    // No operator name: the workspace asks.
+    const ws = card({ name: '' });
+    expect(ws.querySelector('h3')!.textContent).toBe('گفتگو با فروشگاه نیلوفر چطور بود؟');
+    expect(ws.querySelector('.av.c4')).not.toBeNull();
+  });
+
+  it('speaks en and tr', () => {
+    const en = card({ rating: 2, transcript: { state: 'idle' } }, { locale: 'en' });
+    expect(en.querySelector('h3')!.textContent).toBe('How was your chat with سارا?');
+    expect(Array.from(en.querySelectorAll('[data-csat-rate]')).map((b) => b.getAttribute('aria-label'))).toEqual(['Very bad', 'Bad', 'Okay', 'Good', 'Great']);
+    expect(en.querySelector('[data-csat-submit]')!.textContent).toBe('Send feedback');
+    expect(en.querySelector('[data-csat-transcript]')!.textContent).toBe('Email me the transcript');
+    const tr = card({ rating: 2, state: 'done' }, { locale: 'tr' });
+    expect(tr.querySelector('h3')!.textContent).toBe('Geri bildiriminiz için teşekkürler!');
+    expect(tr.querySelector('[role="status"] p')!.textContent).toBe('Puanınız: Kötü');
+  });
+
+  it('carries its own copy in fa, en and tr, in key order (the registry\'s names)', () => {
+    const keys = (/var COPY_KEYS = '([^']+)'/.exec(T2_X_SRC) || [])[1]!.split(' ');
+    for (const k of ['convClosedBy', 'csatTitle', 'csatSub', 'csat1', 'csat5', 'csatComment', 'csatSend', 'csatTranscript', 'csatTranscriptSent', 'moreOptions', 'menuSound']) {
+      expect(keys, k).toContain(k);
+    }
+    expect(keys).not.toContain('menuEndConversation');
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const lang of ['fa', 'en', 'tr']) {
+      const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T2_X_SRC) || [])[1]!.split('|');
+      expect(parts.length, lang).toBe(keys.length);
+      expect(parts.every((p) => p.trim().length > 0), lang).toBe(true);
+    }
+    // Any other language reads English (a locale 'constructor' too).
+    for (const locale of ['de', 'constructor']) {
+      expect(thread(withExtras(make({ locale })), [closedRow('c1', 'Sara')]).querySelector('.msg-system-pill')!.textContent).toBe('Sara closed the conversation');
+    }
+  });
+
+  it('the chat bar\'s ⋯ sits between the person and the close slot, its menu as on t1', () => {
+    const vm = { online: true, isNew: false, operator: { name: 'سارا', online: true } };
+    const r = withExtras(make());
+    const h = parse(r.chatHeaderHtml({ ...vm, menu: { open: true, items: [{ action: 'transcript', state: 'idle' }, { action: 'sound', on: false }] } }));
+    const kids = Array.from(h.children).map((el) => el.className.split(' ')[0]);
+    expect(kids.slice(1, 4)).toEqual(['who', 'cm', 'cs']);
+    const toggle = h.querySelector('.cm > button.ib[data-chat-menu-toggle]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('گزینه‌های بیشتر');
+    expect(toggle.innerHTML).toContain('M5 12h.01M12 12h.01M19 12h.01');
+    const menu = h.querySelector('[data-chat-menu][role="menu"]')!;
+    expect(menu.hasAttribute('hidden')).toBe(false);
+    expect(Array.from(menu.querySelectorAll('[data-chat-menu-action]')).map((b) => [b.getAttribute('role'), b.textContent]))
+      .toEqual([['menuitem', 'ارسال متن گفتگو به ایمیل'], ['menuitemcheckbox', 'صدای اعلان‌ها']]);
+    expect(menu.querySelector('[data-chat-menu-action="sound"]')!.getAttribute('aria-checked')).toBe('false');
+    // No list, no ⋯ (Core never passes one for a new conversation).
+    expect(parse(r.chatHeaderHtml(vm)).querySelector('.cm')).toBeNull();
+    expect(parse(r.chatHeaderHtml({ ...vm, menu: { open: false, items: [] } })).querySelector('.cm')).toBeNull();
+  });
+
+  it('its stylesheet: the card stretches across the thread, a repaint replays nothing, logical sides only', () => {
+    expect(T2_CSS).toMatch(/\.csat \{ flex: 1; min-width: 0;/);
+    expect(T2_CSS).toContain(".no-enter :is(.csat, .cf, .faces [aria-pressed='true']) { animation: none; }");
+    expect(T2_CSS).toMatch(/\.menu \{ position: absolute; top: calc\(100% \+ 6px\); inset-inline-end: 0;/);
+    for (const sel of ['.csat', '.faces', '.menu', '.lnk2', '.sw']) {
+      const rules = T2_CSS.split('\n').filter((l) => l.startsWith(sel));
+      expect(rules.length, sel).toBeGreaterThan(0);
+      for (const rule of rules) expect(rule, rule).not.toMatch(/\b(margin|padding)-(left|right)|[{;]\s*(left|right):/);
+    }
   });
 });

@@ -35,6 +35,9 @@
  *                        from the renderer's extras (`R.emojiPickerHtml()`) is put in when they come
  *   visitorName          home greets the visitor by name (waits for the identity)
  *   conversationOperator conversation rows carry the operator and who wrote last
+ *   closedNotice         runtime.js keeps `conversation_closed` rows (the "closed the
+ *                        conversation" line) only for such a renderer
+ *   csat, chatMenu       the rating card and the chat bar's menu: runtime-late.js
  *
  * It also brings the late pack, for a renderer whose descriptor names
  * extras (`presentation-<renderer>-x.js`): the renderer's extras and Core's

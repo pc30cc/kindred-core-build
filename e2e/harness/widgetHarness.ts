@@ -18,12 +18,13 @@ const read = (p: string) => readFileSync(path.join(root, p), 'utf8');
 /**
  * The files of a chat template, from its descriptor in
  * shared/widgetTemplates.ts (never a fixed name): `default` unless a spec
- * asks for another one (`t1`, `t2`, `intl`, …).
+ * asks for another one (`t1`, `t2`, `intl`, …). `extras`: its renderer's
+ * extras (the late pack's markup, with runtime-late.js), or null.
  */
 export function templateAssets(templateId = 'default') {
   const t = chatWidgetTemplate(templateId);
   if (!t) throw new Error(`unknown chat template: ${templateId}`);
-  return { id: t.id, script: t.script, styles: [t.style, ...(t.skin ? [t.skin] : [])], fonts: t.fonts };
+  return { id: t.id, script: t.script, styles: [t.style, ...(t.skin ? [t.skin] : [])], fonts: t.fonts, extras: t.extras };
 }
 
 /** runtime.css + the template's stylesheet (+ skin), as the loader injects them. */

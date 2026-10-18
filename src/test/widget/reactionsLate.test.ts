@@ -194,6 +194,10 @@ describe('the visitor\'s heart', () => {
     const h = start({ route: (u, body) => (body ? { body: { ok: true, reactions: [{ emoji: HEART, count: 1, mine: true }], at: 5 } } : { body: { reactions: {}, at: 1 } }) });
     await flush(30);
     await open(h);
+    // Core focuses the composer 200 ms after the identity answer and 300 ms
+    // after an open; let those run first, so a slow machine cannot move the
+    // focus after the toggle (that race itself is a follow-up of #340).
+    await new Promise((r) => setTimeout(r, 350));
     heart(h, M2).focus();
     click(heart(h, M2));
     await flush(20);
@@ -299,6 +303,9 @@ describe('without the late pack, and for `default`', () => {
     const h = boot({ renderer: 'default', realtime: true, conversations: [{ id: 'c1' }], history: { c1: THREAD } });
     await flush(20);
     await open(h);
+    // Let the one-shot `wy-crossfade` marker of the first real paint expire
+    // (200 ms, runtime.js) so the two reads compare the settled panel.
+    await new Promise((r) => setTimeout(r, 250));
     const html = h.panel.innerHTML;
     const calls = h.calls.length;
     h.emitReaction({ kind: 'message_reactions', conversation_id: 'c1', message_id: M1, reactions: [{ emoji: HEART, count: 1, visitor: true }], at: 9 });

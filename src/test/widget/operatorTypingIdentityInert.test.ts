@@ -32,6 +32,10 @@ async function afterTyping(payload: Record<string, unknown>) {
   await flush();
   h.runtime.__test.openConversation('c1');
   await flush(20);
+  // The first real paint after a skeleton keeps the one-shot `wy-crossfade`
+  // marker for 200 ms (runtime.js): let it go, so both runs compare the
+  // settled thread however slow the machine is.
+  await new Promise((r) => setTimeout(r, 250));
   expect(hooks).not.toBeNull();
   const before = h.panel.innerHTML;
   hooks!.onTyping({ payload });

@@ -47,7 +47,7 @@
  *              the composer (`R.kbSuggestHtml`, its tray put in here), until the
  *              team (an operator or the AI, not its greeting) first answers:
  *              GET /api/widget/kb-suggest (runtime-kb.js) once the typing
- *              stopped for 250 ms (never inside an IME composition; the request
+ *              stopped for 400 ms (never inside an IME composition; the request
  *              before it aborted; answers kept per draft), a row opens its
  *              article and back returns to the chat and its draft; Escape
  *              closes the tray for that draft; a refusal (429) or a failure
@@ -1172,7 +1172,7 @@
       timer = setTimeout(function () {
         timer = null;
         if (draft() === q && wanted(q)) ask(q);
-      }, 250);
+      }, 400);
     }
     input.addEventListener('compositionstart', function () { composing = true; });
     input.addEventListener('compositionend', function () { composing = false; onDraft(); });
@@ -1282,11 +1282,14 @@
   }
 
   // ═══ The emoji picker's search (`emojiSearch`) ═══
-  /** Search form of a text: lower case, one Persian ی / ک / ا, no ZWNJ or vowel marks, Latin digits. */
+  /**
+   * Search form of a text: lower case (Turkish I / İ / ı as one i, as a phone
+   * capitalises them), one Persian ی / ک / ا, no ZWNJ or vowel marks, Latin digits.
+   */
   function emojiNorm(s) {
-    return String(s || '').toLowerCase().replace(/[يى]/g, 'ی').replace(/ك/g, 'ک')
+    return String(s || '').toLowerCase().replace(/ı/g, 'i').replace(/[يى]/g, 'ی').replace(/ك/g, 'ک')
       .replace(/[آأإ]/g, 'ا').replace(/ة/g, 'ه').replace(/ؤ/g, 'و')
-      .replace(/[‌‍ـً-ٰٟ]/g, '')
+      .replace(/[‌‍ـً-ٰٟ\u0307]/g, '')
       .replace(/[۰-۹٠-٩]/g, function (c) { return String(c.charCodeAt(0) & 15); });
   }
   function emojiFind(api) {

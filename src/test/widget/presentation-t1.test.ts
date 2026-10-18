@@ -1601,7 +1601,10 @@ describe('t1: the emoji picker\'s search (extras, feature `emojiSearch`)', () =>
   it('has its look in the stylesheet: the field, a taller picker, what Core hides really gone, no tabs while searching', () => {
     expect(T1_CSS).toMatch(/\.ep-sr \{ display: flex;/);
     expect(T1_CSS).toContain('.ep-sr[hidden], .epk.is-searching .ep-cats, .ep-e[hidden] { display: none; }');
-    expect(T1_CSS).toContain('.epk:has(.ep-sr:not([hidden])) { height: 290px; }');
+    // Taller only while open: a closed picker (hidden) keeps no height, the
+    // search field revealed or not (`.epk[hidden]` sets 0; this must not win).
+    expect(T1_CSS).toContain('.epk:not([hidden]):has(.ep-sr:not([hidden])) { height: 290px; }');
+    expect(T1_CSS).not.toMatch(/(^|\n)\.epk:has\(/);
   });
 });
 

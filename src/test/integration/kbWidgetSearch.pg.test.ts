@@ -159,6 +159,7 @@ suite('help search: word by word, whatever the visitor typed', () => {
         ['warranty', 'گارانتی کالا', 'شرایط گارانتی و تعمیر', 'published', true],
         ['warranty-hidden', 'گارانتی کالا (داخلی)', 'فقط برای تیم', 'published', false],
         ['warranty-draft', 'گارانتی کالا (پیش‌نویس)', '', 'draft', true],
+        ['returns-tr', 'İade politikası', 'Ürün iadesi 14 gün içinde', 'published', true],
       ];
       for (const [slug, title, excerpt, status, visible] of rows) {
         await q(`INSERT INTO public.knowledge_base_articles (id, workspace_id, slug, locale, title, content, excerpt, status, visible_in_widget)
@@ -184,11 +185,16 @@ suite('help search: word by word, whatever the visitor typed', () => {
     });
 
     it('whatever the draft holds, the filter parses and nothing outside the workspace is read', async () => {
-      for (const text of ['گارانتی, (کالا)', 'گارانتی%_*\\', 'گارانتی "x" {y}', 'title.eq.گارانتی', 'گارانتی:کالا', 'گارانتی) OR (1=1']) {
+      for (const text of ['گارانتی, (کالا)', 'گارانتی%_*\\', 'گارانتی "x" {y}', 'title.eq.گارانتی', 'گارانتی:کالا', 'گارانتی) OR (1=1', 'گارانتی\u0000کالا']) {
         const res = await suggest(text);
         expect(res.status, text).toBe(200);
         expect(res.body.results.map((r: Row) => r.slug), text).toEqual(['warranty']);
       }
+    });
+
+    it('a Turkish capital «İ» finds its title (folded as ILIKE folds it), and «İstiyorum» is filler', async () => {
+      const res = await suggest('İade İstiyorum', { locale: 'tr' });
+      expect(res.body.results.map((r: Row) => [r.slug, r.matches])).toEqual([['returns-tr', ['iade']]]);
     });
 
     it('a draft of greetings reads nothing, and finds nothing', async () => {

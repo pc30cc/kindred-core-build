@@ -1995,6 +1995,7 @@ const en = {
       authorLabel: 'Author',
       authorNone: 'No author shown',
       authorHint: 'Their name and initial show under the article title in the widget.',
+      authorInvalid: 'This person is no longer a member of this workspace. Choose another author.',
       excerptLabel: 'Excerpt / Meta Description',
       excerptPlaceholder: 'Brief description for search results',
       seoScore: 'SEO Score',

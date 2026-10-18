@@ -929,7 +929,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await newConversation(page);
       await page.locator('[data-msg-input]').fill('مرجوعی کفش');
-      // The articles offered for the draft (instant answers: 250 ms, then the answer).
+      // The articles offered for the draft (instant answers: 400 ms, then the answer).
       await pause(page, 900);
     },
   },

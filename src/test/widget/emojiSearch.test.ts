@@ -123,6 +123,17 @@ describe('finding', () => {
     expect(await find('eart')).toEqual([]);
   });
 
+  it('Turkish as a phone capitalises it: I, İ and ı are one i', async () => {
+    const h = start();
+    await openPicker(h);
+    const find = async (q: string) => { await search(h, q); return shown(h); };
+    // 'İyi' lower-cases to i + a combining dot, 'KIRMIZI' to 'kirmizi': both still find theirs.
+    expect(await find('İyi')).toEqual(['👍']);
+    expect(await find('KIRMIZI')).toEqual(['❤️']);
+    expect(await find('kırmızı')).toEqual(['❤️']);
+    expect(await find('Sırıtan')).toEqual(['😀']);
+  });
+
   it('nothing found: the line says so; an empty field: the whole grid again', async () => {
     const h = start();
     await openPicker(h);

@@ -149,6 +149,23 @@ describe('the words of a draft', () => {
     expect(suggest.kbSuggestWords(`${'x'.repeat(130)} shoes`)).toEqual(['x'.repeat(120)]);
   });
 
+  it('case folds as the database\'s ILIKE does: a Turkish «İ» is «i», never «i» + a combining dot', () => {
+    expect(suggest.kbSuggestWords('İade İstiyorum')).toEqual(['iade']);
+    expect(suggest.kbSuggestFold('İADE İptal I')).toBe('iade iptal i');
+    const rows = [{ title: 'İade politikası', excerpt: 'İptal ve İade', locale: 'tr' }];
+    expect(suggest.rankKbSuggestRows(rows, suggest.kbSuggestWords('İade'), 3, 'tr')).toHaveLength(1);
+    expect(suggest.kbMatchedWords(rows[0], ['iade', 'iptal', 'kargo'])).toEqual(['iade', 'iptal']);
+    // The help search's own words are not folded (kbSearchWords): matched, and returned, as given.
+    expect(suggest.kbMatchedWords(rows[0], ['İade'.toLocaleLowerCase()])).toEqual(['İade'.toLocaleLowerCase()]);
+    // The window is around «İade» itself (JavaScript's own lower case found no «iade» there: the start of the text).
+    expect(suggest.kbSnippet(`${'x '.repeat(80)}İade politikası`, ['iade'], 40)).toBe('…x x x x x x x x x x x x x x İade…');
+  });
+
+  it('control characters split words (a NUL never reaches the database); the ZWNJ of a Persian word stays', () => {
+    expect(suggest.kbSuggestWords('کفش\u0000مرجوعی\u0007shoes\u001b')).toEqual(['کفش', 'مرجوعی', 'shoes']);
+    expect(suggest.kbSuggestWords('پیش‌نویس')).toEqual(['پیش‌نویس']);
+  });
+
   it('the filter is valid PostgREST logic whatever was typed, title and summary only', () => {
     for (const q of ['سلام, سفارشم', 'price (new)', 'a,b)c(d', '"quoted', '{x}', 'x.y.z', 'title.eq.1', 'c++ 50%', 'a:b']) {
       const words = suggest.kbSuggestWords(q);
@@ -300,8 +317,36 @@ describe('GET /api/widget/kb-suggest', () => {
   it('the memos are bounded', () => {
     expect(suggest.__kbSuggestCacheSizesForTests()).toEqual({ rows: 0, minutes: 0 });
     const src = readFileSync(resolve(__dirname, '../../../server/services/knowledge-base/widgetSuggest.ts'), 'utf8');
-    expect(src).toMatch(/ROWS_MAX = 5_000/);
+    expect(src).toMatch(/ROWS_MAX = 2_000/);
+    expect(src).toMatch(/ROWS_NEGATIVE_MAX = 2_000/);
     expect(src).toMatch(/MINUTES_MAX = 20_000/);
+  });
+
+  it('a remembered answer keeps no summaries, yet answers every language and limit as all the rows would', async () => {
+    // 24 matching rows (the window) with long summaries, in three languages:
+    // every title has a word (2), every fifth summary the other (3), so the
+    // language decides which of the equal scores come first.
+    const long = 'متن '.repeat(400);
+    const rows = Array.from({ length: 24 }, (_, i) => article(
+      `k${i}`,
+      `کفش ${i}`,
+      i % 5 === 0 ? `${'متن '.repeat(i)}مرجوعی ${long}` : long,
+      { locale: ['fa', 'en', 'tr'][i % 3], updated_at: `2026-10-${String(10 + (i % 9)).padStart(2, '0')}T0${i % 10}:00:00Z` },
+    ));
+    fresh(rows);
+    const words = suggest.kbSuggestWords('کفش مرجوعی');
+    // What ranking every row (no memo) answers, read from the same rows in the database's order.
+    const dbOrder = [...rows].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    for (const locale of ['fa', 'en', 'tr', 'de']) {
+      for (const limit of [1, 2, 3]) {
+        const res = await ask({ workspace_id: WS, q: 'کفش مرجوعی', locale, limit: String(limit) });
+        const expected = suggest.rankKbSuggestRows(dbOrder as Array<Row & { title: string; excerpt: string; locale: string }>, words, limit, suggest.kbSuggestLocale(locale));
+        expect(res.body.results.map((r: Row) => r.slug)).toEqual(expected.map((r) => r.slug));
+        expect(res.body.results.map((r: Row) => r.snippet)).toEqual(expected.map((r) => suggest.kbSnippet(r.excerpt, words)));
+      }
+    }
+    // Twelve answers from one remembered entry.
+    expect(suggest.__kbSuggestCacheSizesForTests().rows).toBe(1);
   });
 });
 

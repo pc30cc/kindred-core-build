@@ -466,8 +466,8 @@ Do not use these; they appeared in earlier drafts of the specs.
 
 ## 6. Server names of the late features (issue #340, as built)
 
-The widget calls these only from Core's late module (`public/widget/runtime-late.js`), for a template that declares the
-feature; `default` and `intl` never do.
+The widget calls these only from Core's lazy modules (`public/widget/runtime-ext.js`, `public/widget/runtime-late.js`),
+for a template that declares the feature; `default` and `intl` never do.
 
 **Template descriptor** (`shared/widgetTemplates.ts`): `closedNotice` — the renderer draws the `conversation_closed`
 line and its rating card (t2 only; must equal the renderer's `features.closedNotice`). The server writes the line only
@@ -541,8 +541,13 @@ conversations, so an operator never reacts where the visitor cannot see it.
 operator has it, it is closed, routing never queued it; and before 276); 403 `CONVERSATION_ACCESS_DENIED`. Routing
 in assignment mode `manual` (`server/services/chatRouting.ts`) writes `metadata.queued_at` when the conversation
 enters the queue (kept while it waits and when an operator hands it back; one older than 24 hours is a new entry)
-and `metadata.queue_entry_position`; `chat_queue_status()` (276) counts the place on the partial index and gives the
-wait only from 3 measured claims and up to 180 minutes.
+and `metadata.queue_entry_position`; `chat_queue_status()` (276) counts the place on the partial index (only the rows
+that wait: unassigned, open or pending, not spam) and gives the wait only from 3 measured claims and up to 180
+minutes. A **hand-back** (an operator unassigns a queued conversation, or a paused seat is released): 276's trigger
+`trg_conversations_queue_return` keeps `queued_at` (the place) and writes `metadata.queue_reentered_at` (when it came
+back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
+the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per
+return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back.
 
 **Away thread** (round 3, g4 f3): `POST /api/widget/offline-messages` takes `client_message_id` (8–64 characters;
 then any non-empty message up to the 5,000 characters `POST /message` takes, and the contact's stored name, email
@@ -554,6 +559,74 @@ form) the request is checked and answered exactly as before. `POST /api/widget/i
 `offline`: never a way around required pre-chat fields); 500 `merge_failed`. The address is an unverified claim,
 merged as pre-chat merges one (never linking to another contact), and the continuity cookie is issued as
 `/identity/prechat` does. Step pre-chat uses `/identity/prechat` unchanged.
+
+**Order card** (round 4, g3): the AI's reply about ONE order its commerce tools read live in that turn (WooCommerce:
+the latest order with its tracking, or an order by number; OpenCart: one order's detail with the shipments read for
+it, never a list) carries `metadata.kind: 'order_status'` and `metadata.order`
+`{v: 1, number, summary, more, status, statusLabel, step, arrives, trackingUrl}`
+(`server/services/ai-agent/commerce-tools/orderCard.ts`): `number` a plain order number (`[A-Za-z0-9#._-]{1,32}`,
+else no card); `summary` the first product line (sanitized, ≤ 80 characters + …) or null, `more` the other product
+lines; `status` one of `pending on_hold processing shipped completed cancelled refunded failed unknown` (`shipped`:
+processing or unknown with a tracking number or link this turn); `statusLabel` the store's own status name (OpenCart,
+≤ 40) or null (WooCommerce); `step` 0–3 (placed · preparing · shipped · delivered; `completed` → 3, all four done) or
+null (no progress row: cancelled, refunded, failed, unknown); `arrives` `YYYY-MM-DD` or null; `trackingUrl` an
+absolute https link (no credentials, ≤ 500, none of the characters the card never links, `\s " ' < > \\`, left in it
+after normalisation) or null: a link the server sends is one the card draws. Only the auto reply's row carries it
+(never a handoff, intro, limit or suggestion), built beside the tool results from the same objects: the prompt, the
+tool results and the text are what they were, and every other reader (default/intl, the inbox, channels, the apps)
+shows the text. Without a card the AI row's metadata is exactly as before. Optional plugin fields (none sent yet):
+`item_summary` / `item_count` on the customer's order list and `estimatedDelivery` on tracking. Renderer feature /
+capability: `orderCard`.
+
+**Track an order** (round 4, g3): `config.commerce = { trackOrder: true }`, right after `templateOptions`, only for a
+template with `coreFeatures` whose workspace has a store the AI can answer "track my order" for
+(`configSnapshot.ts` `getStoreOrders` / `trackOrderEntitlementFor`: a store-family connection, not revoked, in a
+health the gateway accepts, `orders.read` negotiated, the owner's `orders` permission and, for WooCommerce, order
+history on a synced catalogue, for OpenCart the platform policy; the plan's `commerce` and
+`commerce_customer_history` (WooCommerce) or `commerce_orders` (OpenCart)); absent otherwise and for `default` /
+`intl`, which never read `commerce_connections`. Cached 60 s per workspace (a failed read: false, for 5 s), dropped
+by `widget:<ws>`, which a disconnect, a permission change, a pairing and a handshake that changes a store's health
+publish. The row (t2 home, `data-home-action="track-order"`) sends «پیگیری سفارشم» / "Track my order" /
+"Siparişimi takip et" as the first message; each detects as `order_status`. Renderer feature: `trackOrder`.
+
+**Instant answers** (round 4, g3): `GET /api/widget/kb-suggest?workspace_id&q&locale&limit`
+(`server/routes/widgetKbSuggest.ts`, `server/services/knowledge-base/widgetSuggest.ts`), token-secured like every
+widget route (the workspace is the token's; another → 403 `WORKSPACE_MISMATCH`), `Cache-Control: no-store` → 200
+`{ results: [{ slug, title, snippet, matches: [words], readingMinutes }] }`, at most `limit` (clamped to 1–3,
+default 2). Bad input (no `q`, `q` over 200), a draft with nothing to search, no match and a database error all answer
+`{ results: [] }`. The draft's words: punctuation, symbols and control characters out, lower-cased as the database folds case («İ» is «i»), no stopwords
+(`KB_SUGGEST_STOPWORDS`, fa/en/tr) or one-letter words, the four longest of its first 120 characters; only published
+articles shown in the widget (`visible_in_widget`), never one the plan locked; title or summary (never the text); a
+word in the title counts 2, in the summary 1, at least 2 to be shown, the conversation's language breaking ties.
+`matches` are the searched words the row contains, case folded (the tray marks them, escaped, an «i» also marking
+an «İ»); `snippet` up to 120 characters of the summary around the first match, cut at spaces with …; `readingMinutes`
+exactly the article view's formula (`kbReadingMinutes` = runtime-ext.js `kbArticleMeta`: tags to spaces, words / 200,
+rounded, at least 1; `src/test/widget/commerceKbServer.test.ts` pins both, and the route, on one fixture).
+Memos: per (workspace, words) 60 s, only the articles an answer can show for any language and limit, without their
+summaries (≤ 2,000 that found something, ≤ 2,000 that found nothing), the reading time per article version (≤ 20,000).
+Limits of its own: the widget rate-limit category `kb_suggest` (30 a minute per visitor or per address, 300 per
+address; 429 `{code: 'RATE_LIMITED', retry_after}` + `Retry-After`) first, then the process ceiling
+`kbSuggestGlobalCeiling` (`WIDGET_KB_SUGGEST_GLOBAL_PER_MIN`, 1800; 429 `{code: 'PREAUTH_GLOBAL_LIMIT', scope:
+'kb-suggest', retry_after}`): the help center's `/api/widget/kb/*` limits and this one never spend each other.
+Renderer feature / capability: `instantAnswers` (hook `[data-kb-suggest]`, rows `[data-kb-action="open"][data-kb-slug]`).
+
+**Help results** (round 4, g3): `GET /api/widget/kb/search?match=words` (runtime-ext.js `kbSearch`) also gives each
+result `snippet` (≤ 160 characters of its summary around the first match) and `matches` (the words its title or
+summary contains). Without `match=words` (every help center) the rows are exactly as before.
+
+**KB article author** (round 4, g5-2a): `knowledge_base_articles.author_user_id` (migration 276). The widget asks for
+it with `meta=1` on `GET /api/widget/kb/article` (runtime-ext.js `kbMeta`, a renderer declaring `kbAuthor`): the
+article gains `author_name` (the author's `profiles.full_name`, while they are a member of the workspace, ≤ 80
+characters; else null), never `author_user_id`; before 276 the article without a byline, never a 404. Without
+`meta=1` the query and the answer are exactly as before. View-model field `article.author`. The dashboard's write API
+(`server/routes/knowledgeBase.ts`): `author_user_id` absent on create → the creator (when a member), absent on update
+→ unchanged, null → none, any other id must be a member of the workspace (else 400 `invalid_author`); before 276 the
+article is saved without it. The AI's article writers name no author. The editor's select
+(`src/pages/app/knowledge/ArticleEditorPage.tsx`): keys `knowledgeBase.editor.authorLabel` / `authorNone` /
+`authorHint` (fa/en/tr).
+
+**Emoji keywords** (round 4, g5-2c): `config.modules.emoji` (the hashed `runtime-emoji.js`) only for a template with
+`coreFeatures`, next to `modules.ext`; Core requests it only when a visitor first uses the picker's search.
 
 **What a visitor never receives**: an operator's account id. Every message a visitor gets — the visitor's channel
 (`publishConversationEvent`), `GET /poll`, `/history`, `/identity/history` — goes through

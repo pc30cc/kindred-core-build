@@ -11,7 +11,9 @@
  *  - an article's author: `meta=1` on the article request of a renderer
  *    that draws it, `author_name` under its title (t1 and t2);
  *  - help search results: the server's snippet and matched words reach the
- *    renderer (t2 draws them).
+ *    renderer (t2 draws them);
+ *  - what round 4 adds to Core binds once: repaints add no listener to the
+ *    page.
  *
  * @vitest-environment jsdom
  */
@@ -163,4 +165,53 @@ describe('help search results with the server\'s snippet', () => {
     const item = h.q('[data-kb-results] [data-kb-slug="ship"]')!;
     expect(item.querySelector('small')!.innerHTML).toBe('…هزینه‌ی <mark>ارسال</mark> برای خریدهای بالای ۲ میلیون…');
   });
+});
+
+describe('round 4\'s Core binds once', () => {
+  // The tray, the emoji search and the downloads bind to the chat frame
+  // (built once) when the pack lands: views painted again and again add no
+  // listener to anything still on the page.
+  for (const t of ['t1', 't2'] as const) {
+    it(`${t}: no listener piles up on the page across repaints`, async () => {
+      preload(t);
+      const counts = new Map<EventTarget, number>();
+      const real = EventTarget.prototype.addEventListener;
+      vi.spyOn(EventTarget.prototype, 'addEventListener').mockImplementation(function (this: EventTarget, ...args: Parameters<EventTarget['addEventListener']>) {
+        counts.set(this, (counts.get(this) || 0) + 1);
+        return real.apply(this, args);
+      });
+      const h = boot({
+        renderer: t,
+        conversations: [{ id: 'c1' }],
+        history: { c1: [ORDER_ROW] },
+        api: (u) => (u.includes('/api/widget/kb-suggest') ? { body: { results: [] } } : undefined),
+      });
+      await flush(40);
+      const live = () => {
+        let n = 0;
+        counts.forEach((c, el) => { if ((el as Node).isConnected || el === window || el === document) n += c; });
+        return n;
+      };
+      const round = async () => {
+        h.runtime.setTab('chat');
+        await flush(10);
+        h.runtime.__test.openConversation('c1');
+        await flush(10);
+        h.runtime.setTab('help');
+        await flush(10);
+        h.runtime.setTab('home');
+        await flush(10);
+        h.runtime.setTab('chat');
+        await flush(10);
+        typeInto(h.q<HTMLTextAreaElement>('[data-msg-input]')!, 'مرجوعی کفش');
+        await flush(5);
+      };
+      await round();
+      const before = live();
+      await round();
+      await round();
+      await round();
+      expect(live()).toBe(before);
+    });
+  }
 });

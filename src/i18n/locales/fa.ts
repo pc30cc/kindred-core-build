@@ -1981,6 +1981,7 @@ const fa: TranslationKeys = {
       authorLabel: 'نویسنده',
       authorNone: 'بدون نام نویسنده',
       authorHint: 'نام و حرف اول نام او زیر عنوان مقاله در ویجت دیده می‌شود.',
+      authorInvalid: 'این شخص دیگر عضو این فضای کاری نیست. نویسندهٔ دیگری انتخاب کنید.',
       excerptLabel: 'خلاصه / توضیحات متا',
       excerptPlaceholder: 'توضیح کوتاه برای نتایج جستجو',
       seoScore: 'امتیاز سئو',

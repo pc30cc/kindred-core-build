@@ -5,7 +5,7 @@
  * (coreFeaturesHarness.ts):
  *
  *  - GET /api/widget/kb-suggest (workspace, locale, the draft, two at most)
- *    once the typing stopped for 250 ms, never inside an IME composition
+ *    once the typing stopped for 400 ms, never inside an IME composition
  *    (compositionend asks), the request before it aborted, a draft of fewer
  *    than three searchable characters never asked about, an answer kept per
  *    draft (the same draft again asks nothing, an answer for an older draft
@@ -72,14 +72,14 @@ async function toChat(h: ReturnType<typeof boot>) {
 const composer = (h: ReturnType<typeof boot>) => h.q<HTMLTextAreaElement>('[data-msg-input]')!;
 const asks = (h: ReturnType<typeof boot>) => h.fetches.filter((u) => u.includes('/api/widget/kb-suggest'));
 const tray = (h: ReturnType<typeof boot>) => h.q('[data-composer-zone] > [data-kb-suggest]');
-async function write(h: ReturnType<typeof boot>, text: string, settle = 320) {
+async function write(h: ReturnType<typeof boot>, text: string, settle = 470) {
   typeInto(composer(h), text);
   await wait(settle);
   await flush(10);
 }
 
 describe('asking', () => {
-  it('asks once the typing stopped for 250 ms, with the draft, the locale and two at most', async () => {
+  it('asks once the typing stopped for 400 ms, with the draft, the locale and two at most', async () => {
     const h = start();
     await toChat(h);
     typeInto(composer(h), 'مرج');
@@ -87,7 +87,10 @@ describe('asking', () => {
     typeInto(composer(h), 'مرجوعی کفش');
     await wait(120);
     expect(asks(h)).toEqual([]);
+    // 320 ms after the last keystroke: still nothing (a pause between words).
     await wait(200);
+    expect(asks(h)).toEqual([]);
+    await wait(150);
     await flush(10);
     expect(asks(h)).toHaveLength(1);
     const u = new URL(asks(h)[0]);
@@ -108,10 +111,10 @@ describe('asking', () => {
       el.value = v;
       el.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
     }
-    await wait(320);
+    await wait(470);
     expect(asks(h)).toEqual([]);
     el.dispatchEvent(new Event('compositionend', { bubbles: true }));
-    await wait(320);
+    await wait(470);
     await flush(10);
     expect(asks(h)).toHaveLength(1);
     expect(new URL(asks(h)[0]).searchParams.get('q')).toBe('مرجوعی');

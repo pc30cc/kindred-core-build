@@ -30,7 +30,8 @@
  *       set to NULL when the profile goes;
  *   T8  visitor_conversation_transcript: both editions in fa/en/tr; a re-run
  *       never overwrites an edited row; sendEmail fills it with visitor text
- *       taken literally ($&, $', $1, {brand});
+ *       taken literally ($&, $', $1, {brand}); per-part data (htmlData)
+ *       gives the HTML its escaped copy and the subject and text the raw one;
  *   T9  276 runs twice; every check, policy and trigger exists once; the
  *       re-run waits for no ordinary writer;
  *   T10 276 sets its own lock_timeout and resets it.
@@ -568,6 +569,42 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(mail.html).toContain(`<tr><td>${visitorText}</td></tr>`);
     expect(mail.html).toContain('<h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">Acme &amp; Co $1</h1>');
     expect(mail.text).toContain(visitorText);
+
+    // Per-part data (htmlData): the owners' offline-message mail takes the
+    // visitor's text as typed in its subject and text part, and the escaped
+    // copy in its HTML only, so neither shows an entity nor runs markup.
+    const name = '<b>Ali</b> & "co"';
+    const body = '<img src=x onerror="alert(1)"> & 5 > 3';
+    const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const offline = await sendEmail(loadConfig(), {
+      workspaceId: null,
+      to: 'owner@example.test',
+      templateSlug: 'offline_message_received',
+      locale: 'en',
+      templateData: { contact_name: name, contact_email: 'ali@example.test', message_body: body, action_url: 'https://app.test/inbox?c=1' },
+      htmlData: { contact_name: esc(name), contact_email: 'ali@example.test', message_body: esc(body), action_url: 'https://app.test/inbox?c=1' },
+    });
+    expect(offline.success).toBe(true);
+    const owner = sent[sent.length - 1];
+    expect(owner.subject).toBe(`New offline message from ${name}`);
+    expect(owner.text).toContain(name);
+    expect(owner.text).toContain(body);
+    expect(owner.text).not.toContain('&amp;');
+    expect(owner.html).toContain(`<strong>${esc(name)}</strong>`);
+    expect(owner.html).toContain(esc(body));
+    expect(owner.html).not.toContain('<img src=x');
+    expect(owner.html).not.toContain('<b>Ali</b>');
+
+    // A name typed with line breaks: the subject stays one header line.
+    const broken = await sendEmail(loadConfig(), {
+      workspaceId: null,
+      to: 'owner@example.test',
+      templateSlug: 'offline_message_received',
+      locale: 'en',
+      templateData: { contact_name: 'Ali\r\nBcc: x@evil.test\nX', contact_email: 'ali@example.test', message_body: 'hi', action_url: '' },
+    });
+    expect(broken.success).toBe(true);
+    expect(sent[sent.length - 1].subject).toBe('New offline message from Ali Bcc: x@evil.test X');
   });
 
   it('T9 276 runs twice: every check, policy and trigger once, and a re-run waits for no ordinary writer', async () => {

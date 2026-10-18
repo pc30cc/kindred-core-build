@@ -302,16 +302,22 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
 });
 
 describe('the offline-message mail to the owners', () => {
-  it('the visitor\'s name, address and message are escaped in the template data and the fallback HTML', async () => {
+  it('the visitor\'s name, address and message: as typed for the subject and text, escaped for the HTML and the fallback HTML', async () => {
     const evil = '<img src=x onerror="alert(1)"> & "co"';
     await leave({ message: `${evil}\nسلام`, name: '<b>Ali</b> & "co"', email: 'ali@example.com' });
     await tick();
     expect(state.sent).toHaveLength(1);
-    const mail = state.sent[0] as { html: string; templateSlug: string; templateData: Record<string, string> };
+    const mail = state.sent[0] as { html: string; templateSlug: string; templateData: Record<string, string>; htmlData: Record<string, string> };
     expect(mail.templateSlug).toBe('offline_message_received');
-    expect(mail.templateData.contact_name).toBe('&lt;b&gt;Ali&lt;/b&gt; &amp; &quot;co&quot;');
-    expect(mail.templateData.message_body).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &quot;co&quot;\nسلام');
+    // The subject and the text part: what the visitor typed, no entities.
+    expect(mail.templateData.contact_name).toBe('<b>Ali</b> & "co"');
+    expect(mail.templateData.message_body).toBe(`${evil}\nسلام`);
     expect(mail.templateData.contact_email).toBe('ali@example.com');
+    // The template's HTML part: text, never markup.
+    expect(mail.htmlData.contact_name).toBe('&lt;b&gt;Ali&lt;/b&gt; &amp; &quot;co&quot;');
+    expect(mail.htmlData.message_body).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &quot;co&quot;\nسلام');
+    expect(mail.htmlData.contact_email).toBe('ali@example.com');
+    expect(mail.htmlData.action_url).toMatch(/^https:\/\/app\.test\/inbox\?c=/);
     expect(mail.html).not.toMatch(/<img|<b>/);
     expect(mail.html).toContain('&lt;b&gt;Ali&lt;/b&gt;');
     expect(mail.html).toContain('&lt;img src=x');

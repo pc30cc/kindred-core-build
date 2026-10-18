@@ -89,9 +89,18 @@ export function stepFor(status: OrderStatus | string, hasTracking: boolean): { s
 }
 
 /**
+ * Characters the widget's card never links (presentation-t2-x.js
+ * orderCardHtml). A URL keeps a backslash in its query or fragment, and an
+ * apostrophe in its fragment, after normalisation: such a link would reach
+ * the visitor and be drawn as no link, so it is not sent at all.
+ */
+const UNLINKABLE_URL_RE = /[\s"'<>\\]/;
+
+/**
  * A tracking link the card may open in a new tab: an absolute https URL with
- * no credentials in it, at most ORDER_CARD_URL_MAX characters. Anything else
- * (javascript:, data:, http:, a relative path, garbage) is no link at all.
+ * no credentials in it, at most ORDER_CARD_URL_MAX characters, that the
+ * widget draws as a link. Anything else (javascript:, data:, http:, a
+ * relative path, garbage) is no link at all.
  */
 export function safeTrackingUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
@@ -101,7 +110,7 @@ export function safeTrackingUrl(raw: unknown): string | null {
     const u = new URL(value);
     if (u.protocol !== 'https:' || !u.hostname || u.username || u.password) return null;
     const out = u.toString();
-    return out.length <= ORDER_CARD_URL_MAX ? out : null;
+    return out.length <= ORDER_CARD_URL_MAX && !UNLINKABLE_URL_RE.test(out) ? out : null;
   } catch {
     return null;
   }

@@ -193,6 +193,15 @@ describe('safeTrackingUrl', () => {
   ])('rejects %s', (raw) => {
     expect(safeTrackingUrl(raw)).toBeNull();
   });
+
+  it('never sends a link the widget would not draw (a backslash or apostrophe the URL keeps)', () => {
+    // What URL normalisation encodes is fine; what it keeps, the card refuses.
+    expect(safeTrackingUrl('https://x.example/?q="a"&b=<c>')).toBe('https://x.example/?q=%22a%22&b=%3Cc%3E');
+    expect(safeTrackingUrl("https://x.example/?q=it's")).toBe('https://x.example/?q=it%27s');
+    for (const raw of ['https://x.example/?q=a\\b', "https://x.example/#it's", 'https://x.example/#a\\b']) {
+      expect(safeTrackingUrl(raw)).toBeNull();
+    }
+  });
 });
 
 describe('arrivalDay', () => {

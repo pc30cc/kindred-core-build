@@ -302,12 +302,16 @@
     }
 
     // ── Help articles while the first message is written (`instantAnswers`) ──
-    /** Escaped text with these words marked (escaped too). */
+    /**
+     * Escaped text with these words marked (escaped too). The words are the
+     * server's, case folded as the database folds it («İade» is «iade»), which
+     * a JavaScript /i alone does not undo: an «i» also marks an «İ».
+     */
     function marked(text, words) {
       words = (Array.isArray(words) ? words : []).map(String).filter(function (w) { return w.length > 1; });
       text = String(text || '');
       if (!words.length) return esc(text);
-      return text.split(new RegExp('(' + words.map(escRe).join('|') + ')', 'gi')).map(function (p, i) {
+      return text.split(new RegExp('(' + words.map(function (w) { return escRe(w).replace(/i/g, '[iİ]'); }).join('|') + ')', 'gi')).map(function (p, i) {
         return i % 2 ? '<mark>' + esc(p) + '</mark>' : esc(p);
       }).join('');
     }

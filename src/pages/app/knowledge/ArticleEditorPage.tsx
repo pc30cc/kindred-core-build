@@ -172,7 +172,7 @@ export default function ArticleEditorPage() {
           : err?.code === 'kb_article_locked'
             ? lockedText('saveBlocked')
           : err?.code === 'invalid_author'
-            ? t('knowledgeBase.editor.authorHint')
+            ? t('knowledgeBase.editor.authorInvalid')
           : err?.upgradeRequired
             ? t('knowledgeBase.editor.quotaReached')
             : undefined;

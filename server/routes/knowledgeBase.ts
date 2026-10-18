@@ -213,11 +213,14 @@ async function resolveArticleAuthor(
   onCreate: boolean,
   res: Response,
 ): Promise<{ author: string | null | undefined } | false> {
+  if (value === undefined) {
+    if (!onCreate) return { author: undefined };
+    // The creator by default: a failed lookup names nobody rather than
+    // refusing an article nobody asked an author for.
+    const member = await isWorkspaceMember(g.config, g.workspaceId, g.userId).catch(() => false);
+    return { author: member ? g.userId : null };
+  }
   try {
-    if (value === undefined) {
-      if (!onCreate) return { author: undefined };
-      return { author: (await isWorkspaceMember(g.config, g.workspaceId, g.userId)) ? g.userId : null };
-    }
     if (value === null) return { author: null };
     const id = value.toLowerCase();
     if (await isWorkspaceMember(g.config, g.workspaceId, id)) return { author: id };

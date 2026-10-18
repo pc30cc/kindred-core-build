@@ -330,7 +330,9 @@ type RenderedTemplate =
  * The running edition's Super Admin template for `slug`, filled in. Branding
  * defaults ({brand}, {year}, {support_email}) are added so every template
  * renders them, while the caller's templateData always wins; `htmlData`
- * (the HTML-escaped copies) wins over it in the HTML part alone.
+ * (the HTML-escaped copies) wins over it in the HTML part alone. The subject
+ * is one line whatever a value holds (a visitor's name typed with a line
+ * break): a header never carries one.
  */
 async function renderEditionTemplate(
   config: ServerConfig,
@@ -352,7 +354,7 @@ async function renderEditionTemplate(
   };
   return {
     status: 'ok',
-    subject: interpolate(tpl.subject, data),
+    subject: interpolate(tpl.subject, data).replace(/[\r\n]+/g, ' '),
     html: interpolate(tpl.html_body, htmlData ? { ...data, ...htmlData } : data),
     text: interpolate(tpl.text_body || '', data),
     locale: tpl.locale,

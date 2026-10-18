@@ -137,7 +137,7 @@ templates: `docs/operations/EDITIONS.md`.
   payload and the capability flips), runtime-ext.js
   7.3 KB (of 8; the pack's loader, the late module's API, those hooks' own
   empty handlers, the typing name and an article's author), runtime-late.js
-  10.3 KB (of 12: the rating card, the chat bar's menu, reactions, the
+  10.4 KB (of 12: the rating card, the chat bar's menu, reactions, the
   pre-chat one question at a time, the message left while away, the place
   in the queue, the help articles offered while a first message is written,
   a download's progress, the emoji search), presentation-t1-x.js 4.8 KB and

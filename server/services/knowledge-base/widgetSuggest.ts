@@ -19,9 +19,10 @@
  * escaped), a snippet of the summary around the first match, and the reading
  * time the article view shows (kbReadingMinutes: runtime-ext.js's formula).
  *
- * Two bounded in-process memos keep the endpoint cheap: the matched rows per
- * (workspace, words) for 60 s, and each article's reading time per
- * id@updated_at. Neither is invalidated: an edit shows within a minute.
+ * Two bounded in-process memos keep the endpoint cheap: the articles a
+ * (workspace, words) pair can answer with, for 60 s, kept small (hitsOf: no
+ * summaries), and each article's reading time per id@updated_at. Neither is
+ * invalidated: an edit shows within a minute.
  */
 import type { ServerConfig } from '../../config.js';
 import { MemoCache } from '../../lib/memoCache.js';
@@ -64,22 +65,35 @@ export const KB_SUGGEST_STOPWORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The words of a draft to search: every punctuation mark and symbol taken
- * out (a draft is a sentence: «کفش؟», «سلام،» and "shoes," are the words
- * کفش, سلام and shoes; this also covers every character the filter grammar
- * and LIKE give a meaning, as widgetSearch.ts kbSearchWords does),
- * lower-cased, without stopwords and one-letter words, each once; the four
- * longest (a tie goes to the word typed later: the end of a draft is what is
- * being written), in the order they were typed. No word → nothing is
- * searched.
+ * Lower case the way the database's ILIKE folds it: JavaScript turns «İ»
+ * (Turkish capital dotted I) into «i» plus a combining dot, which no stored
+ * title holds and PostgreSQL never produces (it folds «İ» to «i»), so
+ * «İade» found nothing and «İstiyorum» was no stopword. Every other letter
+ * keeps its length, so positions found in the folded text are the
+ * original's (kbSnippet).
+ */
+export function kbSuggestFold(text: string): string {
+  return text.toLowerCase().replace(/i\u0307/g, 'i');
+}
+
+/**
+ * The words of a draft to search: every punctuation mark, symbol and
+ * control character taken out (a draft is a sentence: «کفش؟», «سلام،» and
+ * "shoes," are the words کفش, سلام and shoes; this also covers every
+ * character the filter grammar and LIKE give a meaning, as widgetSearch.ts
+ * kbSearchWords does, and a NUL, which the database refuses as text),
+ * lower-cased as the database folds case (kbSuggestFold), without
+ * stopwords and one-letter words, each once; the four longest (a tie goes
+ * to the word typed later: the end of a draft is what is being written), in
+ * the order they were typed. No word → nothing is searched.
  */
 export function kbSuggestWords(query: string): string[] {
   const seen = new Map<string, number>();
   String(query || '')
     .slice(0, KB_SUGGEST_MAX_QUERY)
-    .replace(/[\p{P}\p{S}]/gu, ' ')
+    .replace(/[\p{P}\p{S}\p{Cc}]/gu, ' ')
     .split(/\s+/)
-    .map((w) => w.trim().toLocaleLowerCase())
+    .map((w) => kbSuggestFold(w.trim()))
     .forEach((w, index) => {
       if (w.length < 2 || KB_SUGGEST_STOPWORDS.has(w)) return;
       seen.set(w, index); // the last place a repeated word was typed
@@ -128,8 +142,8 @@ export function kbSnippet(text: unknown, words: string[], max = KB_SUGGEST_SNIPP
   const body = plain(text);
   if (!body) return null;
   if (body.length <= max) return body;
-  const lower = body.toLocaleLowerCase();
-  const hits = words.map((w) => lower.indexOf(w)).filter((i) => i >= 0);
+  const lower = kbSuggestFold(body);
+  const hits = words.map((w) => lower.indexOf(kbSuggestFold(w))).filter((i) => i >= 0);
   const first = hits.length ? Math.min(...hits) : 0;
   let start = Math.max(0, first - SNIPPET_LEAD);
   if (start > 0) {
@@ -165,9 +179,36 @@ export interface KbSuggestion {
 
 /** The words of `words` that `row`'s title or summary contains. */
 export function kbMatchedWords(row: { title?: string | null; excerpt?: string | null }, words: string[]): string[] {
-  const title = String(row.title || '').toLocaleLowerCase();
-  const excerpt = String(row.excerpt || '').toLocaleLowerCase();
-  return words.filter((w) => title.includes(w) || excerpt.includes(w));
+  const title = kbSuggestFold(String(row.title || ''));
+  const excerpt = kbSuggestFold(String(row.excerpt || ''));
+  // The help search's words (kbSearchWords) are not folded: compared folded too.
+  return words.filter((w) => title.includes(kbSuggestFold(w)) || excerpt.includes(kbSuggestFold(w)));
+}
+
+/** A word in the title counts 2, in the summary 1. */
+function wordScore(row: { title?: string | null; excerpt?: string | null }, words: string[]): number {
+  const title = kbSuggestFold(String(row.title || ''));
+  const excerpt = kbSuggestFold(String(row.excerpt || ''));
+  let score = 0;
+  for (const w of words) {
+    if (title.includes(w)) score += 2;
+    if (excerpt.includes(w)) score += 1;
+  }
+  return score;
+}
+
+/** rankKbSuggestRows' order, for any word score. */
+function rankByScore<T extends { locale?: string | null }>(rows: T[], scoreOf: (row: T) => number, limit: number, locale: string | null): T[] {
+  return rows
+    .map((row, index) => {
+      const score = scoreOf(row);
+      const bonus = locale && kbSuggestLocale(row.locale) === locale ? 0.5 : 0;
+      return { row, index, score, rank: score + bonus };
+    })
+    .filter((r) => r.score >= KB_SUGGEST_MIN_SCORE)
+    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .slice(0, Math.max(0, limit))
+    .map((r) => r.row);
 }
 
 /**
@@ -182,35 +223,69 @@ export function rankKbSuggestRows<T extends { title?: string | null; excerpt?: s
   limit: number,
   locale: string | null,
 ): T[] {
-  return rows
-    .map((row, index) => {
-      const title = String(row.title || '').toLocaleLowerCase();
-      const excerpt = String(row.excerpt || '').toLocaleLowerCase();
-      let score = 0;
-      for (const w of words) {
-        if (title.includes(w)) score += 2;
-        if (excerpt.includes(w)) score += 1;
-      }
-      const bonus = locale && kbSuggestLocale(row.locale) === locale ? 0.5 : 0;
-      return { row, index, score, rank: score + bonus };
-    })
-    .filter((r) => r.score >= KB_SUGGEST_MIN_SCORE)
-    .sort((a, b) => b.rank - a.rank || a.index - b.index)
-    .slice(0, Math.max(0, limit))
-    .map((r) => r.row);
+  return rankByScore(rows, (row) => wordScore(row, words), limit, locale);
 }
 
 // ─── memos ────────────────────────────────────────────────────────────
 
 const ROWS_TTL_MS = 60_000;
-const ROWS_MAX = 5_000;
+/** Answers that found something; past 60 s an entry is only reloaded, so this is ample at the ceiling's 1,800 a minute. */
+const ROWS_MAX = 2_000;
+/** Answers that found nothing (most drafts), in their own LRU: they never push a real one out. */
+const ROWS_NEGATIVE_MAX = 2_000;
 const MINUTES_MAX = 20_000;
 
-/** The matched rows per (workspace, sorted words). Errors are never stored. */
-const rowsCache = new MemoCache<KbSuggestRow[]>({
+/**
+ * A matched article as the memo keeps it: what an answer shows of it, its
+ * word score, and no summary (its snippet and matched words instead).
+ */
+interface KbSuggestHit {
+  id: string;
+  slug: string;
+  title: string;
+  locale: string | null;
+  updated_at: string | null;
+  score: number;
+  snippet: string | null;
+  matches: string[];
+}
+
+/** Every language an answer can be ranked for (kbSuggestLocale). */
+const RANK_LOCALES = [null, 'fa', 'en', 'tr'] as const;
+
+/**
+ * What the memo keeps of the rows `words` matched: only those an answer can
+ * show, whatever its language and limit (the first KB_SUGGEST_MAX_LIMIT of
+ * the ranking for each language: a language only reorders equal word
+ * scores), in the database's order, without their summaries. Ranking these
+ * gives exactly the answer ranking every row would (rankKbSuggestRows), and
+ * an entry is at most a dozen small records instead of KB_SUGGEST_WINDOW
+ * rows with summaries of up to 2,000 characters.
+ */
+function hitsOf(rows: KbSuggestRow[], words: string[]): KbSuggestHit[] {
+  const shown = new Set<KbSuggestRow>();
+  for (const locale of RANK_LOCALES) {
+    for (const row of rankKbSuggestRows(rows, words, KB_SUGGEST_MAX_LIMIT, locale)) shown.add(row);
+  }
+  return rows.filter((row) => shown.has(row)).map((row) => ({
+    id: row.id,
+    slug: String(row.slug),
+    title: String(row.title ?? ''),
+    locale: row.locale ?? null,
+    updated_at: row.updated_at ?? null,
+    score: wordScore(row, words),
+    snippet: kbSnippet(row.excerpt, words),
+    matches: kbMatchedWords(row, words),
+  }));
+}
+
+/** The answerable articles per (workspace, sorted words) (hitsOf). Errors are never stored. */
+const rowsCache = new MemoCache<KbSuggestHit[]>({
   name: 'kb-suggest',
   ttlMs: () => ROWS_TTL_MS,
   max: () => ROWS_MAX,
+  isNegative: (hits) => hits.length === 0,
+  negativeMax: () => ROWS_NEGATIVE_MAX,
   // A row list is cheap to rebuild and an edit should show: no stale serving.
   serveStale: () => false,
 });
@@ -224,7 +299,7 @@ function rememberMinutes(key: string, minutes: number): void {
   while (minutesCache.size > MINUTES_MAX) minutesCache.delete(minutesCache.keys().next().value as string);
 }
 
-async function readRows(config: ServerConfig, workspaceId: string, words: string[]): Promise<KbSuggestRow[]> {
+async function readRows(config: ServerConfig, workspaceId: string, words: string[]): Promise<KbSuggestHit[]> {
   const lock = await resolveKbLock(config, workspaceId);
   const { data, error } = await publicArticles(config, workspaceId, 'id, title, slug, excerpt, locale, updated_at', lock)
     .eq('visible_in_widget', true)
@@ -232,12 +307,12 @@ async function readRows(config: ServerConfig, workspaceId: string, words: string
     .order('updated_at', { ascending: false })
     .limit(KB_SUGGEST_WINDOW);
   if (error) throw new Error(`kb-suggest read failed: ${error.message}`);
-  return ((data ?? []) as unknown as KbSuggestRow[]).filter((r) => r && r.id && r.slug);
+  return hitsOf(((data ?? []) as unknown as KbSuggestRow[]).filter((r) => r && r.id && r.slug), words);
 }
 
-async function readingMinutesOf(config: ServerConfig, workspaceId: string, rows: KbSuggestRow[]): Promise<Map<string, number>> {
+async function readingMinutesOf(config: ServerConfig, workspaceId: string, rows: Array<{ id: string; updated_at: string | null }>): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  const missing: KbSuggestRow[] = [];
+  const missing: Array<{ id: string; updated_at: string | null }> = [];
   for (const row of rows) {
     const hit = minutesCache.get(`${row.id}@${row.updated_at ?? ''}`);
     if (hit !== undefined) out.set(row.id, hit);
@@ -271,16 +346,17 @@ export async function suggestKbArticles(
 ): Promise<KbSuggestion[]> {
   if (!words.length) return [];
   const key = `${workspaceId}|${[...words].sort().join(' ')}`;
-  const rows = await rowsCache.get(key, () => readRows(config, workspaceId, words));
-  const ranked = rankKbSuggestRows(rows, words, Math.min(KB_SUGGEST_MAX_LIMIT, Math.max(1, limit)), kbSuggestLocale(locale));
+  const hits = await rowsCache.get(key, () => readRows(config, workspaceId, words));
+  const ranked = rankByScore(hits, (hit) => hit.score, Math.min(KB_SUGGEST_MAX_LIMIT, Math.max(1, limit)), kbSuggestLocale(locale));
   if (!ranked.length) return [];
   const minutes = await readingMinutesOf(config, workspaceId, ranked);
-  return ranked.map((row) => ({
-    slug: String(row.slug),
-    title: String(row.title ?? ''),
-    snippet: kbSnippet(row.excerpt, words),
-    matches: kbMatchedWords(row, words),
-    readingMinutes: minutes.get(row.id) ?? null,
+  return ranked.map((hit) => ({
+    slug: hit.slug,
+    title: hit.title,
+    snippet: hit.snippet,
+    // In this draft's order (the memo is shared by every order of its words).
+    matches: words.filter((w) => hit.matches.includes(w)),
+    readingMinutes: minutes.get(hit.id) ?? null,
   }));
 }
 

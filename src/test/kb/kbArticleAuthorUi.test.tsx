@@ -12,9 +12,10 @@ const h = vi.hoisted(() => ({
   articles: [] as Array<Record<string, unknown>>,
   locale: 'en',
   params: {} as { id?: string },
-  createMutate: vi.fn(async () => ({})),
-  updateMutate: vi.fn(async () => ({})),
+  createMutate: vi.fn(async (_input: Record<string, unknown>) => ({})),
+  updateMutate: vi.fn(async (_input: Record<string, unknown>) => ({})),
   members: [] as Array<Record<string, unknown>>,
+  toast: vi.fn(),
 }));
 
 vi.mock('@/i18n', async () => {
@@ -38,7 +39,7 @@ vi.mock('@/hooks/usePlatformRegion', () => ({
 }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useParams: () => h.params }));
 vi.mock('@/components/app/knowledge/RichTextEditor', () => ({ default: () => <div /> }));
-vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
+vi.mock('@/hooks/use-toast', () => ({ toast: h.toast }));
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u-me' } }) }));
 vi.mock('@/hooks/useWorkspaceMembers', () => ({ useWorkspaceMembers: () => ({ data: h.members }) }));
 vi.mock('@/hooks/useKnowledgeBase', async (importOriginal) => ({
@@ -49,6 +50,7 @@ vi.mock('@/hooks/useKnowledgeBase', async (importOriginal) => ({
 }));
 
 import ArticleEditorPage from '@/pages/app/knowledge/ArticleEditorPage';
+import { KnowledgeBaseApiError } from '@/lib/knowledge-base-api';
 
 beforeAll(() => {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
@@ -76,6 +78,7 @@ beforeEach(() => {
   h.params = {};
   h.createMutate.mockClear();
   h.updateMutate.mockClear();
+  h.toast.mockClear();
   h.members = [
     { user_id: 'u-me', role: 'owner', full_name: 'Me Myself', email: 'me@x.test', avatar_url: null },
     { user_id: 'u-sara', role: 'agent', full_name: 'سارا', email: 'sara@x.test', avatar_url: null },
@@ -132,6 +135,19 @@ describe('the author select', () => {
       expect(trigger(container).textContent, id).toBe('No author shown');
       unmount();
     }
+  });
+
+  it('a save refused with invalid_author says so (not the hint)', async () => {
+    h.params = { id: 'a-1' };
+    h.updateMutate.mockRejectedValueOnce(new KnowledgeBaseApiError(400, { error: 'invalid_author' }));
+    const { container } = render(<ArticleEditorPage />);
+    await choose(container, 'Me Myself');
+    save();
+    await vi.waitFor(() => expect(h.toast).toHaveBeenCalled());
+    expect(h.toast.mock.calls[0][0]).toMatchObject({
+      variant: 'destructive',
+      description: 'This person is no longer a member of this workspace. Choose another author.',
+    });
   });
 
   it.each([

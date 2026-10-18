@@ -1419,6 +1419,12 @@ describe('t2: help articles while the first message is written (02·06, extras, 
     expect(make({ capabilities: SERVED }).kbSuggestHtml({ results: [A('a', 'x', [])] })).toBe('');
   });
 
+  it('marks a Turkish «İ» for the server\'s case-folded word (kb-suggest folds «İade» to «iade», as ILIKE does)', () => {
+    const row = parse(r('tr').kbSuggestHtml({ results: [A('a', 'İade ve iptal: IADE', ['iade', 'iptal'], 3)] })).querySelector('.tt')!;
+    expect(Array.from(row.querySelectorAll('mark')).map((m) => m.textContent)).toEqual(['İade', 'iptal', 'IADE']);
+    expect(row.textContent).toBe('İade ve iptal: IADE');
+  });
+
   it('speaks en and tr', () => {
     expect(parse(r('en').kbSuggestHtml({ results: [A('a', 'Returns', [], 3)] })).querySelector('h4')!.textContent).toBe('Answers from the help center');
     expect(parse(r('en').kbSuggestHtml({ results: [A('a', 'Returns', [], 3)] })).querySelector('small')!.textContent).toBe('3 min read');

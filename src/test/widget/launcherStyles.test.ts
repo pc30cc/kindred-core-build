@@ -74,6 +74,7 @@ async function snapshot(config: Record<string, unknown>, src: string) {
   const out = {
     launcher: launcher.outerHTML.replace(/ enter"/, '"'),
     shell: shell.className,
+    card: root.querySelector('.gs-fab-label')?.outerHTML ?? null,
     styles: [...root.querySelectorAll('style')].map((s) => s.textContent),
     links: root.querySelectorAll('link[data-gs-fab]').length,
   };
@@ -122,18 +123,14 @@ describe('without a style, the launcher is the starting commit\'s, byte for byte
   ])('%s', async (_name, config) => {
     const before = await snapshot(config, STARTING_LOADER);
     const after = await snapshot(config, LOADER_SRC);
-    if ((config as { fab?: { shape?: string } }).fab?.shape === 'pill') {
-      // The one difference: a pill never draws the card beside it.
-      expect(after.launcher).toBe(before.launcher);
-      expect(after.shell).toBe(before.shell);
-      return;
-    }
     expect(after.launcher).toBe(before.launcher);
     expect(after.shell).toBe(before.shell);
+    // The card beside it too (a pill not worn keeps its card).
+    expect(after.card).toBe(before.card);
     // The kit's 18px square is one rule more in its stylesheet.
     expect(after.styles.map((s) => s!.replace('.launcher.lk-kit.square{border-radius:18px;}', ''))).toEqual(before.styles);
     expect(after.links).toBe(0);
-  });
+  }, 20_000);
 
   it('the International edition: the same launcher; the shell says the logo is Thread (lg-thread)', async () => {
     const before = await snapshot({ edition: 'international', templateId: 'intl' }, STARTING_LOADER);
@@ -185,6 +182,26 @@ describe('a launcher wearing a style', () => {
     expect(launcher.style.visibility).toBe('hidden');
     (root.querySelector('link[data-gs-fab]') as HTMLLinkElement).onload!(new Event('load'));
     expect(launcher.style.visibility).toBe('');
+  });
+
+  // Found in round 5's verification: the card beside a styled round launcher
+  // showed (and slid in) alone while the launcher waited for its stylesheet.
+  it('the card beside a styled launcher waits with it', async () => {
+    const { root, launcher } = await boot({ fabStyleUrl: FAB_URL, fab: { shape: 'circle', icon: 'bubble', label: 'Hi', subLabel: 'Ask us' } });
+    const card = root.querySelector('.gs-fab-label') as HTMLElement;
+    expect(card.textContent).toBe('HiAsk us');
+    expect(launcher.style.visibility).toBe('hidden');
+    expect(card.style.visibility).toBe('hidden');
+    const link = root.querySelector('link[data-gs-fab]') as HTMLLinkElement;
+    link.onerror!(new Event('error'));
+    (root.querySelector('link[data-gs-fab]') as HTMLLinkElement).onload!(new Event('load'));
+    expect(launcher.style.visibility).toBe('');
+    expect(card.style.visibility).toBe('');
+    // A launcher without a style: its card shows at once (its markup is
+    // the starting commit's, pinned above).
+    reset();
+    const plain = await boot({ fab: { label: 'Hi' } });
+    expect((plain.root.querySelector('.gs-fab-label') as HTMLElement).style.visibility).toBe('');
   });
 
   it('a failed stylesheet is asked again once by its canonical name, then today\'s launcher shows', async () => {
@@ -241,7 +258,8 @@ describe('runtime-fab.css', () => {
   it('follows the template stylesheet rules: no font, no host, small inline SVGs, within 2 KB in both builds', async () => {
     expect(FAB_CSS).not.toMatch(/@font-face|\.woff2?\b|@import|https?:\/\//);
     const urls = [...FAB_CSS.matchAll(/url\(\s*(['"]?)([^)]*?)\1\s*\)/g)].map((m) => m[2]);
-    expect(urls).toHaveLength(2);
+    // The bubble, the two bubbles, the bubble's dots in a kit's colour.
+    expect(urls).toHaveLength(3);
     for (const u of urls) {
       expect(u).toMatch(/^data:image\/svg\+xml,/);
       expect(u.length).toBeLessThanOrEqual(2048);
@@ -252,7 +270,7 @@ describe('runtime-fab.css', () => {
       // The masks survive the minifier with their -webkit- twins.
       expect(out).toContain('-webkit-mask:');
     }
-  });
+  }, 30_000);
 
   it('draws exactly the glyphs of LAUNCHER_GLYPHS (the dashboard\'s picker draws the same)', () => {
     const svg = (cls: string) => decodeURIComponent(new RegExp(`\\.launcher\\.${cls} \\{ --fx: url\\("data:image/svg\\+xml,([^"]+)"\\); \\}`).exec(FAB_CSS)![1]);
@@ -261,6 +279,20 @@ describe('runtime-fab.css', () => {
     expect(svg('fx-duo')).toContain(`d='${LAUNCHER_GLYPHS.duoFront}'`);
     expect(svg('fx-duo')).toContain("opacity='.75'");
     for (const cls of ['fx-bubble', 'fx-duo']) expect(svg(cls)).toContain("xmlns='http://www.w3.org/2000/svg'");
+    expect(LAUNCHER_GLYPHS.bubble.endsWith(LAUNCHER_GLYPHS.bubbleDots)).toBe(true);
+  });
+
+  // Found in round 5's verification: on RESPOK's own ground the classic
+  // bubble's dots are Signal (board 10), not holes showing the Ink ground.
+  it('the bubble\'s dots take a brand kit\'s second colour, under the bubble and any image; elsewhere nothing', () => {
+    const rule = /\.launcher\.fx-bubble:not\(\.fx-pill\)::after \{([^}]+)\}/.exec(FAB_CSS)![1];
+    expect(rule).toContain('background: var(--rpk-kit-accent, var(--lk-kit-dot));');
+    expect(rule).toContain('z-index: -1;');
+    const dots = decodeURIComponent(/--fx-dots: url\("data:image\/svg\+xml,([^"]+)"\)/.exec(rule)![1]);
+    expect(dots).toContain(`d='${LAUNCHER_GLYPHS.bubbleDots}'`);
+    // The kits define the colours the layer reads (the loader's own CSS).
+    expect(LOADER_SRC).toMatch(/\.launcher\.rpk-kit\.rpk-kit-brand\{[^}]*--rpk-kit-accent:#FF5A3C;/);
+    expect(LOADER_SRC).toMatch(/\.launcher\.lk-kit\.lk-kit-brand\{[^}]*--lk-kit-dot:#18AD94;/);
   });
 
   it('moves nothing of its own, keeps a focus ring, sets RTL by the launcher\'s dir, and guards the masks', () => {

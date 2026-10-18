@@ -185,7 +185,7 @@ async function withDerivedFabImageUrl(
  * WIDGET_CUSTOMIZATION_CAPABILITY maps) — not guessed. A field the UI does
  * not currently write (e.g. `launcher_text`, `theme`, `secondary_color`,
  * `greeting_message`, the `fab_*` styling columns beyond label/scale/icon/
- * image, `read_receipts_enabled`, `mobile_behavior`) is deliberately left
+ * shape/image, `read_receipts_enabled`, `mobile_behavior`) is deliberately left
  * OUT: adding real UI for one of those later means deliberately adding it
  * here too, which is the point.
  *

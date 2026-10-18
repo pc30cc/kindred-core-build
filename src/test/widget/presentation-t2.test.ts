@@ -1515,3 +1515,42 @@ describe('t2: a download\'s progress (feature `dlProgress`, the stylesheet\'s)',
     expect(T2_CSS).toContain('.dl-on .wy-ap-spinner { display: none; }');
   });
 });
+
+describe('t2-intl: the International edition\'s skin over t2 (presentation-t2-intl.css)', () => {
+  const SKIN = read('public/widget/presentation-t2-intl.css');
+
+  it('the brand accent is Ink, by the renderer\'s class (and its hero stops for Ink picked explicitly)', () => {
+    expect(SKIN).toContain('.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #16142B; --on-a: #FFFFFF; --gs-primary: #16142B; }');
+    expect(SKIN).toMatch(/\.wy-view\.gs-accent-brand, \.wy-view\[style\*='--a:#16142b;' i\] \{ --h1: /);
+  });
+
+  it('brand art: Thread by default, Open under the shell\'s lg-open; drawn only from data: masks', () => {
+    expect(SKIN.match(/--mk: url\("data:image\/svg\+xml,/g)?.length).toBe(2);
+    expect(SKIN).toContain('.lg-open .wy-view {');
+    expect(SKIN).toContain('.lg-open .smart-nudge {');
+    for (const m of SKIN.matchAll(/url\(\s*["']?([^"')\s]+)/g)) expect(m[1].startsWith('data:'), m[1]).toBe(true);
+    expect(SKIN).toContain('.wy-view:has(.wy-powered) .hero::after');
+  });
+
+  it('the Open greeting beside the launcher narrows on a narrow phone, so it never leaves the screen', () => {
+    const open = SKIN.match(/^\.lg-open \.smart-nudge \{([^}]*)\}/m)![1];
+    expect(open).toContain('max-width: calc(100vw - 53px - var(--gs-fab-size, 60px))');
+  });
+
+  it('code in an article is the system monospace (t2\'s universal font rules would make it Figtree), above them', () => {
+    // `.shell[dir='ltr'] *` is (0,2,0): the rule must outrank it.
+    expect(SKIN).toContain(".wy-view .kb-article-body :is(code, pre) { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }");
+    expect(SKIN).not.toMatch(/DM Mono/);
+  });
+
+  it('Persian keeps IRANSans first; left-to-right text leads with Figtree', () => {
+    expect(SKIN).toContain(".shell, .shell * { font-family: 'IRANSans', 'Figtree',");
+    expect(SKIN).toMatch(/\.shell\[dir='ltr'\][^{]*\{\s*font-family: 'Figtree', 'IRANSans',/);
+    expect(SKIN).not.toMatch(/@font-face|@import/);
+  });
+
+  it('the renderer stays t2\'s: no RESPOK word, Signal colour or logo direction in presentation-t2.js', () => {
+    const code = T2_SRC.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/respok|ff5a3c|lg-open|lg-thread|logoDirection/i);
+  });
+});

@@ -35,12 +35,12 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Calendar / time zone | Jalali, Asia/Tehran | Gregorian (Persian digits kept), the viewer's zone or UTC | `src/lib/date.ts`, server formatters |
 | Phone / SMS / Bale | +98, Iranian SMS vendors, Bale | no national default, no SMS verification, no Bale | phase 3 |
 | Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's official kit (`public/brand/webyar`, `WEBYAR_BRAND`; see below) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/webyarBrand.ts`, `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate`, `server/routes/manifest.ts` |
-| Chat widget floating button | WebYar's kit launcher (`default` template, `edition: 'iran'` only) | RESPOK's kit launcher, the Thread chat button (`intl` template, `edition: 'international'` only) | `public/widget/loader.js`, `shared/webyarLauncher.ts`, `shared/respokLauncher.ts` |
+| Chat widget floating button | WebYar's kit launcher (every template, `edition: 'iran'` only) | RESPOK's kit launcher, the Thread chat button, or the Open one for `t1-intl` / `t2-intl` with `logoDirection: 'open'` (every template, `edition: 'international'` only; the RESPOK build's loader only, `@intl-kit`) | `public/widget/loader.js`, `shared/localKitLauncher.ts`, `shared/respokLauncher.ts` |
 | Panel colour scheme `respok` | never offered | offered | `shared/panelThemes.ts` |
 | Brand in text | WebYar's fixed words ("Webyar", "وب‌یار", "Web Yar", info@webyar.ai, https://webyar.ai) | the platform's own name, site and support address | `shared/brand.ts`, `src/lib/brand.ts` |
 | First paint (before the bundle) | as before | edition, brand, title and default language from `/api/platform/public/boot.js` on a first visit (loaded asynchronously, never blocking; see below), the cache after | `index.html`, `server/routes/platformPublic.ts` |
 | Default UI language | `runtime-config.js` `defaultLocale` | the platform's `default_locale` (Super Admin → Languages) | `src/i18n/index.tsx` `getSiteDefaultLocale` |
-| Chat widget template | `default` | `intl` (skin over the same renderer) | `shared/widgetTemplates.ts` |
+| Chat widget template | `default` (and `t1`, `t2` once the Super Admin enables them) | `intl` (skin over the same renderer; and `t1-intl`, `t2-intl`, RESPOK's skins over Templates 1 and 2, once enabled) | `shared/widgetTemplates.ts` |
 | Call widget template | `default` | `intl` (own stylesheet, same markup) | `shared/widgetTemplates.ts` |
 | Call widget "powered by" | the localized label with WebYar's Persian logotype in the brand's place (bootstrap `powered_by_logo`, 16px; the words "Powered by Web Yar" / «قدرت گرفته از وب یار» / "Web Yar tarafından desteklenmektedir" if the image fails, the edition is unknown or the backend is older) | the localized label with the platform's logo in the brand's place (the RESPOK kit's horizontal mark, 14px, alt = platform name, the name if the image fails), its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js` |
 | Chat widget credit | the label and WebYar's Persian logotype (`poweredBy.logo`, absolute from the widget asset base, 16px; the name if the image fails); an unknown edition keeps the English `platform_name` as text | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails) | `server/routes/widget.ts` |
@@ -94,7 +94,7 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
   favicon, PWA icon or colour (Super Admin → Branding) still wins, in the same
   order as before; the seeded `#3B82F6` counts as "not chosen". Note that
   og:image is set by script, which link-preview crawlers do not run.
-- Chat widget launcher: the `default` template wears the kit's button when the
+- Chat widget launcher: every template wears the kit's button when the
   bootstrap says `edition: 'iran'`: gradient 140deg #22D3B4 → #0B7D6C, the
   bubble with three dots, entrance (the button springs in, the bubble grows,
   the dots appear one by one; replaces the slide-up), hover (lift, dots
@@ -114,10 +114,10 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
 
 ### RESPOK's chat button (International edition only)
 
-The `intl` template wears the RESPOK kit's Thread chat button
+Every template wears the RESPOK kit's Thread chat button
 (`Shared/Code/widget/respok-launcher.js` v1.0.0, `style: 'thread'`) when the
-bootstrap says `edition: 'international'` and `templateId: 'intl'`; the
-Iranian edition, an unknown edition and an older backend never do
+bootstrap says `edition: 'international'`; the Iranian edition, an unknown
+edition and an older backend never do
 (`src/test/widget/respokLauncher.test.ts`). It is ported into the loader's
 own launcher the same way as WebYar's (`shared/respokLauncher.ts`, the same
 strings in `loader.js`, its own `<style data-rpk-kit>` only when worn; no
@@ -133,6 +133,17 @@ colour (away outlines in that colour); its own icon, image, shape, size,
 label and position work as before. The panel still opens from the same
 corner and the launcher still slides away while it is open. The kit's 48px
 phone size is not used: the loader keeps the configured size on phones.
+
+RESPOK's chat button is in the loader's `@intl-kit` block: the Iran (WebYar)
+build leaves it out, so a WebYar deployment switched to the International
+edition shows the plain launcher with no other brand's art; RESPOK's build
+keeps it. With the `t1-intl` / `t2-intl` option `logoDirection: 'open'`, the
+button draws the Open logo (a bubble; the Signal dot springs in with a new
+message), the shell gets `lg-open` (else `lg-thread`), and the credit uses
+`respok-open-horizontal-color.svg`. `intl` reads no option and stays Thread.
+The launcher styles (`runtime-fab.css`, WIDGET_TEMPLATE_RULES.md §2) dress the
+kit's button like any other; the kit's square (18px) is the Iranian kit's
+only.
 
 The call widget has no platform-branded button (its launcher shows the
 workspace's logo or a phone), so it is unchanged. The favicon and PWA icons
@@ -241,6 +252,22 @@ Today:
 | `default` | Iran | `presentation-default.js` + `.css` + `-fonts.css` | `presentation-default.js` + `presentation-default.css` |
 | `t1`, `t2` | Iran (offered; disabled until the Super Admin enables them) | `presentation-t1.js` + `.css`, `presentation-t2.js` + `.css`, over the shared `presentation-default-fonts.css` | — |
 | `intl` | International | the same renderer and stylesheet, then the skin `presentation-intl.css` | the same script (registered as `intl` too, root class `ccw-presentation-intl`) + its own complete `presentation-intl.css` |
+| `t1-intl`, `t2-intl` | International (offered; disabled until the Super Admin enables them) | Template 1's / Template 2's renderer, stylesheet and extras unchanged, then the skin `presentation-t1-intl.css` / `presentation-t2-intl.css` (RESPOK's tokens, Ink accent, Signal rings, Figtree, the brand art as CSS masks), over the shared `presentation-default-fonts.css` | — |
+
+The `-intl` skins follow the handoff's RESPOK boards
+(`docs/chat-widget-handoff/IMPLEMENTATION_NOTES.md`, "RESPOK"). The
+renderers know nothing of RESPOK: an uncustomised accent (empty, `#3B82F6`
+or unparseable) writes no inline colour and puts the class `gs-accent-brand`
+on the view roots and the panel's close button, so each stylesheet gives its
+own brand colour and hero (Template 1 and 2: WebYar's teal `#0B7D6C`; the
+`-intl` skins: Ink `#16142B`); a chosen colour is written inline as before.
+Latin text in the `-intl` skins is Figtree (variable, one Latin file and one
+Turkish-letters file in `presentation-default-fonts.css`, each face fetched
+only when its letters are on screen; SIL OFL, `public/widget/fonts/OFL-Figtree.txt`,
+cut by `scripts/fonts/subset-widget-fonts.py --figtree`); Persian stays
+IRANSans with Template 1's / 2's line heights; code is the system
+monospace. `prepare()` warms Figtree instead of Inter for an `-intl` id (in
+Turkish both files: that first paint draws ğ, ş, İ).
 
 ### The chat widget template catalog and the workspace's choice
 
@@ -265,7 +292,9 @@ Migration `275_widget_template_catalog.sql`; the rules are
   never in an id, a file name, a class or the widget config, and the Super
   Admin renames at any time. Unnamed, the dashboard shows its i18n default
   (`widgetCatalog.names`: «آشنا» / «فیروزه» / «نسیم», Familiar / Turquoise /
-  Breeze, Tanıdık / Turkuaz / Esinti), brand-neutral like every locale text.
+  Breeze, Tanıdık / Turkuaz / Esinti; for `t1-intl` / `t2-intl` «کلاسیک» /
+  «ساده», Classic / Simple, Klasik / Sade), brand-neutral like every locale
+  text. No catalog row is seeded for them: RESPOK's Super Admin enables them.
 - **Workspace → Widget → Appearance → Widget template**
   (`GET /api/widget-settings/:workspaceId/templates`; the choice through the
   ordinary settings `PATCH`): the picker shows only with two or more
@@ -286,7 +315,13 @@ Migration `275_widget_template_catalog.sql`; the rules are
   `prechatMode` (`card` default, `steps`) and `transcriptEmail` (boolean,
   default on); Template 2 `topics`, `askExamples` (up to 2 × ≤ 60
   characters), `csat` (the rating after a chat, boolean, default on) and
-  `transcriptEmail`. Topic icons: `truck`, `return`, `ruler`, `card`, `box`,
+  `transcriptEmail`. `t1-intl` and `t2-intl` read their base template's keys
+  plus `logoDirection` (`thread` default, `open`): the brand kit's logo
+  direction. The loader puts `lg-thread` / `lg-open` on the shell and draws
+  that direction's chat button, the server names that direction's lockup
+  for the footer's credit, and the skins draw that direction's art (the home
+  header's watermark, Template 1's greeting avatar and Messages tab icon, the
+  launcher greeting's corner and place). Topic icons: `truck`, `return`, `ruler`, `card`, `box`,
   `chat`, `help`, `gift`, `clock`, `tag`. Merged code defaults → the Super
   Admin's option defaults → the workspace's, they reach the widget as
   `config.templateOptions` (`{}` for `default`) next to `templateId`. The

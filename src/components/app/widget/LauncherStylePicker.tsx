@@ -77,7 +77,10 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
   const ink = iconColor || '#ffffff';
   // The kits' second colour: the bubble's dots / the answer pill.
   const accent = brandColour ? (iranKit ? '#18AD94' : '#FF5A3C') : colour;
-  const selected = launcherTileOf(shape, icon, international && logoDirection ? logoDirection : null);
+  // RESPOK's Open / Thread tiles only where its button is drawn: the Iran
+  // build's loader has no RESPOK kit (`@intl-kit`), so there one kit tile.
+  const logoTiles = respokKit && !!logoDirection;
+  const selected = launcherTileOf(shape, icon, logoTiles ? logoDirection : null);
   const pillText = (label || '').trim() || t('widgetPage.appearance.launcherPillDefault');
 
   const strokeIcon = (key: string) => (
@@ -98,8 +101,12 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
     }
     return strokeIcon('chat');
   };
+  // On a kit's own ground the bubble's dots take the kit's second colour,
+  // under the bubble's holes (runtime-fab.css); elsewhere they are holes.
+  const kitDots = brandColour && (iranKit || respokKit);
   const bubbleGlyph = (
     <svg viewBox="0 0 24 24" className="h-[60%] w-[60%]" aria-hidden>
+      {kitDots && <path fill={accent} d={LAUNCHER_GLYPHS.bubbleDots} data-kit-dots />}
       <path fill="currentColor" fillRule="evenodd" d={LAUNCHER_GLYPHS.bubble} />
     </svg>
   );
@@ -155,7 +162,7 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
   );
 
   const tiles: Array<{ id: LauncherTile; name: TranslationKey; sub: TranslationKey; art: ReactNode; wide?: boolean; locked?: boolean }> = [
-    ...(international && logoDirection
+    ...(logoTiles
       ? [
         { id: 'open' as const, name: 'widgetPage.appearance.launcherStyleOpen' as const, sub: 'widgetPage.appearance.launcherStyleOpenSub' as const, art: button(kitGlyph('open')), locked: !logoAllowed },
         { id: 'thread' as const, name: 'widgetPage.appearance.launcherStyleThread' as const, sub: 'widgetPage.appearance.launcherStyleThreadSub' as const, art: button(kitGlyph('thread')), locked: !logoAllowed },

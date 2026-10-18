@@ -169,6 +169,26 @@
    "locale": "en",
    "source": "      download: 'Download the {{brand}} plugin',",
    "iran": "      download: 'Download the Webyar plugin',"
+  },
+  {
+   "locale": "en",
+   "source": "      launcherStyleKit: '{{brand}} original',",
+   "iran": "      launcherStyleKit: 'Webyar original',"
+  },
+  {
+   "locale": "en",
+   "source": "      launcherStyleOpen: '{{brand}} Open',",
+   "iran": "      launcherStyleOpen: 'Webyar Open',"
+  },
+  {
+   "locale": "en",
+   "source": "      launcherStyleThread: '{{brand}} Thread',",
+   "iran": "      launcherStyleThread: 'Webyar Thread',"
+  },
+  {
+   "locale": "en",
+   "source": "      launcherStyleSquare: '{{brand}} square',",
+   "iran": "      launcherStyleSquare: 'Webyar square',"
   }
  ],
  "src/i18n/locales/fa.ts": [
@@ -346,6 +366,26 @@
    "locale": "fa",
    "source": "      download: 'دانلود افزونهٔ {{brand}}',",
    "iran": "      download: 'دانلود افزونهٔ وب‌یار',"
+  },
+  {
+   "locale": "fa",
+   "source": "      launcherStyleKit: '{{brand}} اصلی',",
+   "iran": "      launcherStyleKit: 'وب‌یار اصلی',"
+  },
+  {
+   "locale": "fa",
+   "source": "      launcherStyleOpen: '{{brand}} باز',",
+   "iran": "      launcherStyleOpen: 'وب‌یار باز',"
+  },
+  {
+   "locale": "fa",
+   "source": "      launcherStyleThread: '{{brand}} رشته',",
+   "iran": "      launcherStyleThread: 'وب‌یار رشته',"
+  },
+  {
+   "locale": "fa",
+   "source": "      launcherStyleSquare: '{{brand}} مربعی',",
+   "iran": "      launcherStyleSquare: 'وب‌یار مربعی',"
   }
  ],
  "src/i18n/locales/tr.ts": [
@@ -518,6 +558,26 @@
    "locale": "tr",
    "source": "      download: '{{brand}} eklentisini indir',",
    "iran": "      download: 'Webyar eklentisini indir',"
+  },
+  {
+   "locale": "tr",
+   "source": "      launcherStyleKit: '{{brand}} orijinal',",
+   "iran": "      launcherStyleKit: 'Webyar orijinal',"
+  },
+  {
+   "locale": "tr",
+   "source": "      launcherStyleOpen: '{{brand}} Open',",
+   "iran": "      launcherStyleOpen: 'Webyar Open',"
+  },
+  {
+   "locale": "tr",
+   "source": "      launcherStyleThread: '{{brand}} Thread',",
+   "iran": "      launcherStyleThread: 'Webyar Thread',"
+  },
+  {
+   "locale": "tr",
+   "source": "      launcherStyleSquare: '{{brand}} kare',",
+   "iran": "      launcherStyleSquare: 'Webyar kare',"
   }
  ],
  "src/pages/public/legal/legalDocuments.ts": [

@@ -27,7 +27,8 @@
  * A name a deleted block defined that is still referenced after minifying
  * would throw a ReferenceError in visitors' browsers: the transform refuses
  * to produce such a file. Every name counts: each declarator of a
- * `var a = 1, b = 2;` and each function the block declares (declaredNames).
+ * `var a = 1, b = 2;` or `var a, b;` and each function or class the block
+ * declares (declaredNames).
  *
  * The JS target is ES2017 (as scripts/build-smart-engine.mjs): the sources
  * are ES5 plus `class`, so nothing is lowered and no helper is added, and the
@@ -117,29 +118,33 @@ function scriptTokens(src, name) {
 
 /**
  * The names a kit block declares for the code around it: every declarator
- * of each `var` / `let` / `const` (`var a = 1, b = f(2, 3);` declares a AND
- * b) and each function declaration, outside the bodies of its functions (a
- * function's own locals are invisible outside the block, and the minifier
- * renames them). A destructuring declaration is refused, never guessed.
+ * of each `var` / `let` / `const` (`var a = 1, b = f(2, 3);` and `var a, b;`
+ * declare a AND b), each function declaration and each class declaration,
+ * outside the bodies of its functions and classes (their own locals are
+ * invisible outside the block, and the minifier renames them). A
+ * destructuring declaration is refused, never guessed.
  * @param {string} block
  * @param {string} [name] file name, for errors
  */
 export function declaredNames(block, name = 'source') {
   const tokens = scriptTokens(block, name);
   const names = new Set();
-  /** Open brackets: '(' / '[' / '{', 'fn' (a function's body), 'params' (its parameters). */
+  /** Open brackets: '(' / '[' / '{', 'fn' (a function's or a class's body), 'params' (a function's parameters). */
   const stack = [];
   let fnPending = false;
   let bodyNext = false;
+  let classPending = false;
   const inFunction = () => stack.includes('fn');
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
-    if (tok.t === 'id' && tok.v === 'function') {
+    if (tok.t === 'id' && (tok.v === 'function' || tok.v === 'class')) {
       const prev = tokens[i - 1];
-      const next = tokens[i + 1];
+      let next = tokens[i + 1];
+      if (next && next.v === '*') next = tokens[i + 2];
       const statement = !prev || (prev.t === 'p' && (prev.v === ';' || prev.v === '{' || prev.v === '}'));
-      if (next && next.t === 'id' && statement && !inFunction()) names.add(next.v);
-      fnPending = true;
+      if (next && next.t === 'id' && next.v !== 'extends' && statement && !inFunction()) names.add(next.v);
+      if (tok.v === 'class') classPending = true;
+      else fnPending = true;
       continue;
     }
     if (tok.t === 'id' && (tok.v === 'var' || tok.v === 'let' || tok.v === 'const') && !inFunction()) {
@@ -147,16 +152,18 @@ export function declaredNames(block, name = 'source') {
         const id = tokens[++i];
         if (!id || id.t !== 'id') throw new Error(`${name}: a kit block declares what the build cannot read (${tok.v} ${id ? id.v : '…'})`);
         names.add(id.v);
-        if (!tokens[i + 1] || tokens[i + 1].v !== '=') break;
-        // Its initializer: up to this statement's next comma or semicolon,
-        // a bracket closing around it, or the next declaration.
-        let depth = 0;
-        for (i += 2; i < tokens.length; i++) {
-          const v = tokens[i].t === 'lit' ? '' : tokens[i].v;
-          if (v === '(' || v === '[' || v === '{') depth++;
-          else if (v === ')' || v === ']' || v === '}') { if (depth === 0) break; depth--; }
-          else if (depth === 0 && (v === ',' || v === ';' || v === 'var' || v === 'let' || v === 'const')) break;
-        }
+        if (tokens[i + 1] && tokens[i + 1].v === '=') {
+          // Its initializer: up to this statement's next comma or semicolon,
+          // a bracket closing around it, or the next declaration.
+          let depth = 0;
+          for (i += 2; i < tokens.length; i++) {
+            const v = tokens[i].t === 'lit' ? '' : tokens[i].v;
+            if (v === '(' || v === '[' || v === '{') depth++;
+            else if (v === ')' || v === ']' || v === '}') { if (depth === 0) break; depth--; }
+            else if (depth === 0 && (v === ',' || v === ';' || v === 'var' || v === 'let' || v === 'const')) break;
+          }
+        } else i++;
+        // A comma: the next declarator (initialised or not, `var a, b;`).
         if (!tokens[i] || tokens[i].v !== ',') { i--; break; }
       }
       continue;
@@ -165,7 +172,7 @@ export function declaredNames(block, name = 'source') {
     if (tok.v === '=>') { bodyNext = true; continue; }
     if (tok.v === '(') { stack.push(fnPending ? 'params' : '('); fnPending = false; continue; }
     if (tok.v === '[') { stack.push('['); continue; }
-    if (tok.v === '{') { stack.push(bodyNext ? 'fn' : '{'); bodyNext = false; continue; }
+    if (tok.v === '{') { stack.push(bodyNext || classPending ? 'fn' : '{'); bodyNext = false; classPending = false; continue; }
     if (tok.v === ')' || tok.v === ']' || tok.v === '}') {
       if (stack.pop() === 'params') bodyNext = true;
       continue;

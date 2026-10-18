@@ -1123,7 +1123,8 @@
       if (!shadowRoot.querySelector("link[data-gs-fab]")) {
         var fxLink = document.createElement("link");
         var fxEl = launcherEl;
-        var fxShow = function () { fxEl.style.visibility = ""; };
+        // The card beside it waits with it (it is drawn below).
+        var fxShow = function () { fxEl.style.visibility = ""; if (fabLabelEl) fabLabelEl.style.visibility = ""; };
         fxEl.style.visibility = "hidden";
         fxLink.rel = "stylesheet";
         fxLink.href = fxUrl;
@@ -1140,12 +1141,14 @@
     var shellDiv2 = shadowRoot.querySelector(".shell");
     if (fabLabelEl && fabLabelEl.parentNode) fabLabelEl.parentNode.removeChild(fabLabelEl);
     fabLabelEl = null;
-    // A pill carries its text inside: no card beside it.
-    var label = fab.label && fab.shape !== "pill" ? String(fab.label).trim() : "";
+    // A pill (worn: its stylesheet named) carries its text inside: no card beside it.
+    var label = fab.label && !(fxUrl && fab.shape === "pill") ? String(fab.label).trim() : "";
     var subLabel = fab.subLabel ? String(fab.subLabel).trim() : "";
     if (label && shellDiv2) {
       fabLabelEl = document.createElement("div");
       fabLabelEl.className = "gs-fab-label" + (isOpen ? " open" : "");
+      // Unseen while its launcher waits for runtime-fab.css (above).
+      if (launcherEl.style.visibility) fabLabelEl.style.visibility = "hidden";
       var titleEl = document.createElement("span");
       titleEl.className = "label-title";
       titleEl.textContent = label;

@@ -1488,14 +1488,17 @@
   // (presentation-default-fonts.css): Persian IRANSans 400, 500 and 600
   // (= the 700 file); any other locale Inter, or Figtree for a skin of the
   // International edition (a template id ending in -intl, whose skin draws
-  // Latin text in it). An older loader passes no context: the Persian set.
+  // Latin text in it; Turkish's own letters, ğ ş İ, are its second file,
+  // which a Turkish first paint draws too). An older loader passes no
+  // context: the Persian set.
   function prepare(context) {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
     var c = context || {};
-    var persian = String(c.locale || 'fa').toLowerCase().split('-')[0] === 'fa';
+    var lang = String(c.locale || 'fa').toLowerCase().split('-')[0];
+    var persian = lang === 'fa';
     var latin = /-intl$/.test(c.templateId) ? ' 16px Figtree' : ' 16px InterWY';
     var loads = (persian ? ['400', '500', '600'] : ['500']).map(function (w) {
-      return document.fonts.load(w + (persian ? ' 16px IRANSans' : latin), persian ? 'سلام دنیا' : 'Aa').catch(function () {});
+      return document.fonts.load(w + (persian ? ' 16px IRANSans' : latin), persian ? 'سلام دنیا' : lang === 'tr' ? 'Aaş' : 'Aa').catch(function () {});
     });
     return Promise.race([
       Promise.all(loads).then(function () {}),

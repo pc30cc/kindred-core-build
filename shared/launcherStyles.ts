@@ -60,16 +60,22 @@ export function launcherInitial(names: ReadonlyArray<string | null | undefined>)
   return '';
 }
 
+/** The classic bubble's three dots (r 1.25 at x 8.3, 12, 15.7). */
+const BUBBLE_DOTS = 'M7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z';
+
 /**
  * The two drawn glyphs, in a 24-unit box: what runtime-fab.css masks the
  * launcher's colour with (inline SVG, a test checks they agree) and what the
  * dashboard's picker draws. The bubble's dots and the bubble are one
  * even-odd path, so the dots are holes the launcher's own colour shows
- * through (the boards' dot colour); the duo's back bubble is an outline at
- * 75% opacity behind the filled front one.
+ * through; on a brand kit's own ground the dots (`bubbleDots`, under the
+ * bubble) take the kit's second colour (board 11's #18AD94, board 10's
+ * Signal). The duo's back bubble is an outline at 75% opacity behind the
+ * filled front one.
  */
 export const LAUNCHER_GLYPHS = {
-  bubble: 'M12 3.6c4.9 0 8.8 3.3 8.8 7.6s-3.9 7.6-8.8 7.6c-.9 0-1.8-.1-2.7-.3l-4.5 1.9 1-3.8c-1.7-1.4-2.6-3.3-2.6-5.4 0-4.3 3.9-7.6 8.8-7.6ZM7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z',
+  bubble: `M12 3.6c4.9 0 8.8 3.3 8.8 7.6s-3.9 7.6-8.8 7.6c-.9 0-1.8-.1-2.7-.3l-4.5 1.9 1-3.8c-1.7-1.4-2.6-3.3-2.6-5.4 0-4.3 3.9-7.6 8.8-7.6Z${BUBBLE_DOTS}`,
+  bubbleDots: BUBBLE_DOTS,
   duoBack: 'M14.5 6.5V6a2.5 2.5 0 0 0-2.5-2.5H5.5A2.5 2.5 0 0 0 3 6v5a2.5 2.5 0 0 0 2.5 2.5H6v2.4l2.6-2.2',
   duoFront: 'M9.5 11a2.5 2.5 0 0 1 2.5-2.5h6.5A2.5 2.5 0 0 1 21 11v4.5a2.5 2.5 0 0 1-2.5 2.5H18v2.6L14.8 18H12a2.5 2.5 0 0 1-2.5-2.5z',
 } as const;
@@ -121,4 +127,27 @@ export function launcherChoiceOf(tile: LauncherTile, label: string | null | unde
     default:
       return { shape: 'circle', icon: tile };
   }
+}
+
+/** A settings column a choice writes, and its value. */
+export type LauncherChoiceField =
+  | ['fab_shape', FabShape]
+  | ['fab_icon', FabIconId]
+  | ['fab_label', string]
+  | ['widget_template_options', Record<string, unknown>];
+
+/**
+ * The settings columns a choice writes, in order (the dashboard saves each
+ * through the settings PATCH): the logo direction joins the workspace's own
+ * template options (`own`, as stored), never replacing the others.
+ */
+export function launcherChoiceFields(choice: LauncherStyleChoice, own: unknown): LauncherChoiceField[] {
+  const fields: LauncherChoiceField[] = [['fab_shape', choice.shape]];
+  if (choice.icon) fields.push(['fab_icon', choice.icon]);
+  if (choice.label !== undefined) fields.push(['fab_label', choice.label]);
+  if (choice.logoDirection) {
+    const options = own && typeof own === 'object' && !Array.isArray(own) ? own as Record<string, unknown> : {};
+    fields.push(['widget_template_options', { ...options, logoDirection: choice.logoDirection }]);
+  }
+  return fields;
 }

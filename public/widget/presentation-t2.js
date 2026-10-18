@@ -284,7 +284,7 @@
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   }
   /**
-   * The accent tokens as inline custom properties: `--a` (the workspace
+   * The accent tokens as an inline style attribute (` style="…"`): `--a` (the workspace
    * colour), `--on-a` (white unless Ink reads better on it) and Core's
    * `--gs-primary` (its focus ring). An uncustomised colour (empty, the
    * seeded #3B82F6, unreadable) gets none ('', and the class
@@ -307,8 +307,8 @@
     var l = lum(rgb);
     var light = 1.05 / (l + 0.05) < (l + 0.05) / (lum(rgbOf(INK)) + 0.05);
     var dk = light ? hexOf(rgb.map(function (v, i) { return Math.round(v * .45 + [11, 13, 18][i] * .55); })) : '';
-    return '--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
-      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '');
+    return ' style="--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
+      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '') + '"';
   }
 
   function create(env) {
@@ -340,7 +340,6 @@
     var D = DICT[lang] || DICT.en;
     var ACC = accentTokens(env.primaryColor);
     var AB = ACC ? '' : ' gs-accent-brand';
-    if (ACC) ACC = ' style="' + ACC + '"';
     var team = (Array.isArray(config.teamMembers) ? config.teamMembers : []).filter(function (m) {
       return m && (m.name || m.full_name);
     });
@@ -2015,23 +2014,21 @@
   //   - Persian: IRANSans 400, 500 and 600 (= the 700 file);
   //   - any other locale: Inter, the one Latin file; Figtree for a skin of
   //     the International edition (a template id ending in -intl, whose skin
-  //     draws Latin text in it).
+  //     draws Latin text in it; Turkish's own letters, ğ ş İ, are its second
+  //     file, which a Turkish first paint draws too).
   // `context` is { locale, templateId } from the loader and the live preview.
   // An older loader passes none: the Persian set.
   function prepare(context) {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
     var c = context || {};
-    var persian = String(c.locale || 'fa').toLowerCase().split('-')[0] === 'fa';
-    var loads = [];
-    if (persian) {
-      [400, 500, 600].forEach(function (weight) {
-        loads.push(document.fonts.load(weight + ' 16px IRANSans', 'سلام دنیا'));
-      });
-    } else {
-      loads.push(document.fonts.load(/-intl$/.test(c.templateId) ? '500 16px Figtree' : '500 16px InterWY', 'Aa'));
-    }
+    var lang = String(c.locale || 'fa').toLowerCase().split('-')[0];
+    var fa = lang === 'fa';
+    var loads = (fa ? [400, 500, 600] : [500]).map(function (w) {
+      return document.fonts.load(w + (fa ? ' 16px IRANSans' : /-intl$/.test(c.templateId) ? ' 16px Figtree' : ' 16px InterWY'),
+        fa ? 'سلام دنیا' : lang === 'tr' ? 'Aaş' : 'Aa').catch(function () { return []; });
+    });
     return Promise.race([
-      Promise.all(loads.map(function (p) { return p.catch(function () { return []; }); })).then(function () {}),
+      Promise.all(loads).then(function () {}),
       new Promise(function (resolve) { setTimeout(resolve, 500); }),
     ]);
   }

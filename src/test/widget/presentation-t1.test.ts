@@ -1678,3 +1678,40 @@ describe('t1: a sent message while the team is away (07·09, `view.away`)', () =
     expect(meta('sending', { away: true }).querySelector('.msg-ticks.is-sending')).not.toBeNull();
   });
 });
+
+describe('t1-intl: the International edition\'s skin over t1 (presentation-t1-intl.css)', () => {
+  const SKIN = read('public/widget/presentation-t1-intl.css');
+
+  it('the brand accent is Ink, by the renderer\'s class (and its hero for Ink picked explicitly)', () => {
+    expect(SKIN).toContain('.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #16142B; --a-rgb: 22, 20, 43; --gs-primary: #16142B; }');
+    expect(SKIN).toMatch(/\.wy-view\.gs-accent-brand, \.wy-view\[style\*='--a:#16142b;' i\] \{ --hero: /);
+  });
+
+  it('brand art: Thread by default, Open under the shell\'s lg-open; drawn only from data: masks', () => {
+    for (const v of ['--mk', '--gav', '--tm', '--tq', '--ta']) {
+      expect(SKIN.match(new RegExp(`${v}: url\\("data:image/svg\\+xml,`, 'g'))?.length, v).toBe(2);
+    }
+    expect(SKIN).toContain('.lg-open .wy-view, .lg-open .smart-nudge {');
+    for (const m of SKIN.matchAll(/url\(\s*["']?([^"')\s]+)/g)) expect(m[1].startsWith('data:'), m[1]).toBe(true);
+    // The watermark only while the platform is credited.
+    expect(SKIN).toContain('.wy-view:has(.wy-powered) .hx::before');
+  });
+
+  it('the Open greeting beside the launcher narrows on a narrow phone, so it never leaves the screen', () => {
+    const open = SKIN.match(/^\.lg-open \.smart-nudge \{([^}]*)\}/m)![1];
+    expect(open).toContain('bottom: calc(var(--gs-fab-size, 60px) + 5px)');
+    expect(open).toContain('max-width: calc(100vw - 53px - var(--gs-fab-size, 60px))');
+    expect(SKIN).toContain('.lg-open .smart-nudge.bottom-right { right: calc(var(--gs-fab-size, 60px) + 5px); }');
+  });
+
+  it('Persian keeps IRANSans first; left-to-right text leads with Figtree', () => {
+    expect(SKIN).toContain(".panel { color: #16142B; font-family: 'IRANSans', 'Figtree',");
+    expect(SKIN).toContain(".panel[dir='ltr'], .smart-nudge[dir='ltr'] { font-family: 'Figtree', 'IRANSans',");
+    expect(SKIN).not.toMatch(/@font-face|@import/);
+  });
+
+  it('the renderer stays t1\'s: no RESPOK word, Signal colour or logo direction in presentation-t1.js', () => {
+    const code = T1_SRC.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/respok|ff5a3c|lg-open|lg-thread|logoDirection/i);
+  });
+});

@@ -242,6 +242,13 @@ describe('GET', () => {
     expect(t1i.options).toMatchObject({ logoDirection: 'thread', navStyle: 'vb', navMode: 'active' });
     expect(t2i.options).toMatchObject({ logoDirection: 'thread', csat: true });
     expect(own.options).toEqual({});
+    // Every option they read has its spec here too, the logo direction's
+    // values with the code's default (Thread) first.
+    expect(t1i.optionSpec).toMatchObject({ logoDirection: ['thread', 'open'] });
+    expect(t2i.optionSpec).toMatchObject({ logoDirection: ['thread', 'open'] });
+    for (const t of intl.json.templates as Row[]) {
+      expect(Object.keys(t.optionSpec as Row).sort(), String(t.id)).toEqual(Object.keys(t.options as Row).sort());
+    }
   });
 
   it('503 while the edition cannot be told', async () => {

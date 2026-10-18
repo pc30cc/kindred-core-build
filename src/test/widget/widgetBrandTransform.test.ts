@@ -63,6 +63,18 @@ describe('the widget brand transform', () => {
         .toEqual(['i', 'n', 'hoisted', 'h2', 'arrow', 'last']);
     });
 
+    // Found in round 5's verification: a declarator without an initializer
+    // ended the statement (`var a, b;` declared only a), and a class was not
+    // a declaration at all.
+    it('declarators without initializers and classes count too', () => {
+      expect(declaredNames('var KIT_I, KIT_J = 1, KIT_K;\nvar KIT_L, KIT_M', 'x.js')).toEqual(['KIT_I', 'KIT_J', 'KIT_K', 'KIT_L', 'KIT_M']);
+      expect(declaredNames('class KitC extends Base { m() { var own = 1; return own; } }\nfunction* kitGen() { var g; }', 'x.js')).toEqual(['KitC', 'kitGen']);
+      for (const name of ['KIT_J', 'KIT_K', 'KitC']) {
+        const source = `var INTL_KIT = true;\n/* @intl-kit:begin */\nvar KIT_I, KIT_J, KIT_K = 2;\nclass KitC {}\n/* @intl-kit:end */\nwindow.x = ${name};`;
+        expect(() => transformWidgetAsset('x.js', source, 'iran'), name).toThrow(new RegExp(`Iran build still uses ${name}`));
+      }
+    });
+
     it('refuses a declaration it cannot read instead of guessing', () => {
       expect(() => declaredNames('var { a, b } = o;', 'x.js')).toThrow(/cannot read/);
       expect(() => transformWidgetAsset('x.js', 'var INTL_KIT = true;\n/* @intl-kit:begin */ var [a, b] = o; /* @intl-kit:end */', 'iran')).toThrow(/cannot read/);

@@ -161,6 +161,8 @@ describe('template stylesheets carry no fonts and fetch nothing', () => {
     ...callTemplates.map((t) => `${CALL_DIR}/${t.style}`),
     `${CALL_DIR}/runtime.css`,
     `${CHAT_DIR}/runtime.css`,
+    // The launcher styles (the loader's shadow root, like runtime.css).
+    `${CHAT_DIR}/runtime-fab.css`,
   ]);
   for (const sheet of sheets) {
     it(sheet, () => {
@@ -319,6 +321,24 @@ describe('prepare(): bounded, never throws, warms only what the first paint draw
       expect(r.elapsed).toBeLessThan(600);
     });
   }
+
+  // The International skins draw Latin text in Figtree, whose Turkish letters
+  // (ğ ş İ, on every Turkish first paint) are a file of their own; Template 1
+  // and 2 keep Inter's one Latin file, Turkish included.
+  const byId = (id: string) => chatTemplates.find((t) => t.id === id)!;
+  for (const id of ['t1-intl', 't2-intl']) {
+    it(`"${id}": Figtree's Latin file in English, both Figtree files in Turkish, IRANSans only in Persian`, async () => {
+      expect((await firstPaintFonts(byId(id), 'en')).files).toEqual(['figtree-latin.woff2']);
+      expect((await firstPaintFonts(byId(id), 'tr')).files.sort()).toEqual(['figtree-latin.woff2', 'figtree-tr.woff2']);
+      expect((await firstPaintFonts(byId(id), 'fa')).files.every((f) => f.startsWith('iransans-'))).toBe(true);
+    });
+  }
+  for (const id of ['t1', 't2']) {
+    it(`"${id}": Inter's Latin file in English and in Turkish, never Figtree`, async () => {
+      expect((await firstPaintFonts(byId(id), 'en')).files).toEqual(['inter-500-latin.woff2']);
+      expect((await firstPaintFonts(byId(id), 'tr')).files).toEqual(['inter-500-latin.woff2']);
+    });
+  }
 });
 
 // ─── Renderers: pure presentation ─────────────────────────────────────────
@@ -393,8 +413,8 @@ describe('size budgets (minified as shipped, gzip level 5)', () => {
     }
   });
 
-  // The launcher styles' stylesheet arrives with the launcher styles (round W5 of issue #340).
-  it.skipIf(!exists(`${CHAT_DIR}/runtime-fab.css`))(`chat runtime-fab.css ≤ ${BUDGETS.chat.fab} B, in both builds`, () => {
+  // The launcher styles' stylesheet (issue #340): only a workspace wearing one downloads it.
+  it(`chat runtime-fab.css ≤ ${BUDGETS.chat.fab} B, in both builds`, () => {
     for (const brand of ['iran', 'respok'] as const) {
       expect(shippedGzip(`${CHAT_DIR}/runtime-fab.css`, brand)).toBeLessThanOrEqual(BUDGETS.chat.fab);
     }

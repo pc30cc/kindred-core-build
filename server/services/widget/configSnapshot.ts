@@ -1208,14 +1208,15 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // The International template credits the platform with its logo (the
   // RESPOK kit's horizontal mark, the one the app's launch screen wears;
   // the "color" variant, drawn for the widget's light surface). Absolute:
-  // the widget runs on customers' sites. A template wearing the Open logo
-  // (its option logoDirection, t1-intl / t2-intl only) credits with the
-  // Open lockup, so the footer agrees with the launcher.
+  // the widget runs on customers' sites.
   if (poweredBy && edition === 'international' && assetBase) {
-    const lockup = (templateOptions as { logoDirection?: unknown }).logoDirection === 'open'
-      ? INTL_BRAND.horizontalOpen
-      : INTL_BRAND.horizontal;
-    (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${lockup.light}`;
+    (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontal.light}`;
+    // A template wearing the Open logo (its option logoDirection, t1-intl /
+    // t2-intl only) credits with the Open lockup, so the footer agrees with
+    // the launcher.
+    if ((templateOptions as { logoDirection?: unknown }).logoDirection === 'open') {
+      (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontalOpen.light}`;
+    }
   }
   // The Iranian edition (region_mode = 'iran' exactly; an edition that
   // cannot be read keeps the text) credits WebYar with the brand kit's

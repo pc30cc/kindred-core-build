@@ -27,7 +27,18 @@ import { LauncherStylePicker, type LauncherStylePickerProps } from '@/components
 import { launcherChoiceOf, launcherTileOf } from '../../../shared/launcherStyles';
 import { RESPOK_LAUNCHER_OPEN_GLYPH } from '../../../shared/respokLauncher';
 
-afterEach(cleanup);
+// The build's kits (shared/buildBrand.ts), `both` unless a test says otherwise.
+const build = vi.hoisted(() => ({ intlKit: true }));
+vi.mock('../../../shared/buildBrand', () => ({
+  BUILD_BRAND: 'both',
+  SHIPS_IRAN_KIT: true,
+  get SHIPS_INTL_KIT() { return build.intlKit; },
+}));
+
+afterEach(() => {
+  cleanup();
+  build.intlKit = true;
+});
 
 function mount(over: Partial<LauncherStylePickerProps> = {}) {
   const onChoose = vi.fn();
@@ -66,11 +77,29 @@ describe('the tiles of each edition', () => {
     expect(mount({ international: true }).ids()).toEqual(['kit', 'bubble', 'duo', 'headset', 'avatar', 'pill']);
   });
 
+  it('the Iran build in the International edition: no RESPOK button (its loader has none), so one plain kit tile, checked', () => {
+    build.intlKit = false;
+    const m = mount({ international: true, logoDirection: 'open' });
+    expect(m.ids()).toEqual(['kit', 'bubble', 'duo', 'headset', 'avatar', 'pill']);
+    expect(m.tile('kit').querySelector('.rpk-kit-glyph, .lk-kit-glyph')).toBeNull();
+    expect(m.tile('kit').getAttribute('aria-checked')).toBe('true');
+  });
+
   it('the agent\'s face shows the letter the visitor will see; the tiles wear the workspace colour', () => {
     const m = mount({ initial: 'س', primaryColor: '#E11D48' });
     expect(m.tile('avatar').textContent).toContain('س');
     const art = m.tile('bubble').querySelector('span[aria-hidden]') as HTMLElement;
     expect(art.style.background).toBe('rgb(225, 29, 72)');
+    // A custom colour: the bubble's dots are holes (no kit dots).
+    expect(m.tile('bubble').querySelector('[data-kit-dots]')).toBeNull();
+  });
+
+  it('the classic bubble\'s dots in the kit\'s second colour on the kit\'s own ground (boards 10 and 11)', () => {
+    const rp = mount({ international: true });
+    expect(rp.tile('bubble').querySelector('[data-kit-dots]')!.getAttribute('fill')).toBe('#FF5A3C');
+    cleanup();
+    const wy = mount();
+    expect(wy.tile('bubble').querySelector('[data-kit-dots]')!.getAttribute('fill')).toBe('#18AD94');
   });
 });
 

@@ -161,14 +161,19 @@ templates: `docs/operations/EDITIONS.md`.
   the launcher is the loader's in every template, so a style is not a
   template's. /config names the hashed file (`config.fabStyleUrl`) only for
   a workspace wearing one, and only then does the loader request it, into
-  its shadow root (canonical-name retry), keeping the launcher unseen until
-  it is in (3 s at most). It restyles the loader's own launcher (classes
-  `fx fx-<icon> fx-<shape>`, the pill's text in `data-fx`, the agent's
-  initial in `data-fi`, `dir`), so without it the launcher is today's, and
-  a launcher without a style is byte for byte as before
-  (`launcherStyles.test.ts`). It follows the stylesheet rules of §3 (no
-  font, no host, small inline SVGs) and moves nothing of its own. 1.1 KB of
-  its 2 KB.
+  its shadow root (canonical-name retry), keeping the launcher (and the
+  card beside it) unseen until it is in (3 s at most). It restyles the
+  loader's own launcher (classes `fx fx-<icon> fx-<shape>`, the pill's text
+  in `data-fx`, the agent's initial in `data-fi`, `dir`), so without it the
+  launcher is today's, and a launcher without a style is byte for byte as
+  before (`launcherStyles.test.ts`). It follows the stylesheet rules of §3 (no
+  font, no host, small inline SVGs; `templateRules.test.ts` checks it with
+  the template stylesheets) and moves nothing of its own. 1.2 KB of its
+  2 KB. The operator preview (`WidgetLivePreview.tsx`) draws the same
+  classes and texts and asks for the manifest's runtime-fab.css in its
+  frame; `launcherLogoBootstrap.test.ts` follows a style from the
+  dashboard's tile through the settings PATCH and /config to each brand's
+  built loader and the hashed file it requests.
 - A feature's server data is sent on request only, so the API serves
   `default` as before: the thread list's and a history's assigned operator
   (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
@@ -206,9 +211,9 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   every file named by a fonts stylesheet (no dead weight), no two files with
   the same bytes (point two weights at one file instead).
 - Licences: a licensed face (IRANSans) ships byte-for-byte unmodified. An OFL
-  face (Inter) may be subset; keep its copyright and licence names. Subsets
-  are generated once and committed (`scripts/fonts/subset-widget-fonts.py`):
-  the Docker build has no Python.
+  face (Inter, Figtree) may be subset; keep its copyright and licence names.
+  Subsets are generated once and committed
+  (`scripts/fonts/subset-widget-fonts.py`): the Docker build has no Python.
 - No external font hosts (Google Fonts, CDNs): customer sites' CSP and
   privacy, and one more connection.
 - Customer sites with a Content-Security-Policy must allow the widget's
@@ -216,8 +221,25 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   Until 2026-10 the faces were `data:` URIs, so `font-src 'self' data:` was
   enough; such a page now shows both widgets in the system font (they still
   work) and logs one CSP error per face. Say so to a customer who reports it.
-- Prefer the shared faces (IRANSans for Persian, InterWY for Latin): a new
-  family is downloaded by every visitor of that template.
+- Prefer the shared faces (IRANSans for Persian, InterWY for Latin; Figtree
+  for the International skins only): a new family is downloaded by every
+  visitor of that template.
+- Figtree (SIL OFL 1.1, no Reserved Font Name) is the Latin and Turkish face
+  of the International edition's skins `t1-intl` / `t2-intl` only. It is
+  variable (wght axis) and cut into two files in the shared
+  `presentation-default-fonts.css`: `figtree-latin.woff2` (18,540 B: Basic
+  Latin, Latin-1, the dotless ı and typographic punctuation) and
+  `figtree-tr.woff2` (2,312 B: Ğ ğ İ Ş ş). Each is declared at weights
+  400-800 against the same file (one download), with disjoint
+  unicode-ranges, the Latin face last. The files are cut by
+  `scripts/fonts/subset-widget-fonts.py --figtree <@fontsource-variable/figtree@5.2.10 files>`
+  from sha256-pinned sources. The licence is
+  `public/widget/fonts/OFL-Figtree.txt` (an OFL licence `.txt` is the only
+  non-woff2 file allowed in `fonts/`). No other template names Figtree, so
+  their visitors never download it. For an `-intl` id, prepare() warms the
+  Latin file, and in Turkish the Turkish file too (that first paint draws
+  ğ ş İ): en 18.5 KB, tr 20.9 KB. Code in articles is the system monospace
+  (no DM Mono).
 - `prepare(context)` (`context = { locale, templateId }`) warms only the faces
   the locale's FIRST paint draws, resolves within 500 ms even if a font never
   arrives, and never throws. A Persian first paint may cost at most 120 KB of
@@ -278,13 +300,16 @@ build leaves out the Iran region's kit), each chat template in the brand of
 every edition that offers it (`EDITION_CHAT_WIDGET_TEMPLATES`: Iranian →
 `iran`, International → `respok`), Core's modules in both.
 
+The International skins on 2026-10-18: `presentation-t1-intl.css` 2.1 KB
+and `presentation-t2-intl.css` 2.0 KB (of 6), in both builds.
+
 A launcher look belongs to `loader.js` (every page view): a template that
 wants its own launcher must fit the loader budget, or take its look from
 config instead of new code. A launcher style that not every site wears
 goes in `runtime-fab.css` (§2), never in the loader. Sizes on 2026-10-18,
 after issue #340 (gzip 5, as shipped): the loader 23.1 KB in the Iranian
 build (23.7 KB before: RESPOK's kit left out, the styles' wiring added),
-22.5 KB in RESPOK's (22.1 KB before: the Open logo added).
+22.6 KB in RESPOK's (22.1 KB before: the Open logo added).
 
 The build supports a second kit marker, the mirror of the Iran region's
 `@iran-kit` (left out of the RESPOK build): `/* @intl-kit:begin */ …
@@ -305,8 +330,9 @@ the plain launcher instead of RESPOK's, with no other brand's art, as the
 dashboard's Iran build goes without International-only extras (decided for
 issue #340; `widgetBrandBuild.test.ts` pins both loaders and boots the Iran
 one in the International edition). The build checks every name a deleted
-block declares, each declarator of a `var a = 1, b = 2;` included, and
-refuses a declaration it cannot read (a destructuring one).
+block declares, each declarator of a `var a = 1, b = 2;` or `var a, b;`
+included, and its function and class declarations, and refuses a
+declaration it cannot read (a destructuring one).
 
 ## 6. Server side (no per-template work, but do not undo it)
 

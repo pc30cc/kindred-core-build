@@ -110,6 +110,7 @@
   background: #16142B var(--gav) center / 52% no-repeat;
 }
 .smart-nudge::after { display: none; }
-.lg-open .smart-nudge { bottom: calc(var(--gs-fab-size, 60px) + 5px); border-radius: 18px 18px 6px 18px; }
+/* Open sits beside the launcher: narrower on a narrow phone, so it stays on screen. */
+.lg-open .smart-nudge { bottom: calc(var(--gs-fab-size, 60px) + 5px); max-width: calc(100vw - 53px - var(--gs-fab-size, 60px)); border-radius: 18px 18px 6px 18px; }
 .lg-open .smart-nudge.bottom-right { right: calc(var(--gs-fab-size, 60px) + 5px); }
 .lg-open .smart-nudge.bottom-left { left: calc(var(--gs-fab-size, 60px) + 5px); border-radius: 18px 18px 18px 6px; }

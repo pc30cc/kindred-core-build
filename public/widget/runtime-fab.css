@@ -30,6 +30,24 @@
     mask: var(--fx) center / contain no-repeat;
   }
   .launcher.fx-bubble { --fx: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M12 3.6c4.9 0 8.8 3.3 8.8 7.6s-3.9 7.6-8.8 7.6c-.9 0-1.8-.1-2.7-.3l-4.5 1.9 1-3.8c-1.7-1.4-2.6-3.3-2.6-5.4 0-4.3 3.9-7.6 8.8-7.6ZM7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z'/%3E%3C/svg%3E"); }
+  /* The bubble's dots in the brand kit's second colour on the kit's own
+     ground (RESPOK's Signal, the local kit's dot colour): a layer under the
+     bubble, seen through its holes (and under a launcher image). Elsewhere
+     the variable is unset, the layer is transparent and the holes show the
+     launcher's colour. The pill's ::after is its text. */
+  .launcher.fx-bubble:not(.fx-pill)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    margin: auto;
+    width: calc(var(--gs-fab-size, 56px) * .6);
+    height: calc(var(--gs-fab-size, 56px) * .6);
+    background: var(--rpk-kit-accent, var(--lk-kit-dot));
+    --fx-dots: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z'/%3E%3C/svg%3E");
+    -webkit-mask: var(--fx-dots) center / contain no-repeat;
+    mask: var(--fx-dots) center / contain no-repeat;
+  }
   .launcher.fx-duo { --fx: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14.5 6.5V6a2.5 2.5 0 0 0-2.5-2.5H5.5A2.5 2.5 0 0 0 3 6v5a2.5 2.5 0 0 0 2.5 2.5H6v2.4l2.6-2.2' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' opacity='.75'/%3E%3Cpath d='M9.5 11a2.5 2.5 0 0 1 2.5-2.5h6.5A2.5 2.5 0 0 1 21 11v4.5a2.5 2.5 0 0 1-2.5 2.5H18v2.6L14.8 18H12a2.5 2.5 0 0 1-2.5-2.5z'/%3E%3C/svg%3E"); }
 }
 

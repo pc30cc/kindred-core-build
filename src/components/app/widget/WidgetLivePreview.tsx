@@ -22,7 +22,8 @@ import {
   LOCAL_KIT_LAUNCHER_CLOSE_GLYPH,
   LOCAL_KIT_LAUNCHER_CSS,
 } from '../../../../shared/localKitLauncher';
-import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
+import { SHIPS_INTL_KIT, SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
+import { launcherInitial, resolveLauncherStyle } from '../../../../shared/launcherStyles';
 import {
   RESPOK_LAUNCHER_BASE_SIZE,
   RESPOK_LAUNCHER_CHAT_GLYPH,
@@ -304,8 +305,11 @@ export function WidgetLivePreview({
   const iranKitEdition = useWebyarKit();
   const localKit = SHIPS_IRAN_KIT && iranKitEdition && !isInternational;
   // The International edition previews RESPOK's floating button (the kit's
-  // Thread chat button), as loader.js draws it for the `intl` template.
-  const respokKit = isInternational;
+  // Thread or Open chat button), as loader.js draws it, when this build
+  // ships it: the Iran build's loader leaves RESPOK's kit out (`@intl-kit`),
+  // so an Iran-brand deployment switched to the International edition shows
+  // the plain launcher on its sites, and here.
+  const respokKit = SHIPS_INTL_KIT && isInternational;
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -383,17 +387,40 @@ export function WidgetLivePreview({
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
     const fabSize = Math.round((SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_BASE_SIZE : respokKit ? RESPOK_LAUNCHER_BASE_SIZE : 56) * fabScale);
+    // The launcher as /config sends it (shared/launcherStyles.ts: an unknown
+    // icon is `chat`, a pill needs its text; `s` has the plan applied).
+    const launcher = resolveLauncherStyle({ shape: s.fab_shape, icon: s.fab_icon, label: s.fab_label });
+    // An icon of today's set other than `chat`, by its own keys only (as the
+    // loader: "constructor" is no icon).
+    const customIcon = typeof s.fab_icon === 'string' && s.fab_icon !== 'chat' && Object.prototype.hasOwnProperty.call(FAB_ICONS, s.fab_icon);
     // The local kit's button (shared/localKitLauncher.ts): its gradient unless
     // the workspace chose its own colour; its bubble unless it chose an icon.
     const kitBrand = SHIPS_IRAN_KIT && localKit && isUncustomisedColor(s.primary_color);
-    const kitBubble = SHIPS_IRAN_KIT && localKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
+    const kitBubble = SHIPS_IRAN_KIT && localKit && !customIcon;
     // RESPOK's button (shared/respokLauncher.ts): Ink + Signal unless the
     // workspace chose its own colour; the kit's pills unless it chose an icon.
     const rpkBrand = respokKit && isUncustomisedColor(s.primary_color);
-    const rpkPills = respokKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
-    const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
+    const rpkPills = respokKit && !customIcon;
+    // The kit's square has the brand's 18px corners (LOCAL_KIT_LAUNCHER_CSS), every other 16px.
+    const fabRadius = launcher.shape === 'square' ? (SHIPS_IRAN_KIT && localKit ? '18px' : '16px') : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
-    const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;
+    const fabIcon = customIcon ? FAB_ICONS[s.fab_icon as string] : FAB_ICONS.chat;
+    // A launcher style (the pill, the bubble, two bubbles, the agent's face):
+    // the loader's classes and texts on the same markup, its look from
+    // runtime-fab.css (asked for in the frame, through the manifest). The
+    // agent's letter as /config picks it: the team, online first, then the
+    // workspace's name.
+    const fabStyled = launcher.styled;
+    const fabInitial = launcher.icon === 'avatar'
+      ? launcherInitial([
+        ...[...(teamMembers || [])].sort((a, b) => Number(b.online) - Number(a.online)).map((m) => m.name),
+        typeof s.brand_name === 'string' ? s.brand_name : workspaceName || brandName,
+      ])
+      : '';
+    const fabStyleAttrs = fabStyled
+      ? ` data-fx="${esc(s.fab_label || '')}" data-fi="${esc(fabInitial)}" dir="${/^fa/.test(locale) ? 'rtl' : 'ltr'}" style="visibility:hidden"`
+      : '';
+    const fabStyleClass = fabStyled ? ` fx fx-${launcher.icon} fx-${launcher.shape}${view === 'offline' ? ' fx-off' : ''}` : '';
     const rawFabImage = typeof s.fab_image_url === 'string' ? s.fab_image_url.trim() : '';
     const fabImage = /^https?:\/\//i.test(rawFabImage) ? rawFabImage : '';
     const logo = s.show_logo !== false && s.logo_url ? String(s.logo_url) : '';
@@ -468,10 +495,12 @@ export function WidgetLivePreview({
         ? resolveChatWidgetTemplate('international', s.widget_template_id)
         : (s.widget_template_id as string | undefined) || null;
     const previewTemplateOptions = (templateOptions !== undefined ? templateOptions : s.widget_template_options) || {};
-    // RESPOK's logo direction (a template option of t1-intl / t2-intl), as
-    // the loader reads it: one class on the shell for the panel's art, the
-    // Open glyph on the launcher, the Open lockup in the footer.
-    const lgOpen = respokKit && (previewTemplateOptions as { logoDirection?: unknown }).logoDirection === 'open';
+    // RESPOK's logo direction (a template option of t1-intl / t2-intl): the
+    // server credits with that direction's lockup in the International
+    // edition; the loader (the build that ships RESPOK's kit) puts one class
+    // on the shell for the panel's art and draws that direction's glyph.
+    const logoOpen = isInternational && (previewTemplateOptions as { logoDirection?: unknown }).logoDirection === 'open';
+    const lgOpen = respokKit && logoOpen;
 
     const previewConfig = {
       brandName: brandName || title,
@@ -486,7 +515,7 @@ export function WidgetLivePreview({
             // The Iranian edition (known, never assumed) credits its platform
             // with the local kit's Persian logotype the same way.
             poweredBy: isInternational && poweredBy
-              ? { ...poweredBy, logo: `${window.location.origin}${(lgOpen ? INTL_BRAND.horizontalOpen : INTL_BRAND.horizontal).light}` }
+              ? { ...poweredBy, logo: `${window.location.origin}${(logoOpen ? INTL_BRAND.horizontalOpen : INTL_BRAND.horizontal).light}` }
               : SHIPS_IRAN_KIT && localKit && poweredBy
                 ? { ...poweredBy, logo: `${window.location.origin}${WEBYAR_BRAND.logo.light}` }
                 : poweredBy,
@@ -641,6 +670,8 @@ export function WidgetLivePreview({
 
       typingLabel: `${title} ${d.typing}`,
       phase,
+      /** The launcher wears a style: the frame asks for runtime-fab.css. */
+      fabStyled,
     };
 
     return `<!doctype html>
@@ -671,7 +702,7 @@ export function WidgetLivePreview({
   .shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}
   .shell .launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;
     --gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);
-    width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;
+    width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;font-family:inherit;
     box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);
     transition:transform .62s cubic-bezier(.33,1,.68,1),box-shadow .2s ease;
      background:${esc(primary)};color:${esc(fabIconColor)};}
@@ -716,12 +747,12 @@ export function WidgetLivePreview({
   </div>
   <div class="shell pos-${pos}${respokKit ? (lgOpen ? ' lg-open' : ' lg-thread') : ''}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
+    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}${fabStyleClass}" id="gs-launcher" aria-label="chat"${fabStyleAttrs}>
       ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? (lgOpen ? RESPOK_LAUNCHER_OPEN_GLYPH : RESPOK_LAUNCHER_CHAT_GLYPH) : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
       ${SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
-    ${s.fab_label ? `<div class="fab-label"><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
+    ${s.fab_label && launcher.shape !== 'pill' ? `<div class="fab-label"${fabStyled ? ' style="visibility:hidden"' : ''}><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
   </div>
 <!-- The preview loads the SAME presentation assets the visitor widget loads,
      resolved through the registry (no template name is hard-coded here). -->
@@ -735,6 +766,24 @@ export function WidgetLivePreview({
   }, true);
   var GS_PREVIEW = ${JSON.stringify(payload).replace(/</g, '\\u003c')};
   var GS_SMART = GS_PREVIEW.smart;
+
+  // A launcher style's stylesheet (runtime-fab.css), as the loader asks for
+  // it: the manifest's file, the launcher and its card unseen until it is in
+  // (3 s at most); without it the launcher is today's.
+  function gsFabShow() {
+    var els = document.querySelectorAll('#gs-launcher, .fab-label');
+    for (var i = 0; i < els.length; i++) els[i].style.visibility = '';
+  }
+  if (GS_PREVIEW.fabStyled) setTimeout(gsFabShow, 3000);
+  function gsFabStyle(manifest) {
+    if (!GS_PREVIEW.fabStyled || document.querySelector('link[data-gs-fab]')) return;
+    var fx = document.createElement('link');
+    fx.rel = 'stylesheet';
+    fx.href = '/widget/' + ((manifest && manifest['runtime-fab.css']) || 'runtime-fab.css');
+    fx.setAttribute('data-gs-fab', '');
+    fx.onload = fx.onerror = gsFabShow;
+    document.head.appendChild(fx);
+  }
 
   (function () {
     var reg = window.__gs_presentation_registry;
@@ -808,7 +857,7 @@ export function WidgetLivePreview({
     fetch('/widget/widget-manifest.json', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
-      .then(boot);
+      .then(function (manifest) { gsFabStyle(manifest); boot(manifest); });
   })();
 
 

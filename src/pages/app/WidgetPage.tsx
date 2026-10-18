@@ -42,7 +42,7 @@ import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 import type { WidgetSettings } from '@/types/models';
 import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
-import { launcherInitial, type LauncherStyleChoice } from '../../../shared/launcherStyles';
+import { launcherChoiceFields, launcherInitial, type LauncherStyleChoice } from '../../../shared/launcherStyles';
 
 /** Any column the appearance form may edit through `setField`. */
 type WidgetField = keyof WidgetSettings & string;
@@ -328,13 +328,7 @@ function WidgetPageContent() {
    * option, kept with the workspace's other options).
    */
   const chooseLauncher = (choice: LauncherStyleChoice) => {
-    setField('fab_shape', choice.shape, 0);
-    if (choice.icon) setField('fab_icon', choice.icon, 0);
-    if (choice.label !== undefined) setField('fab_label', choice.label, 0);
-    if (choice.logoDirection) {
-      const own = live?.widget_template_options && typeof live.widget_template_options === 'object' ? live.widget_template_options : {};
-      setField('widget_template_options', { ...own, logoDirection: choice.logoDirection }, 0);
-    }
+    for (const [field, value] of launcherChoiceFields(choice, live?.widget_template_options)) setField(field, value, 0);
   };
   /** The agent face's letter, as /config picks it: the first operator (online first), else the workspace. */
   const launcherLetter = launcherInitial([

@@ -209,9 +209,13 @@ reserved blocks, so a full disk stops Postgres too.
     `vps-50cc1602`. Then `271_plan_storage_mb_ai_credit.sql` (2026-10-16
     08:33 UTC), `272_plan_storage_gb_removed.sql` (09:51),
     `273_sms_provider_telnyx.sql` (11:09), `274_billing_card_transfer.sql`
-    (19:23) and `275_widget_template_catalog.sql` (2026-10-17 22:07; a dump of
+    (19:23), `275_widget_template_catalog.sql` (2026-10-17 22:07; a dump of
     `widget_settings` and `kb_article_feedback` taken just before it:
-    `/root/webyar-migrate-275/pre-275-tables.dump`).
+    `/root/webyar-migrate-275/pre-275-tables.dump`) and
+    `276_widget_chat_features.sql` (2026-10-18 17:29; its header's
+    `CREATE INDEX CONCURRENTLY` was run first; a dump of
+    `knowledge_base_articles` and `email_templates` plus a schema dump taken
+    just before it: `/root/webyar-migrate-276/`).
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

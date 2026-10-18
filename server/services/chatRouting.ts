@@ -372,8 +372,7 @@ async function insertRoutingSystemMessage(
 // at which place (`queue_entry_position`), so the next claim's sample
 // measures this wait, not the time an operator held it; and the next routing
 // run posts a new `routing_in_queue` row (once per return,
-// `queue_return_notice_at`), so the visitor's queue pill comes back. The
-// inbox's unassign runs that routing at once (routeQueueReturn).
+// `queue_return_notice_at`), so the visitor's queue pill comes back.
 
 /**
  * How long an earlier `queued_at` stays the conversation's entry into the
@@ -769,41 +768,6 @@ export async function routeConversationToOperator(
   } catch (err) {
     console.warn('[chat-routing] routeConversationToOperator failed:', err instanceof Error ? err.message : err);
     return { outcome: 'error', assignedTo: null };
-  }
-}
-
-/**
- * The inbox handed a queued conversation back (PATCH assigned_to → NULL):
- * route it now, so the visitor's new queue row (276's trigger stamped the
- * return in that UPDATE) arrives at once instead of with their next message.
- * Only for a conversation waiting in the manual queue again (nobody has it,
- * open or pending, not spam, a return not announced yet) of a workspace
- * still in manual mode; anything else stays as the inbox left it. Routing
- * announces each return once (`queue_return_notice_at`), so the visitor's
- * next message posts nothing more. Never throws; null when it did not route.
- */
-export async function routeQueueReturn(
-  config: ServerConfig,
-  args: { workspaceId: string; conversationId: string },
-): Promise<RouteResult | null> {
-  try {
-    const { data } = await getServiceClient(config)
-      .from('conversations')
-      .select('assigned_to, status, is_spam, metadata')
-      .eq('id', args.conversationId)
-      .eq('workspace_id', args.workspaceId)
-      .maybeSingle();
-    const conv = data as { assigned_to?: string | null; status?: string | null; is_spam?: boolean | null; metadata?: unknown } | null;
-    if (!conv || conv.assigned_to || conv.is_spam === true) return null;
-    if (conv.status !== 'open' && conv.status !== 'pending') return null;
-    const metadata = conv.metadata && typeof conv.metadata === 'object' && !Array.isArray(conv.metadata)
-      ? conv.metadata as Record<string, unknown> : {};
-    if (metadata.routing_outcome !== 'manual_queue' || !queueReturnToAnnounce(metadata)) return null;
-    if ((await loadAssignmentConfig(config, args.workspaceId)).mode !== 'manual') return null;
-    return await routeConversationToOperator(config, args);
-  } catch (err) {
-    console.warn('[chat-routing] routeQueueReturn failed:', err instanceof Error ? err.message : err);
-    return null;
   }
 }
 

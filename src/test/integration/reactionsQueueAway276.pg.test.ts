@@ -17,9 +17,7 @@
  *       place; GET /api/widget/queue answers 1, 2, 3 in queue order, skips
  *       assigned, closed, spam and other workspaces' conversations, gives the
  *       wait only from 3 measured claims; the claim trigger samples first
- *       assignments; the count uses the partial index; a hand-back keeps its
- *       place and is announced once (Q2), at once from the inbox's own
- *       unassign, the real PATCH (Q3);
+ *       assignments; the count uses the partial index;
  *   A1  the away thread: POST /api/widget/offline-messages with a client id
  *       (replayed: the same ids, nothing new) and POST /api/widget/identity/
  *       offline-email (only for an `offline` conversation; merged as an
@@ -114,7 +112,7 @@ suite('reactions, the queue and the away thread on a real database (276)', () =>
   let server: http.Server;
   let resetCaches: () => void;
 
-  const call = (method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<{ status: number; body: Row }> =>
+  const call = (method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ status: number; body: Row }> =>
     new Promise((resolve, reject) => {
       const payload = body ? JSON.stringify(body) : '';
       const req = http.request({
@@ -392,41 +390,6 @@ suite('reactions, the queue and the away thread on a real database (276)', () =>
     const stats = await one(`SELECT samples, seconds_per_place FROM public.chat_queue_stats WHERE workspace_id = $1`, [wsQ]);
     expect(Number(stats.samples)).toBe(2);
     expect(Number(stats.seconds_per_place)).toBeLessThan(600);
-  });
-
-  it('Q3 the inbox\'s unassign (the real PATCH): the queue row at once, after the internal notice, once', async () => {
-    const { routeConversationToOperator } = await import('../../../server/services/chatRouting.js');
-    const wsQ = wsOther;
-    const route = (cid: string) => routeConversationToOperator(config, { workspaceId: wsQ, conversationId: cid });
-    const kinds = async (cid: string) => (await q(
-      `SELECT coalesce(metadata->>'kind', sender_type::text) AS kind FROM public.conversation_messages WHERE conversation_id = $1 ORDER BY created_at, id`, [cid]))
-      .map((r) => r.kind);
-    const visitorKinds = (cid: string) => state.conv
-      .filter((e) => e.type === 'message' && (e.payload as Row).conversation_id === cid)
-      .map((e) => ((e.payload as Row).metadata as Row | null)?.kind);
-    await q(`DELETE FROM public.conversations WHERE workspace_id = $1`, [wsQ]);
-
-    const cid = await conversation(wsQ);
-    await message(cid, 'contact');
-    await route(cid);
-    await q(`UPDATE public.conversations SET assigned_to = $2 WHERE id = $1`, [cid, sara]);
-    state.conv.length = 0;
-    state.operator = sara;
-    const res = await call('PATCH', `/api/conversations/${cid}`, { workspace_id: wsQ, assigned_to: null });
-    expect(res.status).toBe(200);
-    // Routing ran in the PATCH's background work: the visitor's row is there without a message of theirs.
-    const end = Date.now() + 5000;
-    while ((await kinds(cid)).filter((k) => k === 'routing_in_queue').length < 2 && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
-    expect(await kinds(cid)).toEqual(['contact', 'routing_in_queue', 'conversation_unassigned', 'routing_in_queue']);
-    expect(visitorKinds(cid)).toEqual(['routing_in_queue']);
-    const meta = (await one(`SELECT metadata FROM public.conversations WHERE id = $1`, [cid])).metadata as Row;
-    expect(typeof meta.queue_reentered_at).toBe('string');
-    expect(meta.queue_return_notice_at).toBe(meta.queue_reentered_at);
-    expect((await call('GET', `/api/widget/queue?workspace_id=${wsQ}&conversation_id=${cid}`)).body.position).toBe(1);
-    // The visitor's next message routes again: nothing more.
-    await route(cid);
-    expect((await kinds(cid)).filter((k) => k === 'routing_in_queue')).toHaveLength(2);
-    expect(visitorKinds(cid)).toEqual(['routing_in_queue']);
   });
 
   it('A1 the away thread: a replay-safe first message, then the email for the reply', async () => {

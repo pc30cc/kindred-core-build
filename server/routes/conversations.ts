@@ -982,18 +982,6 @@ conversationsRouter.patch('/:id', async (req, res) => {
         } catch (e) {
           console.warn('[conversations PATCH] transfer notice failed:', e?.message || e);
         }
-        // Handed back to the manual queue: routing tells the visitor they wait
-        // again now (276 stamped the return), after the inbox's own notice so
-        // the thread reads in order, not with their next message. Once per
-        // return, so that next message's routing run posts nothing more.
-        if (!parsed.data.assigned_to) {
-          try {
-            const { routeQueueReturn } = await import('../services/chatRouting.js');
-            await routeQueueReturn(config, { workspaceId: parsed.data.workspace_id, conversationId });
-          } catch (e) {
-            console.warn('[conversations PATCH] queue return failed:', e?.message || e);
-          }
-        }
       })();
     }
 

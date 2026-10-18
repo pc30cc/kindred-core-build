@@ -547,10 +547,7 @@ minutes. A **hand-back** (an operator unassigns a queued conversation, or a paus
 `trg_conversations_queue_return` keeps `queued_at` (the place) and writes `metadata.queue_reentered_at` (when it came
 back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
 the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per
-return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back. The inbox's unassign
-(`PATCH /api/conversations/:id` with `assigned_to: null`) runs that routing at once (`routeQueueReturn`, after its
-internal «unassigned» notice), for a conversation waiting in the manual queue of a workspace still in mode `manual`;
-the visitor's next message then posts nothing more.
+return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back.
 
 **Away thread** (round 3, g4 f3): `POST /api/widget/offline-messages` takes `client_message_id` (8–64 characters;
 then any non-empty message up to the 5,000 characters `POST /message` takes, and the contact's stored name, email

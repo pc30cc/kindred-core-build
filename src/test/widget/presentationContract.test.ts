@@ -99,7 +99,6 @@ describe('widget presentation — template registry', () => {
   });
 
   it('resolves only its own ids: a name every object inherits is unknown (the default)', () => {
-    // eslint-disable-next-line no-new-func
     new Function(REGISTRY_SRC).call(window);
     const registry = win().__gs_presentation_registry;
     for (const id of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {

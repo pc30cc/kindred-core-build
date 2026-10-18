@@ -2353,7 +2353,11 @@ export default function InboxPage() {
                     </div>
                   );
                 }
-                if (msg.sender_type === 'system' && meta.kind === 'routing_agent_joined') {
+                // A join, and the «X closed the conversation» line the
+                // visitor also sees (widget conversations of a template that
+                // draws it, under which they are asked to rate the chat).
+                if (msg.sender_type === 'system'
+                  && (meta.kind === 'routing_agent_joined' || meta.kind === 'conversation_closed')) {
                   const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">

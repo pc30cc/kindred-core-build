@@ -55,7 +55,7 @@
   function create(
     P, ctx, panel, chatQ, identity, chatUI, kbUI, ModuleLoader, ConvEpoch,
     shellStore, chatStore, presenceStore, conversationsStore, notifyStore, identityStore, kbStore,
-    attachmentStore, transportStore,
+    attachmentStore, transportStore, uiPrefsStore,
     renderBody, renderHome, switchTab, deriveChatTabState, setDraftFor, currentDraftKey, trySend,
     restoreDraftToInput, applyComposerState, syncAttachButton, showAiThinking, finishRecording,
     renderVoicePreview, earlyCalls
@@ -205,6 +205,9 @@
 
     // The renderer's chat header, repainted whenever what it shows changes.
     var chatHeaderSignature = null;
+    // Forced: what the late module adds to the header (its menu) is not in
+    // the signature.
+    function repaintChatHeader() { chatHeaderSignature = null; paintChatHeader(); }
     function paintChatHeader() {
       if (!feat('chatHeader') || typeof P.chatHeaderHtml !== 'function') return;
       var header = chatQ('[data-chat-header]');
@@ -811,11 +814,11 @@
       ModuleLoader: ModuleLoader, ConvEpoch: ConvEpoch,
       shellStore: shellStore, chatStore: chatStore, presenceStore: presenceStore, conversationsStore: conversationsStore,
       notifyStore: notifyStore, identityStore: identityStore, kbStore: kbStore, attachmentStore: attachmentStore,
-      transportStore: transportStore,
+      transportStore: transportStore, uiPrefsStore: uiPrefsStore,
       renderBody: renderBody, renderHome: renderHome, switchTab: switchTab, deriveChatTabState: deriveChatTabState,
       trySend: trySend, applyComposerState: applyComposerState,
       feat: feat, each: each, onClick: onClick, wrap: wrap, currentOperator: currentOperator,
-      startConversationWith: startConversationWith, loadLatePack: loadLatePack,
+      startConversationWith: startConversationWith, loadLatePack: loadLatePack, paintChatHeader: repaintChatHeader,
       /** Registers `fn` on hook `name` (one runtime.js runs); false for any other name. */
       on: function (name, fn) {
         var table = lateHooks || lateTaking;
@@ -848,6 +851,8 @@
     function settleLatePack(r, early) {
       lateState = r ? 2 : 3;
       paintEmojiGrid(!!r);
+      // The chat bar is part of the frame too: its late parts (the menu) come now.
+      if (r) repaintChatHeader();
       if (r > 1 && !early) renderBody();
       var waiting = lateWaiting;
       lateWaiting = [];

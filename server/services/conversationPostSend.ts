@@ -28,6 +28,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordAuditAndEvent } from './conversationEvents.js';
 import { publishOperatorEvent } from './realtime/publish.js';
+import { recordConversationClosed } from './conversationClosedNotice.js';
 
 export type PostSendAction = 'none' | 'wait_for_customer' | 'resolve';
 
@@ -130,6 +131,11 @@ export async function applyPostSendAction(
       changes: { status: { from: null, to: targetStatus } },
       updated_at: row.changed_at,
     } as any);
+
+    // The visitor's closed line, after the reply it follows (never throws).
+    if (action === 'resolve') {
+      void recordConversationClosed(config, { workspaceId, conversationId, actorId, status: 'resolved' });
+    }
 
     return { changed: true, status: targetStatus, reason };
   } catch {

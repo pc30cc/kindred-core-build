@@ -52,6 +52,7 @@ import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
+import { recordConversationClosed } from '../services/conversationClosedNotice.js';
 import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer, type NeedsReplyMessage } from '../services/needsReply.js';
 
 /** The public-safe attachment shape a message is enriched with. No URLs. */
@@ -1029,6 +1030,15 @@ conversationsRouter.patch('/:id', async (req, res) => {
           actorId: auth.userId,
         }).catch((err: unknown) => {
           console.error('[conversations PATCH] transcript queue failed:', err);
+        });
+        // The visitor's «X closed the conversation» line (and its rating
+        // card), for a widget conversation whose template draws it. Never
+        // throws, never awaited.
+        void recordConversationClosed(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId,
+          actorId: auth.userId,
+          status: parsed.data.status === 'closed' ? 'closed' : 'resolved',
         });
       }
     }

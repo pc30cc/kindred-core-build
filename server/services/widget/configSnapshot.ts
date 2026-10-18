@@ -64,8 +64,13 @@ import {
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, widgetAssetUrl } from './manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from './presentationAssets.js';
 import { readChatTemplateRows } from './templateCatalog.js';
-import { chatWidgetTemplate, widgetDateHints } from '../../../shared/widgetTemplates.js';
-import { resolveChatTemplateCatalog, resolveChatTemplateOptions, type ChatTemplateCatalog } from '../../../shared/chatTemplateCatalog.js';
+import { chatWidgetTemplate, widgetDateHints, type ChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
+import {
+  resolveChatTemplateCatalog,
+  resolveChatTemplateOptions,
+  type ChatTemplateCatalog,
+  type ChatTemplateOptions,
+} from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
@@ -856,6 +861,50 @@ export async function getChatTemplateCatalog(
   return { catalog: chatTemplateCatalogOf(platform, edition), edition, ready: platform.chatTemplatesReady !== false };
 }
 
+export interface EffectiveChatTemplate {
+  id: string;
+  /** null only for an id no descriptor knows (never one the catalog resolves). */
+  descriptor: ChatWidgetTemplate | null;
+  options: ChatTemplateOptions;
+}
+
+/**
+ * The chat widget template a workspace's visitors wear and its options (no
+ * I/O): the workspace's choice while the edition's catalog has it enabled
+ * (`settings` has the plan applied: without widget_appearance the choice reads
+ * as none), else the catalog's default. The same answer GET /config gives.
+ */
+export function resolveEffectiveChatTemplate(
+  platform: WidgetPlatformSnapshot,
+  edition: Edition | null,
+  settings: WidgetSettingsRow | null,
+): EffectiveChatTemplate {
+  const catalog = chatTemplateCatalogOf(platform, edition);
+  const chosen = settings as { widget_template_id?: string | null; widget_template_options?: unknown } | null;
+  const id = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(edition, chosen?.widget_template_id, catalog));
+  return {
+    id,
+    descriptor: chatWidgetTemplate(id),
+    options: resolveChatTemplateOptions(catalog, id, chosen?.widget_template_options),
+  };
+}
+
+/**
+ * resolveEffectiveChatTemplate for a workspace, from the cached snapshots (no
+ * query on a hit): what the server reads before serving or writing anything
+ * for a template's feature (the closed line, the rating after a chat, the
+ * transcript by email), so it never disagrees with the widget the visitor
+ * has. Throws only when the snapshot build does (as GET /config would fail).
+ */
+export async function workspaceChatTemplate(config: ServerConfig, workspaceId: string): Promise<EffectiveChatTemplate> {
+  const [snap, platform, edition] = await Promise.all([
+    getWorkspaceWidgetSnapshot(config, workspaceId),
+    getWidgetPlatformSnapshot(config),
+    getPlatformEditionOrNull(config),
+  ]);
+  return resolveEffectiveChatTemplate(platform, edition, snap.settings);
+}
+
 const quotaCache = new MemoCache<boolean | null>({
   name: 'widget-quota-full',
   enabled: cachingEnabled,
@@ -971,17 +1020,13 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // edition that cannot be read, wear `default` exactly as before; the
   // International edition wears `intl`. The browser registry resolves the
   // same ids. Its options ride along; the template's display name never does.
-  const templateCatalog = chatTemplateCatalogOf(platform, edition);
-  const wsTemplate = ws as { widget_template_id?: string | null; widget_template_options?: unknown };
-  const templateId = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(
-    edition,
-    wsTemplate.widget_template_id,
-    templateCatalog,
-  ));
-  const templateOptions = resolveChatTemplateOptions(templateCatalog, templateId, wsTemplate.widget_template_options);
+  const {
+    id: templateId,
+    descriptor: templateDescriptor,
+    options: templateOptions,
+  } = resolveEffectiveChatTemplate(platform, edition, ws);
 
   const templateAssets = widgetTemplateAssetKeys(templateId);
-  const templateDescriptor = chatWidgetTemplate(templateId);
   const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
   const presentationJsName = getWidgetAssetName(templateAssets.script);
   const presentationCssName = getWidgetAssetName(templateAssets.style);

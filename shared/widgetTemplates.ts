@@ -64,6 +64,16 @@ export interface ChatWidgetTemplate {
    * registry and the renderer's `extend` (src/test/widget/runtimeExt.test.ts).
    */
   extras: `presentation-${string}-x.js` | null;
+  /**
+   * Its renderer draws the `conversation_closed` line («X closed the
+   * conversation») and, through its extras, the rating card under it. The
+   * server writes that visitor-visible row when an operator closes a widget
+   * conversation only for a workspace whose effective template has this
+   * (server/services/conversationClosedNotice.ts), so a `default` / `intl`
+   * workspace gets no new row at all. Must match the renderer's
+   * `features.closedNotice`.
+   */
+  closedNotice: boolean;
 }
 
 export const CHAT_WIDGET_TEMPLATES = {
@@ -75,6 +85,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     fonts: 'presentation-default-fonts.css',
     coreFeatures: false,
     extras: null,
+    closedNotice: false,
   },
   intl: {
     id: 'intl',
@@ -84,6 +95,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     fonts: 'presentation-default-fonts.css',
     coreFeatures: false,
     extras: null,
+    closedNotice: false,
   },
   t1: {
     id: 't1',
@@ -93,6 +105,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     fonts: 'presentation-default-fonts.css',
     coreFeatures: true,
     extras: 'presentation-t1-x.js',
+    closedNotice: false,
   },
   t2: {
     id: 't2',
@@ -102,6 +115,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     fonts: 'presentation-default-fonts.css',
     coreFeatures: true,
     extras: 'presentation-t2-x.js',
+    closedNotice: true,
   },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 

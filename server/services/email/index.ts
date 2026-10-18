@@ -147,6 +147,21 @@ async function resolveProviderConfig(
 }
 
 /**
+ * Whether the platform has an email provider at all (the same reading
+ * sendEmail makes, never the override key): a feature that mails a visitor
+ * on request (the transcript by email) is offered only then. False when the
+ * setting cannot be read.
+ */
+export async function isEmailProviderConfigured(config: ServerConfig): Promise<boolean> {
+  try {
+    const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
+    return !!(await resolveProviderConfig(supabase));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The From header, fail-closed.
  *
  * Transport identity (who the mail is *from*) comes from the provider config

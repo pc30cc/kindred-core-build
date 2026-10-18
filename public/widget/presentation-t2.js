@@ -26,8 +26,10 @@
  * Every hook the `default` renderer emits is emitted here too (hidden where
  * this design draws no control for it). The Core behaviours this renderer
  * opts into are listed in `features` (runtime.js `feat()`); the ones whose
- * backend does not exist yet (`env.capabilities`: rating after a chat,
- * reactions, order card, instant answers, track order) draw nothing.
+ * backend does not exist yet (`env.capabilities`: reactions, order card,
+ * instant answers, track order) draw nothing. The "closed the conversation"
+ * line, the rating card under it and the chat bar's menu are drawn by the
+ * extras (presentation-t2-x.js) once Core handed them over.
  */
 (function () {
   'use strict';
@@ -921,7 +923,9 @@
       // Runs: consecutive messages of one author on one day share one avatar
       // (beside the last bubble) and one meta line (under it).
       var groupKeys = msgs.map(function (m, i) {
+        // A system line (a join, a close) ends a run: it is no one's bubble.
         var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v')
+          : m.senderType === 'system' ? 's' + i
           : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         return author + '@' + dayKeyOf(m.time);
       });
@@ -934,6 +938,8 @@
         var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
         if (kind === 'call_invitation') { html += renderCallInvitationCard(m); return; }
         if (kind === 'call_ended') { html += renderCallEndedRow(m); return; }
+        // The line and, under the newest one, the rating card (Core's `view.csat`).
+        if (kind === 'conversation_closed') { html += closedHtml(m, view.csat || null); return; }
         if (kind === 'routing_agent_joined' || kind === 'conversation_transferred'
             || kind === 'routing_no_agent_available' || kind === 'routing_in_queue') {
           html += renderRoutingOutcomeRow(m); return;
@@ -1202,7 +1208,9 @@
         : !online ? '<span class="st off">' + esc(L('away')) + '</span>'
         : op && op.online ? '<span class="st"><i class="ondot"></i>' + esc(L('online')) + '</span>'
         : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
-      return backButtonHtml('home') + whoHtml(avatar, name, st) + '<span class="cs" aria-hidden="true"></span>' +
+      // The menu (`vm.menu`) only once Core's late module drew it a list.
+      return backButtonHtml('home') + whoHtml(avatar, name, st) + (vm.menu ? chatMenuHtml(vm.menu) : '') +
+        '<span class="cs" aria-hidden="true"></span>' +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
           '<span data-presence-dot></span>' +
           '<span data-presence-label></span>' +
@@ -1871,6 +1879,9 @@
       missed = false;
       return m ? 2 : 1;
     }
+    // The extras' surfaces.
+    function closedHtml(m, csat) { return x('closedHtml', [m, csat]); }
+    function chatMenuHtml(menu) { return x('chatMenuHtml', [menu]); }
 
     return {
 
@@ -1892,6 +1903,11 @@
         kbProgress: true,
         recSend: true,
         clock: true,
+        // The closed line (runtime.js keeps the row only for this), the
+        // rating card and the chat bar's menu (runtime-late.js).
+        closedNotice: true,
+        csat: true,
+        chatMenu: true,
       },
       extend: extend,
       shellHtml: shellHtml,

@@ -21,17 +21,26 @@
  *   whenever a surface's arguments or H change.
  *
  *   emojiPickerHtml()   the grouped emoji picker (feature `emojiTabs`): a tab per group
+ *   chatMenuHtml(menu)  the chat bar's ⋯ and its menu (feature `chatMenu`): menu = { open, items },
+ *                       item { action: 'transcript', state ('idle' | 'sending' | 'sent' |
+ *                       'failed' | 'no'), to } | { action: 'sound', on }. Hooks:
+ *                       [data-chat-menu-toggle][aria-expanded], [data-chat-menu][role=menu],
+ *                       [data-chat-menu-action].
  */
 (function () {
   'use strict';
 
   // This file's copy: one '|'-separated string per language, in the order
-  // of COPY_KEYS (as the renderer's own).
-  var COPY_KEYS = 'cats'.split(' ');
+  // of COPY_KEYS (as the renderer's own; the menu's keys are the names of
+  // docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
+  var COPY_KEYS = 'cats moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed'.split(' ');
   var DICT = {
-    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی',
-    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink',
-    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek',
+    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|گزینه‌های بیشتر|صدای اعلان‌ها|' +
+      'ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد',
+    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|More options|Notification sounds|' +
+      'Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent',
+    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Diğer seçenekler|Bildirim sesleri|' +
+      'Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi',
   };
 
   // Grouped emoji for the picker, one group per name in `cats`.
@@ -76,7 +85,36 @@
         }).join('') + '</div>';
     }
 
-    return { emojiPickerHtml: emojiPickerHtml };
+    // The chat bar's ⋯ (before the shell's close) and its menu.
+    function chatMenuHtml(menu) {
+      var items = (menu && menu.items) || [];
+      if (!items.length) return '';
+      var label = esc(XL('moreOptions'));
+      return '<div class="cm"><button type="button" class="ib" data-chat-menu-toggle aria-haspopup="menu" aria-expanded="' +
+          !!menu.open + '" aria-label="' + label + '">' + svg(P('M5 12h.01M12 12h.01M19 12h.01'), 20, 3) + '</button>' +
+        '<div class="menu" role="menu" data-chat-menu aria-label="' + label + '"' + (menu.open ? '' : ' hidden') + '>' +
+        items.map(function (it) {
+          if (it.action === 'sound') {
+            return '<button type="button" role="menuitemcheckbox" aria-checked="' + !!it.on + '" data-chat-menu-action="sound" tabindex="-1">' +
+              svg(P('M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15zM10 20.5h4') + (it.on ? '' : P('M4 4l16 16')), 18) +
+              '<span>' + esc(XL('menuSound')) + '</span><i class="sw" aria-hidden="true"></i></button>';
+          }
+          var st = it.state;
+          var text;
+          if (st === 'sent') {
+            // The server's masked address, an isolated left-to-right run.
+            var parts = XL('csatTranscriptSent').split('{email}');
+            text = esc(parts[0]) + '<b dir="ltr">' + esc(it.to || '') + '</b>' + esc(parts[1] || '');
+          } else {
+            text = esc(st === 'no' ? XL('csatTranscriptFailed') : st === 'failed' ? XL('csatFailed') + ' · ' + H.L('retry') : XL('csatTranscript'));
+          }
+          return '<button type="button" role="menuitem" data-chat-menu-action="transcript" tabindex="-1"' +
+            (st === 'sending' || st === 'sent' || st === 'no' ? ' aria-disabled="true"' : '') + '>' +
+            svg(st === 'sent' ? H.D.tick : H.D.mail, 18) + '<span>' + text + '</span></button>';
+        }).join('') + '</div></div>';
+    }
+
+    return { emojiPickerHtml: emojiPickerHtml, chatMenuHtml: chatMenuHtml };
   }
 
   window.__gs_mod_extras = { id: 't1', v: 1, create: create };

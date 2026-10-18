@@ -19,6 +19,9 @@ export interface OperatorActivityRow {
   conversations_assigned: number;
   conversations_resolved: number;
   replies_sent: number;
+  /** Visitors' average rating (1–5, one decimal) in the window; null without ratings. */
+  csat_avg?: number | null;
+  csat_count?: number;
   current_state: 'online' | 'offline';
   current_reason: string;
 }
@@ -32,6 +35,8 @@ export interface OperatorActivityStats {
     replies_sent: number;
     conversations_assigned: number;
     online_now: number;
+    csat_avg?: number | null;
+    csat_count?: number;
   };
   operators: OperatorActivityRow[];
 }

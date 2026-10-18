@@ -2,8 +2,9 @@
  * The options of one chat widget template (shared/chatTemplateCatalog.ts),
  * as edited by the Super Admin (the catalog's option defaults) and by a
  * workspace owner (their own widget): Template 1's bottom menu style and
- * labels, quick topics (Templates 1 and 2), and Template 2's example
- * questions. Only the keys the template reads are shown.
+ * labels and its pre-chat form, quick topics (Templates 1 and 2), Template 2's
+ * example questions and rating after a chat, and the transcript by email
+ * (Templates 1 and 2). Only the keys the template reads are shown.
  *
  * `value` holds what this level sets; a key it leaves out reads `inherited`
  * (the level above). With `allowReset` a key this level sets can be handed
@@ -17,10 +18,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   CHAT_TEMPLATE_LIMITS,
   CHAT_TEMPLATE_NAV_MODES,
   CHAT_TEMPLATE_NAV_STYLES,
+  CHAT_TEMPLATE_PRECHAT_MODES,
   CHAT_TEMPLATE_TOPIC_ICONS,
   chatTemplateOptionKeys,
   type ChatTemplateOptionKey,
@@ -92,6 +95,18 @@ export function TemplateOptionsFields({
   const dock = (read('navStyle') ?? CHAT_TEMPLATE_NAV_STYLES[0]) === 'vb';
   const savedMode = read('navMode') ?? CHAT_TEMPLATE_NAV_MODES[0];
   const navMode = dock || savedMode === 'none' ? savedMode : CHAT_TEMPLATE_NAV_MODES[0];
+
+  // An on/off option (both default on): label and hint, the switch, the reset.
+  const toggle = (key: 'csat' | 'transcriptEmail', id: string) => (
+    <div className="flex items-start justify-between gap-3" data-tpl-toggle={key}>
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-${id}`} className="text-xs font-medium">{tk(`widgetCatalog.options.${key}`)}</Label>
+        <p className="text-[11px] text-muted-foreground">{tk(`widgetCatalog.options.${key}Hint`)}</p>
+        {resetButton(key)}
+      </div>
+      <Switch id={`${idPrefix}-${id}`} checked={read(key) !== false} disabled={disabled} onCheckedChange={(on) => set(key, on)} />
+    </div>
+  );
 
   return (
     <div className="space-y-4" data-tpl-options={templateId}>
@@ -218,6 +233,27 @@ export function TemplateOptionsFields({
           ))}
         </div>
       )}
+
+      {keys.includes('prechatMode') && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor={`${idPrefix}-prechat-mode`} className="text-xs font-medium">{t('widgetCatalog.options.prechatMode')}</Label>
+            {resetButton('prechatMode')}
+          </div>
+          <Select value={read('prechatMode') ?? CHAT_TEMPLATE_PRECHAT_MODES[0]} disabled={disabled} onValueChange={(v) => set('prechatMode', v as ChatTemplateOptions['prechatMode'])}>
+            <SelectTrigger id={`${idPrefix}-prechat-mode`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {CHAT_TEMPLATE_PRECHAT_MODES.map((mode) => (
+                <SelectItem key={mode} value={mode}>{tk(`widgetCatalog.options.prechatModes.${mode}`)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">{t('widgetCatalog.options.prechatModeHint')}</p>
+        </div>
+      )}
+
+      {keys.includes('csat') && toggle('csat', 'csat')}
+      {keys.includes('transcriptEmail') && toggle('transcriptEmail', 'transcript-email')}
     </div>
   );
 }

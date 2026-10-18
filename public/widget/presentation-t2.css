@@ -250,6 +250,21 @@
 }
 .ib:hover { background: var(--paper); }
 .ib:active { transform: scale(.92); }
+/* The chat bar's ⋯ and its menu (extras), hanging under it at the bar's end. */
+.cm { position: relative; flex: none; }
+.cm .ib[aria-expanded='true'] { background: var(--paper); }
+.menu { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 5; width: max-content; min-width: 200px; max-width: 272px; padding: 6px; border-radius: 16px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 14px 30px -18px rgba(15, 18, 23, .35); }
+.menu[hidden] { display: none; }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.5; color: var(--ink); text-align: start; }
+.menu button:hover, .menu button:focus-visible { background: var(--paper); }
+.menu button[aria-disabled='true'] { color: var(--ink-3); cursor: default; }
+.menu svg { flex: none; color: var(--ink-3); }
+.menu span { flex: 1; min-width: 0; }
+.menu b { color: var(--ink); unicode-bidi: isolate; }
+.sw { position: relative; flex: none; width: 30px; height: 18px; border-radius: 999px; background: var(--line-2); transition: background-color .18s ease; }
+.sw::after { content: ''; position: absolute; top: 2px; inset-inline-start: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(15, 18, 23, .25); transition: inset-inline-start .2s var(--ease); }
+[aria-checked='true'] > .sw { background: var(--a); }
+[aria-checked='true'] > .sw::after { inset-inline-start: 14px; }
 [dir='rtl'] .dirf { transform: scaleX(-1); }
 .who { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding-inline: 2px; }
 .wt { display: flex; flex-direction: column; min-width: 0; }
@@ -998,6 +1013,31 @@ a.wy-powered:hover { color: var(--ink-2); }
 .fcard.done { display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
 .ck { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--a-2); color: var(--a-ink); animation: t2-pop .5s var(--bounce) .5s backwards; }
 .fcard.done b { color: var(--ink); unicode-bidi: isolate; }
+
+/* ─── After a chat: the rating card under the closed line (extras) ──── */
+.csat { flex: 1; min-width: 0; margin: 2px 4px 6px; padding: 18px 16px 16px; border-radius: 22px; background: #fff; text-align: center; box-shadow: 0 0 0 1px var(--line), 0 16px 34px -20px rgba(15, 18, 23, .35); animation: t2-rise .55s var(--ease) .3s backwards; }
+/* Once on screen, a repaint replays nothing. */
+.no-enter :is(.csat, .cf, .faces [aria-pressed='true']) { animation: none; }
+.csat .av { margin: 0 auto; }
+.csat h3 { margin: 8px 0 2px; font-size: 16px; font-weight: 700; line-height: 1.5; }
+.csat p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
+.csat .er { margin-top: 8px; color: var(--bad); }
+.faces { display: flex; justify-content: center; gap: 8px; margin: 14px 0; }
+.faces button, .cf { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; background: var(--paper); color: var(--ink-3); transition: transform .3s var(--bounce), background-color .18s ease; }
+.faces button:not(:disabled):hover { transform: translateY(-3px) scale(1.08); }
+.faces [aria-pressed='true'], .cf { background: var(--a-2); color: var(--a-ink); box-shadow: inset 0 0 0 1.5px var(--a); }
+.faces [aria-pressed='true'] { animation: t2-pick .7s var(--bounce); }
+.faces button:focus-visible { border-radius: 15px; }
+.cf { margin: 0 auto 2px; animation: t2-pop .5s var(--bounce) backwards; }
+.csat .ta { display: block; width: 100%; height: 64px; padding: 10px 12px; border-radius: 14px; background: var(--paper); font-size: 13px; line-height: 1.6; color: var(--ink); text-align: start; resize: none; transition: background-color .18s ease, box-shadow .2s ease; }
+.csat .ta::placeholder { color: var(--ink-4); }
+.csat .ta:focus, .csat .ta:focus-visible { outline: 0; background: #fff; box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 5px var(--a-2); }
+.csat .btn { margin-top: 10px; }
+.csat .btn:disabled { opacity: .5; }
+.csat .lnk2 { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 10px; font-size: 12.5px; font-weight: 600; line-height: 1.6; color: var(--ink-3); }
+button.lnk2:not(:disabled):hover { color: var(--ink-2); }
+.lnk2 svg { flex: none; }
+.lnk2 b { color: var(--ink); unicode-bidi: isolate; }
 .form-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 18px 16px; }
 .prechat-subtitle, .prechat-intro { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--ink-3); }
 .prechat-spacer { flex: 1; min-height: 8px; }

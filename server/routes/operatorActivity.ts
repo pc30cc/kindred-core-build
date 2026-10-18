@@ -22,6 +22,12 @@
  * the stats endpoint reports zero online minutes; assignments and message
  * counts still come from live tables.
  *
+ * SATISFACTION comes from the visitors' ratings after a chat
+ * (`conversation_ratings`, migration 276): per operator the average score
+ * (one decimal) and the number of ratings given in the window, credited to
+ * the operator each rated closure names. Null averages, and the report's
+ * column stays hidden, while there are none (or before 276).
+ *
  * ─── ROUTES ────────────────────────────────────────────────────────
  *   POST /api/operator-activity/heartbeat  { workspace_id }
  *   GET  /api/operator-activity/:workspaceId/stats?days=7   (owner/admin)
@@ -41,6 +47,7 @@ import {
 import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 import { recordOperatorActivity } from '../services/widget/operatorActivity.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { isRelationMissing } from '../services/billing/entitlementParse.js';
 
 export const operatorActivityRouter = Router();
 
@@ -175,6 +182,41 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
 });
 
 
+/** One decimal, or null without ratings. */
+function averageScore(sum: number, count: number): number | null {
+  return count ? Math.round((sum / count) * 10) / 10 : null;
+}
+
+/**
+ * Visitors' ratings in the window, per rated operator: { sum, count }. Empty
+ * before migration 276; any other failure is the report's 500.
+ */
+export async function ratingsByOperator(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  sinceIso: string,
+): Promise<Map<string, { sum: number; count: number }>> {
+  const out = new Map<string, { sum: number; count: number }>();
+  const { data, error } = await sb
+    .from('conversation_ratings')
+    .select('operator_id, score')
+    .eq('workspace_id', workspaceId)
+    .gte('created_at', sinceIso)
+    .limit(5000);
+  if (error) {
+    if (isRelationMissing(error, 'conversation_ratings')) return out;
+    throw error;
+  }
+  for (const r of (data || []) as Array<{ operator_id: string | null; score: number }>) {
+    if (!r.operator_id) continue;
+    const cur = out.get(r.operator_id) || { sum: 0, count: 0 };
+    cur.sum += Number(r.score) || 0;
+    cur.count += 1;
+    out.set(r.operator_id, cur);
+  }
+  return out;
+}
+
 // ── GET /:workspaceId/stats ───────────────────────────────────────
 operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
   try {
@@ -242,6 +284,8 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       messages = msgs || [];
     }
 
+    const ratings = await ratingsByOperator(sb, workspaceId, sinceIso);
+
     const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
     const prefsMap = new Map((prefsRows || []).map((p) => [p.user_id, p]));
     const now = new Date();
@@ -275,6 +319,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       const replies = messages.filter((x) => x.sender_id === m.user_id).length;
 
       const live = computeOperatorState(prefsMap.get(m.user_id), now);
+      const rated = ratings.get(m.user_id);
 
       return {
         user_id: m.user_id,
@@ -289,6 +334,8 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         conversations_assigned: assigned.length,
         conversations_resolved: resolved,
         replies_sent: replies,
+        csat_avg: averageScore(rated?.sum ?? 0, rated?.count ?? 0),
+        csat_count: rated?.count ?? 0,
         current_state: live.state,
         current_reason: live.reason,
       };
@@ -305,6 +352,13 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         replies_sent: rows.reduce((s, r) => s + r.replies_sent, 0),
         conversations_assigned: rows.reduce((s, r) => s + r.conversations_assigned, 0),
         online_now: rows.filter((r) => r.current_state === 'online').length,
+        // Every rating in the window, members' or not (a removed operator's
+        // ratings still count for the team).
+        csat_avg: averageScore(
+          [...ratings.values()].reduce((s, r) => s + r.sum, 0),
+          [...ratings.values()].reduce((s, r) => s + r.count, 0),
+        ),
+        csat_count: [...ratings.values()].reduce((s, r) => s + r.count, 0),
       },
       operators: rows,
     });

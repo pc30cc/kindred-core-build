@@ -1466,6 +1466,8 @@ const fa: TranslationKeys = {
     'callEnded.summary.notConnected': 'تماس برقرار نشد',
     'system.agentJoined': '{name} به گفتگو پیوست',
     'system.agentJoinedGeneric': 'یکی از همکاران به گفتگو پیوست',
+    'system.closedBy': '{name} گفتگو را بست',
+    'system.closed': 'گفتگو بسته شد',
     'system.noAgentAvailable': 'همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم.',
     'system.inQueue': 'در صف هستید — به‌زودی همکاری پاسخ می‌دهد.',
     'system.callInviteAudio': 'کاربر به تماس صوتی دعوت شد',

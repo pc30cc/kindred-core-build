@@ -954,6 +954,8 @@
         ? whoHtml('', tf('wyNewConversation', 'New conversation'), workspaceName)
         : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : wsAvatar('s40', online),
           op ? op.name + (workspaceName ? ' · ' + workspaceName : '') : workspaceName, status)) +
+        // The menu (`vm.menu`) only once Core's late module drew it a list.
+        (vm.menu ? x('chatMenuHtml', [vm.menu]) : '') +
         '<div class="presence sr-only" data-presence aria-live="polite"><span data-presence-dot></span>' +
           '<span data-presence-label></span></div>';
     }
@@ -1408,12 +1410,13 @@
     }
 
     // Features Core runs for this renderer (runtime.js `feat()`); nothing
-    // is declared for a capability Core cannot serve (CSAT, reactions,
-    // order card, step pre-chat, instant answers: `env.capabilities`).
+    // is declared for a capability Core cannot serve (reactions, order card,
+    // step pre-chat, instant answers: `env.capabilities`). `chatMenu`: the
+    // chat bar's menu, drawn by the extras.
     var features = {
       tabs: true, kbSearch: true, kbCategories: true, kbArticleMeta: true, operatorTyping: true, chatHeader: true,
       emptyQna: true, topics: true, prechatOperator: true, prechatSummary: true, recSend: true, vnRate: true,
-      clock: true, emojiTabs: true, visitorName: true, conversationOperator: true,
+      clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true,
     };
     void caps;
 

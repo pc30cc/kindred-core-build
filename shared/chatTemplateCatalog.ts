@@ -34,7 +34,10 @@
  * defaults (catalog item `options`) → the workspace's own
  * (widget_settings.widget_template_options), keeping only the keys the
  * template reads and only valid values (resolveChatTemplateOptions). The
- * result reaches the widget as `config.templateOptions`.
+ * result reaches the widget as `config.templateOptions`. The server reads it
+ * too, for the features it serves on a template's behalf (the rating after a
+ * chat, the transcript by email): server/services/widget/configSnapshot.ts
+ * `workspaceChatTemplate`.
  *
  * Pure: no I/O.
  */
@@ -82,10 +85,17 @@ export const CHAT_TEMPLATE_NAV_STYLES = ['vb', 'va', 'vc', 'vd'] as const;
 export const CHAT_TEMPLATE_NAV_MODES = ['active', 'both', 'icon', 'text', 'none'] as const;
 /** The icons a topic chip may wear (the renderers draw exactly these). */
 export const CHAT_TEMPLATE_TOPIC_ICONS = ['truck', 'return', 'ruler', 'card', 'box', 'chat', 'help', 'gift', 'clock', 'tag'] as const;
+/**
+ * Template 1's pre-chat form: one card with every field (the default), or one
+ * question at a time. A conversation keeps the mode its form first rendered
+ * in.
+ */
+export const CHAT_TEMPLATE_PRECHAT_MODES = ['card', 'steps'] as const;
 
 export type ChatTemplateNavStyle = (typeof CHAT_TEMPLATE_NAV_STYLES)[number];
 export type ChatTemplateNavMode = (typeof CHAT_TEMPLATE_NAV_MODES)[number];
 export type ChatTemplateTopicIcon = (typeof CHAT_TEMPLATE_TOPIC_ICONS)[number];
+export type ChatTemplatePrechatMode = (typeof CHAT_TEMPLATE_PRECHAT_MODES)[number];
 
 export const CHAT_TEMPLATE_LIMITS = {
   /** Topic chips per template. */
@@ -108,6 +118,23 @@ export interface ChatTemplateOptions {
   navMode?: ChatTemplateNavMode;
   topics?: ChatTemplateTopic[];
   askExamples?: string[];
+  /**
+   * Template 1's pre-chat form, `card` (default) or `steps`.
+   */
+  prechatMode?: ChatTemplatePrechatMode;
+  /**
+   * The rating card after an operator closes the conversation (Template 2;
+   * default on). Off: the closed line only, and POST …/csat answers 403
+   * `csat_disabled`.
+   */
+  csat?: boolean;
+  /**
+   * The visitor may have the conversation mailed to the address on their
+   * contact (the rating card's link and the chat header's menu; default on).
+   * Off: neither shows it, and POST …/transcript answers 403
+   * `transcript_disabled`.
+   */
+  transcriptEmail?: boolean;
 }
 
 export type ChatTemplateOptionKey = keyof ChatTemplateOptions;
@@ -116,12 +143,14 @@ export type ChatTemplateOptionKey = keyof ChatTemplateOptions;
 export const CHAT_TEMPLATE_OPTIONS: Readonly<Record<ChatWidgetTemplateId, readonly ChatTemplateOptionKey[]>> = {
   default: [],
   intl: [],
-  t1: ['navStyle', 'navMode', 'topics'],
-  t2: ['topics', 'askExamples'],
+  t1: ['navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail'],
+  t2: ['topics', 'askExamples', 'csat', 'transcriptEmail'],
 };
 
 /** Every option any template reads. */
-export const CHAT_TEMPLATE_OPTION_KEYS: readonly ChatTemplateOptionKey[] = ['navStyle', 'navMode', 'topics', 'askExamples'];
+export const CHAT_TEMPLATE_OPTION_KEYS: readonly ChatTemplateOptionKey[] = [
+  'navStyle', 'navMode', 'topics', 'askExamples', 'prechatMode', 'csat', 'transcriptEmail',
+];
 
 /** The options a template reads (none for an unknown id). */
 export function chatTemplateOptionKeys(id: string): readonly ChatTemplateOptionKey[] {
@@ -136,6 +165,9 @@ function optionDefault(key: ChatTemplateOptionKey): ChatTemplateOptions[ChatTemp
     case 'navMode': return CHAT_TEMPLATE_NAV_MODES[0];
     case 'topics': return [];
     case 'askExamples': return [];
+    case 'prechatMode': return CHAT_TEMPLATE_PRECHAT_MODES[0];
+    case 'csat': return true;
+    case 'transcriptEmail': return true;
   }
 }
 
@@ -176,6 +208,11 @@ function checkOption(key: ChatTemplateOptionKey, value: unknown): { ok: true; va
       return oneOf(CHAT_TEMPLATE_NAV_STYLES, value) ? { ok: true, value } : { ok: false };
     case 'navMode':
       return oneOf(CHAT_TEMPLATE_NAV_MODES, value) ? { ok: true, value } : { ok: false };
+    case 'prechatMode':
+      return oneOf(CHAT_TEMPLATE_PRECHAT_MODES, value) ? { ok: true, value } : { ok: false };
+    case 'csat':
+    case 'transcriptEmail':
+      return typeof value === 'boolean' ? { ok: true, value } : { ok: false };
     case 'topics': {
       if (!Array.isArray(value) || value.length > CHAT_TEMPLATE_LIMITS.topics) return { ok: false };
       const topics: ChatTemplateTopic[] = [];

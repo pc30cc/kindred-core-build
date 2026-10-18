@@ -55,6 +55,14 @@
     var f = (Presentation && Presentation.features) || {};
     return f.conversationOperator || f.chatHeader || f.operatorTyping ? 1 : undefined;
   }
+  // The "closed the conversation" line (a visitor-visible system row,
+  // metadata.kind 'conversation_closed') is drawn only by a renderer that
+  // declares `closedNotice`. For any other (`default`, `intl`) such a row is
+  // dropped where frames come in and where histories merge, so it never
+  // reaches the stores, the renderer or the unread count; in no template is
+  // it an unread message, a toast or a chime.
+  function closedRow(m) { return !!(m && m.metadata && m.metadata.kind === 'conversation_closed'); }
+  function hiddenRow(m) { return closedRow(m) && !((Presentation && Presentation.features) || {}).closedNotice; }
 
   function resolvePresentation(ctx, t) {
     var registry = window.__gs_presentation_registry;
@@ -77,7 +85,9 @@
       // What this Core can serve, so a renderer never draws a control nobody
       // answers. `kbNeutral`: the article vote accepts 'neutral' (until the
       // database allows it, such a vote is refused like any failed vote).
-      capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
+      // `csat`, `chatMenu`: the rating after a chat and the chat's menu
+      // (runtime-late.js, with the routes they call).
+      capabilities: { kbNeutral: true, csat: true, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false, chatMenu: true },
     });
   }
 
@@ -1616,7 +1626,7 @@
       // the chat store). `allMessages` = every frame, so unread counters and
       // call-invitation scanning still see other threads.
       if (event === 'message' && payload && payload.messages) {
-        var all = payload.messages || [];
+        var all = Array.prototype.filter.call(payload.messages, function (m) { return !hiddenRow(m); });
         var owned = [];
         for (var f = 0; f < all.length; f++) {
           if (ConvEpoch.ownsFrame(frameConversationId(all[f]))) owned.push(all[f]);
@@ -3243,6 +3253,7 @@
       var changed = false;
 
       incoming.forEach(function (m) {
+        if (hiddenRow(m)) return;
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
@@ -9177,7 +9188,7 @@
         var m = allIncoming[i] || {};
         // Skip own messages (visitor/contact = the user themselves).
         var sender = m.role || m.sender || m.sender_type || 'agent';
-        if (sender === 'visitor' || sender === 'contact') continue;
+        if (sender === 'visitor' || sender === 'contact' || closedRow(m)) continue;
         // De-dupe by stable id (prevents reconnect/poll from double-counting).
         var id = m.id || (m.time ? (m.time + ':' + (m.text || m.body || '')) : null);
         if (id) {
@@ -9581,7 +9592,7 @@
           if (mod) Ext = mod.create(
             Presentation, ctx, panel, chatQ, identity, chatUI, kbUI, ModuleLoader, ConvEpoch,
             shellStore, chatStore, presenceStore, conversationsStore, notifyStore, identityStore, kbStore,
-            attachmentStore, transportStore,
+            attachmentStore, transportStore, uiPrefsStore,
             renderBody, renderHome, switchTab, deriveChatTabState, setDraftFor, currentDraftKey, trySend,
             restoreDraftToInput, applyComposerState, syncAttachButton, showAiThinking, finishRecording,
             renderVoicePreview, extCalls

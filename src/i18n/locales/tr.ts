@@ -1470,6 +1470,8 @@ const tr: TranslationKeys = {
     'callEnded.summary.notConnected': 'Görüşme bağlanamadı',
     'system.agentJoined': '{name} sohbete katıldı',
     'system.agentJoinedGeneric': 'Bir meslektaşımız sohbete katıldı',
+    'system.closedBy': '{name} sohbeti kapattı',
+    'system.closed': 'Sohbet kapatıldı',
     'system.noAgentAvailable': 'Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız.',
     'system.inQueue': 'Sıradasınız — kısa süre içinde bir ekip arkadaşımız yanıtlayacak.',
     'system.callInviteAudio': 'Ziyaretçi sesli aramaya davet edildi',

@@ -10,7 +10,10 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
  *  - GET  /help-articles    — Token-secured. KB articles
  *  - POST /message          — Token-secured. Send message + AI auto-reply
  *  - POST /track            — Token-secured. Visitor tracking event
- *  - PUT  /action           — Token-secured. Heartbeat, typing, reopen, CSAT
+ *  - PUT  /action           — Token-secured. Heartbeat, typing, reopen
+ *  - GET  /conversations/:id/csat       — The closed line's rating state, transcript availability
+ *  - POST /conversations/:id/csat       — Rate the closed line
+ *  - POST /conversations/:id/transcript — Mail the transcript to the contact's email
  *  - POST /session/refresh  — Refresh expiring token
  *  - GET  /manifest         — Token-secured. Versioned runtime manifest
  *  - POST /validate-origin  — Origin validation check
@@ -136,6 +139,15 @@ import { locksEnabled } from '../services/billing/locks/state.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { workspaceChatTemplate } from '../services/widget/configSnapshot.js';
+import {
+  csatEnabledFor,
+  csatState,
+  humanOperatorAnswered,
+  rateClosedConversation,
+  RatingError,
+} from '../services/conversationRatings.js';
+import { emailVisitorTranscript, transcriptAvailability } from '../services/visitorTranscript.js';
 
 /**
  * Internal staffing notices never reach the visitor.
@@ -1228,6 +1240,132 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
   } catch (err) {
     console.error('[widget-conversation-read] Error:', err.message);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+
+// ═══════════════════════════════════════════════
+// The rating after a chat and the transcript by email (issue #340)
+// ───────────────────────────────────────────────
+// Called only by Core's late module (runtime-late.js) of a template that
+// draws them; the rules live in services/conversationRatings.ts and
+// services/visitorTranscript.ts. Every route checks the visitor owns the
+// conversation by the signed cookie alone (never an id from the body).
+// ═══════════════════════════════════════════════
+const CONVERSATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The visitor's own conversation (cookie identity), or null. */
+async function ownedConversation(config: ServerConfig, req: Request, workspaceId: string) {
+  const conversationId = String(req.params.id || '');
+  if (!CONVERSATION_ID_RE.test(conversationId)) return null;
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
+  return ownership.valid ? ownership.conversation : null;
+}
+
+// GET /conversations/:id/csat — the closed line the thread ends with:
+// { closed_id, rateable, rating: {score, comment, rated_at} | null,
+//   operator: {name, avatar} | null, transcript: {available, to} }.
+widgetRouter.get('/conversations/:id/csat', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  try {
+    const conversation = await ownedConversation(config, req, workspaceId);
+    if (!conversation) return res.status(404).json({ error: 'not_found' });
+    const [template, humanAnswered] = await Promise.all([
+      workspaceChatTemplate(config, workspaceId),
+      humanOperatorAnswered(getServiceClient(config), conversation.id),
+    ]);
+    const [state, transcript] = await Promise.all([
+      csatState(config, { workspaceId, conversationId: conversation.id, csatEnabled: csatEnabledFor(template), humanAnswered }),
+      transcriptAvailability(config, { workspaceId, conversation, humanAnswered }),
+    ]);
+    return res.json({ ...state, transcript: { available: transcript.available, to: transcript.to } });
+  } catch (err) {
+    console.error('[widget-csat] Error:', err?.message || err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+const csatBodySchema = z.object({
+  closed_id: z.unknown(),
+  rating: z.unknown(),
+  comment: z.unknown().optional(),
+}).passthrough();
+
+// POST /conversations/:id/csat {closed_id, rating 1..5, comment?} —
+// 200 {ok, rating} | 400 invalid_rating | 403 csat_disabled |
+// 409 not_ratable | 409 already_rated (+ rating) | 503 csat_unavailable.
+widgetRouter.post('/conversations/:id/csat', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, (req.body && req.body.workspace_id) || (req.query.workspace_id as string));
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  const body = csatBodySchema.safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: 'invalid_rating' });
+  try {
+    const conversation = await ownedConversation(config, req, workspaceId);
+    if (!conversation) {
+      return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
+    }
+    if (!csatEnabledFor(await workspaceChatTemplate(config, workspaceId))) {
+      return res.status(403).json({ error: 'csat_disabled' });
+    }
+    const rating = await rateClosedConversation(config, {
+      workspaceId,
+      conversationId: conversation.id,
+      closedId: body.data.closed_id,
+      score: body.data.rating,
+      comment: body.data.comment,
+    });
+    return res.json({ ok: true, rating });
+  } catch (err) {
+    if (err instanceof RatingError) {
+      return res.status(err.status).json(err.code === 'already_rated' && err.rating
+        ? { error: err.code, rating: err.rating }
+        : { error: err.code });
+    }
+    console.error('[widget-csat] rate error:', err?.message || err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+const transcriptBodySchema = z.object({
+  locale: z.unknown().optional(),
+  tz: z.unknown().optional(),
+}).passthrough();
+
+// POST /conversations/:id/transcript {locale?, tz?} — mails the transcript
+// to the email on the conversation's contact (never one from the request):
+// 200 {ok, to: masked} | 403 transcript_disabled | 409 no_email |
+// 409 nothing_to_send | 429 rate_limited (+ retry_after) | limit_reached |
+// workspace_limit | 502 send_failed | 503 email_unavailable.
+widgetRouter.post('/conversations/:id/transcript', widgetRateLimit('transcript'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, (req.body && req.body.workspace_id) || (req.query.workspace_id as string));
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  const body = transcriptBodySchema.safeParse(req.body ?? {});
+  const raw = body.success ? body.data : {};
+  const locale = typeof raw.locale === 'string' && /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(raw.locale) && raw.locale.length <= 10
+    ? raw.locale : undefined;
+  const tz = typeof raw.tz === 'string' && raw.tz.length <= 64 ? raw.tz : undefined;
+  try {
+    const conversation = await ownedConversation(config, req, workspaceId);
+    if (!conversation) {
+      return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
+    }
+    const result = await emailVisitorTranscript(config, { workspaceId, conversation, locale, tz });
+    if (!('error' in result)) return res.json({ ok: true, to: result.to });
+    if (result.retryAfter) {
+      res.setHeader('Retry-After', String(result.retryAfter));
+      return res.status(result.status).json({ error: result.error, code: 'RATE_LIMITED', retry_after: result.retryAfter });
+    }
+    return res.status(result.status).json({ error: result.error });
+  } catch (err) {
+    console.error('[widget-transcript] Error:', err?.message || err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

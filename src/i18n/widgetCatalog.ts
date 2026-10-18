@@ -91,6 +91,13 @@ export const widgetCatalogEn = {
     askExamples: 'Example questions',
     askExamplesHint: 'Up to {{max}} examples shown in the ask field on the home screen.',
     askExample: 'Example {{n}}',
+    prechatMode: 'Pre-chat form',
+    prechatModes: { card: 'Every question on one card', steps: 'One question at a time' },
+    prechatModeHint: 'How the form a visitor fills in before a chat is shown. A conversation keeps the way its form was first shown.',
+    csat: 'Rating after a chat',
+    csatHint: 'When an operator closes a conversation they answered, the visitor is asked to rate it.',
+    transcriptEmail: 'Email the transcript',
+    transcriptEmailHint: 'Once an operator has answered, visitors can have the conversation sent to the email they gave.',
   },
 };
 
@@ -176,6 +183,13 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
     askExamples: 'نمونه سؤال‌ها',
     askExamplesHint: 'حداکثر {{max}} نمونه که در کادر سؤال صفحه خانه نمایش داده می‌شود.',
     askExample: 'نمونه {{n}}',
+    prechatMode: 'فرم پیش از گفتگو',
+    prechatModes: { card: 'همه سؤال‌ها در یک کارت', steps: 'هر بار یک سؤال' },
+    prechatModeHint: 'فرمی که بازدیدکننده پیش از گفتگو پر می‌کند چطور نمایش داده شود. هر گفتگو فرمش را به همان شکلی که اول نمایش داده شد نگه می‌دارد.',
+    csat: 'نظرسنجی پایان گفتگو',
+    csatHint: 'وقتی اپراتور گفتگویی را که پاسخ داده می‌بندد، از بازدیدکننده خواسته می‌شود به گفتگو امتیاز بدهد.',
+    transcriptEmail: 'ارسال متن گفتگو به ایمیل',
+    transcriptEmailHint: 'پس از پاسخ اپراتور، بازدیدکننده می‌تواند متن گفتگو را به ایمیلی که داده دریافت کند.',
   },
 };
 
@@ -261,5 +275,12 @@ export const widgetCatalogTr: typeof widgetCatalogEn = {
     askExamples: 'Örnek sorular',
     askExamplesHint: 'Ana sayfadaki soru alanında gösterilen en fazla {{max}} örnek.',
     askExample: 'Örnek {{n}}',
+    prechatMode: 'Sohbet öncesi form',
+    prechatModes: { card: 'Tüm sorular tek kartta', steps: 'Her seferinde bir soru' },
+    prechatModeHint: 'Ziyaretçinin sohbetten önce doldurduğu formun nasıl gösterileceği. Bir sohbet, formunun ilk gösterildiği biçimi korur.',
+    csat: 'Sohbet sonrası değerlendirme',
+    csatHint: 'Bir operatör yanıtladığı bir sohbeti kapattığında ziyaretçiden puan vermesi istenir.',
+    transcriptEmail: 'Sohbet dökümünü e-postayla gönder',
+    transcriptEmailHint: 'Bir operatör yanıt verdikten sonra ziyaretçiler sohbeti verdikleri e-postaya gönderebilir.',
   },
 };

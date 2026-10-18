@@ -63,6 +63,7 @@ type MessageAttachment = {
   kind: string;
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
+import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
@@ -204,8 +205,12 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
  *
  * Phase 1 contract:
  *   - No DB write. The server simply publishes an ephemeral
- *     `{ type: 'typing', payload: { actor: 'agent', conversation_id, ts } }`
+ *     `{ type: 'typing', payload: { actor: 'agent', conversation_id, ts, name?, avatar? } }`
  *     envelope on the conversation channel using the active realtime publisher.
+ *     `name` and `avatar` are the typing operator's PUBLIC identity, exactly
+ *     what the visitor sees on their messages (each only when known; never
+ *     an id, e-mail or role), so a template can say who is typing. The inbox
+ *     ignores agent typing; the default widget reads no field of it.
  *   - On polling deployments the publish becomes a no-op and typing is silently
  *     not delivered (by design — typing is best-effort).
  *   - Caller must be an authenticated workspace member of the conversation.
@@ -215,6 +220,13 @@ const typingSchema = z.object({
   conversation_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
 });
+
+/** A profile name as a typing event carries it: no control characters, trimmed, at most 80 characters (never half of one). */
+function typingName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = name.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim();
+  return Array.from(clean).slice(0, 80).join('').trim();
+}
 
 conversationsRouter.post('/typing', async (req, res) => {
   try {
@@ -251,6 +263,8 @@ conversationsRouter.post('/typing', async (req, res) => {
       return res.json({ ok: true, published: false, reason: 'auto_action_suppressed' });
     }
 
+    const who = await publicOperatorIdentity(config, sb, auth.userId);
+    const name = typeof who?.name === 'string' ? typingName(who.name) : '';
     const pub = await publishConversationEvent(
       config,
       parsed.data.workspace_id,
@@ -261,6 +275,8 @@ conversationsRouter.post('/typing', async (req, res) => {
           actor: 'agent',
           conversation_id: parsed.data.conversation_id,
           ts: Date.now(),
+          ...(name ? { name } : {}),
+          ...(typeof who?.avatar === 'string' && who.avatar ? { avatar: who.avatar } : {}),
         },
       },
     );
@@ -984,8 +1000,9 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
 
     // ─── Realtime push (Phase 5) ───
-    // Operator-only `event` envelope. Fans out to the per-conversation
-    // channel AND the workspace inbox channel. Best-effort, non-blocking.
+    // Operator-only `event` envelope (tags, assignee ids): the workspace
+    // inbox channel only, never the conversation channel the visitor's
+    // widget listens on. Best-effort, non-blocking.
     if (Object.keys(changes).length > 0) {
       const kind: OperatorEventPayload['kind'] =
         statusEvType === 'resolved' ? 'conversation_resolved'

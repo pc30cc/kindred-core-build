@@ -36,6 +36,15 @@ Chat widget, in `public/widget/`:
   functions, `prepare(context)` per the rules).
 - Fonts: reuse `presentation-default-fonts.css`, or add
   `presentation-<id>-fonts.css` plus files in `public/widget/fonts/`.
+- Markup a first paint does not need (a card that appears later, a picker's
+  grid, a menu) goes in the renderer's extras `presentation-<renderer>-x.js`
+  (`window.__gs_mod_extras = { id: '<renderer id>', v, create(H) }`), with a
+  one-line delegate in the renderer (`x('<surface>', [vm])`) and its Core code
+  in `runtime-late.js` (`api.on(hook, fn)`, behind `api.feat()`); its CSS
+  stays in the template's stylesheet. Both come after the first paint, so they
+  do not count against the renderer or the template total, but have budgets
+  of their own (WIDGET_TEMPLATE_RULES.md §1, §2, §5). Never a dead control:
+  what needs the extras is drawn only through them, or goes when they fail.
 
 Call widget, in `public/call-widget/`:
 - `presentation-<id>.css`, and either a `registry.register('<id>', …)` in the
@@ -43,8 +52,12 @@ Call widget, in `public/call-widget/`:
 - No `@font-face` in it: faces come from the document-level fonts stylesheet.
 
 Never: font bytes in CSS, `@font-face` in a template/skin/call stylesheet,
-`@import`, any external host, network or storage calls in a renderer, `?v=`
-on a hashed URL, a fixed file name in code, or `${` in nginx.conf.template.
+`@import`, any external host, network or storage calls in a renderer or its
+extras, `?v=` on a hashed URL, a fixed file name in code, or `${` in
+nginx.conf.template. Iran-only widget code goes in `@iran-kit` blocks (left
+out of the RESPOK build); do not mark code `@intl-kit` (left out of the Iran
+build) while an Iran-brand deployment can serve the International edition
+(WIDGET_TEMPLATE_RULES.md §5).
 
 ## 3. Register it
 
@@ -54,8 +67,10 @@ on a hashed URL, a fixed file name in code, or `${` in nginx.conf.template.
    unless the owner asked to change WebYar's look. A chat renderer that
    returns `features` from `create()` sets `coreFeatures: true` (then /config
    names Core's runtime-ext.js and the loader fetches it with the template;
-   `src/test/widget/runtimeExt.test.ts` checks the two agree).
-2. The same id and files in `public/widget/presentation-registry.js` (chat).
+   `src/test/widget/runtimeExt.test.ts` checks the two agree). A renderer
+   with extras (`extend` on what `create()` returns) names them in `extras`
+   (null otherwise); a skin over it names its renderer's file.
+2. The same id and files (`extras` too) in `public/widget/presentation-registry.js` (chat).
 3. Call widget: add the id to the zod enum in
    `server/services/callCenter/presentation.ts` (`callWidgetTemplateIdSchema`).
 4. The per-workspace choice of the CHAT template exists (migration 275:
@@ -74,8 +89,9 @@ on a hashed URL, a fixed file name in code, or `${` in nginx.conf.template.
 ## 4. Verify (all of it, before committing)
 
 1. `npx vitest run src/test/widget/templateRules.test.ts` (the rules and the
-   size budgets; never raise a budget to make it pass without the owner's
-   decision), then `npx vitest run src/test/widget src/test/edition src/test/perf src/test/callWidgetPresentationContract.test.ts src/test/callWidgetRuntimePresentation.test.ts`.
+   size budgets, each template measured in the build of every edition that
+   offers it, the loader in both; never raise a budget to make it pass
+   without the owner's decision), then `npx vitest run src/test/widget src/test/edition src/test/perf src/test/callWidgetPresentationContract.test.ts src/test/callWidgetRuntimePresentation.test.ts`.
 2. `npm run typecheck`, `npx tsc -p tsconfig.server.json --noEmit`,
    `npx eslint <changed files>`.
 3. Build both brands in a scratch copy (never inside the repo):

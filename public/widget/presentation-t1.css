@@ -657,6 +657,10 @@ button.cd:hover {
 .emoji-btn svg { transition: transform .28s var(--ease); }
 .emoji-btn[aria-expanded='true'] { background: var(--a-2); color: var(--a-ink); box-shadow: inset 0 0 0 1px var(--a-3); }
 .emoji-btn[aria-expanded='true'] svg { transform: rotate(-14deg) scale(1.06); }
+/* The grid comes with the template's extras (runtime-ext.js): painted
+   without Core's module (`.ext-off`), or once the extras failed, the button
+   goes, never a picker with nothing in it. */
+.ext-off .emoji-btn, .emoji-btn[hidden] { display: none; }
 .send-btn, .has-draft .mic-btn, .mic-ring { display: none; }
 .has-draft .send-btn, .send-btn.solo { display: grid; }
 .has-draft .send-btn .pl { animation: t1-swap .18s ease-out; }

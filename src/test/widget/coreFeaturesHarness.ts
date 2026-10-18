@@ -9,12 +9,16 @@
  *    passed (behaviour unchanged: each wrapper calls the real function).
  *  - `renderer: <factory>` mounts default's renderer extended by the factory
  *    (features, extra markup, new surfaces), as a t1/t2 renderer would be.
+ *  - `renderer: 't1' | 't2'` mounts that template's real renderer through
+ *    the real registry, wrapped the same way.
  *
  * Network: an in-memory fake of the widget API (`fetch`), the chat module
  * replaced by a fake, the KB module the real runtime-kb.js (it fetches), the
  * renderer features the real runtime-ext.js (a script the runtime requests
  * only for a renderer that declares features; `ext` decides when it answers),
- * and an optional realtime driver whose typing events the test fires.
+ * the late pack (the renderer's extras and the real runtime-late.js, which
+ * runtime-ext.js requests after the first paint; `late` decides how they
+ * answer) and an optional realtime driver whose typing events the test fires.
  */
 import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -67,7 +71,19 @@ export interface ConversationSeed {
 }
 
 export interface BootOptions {
-  renderer?: 'default' | RendererFactory;
+  renderer?: 'default' | 't1' | 't2' | RendererFactory;
+  /** The extras a factory renderer's registry descriptor names (none by default); t1 and t2 name their own. */
+  extras?: string;
+  /**
+   * How the late pack's requests (the extras and runtime-late.js) answer:
+   * 'load' (when asked, default), 'hold' (until releaseLate()) or 'fail'
+   * (onerror for both names, like a 404).
+   */
+  late?: 'load' | 'hold' | 'fail';
+  /** What the extras request leaves as window.__gs_mod_extras: default the template's real file (a factory: nothing). */
+  extrasModule?: unknown;
+  /** What the runtime-late.js request leaves as window.__gs_mod_late: default the real file. */
+  lateModule?: unknown;
   config?: Record<string, unknown>;
   conversations?: ConversationSeed[];
   /** Messages of a thread when its history loads. */
@@ -110,6 +126,8 @@ export interface Harness {
   scripts: string[];
   /** Answers a held runtime-ext.js request (`ext: 'hold'`). */
   releaseExt: () => void;
+  /** Answers the held late pack requests (`late: 'hold'`). */
+  releaseLate: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
 }
 
@@ -212,6 +230,8 @@ export function boot(opts: BootOptions = {}): Harness {
 
   const scripts: string[] = [];
   const heldExt: Array<() => void> = [];
+  const heldLate: Array<() => void> = [];
+  const realTemplate = opts.renderer === 't1' || opts.renderer === 't2' ? opts.renderer : null;
   const realAppend = document.head.appendChild.bind(document.head);
   vi.spyOn(document.head, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
     const script = node as unknown as HTMLScriptElement;
@@ -227,6 +247,25 @@ export function boot(opts: BootOptions = {}): Harness {
         }
         if (opts.ext === 'hold') { heldExt.push(load); return node; }
         if (opts.ext !== 'tick') { load(); return node; }
+      }
+      const extrasReq = /\/presentation-[a-z0-9-]+-x\b/.test(script.src);
+      if (extrasReq || /runtime-late\b/.test(script.src)) {
+        if (opts.late === 'fail') {
+          setTimeout(() => { if (typeof script.onerror === 'function') script.onerror(new Event('error')); }, 0);
+          return node;
+        }
+        // The file runs when its request answers, as a script would.
+        const answer = () => {
+          if (extrasReq) {
+            if (opts.extrasModule !== undefined) win.__gs_mod_extras = opts.extrasModule;
+            else if (realTemplate) new Function(read(`public/widget/presentation-${realTemplate}-x.js`)).call(window);
+          } else if (opts.lateModule !== undefined) win.__gs_mod_late = opts.lateModule;
+          else new Function(read('public/widget/runtime-late.js')).call(window);
+          load();
+        };
+        if (opts.late === 'hold') heldLate.push(answer);
+        else setTimeout(answer, 0);
+        return node;
       }
       setTimeout(load, 0);
       return node;
@@ -297,7 +336,15 @@ export function boot(opts: BootOptions = {}): Harness {
 
   const base = win.__gs_presentation_default as PresentationModule;
   let templateId = 'default';
-  if (opts.renderer && opts.renderer !== 'default') {
+  if (realTemplate) {
+    loadAsset(`public/widget/presentation-${realTemplate}.js`);
+    templateId = realTemplate;
+    const key = `__gs_presentation_${realTemplate}`;
+    const real = win[key] as PresentationModule;
+    win[key] = Object.assign({}, real, {
+      create(env: Dict) { capturedEnv = env; return wrapSurfaces(real.create(env), calls); },
+    });
+  } else if (typeof opts.renderer === 'function') {
     const factory = opts.renderer;
     templateId = 'tx';
     win.__gs_presentation_tx = {
@@ -308,7 +355,8 @@ export function boot(opts: BootOptions = {}): Harness {
         return wrapSurfaces(Object.assign({}, r, factory(r as BaseRenderer, env)), calls);
       },
     };
-    win.__gs_presentation_registry = { resolve: () => ({ id: 'tx', globalKey: '__gs_presentation_tx' }) };
+    const extras = opts.extras;
+    win.__gs_presentation_registry = { resolve: () => ({ id: 'tx', globalKey: '__gs_presentation_tx', extras }) };
   } else {
     const realCreate = base.create;
     win.__gs_presentation_default = Object.assign({}, base, {
@@ -362,6 +410,7 @@ export function boot(opts: BootOptions = {}): Harness {
     releaseKbSearch: () => { while (heldSearches.length) heldSearches.shift()!(); },
     scripts,
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
+    releaseLate: () => { while (heldLate.length) heldLate.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };
 }

@@ -232,13 +232,17 @@ async function resolveTemplate(
 
 /**
  * Interpolate {{key}} variables in a string.
+ *
+ * Each value is inserted as it is: a function replacer, because a string
+ * replacement would expand `$&`, `$'`, `` $` `` and `$$` in it (a visitor's
+ * own text in a transcript, an order note, a name). Exported for its tests.
  */
-function interpolate(text: string, data: Record<string, string>): string {
+export function interpolate(text: string, data: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(data)) {
     // Support both {key} and {{key}} patterns
-    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
-    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => value);
+    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), () => value);
   }
   return result;
 }

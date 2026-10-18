@@ -1065,6 +1065,12 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         .order('created_at', { ascending: false })
         .limit(500);
       for (const m of (msgs || [])) {
+        // Rows the visitor's thread never shows as news neither preview it
+        // nor count as unread: inbox-only notices ("Ali unassigned this
+        // conversation", in English, written for the inbox) and the closed
+        // line, which a template that draws it draws in the thread.
+        if (!isVisitorVisibleMessageMeta(m.metadata)) continue;
+        if ((m.metadata as Record<string, unknown> | null)?.kind === 'conversation_closed') continue;
         if (!lastByConv[m.conversation_id]) {
           const meta = (m.metadata || {}) as Record<string, unknown>;
           lastByConv[m.conversation_id] = {

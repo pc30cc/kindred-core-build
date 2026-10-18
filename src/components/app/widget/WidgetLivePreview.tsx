@@ -744,9 +744,12 @@ export function WidgetLivePreview({
       var styleReady = false;
       var skinReady = !desc.skin;
       var scriptReady = false;
+      // The renderer's extras (its markup no first paint needs): the live
+      // widget gets them after its first paint, the preview before it paints.
+      var extrasReady = !desc.extras;
       var mod = null;
       function prepareAndRender() {
-        if (!styleReady || !skinReady || !scriptReady || !mod || !mod.create) return;
+        if (!styleReady || !skinReady || !scriptReady || !extrasReady || !mod || !mod.create) return;
         var preparation = typeof mod.prepare === 'function'
           ? mod.prepare({ locale: GS_PREVIEW.locale, templateId: GS_PREVIEW.templateId })
           : null;
@@ -776,6 +779,12 @@ export function WidgetLivePreview({
         prepareAndRender();
       };
       document.body.appendChild(scr);
+      if (desc.extras) {
+        var xs = document.createElement('script');
+        xs.src = '/widget/' + ((manifest && manifest[desc.extras]) || desc.extras);
+        xs.onload = xs.onerror = function () { extrasReady = true; prepareAndRender(); };
+        document.body.appendChild(xs);
+      }
     }
 
     fetch('/widget/widget-manifest.json', { cache: 'no-store' })
@@ -808,6 +817,9 @@ export function WidgetLivePreview({
       primaryColor: GS_PREVIEW.primary,
       capabilities: GS_PREVIEW.capabilities,
     });
+    // Its extras before anything is painted (the renderer refuses a file
+    // that is not its own); without them it draws what it draws without.
+    if (typeof R.extend === 'function' && window.__gs_mod_extras) R.extend(window.__gs_mod_extras);
 
     // The renderer's declared features, read as Core reads them (feat() in
     // runtime-ext.js), and the view-model fields Core adds for them: the unread total

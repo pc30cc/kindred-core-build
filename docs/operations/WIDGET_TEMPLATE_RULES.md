@@ -25,9 +25,23 @@ templates: `docs/operations/EDITIONS.md`.
   `presentation-default-fonts.css`).
 - Call widget: a presentation `presentation-<id>.js` (or a registration in an
   existing one) and a stylesheet `presentation-<id>.css`.
+- Chat widget, optionally: the renderer's extras `presentation-<renderer>-x.js`,
+  its markup that no first paint needs (t1's emoji grid; the late surfaces of
+  issue #340 as they come). It registers `window.__gs_mod_extras = { id, v,
+  create(H) }`: `id` is the RENDERER's (a skin over t1 wears t1's file), `v`
+  the version of its contract with the renderer, `create(H)` returns the
+  surfaces, built on the renderer's helpers `H`. The renderer keeps a one-line
+  delegate per surface (`function cardHtml(vm) { return x('cardHtml', [vm]); }`):
+  until Core hands the file over (`renderer.extend(mod)`, which takes only its
+  own id and version) `x()` draws nothing and notes the miss, and Core repaints
+  once when the file is in. The chat frame is built once, before any extras: a
+  frame surface in them (the emoji grid) is put in by Core when they come. Its
+  rules stay in the template's stylesheet (no `-x.css`). Change `v` in both
+  files whenever a surface's arguments or `H` change.
 - The descriptor in `shared/widgetTemplates.ts` and the browser registry
   (`public/widget/presentation-registry.js`; the call widget registers in its
-  presentation script) name the same files under the same id.
+  presentation script) name the same files under the same id (`extras` too,
+  null without).
 - Prefer a skin over a new renderer: a skin is ~1 KB for its visitors and no
   second renderer to keep in step with every runtime feature.
 
@@ -88,6 +102,34 @@ templates: `docs/operations/EDITIONS.md`.
   request). Sizes on 2026-10-17 (gzip 5, as shipped): runtime.js 54.6 KB,
   of which the hook points are 0.8 KB (53.8 KB before the first features);
   runtime-ext.js 6.2 KB; the loader's request 0.05 KB.
+- The late pack: what a template draws only after its first paint (the
+  extras, §1) and Core's code for it (`public/widget/runtime-late.js`,
+  ModuleLoader name `late`, gated by `feat()` like runtime-ext.js). Both are
+  hashed (`scripts/widget-hash.js`; the extras need no stylesheet of their
+  own, but their renderer) and named by /config (`config.modules.extras`,
+  `config.modules.late`) only for a template with `coreFeatures` and
+  `extras`, so the `default` and `intl` payloads are unchanged. runtime-ext.js
+  (never the loader) requests them together after the first paint (the
+  browser's next idle moment, 2 s at most; 300 ms without
+  `requestIdleCallback`), at once when the chat view is painted or a control
+  needs them (t1's emoji button), with the canonical-name retry, and applies
+  them together or not at all: the renderer refuses extras of another
+  template or version, runtime-ext a late module of another version
+  (`v`), and then neither is used, so a canonical-name fallback from another
+  deploy never half-applies. A feature of the pack is never a dead control
+  before it is in or if it never comes: its markup is drawn only through the
+  extras, and a base control that needs them (t1's emoji button) asks for
+  them on a first press and goes if they fail (`hidden`; `.ext-off` without
+  runtime-ext.js). runtime-late.js registers its handlers on runtime-ext's
+  hooks (`api.on(hook, fn)`): runtime-ext's own handler runs first, then the
+  late ones, each of which may consume or override its answer. The operator
+  preview (`WidgetLivePreview.tsx`) and the screenshot harness
+  (`e2e/harness/templateScreens.ts`) put both on the page before painting.
+  `src/test/widget/runtimeExt.test.ts` checks who asks and when, the
+  all-or-nothing rule and the one repaint. Sizes on 2026-10-18: runtime-ext.js
+  7.1 KB (the pack's loader and the late module's API +0.9 KB), runtime-late.js
+  0.1 KB, presentation-t1-x.js 1.2 KB (t1's emoji grid, out of t1's first
+  paint), presentation-t2-x.js 0.1 KB.
 - A feature's server data is sent on request only, so the API serves
   `default` as before: the thread list's and a history's assigned operator
   (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
@@ -160,6 +202,8 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
 - Shipped JS targets ES2017 (the build lowers it); no new npm dependencies
   in widget files.
 - No forbidden template-system tokens (`src/test/widget/noTemplateSystem.test.ts`).
+- A renderer's extras (§1) are renderer markup: the same rules, and the same
+  scan (`templateRules.test.ts`).
 - RTL and LTR from one stylesheet (logical properties), both editions,
   both brands: the RESPOK build must pass `scripts/build/brandAudit.mjs`
   (`src/test/widget/widgetBrandBuild.test.ts` runs it on every file).
@@ -178,6 +222,10 @@ one is a decision, with the reason in the commit and here.
 | chat skin | 6 KB | first open |
 | chat fonts stylesheet | 3 KB | first open |
 | chat template total (renderer + stylesheet + skin + fonts stylesheet) | 40 KB | first open |
+| chat `runtime-ext.js` | 8 KB | first open of a t1/t2 template |
+| chat `runtime-late.js` | 12 KB | after the first paint of a template with extras |
+| chat renderer extras (each `presentation-<renderer>-x.js`; not in the template total) | 12 KB | after the first paint |
+| chat `runtime-fab.css` (when it exists) | 2 KB | page views of a workspace wearing a launcher style |
 | call `l.js` | 3 KB | every page view |
 | call `runtime.css` | 5 KB | first page view |
 | call presentation | 10 KB | first page view |
@@ -185,9 +233,27 @@ one is a decision, with the reason in the commit and here.
 | one font file | 45 KB | when its text is on screen |
 | Persian first-paint fonts / English or Turkish | 120 KB / 50 KB | first open |
 
+Each brand's build is measured as it ships: the loader in both (the RESPOK
+build leaves out the Iran region's kit), each chat template in the brand of
+every edition that offers it (`EDITION_CHAT_WIDGET_TEMPLATES`: Iranian →
+`iran`, International → `respok`), Core's modules in both.
+
 A launcher look belongs to `loader.js` (every page view): a template that
 wants its own launcher must fit the loader budget, or take its look from
 config instead of new code.
+
+The build supports a second kit marker, the mirror of the Iran region's
+`@iran-kit` (left out of the RESPOK build): `/* @intl-kit:begin */ …
+/* @intl-kit:end */` with the switch `var INTL_KIT = true;` is left out of
+the Iran build (`scripts/build/widgetBrand.mjs`, the widgets' copy of the
+dashboard's `SHIPS_INTL_KIT`; every build refuses malformed markers of
+either kit). No widget file uses it yet, on purpose: the edition is the
+database's (`platform_settings.region_mode`, which the Super Admin may
+switch; a missing row is International), the brand the build's, so an
+Iran-brand deployment (app.webyar.ai) can serve International workspaces,
+whose loader wears RESPOK's button (`respokKitOn`). Mark RESPOK-only loader
+code `@intl-kit` only once a deployment's edition follows its brand
+(`widgetBrandBuild.test.ts` pins that the Iran loader keeps the kit).
 
 ## 6. Server side (no per-template work, but do not undo it)
 

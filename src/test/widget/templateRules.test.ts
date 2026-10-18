@@ -24,7 +24,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { JSDOM } from 'jsdom';
-import { CALL_WIDGET_TEMPLATES, CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
+import { CALL_WIDGET_TEMPLATES, CHAT_WIDGET_TEMPLATES, EDITION_CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
 import { transformWidgetAsset } from '../../../scripts/build/widgetBrand.mjs';
 
 const ROOT = process.cwd();
@@ -48,6 +48,14 @@ export const BUDGETS = {
     fontsStylesheet: 3_000,
     /** renderer + stylesheet + skin + fonts stylesheet, on the first open. */
     templateTotal: 40_000,
+    /** Core's renderer features (runtime-ext.js), with a t1/t2 template's files. */
+    ext: 8_000,
+    /** Core's late features (runtime-late.js), after the first paint. */
+    late: 12_000,
+    /** One renderer's extras (presentation-<renderer>-x.js), after the first paint; not in templateTotal. */
+    extras: 12_000,
+    /** The launcher styles' stylesheet (runtime-fab.css), only for a workspace wearing one. */
+    fab: 2_000,
   },
   call: {
     /** The call widget mounts at page load, so all of these are page-view bytes. */
@@ -69,14 +77,21 @@ export const BUDGETS = {
 
 const read = (path: string) => readFileSync(resolve(ROOT, path), 'utf8');
 const exists = (path: string) => existsSync(resolve(ROOT, path));
-const shippedGzip = (path: string) => {
+const unique = <T,>(xs: Iterable<T>) => [...new Set(xs)];
+type Brand = 'iran' | 'respok';
+const shippedGzip = (path: string, brand: Brand = 'iran') => {
   const name = path.split('/').pop()!;
-  const out = transformWidgetAsset(name, readFileSync(resolve(ROOT, path)), 'iran');
+  const out = transformWidgetAsset(name, readFileSync(resolve(ROOT, path)), brand);
   return gzipSync(Buffer.from(out, 'utf8'), { level: 5 }).length;
 };
-const unique = <T,>(xs: Iterable<T>) => [...new Set(xs)];
+/** The build brand of each edition's deployment (scripts/build/brand.mjs). */
+const EDITION_BRAND = { iran: 'iran', international: 'respok' } as const satisfies Record<keyof typeof EDITION_CHAT_WIDGET_TEMPLATES, Brand>;
+/** The brands whose builds ship a chat template to an edition that offers it. */
+const brandsOf = (id: string) => unique((Object.keys(EDITION_CHAT_WIDGET_TEMPLATES) as Array<keyof typeof EDITION_CHAT_WIDGET_TEMPLATES>)
+  .filter((e) => (EDITION_CHAT_WIDGET_TEMPLATES[e].offered as readonly string[]).includes(id))
+  .map((e) => EDITION_BRAND[e]));
 
-type ChatTemplate = { id: string; script: string; style: string; skin: string | null; fonts: string | null };
+type ChatTemplate = { id: string; script: string; style: string; skin: string | null; fonts: string | null; extras: string | null };
 type CallTemplate = { id: string; script: string; style: string };
 const chatTemplates = Object.values(CHAT_WIDGET_TEMPLATES) as ChatTemplate[];
 const callTemplates = Object.values(CALL_WIDGET_TEMPLATES) as CallTemplate[];
@@ -121,7 +136,9 @@ describe('template files: named by the convention, present, discoverable by the 
       expect(t.style).toMatch(/^presentation-[a-z0-9-]+\.css$/);
       if (t.skin) expect(t.skin).toMatch(/^presentation-[a-z0-9-]+\.css$/);
       if (t.fonts) expect(t.fonts).toMatch(/^presentation-[a-z0-9-]+-fonts\.css$/);
-      for (const f of [t.script, t.style, t.skin, t.fonts].filter(Boolean) as string[]) {
+      // A renderer's extras: its own name with -x (a skin names its renderer's).
+      if (t.extras) expect(t.extras).toBe(t.script.replace(/\.js$/, '-x.js'));
+      for (const f of [t.script, t.style, t.skin, t.fonts, t.extras].filter(Boolean) as string[]) {
         expect(exists(`${CHAT_DIR}/${f}`), `${CHAT_DIR}/${f}`).toBe(true);
       }
     });
@@ -300,6 +317,8 @@ describe('prepare(): bounded, never throws, warms only what the first paint draw
 describe('renderers reach no network, no storage and no other host', () => {
   const scripts = unique([
     ...chatTemplates.map((t) => `${CHAT_DIR}/${t.script}`),
+    // A renderer's extras are renderer markup too.
+    ...chatTemplates.flatMap((t) => (t.extras ? [`${CHAT_DIR}/${t.extras}`] : [])),
     ...callTemplates.map((t) => `${CALL_DIR}/${t.script}`),
     `${CHAT_DIR}/presentation-registry.js`,
     `${CALL_DIR}/presentation-registry.js`,
@@ -326,23 +345,48 @@ describe('renderers reach no network, no storage and no other host', () => {
 // ─── Size budgets, as shipped ─────────────────────────────────────────────
 
 describe('size budgets (minified as shipped, gzip level 5)', () => {
-  it(`chat loader.js ≤ ${BUDGETS.chat.loader} B: every page view of every site downloads it`, () => {
-    expect(shippedGzip(`${CHAT_DIR}/loader.js`)).toBeLessThanOrEqual(BUDGETS.chat.loader);
-  });
-
-  for (const t of chatTemplates) {
-    it(`chat template "${t.id}"`, () => {
-      const renderer = shippedGzip(`${CHAT_DIR}/${t.script}`);
-      const style = shippedGzip(`${CHAT_DIR}/${t.style}`);
-      const skin = t.skin ? shippedGzip(`${CHAT_DIR}/${t.skin}`) : 0;
-      const fonts = t.fonts ? shippedGzip(`${CHAT_DIR}/${t.fonts}`) : 0;
-      expect(renderer, t.script).toBeLessThanOrEqual(BUDGETS.chat.renderer);
-      expect(style, t.style).toBeLessThanOrEqual(BUDGETS.chat.stylesheet);
-      expect(skin, String(t.skin)).toBeLessThanOrEqual(BUDGETS.chat.skin);
-      expect(fonts, String(t.fonts)).toBeLessThanOrEqual(BUDGETS.chat.fontsStylesheet);
-      expect(renderer + style + skin + fonts, 'first-open template bytes').toBeLessThanOrEqual(BUDGETS.chat.templateTotal);
+  // Each brand's build ships its own loader (the RESPOK one without the Iran
+  // region's kit): both are page-view bytes.
+  for (const brand of ['iran', 'respok'] as const) {
+    it(`chat loader.js ≤ ${BUDGETS.chat.loader} B in the ${brand} build: every page view of every site downloads it`, () => {
+      expect(shippedGzip(`${CHAT_DIR}/loader.js`, brand)).toBeLessThanOrEqual(BUDGETS.chat.loader);
     });
   }
+
+  // Each template in the build of every edition that offers it.
+  for (const t of chatTemplates) {
+    const brands = brandsOf(t.id);
+    it(`chat template "${t.id}" (${brands.join(', ')})`, () => {
+      expect(brands.length, 'a template no edition offers').toBeGreaterThan(0);
+      for (const brand of brands) {
+        const renderer = shippedGzip(`${CHAT_DIR}/${t.script}`, brand);
+        const style = shippedGzip(`${CHAT_DIR}/${t.style}`, brand);
+        const skin = t.skin ? shippedGzip(`${CHAT_DIR}/${t.skin}`, brand) : 0;
+        const fonts = t.fonts ? shippedGzip(`${CHAT_DIR}/${t.fonts}`, brand) : 0;
+        expect(renderer, `${t.script} (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.renderer);
+        expect(style, `${t.style} (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.stylesheet);
+        expect(skin, `${t.skin} (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.skin);
+        expect(fonts, `${t.fonts} (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.fontsStylesheet);
+        // The extras come after the first paint: not first-open bytes.
+        expect(renderer + style + skin + fonts, `first-open template bytes (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.templateTotal);
+        if (t.extras) expect(shippedGzip(`${CHAT_DIR}/${t.extras}`, brand), `${t.extras} (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.extras);
+      }
+    });
+  }
+
+  it(`Core's renderer features ≤ ${BUDGETS.chat.ext} B and late features ≤ ${BUDGETS.chat.late} B, in both builds`, () => {
+    for (const brand of ['iran', 'respok'] as const) {
+      expect(shippedGzip(`${CHAT_DIR}/runtime-ext.js`, brand), `runtime-ext.js (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.ext);
+      expect(shippedGzip(`${CHAT_DIR}/runtime-late.js`, brand), `runtime-late.js (${brand})`).toBeLessThanOrEqual(BUDGETS.chat.late);
+    }
+  });
+
+  // The launcher styles' stylesheet arrives with the launcher styles (round W5 of issue #340).
+  it.skipIf(!exists(`${CHAT_DIR}/runtime-fab.css`))(`chat runtime-fab.css ≤ ${BUDGETS.chat.fab} B, in both builds`, () => {
+    for (const brand of ['iran', 'respok'] as const) {
+      expect(shippedGzip(`${CHAT_DIR}/runtime-fab.css`, brand)).toBeLessThanOrEqual(BUDGETS.chat.fab);
+    }
+  });
 
   it(`call l.js ≤ ${BUDGETS.call.loader} B and runtime.css ≤ ${BUDGETS.call.runtimeCss} B`, () => {
     expect(shippedGzip(`${CALL_DIR}/l.js`)).toBeLessThanOrEqual(BUDGETS.call.loader);

@@ -33,6 +33,7 @@ import { chromium, type Browser, type BrowserContext, type Page, type Route } fr
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { FAKE_MEDIA_ARGS, templateAssets } from './widgetHarness';
+import { chatWidgetTemplate } from '../../shared/widgetTemplates';
 
 const root = process.cwd();
 const ORIGIN = 'https://widget.test';
@@ -975,7 +976,12 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
       if (home) sessionStorage.setItem(`gs:view:${ws}`, JSON.stringify({ tab: 'home', conversationId: null }));
     }, [WORKSPACE, !!spec.home] as const);
     await page.goto(`${ORIGIN}/host`);
-    for (const f of ['presentation-registry.js', tpl.script, 'runtime-chat.js', 'runtime.js']) {
+    // The renderer's extras and Core's late module are on the page before
+    // runtime.js: runtime-ext.js then applies them before the first paint
+    // (the live widget gets them after it), so every shot has them.
+    const extras = chatWidgetTemplate(tpl.id)?.extras;
+    const late = extras ? [extras, 'runtime-late.js'] : [];
+    for (const f of ['presentation-registry.js', tpl.script, ...late, 'runtime-chat.js', 'runtime.js']) {
       await page.addScriptTag({ url: `${ORIGIN}/widget/${f}` });
     }
     const css = [

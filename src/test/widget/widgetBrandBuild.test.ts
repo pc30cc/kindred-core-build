@@ -63,6 +63,24 @@ describe('the RESPOK widget carries nothing of the Iran brand', () => {
     });
   }
 
+  it('the International kit stays in the Iran build: an Iran-brand deployment can serve the International edition', () => {
+    // The edition is the database's (platform_settings.region_mode, which the
+    // Super Admin may switch, and a missing row is International), the brand
+    // the build's (VITE_API_BASE_URL / VITE_BRAND): app.webyar.ai can serve
+    // workspaces of the International edition, whose loader then wears
+    // RESPOK's button. So no widget file marks code @intl-kit (the Iran
+    // build would drop it) until a deployment's edition follows its brand.
+    for (const name of readdirSync(resolve(ROOT, 'public/widget')).filter(isWidgetSource)) {
+      expect(readFileSync(resolve(ROOT, 'public/widget', name), 'utf8'), name).not.toMatch(/@intl-kit|\bINTL_KIT\b/);
+    }
+    const iran = shipped('public/widget', 'loader.js', 'iran');
+    const respok = shipped('public/widget', 'loader.js', 'respok');
+    for (const out of [iran, respok]) {
+      expect(out).toContain('rpk-kit');
+      expect(out).toContain('#FF5A3C');
+    }
+  });
+
   it('the local kit is gone from the RESPOK loader and kept in the Iran one', () => {
     const respok = shipped('public/widget', 'loader.js', 'respok');
     const iran = shipped('public/widget', 'loader.js', 'iran');
@@ -92,6 +110,13 @@ describe('the shipped files', () => {
       expect(typeof win[registry.resolve('intl').globalKey]).toBe('object');
       expect(win.__gs_smart_engine).toBeTruthy();
       expect(win.CallWidgetPresentations).toBeTruthy();
+      // The late pack: each renderer's extras (handshake intact) and Core's late module.
+      for (const id of ['t1', 't2']) {
+        win.eval(shipped('public/widget', `presentation-${id}-x.js`, brand));
+        expect(win.__gs_mod_extras, `${id} (${brand})`).toMatchObject({ id, v: 1 });
+      }
+      win.eval(shipped('public/widget', 'runtime-late.js', brand));
+      expect(win.__gs_mod_late).toMatchObject({ v: 1 });
     }
   });
 });

@@ -14,7 +14,10 @@
  *   - skeletons wear the real surfaces' structure; Persian digits in fa; the
  *     accent tokens it computes (brand default, on-accent ink);
  *   - its own copy exists in fa, en and tr; the platform's mark stays out of
- *     the RESPOK build.
+ *     the RESPOK build;
+ *   - its extras (presentation-t1-x.js, markup no first paint needs: the
+ *     emoji grid) are taken only when they are its own (id, version), and
+ *     draw through the renderer exactly what they draw on their own.
  * Geometry against the design's PNGs is checked with the screenshot harness
  * (e2e/harness/templateScreens.ts --template t1), not here.
  */
@@ -26,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const REGISTRY_SRC = read('public/widget/presentation-registry.js');
 const T1_SRC = read('public/widget/presentation-t1.js');
+const T1_X_SRC = read('public/widget/presentation-t1-x.js');
 const DEFAULT_SRC = read('public/widget/presentation-default.js');
 const T1_CSS = read('public/widget/presentation-t1.css');
 
@@ -69,7 +73,12 @@ function load() {
   new Function(REGISTRY_SRC).call(window);
   new Function(T1_SRC).call(window);
   new Function(DEFAULT_SRC).call(window);
+  new Function(T1_X_SRC).call(window);
 }
+/** The renderer's extras module (presentation-t1-x.js), as Core hands it over. */
+const EXTRAS = () => (window as unknown as { __gs_mod_extras: { id: string; v: number; create: (h: unknown) => Record<string, Fn> } }).__gs_mod_extras;
+/** A renderer that took its extras. */
+const extended = (r: Renderer) => { expect((r.extend as unknown as (m: unknown) => number)(EXTRAS())).toBe(1); return r; };
 
 function make(opts: { locale?: string; primaryColor?: string; config?: Vm; capabilities?: Vm; t?: (k: string) => string } = {}): Renderer {
   const w = window as unknown as Record<string, { create: (env: Vm) => Renderer }>;
@@ -601,9 +610,17 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(FRAME(make())).toContain('data-vn-time>۰:۰۰<');
     },
     emojiTabs: () => {
-      const h = parse(FRAME(r()));
+      // The grid comes with the extras: until they are in, only a hidden
+      // mark (Core then keeps the renderer's own grid, not its plain list).
+      const bare = parse(FRAME(r())).querySelector('.input-wrap > [data-emoji-picker][hidden]')!;
+      expect(bare.innerHTML).toBe('<i data-emoji="" hidden=""></i>');
+      expect(bare.querySelector('[data-emoji-tab]')).toBeNull();
+      const x = extended(r());
+      const h = parse(FRAME(x));
       // The picker opens inside the composer's box.
       const picker = h.querySelector('.input-wrap > [data-emoji-picker][hidden]')!;
+      // Core puts in the same grid when the extras come after the frame (runtime-ext.js).
+      expect(picker.innerHTML).toBe(parse(x.emojiPickerHtml()).innerHTML);
       const tabs = Array.from(picker.querySelectorAll('[role="tablist"] [data-emoji-tab][role="tab"]'));
       const groups = Array.from(picker.querySelectorAll('[data-emoji-group]'));
       expect(tabs.length).toBe(6);
@@ -1063,6 +1080,10 @@ describe('t1: stylesheet details', () => {
     expect(T1_CSS).toContain('.ext-off .cd.hc .sr, .ext-off .cd.hc:not(:has(.ls)) { display: none; }');
   });
 
+  it('sets the emoji button aside without Core\'s module or once its extras failed (its grid is in them)', () => {
+    expect(T1_CSS).toContain('.ext-off .emoji-btn, .emoji-btn[hidden] { display: none; }');
+  });
+
   it('rings a focused text field in the darkened accent (a light accent such as #F5D90A is ~1.4:1 on white)', () => {
     for (const sel of ['.sr:focus-within', '.cbox:focus-within', '.inp:focus']) {
       const rule = T1_CSS.split('\n').find((l) => l.startsWith(sel + ' {'))!;
@@ -1099,9 +1120,23 @@ describe('t1: its own copy', () => {
       const parts = dict(lang)!.split('|');
       expect(parts.length, lang).toBe(keys.length);
       expect(parts.every((p) => p.trim().length > 0), lang).toBe(true);
-      // The emoji groups' names, one per group.
-      expect(parts[keys.indexOf('cats')].split(',').length, lang).toBe(6);
     }
+  });
+
+  it('the extras carry their own copy in fa, en and tr, in key order: one name per emoji group', () => {
+    const xkeys = (/var COPY_KEYS = '([^']+)'/.exec(T1_X_SRC) || [])[1]!.split(' ');
+    expect(xkeys).toEqual(['cats']);
+    for (const lang of ['fa', 'en', 'tr']) {
+      const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T1_X_SRC) || [])[1]!.split('|');
+      expect(parts.length, lang).toBe(xkeys.length);
+      expect(parts[0].split(',').length, lang).toBe(6);
+      expect(parts.every((p) => p.trim().length > 0), lang).toBe(true);
+      const names = Array.from(parse(extended(make({ locale: lang })).emojiPickerHtml()).querySelectorAll('.ep-h')).map((n) => n.textContent);
+      expect(names, lang).toEqual(parts[0].split(','));
+    }
+    // Any other language reads English.
+    expect(parse(extended(make({ locale: 'de' })).emojiPickerHtml()).querySelector('.ep-h')!.textContent).toBe('Frequent');
+    expect(parse(extended(make({ locale: 'constructor' })).emojiPickerHtml()).querySelector('.ep-h')!.textContent).toBe('Frequent');
   });
 
   it('speaks the visitor\'s language', () => {
@@ -1143,5 +1178,45 @@ describe('t1: the platform\'s marks stay in the Iranian edition\'s build', () =>
     } finally {
       w.__gs_presentation_t1 = keep;
     }
+  });
+});
+
+describe('t1: its extras (presentation-t1-x.js)', () => {
+  it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
+    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 1, create: create };");
+    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 1");
+  });
+
+  it('takes only its own file: another template\'s, another version or no module is refused', () => {
+    const r = make();
+    const extend = r.extend as unknown as (m: unknown, dry?: boolean) => number;
+    const mod = EXTRAS();
+    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 2 }, { id: 't1', v: 1 }]) expect(extend(bad)).toBe(0);
+    // Nothing taken: the grid is still the mark.
+    expect(r.emojiPickerHtml()).toBe('<i data-emoji hidden></i>');
+    // A dry run says yes and takes nothing.
+    expect(extend(mod, true)).toBe(1);
+    expect(r.emojiPickerHtml()).toBe('<i data-emoji hidden></i>');
+    // Taken once (nothing was asked for before: no repaint), and again: still one.
+    expect(extend(mod)).toBe(1);
+    expect(extend(mod)).toBe(1);
+    expect(parse(r.emojiPickerHtml()).querySelectorAll('[data-emoji-tab]')).toHaveLength(6);
+  });
+
+  it('draws through the renderer exactly what it draws on its own, with the renderer\'s helpers', () => {
+    const r = extended(make());
+    let H: Record<string, unknown> | null = null;
+    const spy = make();
+    (spy.extend as unknown as (m: unknown) => number)({ ...EXTRAS(), create: (h: Record<string, unknown>) => { H = h; return EXTRAS().create(h); } });
+    expect(Object.keys(H!).sort()).toEqual(['D', 'L', 'P', 'avatarHtml', 'config', 'digits', 'esc', 'fa', 'fill', 'fmtNum', 'lang', 'svg', 'systemPillHtml', 't', 'tf'].sort());
+    expect(spy.emojiPickerHtml()).toBe(r.emojiPickerHtml());
+    expect(EXTRAS().create(H!).emojiPickerHtml()).toBe(r.emojiPickerHtml());
+  });
+
+  it('escapes every name it prints', () => {
+    const r = extended(make({ t: (k: string) => (k === 'emojiPicker' ? '"><img src=x onerror=alert(1)>' : k) }));
+    const h = parse(r.chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
+    expect(h.querySelector('img[onerror]')).toBeNull();
+    expect(h.querySelector('[data-emoji-picker] .ep-cats')!.getAttribute('aria-label')).toBe('"><img src=x onerror=alert(1)>');
   });
 });

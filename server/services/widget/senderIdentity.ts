@@ -64,6 +64,40 @@ export async function resolveOperatorIdentities(
   return out;
 }
 
+const OPERATOR_IDENTITY_TTL_MS = 60_000;
+const OPERATOR_IDENTITY_MAX = 1_000;
+const operatorIdentityCache = new Map<string, { at: number; who: OperatorIdentity | null }>();
+
+/**
+ * One operator's public identity (the name and avatar the visitor sees on
+ * their messages, nothing else) for an event that has no message row to
+ * carry it, such as their typing. Cached in-process for a minute, at most
+ * 1,000 operators (the oldest dropped first), so a typing burst reads the
+ * profile once: a rename shows within a minute. Never throws; an operator
+ * without a profile, or a failed read, is null.
+ */
+export async function publicOperatorIdentity(
+  config: ServerConfig,
+  supabase,
+  userId: string,
+  now: number = Date.now(),
+): Promise<OperatorIdentity | null> {
+  const hit = operatorIdentityCache.get(userId);
+  if (hit && now - hit.at < OPERATOR_IDENTITY_TTL_MS) return hit.who;
+  let who: OperatorIdentity | null = null;
+  try {
+    who = (await resolveOperatorIdentities(config, supabase, [userId])).get(userId) ?? null;
+  } catch {
+    who = null;
+  }
+  operatorIdentityCache.delete(userId);
+  operatorIdentityCache.set(userId, { at: now, who });
+  while (operatorIdentityCache.size > OPERATOR_IDENTITY_MAX) {
+    operatorIdentityCache.delete(operatorIdentityCache.keys().next().value as string);
+  }
+  return who;
+}
+
 /**
  * The operators a visitor may consider reachable right now (the same
  * customer availability the widget's team dots follow), from the cached

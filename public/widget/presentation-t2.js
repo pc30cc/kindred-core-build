@@ -584,15 +584,15 @@
       var remaining = all.length - visible.length;
       var chipsHtml = visible.map(function (q) {
         var text = (q && q.question) ? String(q.question) : '';
-        return text ? '<button type="button" class="qna-chip chip" data-qna-question="' + esc(text) + '">' +
+        return text ? '<button type="button" class="chip" data-qna-question="' + esc(text) + '">' +
           ico('chat', 16, 1.8) + '<span>' + esc(text) + '</span></button>' : '';
       }).join('');
       var moreHtml = (!qnaState.expanded && remaining > 0)
-        ? '<button type="button" class="qna-more-btn chip" data-qna-more aria-label="' + esc(t('qnaMore')) + '">' +
+        ? '<button type="button" class="chip" data-qna-more aria-label="' + esc(t('qnaMore')) + '">' +
             '<span class="qna-more-count">+' + esc(fmtNum(remaining)) + '</span></button>'
         : '';
       return '<div class="qna-suggestions qr" data-qna>' +
-        '<span class="qna-title sr-only">' + esc(t('qnaTitle')) + '</span>' + chipsHtml + moreHtml +
+        '<span class="sr-only">' + esc(t('qnaTitle')) + '</span>' + chipsHtml + moreHtml +
       '</div>';
     }
 
@@ -629,7 +629,7 @@
           '<button type="button" class="msg-att-img-btn is-loading" data-att-preview="' + id + '" aria-label="' + esc(t('openFile')) + '">' +
             '<span class="msg-att-loading" aria-live="polite">' +
               '<span class="msg-att-spinner" aria-hidden="true"></span>' +
-              '<span class="msg-att-loading-text">' + esc(tf('receivingFile', 'Receiving…')) + '</span>' +
+              '<span>' + esc(tf('receivingFile', 'Receiving…')) + '</span>' +
             '</span>' +
             '<img loading="lazy" decoding="async" data-att-media-src="' + id + '" alt="' + name + '" />' +
             '<span class="msg-att-img-fallback">' + esc(t('imageUnavailable')) + '</span>' +
@@ -750,7 +750,7 @@
           : waitMinutes > 1 ? String(t('ciWaitMinutes')).replace('{m}', digits(waitMinutes)) : '';
         bodyBlock = '<div class="ci-body"><div>' + esc(t(video ? 'ciBodyVideo' : 'ciBodyAudio')) + '</div>' +
           (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>';
-        statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
+        statusBlock = '<div class="ci-meta" aria-live="polite">' +
           '<span class="ci-pulse" aria-hidden="true"></span>' + esc(fmtInvitationRemaining(meta.expires_at)) + '</div>';
         actionBlock = '<div class="ci-actions">' +
           '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
@@ -770,7 +770,7 @@
           esc(t('ciAriaCard') + ' — ' + t(video ? 'videoCall' : 'voiceCall')) + '">' +
           '<div class="ci-row">' +
             '<span class="ci-icon" aria-hidden="true">' + ico(video ? 'video' : 'phone', 20, 2) + '</span>' +
-            '<div class="ci-text">' +
+            '<div>' +
               '<div class="ci-title">' + esc(headline) + '</div>' + bodyBlock + statusBlock +
             '</div>' +
           '</div>' + actionBlock +
@@ -888,7 +888,7 @@
       return '<div class="msg operator typing-bubble' + (extra || '') + '"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
     }
     function renderAiThinkingRow() {
-      return '<div class="msg-row operator is-last ai-thinking-row">' + storeAvatarHtml(28, '', 'msg-avatar') +
+      return '<div class="msg-row operator is-last">' + storeAvatarHtml(28, '', 'msg-avatar') +
         '<div class="msg-col"><div class="msg-line">' + dotsBubbleHtml(' ai-thinking-bubble') +
           '<span class="sr-only">' + esc(t('aiThinking') || 'Thinking…') + '</span></div>' +
         '</div></div></div>';
@@ -1018,7 +1018,7 @@
           ? '<div class="msg-line"><div class="msg ' + cls + ' has-att-only">' + att + '</div></div>' : '';
         if (textHtml || quoted || !att) {
           items += '<div class="msg-line">' +
-            '<div class="msg ' + cls + (isAi ? ' is-ai' : '') + (isLast ? ' has-tail' : '') + '"' +
+            '<div class="msg ' + cls + '"' +
               (isRevealing ? ' data-typing-host data-typing-active="1"' : '') + '>' + quoted + textHtml +
             '</div>' + actionsHtml +
           '</div>';
@@ -1069,7 +1069,7 @@
           (subtitleHtml ? '<div class="msg-line">' + subtitleHtml + '</div>' : '') +
           '<div class="msg-line"><div class="msg operator hc-title">' + esc(title) + '</div></div>' +
           '<div class="msg-line"><div class="hc-card fcard" dir="' + dir + '" role="group" aria-label="' + esc(title) + '">' +
-            '<div class="prechat-fields hc-fields">' + (fieldsHtml || submit) + '</div>' +
+            '<div class="prechat-fields">' + (fieldsHtml || submit) + '</div>' +
             (required ? '' : '<button type="button" class="skip" data-prechat-skip>' + esc(L('skip')) + '</button>') +
           '</div></div>' +
         '</div>' +
@@ -1097,7 +1097,7 @@
       var rtl = String(locale || '').toLowerCase().split('-')[0] === 'fa';
       return viewOpen('wy-view-' + cls + ' prechat' + (cls === 'fallback' ? ' fallback' : ''), rtl) +
         barHtml(backButtonHtml('home') + header) +
-        '<div class="wy-scroll wy-body-pad form-body">' + inner + '</div>' + footerHtml() +
+        '<div class="wy-scroll form-body">' + inner + '</div>' + footerHtml() +
       '</div>';
     }
     function teamHeaderHtml(online) {
@@ -1120,7 +1120,7 @@
         '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
         '<div class="prechat-fields">' + fieldsHtml + '</div>' +
         '<div class="prechat-spacer" aria-hidden="true"></div>' +
-        '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit btn" data-prechat-submit>' +
+        '<button type="button" class="wy-btn-primary btn" data-prechat-submit>' +
           esc(tf('wyConnectOperator', t('continue'))) + '</button>');
     }
 
@@ -1147,7 +1147,7 @@
             '<div class="prechat-error" id="fb-err-message" data-err="message" role="alert" aria-live="polite"></div>' +
           '</div>' +
         '</div>' +
-        '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit btn" data-fb-submit>' +
+        '<button type="button" class="wy-btn-primary btn" data-fb-submit>' +
           esc(t('fallbackSubmit')) + '</button>' +
         '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div>');
     }
@@ -1204,8 +1204,8 @@
         : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
       return backButtonHtml('home') + whoHtml(avatar, name, st) + '<span class="cs" aria-hidden="true"></span>' +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
-          '<span class="presence-dot" data-presence-dot></span>' +
-          '<span class="presence-label" data-presence-label></span>' +
+          '<span data-presence-dot></span>' +
+          '<span data-presence-label></span>' +
         '</div>';
     }
 
@@ -1229,7 +1229,7 @@
         ? '<div class="composer-zone cmp" data-composer-zone>' +
             // Typing is drawn in the thread; this row announces it.
             '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
-              '<span class="typing-label" data-typing-label></span>' +
+              '<span data-typing-label></span>' +
             '</div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
               '<span class="reply-preview-bar" aria-hidden="true"></span>' +
@@ -1257,9 +1257,9 @@
                           '<div class="att-preview-bar" data-attach-bar></div>' +
                         '</div>' +
                       '</div>' +
-                      '<button type="button" class="att-preview-btn att-preview-retry" data-attach-retry hidden' +
+                      '<button type="button" class="att-preview-btn" data-attach-retry hidden' +
                         ' aria-label="' + esc(t('retry')) + '">' + ico('retry', 14, 1.9) + '</button>' +
-                      '<button type="button" class="att-preview-btn att-preview-remove" data-attach-remove' +
+                      '<button type="button" class="att-preview-btn" data-attach-remove' +
                         ' aria-label="' + esc(t('remove')) + '">' + ico('x', 14, 2) + '</button>' +
                     '</div>'
                   : '') +
@@ -1508,9 +1508,9 @@
       // A real failure with nothing cached is its own, retryable state;
       // cached items stay on screen when only a refresh failed.
       var bodyHtml = (vm.error && !items.length)
-        ? '<div class="wy-empty wy-conv-error">' +
+        ? '<div class="wy-empty">' +
             '<p>' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
-            '<button type="button" class="wy-btn wy-btn-outline" data-home-action="conversations-retry">' +
+            '<button type="button" class="wy-btn-outline" data-home-action="conversations-retry">' +
               esc(tf('wyConversationsRetry', t('convRetry'))) +
             '</button>' +
           '</div>'
@@ -1575,7 +1575,7 @@
       vm = vm || {};
       var isSearch = vm.state === 'results';
       return '<div class="kb-empty">' +
-        '<p class="cnt kb-empty-text" role="status">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
+        '<p class="cnt" role="status">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
         ctaHtml(vm) +
       '</div>';
     }
@@ -1646,7 +1646,7 @@
       vm = vm || {};
       var a = vm.article || {};
       var mins = Number(a.readingMinutes) || 0;
-      return '<div class="art wy-scroll kb-article-view">' +
+      return '<div class="art wy-scroll">' +
           '<h1>' + esc(a.title || '') + '</h1>' +
           (mins ? '<div class="am"><span>' + ico('clock', 15, 1.8) + esc(L('read', { n: fmtNum(mins) })) + '</span></div>' : '') +
           '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
@@ -1796,7 +1796,7 @@
       }
       return skViewOpen('wy-view-precontact prechat', vm) +
         skBarHtml(skWhoHtml()) +
-        '<div class="wy-scroll wy-body-pad form-body">' +
+        '<div class="wy-scroll form-body">' +
           '<div class="wy-sk-group">' + skl('86%', 11) + skl('58%', 11) + '</div>' +
           '<div class="prechat-fields">' + fields + '</div>' +
           '<div class="prechat-spacer"></div><span class="btn skc"></span>' +
@@ -1844,6 +1844,34 @@
       }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Template extras (presentation-t2-x.js): markup no first paint needs,
+    // which Core hands over after it (`extend`). Until then a surface asked
+    // for (`x()`) draws nothing and notes it, and Core repaints once when
+    // they are in. Only this renderer's id and contract version are taken:
+    // a file from another deploy or template is refused.
+    // ══════════════════════════════════════════════════════════════════
+    var X = null;
+    var missed = false;
+    var H = {
+      esc: esc, t: t, tf: tf, L: L, digits: digits, fmtNum: fmtNum, ico: ico, avatarHtml: avatarHtml,
+      storeAvatarHtml: storeAvatarHtml, systemPillHtml: systemPillHtml, config: config, lang: lang, fa: isRtl(),
+    };
+    function x(name, args) {
+      if (X && X[name]) return X[name].apply(null, args);
+      missed = true;
+      return '';
+    }
+    /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
+    function extend(mod, dry) {
+      if (!mod || mod.id !== 't2' || mod.v !== 1 || typeof mod.create !== 'function') return 0;
+      if (dry) return 1;
+      X = X || mod.create(H);
+      var m = missed;
+      missed = false;
+      return m ? 2 : 1;
+    }
+
     return {
 
       id: 't2',
@@ -1865,6 +1893,7 @@
         recSend: true,
         clock: true,
       },
+      extend: extend,
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
       chatHeaderHtml: chatHeaderHtml,

@@ -749,3 +749,44 @@ describe('t2: review fixes', () => {
     expect(T2_CSS).toMatch(/\.smart-nudge\[dir='ltr'\],\n\.smart-nudge\[dir='ltr'\] \* \{\n {2}font-family: 'InterWY'/);
   });
 });
+
+describe('t2: its extras (presentation-t2-x.js)', () => {
+  const T2_X_SRC = read('public/widget/presentation-t2-x.js');
+  const extrasModule = () => {
+    const w = window as unknown as Record<string, unknown>;
+    delete w.__gs_mod_extras;
+    new Function(T2_X_SRC).call(window);
+    return w.__gs_mod_extras as { id: string; v: number; create: (h: unknown) => Record<string, Fn> };
+  };
+
+  it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
+    expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 1, create: create };");
+    expect(T2_SRC).toContain("mod.id !== 't2' || mod.v !== 1");
+  });
+
+  it('takes only its own file: another template\'s, another version or no module is refused', () => {
+    const extend = make().extend as unknown as (m: unknown, dry?: boolean) => number;
+    const mod = extrasModule();
+    for (const bad of [null, {}, { ...mod, id: 't1' }, { ...mod, v: 2 }, { id: 't2', v: 1 }]) expect(extend(bad)).toBe(0);
+    expect(extend(mod, true)).toBe(1);
+    // Nothing was asked for before: taken, no repaint; taken again: the same.
+    expect(extend(mod)).toBe(1);
+    expect(extend(mod)).toBe(1);
+  });
+
+  it('builds its surfaces on the renderer\'s helpers', () => {
+    let H: Record<string, unknown> | null = null;
+    const mod = extrasModule();
+    (make().extend as unknown as (m: unknown) => number)({ ...mod, create: (h: Record<string, unknown>) => { H = h; return mod.create(h); } });
+    expect(Object.keys(H!).sort()).toEqual(['L', 'avatarHtml', 'config', 'digits', 'esc', 'fa', 'fmtNum', 'ico', 'lang', 'storeAvatarHtml', 'systemPillHtml', 't', 'tf'].sort());
+    expect((H!.fa as boolean)).toBe(true);
+    expect((H!.digits as (s: string) => string)('12')).toBe('۱۲');
+  });
+
+  it('its emoji picker stays Core\'s: the frame draws an empty picker, which Core fills with its list', () => {
+    const r = make();
+    const frame = parse(r.chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
+    expect(frame.querySelector('[data-emoji-picker]')!.innerHTML).toBe('');
+    expect(r.emojiPickerHtml).toBeUndefined();
+  });
+});

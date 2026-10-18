@@ -141,6 +141,29 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     expect(JSON.stringify(b).match(/runtime-ext/g)).toHaveLength(1);
   });
 
+  it('names the late pack (modules.late, modules.extras) for a template whose renderer has extras, and never for default or intl', async () => {
+    // default and intl: the modules exactly as before the late pack.
+    const before = ['chat', 'kb', 'rt_resolver', 'rt_centrifugo', 'rt_supabase'];
+    await fresh();
+    expect(Object.keys((await body()).modules as Record<string, unknown>)).toEqual(before);
+    await fresh((t) => { withCatalog(CATALOG, 'international')(t); }, { edition: 'international' });
+    const intl = await body('international');
+    expect(intl.templateId).toBe('intl');
+    expect(Object.keys(intl.modules as Record<string, unknown>)).toEqual(before);
+    expect(JSON.stringify(intl)).not.toMatch(/runtime-late|-x\.js/);
+    for (const id of ['t1', 't2']) {
+      await fresh((t) => { withCatalog()(t); choose(id)(t); });
+      const b = await body();
+      expect(b.templateId).toBe(id);
+      const modules = b.modules as Record<string, unknown>;
+      expect(Object.keys(modules)).toEqual(['chat', 'kb', 'ext', 'late', 'extras', 'rt_resolver', 'rt_centrifugo', 'rt_supabase']);
+      expect(String(modules.late)).toMatch(/\/widget\/runtime-late(\.[0-9a-f]{8}\.js|\.js\?v=[^&]+)$/);
+      expect(String(modules.extras)).toMatch(new RegExp(`/widget/presentation-${id}-x(\\.[0-9a-f]{8}\\.js|\\.js\\?v=[^&]+)$`));
+      // The loader never asks for them: nowhere but in `modules`.
+      expect(JSON.stringify(b).match(/runtime-late|-x\./g)).toHaveLength(2);
+    }
+  });
+
   it('display names never reach the widget', async () => {
     await fresh((t) => { withCatalog()(t); choose('t1')(t); });
     const text = JSON.stringify(await body());

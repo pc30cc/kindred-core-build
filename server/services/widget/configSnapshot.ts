@@ -981,6 +981,7 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   const templateOptions = resolveChatTemplateOptions(templateCatalog, templateId, wsTemplate.widget_template_options);
 
   const templateAssets = widgetTemplateAssetKeys(templateId);
+  const templateDescriptor = chatWidgetTemplate(templateId);
   const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
   const presentationJsName = getWidgetAssetName(templateAssets.script);
   const presentationCssName = getWidgetAssetName(templateAssets.style);
@@ -1230,7 +1231,15 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       // whose renderer declares some (shared/widgetTemplates.ts
       // `coreFeatures`): the loader fetches it with that template's files.
       // `default` and `intl` never get it, so their payload is as before.
-      ...(chatWidgetTemplate(templateId)?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
+      ...(templateDescriptor?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
+      // The late pack of such a template whose renderer has extras: the
+      // extras and Core's late module, which runtime-ext.js requests after
+      // the first paint (the loader never does). `default` and `intl` have
+      // none.
+      ...(templateDescriptor?.coreFeatures && templateDescriptor.extras ? {
+        late: assetUrl(getWidgetAssetName('runtime-late.js')),
+        extras: assetUrl(getWidgetAssetName(templateDescriptor.extras)),
+      } : {}),
       rt_resolver: assetUrl(getWidgetAssetName('runtime-rt-resolver.js')),
       rt_centrifugo: assetUrl(getWidgetAssetName('runtime-rt-centrifugo.js')),
       rt_supabase: assetUrl(getWidgetAssetName('runtime-rt-supabase.js')),

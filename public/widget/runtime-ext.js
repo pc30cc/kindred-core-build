@@ -31,9 +31,17 @@
  *   prechatSummary       `R.prechatSummaryHtml(contact)` after a submit, `[data-prechat-edit]`
  *   recSend, vnRate      stop-and-send `[data-rec-send]`, preview speed `[data-vn-rate]`
  *   clock                `R.format.clock(seconds)` for every timer Core writes
- *   emojiTabs            `[data-emoji-tab]` scrolls its `[data-emoji-group]` into view
+ *   emojiTabs            `[data-emoji-tab]` scrolls its `[data-emoji-group]` into view; a grid
+ *                        from the renderer's extras (`R.emojiPickerHtml()`) is put in when they come
  *   visitorName          home greets the visitor by name (waits for the identity)
  *   conversationOperator conversation rows carry the operator and who wrote last
+ *
+ * It also brings the late pack, for a renderer whose descriptor names
+ * extras (`presentation-<renderer>-x.js`): the renderer's extras and Core's
+ * runtime-late.js, asked for together after the first paint and applied
+ * together or not at all (see "The late pack" below). runtime-late.js
+ * registers its handlers on the same hooks (`api.on`); each hook runs this
+ * module's own handler first, then the late ones.
  *
  * Public API (window.__gs_mod_ext): create(<the instance's parts>) → the
  * hooks runtime.js runs. Brand-neutral: it ships in every build as is.
@@ -775,6 +783,125 @@
       });
     }
 
+    // ═══ The late pack: the renderer's extras + runtime-late.js ═══
+    // What no first paint needs comes after it, in two hashed files asked
+    // for together: the renderer's extras (its descriptor's `extras`,
+    // `config.modules.extras`; markup it draws only once `P.extend()` took
+    // them) and Core's late module (runtime-late.js, `config.modules.late`;
+    // the code of the features that markup needs). Asked for once the first
+    // paint is done (the browser's next idle moment, 2 s at most), at once
+    // when the chat view is painted or a control needs them, and applied
+    // together or not at all: a file from another deploy or template (a
+    // canonical-name fallback) is refused by its id and version, and then
+    // neither is used and their features stay off. If the renderer was
+    // asked for a surface before they were in, Core repaints once.
+    var LATE_V = 1;
+    var registry = window.__gs_presentation_registry;
+    var desc = registry && typeof registry.resolve === 'function' ? registry.resolve(config.templateId) : null;
+    var lateFile = typeof P.extend === 'function' && desc && desc.extras;
+    var lateState = lateFile ? 0 : 3; // 0 not asked, 1 on its way, 2 in, 3 off (failed, refused or none)
+    var latePlanned = false;
+    var lateWaiting = [];
+    var lateHooks = null;   // the late module's handlers, by hook, once the pack is in
+    var lateTaking = null;  // the same while its create() runs
+    var hooks;              // this module's hooks (below)
+    // runtime-late.js builds on this module's own surface (its `api`).
+    var api = {
+      P: P, ctx: ctx, panel: panel, chatQ: chatQ, identity: identity, chatUI: chatUI, kbUI: kbUI,
+      ModuleLoader: ModuleLoader, ConvEpoch: ConvEpoch,
+      shellStore: shellStore, chatStore: chatStore, presenceStore: presenceStore, conversationsStore: conversationsStore,
+      notifyStore: notifyStore, identityStore: identityStore, kbStore: kbStore, attachmentStore: attachmentStore,
+      transportStore: transportStore,
+      renderBody: renderBody, renderHome: renderHome, switchTab: switchTab, deriveChatTabState: deriveChatTabState,
+      trySend: trySend, applyComposerState: applyComposerState,
+      feat: feat, each: each, onClick: onClick, wrap: wrap, currentOperator: currentOperator,
+      startConversationWith: startConversationWith, loadLatePack: loadLatePack,
+      /** Registers `fn` on hook `name` (one runtime.js runs); false for any other name. */
+      on: function (name, fn) {
+        var table = lateHooks || lateTaking;
+        if (!table || typeof fn !== 'function' || !Object.prototype.hasOwnProperty.call(hooks, name)) return false;
+        (table[name] = table[name] || []).push(fn);
+        return true;
+      },
+    };
+    /**
+     * Applies both files, or neither: 0 (refused), 1 (in) or 2 (in, and a
+     * surface was missed). The renderer is asked first whether it takes the
+     * extras (a dry run), then the late module is created (its handlers held
+     * aside), then the renderer takes them: a module that throws leaves both
+     * out, so no surface is ever drawn without its Core.
+     */
+    function applyLatePack(extras, late) {
+      var r = 0;
+      lateTaking = {};
+      try {
+        if (late && late.v === LATE_V && typeof late.create === 'function' && P.extend(extras, true)) {
+          late.create(api);
+          r = P.extend(extras);
+        }
+      } catch (e) { r = 0; }
+      if (r) lateHooks = lateTaking;
+      lateTaking = null;
+      return r;
+    }
+    // `early`: applied before the first paint, which follows anyway.
+    function settleLatePack(r, early) {
+      lateState = r ? 2 : 3;
+      paintEmojiGrid(!!r);
+      if (r > 1 && !early) renderBody();
+      var waiting = lateWaiting;
+      lateWaiting = [];
+      waiting.forEach(function (cb) { cb(!!r); });
+    }
+    /** Asks for the pack now (once); `cb(ok)` runs when it settled. */
+    function loadLatePack(cb) {
+      if (lateState > 1) { if (typeof cb === 'function') cb(lateState === 2); return; }
+      if (typeof cb === 'function') lateWaiting.push(cb);
+      if (lateState) return;
+      lateState = 1;
+      var extras = null;
+      var late = null;
+      var pending = 2;
+      function done() { if (!--pending) settleLatePack(applyLatePack(extras, late)); }
+      ModuleLoader.loadFor(ctx, 'extras', lateFile, function (mod) { extras = mod; done(); });
+      ModuleLoader.loadFor(ctx, 'late', 'runtime-late.js', function (mod) { late = mod; done(); });
+    }
+    // After a paint: the chat view (a composer the visitor is about to use)
+    // asks at once, any other view at the browser's next idle moment.
+    function planLatePack() {
+      if (lateState) return;
+      if (shellStore.get().activeTab === 'chat') { loadLatePack(); return; }
+      if (latePlanned) return;
+      latePlanned = true;
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(function () { loadLatePack(); }, { timeout: 2000 });
+      } else setTimeout(function () { loadLatePack(); }, 300);
+    }
+    // t1 draws its grouped emoji from its extras: until they are in, the
+    // picker Core keeps holds none, so the first press on the emoji button
+    // asks for them at once and opens the picker when they are in; without
+    // them the button goes (a picker with nothing to pick is a dead control).
+    var emojiBtn = chatQ('[data-emoji-btn]');
+    var lateEmoji = typeof P.emojiPickerHtml === 'function' && !!emojiPickerEl && !!emojiBtn;
+    function paintEmojiGrid(ok) {
+      if (!lateEmoji) return;
+      lateEmoji = false;
+      if (ok) { emojiPickerEl.innerHTML = P.emojiPickerHtml(); return; }
+      emojiPickerEl.hidden = true;
+      emojiBtn.hidden = true;
+    }
+    if (lateEmoji) {
+      panel.addEventListener('click', function (ev) {
+        var target = ev.target;
+        if (!lateEmoji || !target || !target.closest || !target.closest('[data-emoji-btn]')) return;
+        ev.stopPropagation();
+        loadLatePack(function (ok) {
+          // Opened by Core's own toggle, as a press would.
+          if (ok && emojiPickerEl.hidden && panel.contains(emojiBtn)) emojiBtn.click();
+        });
+      }, true);
+    }
+
     // ═══ Wiring ═══
     // A bottom-menu tab is repainted with its view: focus moves to the new
     // view's own tab instead of falling to nowhere. The pressed tab is read
@@ -833,12 +960,13 @@
     }
 
     // The hooks runtime.js runs (`ext(name, …)`).
-    return {
+    hooks = {
       // ── renderBody / home / list ──
       body: function () {
         markActiveTab();
         if (prechatPainted) bindPrechatSkip(panel);
         prechatPainted = false;
+        planLatePack();
       },
       // Home waits for the visitor's identity to greet them by name.
       wait: function () { return feat('visitorName') && !identityStore.get().loaded; },
@@ -1009,6 +1137,35 @@
       kbOpen: function () { if (kb.view !== 'article') articleFrom = kb.view; },
       kbRender: function () { if (searchOnRender) { searchOnRender = false; searchNow(); } },
     };
+    // Each hook runs this module's own handler, then the late module's for
+    // it (runtime-late.js `api.on`), in the order they were registered:
+    // each gets the hook's arguments and the answer so far, and an answer
+    // of its own (anything but undefined) replaces it, so a late handler
+    // may consume a call (true) or override a value. One that throws is
+    // skipped. Before the late pack is in, and without it, only this
+    // module's own run.
+    Object.keys(hooks).forEach(function (name) {
+      var own = hooks[name];
+      hooks[name] = function (a, b) {
+        var out = own(a, b);
+        var list = lateHooks && lateHooks[name];
+        for (var i = 0; list && i < list.length; i++) {
+          try {
+            var r = list[i](a, b, out);
+            if (r !== undefined) out = r;
+          } catch (_) {}
+        }
+        return out;
+      };
+    });
+    // A pack already in the page (an earlier instance's, or one its host
+    // put there, as the screenshot harness does) is applied before the
+    // first paint; else it comes after it (planLatePack). A renderer with
+    // nothing to come sets aside what would wait for it.
+    var early = lateFile && window.__gs_mod_extras && window.__gs_mod_late
+      ? applyLatePack(window.__gs_mod_extras, window.__gs_mod_late) : 0;
+    if (early || lateState === 3) settleLatePack(early, true);
+    return hooks;
   }
 
   window.__gs_mod_ext = { create: create };

@@ -19,6 +19,11 @@
  *     skin:      OPTIONAL stylesheet loaded after `style` — a template that
  *                reuses another template's renderer and stylesheet and only
  *                restyles it.
+ *     extras:    OPTIONAL the renderer's extras (`presentation-<renderer>-x.js`):
+ *                its markup no first paint needs, which Core (runtime-ext.js)
+ *                asks for after the first paint with runtime-late.js and
+ *                hands to the renderer (`extend()`). A skin over a renderer
+ *                names that renderer's file.
  *   }
  *
  * Adding a template later = add ONE entry here (and in
@@ -68,6 +73,7 @@
       script: 'presentation-t1.js',
       style: 'presentation-t1.css',
       fonts: 'presentation-default-fonts.css',
+      extras: 'presentation-t1-x.js',
     },
     't2': {
       id: 't2',
@@ -76,6 +82,7 @@
       script: 'presentation-t2.js',
       style: 'presentation-t2.css',
       fonts: 'presentation-default-fonts.css',
+      extras: 'presentation-t2-x.js',
     },
   };
 

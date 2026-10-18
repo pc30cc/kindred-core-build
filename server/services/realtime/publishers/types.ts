@@ -13,9 +13,10 @@
  *   - envelope:
  *       { type: 'message' | 'typing' | 'seen' | 'event', payload: { ... } }
  *
- * The 'event' type is OPERATOR-ORIENTED. The widget runtime explicitly
- * ignores it (forward-safe). Existing message/typing/seen envelopes are
- * unchanged byte-for-byte.
+ * The 'event' type is OPERATOR-ORIENTED: it travels on the inbox channel,
+ * and on a conversation channel only for the kinds the widget acts on, cut
+ * down to the fields it reads (publish.ts WIDGET_EVENT_FIELDS). Existing
+ * message/typing/seen envelopes are unchanged byte-for-byte.
  *
  * publish() must be fail-safe: never throw. On failure return
  * { ok: false, reason } and the caller continues — DB write is the source

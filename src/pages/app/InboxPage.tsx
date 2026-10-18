@@ -519,9 +519,10 @@ export default function InboxPage() {
       // Show indicator for ~3.5s; subsequent events extend the window.
       setVisitorTypingUntil(Date.now() + 3500);
     },
-    // Phase 5 — operator-side events on the per-conversation channel.
-    // Refresh notes/timeline caches so the open thread reflects new
-    // notes, status/priority/assignment/tag changes immediately.
+    // Phase 5 — this conversation's operator-side events (heard on the
+    // workspace inbox channel, see useInboxRealtime). Refresh notes/timeline
+    // caches so the open thread reflects new notes, status/priority/
+    // assignment/tag changes immediately.
     onEvent: (payload) => {
       const kind = (payload as { kind?: string })?.kind;
       const convId = (payload as { conversation_id?: string })?.conversation_id;

@@ -54,6 +54,16 @@ export interface ChatWidgetTemplate {
    * (src/test/widget/runtimeExt.test.ts).
    */
   coreFeatures: boolean;
+  /**
+   * The renderer's extras: its markup no first paint needs (`presentation-
+   * <renderer>-x.js`, a skin names its renderer's file), which runtime-ext.js
+   * requests after the first paint together with Core's late module
+   * (runtime-late.js). The bootstrap names both (`config.modules.extras`,
+   * `config.modules.late`) only for a template with `coreFeatures` and
+   * extras, so `default` and `intl` (null) are unchanged. Must match the
+   * registry and the renderer's `extend` (src/test/widget/runtimeExt.test.ts).
+   */
+  extras: `presentation-${string}-x.js` | null;
 }
 
 export const CHAT_WIDGET_TEMPLATES = {
@@ -64,6 +74,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     skin: null,
     fonts: 'presentation-default-fonts.css',
     coreFeatures: false,
+    extras: null,
   },
   intl: {
     id: 'intl',
@@ -72,6 +83,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     skin: 'presentation-intl.css',
     fonts: 'presentation-default-fonts.css',
     coreFeatures: false,
+    extras: null,
   },
   t1: {
     id: 't1',
@@ -80,6 +92,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     skin: null,
     fonts: 'presentation-default-fonts.css',
     coreFeatures: true,
+    extras: 'presentation-t1-x.js',
   },
   t2: {
     id: 't2',
@@ -88,6 +101,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     skin: null,
     fonts: 'presentation-default-fonts.css',
     coreFeatures: true,
+    extras: 'presentation-t2-x.js',
   },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 

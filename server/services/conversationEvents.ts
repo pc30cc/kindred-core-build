@@ -102,13 +102,14 @@ export async function recordConversationEvent(
         event_type: input.eventType,
         actor_type: input.actorType,
         created_at: data.created_at,
-      }, { skipInboxChannel: true }); // timeline events only matter for the open conv
+      }); // operator-only: the inbox channel, where an open thread picks it up
     }
 
     return { ok: true, id: data?.id };
-  } catch (err: any) {
-    console.warn('[conversationEvents] threw:', err?.message || err);
-    return { ok: false, reason: err?.message || 'unknown_error' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '';
+    console.warn('[conversationEvents] threw:', message || err);
+    return { ok: false, reason: message || 'unknown_error' };
   }
 }
 

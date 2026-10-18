@@ -32,23 +32,13 @@
 
   // Copy this template adds (Core's own keys are read through `t`): one
   // '|'-separated string per language, in the order of COPY_KEYS.
-  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf cats connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
+  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
   var DICT = {
-    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
-    en: 'Messages|Help|Widget sections|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply by email|Our team is offline right now|Type your question…|Articles: {n}|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
-    tr: 'Mesajlar|Yardım|Widget bölümleri|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
+    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
+    en: 'Messages|Help|Widget sections|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply by email|Our team is offline right now|Type your question…|Articles: {n}|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
+    tr: 'Mesajlar|Yardım|Widget bölümleri|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
   };
 
-
-  // Grouped emoji for the picker (renderer feature `emojiTabs`).
-  var EMOJI = [
-    '😍 🙏 👍 😊 😂 ❤️ 🌹 🎉',
-    '😀 😁 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😋 😎 🤩 🥳 😏',
-    '👍 👎 👏 🙏 👋 🤝 ✌️ 👌 💪 🙌 🤲 👀 🙋 🤷 💁 🙆',
-    '❤️ 🧡 💛 💚 💙 💜 🤍 🖤 💔 💕 💖 💯 ✨ 🔥 ⭐ ✅',
-    '🌹 🌷 🌸 🌻 🍀 🌙 ☀️ 🌈 🐱 🐶 🦋 🐝 🌊 ❄️ 🌿 🍂',
-    '☕ 🍰 🎂 🍫 🍕 🍔 🍎 🍉 🍓 🍇 🍩 🍪 🧁 🍦 🍵 🥤',
-  ];
 
   // The platform's mark (hero watermark, footer). The Iran region's only:
   // the RESPOK build drops the block and keeps the empty string.
@@ -126,7 +116,6 @@
     moon: P('M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z'),
     mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/>' + P('m4 7 8 6 8-6'),
     okc: '<circle cx="12" cy="12" r="8.5"/>' + P('m8.5 12.2 2.4 2.4 4.6-4.8'),
-    link: P('M8 16 16 8M9.5 8H16v6.5'),
     thumb: P('M7 10.5v9H4.5v-9zM7 10.5l4-7a2.2 2.2 0 0 1 2.5 2.6L13 9.5h5.3a2 2 0 0 1 2 2.4l-1.3 6a2 2 0 0 1-2 1.6H7'),
     img: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.6"/>' + P('m20.5 16-5-5-8.5 8.5'),
     quote: P('M9 17l-5-5 5-5') + P('M4 12h10a5 5 0 0 1 5 5v2'),
@@ -423,13 +412,13 @@
       var all = qnaState.questions || [];
       var visible = qnaState.expanded ? all : all.slice(0, collapsed);
       var remaining = all.length - visible.length;
-      return '<div class="qna-suggestions" data-qna><div class="qna-title sr-only">' + esc(t('qnaTitle')) + '</div><div class="qna-chips chips">' +
+      return '<div class="qna-suggestions" data-qna><div class="sr-only">' + esc(t('qnaTitle')) + '</div><div class="chips">' +
         visible.map(function (q) {
           var text = (q && q.question) ? String(q.question) : '';
-          return text ? '<button type="button" class="chip qna-chip" data-qna-question="' + esc(text) + '">' + esc(text) + '</button>' : '';
+          return text ? '<button type="button" class="chip" data-qna-question="' + esc(text) + '">' + esc(text) + '</button>' : '';
         }).join('') +
         (!qnaState.expanded && remaining > 0
-          ? '<button type="button" class="chip qna-more-btn" data-qna-more>' + esc(t('qnaMore')) +
+          ? '<button type="button" class="chip" data-qna-more>' + esc(t('qnaMore')) +
               '<span class="qna-more-count">+' + esc(digits(remaining)) + '</span></button>'
           : '') +
       '</div></div>';
@@ -592,7 +581,7 @@
         var waitLine = wait === 1 ? t('ciWaitOneMinute') : wait > 1 ? String(t('ciWaitMinutes')).replace('{m}', digits(wait)) : '';
         body = '<div class="ci-body"><div>' + esc(t(video ? 'ciBodyVideo' : 'ciBodyAudio')) + '</div>' +
             (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>' +
-          '<div class="ci-meta ci-countdown" aria-live="polite"><span class="ci-pulse" aria-hidden="true"></span>' +
+          '<div class="ci-meta" aria-live="polite"><span class="ci-pulse" aria-hidden="true"></span>' +
             esc(fmtInvitationRemaining(meta.expires_at)) + '</div>';
       } else {
         // A string or nothing: a status such as 'toString' must not print Object.prototype.
@@ -603,7 +592,7 @@
         '<div class="ci-card ci-channel-' + channel + ' ci-status-' + esc(status) + '" data-ci-card="' + inviteId +
           '" role="group" aria-label="' + esc(t('ciAriaCard') + ' — ' + t(video ? 'videoCall' : 'voiceCall')) + '">' +
           '<div class="ci-row"><span class="ci-icon" aria-hidden="true">' + icon + '</span>' +
-            '<div class="ci-text"><div class="ci-title">' + esc(headline) + '</div>' + body + '</div></div>' +
+            '<div><div class="ci-title">' + esc(headline) + '</div>' + body + '</div></div>' +
           (status === 'pending'
             ? '<div class="ci-actions">' +
                 '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
@@ -809,8 +798,7 @@
         html += '<div class="msg-row ' + cls + (isFirst ? ' is-first' : '') + (isLast ? ' is-last' : '') + (failed ? ' is-failed' : '') + '">' + avatar +
           '<div class="msg-col">' + label +
             '<div class="msg-line">' +
-              '<div class="msg ' + cls + (attKind ? ' att-' + attKind : '') + (attHtml && !hasText ? ' has-att-only' : attHtml ? ' has-att' : '') +
-                (isAi ? ' is-ai' : '') + (isLast ? ' has-tail' : '') + '"' +
+              '<div class="msg ' + cls + (attKind ? ' att-' + attKind : '') + (attHtml && !hasText ? ' has-att-only' : '') + '"' +
                 (isRevealing ? ' data-typing-host data-typing-active="1"' : '') + '>' + quoted + textHtml + attHtml +
               '</div>' + actionsHtml +
             '</div>' +
@@ -848,7 +836,7 @@
             : (subtitle ? '<div class="msg operator hc-subtitle">' + esc(subtitle) + '</div>' : '')) +
           '<div class="hc-card fcard" dir="' + dir + '" role="group" aria-label="' + esc(L('details')) + '">' +
             '<h4 class="hc-title"><span class="lt">' + svg(D.person, 15, 1.9) + '</span>' + esc(L('details')) + '</h4>' +
-            '<div class="prechat-fields hc-fields">' + fieldsHtml + '</div>' +
+            '<div class="prechat-fields">' + fieldsHtml + '</div>' +
             '<button type="button" class="btn btn-p sm hc-submit" data-prechat-submit>' + esc(tf('homeStartChat', t('continue'))) + SEND + '</button>' +
             (any ? '' : '<button type="button" class="hc-skip" data-prechat-skip>' + esc(L('skip')) + '</button>') +
             '<p class="priv">' + svg(D.lock, 12, 2) + esc(L('privShort')) + '</p>' +
@@ -888,12 +876,12 @@
       var fieldsHtml = askedFields(identity, contact);
       return viewRoot('wy-view-precontact prechat') +
         headHtml('', backButtonHtml('home'), whoHtml('', L('connect'), workspaceName)) +
-        '<div class="wy-scroll wy-body-pad fm">' +
+        '<div class="wy-scroll fm">' +
           '<div class="intro prechat-subtitle"><span class="lt">' + svg(D.person, 18) + '</span><span><b>' + esc(L('introT')) + '</b>' +
             esc(L('introX')) + '</span></div>' +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
           '<div class="prechat-spacer" aria-hidden="true"></div>' +
-          '<div class="fm-end"><button type="button" class="btn btn-p prechat-submit" data-prechat-submit>' +
+          '<div class="fm-end"><button type="button" class="btn btn-p" data-prechat-submit>' +
             esc(tf('homeStartChat', t('continue'))) + SEND + '</button>' +
             '<p class="priv">' + svg(D.lock, 13, 2) + esc(L('priv')) + '</p></div>' +
         '</div>' + footerHtml() +
@@ -916,11 +904,11 @@
       var nextOpen = (config.availability || {}).next_open_at;
       return viewRoot('wy-view-fallback prechat fallback') +
         headHtml('', backButtonHtml('home'), whoHtml(wsAvatar('s40', !away), workspaceName, away ? L('awayEmail') : t('homeLeaveMessage'))) +
-        '<div class="wy-scroll wy-body-pad fm">' +
+        '<div class="wy-scroll fm">' +
           (away ? banHtml('', nextOpen ? awayLine(nextOpen) : intro) : '') +
           (nextOpen || !away ? '<p class="prechat-intro">' + esc(intro) + '</p>' : '') +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
-          '<div class="fm-end"><button type="button" class="btn btn-p prechat-submit" data-fb-submit>' + esc(t('fallbackSubmit')) + SEND + '</button>' +
+          '<div class="fm-end"><button type="button" class="btn btn-p" data-fb-submit>' + esc(t('fallbackSubmit')) + SEND + '</button>' +
             '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div></div>' +
         '</div>' + footerHtml() +
       '</div>';
@@ -966,30 +954,15 @@
         ? whoHtml('', tf('wyNewConversation', 'New conversation'), workspaceName)
         : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : wsAvatar('s40', online),
           op ? op.name + (workspaceName ? ' · ' + workspaceName : '') : workspaceName, status)) +
-        '<div class="presence sr-only" data-presence aria-live="polite"><span class="presence-dot" data-presence-dot></span>' +
-          '<span class="presence-label" data-presence-label></span></div>';
+        '<div class="presence sr-only" data-presence aria-live="polite"><span data-presence-dot></span>' +
+          '<span data-presence-label></span></div>';
     }
 
-    function emojiPickerHtml() {
-      var cats = L('cats').split(',');
-      var icons = [
-        '<circle cx="12" cy="12" r="8.5"/>' + P('M12 7.5V12l3 2'), D.emoji,
-        '<circle cx="12" cy="8.2" r="3.6"/>' + P('M5.2 19.5a6.8 6.8 0 0 1 13.6 0'),
-        P('M12 19.6s-7-4.3-7-9.7a4 4 0 0 1 7-2.6 4 4 0 0 1 7 2.6c0 5.4-7 9.7-7 9.7Z'),
-        P('M5.5 18.5C5.5 10.6 10.4 5.7 18.5 5c0 8.6-5 13.5-13 13.5Z') + P('m5.5 18.5 7-7'),
-        P('M5 9.5h11v4.3a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z') + P('M16 10.5h1.2a2.4 2.4 0 0 1 0 4.8H16') + P('M9 3.8v2.4M12.4 3.8v2.4'),
-      ];
-      return '<div class="ep-cats" role="tablist" aria-label="' + esc(t('emojiPicker')) + '">' + cats.map(function (c, i) {
-          return '<button type="button" class="ep-cat" role="tab" aria-selected="' + (i ? 'false' : 'true') + '" data-emoji-tab="' + i +
-            '" aria-label="' + esc(c) + '">' + svg(icons[i], 19) + '</button>';
-        }).join('') + '</div>' +
-        '<div class="ep-grid">' + EMOJI.map(function (row, i) {
-          return '<div class="ep-g" data-emoji-group="' + i + '"><p class="ep-h">' + esc(cats[i]) + '</p><div class="ep-row">' +
-            row.split(' ').map(function (e) {
-              return '<button type="button" class="ep-e" data-emoji="' + e + '">' + e + '</button>';
-            }).join('') + '</div></div>';
-        }).join('') + '</div>';
-    }
+    // The picker's grid (tabs and groups) is in the extras. Until they are
+    // in, a hidden mark says this template draws its own grid (runtime.js
+    // puts its plain list in a picker without one) and Core puts the grid
+    // in once they come (runtime-ext.js).
+    function emojiPickerHtml() { return X && X.emojiPickerHtml ? X.emojiPickerHtml() : '<i data-emoji hidden></i>'; }
 
     // ══════════════════════════════════════════════════════════════════
     // Chat view — built ONCE by Core and re-mounted: header → thread →
@@ -1014,7 +987,7 @@
 
       var composer = !chatEnabled ? footerHtml() :
         '<div class="composer-zone cmp" data-composer-zone>' +
-          '<div class="sr-only" data-typing-row hidden aria-live="polite"><span class="typing-label" data-typing-label></span></div>' +
+          '<div class="sr-only" data-typing-row hidden aria-live="polite"><span data-typing-label></span></div>' +
           '<div class="reply-preview" data-reply-preview hidden>' +
             '<span class="reply-preview-icon" aria-hidden="true">' + svg(D.quote, 14) + '</span>' +
             '<span class="reply-preview-body"><span class="reply-preview-author" data-reply-preview-author></span>' +
@@ -1027,14 +1000,14 @@
                 ? '<div class="emoji-picker epk" data-emoji-picker hidden role="dialog" aria-label="' + esc(t('emojiPicker')) + '">' + emojiPickerHtml() + '</div>'
                 : '') +
               (attachCfg.enabled
-                ? '<div class="att-preview pend" data-attach-preview hidden>' +
+                ? '<div class="att-preview" data-attach-preview hidden>' +
                     '<div class="att-preview-thumb" data-attach-thumb><img class="att-preview-img" data-attach-thumb-img alt="" hidden>' +
                       '<span class="att-preview-doc" data-attach-thumb-doc aria-hidden="true">' + svg(D.doc, 16, 1.7) + '</span></div>' +
                     '<div class="att-preview-meta"><div class="att-preview-name" data-attach-name dir="auto"></div>' +
                       '<div class="att-preview-sub" data-attach-sub></div>' +
                       '<div class="att-preview-track" data-attach-track hidden><div class="att-preview-bar" data-attach-bar></div></div></div>' +
-                    '<button type="button" class="att-preview-btn att-preview-retry" data-attach-retry hidden aria-label="' + esc(t('retry')) + '">' + svg(D.retry, 14, 1.9) + '</button>' +
-                    '<button type="button" class="att-preview-btn att-preview-remove" data-attach-remove aria-label="' + esc(t('remove')) + '">' + closeIcon(14) + '</button>' +
+                    '<button type="button" class="att-preview-btn" data-attach-retry hidden aria-label="' + esc(t('retry')) + '">' + svg(D.retry, 14, 1.9) + '</button>' +
+                    '<button type="button" class="att-preview-btn" data-attach-remove aria-label="' + esc(t('remove')) + '">' + closeIcon(14) + '</button>' +
                   '</div>'
                 : '') +
               '<div class="cmp-lock">' + svg(D.lock, 16, 1.9) + '<span>' + esc(L('locked')) + '</span></div>' +
@@ -1072,7 +1045,7 @@
                         '<span class="vn-ico vn-ico-play">' + PLAY + '</span><span class="vn-ico vn-ico-pause">' + PAUSE + '</span></button></span>' +
                       '<div class="vn-track" data-vn-seek dir="ltr"><div class="vn-progress" data-vn-progress></div></div>' +
                       '<span class="vn-time" data-vn-time>' + fmtClock(0) + '</span>' +
-                      '<button type="button" class="spd vn-rate" data-vn-rate>' + fmtRate(1) + '</button>' +
+                      '<button type="button" class="spd" data-vn-rate>' + fmtRate(1) + '</button>' +
                       '<audio data-vn-audio preload="metadata"></audio>' +
                       '<button type="button" class="ra vn-send" data-vn-send aria-label="' + esc(t('send')) + '">' + SEND + '</button>' +
                     '</div>'
@@ -1109,7 +1082,7 @@
       var unread = Number(c.unreadCount) || 0;
       return '<span class="l2' + (unread ? ' u' : '') + '"><em>' + (c.lastFromVisitor ? esc(tf('you', 'You')) + ': ' : '') +
         esc(c.preview || tf('wyNoPreview', '…')) + '</em>' +
-        (unread ? '<span class="nb conv-unread">' + esc(fmtBadge(unread)) + '</span>' : '') +
+        (unread ? '<span class="nb">' + esc(fmtBadge(unread)) + '</span>' : '') +
         '</span>';
     }
     /** The conversations could not be loaded: Core's copy and its retry hook. */
@@ -1122,9 +1095,9 @@
       c = c || {};
       var resolved = String(c.status || '') === 'resolved';
       return '<button type="button" class="li conv-row" data-conversation-open="' + esc(c.id) + '">' + convAvatar(c, 's44') +
-        '<span class="lx"><span class="l1"><span class="nm conv-name">' + esc(convName(c)) + '</span>' +
-          (c.timeLabel ? '<span class="tm-s conv-time">' + esc(c.timeLabel) + '</span>' : '') + '</span>' + previewHtml(c) +
-          '<span class="tg conv-status ' + (resolved ? 'done is-resolved' : 'open') + '">' + (resolved ? '' : '<span class="live conv-status-dot"></span>') +
+        '<span class="lx"><span class="l1"><span class="nm">' + esc(convName(c)) + '</span>' +
+          (c.timeLabel ? '<span class="tm-s">' + esc(c.timeLabel) + '</span>' : '') + '</span>' + previewHtml(c) +
+          '<span class="tg ' + (resolved ? 'done' : 'open') + '">' + (resolved ? '' : '<span class="live"></span>') +
             esc(resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open')) + '</span>' +
         '</span></button>';
     }
@@ -1142,10 +1115,10 @@
           ? '<span class="logo has-img"><img src="' + esc(safeUrl(config.logoUrl)) + '" alt="' + esc(workspaceName) + '" decoding="async"></span>'
           : '<span class="logo" aria-hidden="true">' + esc(initialOf(workspaceName) || 'W') + '</span>';
 
-      var hero = '<div class="wy-head wy-head-home hx">' + (MARK && credit ? markSvg('hx-mk') : '') +
+      var hero = '<div class="wy-head hx">' + (MARK && credit ? markSvg('hx-mk') : '') +
         '<div class="hx-top">' + logo + '</div>' +
         '<p class="hx-hi home-greeting">' + esc(vm.visitorName ? fill(L('hiBack'), { name: vm.visitorName }) : L('hi')) + '</p>' +
-        '<h2 class="hx-q home-welcome">' + esc(L('q')) + '</h2>' +
+        '<h2 class="hx-q">' + esc(L('q')) + '</h2>' +
       '</div>';
 
       var cards = '';
@@ -1241,7 +1214,7 @@
       vm = vm || {};
       var isSearch = vm.state === 'results';
       return '<div class="kb-empty cd">' +
-        '<p class="kb-empty-text">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
+        '<p>' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
         (vm.hideChatCta || CHAT_OFF ? '' : '<button type="button" class="btn btn-p sm" data-kb-action="switch-chat">' + esc(t('kbSwitchToChat')) + '</button>') +
       '</div>';
     }
@@ -1295,7 +1268,7 @@
       var meta = [];
       if (a.readingMinutes) meta.push(fill(L('readT'), { n: fmtNum(a.readingMinutes) }));
       if (a.updatedAt && relTime(a.updatedAt)) meta.push(fill(L('updated'), { time: relTime(a.updatedAt) }));
-      return '<div class="kb-article-view art">' +
+      return '<div class="art">' +
         '<h1>' + esc(a.title || '') + '</h1>' +
         (meta.length ? '<p class="am">' + meta.map(esc).join('<span class="dot" aria-hidden="true">·</span>') + '</p>' : '') +
         '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
@@ -1406,6 +1379,34 @@
       }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Template extras (presentation-t1-x.js): markup no first paint needs,
+    // which Core hands over after it (`extend`). Until then a surface asked
+    // for (`x()`) draws nothing and notes it, and Core repaints once when
+    // they are in. Only this renderer's id and contract version are taken:
+    // a file from another deploy or template is refused.
+    // ══════════════════════════════════════════════════════════════════
+    var X = null;
+    var missed = false;
+    var H = {
+      esc: esc, t: t, tf: tf, L: L, fill: fill, svg: svg, P: P, D: D, digits: digits, fmtNum: fmtNum,
+      avatarHtml: avatarHtml, systemPillHtml: systemPillHtml, config: config, lang: lang, fa: fa,
+    };
+    function x(name, args) {
+      if (X && X[name]) return X[name].apply(null, args);
+      missed = true;
+      return '';
+    }
+    /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
+    function extend(mod, dry) {
+      if (!mod || mod.id !== 't1' || mod.v !== 1 || typeof mod.create !== 'function') return 0;
+      if (dry) return 1;
+      X = X || mod.create(H);
+      var m = missed;
+      missed = false;
+      return m ? 2 : 1;
+    }
+
     // Features Core runs for this renderer (runtime.js `feat()`); nothing
     // is declared for a capability Core cannot serve (CSAT, reactions,
     // order card, step pre-chat, instant answers: `env.capabilities`).
@@ -1419,8 +1420,10 @@
     return {
       id: 't1',
       features: features,
+      extend: extend,
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
+      emojiPickerHtml: emojiPickerHtml,
       chatHeaderHtml: chatHeaderHtml,
       homeHtml: homeHtml,
       emptyHtml: emptyHtml,

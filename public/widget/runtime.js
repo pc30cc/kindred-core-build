@@ -2918,10 +2918,12 @@
       return t('availOffline');
     }
 
+    // The store starts 'offline' with no label: a start the server reports
+    // as away publishes once too (the workspace's offline mode, the label).
     function publish() {
       var status = resolveStatus();
-      var prev = presenceStore.get().status;
-      if (prev === status) return;
+      var cur = presenceStore.get();
+      if (cur.status === status && (serverState !== 'offline' || cur.label)) return;
       presenceStore.set({
         status: status,
         label: labelFor(status),
@@ -7590,10 +7592,9 @@
       if (!attachBtn) return;
       var conn = transportStore.get().connectionState;
       var pState = presenceStore.get();
-      // Away, a renderer feature may keep the thread open (ext 'away').
-      var availOk = pState.liveChatEnabled !== false
-        && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message') && !ext('away', 'attach'));
+      // Away, the leave-a-message form owns a new human thread (it hides
+      // the composer); a renderer feature's thread may hold files back (ext 'away').
+      var availOk = pState.liveChatEnabled !== false && ext('away', 'attach') !== false;
       if (ext('locked')) availOk = false;
       attachBtn.disabled = !(conn === 'online' && availOk);
       if (micBtn && !recordingActive) micBtn.disabled = !(conn === 'online' && availOk);
@@ -7654,11 +7655,11 @@
       var conn = transportStore.get().connectionState;
       // Phase 5 — composer is also gated by availability:
       //   - liveChatEnabled === false       → never enable
-      //   - offline_mode === contact_fallback when offline → fallback form owns input
+      //   - away with offline_mode capture_message, the leave-a-message form
+      //     owns a new human thread (renderBody hides the composer); an
+      //     existing thread and an AI chat keep theirs
       var pState = presenceStore.get();
-      var availOk = pState.liveChatEnabled !== false
-        && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message') && !ext('away', 'send'));
+      var availOk = pState.liveChatEnabled !== false;
       var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
       // A locked composer is styled by its renderer (`.input-bar.is-locked`).
       var locked = ext('locked');

@@ -28,6 +28,7 @@ import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerifi
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, FAB_ICONS, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { TemplateChoiceCard } from '@/components/app/widget/TemplateChoiceCard';
+import { LauncherStylePicker } from '@/components/app/widget/LauncherStylePicker';
 import { effectiveWorkspaceTemplate, templateCardVisible, useWorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
@@ -40,6 +41,8 @@ import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 import type { WidgetSettings } from '@/types/models';
+import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
+import { launcherInitial, type LauncherStyleChoice } from '../../../shared/launcherStyles';
 
 /** Any column the appearance form may edit through `setField`. */
 type WidgetField = keyof WidgetSettings & string;
@@ -207,6 +210,7 @@ function WidgetPageContent() {
     fab_label: { capability: 'widget_launcher_label', reset: null },
     fab_scale: { capability: 'widget_launcher_size', reset: 100 },
     fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
+    fab_shape: { capability: 'widget_launcher_icon', reset: 'circle' },
     placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
     widget_template_id: { capability: 'widget_appearance', reset: null },
   };
@@ -317,6 +321,26 @@ function WidgetPageContent() {
       online: byUser.get(member.user_id)?.state === 'online',
     }));
   }, [workspaceMembers, teamPresence]);
+
+  /**
+   * A chat button style tile (LauncherStylePicker): its shape and icon, the
+   * pill's text when it has none, and RESPOK's logo direction (a template
+   * option, kept with the workspace's other options).
+   */
+  const chooseLauncher = (choice: LauncherStyleChoice) => {
+    setField('fab_shape', choice.shape, 0);
+    if (choice.icon) setField('fab_icon', choice.icon, 0);
+    if (choice.label !== undefined) setField('fab_label', choice.label, 0);
+    if (choice.logoDirection) {
+      const own = live?.widget_template_options && typeof live.widget_template_options === 'object' ? live.widget_template_options : {};
+      setField('widget_template_options', { ...own, logoDirection: choice.logoDirection }, 0);
+    }
+  };
+  /** The agent face's letter, as /config picks it: the first operator (online first), else the workspace. */
+  const launcherLetter = launcherInitial([
+    ...[...previewTeamMembers].sort((a, b) => Number(b.online) - Number(a.online)).map((m) => m.name),
+    typeof live?.brand_name === 'string' ? live.brand_name : workspace?.name,
+  ]);
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
@@ -705,14 +729,31 @@ function WidgetPageContent() {
                       placeholder={t(isInternational ? 'widgetPage.appearance.fabLabelPlaceholderIntl' : 'widgetPage.appearance.fabLabelPlaceholder')}
                     />
                     {capAllowed('widget_launcher_label') ? (
-                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t(capAllowed('widget_launcher_icon') && live?.fab_shape === 'pill' ? 'widgetPage.appearance.launcherPillHint' : 'widgetPage.appearance.fabLabelHint')}
+                      </p>
                     ) : (
                       <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
                     )}
                   </div>
 
-                  {/* 7 — Launcher size + icon */}
+                  {/* 7 — Launcher style, size + icon */}
                   <div className="space-y-4 rounded-lg border border-border/70 p-3">
+                    <LauncherStylePicker
+                      shape={capAllowed('widget_launcher_icon') ? live?.fab_shape : 'circle'}
+                      icon={capAllowed('widget_launcher_icon') ? live?.fab_icon : 'chat'}
+                      label={capAllowed('widget_launcher_label') ? live?.fab_label : ''}
+                      primaryColor={live?.primary_color || branding?.primary_color}
+                      initial={launcherLetter}
+                      international={isInternational}
+                      logoDirection={chatTemplateOptionKeys(previewTemplate.id).includes('logoDirection')
+                        ? (previewTemplate.options.logoDirection === 'open' ? 'open' : 'thread')
+                        : null}
+                      allowed={capAllowed('widget_launcher_icon')}
+                      labelAllowed={capAllowed('widget_launcher_label')}
+                      logoAllowed={appearanceAllowed}
+                      onChoose={chooseLauncher}
+                    />
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-medium">{t('widgetPage.appearance.fabScale')}</Label>
@@ -733,9 +774,10 @@ function WidgetPageContent() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.launcherOtherIcons')}</Label>
                       <div data-icon-picker className={cn('flex flex-wrap gap-2', !capAllowed('widget_launcher_icon') && 'pointer-events-none opacity-50')}>
-                        {Object.keys(FAB_ICONS).map((key) => (
+                        {/* The chat bubble and the headset are style tiles above. */}
+                        {Object.keys(FAB_ICONS).filter((key) => key !== 'chat' && key !== 'headset').map((key) => (
                           <button
                             key={key}
                             type="button"

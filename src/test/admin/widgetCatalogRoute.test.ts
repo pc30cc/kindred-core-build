@@ -234,7 +234,14 @@ describe('GET', () => {
     state.edition = 'international';
     const intl = await get();
     expect(intl.json).toMatchObject({ edition: 'international', defaultId: 'intl' });
-    expect((intl.json.templates as Row[]).map((t) => t.id)).toEqual(['intl']);
+    expect((intl.json.templates as Row[]).map((t) => t.id)).toEqual(['intl', 't1-intl', 't2-intl']);
+    // RESPOK's skins over Templates 1 and 2 are off until the Super Admin
+    // enables them, and carry the logo direction (Thread by default).
+    const [own, t1i, t2i] = intl.json.templates as Row[];
+    expect([own.enabled, t1i.enabled, t2i.enabled]).toEqual([true, false, false]);
+    expect(t1i.options).toMatchObject({ logoDirection: 'thread', navStyle: 'vb', navMode: 'active' });
+    expect(t2i.options).toMatchObject({ logoDirection: 'thread', csat: true });
+    expect(own.options).toEqual({});
   });
 
   it('503 while the edition cannot be told', async () => {

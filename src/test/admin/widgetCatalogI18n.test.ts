@@ -14,7 +14,7 @@ import fa from '@/i18n/locales/fa';
 import tr from '@/i18n/locales/tr';
 import { IRAN_BRAND_PATTERNS } from '../../../scripts/build/brandAudit.mjs';
 import { CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
-import { CHAT_TEMPLATE_NAV_MODES, CHAT_TEMPLATE_NAV_STYLES, CHAT_TEMPLATE_TOPIC_ICONS } from '../../../shared/chatTemplateCatalog';
+import { CHAT_TEMPLATE_LOGO_DIRECTIONS, CHAT_TEMPLATE_NAV_MODES, CHAT_TEMPLATE_NAV_STYLES, CHAT_TEMPLATE_TOPIC_ICONS } from '../../../shared/chatTemplateCatalog';
 
 const files = [
   'src/components/admin/widget/WidgetCatalogSection.tsx',
@@ -82,6 +82,23 @@ describe('widget template catalog copy', () => {
     for (const locale of [en, fa, tr]) {
       const hits = strings(locale.widgetCatalog).filter((text) => IRAN_BRAND_PATTERNS.some((re: RegExp) => re.test(text)));
       expect(hits).toEqual([]);
+    }
+  });
+
+  it('the International skins over Templates 1 and 2: Classic and Simple, and the logo direction named in every locale', () => {
+    expect(en.widgetCatalog.names).toMatchObject({ 't1-intl': 'Classic', 't2-intl': 'Simple' });
+    expect(fa.widgetCatalog.names).toMatchObject({ 't1-intl': 'کلاسیک', 't2-intl': 'ساده' });
+    expect(tr.widgetCatalog.names).toMatchObject({ 't1-intl': 'Klasik', 't2-intl': 'Sade' });
+    for (const locale of [en, fa, tr]) {
+      const c = locale.widgetCatalog;
+      // Same layout, same description as the template it skins.
+      expect(c.descriptions['t1-intl']).toBe(c.descriptions.t1);
+      expect(c.descriptions['t2-intl']).toBe(c.descriptions.t2);
+      expect(c.options.logoDirection).toBeTruthy();
+      expect(c.options.logoDirectionHint).toBeTruthy();
+      for (const v of CHAT_TEMPLATE_LOGO_DIRECTIONS) expect(c.options.logoDirections[v]).toBeTruthy();
+      // The catalog is shared by both editions: neither brand's name in it.
+      expect(strings(c).filter((text) => /respok|webyar|وب\s?یار/i.test(text))).toEqual([]);
     }
   });
 

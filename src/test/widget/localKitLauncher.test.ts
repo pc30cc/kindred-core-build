@@ -83,6 +83,11 @@ describe('the loader carries the kit byte-for-byte', () => {
     expect(LOADER_SRC).not.toMatch(/Vazirmatn/i);
   });
 
+  it('the kit\'s square has the brand\'s 18px corners; every other launcher\'s square keeps 16px', () => {
+    expect(LOCAL_KIT_LAUNCHER_CSS.endsWith('.launcher.lk-kit.square{border-radius:18px;}')).toBe(true);
+    expect(LOADER_SRC).toContain('".launcher.square{border-radius:16px;}",');
+  });
+
   it('honours reduced motion and adds no global script or inline handler', () => {
     expect(LOCAL_KIT_LAUNCHER_CSS).toContain('@media(prefers-reduced-motion:reduce)');
     expect(LOCAL_KIT_LAUNCHER_CSS).toContain('linear-gradient(140deg,#22D3B4,#0B7D6C)');

@@ -72,6 +72,7 @@ import {
   type ChatTemplateOptions,
 } from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
+import { launcherInitial, resolveLauncherStyle } from '../../../shared/launcherStyles.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from './poweredBy.js';
@@ -1207,9 +1208,14 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // The International template credits the platform with its logo (the
   // RESPOK kit's horizontal mark, the one the app's launch screen wears;
   // the "color" variant, drawn for the widget's light surface). Absolute:
-  // the widget runs on customers' sites.
+  // the widget runs on customers' sites. A template wearing the Open logo
+  // (its option logoDirection, t1-intl / t2-intl only) credits with the
+  // Open lockup, so the footer agrees with the launcher.
   if (poweredBy && edition === 'international' && assetBase) {
-    (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontal.light}`;
+    const lockup = (templateOptions as { logoDirection?: unknown }).logoDirection === 'open'
+      ? INTL_BRAND.horizontalOpen
+      : INTL_BRAND.horizontal;
+    (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${lockup.light}`;
   }
   // The Iranian edition (region_mode = 'iran' exactly; an edition that
   // cannot be read keeps the text) credits WebYar with the brand kit's
@@ -1221,6 +1227,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
   // before); Gregorian in the visitor's own zone in the International one.
   const dateHints = widgetDateHints(edition);
+  // The launcher's look (shared/launcherStyles.ts): what the row says,
+  // normalised (an unknown icon is `chat`, a pill needs its text). `ws` has
+  // the plan applied, so without widget_launcher_icon it is a chat circle.
+  const launcher = resolveLauncherStyle({ shape: ws.fab_shape, icon: ws.fab_icon, label: ws.fab_label });
   const widgetConfig = {
     enabled: true,
     workspaceId,
@@ -1284,9 +1294,14 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     loaderVersion,
     theme: ws.theme || 'modern',
     fab: {
-      icon: ws.fab_icon || 'chat',
+      icon: launcher.icon,
       helpIcon: ws.fab_help_icon || 'help_circle',
-      shape: ws.fab_shape || 'circle',
+      shape: launcher.shape,
+      // The agent's face shows the first operator's initial (online first,
+      // as the team stack), else the workspace's.
+      ...(launcher.icon === 'avatar' ? {
+        initial: launcherInitial([...teamMembers.map((m) => m.name), typeof ws.brand_name === 'string' ? ws.brand_name : workspace?.name]),
+      } : {}),
       label: ws.fab_label || '',
       chatLabel: ws.fab_chat_label || '',
       helpLabel: ws.fab_help_label || '',
@@ -1299,6 +1314,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       // runtime circle-reveals the configured icon underneath.
       imageUrl: snap.fabImageUrl,
     },
+    // Additive, only for a launcher wearing a style (a pill, the bubble, two
+    // bubbles, the agent's face): its stylesheet, which the loader requests
+    // then. Absent otherwise, so other payloads are unchanged.
+    ...(launcher.styled ? { fabStyleUrl: assetUrl(getWidgetAssetName('runtime-fab.css')) } : {}),
     features: {
       chat: ws.chat_enabled ?? true,
       knowledgeBase: ws.kb_enabled ?? true,

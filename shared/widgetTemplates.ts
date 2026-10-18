@@ -6,12 +6,16 @@
  * products never share a look:
  *
  *   - `iran`          — `default`: the Iran region's shipped design, exactly as it
- *                       always was (same assets, same bytes).
+ *                       always was (same assets, same bytes); `t1` and `t2`
+ *                       offered next to it.
  *   - `international` — `intl`: the RESPOK look. Today it is a skin over the
  *                       shared renderer (the same script and base stylesheet,
  *                       plus its own stylesheet with the RESPOK palette); it
  *                       can become a renderer of its own by pointing `script`
- *                       at a new file, with no other change.
+ *                       at a new file, with no other change. `t1-intl` and
+ *                       `t2-intl` are offered next to it: skins the same way,
+ *                       over t1's and t2's renderers (their stylesheet and
+ *                       extras too), so they behave exactly as t1 and t2.
  *
  * A template is a descriptor of asset FILE NAMES (public/widget/ for the chat
  * widget, public/call-widget/ for the call widget). The browser registries
@@ -130,6 +134,31 @@ export const CHAT_WIDGET_TEMPLATES = {
     closedNotice: true,
     reactions: true,
   },
+  // The International edition's skins over t1 and t2: the renderer, its
+  // stylesheet and extras are t1's / t2's, the skin carries the RESPOK
+  // palette, type and brand art. The flags follow the renderer.
+  't1-intl': {
+    id: 't1-intl',
+    script: 'presentation-t1.js',
+    style: 'presentation-t1.css',
+    skin: 'presentation-t1-intl.css',
+    fonts: 'presentation-default-fonts.css',
+    coreFeatures: true,
+    extras: 'presentation-t1-x.js',
+    closedNotice: false,
+    reactions: false,
+  },
+  't2-intl': {
+    id: 't2-intl',
+    script: 'presentation-t2.js',
+    style: 'presentation-t2.css',
+    skin: 'presentation-t2-intl.css',
+    fonts: 'presentation-default-fonts.css',
+    coreFeatures: true,
+    extras: 'presentation-t2-x.js',
+    closedNotice: true,
+    reactions: true,
+  },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 
 export type ChatWidgetTemplateId = keyof typeof CHAT_WIDGET_TEMPLATES;
@@ -143,7 +172,7 @@ export interface EditionTemplates<Id extends string> {
 
 export const EDITION_CHAT_WIDGET_TEMPLATES: Readonly<Record<Edition, EditionTemplates<ChatWidgetTemplateId>>> = {
   iran: { default: 'default', offered: ['default', 't1', 't2'] },
-  international: { default: 'intl', offered: ['intl'] },
+  international: { default: 'intl', offered: ['intl', 't1-intl', 't2-intl'] },
 };
 
 /**

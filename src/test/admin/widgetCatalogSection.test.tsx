@@ -16,7 +16,9 @@
  *   - the preview gets the drafted option defaults cleaned as the server
  *     stores them (a topic row still being typed is left out);
  *   - the on/off options (Template 2's rating after a chat, the transcript
- *     by email) are Super Admin defaults like the others.
+ *     by email) are Super Admin defaults like the others;
+ *   - the International edition's skins over Templates 1 and 2 (Classic,
+ *     Simple) carry the logo direction, a default the save sends.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -270,6 +272,39 @@ describe('WidgetCatalogSection', () => {
     const sent = puts[0].templates as Row[];
     expect(sent[1].options).toEqual({ ...T1_OPTIONS, transcriptEmail: false });
     expect(sent[2].options).toEqual({ ...T2_OPTIONS, csat: false });
+  });
+
+  it('International: Classic and Simple, with the logo direction (Thread by default) as a default the save sends', async () => {
+    const T1I = { logoDirection: 'thread', ...T1_OPTIONS };
+    const T2I = { logoDirection: 'thread', ...T2_OPTIONS };
+    current = catalog({
+      edition: 'international',
+      defaultId: 'intl',
+      templates: [
+        { id: 'intl', enabled: true, order: 0, name: {}, options: {}, optionSpec: {}, chosenBy: 0 },
+        { id: 't1-intl', enabled: false, order: 1, name: {}, options: T1I, optionSpec: {}, chosenBy: 0 },
+        { id: 't2-intl', enabled: false, order: 2, name: {}, options: T2I, optionSpec: {}, chosenBy: 0 },
+      ],
+    });
+    await mount();
+    for (const name of ['Classic', 'Simple']) expect(screen.getAllByText(name).length).toBeGreaterThan(0);
+    const t1i = document.querySelector('[data-catalog-template="t1-intl"]') as HTMLElement;
+    const t2i = document.querySelector('[data-catalog-template="t2-intl"]') as HTMLElement;
+    const group = within(t1i).getByRole('radiogroup', { name: 'Logo style' });
+    const [thread, open] = within(group).getAllByRole('radio');
+    expect([thread.getAttribute('aria-checked'), open.getAttribute('aria-checked')]).toEqual(['true', 'false']);
+    expect(open.textContent).toBe('Open: a bubble and a dot');
+    expect(within(t2i).getByRole('radiogroup', { name: 'Logo style' })).toBeTruthy();
+    // The catalog's own template has no options, so no logo choice.
+    expect(within(document.querySelector('[data-catalog-template="intl"]') as HTMLElement).queryByRole('radiogroup')).toBeNull();
+    fireEvent.click(open);
+    expect(open.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const sent = puts[0].templates as Row[];
+    expect(sent.map((tpl) => tpl.id)).toEqual(['intl', 't1-intl', 't2-intl']);
+    expect(sent[1].options).toEqual({ ...T1I, logoDirection: 'open' });
+    expect(sent[2].options).toEqual(T2I);
   });
 
   it('the preview dialog is described by the template description (no Radix accessibility warning)', async () => {

@@ -84,6 +84,30 @@
       fonts: 'presentation-default-fonts.css',
       extras: 'presentation-t2-x.js',
     },
+    // The International edition's two more templates: skins over t1's and
+    // t2's renderers (the same script, stylesheet and extras, then the skin
+    // with the international palette, type and brand art), as `intl` is over
+    // the default one. The handshake id of the extras stays the renderer's.
+    't1-intl': {
+      id: 't1-intl',
+      name: 't1-intl',
+      globalKey: '__gs_presentation_t1',
+      script: 'presentation-t1.js',
+      style: 'presentation-t1.css',
+      skin: 'presentation-t1-intl.css',
+      fonts: 'presentation-default-fonts.css',
+      extras: 'presentation-t1-x.js',
+    },
+    't2-intl': {
+      id: 't2-intl',
+      name: 't2-intl',
+      globalKey: '__gs_presentation_t2',
+      script: 'presentation-t2.js',
+      style: 'presentation-t2.css',
+      skin: 'presentation-t2-intl.css',
+      fonts: 'presentation-default-fonts.css',
+      extras: 'presentation-t2-x.js',
+    },
   };
 
   /**
@@ -98,9 +122,12 @@
   LEGACY_IDS['web-yar'] = 'default';
   /* @iran-kit:end */
 
+  // Own keys only: an id such as 'constructor' or '__proto__' is unknown,
+  // never a property every object inherits.
+  var own = Object.prototype.hasOwnProperty;
   function resolve(id) {
-    if (id && TEMPLATES[id]) return TEMPLATES[id];
-    if (id && LEGACY_IDS[id]) return TEMPLATES[LEGACY_IDS[id]];
+    if (id && own.call(TEMPLATES, id)) return TEMPLATES[id];
+    if (id && own.call(LEGACY_IDS, id)) return TEMPLATES[LEGACY_IDS[id]];
     return TEMPLATES[DEFAULT_ID];
   }
 

@@ -6,10 +6,12 @@
    (IRANSans for Persian, InterWY for Latin). Nothing is inherited from the
    default template's stylesheet.
 
-   Accent: the renderer writes `--a` (the workspace colour), `--on-a` and the
-   brand's hero stops inline on every view root and on the close button;
-   every other accent shade is derived here (color-mix, with the brand's
-   resolved values for browsers without it). Visitor bubbles stay on the
+   Accent: the renderer writes `--a` (the workspace colour) and `--on-a`
+   inline on every view root and on the close button; every other accent
+   shade is derived here (color-mix, with the brand's resolved values for
+   browsers without it). An uncustomised accent is not inlined: the
+   renderer marks those elements `gs-accent-brand` and the brand colour and
+   its hero stops are below (a skin restyles them). Visitor bubbles stay on the
    right and the team's on the left in both directions; everything else is
    written with logical properties.
    ══════════════════════════════════════════════════════════════════════ */
@@ -96,6 +98,11 @@
     --rec70: color-mix(in oklab, var(--rec) 70%, #fff);
   }
 }
+/* The brand accent (the renderer's `gs-accent-brand`), and its hero stops,
+   which the brand colour picked explicitly wears too (the renderer writes
+   `--a` first, with its `;`). Two classes: above the token blocks. */
+.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #0B7D6C; --on-a: #FFFFFF; --gs-primary: #0B7D6C; }
+.wy-view.gs-accent-brand, .wy-view[style*='--a:#0b7d6c;' i] { --h1: #22C4A6; --h2: #0F927D; --h3: #08594E; --glow: #7CF5DF; }
 /* Springs: a browser that cannot read linear() keeps the plain ease. */
 @supports (transition-timing-function: linear(0, 1)) {
   :host,

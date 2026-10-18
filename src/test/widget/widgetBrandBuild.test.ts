@@ -63,21 +63,21 @@ describe('the RESPOK widget carries nothing of the Iran brand', () => {
     });
   }
 
-  it('the RESPOK loader keeps its launcher kit; nothing is marked @intl-kit yet, so the Iran loader has it too', () => {
-    // RESPOK-only loader code is to go in @intl-kit blocks, which the Iran
-    // build leaves out (an Iran-brand deployment switched to the
-    // International edition then shows the plain launcher). Until it is
-    // marked, this pins that no widget file uses the marker and that both
-    // loaders have the kit: whoever marks it changes the Iran half here.
+  it('RESPOK\'s launcher kit (@intl-kit) ships in the RESPOK loader only', () => {
+    // The loader is the only file marked: what the Iran build leaves out is
+    // RESPOK's button, so an Iran-brand deployment switched to the
+    // International edition shows the plain launcher (below).
     for (const name of readdirSync(resolve(ROOT, 'public/widget')).filter(isWidgetSource)) {
+      if (name === 'loader.js') continue;
       expect(readFileSync(resolve(ROOT, 'public/widget', name), 'utf8'), name).not.toMatch(/@intl-kit|\bINTL_KIT\b/);
     }
     const iran = shipped('public/widget', 'loader.js', 'iran');
     const respok = shipped('public/widget', 'loader.js', 'respok');
-    for (const out of [iran, respok]) {
-      expect(out).toContain('rpk-kit');
-      expect(out).toContain('#FF5A3C');
-    }
+    expect(iran).not.toMatch(/rpk-kit|#FF5A3C|#16142B|RESPOK_KIT|respokKitOn|INTL_KIT/i);
+    expect(respok).toContain('rpk-kit');
+    expect(respok).toContain('#FF5A3C');
+    expect(respok).toContain('rpk-kit-o');
+    expect(shipped('public/widget', 'loader.js', 'both')).toContain('rpk-kit');
   });
 
   it('the local kit is gone from the RESPOK loader and kept in the Iran one', () => {
@@ -208,6 +208,7 @@ async function exercise(launcher: HTMLButtonElement) {
 describe('the RESPOK loader boots, renders and opens without the local kit', () => {
   it.each([
     ['international (intl)', { edition: 'international', templateId: 'intl' }, 'rpk-kit'],
+    ['international, the Open logo (t1-intl)', { edition: 'international', templateId: 't1-intl', templateOptions: { logoDirection: 'open' } }, 'rpk-kit'],
     ['iran (never served by RESPOK)', { edition: 'iran' }, null],
     ['unknown edition', { edition: null }, null],
     ['an older backend (no edition)', {}, null],
@@ -222,6 +223,22 @@ describe('the RESPOK loader boots, renders and opens without the local kit', () 
     expect(state.ready).toBe(true);
     expect(state.open).toBe(true);
     // Latin digits: the Persian ones are the local kit's.
+    expect(launcher.querySelector('.badge')?.textContent ?? '3').toBe('3');
+    expect(errors).toEqual([]);
+  });
+});
+
+describe('the Iran build\'s loader in the International edition (a WebYar deployment switched over)', () => {
+  it.each([['intl', 'intl'], ['t1-intl', 't1-intl']])('%s: the plain launcher, no other brand\'s art, and everything works', async (_name, templateId) => {
+    const { root, launcher } = await bootShipped('iran', { edition: 'international', templateId, templateOptions: { logoDirection: 'open' } });
+    expect(launcher.classList.contains('revealed')).toBe(true);
+    expect(launcher.className).not.toMatch(/rpk-kit|lk-kit/);
+    expect(root.querySelector('style[data-rpk-kit], style[data-lk-kit]')).toBeNull();
+    expect(root.querySelector('.shell')!.className).not.toMatch(/lg-/);
+    expect(launcher.querySelector('svg.chat-icon')!.getAttribute('viewBox')).toBe('0 0 24 24');
+    expect(root.querySelector('.shell')!.getAttribute('style')).toContain('--gs-fab-size: 56px');
+    const state = await exercise(launcher);
+    expect(state.open).toBe(true);
     expect(launcher.querySelector('.badge')?.textContent ?? '3').toBe('3');
     expect(errors).toEqual([]);
   });

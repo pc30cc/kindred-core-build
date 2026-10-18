@@ -287,11 +287,14 @@
    * The accent tokens as inline custom properties: `--a` (the workspace
    * colour), `--on-a` (white unless Ink reads better on it) and Core's
    * `--gs-primary` (its focus ring). An uncustomised colour (empty, the
-   * seeded #3B82F6) or the brand's own #0B7D6C wears the brand look, with
-   * its hand-tuned hero stops. Derived shades come from the stylesheet.
-   * A light accent (Ink on it) is too pale as text or a ring on white:
-   * there `--a-tx` and `--a-ink` (and the focus ring) are the accent
-   * darkened (45% of it over Ink-black).
+   * seeded #3B82F6, unreadable) gets none ('', and the class
+   * `gs-accent-brand` where they would go): the stylesheet (and a skin over
+   * it) holds the brand colour and its hand-tuned hero stops, and gives
+   * them to the brand colour picked explicitly too, which it finds by
+   * `--a` written first with its `;` (`[style*='--a:#0b7d6c;' i]`).
+   * Derived shades come from the stylesheet. A light accent (Ink on it) is
+   * too pale as text or a ring on white: there `--a-tx` and `--a-ink` (and
+   * the focus ring) are the accent darkened (45% of it over Ink-black).
    */
   function hexOf(rgb) {
     return '#' + rgb.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('').toUpperCase();
@@ -299,15 +302,13 @@
   function accentTokens(primary) {
     var raw = String(primary || '').trim().toLowerCase();
     var rgb = rgbOf(raw);
-    var brand = !rgb || raw === '#3b82f6' || raw === '#0b7d6c';
-    if (brand) rgb = [11, 125, 108];
+    if (!rgb || raw === '#3b82f6') return '';
     var a = hexOf(rgb);
     var l = lum(rgb);
     var light = 1.05 / (l + 0.05) < (l + 0.05) / (lum(rgbOf(INK)) + 0.05);
     var dk = light ? hexOf(rgb.map(function (v, i) { return Math.round(v * .45 + [11, 13, 18][i] * .55); })) : '';
     return '--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
-      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '') +
-      (brand ? ';--h1:#22C4A6;--h2:#0F927D;--h3:#08594E;--glow:#7CF5DF' : '');
+      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '');
   }
 
   function create(env) {
@@ -337,7 +338,9 @@
     };
     var lang = String(ctx.locale || 'en').toLowerCase().split('-')[0];
     var D = DICT[lang] || DICT.en;
-    var ACC = ' style="' + accentTokens(env.primaryColor) + '"';
+    var ACC = accentTokens(env.primaryColor);
+    var AB = ACC ? '' : ' gs-accent-brand';
+    if (ACC) ACC = ' style="' + ACC + '"';
     var team = (Array.isArray(config.teamMembers) ? config.teamMembers : []).filter(function (m) {
       return m && (m.name || m.full_name);
     });
@@ -376,7 +379,7 @@
     }
     function dirAttr(rtl) { return ' dir="' + (rtl ? 'rtl' : 'ltr') + '"'; }
     function viewOpen(cls, rtl, extra) {
-      return '<div class="wy-view ' + cls + '"' + dirAttr(rtl) + ACC + (extra || '') + '>';
+      return '<div class="wy-view ' + cls + AB + '"' + dirAttr(rtl) + ACC + (extra || '') + '>';
     }
 
     // ── People and the workspace ──────────────────────────────────────
@@ -1198,7 +1201,7 @@
     // is the close button, drawn per view by the stylesheet
     // (.panel[data-view]): glass on the home hero, plain on white bars.
     function shellHtml() {
-      return '<button type="button" class="panel-close" data-panel-close' + ACC + ' aria-label="' +
+      return '<button type="button" class="panel-close' + AB + '" data-panel-close' + ACC + ' aria-label="' +
           esc(tf('close', 'Close')) + '">' + ico('x', 20, 1.9) + '</button>' +
         '<div class="body wy-scroll" data-body></div>' +
         // The in-panel call surface is a PANEL-level overlay, so a minimized
@@ -1568,7 +1571,12 @@
     // ══════════════════════════════════════════════════════════════════
     // Knowledge Base (help center, a category, an article)
     // ══════════════════════════════════════════════════════════════════
-    function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    /**
+     * A query word as a pattern. The server folds case as the database does
+     * («İade» is «iade»), which a JavaScript /i alone does not undo: an «i»
+     * also marks an «İ».
+     */
+    function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/i/g, '[iİ]'); }
     /** Escaped text with the query's words highlighted (escaped too). */
     function markedHtml(text, query) {
       var words = String(query || '').trim().split(/\s+/).filter(function (w) { return w.length >= 2; });
@@ -2005,7 +2013,9 @@
   // other face stays on demand through its unicode-range
   // (presentation-default-fonts.css):
   //   - Persian: IRANSans 400, 500 and 600 (= the 700 file);
-  //   - any other locale: Inter, the one Latin file.
+  //   - any other locale: Inter, the one Latin file; Figtree for a skin of
+  //     the International edition (a template id ending in -intl, whose skin
+  //     draws Latin text in it).
   // `context` is { locale, templateId } from the loader and the live preview.
   // An older loader passes none: the Persian set.
   function prepare(context) {
@@ -2018,7 +2028,7 @@
         loads.push(document.fonts.load(weight + ' 16px IRANSans', 'سلام دنیا'));
       });
     } else {
-      loads.push(document.fonts.load('500 16px InterWY', 'Aa'));
+      loads.push(document.fonts.load(/-intl$/.test(c.templateId) ? '500 16px Figtree' : '500 16px InterWY', 'Aa'));
     }
     return Promise.race([
       Promise.all(loads.map(function (p) { return p.catch(function () { return []; }); })).then(function () {}),

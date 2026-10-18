@@ -8,7 +8,7 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from 'vitest';
-import { stripIntlKit, stripLocalKit, transformWidgetAsset } from '../../../scripts/build/widgetBrand.mjs';
+import { declaredNames, stripIntlKit, stripLocalKit, transformWidgetAsset } from '../../../scripts/build/widgetBrand.mjs';
 
 describe('the widget brand transform', () => {
   const src = [
@@ -34,6 +34,39 @@ describe('the widget brand transform', () => {
       expect(out).toContain('KIT_X');
       expect(out).toContain('kitY');
     }
+  });
+
+  // Hardened for issue #340: the guard used to read only the first name of
+  // a declaration, so `var a = 1, b = 2;` left `b` unchecked.
+  describe('every name a block declares is checked', () => {
+    const block = (flag: 'LOCAL_KIT' | 'INTL_KIT', marker: 'iran' | 'intl', after: string) => [
+      `var ${flag} = true;`,
+      `/* @${marker}-kit:begin */`,
+      'var KIT_A = 1, KIT_B = f(1, [2, 3]), KIT_C = "x, y; z", KIT_D = /[,;]/g, KIT_E;',
+      'function kitF() { var local = 1, other = { p: 1, q: 2 }; return local + other.p; }',
+      'var KIT_G = function () { var inner = 1, inner2 = 2; return inner + inner2; }, KIT_H = 2;',
+      `/* @${marker}-kit:end */`,
+      after,
+    ].join('\n');
+
+    it.each(['KIT_A', 'KIT_B', 'KIT_C', 'KIT_D', 'KIT_E', 'kitF', 'KIT_G', 'KIT_H'])('%s used outside its branch fails both builds', (name) => {
+      expect(() => transformWidgetAsset('x.js', block('LOCAL_KIT', 'iran', `window.x = ${name};`), 'respok')).toThrow(new RegExp(`RESPOK build still uses ${name}`));
+      expect(() => transformWidgetAsset('x.js', block('INTL_KIT', 'intl', `window.x = ${name};`), 'iran')).toThrow(new RegExp(`Iran build still uses ${name}`));
+    });
+
+    it('a function\'s own locals are not the code around\'s (the minifier renames them)', () => {
+      expect(declaredNames(block('LOCAL_KIT', 'iran', '').split('\n').slice(2, 5).join('\n'), 'x.js'))
+        .toEqual(['KIT_A', 'KIT_B', 'KIT_C', 'KIT_D', 'KIT_E', 'kitF', 'KIT_G', 'KIT_H']);
+      const used = 'if (LOCAL_KIT) window.x = [KIT_A, KIT_B, KIT_C, KIT_D, KIT_E, kitF(), KIT_G(), KIT_H];';
+      expect(String(transformWidgetAsset('x.js', block('LOCAL_KIT', 'iran', used), 'respok'))).not.toMatch(/KIT_|kitF/);
+      expect(declaredNames('for (var i = 0, n = 2; i < n; i++) {}\nif (x) { var hoisted = 1, h2 = 2 }\nvar arrow = (a) => { var no = 1; return a; }, last = 1;'))
+        .toEqual(['i', 'n', 'hoisted', 'h2', 'arrow', 'last']);
+    });
+
+    it('refuses a declaration it cannot read instead of guessing', () => {
+      expect(() => declaredNames('var { a, b } = o;', 'x.js')).toThrow(/cannot read/);
+      expect(() => transformWidgetAsset('x.js', 'var INTL_KIT = true;\n/* @intl-kit:begin */ var [a, b] = o; /* @intl-kit:end */', 'iran')).toThrow(/cannot read/);
+    });
   });
 
   it('refuses unbalanced markers and a LOCAL_KIT without its switch', () => {

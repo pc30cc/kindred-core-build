@@ -275,32 +275,40 @@ describe('t2: the thread, away', () => {
 });
 
 describe('today\'s path where the thread does not apply', () => {
+  // Core's own leave-a-message form, which an offline start shows since
+  // round 5 published its presence (before, the composer stayed).
+  const coreForm = (h: ReturnType<typeof boot>) => h.q('[data-fb="message"]');
+
   it('the leave-a-message form already on screen when the late pack comes keeps the tab while it is there', async () => {
     const h = start({ preloaded: false, late: 'hold' });
     await toChat(h);
-    // The form Core shows away (Core's own, once round 5 fixes its presence).
-    const form = document.createElement('textarea');
-    form.setAttribute('data-fb', 'message');
-    h.body.appendChild(form);
+    expect(coreForm(h)).not.toBeNull();
+    expect(h.q('[data-msg-input]')).toBeNull();
     h.releaseLate();
     await flush(30);
-    await send(h, 'سلام');
+    expect(coreForm(h)).not.toBeNull();
+    expect(h.q('[data-msg-input]')).toBeNull();
     expect(awayPosts(h)).toEqual([]);
-    expect(chatSends(h)).toHaveLength(1);
     // The form gone (another view, a reload): the thread takes a first message.
-    form.remove();
+    h.runtime.setTab('home');
+    await flush(20);
+    h.runtime.setTab('chat');
+    await flush(30);
+    expect(coreForm(h)).toBeNull();
     await send(h, 'سلام دوباره');
     expect(awayPosts(h)).toHaveLength(1);
+    expect(chatSends(h)).toEqual([]);
   });
 
-  it('without the late pack (it failed) nothing of it: a first message goes as before', async () => {
+  it('without the late pack (it failed) nothing of it: Core\'s leave-a-message form, as before the thread', async () => {
     const h = start({ preloaded: false, late: 'fail' });
     await toChat(h);
     await flush(20);
-    await send(h, 'سلام');
-    expect(awayPosts(h)).toEqual([]);
-    expect(chatSends(h)).toHaveLength(1);
+    expect(coreForm(h)).not.toBeNull();
+    expect(h.q('[data-msg-input]')).toBeNull();
     expect(reply(h)).toBeNull();
+    expect(awayPosts(h)).toEqual([]);
+    expect(chatSends(h)).toEqual([]);
   });
 
   it('an AI answering away keeps the AI chat; a full quota keeps the form', async () => {
@@ -326,7 +334,7 @@ describe('today\'s path where the thread does not apply', () => {
   it('default keeps its own path and asks nothing new', async () => {
     const h = boot({ renderer: 'default', config: { availability: AWAY } });
     await toChat(h);
-    await send(h, 'سلام');
+    expect(coreForm(h)).not.toBeNull();
     expect(awayPosts(h)).toEqual([]);
     expect(h.q('.away-reply')).toBeNull();
     expect(h.fetches.some((u) => /offline-email|\/queue|\/reactions/.test(u))).toBe(false);

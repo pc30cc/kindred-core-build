@@ -155,6 +155,20 @@ templates: `docs/operations/EDITIONS.md`.
   search field's first use only, so a visitor who never searches never
   downloads it; 3.8 KB of a 4 KB budget. An emoji added to a picker gets
   its words there too (`emojiSearch.test.ts` checks every one).
+- The launcher's styles (`public/widget/runtime-fab.css`, issue #340: the
+  pill with the launcher text inside, the classic bubble, two bubbles, the
+  agent's face; `fab.shape` / `fab.icon` in `shared/launcherStyles.ts`):
+  the launcher is the loader's in every template, so a style is not a
+  template's. /config names the hashed file (`config.fabStyleUrl`) only for
+  a workspace wearing one, and only then does the loader request it, into
+  its shadow root (canonical-name retry), keeping the launcher unseen until
+  it is in (3 s at most). It restyles the loader's own launcher (classes
+  `fx fx-<icon> fx-<shape>`, the pill's text in `data-fx`, the agent's
+  initial in `data-fi`, `dir`), so without it the launcher is today's, and
+  a launcher without a style is byte for byte as before
+  (`launcherStyles.test.ts`). It follows the stylesheet rules of §3 (no
+  font, no host, small inline SVGs) and moves nothing of its own. 1.1 KB of
+  its 2 KB.
 - A feature's server data is sent on request only, so the API serves
   `default` as before: the thread list's and a history's assigned operator
   (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
@@ -250,7 +264,7 @@ one is a decision, with the reason in the commit and here.
 | chat `runtime-ext.js` | 8 KB | first open of a t1/t2 template |
 | chat `runtime-late.js` | 12 KB | after the first paint of a template with extras |
 | chat renderer extras (each `presentation-<renderer>-x.js`; not in the template total) | 12 KB | after the first paint |
-| chat `runtime-fab.css` (when it exists) | 2 KB | page views of a workspace wearing a launcher style |
+| chat `runtime-fab.css` | 2 KB | page views of a workspace wearing a launcher style |
 | chat `runtime-emoji.js` | 4 KB | the emoji search's first use |
 | call `l.js` | 3 KB | every page view |
 | call `runtime.css` | 5 KB | first page view |
@@ -266,7 +280,11 @@ every edition that offers it (`EDITION_CHAT_WIDGET_TEMPLATES`: Iranian →
 
 A launcher look belongs to `loader.js` (every page view): a template that
 wants its own launcher must fit the loader budget, or take its look from
-config instead of new code.
+config instead of new code. A launcher style that not every site wears
+goes in `runtime-fab.css` (§2), never in the loader. Sizes on 2026-10-18,
+after issue #340 (gzip 5, as shipped): the loader 23.1 KB in the Iranian
+build (23.7 KB before: RESPOK's kit left out, the styles' wiring added),
+22.5 KB in RESPOK's (22.1 KB before: the Open logo added).
 
 The build supports a second kit marker, the mirror of the Iran region's
 `@iran-kit` (left out of the RESPOK build): `/* @intl-kit:begin */ …
@@ -274,18 +292,21 @@ The build supports a second kit marker, the mirror of the Iran region's
 the Iran build (`scripts/build/widgetBrand.mjs`, the widgets' copy of the
 dashboard's `SHIPS_INTL_KIT`; every build refuses malformed markers of
 either kit; a name a deleted block defines must be used only inside
-`if (INTL_KIT ...)` branches, or the Iran build fails). It is for
-RESPOK-only loader code (RESPOK's launcher kit: `RESPOK_KIT_CSS`, its
-glyphs, `respokKitOn`, `ensureRespokKitStyle`; the operator preview's
-copy is `shared/respokLauncher.ts`), so the Iran loader does not pay for it. The
-edition is the database's (`platform_settings.region_mode`, which the Super
-Admin may switch; a missing row is International) and the brand the
-build's: an Iran-brand deployment switched to the International edition
-then shows the plain launcher instead of RESPOK's, with no other brand's
-art, as the dashboard's Iran build goes without International-only extras
-(decided for issue #340). No widget file is marked yet: whoever marks the
-kit also updates `widgetBrandBuild.test.ts`, which pins that the Iran loader
-still has it.
+`if (INTL_KIT ...)` branches, or the Iran build fails). It holds
+RESPOK-only loader code: RESPOK's launcher kit (`RESPOK_KIT_CSS`, its
+Thread and Open glyphs, `respokKitOn`, `rpkOpen`, `ensureRespokKitStyle`;
+the operator preview's copy is `shared/respokLauncher.ts`), whose uses
+(the button, its badge, the shell's `lg-thread` / `lg-open`) sit behind
+`INTL_KIT`, so the Iran loader does not pay for it. The edition is the
+database's (`platform_settings.region_mode`, which the Super Admin may
+switch; a missing row is International) and the brand the build's: an
+Iran-brand deployment switched to the International edition then shows
+the plain launcher instead of RESPOK's, with no other brand's art, as the
+dashboard's Iran build goes without International-only extras (decided for
+issue #340; `widgetBrandBuild.test.ts` pins both loaders and boots the Iran
+one in the International edition). The build checks every name a deleted
+block declares, each declarator of a `var a = 1, b = 2;` included, and
+refuses a declaration it cannot read (a destructuring one).
 
 ## 6. Server side (no per-template work, but do not undo it)
 

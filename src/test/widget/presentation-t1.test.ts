@@ -12,7 +12,8 @@
  *     declared that is not, and nothing is drawn for a capability Core says
  *     it cannot serve;
  *   - skeletons wear the real surfaces' structure; Persian digits in fa; the
- *     accent tokens it computes (brand default, on-accent ink);
+ *     accent tokens it computes (on-accent ink; the brand default is the
+ *     stylesheet's, by class, so a skin can give its own);
  *   - its own copy exists in fa, en and tr; the platform's mark stays out of
  *     the RESPOK build;
  *   - its extras (presentation-t1-x.js, markup no first paint needs: the
@@ -784,7 +785,8 @@ describe('t1: skeletons wear the real surfaces', () => {
       expect(root.classList.contains('wy-skeleton')).toBe(true);
       expect(root.getAttribute('aria-hidden')).toBe('true');
       expect(root.getAttribute('dir')).toBe('rtl');
-      expect(root.getAttribute('style')).toContain('--a:#0b7d6c');
+      // The uncustomised accent: the stylesheet's brand colour, by class.
+      expect(root.classList.contains('gs-accent-brand')).toBe(true);
       // Nothing in it can be reached: inert, or no controls at all.
       if (!root.hasAttribute('inert')) expect(root.querySelector('button, input, textarea, a')).toBeNull();
       // Skeletons never carry names, times or counts.
@@ -862,12 +864,35 @@ describe('t1: numbers in the visitor\'s digits', () => {
 
 describe('t1: accent tokens', () => {
   const styleOf = (r: Renderer) => parse(r.homeHtml({ rtl: true, isOnline: true })).firstElementChild!.getAttribute('style')!;
-  const BRAND = '--a:#0b7d6c;--a-rgb:11,125,108;--gs-primary:#0b7d6c;--hero:linear-gradient(155deg,#1DB99D 0%,#0F927D 46%,#0B7D6C 100%)';
 
-  it('wears the brand look when the colour is uncustomised, unparseable or the brand\'s own', () => {
-    for (const c of ['', '#3B82F6', '#3b82f6', '#0B7D6C', 'not-a-colour', 'red;background:url(x)', '#12345']) {
-      expect(styleOf(make({ primaryColor: c })), c).toBe(BRAND);
+  it('leaves an uncustomised or unparseable colour to the stylesheet: no inline accent, the class gs-accent-brand', () => {
+    for (const c of ['', '#3B82F6', '#3b82f6', 'not-a-colour', 'red;background:url(x)', '#12345']) {
+      const r = make({ primaryColor: c });
+      const home = parse(r.homeHtml({ rtl: true, isOnline: true })).firstElementChild!;
+      expect(home.getAttribute('style'), c).toBe('');
+      expect(home.classList.contains('gs-accent-brand'), c).toBe(true);
+      const close = parse(r.shellHtml({})).querySelector('[data-panel-close]')!;
+      expect(close.getAttribute('style'), c).toBe('');
+      expect(close.classList.contains('gs-accent-brand'), c).toBe(true);
     }
+    // The brand's own colour and hand-tuned hero, in the stylesheet (and so
+    // in a skin over it); the hero also for the brand colour picked
+    // explicitly, found by the inline `--a` the renderer writes first.
+    expect(T1_CSS).toContain(".wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #0B7D6C; --a-rgb: 11, 125, 108; --gs-primary: #0B7D6C; }");
+    expect(T1_CSS).toContain(".wy-view.gs-accent-brand, .wy-view[style*='--a:#0b7d6c;' i] { --hero: linear-gradient(155deg, #1DB99D 0%, #0F927D 46%, #0B7D6C 100%); }");
+  });
+
+  it('writes a chosen colour inline, `--a` first with its `;` (what the stylesheets match), and no class', () => {
+    for (const [c, a] of [['#0B7D6C', '#0b7d6c'], ['#16142B', '#16142b'], ['#2F5BFF', '#2f5bff']]) {
+      const html = make({ primaryColor: c }).homeHtml({ rtl: true, isOnline: true });
+      const root = parse(html).firstElementChild!;
+      expect(root.getAttribute('style')!.startsWith(`--a:${a};`), c).toBe(true);
+      expect(root.classList.contains('gs-accent-brand'), c).toBe(false);
+      expect(root.getAttribute('style'), c).not.toContain('--hero');
+    }
+    // No brand colour or hero in the renderer's code: its stylesheet (or a skin) has them.
+    const code = T1_SRC.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/0b7d6c|1db99d|0f927d/i);
   });
 
   it('uses the workspace colour, with white or ink on it by contrast', () => {

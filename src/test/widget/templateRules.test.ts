@@ -221,8 +221,15 @@ describe('fonts: one document-level stylesheet per template, each face fetched o
   }
 
   it('every font file is named by a fonts stylesheet, and no two files are the same bytes', () => {
-    const named = new Set(fontsStylesheets.flatMap((s) => parseFaces(read(`${CHAT_DIR}/${s}`)).map((f) => f.file)));
-    const files = readdirSync(resolve(ROOT, FONT_DIR));
+    const faces = fontsStylesheets.flatMap((s) => parseFaces(read(`${CHAT_DIR}/${s}`)));
+    const named = new Set(faces.map((f) => f.file));
+    // An OFL face's licence text may sit next to its files (for a family a stylesheet names).
+    const all = readdirSync(resolve(ROOT, FONT_DIR));
+    for (const f of all.filter((n) => n.endsWith('.txt'))) {
+      const family = (f.match(/^OFL-([A-Za-z]+)\.txt$/) || [])[1];
+      expect(family && faces.some((face) => face.family === family), `${FONT_DIR}/${f}: not the licence of a shipped family`).toBe(true);
+    }
+    const files = all.filter((n) => !n.endsWith('.txt'));
     for (const f of files) {
       expect(f).toMatch(/^[a-z0-9-]+\.woff2$/);
       expect(named.has(f), `${FONT_DIR}/${f} is shipped but no fonts stylesheet names it`).toBe(true);
@@ -232,7 +239,7 @@ describe('fonts: one document-level stylesheet per template, each face fetched o
   });
 
   it(`every font file is at most ${BUDGETS.fonts.file} bytes`, () => {
-    for (const f of readdirSync(resolve(ROOT, FONT_DIR))) {
+    for (const f of readdirSync(resolve(ROOT, FONT_DIR)).filter((n) => n.endsWith('.woff2'))) {
       const size = readFileSync(resolve(ROOT, FONT_DIR, f)).length;
       expect(size, `${FONT_DIR}/${f}`).toBeLessThanOrEqual(BUDGETS.fonts.file);
     }

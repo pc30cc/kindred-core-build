@@ -648,7 +648,12 @@ describe('the place in the queue: routing, GET /queue and the pill agree', () =>
 // ═══ The message left away (t1, t2) ═══════════════════════════════════════
 describe('the message left while the team is away: offline-messages, offline-email and the reply card agree', () => {
   const AWAY = { state: 'offline', offline_mode: 'capture_message', next_open_at: null };
-  /** A first visit (no conversation yet) to the chat tab, away. */
+  /**
+   * A first visit (no conversation yet) to the chat tab, away, once the late
+   * pack is in. Before it Core's own leave-a-message form shows (an offline
+   * start publishes its presence since round 5) and keeps the tab while it
+   * is there (awayThread.test.ts).
+   */
   async function away(opts: BootOptions = {}) {
     const h = boot({
       renderer: 't1',
@@ -658,6 +663,8 @@ describe('the message left while the team is away: offline-messages, offline-ema
       api,
       ...opts,
     });
+    await flush(30);
+    await until(() => (window as unknown as { __gs_mod_late?: unknown }).__gs_mod_late);
     await flush(30);
     h.runtime.setTab('chat');
     await flush(30);

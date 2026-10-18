@@ -48,11 +48,10 @@
   /* @iran-kit:end */
 
   // ══════════════════════════════════════════════════════════════════
-  // Colour: the accent, its brand default and the text colour on it. The
-  // stylesheet derives every other shade from `--a` (OKLab color-mix, as
-  // the design does, with an rgba fallback).
+  // Colour: the accent and the text colour on it. The stylesheet derives
+  // every other shade from `--a` (OKLab color-mix, as the design does, with
+  // an rgba fallback) and holds the brand default.
   // ══════════════════════════════════════════════════════════════════
-  var BRAND = '#0b7d6c';
   function hexRgb(h) {
     var s = String(h || '').trim().toLowerCase().replace(/^#/, '');
     if (/^[0-9a-f]{3}$/.test(s)) s = s.replace(/./g, '$&$&');
@@ -66,26 +65,28 @@
   }
   /**
    * The accent tokens, as inline custom properties for each view root and
-   * the close control. An uncustomised widget (no colour, or the product's
-   * #3B82F6) wears the brand teal and its hand-tuned hero; `--on-a` is
-   * white unless the dark ink (#16142B) reads better on the accent (WCAG
-   * contrast), and then `--dk` darkens the accent where it is text or an
-   * icon on white (the stylesheet's `--a-ink`, `--a-tx`); `--gs-primary`
-   * follows the accent so Core's focus ring does.
+   * the close control (`css`). An uncustomised widget (no colour, the
+   * product's #3B82F6, or one that does not parse) gets none, only the class
+   * `gs-accent-brand` (`ab`): the stylesheet (and a skin over it) holds the
+   * brand colour and its hand-tuned hero. `--on-a` is white unless the dark
+   * ink (#16142B) reads better on the accent (WCAG contrast), and then
+   * `--dk` darkens the accent where it is text or an icon on white (the
+   * stylesheet's `--a-ink`, `--a-tx`); `--gs-primary` follows the accent so
+   * Core's focus ring does. `--a` comes first, lower-case, with its `;`: a
+   * stylesheet finds the brand colour picked explicitly by it
+   * (`[style*='--a:#0b7d6c;' i]`) and gives it the brand's hero too.
    */
   function accentTokens(primary) {
     var raw = String(primary || '').trim().toLowerCase();
-    var rgb = hexRgb(raw);
-    var p = !raw || raw === '#3b82f6' || !rgb ? hexRgb(BRAND) : rgb;
+    var p = hexRgb(raw);
+    if (!p || raw === '#3b82f6') return { css: '', ab: ' gs-accent-brand' };
     var a = '#' + p.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('');
     var y = luminance(p);
     var dark = (y + 0.05) / (luminance([22, 20, 43]) + 0.05) > 1.05 / (y + 0.05);
     return {
-      accent: a,
-      dark: dark,
+      ab: '',
       css: '--a:' + a + ';--a-rgb:' + p.join(',') + ';--gs-primary:' + a +
-        (dark ? ';--on-a:#16142B;--on-a-2:rgba(22,20,43,.78);--on-a-sf:rgba(22,20,43,.08);--dk:50%' : '') +
-        (a === BRAND ? ';--hero:linear-gradient(155deg,#1DB99D 0%,#0F927D 46%,#0B7D6C 100%)' : ''),
+        (dark ? ';--on-a:#16142B;--on-a-2:rgba(22,20,43,.78);--on-a-sf:rgba(22,20,43,.08);--dk:50%' : ''),
     };
   }
 
@@ -270,7 +271,7 @@
     }
     function lead() { return teamPeople()[0] || null; }
     function viewRoot(cls, extra) {
-      return '<div class="wy-view ' + cls + (extra ? ' ' + extra : '') + '" dir="' + DIR + '" style="' + TOK + '">';
+      return '<div class="wy-view ' + cls + (extra ? ' ' + extra : '') + ACC.ab + '" dir="' + DIR + '" style="' + TOK + '">';
     }
     /**
      * The workspace's reply-time note. A string is authoritative, '' too:
@@ -934,7 +935,7 @@
     // the call host and the lightbox.
     // ══════════════════════════════════════════════════════════════════
     function shellHtml() {
-      return '<button type="button" class="panel-close" data-panel-close style="' + TOK + '" aria-label="' + esc(tf('close', 'Close')) + '">' +
+      return '<button type="button" class="panel-close' + ACC.ab + '" data-panel-close style="' + TOK + '" aria-label="' + esc(tf('close', 'Close')) + '">' +
           closeIcon(20) + '</button>' +
         '<div class="body wy-scroll" data-body></div>' +
         '<div class="gs-call-host" data-call-host hidden></div>' +
@@ -1485,13 +1486,16 @@
   // The faces this locale's first paint draws with (waiting 500 ms at
   // most); every other face stays on demand through its unicode-range
   // (presentation-default-fonts.css): Persian IRANSans 400, 500 and 600
-  // (= the 700 file); any other locale Inter. An older loader passes no
-  // context: the Persian set.
+  // (= the 700 file); any other locale Inter, or Figtree for a skin of the
+  // International edition (a template id ending in -intl, whose skin draws
+  // Latin text in it). An older loader passes no context: the Persian set.
   function prepare(context) {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
-    var persian = String((context || {}).locale || 'fa').toLowerCase().split('-')[0] === 'fa';
+    var c = context || {};
+    var persian = String(c.locale || 'fa').toLowerCase().split('-')[0] === 'fa';
+    var latin = /-intl$/.test(c.templateId) ? ' 16px Figtree' : ' 16px InterWY';
     var loads = (persian ? ['400', '500', '600'] : ['500']).map(function (w) {
-      return document.fonts.load(w + (persian ? ' 16px IRANSans' : ' 16px InterWY'), persian ? 'سلام دنیا' : 'Aa').catch(function () {});
+      return document.fonts.load(w + (persian ? ' 16px IRANSans' : latin), persian ? 'سلام دنیا' : 'Aa').catch(function () {});
     });
     return Promise.race([
       Promise.all(loads).then(function () {}),

@@ -91,11 +91,20 @@ export const CHAT_TEMPLATE_TOPIC_ICONS = ['truck', 'return', 'ruler', 'card', 'b
  * in.
  */
 export const CHAT_TEMPLATE_PRECHAT_MODES = ['card', 'steps'] as const;
+/**
+ * The International templates' brand art, one of the brand kit's two logo
+ * directions; the first is the default. `thread` is two message pills (the
+ * chat button that ships), `open` a bubble and a dot. The skins draw the
+ * home header's watermark, the Messages icon and the greeting by it, the
+ * loader the chat button, the server the footer's lockup.
+ */
+export const CHAT_TEMPLATE_LOGO_DIRECTIONS = ['thread', 'open'] as const;
 
 export type ChatTemplateNavStyle = (typeof CHAT_TEMPLATE_NAV_STYLES)[number];
 export type ChatTemplateNavMode = (typeof CHAT_TEMPLATE_NAV_MODES)[number];
 export type ChatTemplateTopicIcon = (typeof CHAT_TEMPLATE_TOPIC_ICONS)[number];
 export type ChatTemplatePrechatMode = (typeof CHAT_TEMPLATE_PRECHAT_MODES)[number];
+export type ChatTemplateLogoDirection = (typeof CHAT_TEMPLATE_LOGO_DIRECTIONS)[number];
 
 export const CHAT_TEMPLATE_LIMITS = {
   /** Topic chips per template. */
@@ -135,6 +144,12 @@ export interface ChatTemplateOptions {
    * `transcript_disabled`.
    */
   transcriptEmail?: boolean;
+  /**
+   * The International templates' logo direction, `thread` (default) or
+   * `open` (CHAT_TEMPLATE_LOGO_DIRECTIONS). The Super Admin sets the brand's
+   * default in the catalog; a workspace may set its own.
+   */
+  logoDirection?: ChatTemplateLogoDirection;
 }
 
 export type ChatTemplateOptionKey = keyof ChatTemplateOptions;
@@ -145,11 +160,14 @@ export const CHAT_TEMPLATE_OPTIONS: Readonly<Record<ChatWidgetTemplateId, readon
   intl: [],
   t1: ['navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail'],
   t2: ['topics', 'askExamples', 'csat', 'transcriptEmail'],
+  // The International skins read what their renderer reads, and the logo direction.
+  't1-intl': ['logoDirection', 'navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail'],
+  't2-intl': ['logoDirection', 'topics', 'askExamples', 'csat', 'transcriptEmail'],
 };
 
 /** Every option any template reads. */
 export const CHAT_TEMPLATE_OPTION_KEYS: readonly ChatTemplateOptionKey[] = [
-  'navStyle', 'navMode', 'topics', 'askExamples', 'prechatMode', 'csat', 'transcriptEmail',
+  'navStyle', 'navMode', 'topics', 'askExamples', 'prechatMode', 'csat', 'transcriptEmail', 'logoDirection',
 ];
 
 /** The options a template reads (none for an unknown id). */
@@ -168,6 +186,7 @@ function optionDefault(key: ChatTemplateOptionKey): ChatTemplateOptions[ChatTemp
     case 'prechatMode': return CHAT_TEMPLATE_PRECHAT_MODES[0];
     case 'csat': return true;
     case 'transcriptEmail': return true;
+    case 'logoDirection': return CHAT_TEMPLATE_LOGO_DIRECTIONS[0];
   }
 }
 
@@ -210,6 +229,8 @@ function checkOption(key: ChatTemplateOptionKey, value: unknown): { ok: true; va
       return oneOf(CHAT_TEMPLATE_NAV_MODES, value) ? { ok: true, value } : { ok: false };
     case 'prechatMode':
       return oneOf(CHAT_TEMPLATE_PRECHAT_MODES, value) ? { ok: true, value } : { ok: false };
+    case 'logoDirection':
+      return oneOf(CHAT_TEMPLATE_LOGO_DIRECTIONS, value) ? { ok: true, value } : { ok: false };
     case 'csat':
     case 'transcriptEmail':
       return typeof value === 'boolean' ? { ok: true, value } : { ok: false };

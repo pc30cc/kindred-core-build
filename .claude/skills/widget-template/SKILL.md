@@ -58,7 +58,10 @@ nginx.conf.template. Iran-only widget code goes in `@iran-kit` blocks (left
 out of the RESPOK build), RESPOK-only loader code in `@intl-kit` blocks (left
 out of the Iran build; their uses behind `if (INTL_KIT ...)`, so an
 Iran-brand deployment switched to the International edition simply goes
-without them; WIDGET_TEMPLATE_RULES.md §5).
+without them; WIDGET_TEMPLATE_RULES.md §5). The launcher is the loader's,
+not a template's: a new launcher look is a launcher style in
+`runtime-fab.css` (requested only by workspaces wearing it,
+`shared/launcherStyles.ts`), never loader bytes every site pays.
 
 ## 3. Register it
 

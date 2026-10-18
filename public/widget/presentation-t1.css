@@ -7,10 +7,12 @@
    Latin.
 
    Colour: the renderer sets the accent `--a` (and `--a-rgb`, `--on-a*`,
-   `--gs-primary`, the brand hero, and `--dk` for a light accent that needs
-   dark text) inline on each view root and on the close button; every
-   other shade is derived here from `--a`, in OKLab like the design, with
-   an rgba fallback where color-mix() is missing.
+   `--gs-primary`, and `--dk` for a light accent that needs dark text)
+   inline on each view root and on the close button; every other shade is
+   derived here from `--a`, in OKLab like the design, with an rgba fallback
+   where color-mix() is missing. An uncustomised accent is not inlined: the
+   renderer marks those elements `gs-accent-brand` and the brand colour and
+   its hand-tuned hero are below (a skin restyles them).
    ══════════════════════════════════════════════════════════════════════ */
 
 .wy-view, .panel-close, .smart-nudge {
@@ -58,6 +60,11 @@
     --hero: var(--a);
   }
 }
+/* The brand accent (the renderer's `gs-accent-brand`), and its hero, which
+   the brand colour picked explicitly wears too (the renderer writes `--a`
+   first, with its `;`). Two classes: above the token blocks. */
+.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #0B7D6C; --a-rgb: 11, 125, 108; --gs-primary: #0B7D6C; }
+.wy-view.gs-accent-brand, .wy-view[style*='--a:#0b7d6c;' i] { --hero: linear-gradient(155deg, #1DB99D 0%, #0F927D 46%, #0B7D6C 100%); }
 
 .sr-only {
   position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;

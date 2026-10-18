@@ -23,6 +23,12 @@
  * a home indicator), --motion (keep animations; default reduced motion so every shot is
  * stable), --late-after (the live widget's order: the late pack is not put
  * on the page first, runtime-ext.js asks for it after the first paint),
+ * --edition international (the International edition, RESPOK: the
+ * bootstrap's edition, Gregorian dates in the visitor's zone, the RESPOK
+ * lockup as the credit, the launcher kit's classes, the shell's logo
+ * direction `lg-thread` / `lg-open` from --options logoDirection, and in
+ * English or Turkish the fixture in English, as the handoff's RESPOK panels
+ * draw it: Nilufar Store, Sara / Mehdi / Reza, its articles),
  * --chromium (path; default PLAYWRIGHT_CHROMIUM_PATH, then
  * /opt/pw-browsers or /opt/ms-playwright).
  *
@@ -30,6 +36,9 @@
  * 390×844 screen; both at deviceScaleFactor 2. The page runs in Asia/Tehran
  * so message times read like the designs' (۱۹:۴۲). Fixture copy mirrors the
  * handoff's demo store (فروشگاه نیلوفر, سارا / مهدی / رضا, its articles).
+ *
+ *   npx tsx e2e/harness/templateScreens.ts --template t1-intl --edition international \
+ *     --locale en --out /tmp/shots --options '{"logoDirection":"open"}'
  */
 import { chromium, type Browser, type BrowserContext, type Page, type Route } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
@@ -480,6 +489,138 @@ async function openMenu(page: Page) {
   await pause(page, 400);
 }
 
+// ─── The International edition's fixture: the same store in English ──────
+// (handoff respok/*/screens/panels). Every Persian string of the fixture and
+// of the drives has its English line here: `tx()` reads a drive's typed
+// text, `english()` swaps a whole fixture (keys too: the search answers by
+// query).
+/** On for one shot: --edition international in English or Turkish. */
+let EN_FIXTURE = false;
+const EN_ARTICLE_BODY =
+  '<p>Once your order ships, we text and email you the tracking code. You can always find it in <strong>Account › Orders</strong> too.</p>' +
+  '<h3>Where’s my tracking code?</h3>' +
+  '<ol><li>Open the “Your order has shipped” text.</li><li>Or open the order in your account and choose “Track”.</li></ol>' +
+  '<blockquote>Tracking can take up to 24 hours to update.</blockquote>' +
+  '<p>' + 'If the tracking code has not reached you one working day after shipping, chat with us here and we will look into it. '.repeat(6) + '</p>';
+const EN_T1_ARTICLE_BODY =
+  '<p>Once your order ships, we text and email you the tracking code. You can always find it in ' +
+  '<a href="https://example.com/account/orders">Account › Orders</a> too.</p>' +
+  '<h2>Where’s my tracking code?</h2>' +
+  '<ol><li>Open the “Your order has shipped” text.</li><li>Or open the order in your account and choose “Track”.</li></ol>' +
+  '<blockquote>Tracking can take up to 24 hours to update.</blockquote>';
+const EN_T2_ARTICLE_BODY =
+  '<p>Once your order ships, we text and email you a tracking code. You can always find it under ' +
+  '<a href="https://example.com/account/orders">Your account, Orders</a> too.</p>' +
+  '<h2>Where is my tracking code?</h2>' +
+  '<ol><li>Open the “Your order has shipped” text or email.</li><li>Or open the order in your account.</li>' +
+  '<li>Choose “Track package”.</li></ol>' +
+  '<blockquote>Tracking can take up to 24 hours to show the first update.</blockquote>';
+const EN = new Map<string, string>([
+  ['سارا', 'Sara'], ['مهدی', 'Mehdi'], ['رضا', 'Reza'], ['علی', 'Ali'], ['علی رضایی', 'Ali Rezaei'], ['فروشگاه نیلوفر', 'Nilufar Store'],
+  ['سلام! چطور می‌تونیم کمکتون کنیم؟', 'Hi! How can we help?'], ['سفارش و ارسال', 'Orders and shipping'],
+  ['پیگیری، زمان و هزینه ارسال', 'Tracking, times and costs'], ['پرداخت و بازگشت وجه', 'Payments and refunds'],
+  ['روش‌های پرداخت و مرجوعی', 'Ways to pay, and returns'], ['محصولات و سایزبندی', 'Products and sizing'],
+  ['راهنمای سایز و جنس', 'Sizes and materials'], ['چطور سفارشم را پیگیری کنم؟', 'How do I track my order?'],
+  ['کد رهگیری را پیامک می‌کنیم؛ وضعیت را در حساب کاربری هم می‌بینید…', 'We text you a tracking code; you can also follow it from your account…'],
+  ['زمان و هزینه ارسال', 'Shipping times and costs'],
+  ['هزینه‌ی ارسال برای خریدهای بالای ۲ میلیون تومان رایگان است…', 'Free delivery on orders over $50; most parcels arrive in 2 to 3 days…'],
+  ['شرایط مرجوعی و بازگشت وجه', 'Returns and refunds'],
+  ['تا ۷ روز بعد از تحویل می‌توانید کالا را مرجوع کنید…', 'You can return an item up to 7 days after delivery…'],
+  ['راهنمای انتخاب سایز', 'Size guide'], ['جدول سایز هر محصول در صفحه‌ی همان محصول است…', 'Every product page has its own size chart…'],
+  ['ارسال به شهرستان‌ها', 'Delivery outside the city'],
+  ['سفارش‌های شهرستان با پست پیشتاز ۳ تا ۵ روزه می‌رسند…', 'Orders outside the city arrive by courier in 3 to 5 days…'],
+  ['تغییر آدرس تحویل', 'Changing the delivery address'], ['ارسال فوری در تهران', 'Same-day delivery'], ['روش‌های پرداخت', 'Payment methods'],
+  ['بازگشت وجه چقدر طول می‌کشد؟', 'How long does a refund take?'], ['خرید اقساطی', 'Paying in instalments'],
+  ['جنس و نگهداری محصولات', 'Materials and care'], ['سایز کفش رانینگ', 'Running shoe sizes'], [ARTICLE_BODY, EN_ARTICLE_BODY],
+  [T1_ARTICLE_BODY, EN_T1_ARTICLE_BODY], [T2_HELP_KB.body, EN_T2_ARTICLE_BODY],
+  ['پیگیری مرسوله بعد از ارسال', 'Tracking a parcel after delivery starts'], ['عکس-محصول.jpg', 'product-photo.jpg'],
+  ['فاکتور-۴۸۲۱۳.pdf', 'invoice-48213.pdf'], ['پیام صوتی.wav', 'voice-message.wav'], ['رسید-پرداخت.jpg', 'payment-receipt.jpg'],
+  ['سلام، کد رهگیری سفارشم هنوز نیومده.', 'Hi! My tracking code still hasn’t arrived.'],
+  ['سلام علی جان! سفارش‌تون امروز صبح ارسال شد. کد رهگیری: TR-2290-5531\nhttps://post.ir', 'Hi Ali! Your order shipped this morning. Tracking code: TR-2290-5531\nhttps://nilufar.store'],
+  ['> سارا: کد رهگیری: TR-2290-5531\n\nعالیه، خیلی ممنون', '> Sara: Tracking code: TR-2290-5531\n\nPerfect, thank you!'],
+  ['این هم فاکتور سفارشتان.', 'Here’s the invoice for your order.'],
+  ['خواهش می‌کنم! کار دیگه‌ای هست که بتونم کمکتون کنم؟', 'You’re welcome! Anything else I can help with?'],
+  ['مبلغ بازگشتی به حساب‌تون واریز شد.', 'Your refund has been sent to your account.'], ['ممنون از راهنمایی سریع‌تون!', 'Thanks for the quick help!'],
+  ['پیگیری سفارش', 'Track an order'], ['مشاوره خرید', 'Help choosing'], ['مرجوعی و بازگشت وجه', 'Returns and refunds'],
+  ['پشتیبانی فنی', 'Technical support'], ['سلام، کفشی که گرفتم یه ایراد کوچیک داره.', 'Hi, the shoes I got have a small defect.'],
+  ['متأسفم! بررسی می‌کنیم.', 'Sorry about that! We’ll look into it.'],
+  ['اگه راحت‌ترید، می‌تونید مشکل رو صوتی توضیح بدید.', 'If it’s easier, you can describe it in a voice message.'],
+  ['سلام علی جان! سفارش‌تون امروز صبح ارسال شد. کد رهگیری: TR-2290-5531', 'Hi Ali! Your order shipped this morning. Tracking code: TR-2290-5531'],
+  ['سلام، درباره سفارشم سؤال دارم.', 'Hi, I have a question about my order.'],
+  ['ممنون علی! یکی از همکارهام تا چند دقیقه دیگه جواب می‌ده. سؤال‌تون رو بنویسید.', 'Thanks, Ali! A teammate will reply in a few minutes. Go ahead and ask your question.'],
+  ['سلام، سفارش ۴۸۲۱۳ هنوز کد رهگیری نداره.', 'Hi, order 48213 still has no tracking code.'],
+  ['سلام، دوشنبه یه کفش سفارش دادم ولی هنوز کد رهگیری برام نیومده.', 'Hi, I ordered shoes on Monday but still don’t have a tracking code.'],
+  ['سلام علی جان، ممنون که پیام دادید.', 'Hi Ali, thanks for your message.'],
+  ['لطفاً شماره سفارش‌تون رو بفرستید.', 'Could you send me your order number?'], ['حتماً، شماره سفارش ۴۸۲۱۳ هست', 'Sure, it’s order 48213'],
+  ['ممنون! سفارش‌تون امروز صبح ارسال شد.', 'Thanks! Your order shipped this morning.'], ['کد رهگیری: TR-2290-5531', 'Tracking code: TR-2290-5531'],
+  ['عالیه، خیلی ممنون', 'Perfect, thank you!'],
+  ['سلام! خوش اومدید. قبل از شروع خودتون رو معرفی کنید تا اگه از سایت رفتید هم جواب‌تون برسه.', 'Hi, welcome! Before we start, tell us who you are so the reply reaches you even if you leave.'],
+  ['معمولاً در ۲ دقیقه پاسخ می‌دهیم', 'usually replies in 2 minutes'], ['سفارش', 'Orders'], ['ارسال', 'Delivery'], ['مرجوعی', 'Returns'],
+  ['پرداخت', 'Payments'], ['حساب کاربری', 'Your account'], ['زمان ارسال، هزینه‌ها و ارسال رایگان', 'Delivery times, costs and free delivery'],
+  ['کد رهگیری و وضعیت مرسوله', 'Tracking code and parcel status'], ['پست پیشتاز و زمان رسیدن', 'Courier and arrival times'],
+  ['خواهش می‌کنم! کار دیگری هست که کمک کنم؟', 'You’re welcome! Anything else I can help with?'],
+  ['مبلغ به حسابتان برگشت داده شد.', 'Your refund is on its way to your card.'], ['ممنون از راهنمایی سریعتان!', 'Thanks for the quick help!'],
+  ['سلام، سفارشم را دوشنبه ثبت کردم ولی هنوز کد رهگیری نیامده.', 'Hi, I ordered on Monday but still don’t have a tracking code.'],
+  ['سلام علی! بررسی کردم؛ سفارشتان امروز صبح ارسال شد.', 'Hi Ali! I checked: your order shipped this morning.'], ['عالیه، ممنون!', 'Great, thanks!'],
+  ['سلام، برای خرید عمده تخفیف دارید؟', 'Hi, do you offer discounts on bulk orders?'], ['سلام، برای سفارش عمده تخفیف دارید؟', 'Hi, do you offer discounts on bulk orders?'],
+  ['سلام، فاکتور سفارش ۴۸۲۱۳ را می‌خواستم.', 'Hi, could I have the invoice for order 48213?'],
+  ['کار دیگری هست که کمک کنم؟', 'Anything else I can help with?'], ['زمان ارسال', 'Delivery'], ['مرجوعی کالا', 'Returns'], ['راهنمای سایز', 'Sizing'],
+  ['سفارشم کی می‌رسد؟', 'When will my order arrive?'], ['سایز ۴۲ موجود است؟', 'Is size 42 in stock?'],
+  ['کفش رانینگ، سایز ۴۲', 'Running shoes, size 42'], ['مرجوعی کفش', 'return shoes'], ['مرسی، مشکلم حل شد!', 'Thanks, that sorted it!'],
+  ['خوشحالم که حل شد! روز خوبی داشته باشید.', 'Glad that’s sorted! Have a great day.'],
+  ['سارا closed the conversation', 'Sara closed the conversation'], ['خوشحالم که حل شد!', 'Glad that’s sorted!'],
+  ['آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲', 'New address: 12 Rosewood Ave, Apt 4'],
+  ['می‌تونم آدرس تحویل رو تغییر بدم؟', 'Can I change the delivery address?'],
+  ['سلام! چطور می‌تونیم کمکتون کنیم؟\nبرای اینکه سریع‌تر به نفر درست وصل بشید، موضوع رو انتخاب کنید:', 'Hi! How can we help?\nPick a topic so we can connect you with the right person faster:'],
+  ['عالیه، خیلی ممنون 😍', 'Perfect, thank you! 😍'], ['معمولاً تا ۲ ساعت', 'usually replies within 2 hours'], ['قلب', 'heart'], ['زرافه', 'giraffe'],
+  ['موضوع دیگر', 'Something else'],
+  ['سلام! سؤالتان را بنویسید یا یکی از موضوع‌ها را انتخاب کنید.', 'Hi! Type your question, or pick a topic to get started.'],
+  ['سؤالتان به تیم رسید؛ معمولاً در چند دقیقه پاسخ می‌دهیم.', 'Got it, the team has your question and usually replies within minutes.'],
+  ['سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟', 'Hi, when will size 42 of these shoes be back in stock?'],
+  ['سفارشتان تحویل داده شده است.', 'Your order has been delivered.'], ['این سفارش لغو شده است.', 'This order has been cancelled.'],
+]);
+/** Objects swapped whole: their words are marked, so a word-for-word swap would not match them. */
+const EN_SWAPS = new Map<unknown, unknown>([
+  [T2_SUGGEST, {
+    'return shoes': [
+      { slug: 'returns', title: 'Return conditions', snippet: '', matches: ['return'], readingMinutes: 2 },
+      { slug: 'refund-time', title: 'How long does a refund take after a return?', snippet: '', matches: ['return'], readingMinutes: 1 },
+    ],
+  }],
+]);
+/** A drive's typed text, in the shot's language. */
+const tx = (s: string) => (EN_FIXTURE ? EN.get(s) ?? s : s);
+function english<T>(v: T): T {
+  if (EN_SWAPS.has(v)) return EN_SWAPS.get(v) as T;
+  if (typeof v === 'string') return (EN.get(v) ?? v) as T;
+  if (Array.isArray(v)) return v.map(english) as T;
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [EN.get(k) ?? k, english(x)])) as T;
+  return v;
+}
+/**
+ * The International edition as its bootstrap names it (config.edition,
+ * Gregorian dates in the visitor's zone, the platform's logo as the credit:
+ * the direction's lockup), and in English or Turkish the store in English.
+ */
+function international(f: Fixture, locale: string, direction: 'thread' | 'open') {
+  if (locale !== 'fa') {
+    if (!f.kb) f.kb = { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: ARTICLE_BODY };
+    for (const key of ['config', 'identity', 'conversations', 'threads', 'assignedOperator', 'qna', 'kb', 'suggest', 'csat', 'reactions'] as const) {
+      (f as unknown as Record<string, unknown>)[key] = english(f[key]);
+    }
+    // A localized line the runtime reads in the visitor's language.
+    const ai = f.config.aiAgent as { handoffPrechatMessageLocalized?: Record<string, string> } | undefined;
+    if (ai?.handoffPrechatMessageLocalized?.fa) ai.handoffPrechatMessageLocalized = { [locale]: english(ai.handoffPrechatMessageLocalized.fa) };
+  }
+  Object.assign(f.config, {
+    edition: 'international', calendar: 'gregorian', timeZone: null,
+    poweredBy: {
+      text: locale === 'fa' ? 'قدرت گرفته از' : 'Powered by', brand: 'Respok', url: 'https://respok.app',
+      logo: `${ORIGIN}/brand/intl/respok-${direction}-horizontal-color.svg`,
+    },
+  });
+}
+
 export const SCREEN_STATES: Record<string, StateSpec> = {
   'home-first-visit': { home: true },
   'home-recent-chat': {
@@ -500,7 +641,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await openThread(page, 'c-files');
       const input = page.locator('[data-msg-input]');
-      await input.fill('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲');
+      await input.fill(tx('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲'));
       await input.press('Enter');
       await pause(page, 600);
       await typing(page);
@@ -555,7 +696,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await online(page);
       await page.locator('[data-home-action="chat"]').first().click();
       await pause(page, 300);
-      await page.locator('[data-prechat="name"]').fill('علی');
+      await page.locator('[data-prechat="name"]').fill(tx('علی'));
       await page.locator('[data-prechat="email"]').fill('ali@example');
       await page.locator('[data-prechat-submit]').click();
       await pause(page, 200);
@@ -567,7 +708,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await page.locator('[data-home-action="chat"]').first().click();
       await pause(page, 300);
-      const text = 'سلام، برای سفارش عمده تخفیف دارید؟';
+      const text = tx('سلام، برای سفارش عمده تخفیف دارید؟');
       // The leave-a-message form when the workspace asks for one; else the
       // thread accepts the message while the team is away.
       const form = page.locator('[data-fb="message"]');
@@ -593,7 +734,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => { f.identity = PRECHAT(false); f.conversations = [RECENT]; },
     drive: async ({ page }) => {
       await openThread(page, 'c-sara');
-      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="name"]').fill(tx('علی رضایی'));
       await page.locator('[data-prechat="email"]').fill('ali@example.com');
       await page.locator('[data-prechat-submit]').click();
       await pause(page, 500);
@@ -612,7 +753,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       // field; one without a field shows the plain list.
       const field = page.locator('[data-kb-search], .kb-search');
       if (await field.count()) {
-        await field.first().fill('ارسال');
+        await field.first().fill(tx('ارسال'));
         await pause(page, 900);
       }
     },
@@ -635,7 +776,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await openThread(page, 'c-t1-files');
       const input = page.locator('[data-msg-input]');
-      await input.fill('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲');
+      await input.fill(tx('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲'));
       await input.press('Enter');
       await pause(page, 600);
       // A real (tiny) JPEG padded to 1.2 MB: the thumbnail decodes, the size reads like the design's.
@@ -647,10 +788,10 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
         return c.toDataURL('image/jpeg').split(',')[1];
       }), 'base64');
       await page.locator('[data-attach-input]').setInputFiles({
-        name: 'رسید-پرداخت.jpg', mimeType: 'image/jpeg', buffer: Buffer.concat([jpeg, Buffer.alloc(1_258_291 - jpeg.length, 0)]),
+        name: tx('رسید-پرداخت.jpg'), mimeType: 'image/jpeg', buffer: Buffer.concat([jpeg, Buffer.alloc(1_258_291 - jpeg.length, 0)]),
       });
       await pause(page, 500);
-      await input.fill('می‌تونم آدرس تحویل رو تغییر بدم؟');
+      await input.fill(tx('می‌تونم آدرس تحویل رو تغییر بدم؟'));
       await input.focus();
     },
   },
@@ -680,7 +821,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => t1Thread(f, 'c-t1-emoji'),
     drive: async ({ page }) => {
       await openThread(page, 'c-t1-emoji');
-      await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون 😍');
+      await page.locator('[data-msg-input]').fill(tx('عالیه، خیلی ممنون 😍'));
       await page.locator('[data-emoji-btn]').click();
       await pause(page, 300);
     },
@@ -691,7 +832,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => t1Thread(f, 'c-t1-emoji'),
     drive: async ({ page }) => {
       await openThread(page, 'c-t1-emoji');
-      await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون');
+      await page.locator('[data-msg-input]').fill(tx('عالیه، خیلی ممنون'));
       await page.locator('[data-msg-input]').focus();
     },
   },
@@ -703,7 +844,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await online(page);
       await page.locator('[data-home-action="chat"]').first().click();
       await pause(page, 300);
-      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="name"]').fill(tx('علی رضایی'));
       await page.locator('[data-prechat="email"]').fill('ali@example');
       await page.locator('[data-prechat-submit]').click();
       await pause(page, 200);
@@ -715,7 +856,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: t1PrechatCard,
     drive: async ({ page }) => {
       await openThread(page, 'c-t1-card');
-      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="name"]').fill(tx('علی رضایی'));
       await page.locator('[data-prechat="email"]').focus();
     },
   },
@@ -723,7 +864,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: t1PrechatCard,
     drive: async ({ page }) => {
       await openThread(page, 'c-t1-card');
-      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="name"]').fill(tx('علی رضایی'));
       await page.locator('[data-prechat="email"]').fill('ali@example.com');
       await page.locator('[data-prechat-submit]').click();
       await pause(page, 500);
@@ -737,7 +878,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: t1Steps,
     drive: async ({ page }) => {
       await startSteps(page);
-      await step(page, 'علی رضایی');
+      await step(page, tx('علی رضایی'));
       await step(page, 'ali@example');
       await step(page, 'ali@example.com');
     },
@@ -754,7 +895,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: t1Steps,
     drive: async ({ page }) => {
       await startSteps(page);
-      await step(page, 'علی رضایی');
+      await step(page, tx('علی رضایی'));
       await step(page, 'ali@example');
     },
   },
@@ -764,7 +905,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: t1Steps,
     drive: async ({ page }) => {
       await startSteps(page);
-      await step(page, 'علی رضایی');
+      await step(page, tx('علی رضایی'));
       await step(page, 'ali@example.com');
       await page.locator('[data-prechat-step-skip]').click();
       await pause(page, 600);
@@ -787,7 +928,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await pause(page, 300);
       await online(page);
       const input = page.locator('[data-msg-input]');
-      await input.fill('سلام، برای سفارش عمده تخفیف دارید؟');
+      await input.fill(tx('سلام، برای سفارش عمده تخفیف دارید؟'));
       await input.press('Enter');
       await pause(page, 500);
     },
@@ -801,7 +942,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await pause(page, 300);
       await online(page);
       const input = page.locator('[data-msg-input]');
-      await input.fill('سلام، برای سفارش عمده تخفیف دارید؟');
+      await input.fill(tx('سلام، برای سفارش عمده تخفیف دارید؟'));
       await input.press('Enter');
       await pause(page, 500);
       await page.locator('.away-reply [data-fb="email"]').fill('ali@example.com');
@@ -815,10 +956,10 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => t1Thread(f, 'c-t1-emoji'),
     drive: async ({ page }) => {
       await openThread(page, 'c-t1-emoji');
-      await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون');
+      await page.locator('[data-msg-input]').fill(tx('عالیه، خیلی ممنون'));
       await page.locator('[data-emoji-btn]').click();
       await pause(page, 300);
-      await page.locator('[data-emoji-search]').fill('قلب');
+      await page.locator('[data-emoji-search]').fill(tx('قلب'));
       await pause(page, 600);
     },
   },
@@ -829,7 +970,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await openThread(page, 'c-t1-emoji');
       await page.locator('[data-emoji-btn]').click();
       await pause(page, 300);
-      await page.locator('[data-emoji-search]').fill('زرافه');
+      await page.locator('[data-emoji-search]').fill(tx('زرافه'));
       await pause(page, 600);
     },
   },
@@ -909,7 +1050,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await openThread(page, 'c-media');
       const input = page.locator('[data-msg-input]');
-      await input.fill('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲');
+      await input.fill(tx('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲'));
       await input.press('Enter');
       await pause(page, 600);
       await page.locator('[data-mic-btn]').click();
@@ -928,7 +1069,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     },
     drive: async ({ page }) => {
       await newConversation(page);
-      await page.locator('[data-msg-input]').fill('مرجوعی کفش');
+      await page.locator('[data-msg-input]').fill(tx('مرجوعی کفش'));
       // The articles offered for the draft (instant answers: 400 ms, then the answer).
       await pause(page, 900);
     },
@@ -940,7 +1081,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await inst(page, "i.setTab('help');");
       await pause(page, 500);
-      await page.locator('[data-kb-search]').fill('ارسال');
+      await page.locator('[data-kb-search]').fill(tx('ارسال'));
       await pause(page, 900);
     },
   },
@@ -988,7 +1129,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => {
       await page.locator('[data-home-action="chat"]').first().click();
       await pause(page, 300);
-      const text = 'سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟';
+      const text = tx('سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟');
       const form = page.locator('[data-fb="message"]');
       if (await form.count()) { await form.fill(text); return; }
       await online(page);
@@ -1007,7 +1148,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await pause(page, 300);
       await online(page);
       const input = page.locator('[data-msg-input]');
-      await input.fill('سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟');
+      await input.fill(tx('سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟'));
       await input.press('Enter');
       await pause(page, 600);
     },
@@ -1149,7 +1290,7 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
     if (p === '/widget/runtime-rt-centrifugo.js') {
       return route.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE_DRIVER });
     }
-    if (p.startsWith('/widget/')) {
+    if (p.startsWith('/widget/') || p.startsWith('/brand/')) {
       const file = path.join(root, 'public', p);
       if (!existsSync(file)) return route.fulfill({ status: 404, body: '' });
       return route.fulfill({
@@ -1283,6 +1424,8 @@ export interface ScreenOptions {
   safeArea?: { top: number; bottom: number };
   /** The late pack as the live widget gets it: asked for by runtime-ext.js after the first paint, not put on the page first. */
   lateAfter?: boolean;
+  /** The edition the bootstrap names (default `iran`); `international` is RESPOK (the English fixture in en / tr). */
+  edition?: 'iran' | 'international';
   /** Called after each PNG is written. */
   onShot?: (file: string) => void;
   /** Runs right before each shot (scratch inspection: measure, log, tweak). */
@@ -1306,12 +1449,22 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
   const templateId = opts.templateId || 'default';
   const locale = opts.locale || 'fa';
   const tpl = templateAssets(templateId);
+  const intl = opts.edition === 'international';
+  EN_FIXTURE = intl && locale !== 'fa';
   const fixture = baseFixture();
   fixture.config.templateId = tpl.id;
   fixture.config.locale = locale;
   fixture.config.primaryColor = opts.accent || '#3B82F6';
   if (opts.templateOptions) fixture.config.templateOptions = { ...opts.templateOptions };
   if (spec.setup) spec.setup(fixture);
+  // The International edition: its logo direction on the shell (the loader
+  // puts lg-thread / lg-open there), the RESPOK kit on the launcher.
+  const direction = (opts.templateOptions || {}).logoDirection === 'open' ? 'open' : 'thread';
+  if (intl) international(fixture, locale, direction);
+  const accent = String(fixture.config.primaryColor).trim();
+  const uncustomised = !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent) || /^#3b82f6$/i.test(accent);
+  const shellClass = intl ? ` lg-${direction}` : '';
+  const launcherClass = intl ? ` rpk-kit${uncustomised ? ' rpk-kit-brand' : ''}` : '';
 
   const mobile = !!spec.mobile;
   const context: BrowserContext = await browser.newContext({
@@ -1372,19 +1525,19 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
       opts.classicScrollbars ? '' : '*{scrollbar-gutter:auto!important;scrollbar-width:none!important;}',
       opts.nativeSize || mobile ? '' : '.panel{width:400px!important;height:720px!important;max-width:none!important;max-height:none!important;}',
     ].join('\n');
-    await page.evaluate(({ config, css, mobile, rtl }) => {
+    await page.evaluate(({ config, css, mobile, rtl, shellClass, launcherClass }) => {
       const host = document.getElementById('gs-host')!;
       const shadow = host.attachShadow({ mode: 'open' });
       const style = document.createElement('style');
       style.textContent = css;
       shadow.appendChild(style);
       const shell = document.createElement('div');
-      shell.className = 'shell pos-bottom-right' + (mobile ? ' gs-mobile-open' : '');
+      shell.className = 'shell pos-bottom-right' + shellClass + (mobile ? ' gs-mobile-open' : '');
       shell.setAttribute('dir', rtl ? 'rtl' : 'ltr');
       shell.style.setProperty('--gs-primary', String(config.primaryColor));
       shadow.appendChild(shell);
       const launcher = document.createElement('button');
-      launcher.className = 'launcher bottom-right';
+      launcher.className = 'launcher bottom-right' + launcherClass;
       launcher.hidden = true;
       shell.appendChild(launcher);
       const w = window as unknown as {
@@ -1398,7 +1551,7 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
       );
       w.__inst = inst;
       inst.open();
-    }, { config: { ...fixture.config }, css, mobile, rtl: locale === 'fa' });
+    }, { config: { ...fixture.config }, css, mobile, rtl: locale === 'fa', shellClass, launcherClass });
     await page.waitForTimeout(700);
     if (spec.drive) await spec.drive({ page, fixture });
     // A text still typing itself out (an AI reply, the pre-chat card's
@@ -1472,7 +1625,7 @@ if (invokedDirectly) {
   } else {
     const outDir = String(args.out || '');
     if (!outDir) {
-      console.error('usage: npx tsx e2e/harness/templateScreens.ts --template <id> --out <folder> [--states a,b] [--locale fa] [--accent #hex] [--options JSON] [--native-size] [--classic-scrollbars] [--safe-area top,bottom] [--motion] [--late-after] [--chromium path] | --list');
+      console.error('usage: npx tsx e2e/harness/templateScreens.ts --template <id> --out <folder> [--states a,b] [--locale fa] [--accent #hex] [--options JSON] [--edition iran|international] [--native-size] [--classic-scrollbars] [--safe-area top,bottom] [--motion] [--late-after] [--chromium path] | --list');
       process.exit(2);
     }
     renderTemplateScreens({
@@ -1490,6 +1643,7 @@ if (invokedDirectly) {
         ? (([top, bottom]) => ({ top: Number(top) || 0, bottom: Number(bottom) || 0 }))(String(args['safe-area']).split(','))
         : undefined,
       lateAfter: !!args['late-after'],
+      edition: args.edition === 'international' ? 'international' : 'iran',
       onShot: (f) => console.log(f),
     }).catch((e) => { console.error(e); process.exit(1); });
   }

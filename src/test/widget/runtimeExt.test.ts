@@ -96,7 +96,7 @@ describe('which templates build on the module', () => {
     new Function(read('public/widget/presentation-registry.js')).call(window);
     const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].coreFeatures)).toEqual(['t1', 't2']);
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].coreFeatures)).toEqual(['t1', 't2', 't1-intl', 't2-intl']);
     for (const id of ids) {
       new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
       const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => Record<string, unknown> };
@@ -115,7 +115,7 @@ describe('which templates build on the module', () => {
     new Function(read('public/widget/presentation-registry.js')).call(window);
     const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2']);
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2', 't2-intl']);
     for (const id of ids) {
       new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
       const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, boolean> } };
@@ -143,7 +143,7 @@ describe('which templates build on the module', () => {
     expect(caps.reactions).toBe(true);
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
     const flag = (id: keyof typeof CHAT_WIDGET_TEMPLATES) => !!(CHAT_WIDGET_TEMPLATES[id] as { reactions?: boolean }).reactions;
-    expect(ids.filter(flag)).toEqual(['t2']);
+    expect(ids.filter(flag)).toEqual(['t2', 't2-intl']);
     for (const id of ids) {
       new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
       const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, boolean> } };
@@ -158,7 +158,7 @@ describe('which templates build on the module', () => {
     new Function(read('public/widget/presentation-registry.js')).call(window);
     const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string; extras?: string } };
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].extras)).toEqual(['t1', 't2']);
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].extras)).toEqual(['t1', 't2', 't1-intl', 't2-intl']);
     for (const id of ids) {
       const t = CHAT_WIDGET_TEMPLATES[id];
       const d = registry.resolve(id);

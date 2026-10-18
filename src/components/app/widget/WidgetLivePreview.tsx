@@ -28,6 +28,7 @@ import {
   RESPOK_LAUNCHER_CHAT_GLYPH,
   RESPOK_LAUNCHER_CLOSE_GLYPH,
   RESPOK_LAUNCHER_CSS,
+  RESPOK_LAUNCHER_OPEN_GLYPH,
 } from '../../../../shared/respokLauncher';
 
 /** `list` is the conversation list (a bottom menu's Messages). */
@@ -467,6 +468,10 @@ export function WidgetLivePreview({
         ? resolveChatWidgetTemplate('international', s.widget_template_id)
         : (s.widget_template_id as string | undefined) || null;
     const previewTemplateOptions = (templateOptions !== undefined ? templateOptions : s.widget_template_options) || {};
+    // RESPOK's logo direction (a template option of t1-intl / t2-intl), as
+    // the loader reads it: one class on the shell for the panel's art, the
+    // Open glyph on the launcher, the Open lockup in the footer.
+    const lgOpen = respokKit && (previewTemplateOptions as { logoDirection?: unknown }).logoDirection === 'open';
 
     const previewConfig = {
       brandName: brandName || title,
@@ -481,7 +486,7 @@ export function WidgetLivePreview({
             // The Iranian edition (known, never assumed) credits its platform
             // with the local kit's Persian logotype the same way.
             poweredBy: isInternational && poweredBy
-              ? { ...poweredBy, logo: `${window.location.origin}${INTL_BRAND.horizontal.light}` }
+              ? { ...poweredBy, logo: `${window.location.origin}${(lgOpen ? INTL_BRAND.horizontalOpen : INTL_BRAND.horizontal).light}` }
               : SHIPS_IRAN_KIT && localKit && poweredBy
                 ? { ...poweredBy, logo: `${window.location.origin}${WEBYAR_BRAND.logo.light}` }
                 : poweredBy,
@@ -709,10 +714,10 @@ export function WidgetLivePreview({
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell pos-${pos}${s.fab_animation === true ? ' anim-on' : ''}">
+  <div class="shell pos-${pos}${respokKit ? (lgOpen ? ' lg-open' : ' lg-thread') : ''}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
     <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
-      ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? RESPOK_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
+      ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? (lgOpen ? RESPOK_LAUNCHER_OPEN_GLYPH : RESPOK_LAUNCHER_CHAT_GLYPH) : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
       ${SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>

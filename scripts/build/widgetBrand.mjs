@@ -20,13 +20,14 @@
  * `var INTL_KIT = true;` (the widgets' mirror of the dashboard's
  * SHIPS_INTL_KIT, shared/buildBrand.ts): an Iran-brand deployment switched
  * to the International edition then goes without it (the plain launcher
- * instead of RESPOK's, docs/operations/WIDGET_TEMPLATE_RULES.md §5). No
- * widget file is marked yet. `both` keeps everything. Every build refuses
- * malformed markers of either kit.
+ * instead of RESPOK's, docs/operations/WIDGET_TEMPLATE_RULES.md §5); the
+ * loader's RESPOK kit is marked so. `both` keeps everything. Every build
+ * refuses malformed markers of either kit.
  *
  * A name a deleted block defined that is still referenced after minifying
  * would throw a ReferenceError in visitors' browsers: the transform refuses
- * to produce such a file.
+ * to produce such a file. Every name counts: each declarator of a
+ * `var a = 1, b = 2;` and each function the block declares (declaredNames).
  *
  * The JS target is ES2017 (as scripts/build-smart-engine.mjs): the sources
  * are ES5 plus `class`, so nothing is lowered and no helper is added, and the
@@ -52,6 +53,128 @@ const JS_TARGET = 'es2017';
 // in a form they read (it lowers nothing newer the sources do not use).
 const CSS_TARGET = ['chrome58', 'edge16', 'firefox57', 'safari11'];
 
+const KEYWORDS_BEFORE_EXPRESSION = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await']);
+
+/**
+ * The tokens of a script, enough to find its declarations: identifiers,
+ * punctuators (`=>` as one) and opaque literals. Strings, template literals,
+ * comments, numbers and regular expressions are skipped as whole tokens, so
+ * a comma or a bracket inside one counts for nothing.
+ * @param {string} src
+ * @param {string} name file name, for errors
+ * @returns {Array<{ t: 'id' | 'p' | 'lit', v: string }>}
+ */
+function scriptTokens(src, name) {
+  const out = [];
+  let i = 0;
+  const fail = (what) => { throw new Error(`${name}: a kit block the build cannot read (${what} at ${i})`); };
+  const regexAllowed = () => {
+    const prev = out[out.length - 1];
+    if (!prev) return true;
+    if (prev.t === 'lit') return false;
+    if (prev.t === 'id') return KEYWORDS_BEFORE_EXPRESSION.has(prev.v);
+    return prev.v !== ')' && prev.v !== ']';
+  };
+  while (i < src.length) {
+    const c = src[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { const nl = src.indexOf('\n', i); i = nl < 0 ? src.length : nl; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); if (e < 0) fail('comment'); i = e + 2; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      // A template literal's `${…}` may hold anything but its closing
+      // backtick: the sources are ES5 plus `class`, so none is expected.
+      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === '\\') i++;
+      if (i >= src.length) fail('string');
+      i++;
+      out.push({ t: 'lit', v: c });
+      continue;
+    }
+    if (c === '/' && regexAllowed()) {
+      let inClass = false;
+      for (i++; i < src.length; i++) {
+        const r = src[i];
+        if (r === '\\') { i++; continue; }
+        if (r === '\n') fail('regular expression');
+        if (inClass) { if (r === ']') inClass = false; continue; }
+        if (r === '[') inClass = true;
+        else if (r === '/') break;
+      }
+      if (i >= src.length) fail('regular expression');
+      for (i++; i < src.length && /[a-z]/i.test(src[i]); i++);
+      out.push({ t: 'lit', v: '/' });
+      continue;
+    }
+    const word = /^[A-Za-z_$][\w$]*/.exec(src.slice(i, i + 200));
+    if (word) { out.push({ t: 'id', v: word[0] }); i += word[0].length; continue; }
+    const num = /^\.?[0-9][\w.]*/.exec(src.slice(i, i + 200));
+    if (num) { out.push({ t: 'lit', v: '0' }); i += num[0].length; continue; }
+    if (c === '=' && src[i + 1] === '>') { out.push({ t: 'p', v: '=>' }); i += 2; continue; }
+    out.push({ t: 'p', v: c });
+    i++;
+  }
+  return out;
+}
+
+/**
+ * The names a kit block declares for the code around it: every declarator
+ * of each `var` / `let` / `const` (`var a = 1, b = f(2, 3);` declares a AND
+ * b) and each function declaration, outside the bodies of its functions (a
+ * function's own locals are invisible outside the block, and the minifier
+ * renames them). A destructuring declaration is refused, never guessed.
+ * @param {string} block
+ * @param {string} [name] file name, for errors
+ */
+export function declaredNames(block, name = 'source') {
+  const tokens = scriptTokens(block, name);
+  const names = new Set();
+  /** Open brackets: '(' / '[' / '{', 'fn' (a function's body), 'params' (its parameters). */
+  const stack = [];
+  let fnPending = false;
+  let bodyNext = false;
+  const inFunction = () => stack.includes('fn');
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.t === 'id' && tok.v === 'function') {
+      const prev = tokens[i - 1];
+      const next = tokens[i + 1];
+      const statement = !prev || (prev.t === 'p' && (prev.v === ';' || prev.v === '{' || prev.v === '}'));
+      if (next && next.t === 'id' && statement && !inFunction()) names.add(next.v);
+      fnPending = true;
+      continue;
+    }
+    if (tok.t === 'id' && (tok.v === 'var' || tok.v === 'let' || tok.v === 'const') && !inFunction()) {
+      for (;;) {
+        const id = tokens[++i];
+        if (!id || id.t !== 'id') throw new Error(`${name}: a kit block declares what the build cannot read (${tok.v} ${id ? id.v : '…'})`);
+        names.add(id.v);
+        if (!tokens[i + 1] || tokens[i + 1].v !== '=') break;
+        // Its initializer: up to this statement's next comma or semicolon,
+        // a bracket closing around it, or the next declaration.
+        let depth = 0;
+        for (i += 2; i < tokens.length; i++) {
+          const v = tokens[i].t === 'lit' ? '' : tokens[i].v;
+          if (v === '(' || v === '[' || v === '{') depth++;
+          else if (v === ')' || v === ']' || v === '}') { if (depth === 0) break; depth--; }
+          else if (depth === 0 && (v === ',' || v === ';' || v === 'var' || v === 'let' || v === 'const')) break;
+        }
+        if (!tokens[i] || tokens[i].v !== ',') { i--; break; }
+      }
+      continue;
+    }
+    if (tok.t !== 'p') continue;
+    if (tok.v === '=>') { bodyNext = true; continue; }
+    if (tok.v === '(') { stack.push(fnPending ? 'params' : '('); fnPending = false; continue; }
+    if (tok.v === '[') { stack.push('['); continue; }
+    if (tok.v === '{') { stack.push(bodyNext ? 'fn' : '{'); bodyNext = false; continue; }
+    if (tok.v === ')' || tok.v === ']' || tok.v === '}') {
+      if (stack.pop() === 'params') bodyNext = true;
+      continue;
+    }
+    bodyNext = false;
+  }
+  return [...names];
+}
+
 /**
  * Removes one kit from a source: its marked blocks and its switch. Returns
  * the new source and the names the blocks declared.
@@ -76,7 +199,7 @@ function stripKit(source, name, kit) {
     if (end < 0) throw new Error(`${name}: ${kit.begin} without ${kit.end}`);
     const block = source.slice(begin + kit.begin.length, end);
     if (block.includes(kit.begin)) throw new Error(`${name}: nested ${kit.begin}`);
-    for (const m of block.matchAll(/\b(?:var|let|const|function)\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
+    if (!name.endsWith('.css')) for (const d of declaredNames(block, name)) declared.add(d);
     out += source.slice(at, begin);
     at = end + kit.end.length;
   }

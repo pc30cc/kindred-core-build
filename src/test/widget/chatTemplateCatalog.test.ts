@@ -275,9 +275,13 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
       .toMatchObject({ ok: true });
   });
 
-  it('the International edition accepts only intl', () => {
+  it('the International edition accepts only its own ids (intl and its skins), never the Iranian ones', () => {
     expect(cleanChatTemplateCatalogInput('international', { defaultId: 'intl', templates: [{ id: 'intl', enabled: true }] }, null))
       .toEqual({ ok: true, value: { default: 'intl', items: { intl: { enabled: true } } } });
+    expect(cleanChatTemplateCatalogInput('international', { defaultId: 'intl', templates: [{ id: 't1-intl', enabled: true }] }, null))
+      .toEqual({ ok: true, value: { default: 'intl', items: { 't1-intl': { enabled: true } } } });
+    expect(cleanChatTemplateCatalogInput('iran', { defaultId: 'default', templates: [{ id: 't2-intl', enabled: true }] }, null))
+      .toMatchObject({ ok: false, problem: 'template_not_offered' });
     expect(cleanChatTemplateCatalogInput('international', { defaultId: 'intl', templates: [{ id: 't1', enabled: true }] }, null))
       .toMatchObject({ ok: false, problem: 'template_not_offered' });
   });
@@ -351,9 +355,83 @@ describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMod
       .toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2' });
   });
 
-  it('only Template 2 draws the closed line (descriptor closedNotice): the server writes it for no other workspace', () => {
+  it('only Template 2 (and the International skin over it) draws the closed line (descriptor closedNotice): the server writes it for no other workspace', () => {
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2']);
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2', 't2-intl']);
     // That it is the renderer's own features.closedNotice: runtimeExt.test.ts.
+  });
+});
+
+describe('the International edition\'s skins over Templates 1 and 2 (t1-intl, t2-intl) and their logo direction', () => {
+  it('are offered next to intl, which stays the default and the only one on until the Super Admin enables them', () => {
+    expect(EDITION_CHAT_WIDGET_TEMPLATES.international).toEqual({ default: 'intl', offered: ['intl', 't1-intl', 't2-intl'] });
+    for (const stored of [null, {}, { items: { intl: { enabled: true } } }]) {
+      const c = resolveChatTemplateCatalog('international', stored);
+      expect(enabledChatTemplateIds(c)).toEqual(['intl']);
+      expect(c.entries.map((e) => e.id)).toEqual(['intl', 't1-intl', 't2-intl']);
+      for (const requested of ['t1-intl', 't2-intl', 't1', 'intl', null]) expect(resolveWorkspaceChatTemplate(c, requested)).toBe('intl');
+    }
+    const on = resolveChatTemplateCatalog('international', { items: { 't1-intl': { enabled: true } } });
+    expect(enabledChatTemplateIds(on)).toEqual(['intl', 't1-intl']);
+    expect(resolveWorkspaceChatTemplate(on, 'T1-INTL ')).toBe('t1-intl');
+    expect(resolveWorkspaceChatTemplate(on, 't1')).toBe('intl');
+    expect(resolveWorkspaceChatTemplate(on, 't2-intl')).toBe('intl');
+    // The Iranian edition never wears them, whatever its row says.
+    const iran = iranOn({ 't1-intl': { enabled: true } });
+    expect(enabledChatTemplateIds(iran)).not.toContain('t1-intl');
+    expect(resolveWorkspaceChatTemplate(iran, 't1-intl')).toBe('default');
+    expect(canonicalChatTemplateId('iran', 't2-intl')).toBeNull();
+  });
+
+  it('read what their renderer reads, and the logo direction (no other template does)', () => {
+    expect(CHAT_TEMPLATE_OPTIONS['t1-intl']).toEqual(['logoDirection', ...CHAT_TEMPLATE_OPTIONS.t1]);
+    expect(CHAT_TEMPLATE_OPTIONS['t2-intl']).toEqual(['logoDirection', ...CHAT_TEMPLATE_OPTIONS.t2]);
+    expect(CHAT_TEMPLATE_OPTION_KEYS).toContain('logoDirection');
+    for (const id of Object.keys(CHAT_TEMPLATE_OPTIONS) as Array<keyof typeof CHAT_TEMPLATE_OPTIONS>) {
+      expect(CHAT_TEMPLATE_OPTIONS[id].includes('logoDirection'), id).toBe(id === 't1-intl' || id === 't2-intl');
+    }
+    expect(chatTemplateOptionDefaults('t1-intl')).toMatchObject({ logoDirection: 'thread', navStyle: 'vb', prechatMode: 'card' });
+    expect(chatTemplateOptionDefaults('t2-intl')).toMatchObject({ logoDirection: 'thread', csat: true, transcriptEmail: true });
+  });
+
+  it('logo direction: code default thread, the Super Admin\'s brand default, the workspace\'s own over it', () => {
+    const c = resolveChatTemplateCatalog('international', {
+      items: { 't1-intl': { enabled: true, options: { logoDirection: 'open' } }, 't2-intl': { enabled: true } },
+    });
+    expect(c.entries.find((e) => e.id === 't1-intl')!.options.logoDirection).toBe('open');
+    expect(resolveChatTemplateOptions(c, 't1-intl', {}).logoDirection).toBe('open');
+    expect(resolveChatTemplateOptions(c, 't1-intl', { logoDirection: 'thread' }).logoDirection).toBe('thread');
+    expect(resolveChatTemplateOptions(c, 't2-intl', {}).logoDirection).toBe('thread');
+    expect(resolveChatTemplateOptions(c, 't2-intl', { logoDirection: 'open' }).logoDirection).toBe('open');
+    // A stored value that is not a direction reads as the level above.
+    expect(resolveChatTemplateOptions(c, 't1-intl', { logoDirection: 'sideways' }).logoDirection).toBe('open');
+    expect(readTemplateOptions({ logoDirection: 'OPEN' }, ['logoDirection'])).toEqual({});
+    // intl itself does not read it (its launcher and footer stay Thread).
+    expect(resolveChatTemplateOptions(c, 'intl', { logoDirection: 'open' })).toEqual({});
+  });
+
+  it('a save with a direction that is not one is refused by name; a good one is kept', () => {
+    expect(cleanTemplateOptionsInput({ logoDirection: 'sideways' }, CHAT_TEMPLATE_OPTIONS['t1-intl']))
+      .toEqual({ ok: false, problem: 'invalid_template_options', key: 'logoDirection' });
+    expect(cleanTemplateOptionsInput({ logoDirection: 'open', navMode: 'icon' }, CHAT_TEMPLATE_OPTIONS['t1-intl']))
+      .toEqual({ ok: true, value: { logoDirection: 'open', navMode: 'icon' } });
+    // Dropped (not refused) for a template that does not read it.
+    expect(cleanTemplateOptionsInput({ logoDirection: 'open' }, CHAT_TEMPLATE_OPTIONS.t1)).toEqual({ ok: true, value: {} });
+    expect(cleanChatTemplateCatalogInput('international', {
+      defaultId: 'intl',
+      templates: [{ id: 't2-intl', enabled: true, options: { logoDirection: 'diagonal' } }],
+    }, null)).toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2-intl' });
+    const saved = cleanChatTemplateCatalogInput('international', {
+      defaultId: 't1-intl',
+      templates: [{ id: 't1-intl', enabled: true, options: { logoDirection: 'open' } }],
+    }, null);
+    expect(saved).toEqual({ ok: true, value: { default: 't1-intl', items: { 't1-intl': { enabled: true, options: { logoDirection: 'open' } } } } });
+  });
+
+  it('the server resolver: the International skins only with the catalog on', () => {
+    expect(resolveEditionWidgetTemplateId('international', 't1-intl')).toBe('intl');
+    expect(resolveEditionWidgetTemplateId('iran', 't1-intl')).toBe('default');
+    const on = resolveChatTemplateCatalog('international', { items: { 't2-intl': { enabled: true } } });
+    expect(resolveEditionWidgetTemplateId('international', 't2-intl', on)).toBe('t2-intl');
   });
 });

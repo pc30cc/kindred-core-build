@@ -10,7 +10,8 @@
  *   - each Core behaviour in `features` is actually drawn, and nothing is
  *     drawn for a capability Core says it cannot serve;
  *   - skeletons wear the real surfaces' structure; Persian digits in fa; the
- *     accent tokens it computes (brand look, on-accent ink);
+ *     accent tokens it computes (on-accent ink; the brand look is the
+ *     stylesheet's, by class, so a skin can give its own);
  *   - the platform's marks stay out of the RESPOK build.
  * Geometry against the design's PNGs is checked with the screenshot harness
  * (e2e/harness/templateScreens.ts --template t2), not here.
@@ -553,11 +554,33 @@ describe('t2: numbers in the visitor\'s digits', () => {
 describe('t2: accent tokens', () => {
   const styleOf = (r: Renderer) => parse(r.homeHtml({ rtl: true, isOnline: true })).firstElementChild!.getAttribute('style')!;
 
-  it('wears the brand look when the colour is uncustomised or the brand\'s own', () => {
-    for (const c of ['', '#3B82F6', '#3b82f6', '#0B7D6C', 'not-a-colour', 'red;background:url(x)']) {
-      const s = styleOf(make({ primaryColor: c }));
-      expect(s, c).toBe('--a:#0B7D6C;--on-a:#FFFFFF;--gs-primary:#0B7D6C;--h1:#22C4A6;--h2:#0F927D;--h3:#08594E;--glow:#7CF5DF');
+  it('leaves an uncustomised or unparseable colour to the stylesheet: no inline accent, the class gs-accent-brand', () => {
+    for (const c of ['', '#3B82F6', '#3b82f6', 'not-a-colour', 'red;background:url(x)']) {
+      const r = make({ primaryColor: c });
+      for (const html of [r.homeHtml({ rtl: true, isOnline: true }), r.conversationListHtml({}), r.skeletonHtml('chat', {})]) {
+        const root = parse(html).firstElementChild!;
+        expect(root.hasAttribute('style'), c).toBe(false);
+        expect(root.classList.contains('gs-accent-brand'), c).toBe(true);
+      }
+      const close = parse(r.shellHtml({})).querySelector('[data-panel-close]')!;
+      expect(close.hasAttribute('style'), c).toBe(false);
+      expect(close.classList.contains('gs-accent-brand'), c).toBe(true);
     }
+    // The brand's colour and hero stops are the stylesheet's (a skin gives
+    // its own), the stops also for the brand colour picked explicitly.
+    expect(T2_CSS).toContain('.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #0B7D6C; --on-a: #FFFFFF; --gs-primary: #0B7D6C; }');
+    expect(T2_CSS).toContain(".wy-view.gs-accent-brand, .wy-view[style*='--a:#0b7d6c;' i] { --h1: #22C4A6; --h2: #0F927D; --h3: #08594E; --glow: #7CF5DF; }");
+  });
+
+  it('writes a chosen colour inline, `--a` first with its `;` (what the stylesheets match), and no class', () => {
+    for (const c of ['#0B7D6C', '#16142B', '#2F5BFF']) {
+      const root = parse(make({ primaryColor: c }).homeHtml({ rtl: true, isOnline: true })).firstElementChild!;
+      expect(root.getAttribute('style')!.startsWith(`--a:${c};`), c).toBe(true);
+      expect(root.getAttribute('style'), c).not.toMatch(/--h1|--glow/);
+      expect(root.classList.contains('gs-accent-brand'), c).toBe(false);
+    }
+    const code = T2_SRC.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/0b7d6c|22c4a6|7cf5df/i);
   });
 
   it('uses the workspace colour, with white or ink on it by contrast', () => {
@@ -1445,6 +1468,14 @@ describe('t2: help search results with the server\'s snippet and matches (03·07
     const item = h.querySelector('[data-kb-slug="a"]')!;
     expect(item.querySelector('small')!.innerHTML).toBe('…هزینه‌ی <mark>ارسال</mark> برای خریدهای بالای ۲ میلیون…');
     expect(item.querySelector('.tt mark')!.textContent).toBe('ارسال');
+  });
+
+  it('marks a word with «i» where the text has «İ» (Turkish, folded by the server as the database does)', () => {
+    const tr = parse(make({ locale: 'tr', capabilities: SERVED }).kbHtml({ state: 'results', query: 'iade', results: [
+      { slug: 'a', title: 'İade koşulları', excerpt: 'iade ve değişim', matches: ['iade'] },
+    ] }));
+    expect(tr.querySelector('.tt')!.innerHTML).toBe('<mark>İade</mark> koşulları');
+    expect(tr.querySelector('small')!.innerHTML).toBe('<mark>iade</mark> ve değişim');
   });
 
   it('keeps the summary and the query\'s words without them, and escapes both', () => {

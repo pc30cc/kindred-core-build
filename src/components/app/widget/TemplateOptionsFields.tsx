@@ -3,17 +3,20 @@
  * as edited by the Super Admin (the catalog's option defaults) and by a
  * workspace owner (their own widget): Template 1's bottom menu style and
  * labels and its pre-chat form, quick topics (Templates 1 and 2), Template 2's
- * example questions and rating after a chat, and the transcript by email
- * (Templates 1 and 2). Only the keys the template reads are shown.
+ * example questions and rating after a chat, the transcript by email
+ * (Templates 1 and 2), and the International templates' logo direction. Only
+ * the keys the template reads are shown.
  *
  * `value` holds what this level sets; a key it leaves out reads `inherited`
  * (the level above). With `allowReset` a key this level sets can be handed
  * back to the level above ("Use the default"). The server cleans what is
  * saved (rows left empty are dropped), so a row being typed stays in the draft.
  */
+import type { ReactElement } from 'react';
 import { Box, CreditCard, Gift, HelpCircle, MessageCircle, Plus, Ruler, Tag, Clock, Trash2, Truck, Undo2, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { toPersianDigits } from '@/lib/persian-digits';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,11 +24,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import {
   CHAT_TEMPLATE_LIMITS,
+  CHAT_TEMPLATE_LOGO_DIRECTIONS,
   CHAT_TEMPLATE_NAV_MODES,
   CHAT_TEMPLATE_NAV_STYLES,
   CHAT_TEMPLATE_PRECHAT_MODES,
   CHAT_TEMPLATE_TOPIC_ICONS,
   chatTemplateOptionKeys,
+  type ChatTemplateLogoDirection,
   type ChatTemplateOptionKey,
   type ChatTemplateOptions,
   type ChatTemplateTopic,
@@ -43,6 +48,26 @@ const TOPIC_ICONS: Record<ChatTemplateTopicIcon, LucideIcon> = {
   gift: Gift,
   clock: Clock,
   tag: Tag,
+};
+
+/**
+ * The brand kit's chat button glyph of each logo direction, on its Ink
+ * ground (what the visitor's chat button shows): two message pills, or a
+ * bubble and a dot.
+ */
+const LOGO_GLYPHS: Record<ChatTemplateLogoDirection, ReactElement> = {
+  thread: (
+    <svg viewBox="0 0 104 92" className="h-3.5 w-3.5" aria-hidden>
+      <path fill="#fff" d="M21 0H41A21 21 0 0 1 62 21V21A21 21 0 0 1 41 42H4A4 4 0 0 1 0 38V21A21 21 0 0 1 21 0Z" />
+      <path fill="#FF5A3C" d="M43 50H83A21 21 0 0 1 104 71V88A4 4 0 0 1 100 92H43A21 21 0 0 1 22 71V71A21 21 0 0 1 43 50Z" />
+    </svg>
+  ),
+  open: (
+    <svg viewBox="0 0 108 108" className="h-3.5 w-3.5" aria-hidden>
+      <path fill="#fff" d="M41 0A41 41 0 0 1 82 41L82 78Q82 82 78 82L41 82A41 41 0 0 1 0 41A41 41 0 0 1 41 0Z" />
+      <circle fill="#FF5A3C" cx="96" cy="96" r="12" />
+    </svg>
+  ),
 };
 
 export interface TemplateOptionsFieldsProps {
@@ -108,8 +133,40 @@ export function TemplateOptionsFields({
     </div>
   );
 
+  const logoDirection = read('logoDirection') ?? CHAT_TEMPLATE_LOGO_DIRECTIONS[0];
+
   return (
     <div className="space-y-4" data-tpl-options={templateId}>
+      {keys.includes('logoDirection') && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label id={`${idPrefix}-logo-direction`} className="text-xs font-medium">{t('widgetCatalog.options.logoDirection')}</Label>
+            {resetButton('logoDirection')}
+          </div>
+          <div role="radiogroup" aria-labelledby={`${idPrefix}-logo-direction`} className="grid grid-cols-2 gap-2" data-logo-direction={logoDirection}>
+            {CHAT_TEMPLATE_LOGO_DIRECTIONS.map((direction) => (
+              <button
+                key={direction}
+                type="button"
+                role="radio"
+                aria-checked={logoDirection === direction}
+                disabled={disabled}
+                data-logo-direction-option={direction}
+                onClick={() => set('logoDirection', direction)}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg border p-2 text-start text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                  logoDirection === direction ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:bg-muted/60',
+                )}
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#16142B]">{LOGO_GLYPHS[direction]}</span>
+                <span className="min-w-0">{tk(`widgetCatalog.options.logoDirections.${direction}`)}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{t('widgetCatalog.options.logoDirectionHint')}</p>
+        </div>
+      )}
+
       {keys.includes('navStyle') && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2">

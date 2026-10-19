@@ -68,11 +68,12 @@
    * the close control (`css`). An uncustomised widget (no colour, the
    * product's #3B82F6, or one that does not parse) gets none, only the class
    * `gs-accent-brand` (`ab`): the stylesheet (and a skin over it) holds the
-   * brand colour and its hand-tuned hero. `--on-a` is white unless the dark
-   * ink (#16142B) reads better on the accent (WCAG contrast), and then
-   * `--dk` darkens the accent where it is text or an icon on white (the
-   * stylesheet's `--a-ink`, `--a-tx`); `--gs-primary` follows the accent so
-   * Core's focus ring does. `--a` comes first, lower-case, with its `;`: a
+   * brand colour and its hand-tuned hero. Only a light accent gets the dark
+   * ink (#16142B) as `--on-a`, and `--dk` to darken it where it is text or an
+   * icon on white (the stylesheet's `--a-ink`, `--a-tx`); any other gets
+   * white, on the accent darkened until white on it (and it as text on
+   * white) reaches 5:1 (owner, 2026-10-18); `--a-rgb` and `--gs-primary`
+   * (Core's focus ring) follow it. `--a` comes first, lower-case, with its `;`: a
    * stylesheet finds the brand colour picked explicitly by it
    * (`[style*='--a:#0b7d6c;' i]`) and gives it the brand's hero too.
    */
@@ -80,9 +81,9 @@
     var raw = String(primary || '').trim().toLowerCase();
     var p = hexRgb(raw);
     if (!p || raw === '#3b82f6') return { css: '', ab: ' gs-accent-brand' };
+    var dark = luminance(p) > .3;
+    while (!dark && luminance(p) > .16) p = p.map(function (v) { return v * .97 | 0; });
     var a = '#' + p.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('');
-    var y = luminance(p);
-    var dark = (y + 0.05) / (luminance([22, 20, 43]) + 0.05) > 1.05 / (y + 0.05);
     return {
       ab: '',
       css: '--a:' + a + ';--a-rgb:' + p.join(',') + ';--gs-primary:' + a +
@@ -222,9 +223,15 @@
       var s = String(u == null ? '' : u).trim();
       return !/["'<>\s\\]/.test(s) && /^(https?:\/\/|\/\/|\/[^/]|blob:|data:image\/(png|jpe?g|gif|webp);)/i.test(s) ? s : '';
     }
+    /**
+     * What an initial passes over because it draws nothing (an RLM pasted
+     * before a Persian name, a ZWNJ, a space, a lone combining mark), as the
+     * launcher's letter does (shared/launcherStyles.ts). Without \p{} the
+     * browser only trims, as before.
+     */
+    var UNSHOWN = (function () { try { return new RegExp('[\\p{C}\\p{Z}\\p{M}]', 'u'); } catch (e) { return /\s/; } })();
     function initialOf(name) {
-      var s = String(name == null ? '' : name).trim();
-      return (s ? Array.from(s)[0] : '').toUpperCase();
+      return (Array.from(String(name == null ? '' : name)).find(function (ch) { return !UNSHOWN.test(ch); }) || '').toUpperCase();
     }
     /** People keep one tile colour everywhere: their place in the team, else a hash of the name. */
     function tone(name) {
@@ -707,7 +714,7 @@
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
-      var lastLabel = '';
+      var lastLabel;
 
       msgs.forEach(function (m, idx) {
         var dk = dayKeyOf(m.time);
@@ -753,9 +760,11 @@
             : isAi ? avatarHtml(botPerson(), 's28 msg-avatar')
             : avatarHtml({ name: m.senderName, avatar: m.senderAvatar }, 's28 msg-avatar');
         }
-        // The sender's name over a run, when the person changes.
+        // The sender's name over a run only where the team's side changes
+        // hands (after the AI or another person): the chat bar names who
+        // answers first (owner, 2026-10-18).
         var label = '';
-        if (!visitor && isFirst && !isAi && m.senderName && m.senderName !== lastLabel) {
+        if (!visitor && isFirst && !isAi && m.senderName && lastLabel != null && m.senderName !== lastLabel) {
           label = '<span class="msg-sender-label">' + esc(m.senderName) + '</span>';
         }
         if (!visitor && isFirst) lastLabel = isAi ? '' : (m.senderName || '');
@@ -948,18 +957,26 @@
     /**
      * The chat header (feature `chatHeader`; Core repaints it into
      * [data-chat-header] when what it shows changes): a new conversation
-     * names itself; an assigned operator shows their face, presence and
-     * "{operator} · {workspace}"; otherwise the workspace.
+     * names itself; an assigned operator shows their face and presence, the
+     * workspace's name and theirs small under it (owner, 2026-10-18; theirs
+     * as the title without a workspace name or when the two are one);
+     * otherwise the workspace and its status line. While the thread
+     * asks for the visitor's details, or is the one they were given in
+     * (`vm.prechat`, feature `prechatHeader`, 08·a-c), and no operator is
+     * assigned, the workspace with its lead's face (an online one), as the
+     * questions show it.
      */
     function chatHeaderHtml(vm) {
       vm = vm || {};
+      var pre = !!vm.prechat;
       var op = vm.operator && vm.operator.name ? vm.operator : null;
       var online = !!vm.online;
+      var who = !op && pre && online && lead();
       var status = online ? onlineLine() : L('awayEmail');
-      return (online ? '' : '<i class="away" hidden></i>') + backButtonHtml('home') + (vm.isNew
+      return (online ? '' : '<i class="away" hidden></i>') + backButtonHtml('home') + (vm.isNew && !pre
         ? whoHtml('', tf('wyNewConversation', 'New conversation'), workspaceName)
-        : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : wsAvatar('s40', online),
-          op ? op.name + (workspaceName ? ' · ' + workspaceName : '') : workspaceName, status)) +
+        : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : who && who.online ? avatarHtml(who, 's40', true) : wsAvatar('s40', online),
+          workspaceName || (op ? op.name : ''), op && workspaceName && workspaceName != op.name ? op.name : status)) +
         // The menu (`vm.menu`) only once Core's late module drew it a list.
         (vm.menu ? x('chatMenuHtml', [vm.menu]) : '') +
         '<div class="presence sr-only" data-presence aria-live="polite"><span data-presence-dot></span>' +
@@ -1423,9 +1440,10 @@
     // bar's menu, the pre-chat one question at a time, the place in the
     // queue and the message left while away, drawn by the extras;
     // `emojiSearch` (the picker's field, the extras'), `dlProgress` (a
-    // download's arc, the stylesheet's) and `kbAuthor` (an article's author).
+    // download's arc, the stylesheet's) and `kbAuthor` (an article's author);
+    // `prechatHeader`: the chat bar draws the lead around a pre-chat (`vm.prechat`).
     var features = {
-      tabs: true, kbSearch: true, kbCategories: true, kbArticleMeta: true, operatorTyping: true, chatHeader: true,
+      tabs: true, kbSearch: true, kbCategories: true, kbArticleMeta: true, operatorTyping: true, chatHeader: true, prechatHeader: true,
       emptyQna: true, topics: true, prechatOperator: true, prechatSummary: true, recSend: true, vnRate: true,
       clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true,
       prechatSteps: !!caps.prechatSteps, queuePosition: !!caps.queuePosition, awayThread: !!caps.awayThread,

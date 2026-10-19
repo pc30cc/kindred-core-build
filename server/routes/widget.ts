@@ -117,7 +117,7 @@ import {
   issueContinuityCookieForContact,
 } from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
-import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages } from './widgetAttachments.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages, visitorReplyPreview, type ReplyToPreview } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
@@ -168,6 +168,8 @@ import {
   reactableByVisitor,
   visitorReactionList,
 } from '../../shared/messageReactions.js';
+import { visitorSystemPreview, type VisitorSystemPreview } from '../../shared/systemMessages.js';
+import { operatorFallbackLocale, operatorLocale, operatorLocales } from '../services/operatorLocale.js';
 
 /**
  * Internal staffing notices never reach the visitor.
@@ -1129,6 +1131,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
       sender_type: string;
       attachment_id: string | null;
       attachment_kind: AttachmentPreviewKind | null;
+      system: VisitorSystemPreview | null;
     }> = {};
     const unreadByConv: Record<string, number> = {};
     if (convIds.length > 0) {
@@ -1145,7 +1148,11 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         // line, which a template that draws it draws in the thread.
         if (!isVisitorVisibleMessageMeta(m.metadata)) continue;
         if ((m.metadata as Record<string, unknown> | null)?.kind === 'conversation_closed') continue;
-        if (!lastByConv[m.conversation_id]) {
+        // A system row previews as its kind, from which the widget writes
+        // the sentence; one it cannot write (a kind it does not know) is
+        // not the preview, the row before it is. It still counts as unread.
+        const system = m.sender_type === 'system' ? visitorSystemPreview(m.metadata) : null;
+        if (!lastByConv[m.conversation_id] && (m.sender_type !== 'system' || system)) {
           const meta = (m.metadata || {}) as Record<string, unknown>;
           lastByConv[m.conversation_id] = {
             body: m.body ?? '',
@@ -1156,6 +1163,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
             // conversation the visitor had just sent a photo to.
             attachment_id: meta.attachment_id ? String(meta.attachment_id) : null,
             attachment_kind: null,
+            system,
           };
         }
         if (!INBOUND.has(String(m.sender_type))) continue;
@@ -1213,6 +1221,12 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         // Structured, never display text: the widget writes the sentence in
         // the VISITOR's language, which the server has no business choosing.
         attachmentKind: last?.attachment_kind ?? null,
+        // The same for a system row ("Your message is in the support
+        // queue."): its kind and the names its sentence needs, never the
+        // stored English body as the text to show. Only on such a row, so
+        // every other row keeps exactly the keys it had; `preview` above
+        // stays the body for a runtime loaded before this field existed.
+        ...(last?.system ? { systemKind: last.system.kind, systemMeta: last.system.meta } : {}),
         // Whether the visitor themselves sent it — "you sent a photo" reads
         // differently from "you received a photo".
         outbound: last ? last.sender_type === 'contact' : false,
@@ -2138,7 +2152,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // the browser.
     let dbReplyToMessageId: string | null = null;
     let publicReplyToMessageId: string | null = null;
-    let replyToPreview: { id: string; text: string; sender_type: string } | null = null;
+    let replyToPreview: ReplyToPreview | null = null;
     if (data.reply_to_message_id) {
       const { data: parent } = await supabase
         .from('conversation_messages')
@@ -2148,10 +2162,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         .maybeSingle();
       if (parent) {
         dbReplyToMessageId = parent.id;
-        if (isVisitorVisibleMessageMeta(parent.metadata)) {
-          publicReplyToMessageId = parent.id;
-          replyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
-        }
+        // Visible to the visitor, and a system row quoted as its kind (the
+        // widget writes it in the visitor's language): the same rule as
+        // every read path (widgetAttachments.ts visitorReplyPreview).
+        replyToPreview = visitorReplyPreview(parent);
+        if (replyToPreview) publicReplyToMessageId = parent.id;
       }
     }
 
@@ -3928,13 +3943,13 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     },
   });
 
-  // Best-effort email notification to workspace owners/admins.
+  // Best-effort email notification to workspace owners/admins, each in
+  // their own language (not the visitor's).
   void notifyOfflineCapture(config, workspace_id, {
     conversationId: conv.id,
     message,
     email: email || null,
     name: name || null,
-    locale: locale || 'en',
   }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
 
   return res.json({
@@ -3958,7 +3973,7 @@ export function escapeMailText(value: string): string {
 async function notifyOfflineCapture(
   config: ServerConfig,
   workspaceId: string,
-  payload: { conversationId: string; message: string; email: string | null; name: string | null; locale: string },
+  payload: { conversationId: string; message: string; email: string | null; name: string | null },
 ): Promise<void> {
   const supabase = getServiceClient(config);
   // Resolve workspace owners/admins. The codebase uses `workspace_members`
@@ -3978,25 +3993,29 @@ async function notifyOfflineCapture(
     // ignore — will check email_settings.reply_to_email below
   }
 
-  let emails: string[] = [];
+  // Each mail in its recipient's language (operatorLocale.ts:
+  // preferred_locale, else the platform's), never the visitor's.
+  let recipients: Array<{ to: string; locale: string }> = [];
   if (recipientIds.length) {
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, email')
       .in('id', recipientIds);
-    emails = (profiles || []).map((p) => p.email).filter(Boolean);
+    const withEmail = (profiles || []).filter((p) => p.email);
+    const locales = await operatorLocales(config, withEmail.map((p) => String(p.id)));
+    recipients = withEmail.map((p) => ({ to: p.email, locale: locales.get(String(p.id)) || 'en' }));
   }
 
-  if (!emails.length) {
+  if (!recipients.length) {
     const { data: settings } = await supabase
       .from('email_settings')
       .select('reply_to_email')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    if (settings?.reply_to_email) emails = [settings.reply_to_email];
+    if (settings?.reply_to_email) recipients = [{ to: settings.reply_to_email, locale: await operatorFallbackLocale(config) }];
   }
 
-  if (!emails.length) return;
+  if (!recipients.length) return;
 
   const subject = `New offline message`;
   // Deep-link straight into the conversation inside THIS workspace.
@@ -4021,7 +4040,7 @@ async function notifyOfflineCapture(
   `;
   const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
 
-  for (const to of emails) {
+  for (const { to, locale } of recipients) {
     try {
       await sendEmail(config, {
         workspaceId,
@@ -4047,7 +4066,7 @@ async function notifyOfflineCapture(
           message_body: escapeMailText(payload.message),
           action_url: escapeMailText(inboxUrl),
         },
-        locale: payload.locale,
+        locale,
       });
     } catch (err) {
       console.warn('[offline-messages] email to', to, 'failed:', err?.message);
@@ -4094,7 +4113,8 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
         message_body:
           'Hello — this is a test message confirming your offline notification pipeline works.',
       },
-      locale: locale || 'en',
+      // As the real mail: the requesting member's language unless asked.
+      locale: locale || await operatorLocale(config, auth.userId),
     });
     return res.json({ ok: true });
   } catch (err) {

@@ -78,6 +78,8 @@ import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
+import { operatorLocale } from '../services/operatorLocale.js';
+import { operatorSystemText, withOperatorSystemBody, withoutPlaceholderNames } from '../services/operatorSystemText.js';
 import { notifyAssignment } from '../services/push/index.js';
 import { coalesce } from '../lib/inflight.js';
 import { onSupportConversationChanged, onTeamReply } from '../services/platformSupport/service.js';
@@ -982,6 +984,18 @@ conversationsRouter.patch('/:id', async (req, res) => {
         } catch (e) {
           console.warn('[conversations PATCH] transfer notice failed:', e?.message || e);
         }
+        // Handed back to the manual queue: routing tells the visitor they wait
+        // again now (276 stamped the return), after the inbox's own notice so
+        // the thread reads in order, not with their next message. Once per
+        // return, so that next message's routing run posts nothing more.
+        if (!parsed.data.assigned_to) {
+          try {
+            const { routeQueueReturn } = await import('../services/chatRouting.js');
+            await routeQueueReturn(config, { workspaceId: parsed.data.workspace_id, conversationId });
+          } catch (e) {
+            console.warn('[conversations PATCH] queue return failed:', e?.message || e);
+          }
+        }
       })();
     }
 
@@ -1361,16 +1375,20 @@ async function listConversationRows(
 
   const ids = convos.map((c) => c.id).filter(Boolean);
   if (ids.length > 0) {
-    const { data: msgs } = await sb
-      .from('conversation_messages')
-      .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
-      .in('conversation_id', ids)
-      // Bot menu/button taps are navigation, not chat content — keep them
-      // out of the fetch window entirely so a visitor browsing the bot menu
-      // can never push the real last message out of the preview.
-      .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
-      .order('created_at', { ascending: false })
-      .limit(2000);
+    const [{ data: msgs }, readerLocale] = await Promise.all([
+      sb
+        .from('conversation_messages')
+        .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
+        .in('conversation_id', ids)
+        // Bot menu/button taps are navigation, not chat content — keep them
+        // out of the fetch window entirely so a visitor browsing the bot menu
+        // can never push the real last message out of the preview.
+        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
+        .order('created_at', { ascending: false })
+        .limit(2000),
+      // The language a system preview's `body` is written in (below).
+      operatorLocale(config, auth.userId),
+    ]);
 
     const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
     const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; system_meta?: Record<string, unknown> | null }> = {};
@@ -1399,8 +1417,12 @@ async function listConversationRows(
       if (isMenuEvent) continue;
 
       if (!lastByConv[m.conversation_id]) {
+        // A system notice's body is written in the requesting operator's
+        // language (services/operatorSystemText.ts): an installed native app
+        // that does not know the kind prints the body.
+        const isSystem = m.sender_type === 'system';
         lastByConv[m.conversation_id] = {
-          body: m.body ?? '',
+          body: (isSystem ? operatorSystemText(meta, readerLocale) : null) ?? m.body ?? '',
           created_at: m.created_at,
           sender_type: m.sender_type,
           sender_id: m.sender_id ?? null,
@@ -1411,11 +1433,12 @@ async function listConversationRows(
           attachment_kind: null,
           // Every system notice is stored in English and frozen at insert
           // time, so the preview has to rebuild the sentence from metadata
-          // (see src/lib/systemMessageText.ts). Shipping the whole object
+          // (see shared/systemMessageText.ts). Shipping the whole object
           // rather than a field per kind is why the list no longer falls
-          // behind the thread every time a new kind is added.
+          // behind the thread every time a new kind is added. The English
+          // stand-ins once stored as a name ('a colleague') go out as null.
           system_kind: meta?.kind ? String(meta.kind) : null,
-          system_meta: meta?.kind ? meta : null,
+          system_meta: meta?.kind ? (isSystem ? withoutPlaceholderNames(meta) : meta) : null,
         };
       }
       if (m.sender_type === 'agent' && m.sender_id) {
@@ -1818,6 +1841,8 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       ? readConversationReactions(sb, conversationId, { type: 'operator', userId: auth.userId })
       : Promise.resolve(null);
     const reactionsShownP = widgetThread ? workspaceShowsReactions(config, conv.workspace_id) : Promise.resolve(false);
+    // System rows' bodies go out in this operator's language (below).
+    const readerLocaleP = operatorLocale(config, auth.userId);
 
     const threadRows = () => sb.from('conversation_messages').select('*').eq('conversation_id', conversationId);
     // `?since=<cursor>`: only rows created/changed since then (services/messageSync.ts).
@@ -1912,7 +1937,7 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       ? await resolveWorkspaceAgentLogoUrl(config, conv.workspace_id).catch(() => null)
       : null;
 
-    const [reactions, reactionsShown] = await Promise.all([reactionsP, reactionsShownP]);
+    const [reactions, reactionsShown, readerLocale] = await Promise.all([reactionsP, reactionsShownP, readerLocaleP]);
     const canReact = reactionsShown && !!reactions?.ready;
 
     const enriched = messages.map((m) => {
@@ -1925,8 +1950,12 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       }
       const prof = m.sender_id ? senderMap[m.sender_id] : null;
       const reacted = m.id ? reactions?.byMessage.get(m.id) : undefined;
+      // A system row's stored body is English; it goes out written in this
+      // operator's language for a client that prints `body` (an installed
+      // native app without the kind). `metadata` keeps the stored values,
+      // apart from the English stand-in names ('a colleague'), nulled.
       return {
-        ...m,
+        ...withOperatorSystemBody(m, readerLocale),
         // `attachment` kept for backwards compatibility with older clients.
         ...(list.length ? { attachment: list[0], attachments: list } : {}),
         sender_name: prof?.name ?? null,

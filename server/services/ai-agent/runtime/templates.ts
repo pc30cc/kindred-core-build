@@ -55,17 +55,23 @@ export function pickTemplate(key: TemplateKey, locale: string | undefined): stri
  * Handoff acknowledgement — the "connecting you to a human now" message.
  * Prefers the workspace owner's own per-locale text (AI Agent settings,
  * mirrors intro_message_localized) and only falls back to the built-in
- * template when nothing has been configured for this locale.
+ * template when nothing has been configured for this locale. Never another
+ * language's text (the owner's English for a Persian visitor): the
+ * built-in line is in theirs. Only a language the built-in lines lack
+ * takes the owner's English first.
  */
 export function pickHandoffAckMessage(
   settings: { handoff_message_localized?: Record<string, string> | null } | null | undefined,
   locale: string | undefined,
 ): string {
-  const configured = pickLocalizedMessage(
-    { translations: settings?.handoff_message_localized || {} },
-    locale,
-  );
-  if (configured && configured.trim()) return configured.trim();
+  const own = settings?.handoff_message_localized || {};
+  const l = (locale || 'en').toLowerCase();
+  const base = l.split('-')[0];
+  const candidates = base === 'fa' || base === 'tr' || base === 'en' ? [l, base] : [l, base, 'en'];
+  for (const c of candidates) {
+    const configured = own[c];
+    if (typeof configured === 'string' && configured.trim()) return configured.trim();
+  }
   return pickTemplate('handoff', locale);
 }
 

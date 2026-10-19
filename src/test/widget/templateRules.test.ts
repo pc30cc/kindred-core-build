@@ -155,14 +155,31 @@ describe('template files: named by the convention, present, discoverable by the 
   }
 });
 
+/**
+ * Every url() of a stylesheet, comments left out, each value whole: a quoted
+ * one may hold its SVG's own parentheses (rotate(45), url(%23g)), and none
+ * ends at an escaped quote or parenthesis (\" \' \)). `rest` is the sheet
+ * without them, so a url( or a data: the reading missed shows there.
+ */
+function cssUrls(css: string): { urls: string[]; rest: string } {
+  const urls: string[] = [];
+  const rest = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/url\(\s*(?:"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\]|\\[\s\S])*)'|((?:[^"'()\s\\]|\\[\s\S])*))\s*\)/gi, (_m, dq?: string, sq?: string, bare?: string) => {
+      urls.push(dq ?? sq ?? bare ?? '');
+      return '';
+    });
+  return { urls, rest };
+}
+
 describe('template stylesheets carry no fonts and fetch nothing', () => {
+  const FAB = `${CHAT_DIR}/runtime-fab.css`;
   const sheets = unique([
     ...chatTemplates.flatMap((t) => [t.style, t.skin].filter(Boolean).map((f) => `${CHAT_DIR}/${f}`)),
     ...callTemplates.map((t) => `${CALL_DIR}/${t.style}`),
     `${CALL_DIR}/runtime.css`,
     `${CHAT_DIR}/runtime.css`,
     // The launcher styles (the loader's shadow root, like runtime.css).
-    `${CHAT_DIR}/runtime-fab.css`,
+    FAB,
   ]);
   for (const sheet of sheets) {
     it(sheet, () => {
@@ -176,13 +193,42 @@ describe('template stylesheets carry no fonts and fetch nothing', () => {
       // No other host, no extra request.
       expect(css).not.toMatch(/@import/);
       expect(css).not.toMatch(/https?:\/\//);
-      // Only small inline SVGs may sit in url().
-      for (const m of css.matchAll(/url\(\s*(['"]?)([^)]*?)\1\s*\)/g)) {
-        expect(m[2], `url() in ${sheet}`).toMatch(/^data:image\/svg\+xml[,;]/);
-        expect(m[2].length, `inline SVG in ${sheet}`).toBeLessThanOrEqual(BUDGETS.inlineSvg);
+      // Only small inline SVGs may sit in url(), every one of them measured.
+      const { urls, rest } = cssUrls(css);
+      expect(rest, `a url() or data: in ${sheet} that was not measured`).not.toMatch(/url\(|data:/i);
+      for (const u of urls) {
+        expect(u, `url() in ${sheet}`).toMatch(/^data:image\/svg\+xml[,;]/);
+        expect(Buffer.byteLength(u, 'utf8'), `inline SVG in ${sheet}`).toBeLessThanOrEqual(BUDGETS.inlineSvg);
       }
     });
   }
+
+  it(`${FAB}: its glyphs are inline SVGs, so the ${BUDGETS.inlineSvg} B rule above measures each one`, () => {
+    expect(sheets).toContain(FAB);
+    const { urls } = cssUrls(read(FAB));
+    expect(urls.length).toBeGreaterThan(0);
+    for (const u of urls) expect(u).toMatch(/^data:image\/svg\+xml,/);
+  });
+
+  it('the url() reading takes each value whole: quoted SVGs with their own parentheses, escapes, URL(, comments', () => {
+    const big = `data:image/svg+xml,%3Csvg viewBox='0 0 24 24'%3E%3Cpath transform='rotate(45 12 12)' fill='url(%23g)' d='M0 0h${'1'.repeat(BUDGETS.inlineSvg)}'/%3E%3C/svg%3E`;
+    const small = 'data:image/svg+xml,%3Csvg/%3E';
+    const { urls, rest } = cssUrls(`/* url(a.png) */ .a { --i: url("${big}"); } .b { background: URL( ${small} ) } .c { mask: url('${small}') }`);
+    expect(urls).toEqual([big, small, small]);
+    expect(rest).not.toMatch(/url\(|data:/i);
+    expect(Buffer.byteLength(urls[0], 'utf8')).toBeGreaterThan(BUDGETS.inlineSvg);
+    // An escaped quote or parenthesis does not end the value: the big tail after it is measured.
+    const tail = `%2F%3E${'1'.repeat(BUDGETS.inlineSvg)}`;
+    const dq = `data:image/svg+xml,%3Csvg d='\\")${tail}'`;
+    const sq = `data:image/svg+xml,%3Csvg d="\\')${tail}"`;
+    const bare = `data:image/svg+xml,%3Csvg\\)${tail}`;
+    const escaped = cssUrls(`.e { --i: url("${dq}"); --j: url('${sq}'); --k: url( ${bare} ) }`);
+    expect(escaped.urls).toEqual([dq, sq, bare]);
+    for (const u of escaped.urls) expect(Buffer.byteLength(u, 'utf8')).toBeGreaterThan(BUDGETS.inlineSvg);
+    expect(escaped.rest).not.toMatch(/url\(|data:/i);
+    // A url() the reading cannot take whole stays in `rest`, where the rule sees it.
+    expect(cssUrls('.d { background: url("data:image/svg+xml,x) }').rest).toMatch(/url\(/);
+  });
 });
 
 describe('fonts: one document-level stylesheet per template, each face fetched only when its text is on screen', () => {

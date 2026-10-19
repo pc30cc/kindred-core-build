@@ -41,6 +41,7 @@ import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
 import { useArtCharts } from '@/themes/art/charts/useArtCharts';
 import { ArtColumns } from '@/themes/art/charts/ArtColumns';
+import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 
 /** English placeholder subjects persisted by the widget/AI — localized in the UI. */
 /** The fields of a conversation the dashboard reads. */
@@ -74,10 +75,6 @@ interface TeamRow {
   email?: string | null;
   avatar_url?: string | null;
 }
-
-const PLACEHOLDER_SUBJECTS = new Set([
-  'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
-]);
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
@@ -577,7 +574,7 @@ export default function OverviewPage() {
                   ? contactDisplayName(c.contacts, c.contact_id ?? c.id, tr, c.visitor_network?.geo, locale)
                   : (c.visitor_name || tr('contacts.conversationUntitled'));
                 const rawPreview = (c.last_message_preview || c.subject || '').trim();
-                const preview = PLACEHOLDER_SUBJECTS.has(rawPreview.toLowerCase())
+                const preview = rawPreview && isPlaceholderSubject(rawPreview)
                   ? tr('contacts.conversationUntitled')
                   : (rawPreview || '—');
                 return (

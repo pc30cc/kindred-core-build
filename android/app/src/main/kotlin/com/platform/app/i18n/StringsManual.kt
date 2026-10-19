@@ -72,11 +72,40 @@ object StrManual {
         Language.TR -> "{actor} bu görüşmenin atamasını kaldırdı"
     }.replace("{actor}", isolate(actor))
 
+    /** A transfer whose actor is not known (a row written without a name). */
+    fun sysTransferredTo(l: Language, to: String): String = when (l) {
+        Language.EN -> "This conversation was transferred to {to}"
+        Language.FA -> "این گفتگو به {to} منتقل شد"
+        Language.TR -> "Bu görüşme {to} kişisine aktarıldı"
+    }.replace("{to}", isolate(to))
+
     fun sysAgentJoined(l: Language, name: String): String = when (l) {
         Language.EN -> "{name} joined the conversation"
         Language.FA -> "{name} به گفتگو پیوست"
         Language.TR -> "{name} sohbete katıldı"
     }.replace("{name}", isolate(name))
+
+    /** The «X closed the conversation» line an operator's close writes. */
+    fun sysClosedBy(l: Language, name: String): String = when (l) {
+        Language.EN -> "{name} closed the conversation"
+        Language.FA -> "{name} گفتگو را بست"
+        Language.TR -> "{name} sohbeti kapattı"
+    }.replace("{name}", isolate(name))
+
+    /** A site user's rating of a platform-support conversation (internal). */
+    fun sysSupportRating(l: Language, score: Int): String = when (l) {
+        Language.EN -> "Rated the conversation {score}/5"
+        Language.FA -> "به این گفتگو {score} از ۵ امتیاز داد"
+        Language.TR -> "Görüşmeye 5 üzerinden {score} puan verdi"
+    }.replace("{score}", score.toString())
+
+    // The comment goes in last, so what the user typed is never read as a
+    // placeholder.
+    fun sysSupportRatingComment(l: Language, rating: String, comment: String): String = when (l) {
+        Language.EN -> "{rating} — “{comment}”"
+        Language.FA -> "{rating} — «{comment}»"
+        Language.TR -> "{rating} — “{comment}”"
+    }.replace("{rating}", rating).replace("{comment}", isolate(comment))
 
     fun sysCallInviteAudioFrom(l: Language, op: String): String = when (l) {
         Language.EN -> "{op} invited the visitor to an audio call"

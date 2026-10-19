@@ -124,6 +124,11 @@ async function loadConversationContext(
   };
 }
 
+/**
+ * The inviting operator's full name, or null: the visitor's card then reads
+ * "You've been invited to a … call" in their language. Never the email
+ * address, which used to stand in for a missing name on the visitor's page.
+ */
 async function loadOperatorName(
   config: ServerConfig,
   userId: string,
@@ -132,11 +137,11 @@ async function loadOperatorName(
   try {
     const { data } = await sb
       .from('profiles')
-      .select('full_name, email')
+      .select('full_name')
       .eq('id', userId)
       .maybeSingle();
-    if (!data) return null;
-    return ((data as any).full_name as string | null) || ((data as any).email as string | null) || null;
+    const name = (data as { full_name?: unknown } | null)?.full_name;
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
   } catch {
     return null;
   }
@@ -255,11 +260,11 @@ export async function createInvitation(
           body: msg.body as string,
           created_at: msg.created_at as string | null,
           metadata: ((msg.metadata as Record<string, unknown>) ?? (cardMeta as unknown as Record<string, unknown>)),
-          seen_at: (msg as any).seen_at ?? null,
+          seen_at: (msg.seen_at as string | null) ?? null,
         }),
       );
     }
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[invitations] system message side-effect failed:', err?.message || err);
   }
 
@@ -286,7 +291,7 @@ export async function createInvitation(
     status: invitation.status,
     channel: invitation.channel,
     expires_at: invitation.expires_at,
-  } as any);
+  });
 
   return { ok: true, invitation };
 }
@@ -308,7 +313,7 @@ async function syncCardForStatus(
     if (!existing) return;
     const prevMeta = (existing.metadata as Record<string, unknown>) ?? {};
     const nextMeta: InvitationCardMeta = {
-      ...(prevMeta as any),
+      ...(prevMeta as Partial<InvitationCardMeta>),
       kind: 'call_invitation',
       invitation_id: invitation.id,
       channel: invitation.channel,
@@ -331,10 +336,10 @@ async function syncCardForStatus(
         body: existing.body as string,
         created_at: existing.created_at as string | null,
         metadata: nextMeta as unknown as Record<string, unknown>,
-        seen_at: (existing as any).seen_at ?? null,
+        seen_at: (existing.seen_at as string | null) ?? null,
       }),
     );
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[invitations] card sync failed:', err?.message || err);
   }
 
@@ -347,7 +352,7 @@ async function syncCardForStatus(
     status: invitation.status,
     channel: invitation.channel,
     expires_at: invitation.expires_at,
-  } as any);
+  });
 }
 
 export async function cancelInvitation(
@@ -598,7 +603,7 @@ export function startInvitationExpirySweeper(config: ServerConfig): { stop: () =
       if (result.expired > 0) {
         console.log(`[invitations] expired ${result.expired} stale invitation(s)`);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[invitations] sweeper tick failed:', err?.message || err);
     } finally {
       if (!stopped) timer = setTimeout(tick, 30_000);

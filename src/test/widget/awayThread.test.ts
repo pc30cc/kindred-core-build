@@ -19,11 +19,10 @@
  *    (no switch mid-input); an AI answering, a full quota, `default`: today's
  *    path, untouched.
  *
- * Offline from the first paint, Core's presence store still holds its
- * initial mode (`accept_messages`: createPresence publishes a mode only when
- * the status changes, the `default` bug g5-3a fixes in round 5), so Core
- * itself shows no leave-a-message form and keeps the composer (and the
- * attach button) open here; runtime-late.js reads the workspace's mode then.
+ * Offline from the first paint, Core's presence store holds the workspace's
+ * mode at once (createPresence publishes at an offline start: the `default`
+ * fix g5-3a of round 5); runtime-late.js reads it from there, and its `away`
+ * hook keeps the thread and the composer where Core would draw its form.
  *
  * @vitest-environment jsdom
  */
@@ -178,8 +177,6 @@ describe('t1: the thread, away', () => {
     const h = start({ realtime: true });
     await toChat(h);
     await send(h, 'سلام');
-    // Past Core's own composer focus (200 ms after the visitor's identity).
-    await new Promise((r) => setTimeout(r, 250));
     const field = () => h.q<HTMLInputElement>('.away-reply [data-fb="email"]')!;
     field().focus();
     typeInto(field(), 'ali@');

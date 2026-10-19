@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonElement
 /**
  * One place that turns a system notice into text the reader can understand.
  *
- * This is the app's half of `src/lib/systemMessageText.ts`, and it exists for
+ * This is the app's half of `shared/systemMessageText.ts`, and it exists for
  * the same reason that file does: **the server writes system message bodies in
  * English and freezes them into the row at insert time**, so the stored body
  * can never follow the reader's language. `Call ended by operator · 00:39` is
@@ -34,15 +34,33 @@ object SystemMessage {
 
         fun value(key: String): String = meta.string(key).orEmpty().trim()
 
-        return when (kind) {
-            "conversation_transferred" ->
-                StrManual.sysTransferred(language, actor = value("actor_name"), to = value("to_name"))
+        // A person's name, or "" for none. The English stand-ins the server
+        // once stored as a name ('a colleague') count as none, so the reader
+        // gets the generic sentence in their own language.
+        fun person(raw: String): String = raw.trim().takeUnless { it.lowercase() in PLACEHOLDER_NAMES }.orEmpty()
 
-            "conversation_unassigned" ->
-                StrManual.sysUnassigned(language, actor = value("actor_name"))
+        return when (kind) {
+            "conversation_transferred" -> {
+                val actor = person(value("actor_name"))
+                val to = person(value("to_name"))
+                when {
+                    to.isEmpty() -> Str.sysTransferredGeneric(language)
+                    actor.isEmpty() -> StrManual.sysTransferredTo(language, to = to)
+                    else -> StrManual.sysTransferred(language, actor = actor, to = to)
+                }
+            }
+
+            "conversation_unassigned" -> {
+                val actor = person(value("actor_name"))
+                if (actor.isEmpty()) {
+                    Str.sysUnassignedGeneric(language)
+                } else {
+                    StrManual.sysUnassigned(language, actor = actor)
+                }
+            }
 
             "routing_agent_joined" -> {
-                val name = value("agent_name")
+                val name = person(value("agent_name"))
                 if (name.isEmpty()) {
                     Str.sysAgentJoinedGeneric(language)
                 } else {
@@ -50,13 +68,38 @@ object SystemMessage {
                 }
             }
 
+            // The visitor-visible line an operator's close writes.
+            "conversation_closed" -> {
+                val name = person(value("agent_name"))
+                if (name.isEmpty()) Str.sysClosed(language) else StrManual.sysClosedBy(language, name = name)
+            }
+
             "routing_no_agent_available" -> Str.sysNoAgentAvailable(language)
 
             "routing_in_queue" -> Str.sysInQueue(language)
 
+            // The "who is asking" card as one line, where the card is not drawn.
+            "platform_support_requester" -> {
+                val name = person(meta["user"].string("name").orEmpty())
+                if (name.isEmpty()) StrAndroid.requesterTitle(language) else "${StrAndroid.requesterTitle(language)} · $name"
+            }
+
+            // Without a whole score from 1 to 5 there is nothing to say; the
+            // stored body is better.
+            "support_rating" -> {
+                val score = meta["score"]?.intOrNull?.takeIf { it in 1..5 }
+                if (score == null) {
+                    null
+                } else {
+                    val rated = StrManual.sysSupportRating(language, score = score)
+                    val comment = value("comment")
+                    if (comment.isEmpty()) rated else StrManual.sysSupportRatingComment(language, rating = rated, comment = comment)
+                }
+            }
+
             "call_invitation" -> {
                 val isVideo = value("channel") == "video"
-                val operator = value("operator_name")
+                val operator = person(value("operator_name"))
                 val text = when {
                     operator.isEmpty() && isVideo -> Str.sysCallInviteVideo(language)
                     operator.isEmpty() -> Str.sysCallInviteAudio(language)
@@ -85,6 +128,12 @@ object SystemMessage {
             else -> null
         }
     }
+
+    /**
+     * English stand-ins once stored as a name (chatRouting's 'a colleague',
+     * the inbox PATCH's 'An operator') — shared/systemMessages.ts.
+     */
+    private val PLACEHOLDER_NAMES = setOf("a colleague", "an operator")
 
     /** The status word shown beside a call invitation. */
     fun invitationStatus(status: String, language: Language): String = when (status) {

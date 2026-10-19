@@ -50,6 +50,7 @@ interface PresentationModule { id?: string; create: (env: Dict) => Renderer; pre
 
 export interface RuntimeInstance {
   open: () => boolean;
+  close: () => boolean;
   setTab: (key: string, articleSlug?: string) => void;
   __test: {
     startNew: () => void;

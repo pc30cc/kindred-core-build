@@ -8,6 +8,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { createStorageUrlResolver, type StorageUrlResolver } from '../storage/urlResolver.js';
+import { DEFAULT_AI_AGENT_NAME, DEFAULT_AI_FALLBACK_MESSAGE } from '../../../shared/systemMessages.js';
 
 export type AgentMode =
   | 'off'
@@ -96,6 +97,14 @@ export interface AgentSettings {
   updated_at: string;
 }
 
+/**
+ * The agent's name and hand-over line until the owner sets them. English in
+ * every language, so what the visitor reads treats them as unset
+ * (shared/systemMessages.ts, where they live so that pure code reads them
+ * too; ai-agent/intro.ts, engine/helpers.ts ownerFallbackMessage).
+ */
+export { DEFAULT_AI_AGENT_NAME, DEFAULT_AI_FALLBACK_MESSAGE };
+
 const DEFAULT_HANDOFF_KEYWORDS = [
   'human','agent','operator','representative','speak to someone',
   'انسان','اپراتور','پشتیبان',
@@ -106,7 +115,7 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
   return {
     workspace_id: workspaceId,
     enabled: false,
-    agent_name: 'AI Assistant',
+    agent_name: DEFAULT_AI_AGENT_NAME,
     agent_logo_url: null,
     business_description: null,
     answer_guidance: 'conservative',
@@ -114,7 +123,7 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     answer_only_from_kb: true,
     strict_topic_scope: false,
     welcome_message: null,
-    fallback_message: "I'm not sure about that yet. I'll connect you with a human agent.",
+    fallback_message: DEFAULT_AI_FALLBACK_MESSAGE,
     handoff_keywords: DEFAULT_HANDOFF_KEYWORDS,
     max_replies_per_conversation: 3,
     max_replies_per_hour: 20,

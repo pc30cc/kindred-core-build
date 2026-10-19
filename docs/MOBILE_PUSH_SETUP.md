@@ -19,7 +19,10 @@ as for a mention) → their devices. Its `data` carries `type: team_message` and
 colleague's thread on a tap.
 
 What else reaches an operator's phone, each under the same per-operator
-settings and in the operator's language:
+settings and in the operator's language (their `preferred_locale` when the
+platform offers that language, else the platform's default language, else its
+first: `server/services/operatorLocale.ts`, the rule the operator e-mails and
+the operator APIs' system messages follow too):
 
 | Event | Sent from | `type` | Who |
 |---|---|---|---|

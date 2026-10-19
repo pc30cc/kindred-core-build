@@ -64,6 +64,79 @@
   function closedRow(m) { return !!(m && m.metadata && m.metadata.kind === 'conversation_closed'); }
   function hiddenRow(m) { return closedRow(m) && !((Presentation && Presentation.features) || {}).closedNotice; }
 
+  // The AI's built-in English name, the stored default of an agent the
+  // owner never named (shared/systemMessages.ts DEFAULT_AI_AGENT_NAME). The
+  // server still sends it, for the runtime.js loaded before this release,
+  // which labels the AI's replies with it; here it is no name, in every
+  // language. `name` as given otherwise, null without one.
+  function aiOwnName(senderType, name) {
+    if (!name) return null;
+    return senderType === 'ai' && String(name).trim() === 'AI Assistant' ? null : name;
+  }
+
+  // The name an AI reply with none (aiOwnName) is drawn with. `default` and
+  // `intl` group bubbles into runs by name and photo, so a nameless AI reply
+  // would share a run with the system line under it and lose its "AI" badge
+  // and time: they get the widget's own word for it, in the visitor's
+  // language, where 'AI Assistant' stood. A renderer with features ends a
+  // run at a system line and draws the badge alone.
+  function aiFallbackName(t, senderType) {
+    if (senderType !== 'ai' || (Presentation && Presentation.features)) return null;
+    return t('wyAiAssistant') || null;
+  }
+
+  /**
+   * A system row as one sentence in the visitor's language: the home card,
+   * the conversation list, the toast, the screen reader, a quote of it.
+   * The thread draws these rows itself (each renderer's pills and cards);
+   * this is everything else. '' for a kind Core cannot write, so nothing
+   * is shown rather than the server's English body. `t` and `locale` are
+   * the caller's (two closures call it: the runtime's and the chat UI's).
+   */
+  function systemRowText(t, locale, kind, meta) {
+    meta = meta && typeof meta === 'object' ? meta : {};
+    // A transfer between operators is, from here, simply the next person
+    // arriving: a join naming whoever now holds it, as every renderer draws it.
+    if (kind === 'routing_agent_joined' || kind === 'conversation_transferred') {
+      var name = String(meta.agent_name || meta.to_name || '').trim();
+      // split/join, not replace(): a name holding `$&` or `$'` stays as typed.
+      return name ? String(t('routingAgentJoined')).split('{name}').join(name) : t('routingAgentJoinedGeneric');
+    }
+    if (kind === 'routing_no_agent_available') return t('routingNoAgentAvailable');
+    if (kind === 'routing_in_queue') return t('routingInQueue');
+    if (kind === 'call_invitation') {
+      var op = String(meta.operator_name || '').trim();
+      return String(t('ciHeadline' + (meta.channel === 'video' ? 'Video' : 'Audio') + (op ? 'From' : ''))).split('{op}').join(op);
+    }
+    if (kind === 'call_ended') {
+      var dur = Math.max(0, Math.floor(Number(meta.duration_seconds) || 0));
+      if (String(meta.end_reason || '') === 'failed' || dur <= 0) return t('csEndedNotConnected');
+      var key = meta.ended_by === 'operator' ? 'csEndedByOperator'
+        : meta.ended_by === 'visitor' ? 'csEndedByVisitor'
+        : 'csEndedBySystem';
+      return String(t(key)).split('{duration}').join(callDurationLabel(locale, dur));
+    }
+    return '';
+  }
+
+  /**
+   * mm:ss (hh:mm:ss from an hour) in the locale's digits, as the row's own
+   * time label reads (Persian digits in fa). Without Intl: plain digits.
+   */
+  function callDurationLabel(locale, seconds) {
+    var base = String(locale || 'en').toLowerCase().split('-')[0];
+    var nf = null;
+    try {
+      nf = new Intl.NumberFormat(base === 'fa' ? 'fa-IR' : base === 'tr' ? 'tr-TR' : 'en-US', { minimumIntegerDigits: 2, useGrouping: false });
+    } catch (_) { nf = null; }
+    function two(n) {
+      if (nf) { try { return nf.format(n); } catch (_) { /* plain digits below */ } }
+      return n < 10 ? '0' + n : '' + n;
+    }
+    var hh = Math.floor(seconds / 3600);
+    return (hh > 0 ? two(hh) + ':' : '') + two(Math.floor((seconds % 3600) / 60)) + ':' + two(seconds % 60);
+  }
+
   function resolvePresentation(ctx, t) {
     var registry = window.__gs_presentation_registry;
     var desc = registry && typeof registry.resolve === 'function'
@@ -3290,9 +3363,11 @@
           // the later enriched copy has the same canonical id and used to be
           // discarded wholesale, leaving the fallback initial forever. Merge
           // identity forward without replacing an already-known value.
-          var incomingSenderName = m.sender_name
-            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_name || null) : null)
+          var incomingSenderName = aiOwnName(senderTypeRaw, m.sender_name)
+            || (m.metadata && typeof m.metadata === 'object' ? aiOwnName(senderTypeRaw, m.metadata.agent_name) : null)
             || null;
+          // The AI's stand-in name (aiFallbackName) gives way to a real one.
+          var standIn = aiFallbackName(t, senderTypeRaw);
           // No `metadata.agent_logo_url` fallback. That field was a URL
           // snapshot naming ONE storage provider, frozen into the message
           // row at insert time; it stops resolving the moment a different
@@ -3304,7 +3379,8 @@
           if (incomingSenderName || incomingSenderAvatar) {
             for (var si = 0; si < messages.length; si++) {
               if (messages[si].__id !== id) continue;
-              if (!messages[si].senderName && incomingSenderName) {
+              if ((!messages[si].senderName || (standIn && messages[si].senderName === standIn))
+                  && incomingSenderName && incomingSenderName !== messages[si].senderName) {
                 messages[si].senderName = incomingSenderName;
                 changed = true;
               }
@@ -3386,10 +3462,10 @@
           // Operator identity surfaced by /poll and /history. Used by the
           // chat renderer to draw a small avatar next to each agent bubble
           // (Intercom-style). Null on visitor / system / AI messages with no
-          // resolvable profile.
-          senderName: m.sender_name
-            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_name || null) : null)
-            || null,
+          // resolvable profile (an AI one in `default`: aiFallbackName).
+          senderName: aiOwnName(senderTypeRaw, m.sender_name)
+            || (m.metadata && typeof m.metadata === 'object' ? aiOwnName(senderTypeRaw, m.metadata.agent_name) : null)
+            || aiFallbackName(t, senderTypeRaw),
           // Derived server-side from the stored storage key; never a URL
           // snapshotted into the row (see the merge path above).
           senderAvatar: m.sender_avatar || null,
@@ -3409,7 +3485,13 @@
           // presentation-default.js's `m.replyTo.text` quote-box render.
           // The legacy "> quoted text" body convention still renders
           // correctly on its own (unchanged) if this is ever absent.
-          replyTo: m.reply_to ? { id: m.reply_to.id, text: m.reply_to.text, senderType: m.reply_to.sender_type } : null,
+          // A quoted system row comes as its kind (and the names its
+          // sentence needs), written here in the visitor's language.
+          replyTo: m.reply_to ? {
+            id: m.reply_to.id,
+            text: m.reply_to.kind ? systemRowText(t, ctx.locale, m.reply_to.kind, m.reply_to.meta) : m.reply_to.text,
+            senderType: m.reply_to.sender_type,
+          } : null,
         });
         // Live-arrival marker for the typewriter reveal — the caller (the
         // realtime/poll transport handler) reads this after merge to know
@@ -4104,11 +4186,12 @@
 
     // Owner-configurable per-locale text (AI Agent settings) with a
     // built-in fallback — same resolution order as the server-side
-    // pickHandoffAckMessage/buildIntroBody helpers.
+    // pickHandoffAckMessage/buildIntroBody helpers: the visitor's language
+    // only, never the owner's English for a Persian visitor.
     function resolveHandoffPrechatSubtitle(locale) {
       var cfg = (ctx.config && ctx.config.aiAgent && ctx.config.aiAgent.handoffPrechatMessageLocalized) || {};
       var loc = (locale || 'en').toLowerCase();
-      var candidates = [loc, loc.split('-')[0], 'en'];
+      var candidates = [loc, loc.split('-')[0]];
       for (var i = 0; i < candidates.length; i++) {
         var v = cfg[candidates[i]];
         if (typeof v === 'string' && v.trim()) return v.trim();
@@ -5007,6 +5090,11 @@
         if (img.parentNode) img.parentNode.replaceChild(name, img);
       }, true);
     } catch (_) { /* noop */ }
+    // The renderers draw the AI from it (t1's avatar): the built-in name is
+    // no name (aiOwnName), so the AI wears the workspace's tile, not an "A".
+    if (config.aiAgent && config.aiAgent.agentName && !aiOwnName('ai', config.aiAgent.agentName)) {
+      config.aiAgent.agentName = null;
+    }
 
      // Honor the workspace's "Widget Language" setting. When set to a
      // specific locale (fa/en/tr) it overrides the workspace default
@@ -5472,8 +5560,9 @@
     if (!window.__gs_call) window.__gs_call = {};
     window.__gs_call.ended = handleServerCallEnded;
 
-    // Map a canonical engine error code → translated message. Falls back
-    // to the engine's raw message when no i18n key matches the code.
+    // Map a canonical engine error code → translated message. A code with
+    // no sentence of its own reads the generic one, never the engine's raw
+    // (English) message.
     function callErrorMessage(err) {
       if (!err) return t('csErrUnknown') || 'Something went wrong.';
       var code = err.code || '';
@@ -5493,7 +5582,7 @@
       };
       var key = map[code];
       var msg = key ? t(key) : '';
-      return msg || err.message || (t('csErrUnknown') || 'Something went wrong.');
+      return msg || t('csErrUnknown') || 'Something went wrong.';
     }
 
     /** Format seconds → mm:ss. */
@@ -6988,6 +7077,11 @@
       try { return window.matchMedia('(pointer: coarse)').matches; } catch (_) { return false; }
     }
 
+    // What has the focus in the panel without the visitor having put it
+    // there: Core's own park below, or what was focused when it opened (a
+    // panel closed with the launcher hidden keeps it). ext('autofocus')
+    // takes no such control for the visitor's.
+    var coreFocused = null;
     /** Parks focus on the panel's first real control, or the panel itself. */
     function focusFirstInPanel() {
       var candidates = panel.querySelectorAll(
@@ -6999,7 +7093,7 @@
         // offsetParent is null for anything display:none'd or inside a
         // hidden branch — skip straight past the inactive views.
         if (el.offsetParent === null && el.getClientRects().length === 0) continue;
-        try { el.focus(); return; } catch (_) {}
+        try { el.focus(); coreFocused = el; return; } catch (_) {}
       }
       try { panel.focus(); } catch (_) {}
     }
@@ -7606,9 +7700,10 @@
     notify.attach(panel);
 
     // Phase 5 — presence indicator: keep header dot/label in sync with presenceStore.
-    var presenceDot = panel.querySelector('[data-presence-dot]');
-    var presenceLabel = panel.querySelector('[data-presence-label]');
-    var presenceWrap = panel.querySelector('[data-presence]');
+    // They are in the chat frame, built detached: a panel query finds nothing.
+    var presenceDot = chatQ('[data-presence-dot]');
+    var presenceLabel = chatQ('[data-presence-label]');
+    var presenceWrap = chatQ('[data-presence]');
     function renderPresence(s) {
       if (ext('presence', s) || !presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
@@ -8205,7 +8300,7 @@
               body: resp.body,
               sender: 'operator',
               senderType: 'ai',
-              senderName: resp.agentName || null,
+              senderName: aiOwnName('ai', resp.agentName) || aiFallbackName(t, 'ai'),
               senderAvatar: resp.agentLogoUrl || null,
               time: new Date(),
               __id: localId,
@@ -8395,6 +8490,13 @@
 
     function mapConversationVm(c) {
       var preview = c.preview || '';
+      // A system row ("Your message is in the support queue.") comes as its
+      // kind (server/routes/widget.ts): the sentence is the visitor's
+      // language, never the stored English `preview`.
+      if (c.systemKind) {
+        var systemText = systemRowText(t, ctx.locale, c.systemKind, c.systemMeta);
+        if (systemText) preview = systemText;
+      }
       if (!preview && c.attachmentKind) {
         preview = attachmentPreviewText(c.attachmentKind, !!c.outbound);
       }
@@ -9258,13 +9360,22 @@
       } catch (_) { /* never break on audio */ }
 
       if (newCount > 0 && lastIncoming) {
+        // What it reads as outside the thread: a system row (the queue
+        // notice, a join) in the visitor's language, never the server's
+        // English body; '' for a kind Core cannot write, which then shows
+        // no toast and announces nothing (the chime and the counts stay).
+        var lastMeta = lastIncoming.metadata || (lastIncoming.message && lastIncoming.message.metadata) || null;
+        var lastIsSystem = !!((lastIncoming.role === 'system' || lastIncoming.sender_type === 'system') && lastMeta && lastMeta.kind);
+        var lastText = lastIsSystem
+          ? systemRowText(t, ctx.locale, lastMeta.kind, lastMeta)
+          : (lastIncoming.text || lastIncoming.body || '');
         // Public API onMessage() — minimal, non-sensitive payload only
         // (no message id, no conversation id, no tokens). Mirrors the same
         // "new AND not currently visible" gate as the toast/announce below.
         try {
           if (window.__gs_public_events && window.__gs_public_events.emit) {
             window.__gs_public_events.emit('message', {
-              text: lastIncoming.text || lastIncoming.body || '',
+              text: lastText,
               senderType: lastIncoming.role || lastIncoming.sender || lastIncoming.sender_type || 'agent',
             });
           }
@@ -9273,20 +9384,21 @@
         // Screen-reader announcement fires regardless of canToast below —
         // a sighted user viewing the open chat tab sees the new bubble
         // render; a screen-reader user needs the aria-live nudge either way.
+        // An AI reply under the built-in name reads as the workspace's (aiOwnName).
+        var lastSenderName = aiOwnName(lastIncoming.sender_type, lastIncoming.sender_name) || lastIncoming.from_name;
         announceIncoming(
-          lastIncoming.sender_name || lastIncoming.from_name || (ctx.config.brandName || ''),
-          lastIncoming.text || lastIncoming.body || '',
+          lastSenderName || (ctx.config.brandName || ''),
+          lastText,
         );
         // Same gate as the announcement: a real, new incoming message. The
         // counter only moves when the visitor is scrolled away from it.
         try { noteUnseenForJump(); } catch (_) {}
         // Toast only when the user can't see the message (panel closed or KB tab).
         var canToast = !panelOpen || (activeTab !== 'chat');
-        if (canToast) {
-          var senderName = lastIncoming.sender_name || lastIncoming.from_name ||
-            (ctx.config.brandName || '');
-          var preview = lastIncoming.text || lastIncoming.body || '';
-          notify.showToast(senderName, preview);
+        // Silent only for a system row Core cannot write: an attachment
+        // with no caption has no text either, and still toasts.
+        if (canToast && (lastText || !lastIsSystem)) {
+          notify.showToast(lastSenderName || (ctx.config.brandName || ''), lastText);
         }
         notify.playBeep();
         // ─── Operator-initiated outreach: auto-open the panel ───
@@ -9563,7 +9675,7 @@
       __runBootHistory();
       if (!contextualNeedsPrechat()) {
         if (msgInput) setTimeout(function () {
-          if (transportStore.get().connectionState === 'online') msgInput.focus();
+          if (transportStore.get().connectionState === 'online' && !ext('autofocus', coreFocused)) msgInput.focus();
         }, 200);
       }
     });
@@ -9683,6 +9795,7 @@
         if (shellStore.get().activeTab === 'chat') clearUnreadForActive();
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
+        coreFocused = shadowRoot && shadowRoot.activeElement;
         // Focus has to LAND somewhere inside the panel, otherwise a keyboard
         // visitor is still on the launcher (or worse, on the host page) with
         // no way to reach the widget, and Escape has nothing to close.
@@ -9691,7 +9804,7 @@
         // a phone, focusing a textarea summons the on-screen keyboard, which
         // eats half the panel before the visitor has decided to type.
         setTimeout(function () {
-          if (!shellStore.get().isOpen) return;
+          if (!shellStore.get().isOpen || ext('autofocus', coreFocused)) return;
           var wantsComposer = msgInput
             && !msgInput.disabled
             && !isCoarsePointer()

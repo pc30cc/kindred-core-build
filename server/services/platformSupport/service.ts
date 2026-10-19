@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { loadPlatformSupportSettings } from './settings.js';
+import { visitorDisplayName } from '../../../shared/systemMessages.js';
 import {
   ALLOWED_FILE_TYPES,
   MAX_FILE_BYTES,
@@ -555,9 +556,13 @@ function isVisible(row: MessageRow): boolean {
   return meta.internal !== true && JOIN_KINDS.has(String(meta.kind));
 }
 
+/**
+ * The joining team member's name for the requester, or null: an English
+ * stand-in stored as a name ('a colleague', chatRouting.ts) or an email is
+ * none, and the apps write their own localized team word instead.
+ */
 function joinedName(meta: Record<string, unknown>): string | null {
-  const name = meta.agent_name ?? meta.to_name;
-  return typeof name === 'string' && name.trim() ? name.trim() : null;
+  return visitorDisplayName(meta.agent_name ?? meta.to_name);
 }
 
 interface AttachmentRow {

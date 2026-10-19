@@ -25,6 +25,7 @@ import { operatorWants } from './queue.js';
 import { NOTIFICATION_EMAILS, isNotificationEmailType, type NotificationEmailType } from './types.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
+import { operatorLocaleFrom } from '../operatorLocale.js';
 
 /** Where an override provider's config lives, when one is chosen. */
 export const OVERRIDE_PROVIDER_KEY = 'notification_email_provider';
@@ -168,7 +169,10 @@ async function deliver(
     }
   }
 
-  const locale = job.locale || recipient.locale || 'en';
+  // The job's language (a transcript is rendered in it), else the
+  // operator's own when the platform offers it, else the platform's: never
+  // English by default on a Persian platform (operatorLocale.ts).
+  const locale = job.locale || await operatorLocaleFrom(config, recipient.locale);
   const data: Record<string, string> = { name: recipient.name || recipient.email };
   for (const [key, value] of Object.entries(job.payload ?? {})) {
     data[key] = value == null ? '' : String(value);

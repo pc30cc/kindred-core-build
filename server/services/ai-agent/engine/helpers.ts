@@ -10,6 +10,12 @@
  */
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import type { AgentSettings } from '../settings.js';
+import type { RuntimeAction, RuntimeEvaluationContext } from '../runtime/types.js';
+import type { PreflightResult } from './preflightStage.js';
+import type { ContextStageResult } from './contextStage.js';
+import { textMatchesLocale } from '../../platformRegion.js';
+import { DEFAULT_AI_FALLBACK_MESSAGE } from '../../../../shared/systemMessages.js';
 import { pickHandoffOfflineMessage, hasOfflineContactCapability } from '../runtime/templates.js';
 import { evaluateMessageTriggers } from '../runtime/triggerRuntime.js';
 import { evaluateWorkflows, buildWorkflowMetadata } from '../runtime/workflowRuntime.js';
@@ -61,7 +67,10 @@ export async function resolveHandoffAckMessage(
       .select('ask_email, ask_phone')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    return pickHandoffOfflineMessage(locale, hasOfflineContactCapability(data as any));
+    return pickHandoffOfflineMessage(
+      locale,
+      hasOfflineContactCapability(data as { ask_email?: boolean | null; ask_phone?: boolean | null } | null),
+    );
   } catch {
     return pickHandoffOfflineMessage(locale, true);
   }
@@ -80,7 +89,7 @@ async function resolveChannelOfflineBody(
     .select('metadata')
     .eq('id', conversationId)
     .maybeSingle();
-  const metadata = (((data as any)?.metadata as Record<string, unknown>) || {});
+  const metadata = (data as { metadata?: Record<string, unknown> | null } | null)?.metadata || {};
   if (metadata.channel !== 'telegram') return null;
   const [{ getInstallation }, telegram] = await Promise.all([
     import('../../plugins/state.js'),
@@ -111,11 +120,32 @@ export function pickGreeting(locale: string | undefined, _agentName: string): st
   return 'Hi! How can I help?';
 }
 
+/**
+ * The visitor asked about the page they are on and it is not among the
+ * agent's sources. Said to the VISITOR, so no dashboard path (the owner
+ * sees the page in the AI's run log): what the agent cannot do, and who can.
+ */
 export function pickPageNotIndexed(locale: string | undefined): string {
   const l = (locale || 'en').toLowerCase();
-  if (l.startsWith('fa')) return 'این صفحه هنوز در منابع آموزشی AI ایندکس نشده است. از بخش AI Agent → Train → Web Pages این صفحه را sync کنید.';
-  if (l.startsWith('tr')) return 'Bu sayfa henüz AI eğitim kaynaklarına eklenmemiş. AI Agent → Train → Web Pages üzerinden bu sayfayı senkronize edin.';
-  return 'This page has not been indexed in the AI training sources yet. Sync it from AI Agent → Train → Web Pages.';
+  if (l.startsWith('fa')) return 'هنوز نمی‌توانم محتوای این صفحه را بخوانم، برای همین درباره‌اش چیزی نمی‌توانم بگویم. اگر بخواهید، بنویسید که با یکی از همکاران صحبت کنید تا کمکتان کند.';
+  if (l.startsWith('tr')) return 'Bu sayfayı henüz okuyamıyorum, bu yüzden hakkında bilgi veremiyorum. İsterseniz bir temsilciyle görüşmek istediğinizi yazın, ekibimizden biri yardımcı olsun.';
+  return "I can't read this page yet, so I can't tell you about it. If you'd like, ask to talk to a person and a teammate will help.";
+}
+
+/**
+ * The owner's hand-over line (`settings.fallback_message`) when the visitor
+ * reads its language, else null (the caller then takes the built-in
+ * localized line). It is one string with no language: used only in the
+ * visitor's script (textMatchesLocale, the rule intro.ts applies to legacy
+ * single-string fields), and the column's English default only for an
+ * English visitor.
+ */
+export function ownerFallbackMessage(text: string | null | undefined, locale: string | undefined): string | null {
+  const t = (text || '').trim();
+  if (!t) return null;
+  const base = (locale || 'en').toLowerCase().split('-')[0];
+  if (t === DEFAULT_AI_FALLBACK_MESSAGE) return base === 'en' ? t : null;
+  return textMatchesLocale(t, base) ? t : null;
 }
 export function pickPageNoUrl(locale: string | undefined): string {
   const l = (locale || 'en').toLowerCase();
@@ -156,7 +186,7 @@ export async function applySafeRoutingSideEffects(
   config: ServerConfig,
   workspaceId: string,
   conversationId: string,
-  result: { actions: Array<{ type: string; executed: boolean; payload?: any; sourceId?: string | null }> } | null,
+  result: { actions: Array<Pick<RuntimeAction, 'type' | 'executed' | 'payload' | 'sourceId'>> } | null,
 ): Promise<void> {
   if (!result || !conversationId) return;
   const sb = getServiceClient(config);
@@ -171,12 +201,17 @@ export async function applySafeRoutingSideEffects(
           .eq('id', conversationId)
           .eq('workspace_id', workspaceId);
         console.log('[ai-agent.runtime.routing] executed mark_priority', { conversationId, priority: desired });
-      } catch (err: any) {
+      } catch (err) {
         console.warn('[ai-agent.runtime.routing] mark_priority failed:', err?.message || err);
       }
     }
   }
 }
+
+/** A run's metadata the caller keeps: read, then replaced, by the hooks below. */
+interface MetaRef<T> { get: () => T; set: (v: T) => void }
+
+type NoAnswerStrategyMeta = { action: string; confidence: number | null; reason: string | null };
 
 /**
  * C2B — evaluate ai_no_answer triggers / workflows and (optionally) the
@@ -187,14 +222,14 @@ export async function evaluateNoAnswerHooks(args: {
   workspaceId: string;
   conversationId: string;
   locale: string;
-  settings: any;
-  buildEvalCtx: (extra?: { answerStrategy?: any }) => any;
-  runtimeCfg: any;
+  settings: AgentSettings;
+  buildEvalCtx: (extra?: { answerStrategy?: NoAnswerStrategyMeta }) => RuntimeEvaluationContext;
+  runtimeCfg: PreflightResult['runtimeCfg'];
   decisionTimeline: string[];
-  strategyMeta: { action: string; confidence: number | null; reason: string | null };
-  triggerMetaRef: { get: () => any; set: (v: any) => void };
-  workflowMetaRef: { get: () => any; set: (v: any) => void };
-  toolMetaRef: { get: () => any; set: (v: any) => void };
+  strategyMeta: NoAnswerStrategyMeta;
+  triggerMetaRef: MetaRef<ContextStageResult['triggerMeta']>;
+  workflowMetaRef: MetaRef<ContextStageResult['workflowMeta']>;
+  toolMetaRef: MetaRef<ContextStageResult['toolMeta']>;
 }): Promise<{ handoffExecuted: boolean; lastMessageId: string | null }> {
   const summary = { handoffExecuted: false, lastMessageId: null as string | null };
   if (!args.runtimeCfg) return summary;
@@ -259,7 +294,7 @@ export async function evaluateNoAnswerHooks(args: {
     // Internal tool: if handoff_to_operator is enabled, evaluate it for
     // no-answer/handoff strategies. This is a no-op when no internal tools
     // are configured.
-    const enabledNames = new Set((args.runtimeCfg?.internalTools || []).map((t: any) => t.name));
+    const enabledNames = new Set((args.runtimeCfg?.internalTools || []).map((t) => t.name));
     if (enabledNames.has('handoff_to_operator')) {
       const tool = evaluateInternalTools(ctx, [{ name: 'handoff_to_operator', source: 'runtime_policy' }]);
       if (tool.usedTools.length || tool.plannedTools.length || tool.skippedTools.length) {
@@ -284,7 +319,7 @@ export async function evaluateNoAnswerHooks(args: {
         skippedTools: Array.from(new Set([...cur.skippedTools, ...tool.skippedTools])),
       });
     }
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[ai-agent.runtime.no_answer_hooks] failed:', err?.message || err);
   }
   return summary;

@@ -46,7 +46,7 @@
       in_call: 'In call', connected_waiting: 'Connected — waiting', connecting: 'Connecting', recording_progress: '● Recording in progress', recording_may_start: 'Recording may start after the operator begins the call.', mute: '🎙 Mute', unmute: '🎙 Unmute', camera_off: '🎥 Camera off', camera_on: '🎥 Camera on', end: 'End',
       callback_scheduled: 'Callback scheduled', reach_out: 'Our team will reach out {when}.', asap: 'as soon as possible', video_callback: 'Video callback', phone_callback: 'Phone callback', reference: 'Reference', type: 'Type', done: 'Done', call_ended: 'Call ended.', error_prefix: 'Error: {error}', unknown: 'unknown', back: 'Back',
       request_callback_title: 'Request a callback', callback_intro: 'Tell us how to reach you — our team calls back fast.', callback_type: 'Callback type', phone: '🎙 Phone', video: '🎥 Video', department: 'Department', choose_department: 'Choose a department', known_contact: 'Known contact', contact_saved: 'Contact details already saved', subject: 'Subject', full_name: 'Full name', email: 'Email', email_required: 'Email *', phone_field: 'Phone', phone_required: 'Phone *', contact_required_note: '* Email or phone is required so we can reach you.', message_min: 'Message (min {n} chars)', message_optional: 'Message (optional)', message_placeholder: 'Briefly describe what you need help with…', when_call: 'When should we call?', schedule: '🗓 Schedule', priority: 'Priority', normal: 'Normal', urgent: '🔥 Urgent', consent_required: ' I consent to this call being recorded for quality and security. (required)', call_may_record: 'This call may be recorded for quality and security.', start_call: 'Start call', send_request: 'Send request',
-      err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.',
+      err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.', err_try_again: 'Please try again.', err_media_unreachable: 'Could not reach the call media server. Please try again or contact support.', err_media_rtc_v1: 'The call media server does not support this client. Please ask the site owner to update it.',
       queue_wait_announce: 'You are in the waiting queue. Please wait, we will connect you shortly.',
       tap_to_hear: 'Tap to enable sound',
       operator_label: 'Operator',
@@ -74,7 +74,7 @@
       in_call: 'در تماس', connected_waiting: 'متصل — در انتظار', connecting: 'در حال اتصال', recording_progress: '● ضبط در حال انجام است', recording_may_start: 'ممکن است ضبط پس از شروع تماس توسط اپراتور آغاز شود.', mute: '🎙 بی‌صدا', unmute: '🎙 فعال‌کردن صدا', camera_off: '🎥 خاموش کردن دوربین', camera_on: '🎥 روشن کردن دوربین', end: 'پایان',
       callback_scheduled: 'درخواست تماس ثبت شد', reach_out: 'تیم ما {when} با شما تماس می‌گیرد.', asap: 'در اولین فرصت', video_callback: 'تماس تصویری', phone_callback: 'تماس تلفنی', reference: 'کد پیگیری', type: 'نوع', done: 'تمام', call_ended: 'تماس پایان یافت.', error_prefix: 'خطا: {error}', unknown: 'نامشخص', back: 'بازگشت',
       request_callback_title: 'درخواست تماس', callback_intro: 'راه ارتباطی را وارد کنید — تیم ما سریع تماس می‌گیرد.', callback_type: 'نوع تماس', phone: '🎙 تلفنی', video: '🎥 تصویری', department: 'دپارتمان', choose_department: 'یک دپارتمان انتخاب کنید', known_contact: 'مخاطب شناخته‌شده', contact_saved: 'اطلاعات تماس قبلاً ذخیره شده است', subject: 'موضوع', full_name: 'نام کامل', email: 'ایمیل', email_required: 'ایمیل *', phone_field: 'تلفن', phone_required: 'تلفن *', contact_required_note: '* ایمیل یا تلفن برای تماس با شما الزامی است.', message_min: 'پیام (حداقل {n} کاراکتر)', message_optional: 'پیام (اختیاری)', message_placeholder: 'کوتاه توضیح دهید چه کمکی نیاز دارید…', when_call: 'چه زمانی تماس بگیریم؟', schedule: '🗓 زمان‌بندی', priority: 'اولویت', normal: 'عادی', urgent: '🔥 فوری', consent_required: ' رضایت می‌دهم این تماس برای کیفیت و امنیت ضبط شود. (الزامی)', call_may_record: 'ممکن است این تماس برای کیفیت و امنیت ضبط شود.', start_call: 'شروع تماس', send_request: 'ارسال درخواست',
-      err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.',
+      err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.', err_try_again: 'لطفاً دوباره تلاش کنید.', err_media_unreachable: 'دسترسی به سرور رسانه تماس ممکن نشد. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.', err_media_rtc_v1: 'سرور رسانه تماس از این کلاینت پشتیبانی نمی‌کند. لطفاً از مدیر سایت بخواهید آن را به‌روز کند.',
       queue_wait_announce: 'شما در صف انتظار هستید. لطفاً صبر کنید، به‌زودی شما را به اپراتور متصل می‌کنیم.',
       tap_to_hear: 'برای شنیدن صدا کلیک کنید',
       operator_label: 'اپراتور',
@@ -102,7 +102,7 @@
       in_call: 'Aramada', connected_waiting: 'Bağlandı — bekliyor', connecting: 'Bağlanıyor', recording_progress: '● Kayıt devam ediyor', recording_may_start: 'Kayıt, operatör aramayı başlattıktan sonra başlayabilir.', mute: '🎙 Sessize al', unmute: '🎙 Sesi aç', camera_off: '🎥 Kamerayı kapat', camera_on: '🎥 Kamerayı aç', end: 'Bitir',
       callback_scheduled: 'Geri arama planlandı', reach_out: 'Ekibimiz {when} size ulaşacak.', asap: 'en kısa sürede', video_callback: 'Görüntülü geri arama', phone_callback: 'Telefonla geri arama', reference: 'Referans', type: 'Tür', done: 'Tamam', call_ended: 'Arama sona erdi.', error_prefix: 'Hata: {error}', unknown: 'bilinmiyor', back: 'Geri',
       request_callback_title: 'Geri arama iste', callback_intro: 'Size nasıl ulaşacağımızı yazın — ekibimiz hızlıca döner.', callback_type: 'Geri arama türü', phone: '🎙 Telefon', video: '🎥 Video', department: 'Departman', choose_department: 'Departman seçin', known_contact: 'Bilinen kişi', contact_saved: 'İletişim bilgileri kayıtlı', subject: 'Konu', full_name: 'Ad soyad', email: 'E-posta', email_required: 'E-posta *', phone_field: 'Telefon', phone_required: 'Telefon *', contact_required_note: '* Size ulaşabilmemiz için e-posta veya telefon gerekir.', message_min: 'Mesaj (en az {n} karakter)', message_optional: 'Mesaj (isteğe bağlı)', message_placeholder: 'Neye ihtiyacınız olduğunu kısaca yazın…', when_call: 'Ne zaman arayalım?', schedule: '🗓 Planla', priority: 'Öncelik', normal: 'Normal', urgent: '🔥 Acil', consent_required: ' Bu aramanın kalite ve güvenlik için kaydedilmesine izin veriyorum. (gerekli)', call_may_record: 'Bu arama kalite ve güvenlik için kaydedilebilir.', start_call: 'Aramayı başlat', send_request: 'İstek gönder',
-      err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.',
+      err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.', err_try_again: 'Lütfen tekrar deneyin.', err_media_unreachable: 'Arama medya sunucusuna ulaşılamadı. Lütfen tekrar deneyin veya destekle iletişime geçin.', err_media_rtc_v1: 'Arama medya sunucusu bu istemciyi desteklemiyor. Lütfen site sahibinden güncellemesini isteyin.',
       queue_wait_announce: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.',
       tap_to_hear: 'Sesi açmak için dokunun',
       operator_label: 'Operatör',
@@ -156,18 +156,20 @@
 
   /**
    * CC-2H Phase 5 — Map common LiveKit transport failures to
-   * actionable, secret-free messages.
+   * actionable, secret-free messages: the key of the widget's own
+   * sentence (I18N), so it reads in the visitor's language; null for
+   * anything else (the raw text is never shown).
    */
   function friendlyConnectError(raw) {
     var s = sanitize(String(raw || '')).toLowerCase();
     if (s.indexOf('v1 rtc path') >= 0 || s.indexOf('rtc/v1') >= 0 || s.indexOf('404') >= 0 && s.indexOf('validate') >= 0) {
-      return 'The call media server does not support the RTC v1 path required by this client. Please ask the platform admin to upgrade LiveKit or fix the reverse proxy.';
+      return 'err_media_rtc_v1';
     }
     if (s.indexOf('connection refused') >= 0 || s.indexOf('1006') >= 0) {
-      return 'Could not reach the call media server. Please try again or contact support.';
+      return 'err_media_unreachable';
     }
     if (s.indexOf('expired') >= 0 || s.indexOf('unauthorized') >= 0 || s.indexOf('invalid token') >= 0) {
-      return 'Your call session expired. Please end and start a new call.';
+      return 'token_expired';
     }
     return null;
   }
@@ -856,7 +858,9 @@
           self.error = self.t('err_department');
           self.state = STATES.PRE_CALL; self.render(); return;
         }
-        self.error = (r.body && (r.body.message || r.body.error)) || self.t('err_failed_start');
+        // Any other refusal: the widget's own sentence, never the server's
+        // `message` (English) or its code.
+        self.error = self.t('err_failed_start');
         self.state = STATES.ERROR; self.render(); return;
       }
       self.session = r.body.session || self.session;
@@ -898,9 +902,11 @@
       } catch (_) {}
       self.startPolling();
       self.startTimer();
-    }).catch(function (e) {
+    }).catch(function () {
+      // A network or script error: the widget's own sentence, never the
+      // browser's English ('Failed to fetch').
       try { Ringback.stop(); } catch (_) {}
-      self.error = sanitize(String(e && e.message || e));
+      self.error = self.t('err_failed_start');
       self.state = STATES.ERROR; self.render();
     });
   };
@@ -1203,7 +1209,7 @@
       room.connect(connect.server_url, info.token).then(function () {
         return room.localParticipant.setMicrophoneEnabled(true).catch(function (err) {
           self.connectStatus = 'microphone_permission_denied';
-          self.error = sanitize(String(err && err.message || err));
+          self.error = self.t('mic_denied');
           self.render();
           throw err;
         });
@@ -1226,7 +1232,7 @@
             } catch (_) {}
           }).catch(function (err) {
             self.connectStatus = 'camera_permission_denied';
-            self.error = sanitize(String(err && err.message || err));
+            self.error = self.t('camera_denied');
             self.render();
           });
         }
@@ -1259,17 +1265,17 @@
             self.connectStatus = 'token_expired';
           } else if (em.indexOf('rtc/v1') >= 0 || em.indexOf('v1 rtc') >= 0) {
             self.connectStatus = 'rtc_v1_unsupported';
-            self.error = friendly;
+            self.error = self.t(friendly || 'err_media_rtc_v1');
           } else {
             self.connectStatus = 'room_connect_failed';
-            self.error = friendly || sanitize(rawEm);
+            self.error = self.t(friendly || 'err_try_again');
           }
           self.render();
         }
       });
     } catch (err) {
       self.connectStatus = 'room_connect_failed';
-      self.error = sanitize(String(err && err.message || err));
+      self.error = self.t('err_try_again');
       self.render();
     }
   };
@@ -1542,7 +1548,9 @@
         } else if (code === 'feature_not_available') {
           self.error = self.t('err_callback_unavailable');
         } else {
-          self.error = (r.body && (r.body.error || r.body.message)) || self.t('err_failed');
+          // Any other refusal: the widget's own sentence, never the
+          // server's `message` (English) or its code.
+          self.error = self.t('err_failed');
         }
         self.render(); return;
       }

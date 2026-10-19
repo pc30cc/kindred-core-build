@@ -18,6 +18,10 @@ import { isTypeEnabled, loadNotificationEmailSettings } from './settings.js';
 import { NOTIFICATION_EMAILS, type NotificationEmailType } from './types.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
+import { operatorLocales, type OperatorLocale } from '../operatorLocale.js';
+import { operatorSystemText } from '../operatorSystemText.js';
+import { ANON_CONTACT_NAME } from '../widget/anonymousContact.js';
+import { isPlaceholderSubject } from '../../../shared/conversationSubject.js';
 
 function sb(config: ServerConfig) {
   return getServiceClient(config);
@@ -157,9 +161,11 @@ export async function sweepUnreadDigest(
           count: conversations.length,
           minutes: settings.unread_after_minutes,
           workspace: names,
+          // A subject the server wrote when nobody typed one ('New
+          // conversation', 'Offline message') is English: no subject.
           list: conversations
             .slice(0, 10)
-            .map((c) => c.subject || '—')
+            .map((c) => (isPlaceholderSubject(c.subject) ? '—' : String(c.subject)))
             .join(' · '),
           action_url: url,
         },
@@ -325,15 +331,28 @@ export async function queueTranscript(
   if (args.actorId) recipients.add(String(args.actorId));
   if (!recipients.size) return 0;
 
-  const [transcript, contact, workspace, url] = await Promise.all([
-    renderTranscript(config, args.conversationId),
+  const [locales, contact, workspace, url] = await Promise.all([
+    operatorLocales(config, [...recipients]),
     contactName(config, row.contact_id),
     workspaceName(config, args.workspaceId),
     appUrl(config, args.workspaceId, `/inbox?c=${encodeURIComponent(args.conversationId)}`),
   ]);
 
+  // Each recipient reads the transcript (its system lines) and the mail in
+  // their own language: rendered once per language among them.
+  const transcripts = new Map<OperatorLocale, Promise<string>>();
+  const transcriptIn = (locale: OperatorLocale) => {
+    let pending = transcripts.get(locale);
+    if (!pending) {
+      pending = renderTranscript(config, args.conversationId, locale);
+      transcripts.set(locale, pending);
+    }
+    return pending;
+  };
+
   let queued = 0;
   for (const userId of recipients) {
+    const locale = locales.get(userId) ?? 'en';
     const result = await enqueueNotificationEmail(config, {
       userId,
       workspaceId: args.workspaceId,
@@ -342,12 +361,13 @@ export async function queueTranscript(
       // does not send a second copy, which is the right answer — the
       // transcript they have is of the same conversation.
       dedupeKey: `transcript:${userId}:${args.conversationId}`,
+      locale,
       payload: {
-        subject: row.subject || '—',
+        subject: isPlaceholderSubject(row.subject) ? '—' : String(row.subject),
         contact,
         workspace,
         resolved_at: row.updated_at ?? '',
-        transcript,
+        transcript: await transcriptIn(locale),
         action_url: url,
       },
     });
@@ -356,20 +376,30 @@ export async function queueTranscript(
   return queued;
 }
 
-/** The last of the conversation, as plain lines. Bounded, and escaped. */
-async function renderTranscript(config: ServerConfig, conversationId: string): Promise<string> {
+/**
+ * The last of the conversation, as plain lines. Bounded, and escaped.
+ *
+ * A system row's stored body is English (`body` = fallback, readers write
+ * the sentence from `metadata.kind`), so it is written in the reader's
+ * language with the inbox's own sentence; one the localizer cannot write is
+ * left out rather than mailed in English. Internal notices stay: the reader
+ * is an operator.
+ */
+async function renderTranscript(config: ServerConfig, conversationId: string, locale: OperatorLocale): Promise<string> {
   const { data } = await sb(config)
     .from('conversation_messages')
-    .select('sender_type, body, created_at')
+    .select('sender_type, body, created_at, metadata')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
     .limit(200);
 
-  const rows = (data ?? []) as Array<{ sender_type: string; body: string | null; created_at: string | null }>;
+  const rows = (data ?? []) as Array<{ sender_type: string; body: string | null; created_at: string | null; metadata?: unknown }>;
   return rows
     .map((m) => {
+      const text = m.sender_type === 'system' ? operatorSystemText(m.metadata, locale) : String(m.body ?? '');
+      if (text === null) return '';
       const who = m.sender_type === 'contact' ? '←' : '→';
-      return `<p>${who} ${escapeHtml(String(m.body ?? '').slice(0, 2000))}</p>`;
+      return `<p>${who} ${escapeHtml(text.slice(0, 2000))}</p>`;
     })
     .join('');
 }
@@ -386,7 +416,9 @@ async function contactName(config: ServerConfig, contactId: string | null): Prom
   if (!contactId) return '—';
   const { data } = await sb(config).from('contacts').select('name, email').eq('id', contactId).maybeSingle();
   const row = (data ?? {}) as { name?: string | null; email?: string | null };
-  return String(row.name || row.email || '—');
+  // Older anonymous contacts carry the literal 'Visitor' as a name: no name.
+  const name = (row.name ?? '').trim();
+  return String((name && name.toLowerCase() !== ANON_CONTACT_NAME.toLowerCase() ? name : '') || row.email || '—');
 }
 
 // ───────────────────────── the payment notice ─────────────────────────

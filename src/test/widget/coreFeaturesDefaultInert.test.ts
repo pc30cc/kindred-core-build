@@ -143,14 +143,16 @@ describe('default declares no feature and Core stays as it was', () => {
     expect(h.panel.getAttribute('data-view')).toBe('chat');
   });
 
-  it('the hidden presence label keeps today\'s behaviour (never written: the frame is looked up detached)', async () => {
-    const h = boot({ renderer: 'default' });
+  // Issue #340 (g5-3a, approved): the label was never written, as Core
+  // looked it up in the panel before the chat frame was mounted.
+  it('the hidden presence label says the team\'s presence (it stayed empty), and stays hidden', async () => {
+    const h = boot({ renderer: 'default', config: { availability: { state: 'online' } } });
     await flush(20);
     h.runtime.setTab('chat');
     await flush();
     const wrap = h.q('[data-presence]')!;
-    expect(wrap.className).toBe('presence sr-only');
-    expect(h.q('[data-presence-label]')!.textContent).toBe('');
+    expect(wrap.className).toBe('presence sr-only status-online');
+    expect(h.q('[data-presence-label]')!.textContent).toBe((h.env().t as (k: string) => string)('availOnline'));
   });
 
   // Issue #340 round 4: what t1/t2 ask the server for and draw, default never does.
@@ -201,5 +203,33 @@ describe('default declares no feature and Core stays as it was', () => {
     const h = boot({ renderer: 'default', config: { commerce: { trackOrder: true } } });
     await flush(20);
     expect(h.q('[data-home-action="track-order"]')).toBeNull();
+  });
+
+  // runtime-ext.js's `autofocus` (t1/t2: a control of the panel the visitor
+  // is on keeps the focus) is nothing without the module: default's late
+  // composer focus is as it was.
+  it('Core\'s late composer focus (after the identity answer, after an open) still takes the composer', async () => {
+    const late: Array<() => void> = [];
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if ((ms === 200 || ms === 300) && typeof fn === 'function' && /msgInput\.focus\(\)/.test(String(fn))) {
+        late.push(fn);
+        return 0;
+      }
+      return realTimeout(fn, ms, ...rest);
+    }) as unknown as typeof setTimeout);
+    const h = boot({ renderer: 'default', conversations: [{ id: 'c1' }], history: { c1: [{ id: 'm1', role: 'agent', sender_type: 'agent', sender_name: 'سارا', text: 'سلام', time: '2026-10-18T09:00:00.000Z', conversation_id: 'c1' }] } });
+    await flush(20);
+    h.runtime.__test.openConversation('c1');
+    await flush(30);
+    h.runtime.__test.setConnectionState('online');
+    await flush(10);
+    expect(late).toHaveLength(2);
+    expect(h.scripts.filter((u) => /runtime-ext/.test(u))).toEqual([]);
+    for (const fn of late) {
+      h.q<HTMLButtonElement>('[data-chat-header] [data-view-back]')!.focus();
+      fn();
+      expect(h.shadow.activeElement).toBe(h.q('[data-msg-input]'));
+    }
   });
 });

@@ -25,6 +25,7 @@
  *   kbProgress           `--p` (0..1) on `[data-kb-progress]` while the article scrolls
  *   operatorTyping       a visible "{name} is typing" row (view.operatorTyping)
  *   chatHeader           `R.chatHeaderHtml(vm)` in `[data-chat-header]`, presence in it
+ *   prechatHeader        `vm.prechat` in it: the details asked, or the conversation they were given in
  *   emptyQna, topics     Q&A and topic chips in the empty thread; topics on home
  *   homeAsk              `textarea[data-home-ask]` starts a conversation with its text
  *   prechatOperator      a locked composer under the pre-chat card, `[data-prechat-skip]`
@@ -235,6 +236,12 @@
         operator: currentOperator(),
         isNew: !(cs.messages || []).length,
         nextOpenAt: (ctx.config.availability && ctx.config.availability.next_open_at) || null,
+        // The thread asks for the visitor's details (the card, the steps),
+        // or is the conversation they were given in (the saved details, then
+        // the thread while no AI answers it): only for a renderer that draws
+        // the workspace's lead then (`prechatHeader`); an assigned operator
+        // is the renderer's to put first.
+        prechat: feat('prechatHeader') && (prechatShown || prechatEpoch === ConvEpoch.get() && !deriveChatTabState().aiOwnsThread),
       };
       var sig = JSON.stringify(vm);
       if (sig === chatHeaderSignature) return;
@@ -278,6 +285,7 @@
     // visitor sends something; `[data-prechat-edit]` turns it back into the
     // pre-chat card with the saved values.
     var prechatSummary = null; // { contact, visitorCount, editing, identity, focused }
+    var prechatEpoch = null;   // the conversation (ConvEpoch) the details were given in
     function visitorMessageCount(s) {
       return (s.messages || []).filter(function (m) { return m.sender === 'visitor'; }).length;
     }
@@ -310,6 +318,7 @@
     // The saved details reopened as the pre-chat card (its fields in use).
     function editingPrechat() { return !!(prechatSummary && prechatSummary.editing); }
     function showPrechatSummary(identity) {
+      prechatEpoch = ConvEpoch.get();
       if (!feat('prechatSummary')) return;
       prechatSummary = {
         contact: Object.assign({}, identityStore.get().contact || {}),
@@ -318,6 +327,9 @@
         identity: identity,
       };
     }
+    // They are that conversation's: another one (opened, or a new one) shows
+    // none (its first message keeps the epoch, so the summary stays).
+    ConvEpoch.onChange(function (s) { if (s.epoch !== prechatEpoch) prechatSummary = null; });
     var startNew = chatUI.startNewConversation;
     chatUI.startNewConversation = function () {
       var out = startNew.apply(chatUI, arguments);
@@ -711,6 +723,7 @@
     }
     var prechatSkipped = false;
     var prechatPainted = false; // this render paints the pre-chat card or form
+    var prechatShown = false;   // the chat tab's last paint did
     function prechatSkipApplies() {
       return prechatSkipped && feat('prechatOperator')
         && !identity.isRequired('name') && !identity.isRequired('email') && !identity.isRequired('phone');
@@ -991,6 +1004,8 @@
         markActiveTab();
         if (prechatPainted) bindPrechatSkip(panel);
         prechatPainted = false;
+        // The header follows the pre-chat (no store tells when it changes).
+        paintChatHeader();
         planLatePack();
       },
       // Home waits for the visitor's identity to greet them by name.
@@ -1032,6 +1047,14 @@
       conv: mapConversation,
       noIntro: function () { return introSuppressedEpoch === ConvEpoch.get(); },
 
+      // Core's late composer focus (after the identity answer, after an
+      // open) leaves a control of the panel the visitor is already on; not
+      // `core`, the one Core focused itself (or found focused at the open).
+      autofocus: function (core) {
+        var a = shadowRoot.activeElement;
+        return !!a && a !== core && a !== msgInput && a !== panel && panel.contains(a);
+      },
+
       // ── the thread ──
       chip: function (question) {
         if (!feat('emptyQna')) return false;
@@ -1066,7 +1089,7 @@
       // The chat tab's state, just before it paints: the pre-chat card keeps
       // a locked composer under it.
       lock: function (stateName) {
-        prechatPainted = stateName === 'PRECHAT_FOR_HUMAN' || stateName === 'HANDOFF_PRECHAT';
+        prechatPainted = prechatShown = stateName === 'PRECHAT_FOR_HUMAN' || stateName === 'HANDOFF_PRECHAT';
         if (!feat('prechatOperator')) return false;
         var on = stateName === 'HANDOFF_PRECHAT';
         setComposerLock(on);

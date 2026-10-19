@@ -186,7 +186,12 @@ enum Format {
         visitorCode: String?,
         language: Language
     ) -> String {
-        if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+        // Older anonymous contacts carry the literal "Visitor" as a name (the
+        // server's ANON_CONTACT_NAME): no name, as the dashboard reads it.
+        if let name {
+            let trimmed = name.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty && trimmed.lowercased() != "visitor" { return name }
+        }
         if let email, !email.isEmpty {
             if let at = email.firstIndex(of: "@"), at != email.startIndex {
                 return String(email[email.startIndex..<at])

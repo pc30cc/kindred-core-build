@@ -1,0 +1,246 @@
+/**
+ * One place that turns a system message into text the reader can understand.
+ *
+ * The server writes system message bodies in English and freezes them into
+ * the row at insert time (`server/services/chatRouting.ts`,
+ * `server/services/calls/invitations.ts`, the conversations PATCH route), so
+ * the stored body can never follow the reader's language. Every surface that
+ * shows one therefore has to rebuild the sentence from `metadata`.
+ *
+ * Four surfaces did that independently — the inbox thread, the inbox list
+ * preview, the contact page and the overview page — and each knew about a
+ * different subset of kinds. That is why an operator could read a localized
+ * "X transferred this conversation" in the thread and a raw English
+ * "Call ended · Duration 01:12" in the list beside it.
+ *
+ * Shared with the server (it lives in `shared/` because `Dockerfile.server`
+ * copies `shared/`, not `src/lib`): the operator read APIs and the
+ * transcript email run the same code over a copy of the strings
+ * (`server/services/operatorSystemText.ts`), so an installed native app that
+ * prints the body reads the operator's language too. Pure: no I/O. The
+ * dashboard imports it as `@/lib/systemMessageText`. Every kind in
+ * `SYSTEM_MESSAGE_KINDS` (`shared/systemMessages.ts`) has a case here.
+ */
+import { isPlaceholderName } from './systemMessages.js';
+
+/** Whatever the server put in `conversation_messages.metadata`. */
+export interface SystemMessageMeta {
+  kind?: string | null;
+  // conversation_transferred / conversation_unassigned
+  actor_name?: string | null;
+  to_name?: string | null;
+  // routing_agent_joined, conversation_closed (who closed it)
+  agent_name?: string | null;
+  // call_invitation
+  channel?: string | null;
+  operator_name?: string | null;
+  status?: string | null;
+  // call_ended
+  ended_by?: string | null;
+  end_reason?: string | null;
+  duration_seconds?: number | null;
+  // support_rating — the operator's rating of a platform-support conversation
+  // (docs/PLATFORM_SUPPORT.md); `internal`, so it is never shown to them.
+  score?: number | null;
+  comment?: string | null;
+  internal?: boolean | null;
+  // platform_support_requester — who is asking (platformSupport/requester.ts)
+  user?: { name?: string | null } | null;
+}
+
+/** The app's translate function. Returns the key itself when unresolved. */
+export type Translate = (key: string) => string;
+
+/** i18n lookup that falls back when a key is missing rather than echoing it. */
+function line(t: Translate, key: string, fallback: string): string {
+  const raw = t(key);
+  return raw && raw !== key && !raw.startsWith('inbox.') ? raw : fallback;
+}
+
+/**
+ * Fills `{name}`-style placeholders in one pass, so a name or comment that
+ * itself holds `{to}` or `$&` is printed as typed.
+ */
+function fill(text: string, values: Record<string, string>): string {
+  return text.replace(/\{(\w+)\}/g, (match, name: string) =>
+    Object.prototype.hasOwnProperty.call(values, name) ? values[name] : match);
+}
+
+/**
+ * A person's name from the metadata, or '' when there is none. The English
+ * stand-ins once stored as a name ('a colleague', 'An operator') count as
+ * none, so the reader gets the generic sentence in their own language.
+ */
+function personName(value: unknown): string {
+  const name = String(value ?? '').trim();
+  return name && !isPlaceholderName(name) ? name : '';
+}
+
+export function formatCallDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  return hh > 0 ? `${pad(hh)}:${pad(mm)}:${pad(s % 60)}` : `${pad(mm)}:${pad(s % 60)}`;
+}
+
+/** The status word shown beside a call invitation. */
+export function invitationStatusText(t: Translate, status: string): string {
+  const key = status === 'joined' ? 'inbox.callInvite.statusJoined'
+    : status === 'expired' ? 'inbox.callInvite.statusExpired'
+    : status === 'cancelled' ? 'inbox.callInvite.statusCancelled'
+    : status === 'declined' ? 'inbox.callInvite.statusDeclined'
+    : 'inbox.callInvite.statusPending';
+  const raw = t(key);
+  return raw && !raw.startsWith('inbox.') ? raw : status;
+}
+
+/**
+ * Localized text for a system message, or `null` when the kind is unknown —
+ * in which case the caller should fall back to the stored body rather than
+ * showing nothing.
+ */
+export function systemMessageText(
+  meta: SystemMessageMeta | null | undefined,
+  t: Translate,
+): string | null {
+  const kind = meta?.kind;
+  if (!kind) return null;
+
+  switch (kind) {
+    case 'conversation_transferred': {
+      const actor = personName(meta?.actor_name);
+      const to = personName(meta?.to_name);
+      if (!to) return line(t, 'inbox.system.transferredGeneric', 'This conversation was transferred');
+      return actor
+        ? fill(line(t, 'inbox.system.transferred', '{actor} transferred this conversation to {to}'), { actor, to })
+        : fill(line(t, 'inbox.system.transferredTo', 'This conversation was transferred to {to}'), { to });
+    }
+    case 'conversation_unassigned': {
+      const actor = personName(meta?.actor_name);
+      return actor
+        ? fill(line(t, 'inbox.system.unassigned', '{actor} unassigned this conversation'), { actor })
+        : line(t, 'inbox.system.unassignedGeneric', 'This conversation was unassigned');
+    }
+    case 'routing_agent_joined': {
+      const name = personName(meta?.agent_name);
+      return name
+        ? fill(line(t, 'inbox.system.agentJoined', '{name} joined the conversation'), { name })
+        : line(t, 'inbox.system.agentJoinedGeneric', 'A colleague joined the conversation');
+    }
+    case 'conversation_closed': {
+      // The visitor-visible line an operator's close writes (a widget
+      // conversation of a template that draws it, with the rating card).
+      const name = personName(meta?.agent_name);
+      return name
+        ? fill(line(t, 'inbox.system.closedBy', '{name} closed the conversation'), { name })
+        : line(t, 'inbox.system.closed', 'The conversation was closed');
+    }
+    case 'routing_no_agent_available':
+      return line(
+        t, 'inbox.system.noAgentAvailable',
+        "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+      );
+    case 'routing_in_queue':
+      // The operator reads it: the visitor is the one waiting.
+      return line(t, 'inbox.system.inQueue', 'The visitor is waiting in the support queue');
+    case 'call_invitation': {
+      const isVideo = meta?.channel === 'video';
+      const op = personName(meta?.operator_name);
+      const text = op
+        ? fill(line(
+          t,
+          isVideo ? 'inbox.system.callInviteVideoFrom' : 'inbox.system.callInviteAudioFrom',
+          `{op} invited the user to ${isVideo ? 'a video' : 'an audio'} call`,
+        ), { op })
+        : line(
+          t,
+          isVideo ? 'inbox.system.callInviteVideo' : 'inbox.system.callInviteAudio',
+          `User invited to ${isVideo ? 'a video' : 'an audio'} call`,
+        );
+      const status = String(meta?.status || 'pending');
+      return `${text} · ${invitationStatusText(t, status)}`;
+    }
+    case 'call_ended': {
+      const endedBy = String(meta?.ended_by || 'system');
+      const seconds = Number(meta?.duration_seconds || 0);
+      const endReason = String(meta?.end_reason || '');
+      // A call that never connected has no duration worth reporting.
+      if (endReason === 'failed' || seconds <= 0) {
+        return line(t, 'inbox.callEnded.summary.notConnected', 'Call did not connect');
+      }
+      const duration = formatCallDuration(seconds);
+      const key = endedBy === 'operator' ? 'inbox.callEnded.summary.byOperator'
+        : endedBy === 'visitor' ? 'inbox.callEnded.summary.byVisitor'
+        : 'inbox.callEnded.summary.bySystem';
+      const fallback = endedBy === 'operator' ? 'Call ended by operator · Duration {duration}'
+        : endedBy === 'visitor' ? 'Call ended by visitor · Duration {duration}'
+        : 'Call ended · Duration {duration}';
+      return fill(line(t, key, fallback), { duration });
+    }
+    case 'support_rating': {
+      const score = Number(meta?.score);
+      // Without a score there is nothing to say; the stored body is better.
+      if (!Number.isInteger(score) || score < 1 || score > 5) return null;
+      const rated = fill(line(t, 'inbox.system.supportRating', 'Rated the conversation {score}/5'), {
+        score: String(score),
+      });
+      const comment = String(meta?.comment ?? '').trim();
+      if (!comment) return rated;
+      // One pass, so text the operator typed is never read as a placeholder.
+      return fill(line(t, 'inbox.system.supportRatingComment', '{rating} — “{comment}”'), { rating: rated, comment });
+    }
+    case 'platform_support_requester': {
+      // The "who is asking" card as one line, for a surface that does not
+      // draw the card (a list preview, a transcript, a desktop app).
+      const user = meta?.user && typeof meta.user === 'object' ? meta.user : null;
+      const name = personName(user?.name);
+      const title = line(t, 'inbox.requester.title', 'Who is asking');
+      return name ? `${title} · ${name}` : title;
+    }
+    default:
+      return null;
+  }
+}
+
+// ─── Attachment-only previews ────────────────────────────────────────
+
+/** Mirrors server/services/attachmentPreviewKind.ts. */
+export type AttachmentPreviewKind = 'image' | 'audio' | 'video' | 'file';
+
+/**
+ * Describe a message whose only content is an attachment.
+ *
+ * Its body is empty, so a list that previews the body alone claims "no
+ * messages yet" about a conversation somebody just sent a photo to.
+ *
+ * The sentence is built from a WHOLE template per case rather than by gluing
+ * a name prefix onto a verb fragment. The old "`${name}: ` + `sent a photo`"
+ * shape cannot be made grammatical: Persian conjugates for the subject, so
+ * "you" needs «ارسال کردید» where a third party needs «ارسال کرد», and the
+ * concatenated form produced «شما: یک تصویر ارسال کرد» — "you: sent a photo"
+ * with the wrong person agreement.
+ */
+export function attachmentPreviewText(
+  kind: AttachmentPreviewKind,
+  sender: { isMe: boolean; name?: string | null },
+  t: Translate,
+): string {
+  const suffix = kind === 'image' ? 'Image'
+    : kind === 'audio' ? 'Audio'
+    : kind === 'video' ? 'Video'
+    : 'File';
+  const noun = {
+    Image: 'a photo', Audio: 'a voice message', Video: 'a video', File: 'a file',
+  }[suffix];
+
+  if (sender.isMe) {
+    return line(t, `inbox.previewYouSent${suffix}`, `You sent ${noun}`);
+  }
+  // An unidentified visitor still gets a subject — "sent a photo" with no
+  // subject reads like a fragment in every language this ships in.
+  const name = String(sender.name || '').trim()
+    || line(t, 'inbox.previewSomeone', 'A user');
+  return line(t, `inbox.previewSentBy${suffix}`, `{name} sent ${noun}`)
+    .replace('{name}', name);
+}

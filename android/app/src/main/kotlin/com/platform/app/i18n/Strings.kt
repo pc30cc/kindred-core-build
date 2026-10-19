@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 401 of 417 strings are generated.
+// 404 of 424 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -19,7 +19,11 @@ package com.platform.app.i18n
 //   activeFilters — takes more than a language
 //   sysTransferred — takes more than a language
 //   sysUnassigned — takes more than a language
+//   sysTransferredTo — takes more than a language
 //   sysAgentJoined — takes more than a language
+//   sysClosedBy — takes more than a language
+//   sysSupportRating — takes more than a language
+//   sysSupportRatingComment — takes more than a language
 //   sysCallInviteAudioFrom — takes more than a language
 //   sysCallInviteVideoFrom — takes more than a language
 //   callEndedByOperator — takes more than a language
@@ -1456,10 +1460,28 @@ object Str {
         Language.TR -> "Kamera kullanılamıyor — yalnızca sesle devam ediliyor"
     }
 
+    fun sysTransferredGeneric(l: Language): String = when (l) {
+        Language.EN -> "This conversation was transferred"
+        Language.FA -> "این گفتگو منتقل شد"
+        Language.TR -> "Bu görüşme aktarıldı"
+    }
+
+    fun sysUnassignedGeneric(l: Language): String = when (l) {
+        Language.EN -> "This conversation was unassigned"
+        Language.FA -> "این گفتگو از حالت واگذارشده خارج شد"
+        Language.TR -> "Bu görüşmenin ataması kaldırıldı"
+    }
+
     fun sysAgentJoinedGeneric(l: Language): String = when (l) {
         Language.EN -> "A colleague joined the conversation"
         Language.FA -> "یکی از همکاران به گفتگو پیوست"
         Language.TR -> "Bir meslektaşımız sohbete katıldı"
+    }
+
+    fun sysClosed(l: Language): String = when (l) {
+        Language.EN -> "The conversation was closed"
+        Language.FA -> "گفتگو بسته شد"
+        Language.TR -> "Sohbet kapatıldı"
     }
 
     fun sysNoAgentAvailable(l: Language): String = when (l) {
@@ -1468,10 +1490,11 @@ object Str {
         Language.TR -> "Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız."
     }
 
+    /** Read by the operator: the visitor is the one waiting. */
     fun sysInQueue(l: Language): String = when (l) {
-        Language.EN -> "You are in the queue — someone will be with you shortly."
-        Language.FA -> "در صف هستید — به‌زودی همکاری پاسخ می‌دهد."
-        Language.TR -> "Sıradasınız — kısa süre içinde bir ekip arkadaşımız yanıtlayacak."
+        Language.EN -> "The visitor is waiting in the support queue"
+        Language.FA -> "کاربر در صف پشتیبانی منتظر است"
+        Language.TR -> "Ziyaretçi destek kuyruğunda bekliyor"
     }
 
     fun sysCallInviteAudio(l: Language): String = when (l) {

@@ -320,7 +320,9 @@ object Format {
         visitorCode: String?,
         language: Language,
     ): String {
-        if (!name.isNullOrBlank()) return name
+        // Older anonymous contacts carry the literal "Visitor" as a name (the
+        // server's ANON_CONTACT_NAME): no name, as the dashboard reads it.
+        if (!name.isNullOrBlank() && !name.trim().equals("visitor", ignoreCase = true)) return name
         if (!email.isNullOrEmpty()) {
             val at = email.indexOf('@')
             return if (at > 0) email.substring(0, at) else email

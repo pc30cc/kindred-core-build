@@ -25,7 +25,10 @@ public sealed record MessagePreview(
     string? SenderType = null,
     string? SenderName = null,
     string? AttachmentKind = null,
-    string? SystemKind = null);
+    string? SystemKind = null,
+    // The notice's whole metadata, so the list writes it in the operator's
+    // language (Inbox/SystemText) rather than print its English body.
+    JsonElement? SystemMeta = null);
 
 public sealed record Conversation(
     string Id,

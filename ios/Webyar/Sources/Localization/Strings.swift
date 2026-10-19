@@ -2271,6 +2271,37 @@ extension Str {
             .replacingOccurrences(of: "{actor}", with: actor)
     }
 
+    /// A transfer whose actor is not known (a row written without a name).
+    static func sysTransferredTo(_ l: Language, to: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "This conversation was transferred to {to}"
+        case .fa: text = "این گفتگو به {to} منتقل شد"
+        case .tr: text = "Bu görüşme {to} kişisine aktarıldı"
+        case .ar: text = "حُوّلت هذه المحادثة إلى {to}"
+        }
+        return text
+            .replacingOccurrences(of: "{to}", with: to)
+    }
+
+    static func sysTransferredGeneric(_ l: Language) -> String {
+        switch l {
+        case .en: "This conversation was transferred"
+        case .fa: "این گفتگو منتقل شد"
+        case .tr: "Bu görüşme aktarıldı"
+        case .ar: "حُوّلت هذه المحادثة"
+        }
+    }
+
+    static func sysUnassignedGeneric(_ l: Language) -> String {
+        switch l {
+        case .en: "This conversation was unassigned"
+        case .fa: "این گفتگو از حالت واگذارشده خارج شد"
+        case .tr: "Bu görüşmenin ataması kaldırıldı"
+        case .ar: "أُلغي إسناد هذه المحادثة"
+        }
+    }
+
     static func sysAgentJoined(_ l: Language, name: String) -> String {
         let text: String
         switch l {
@@ -2292,6 +2323,29 @@ extension Str {
         }
     }
 
+    /// The «X closed the conversation» line an operator's close writes (the
+    /// visitor sees it too, with the rating card under it).
+    static func sysClosedBy(_ l: Language, name: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{name} closed the conversation"
+        case .fa: text = "{name} گفتگو را بست"
+        case .tr: text = "{name} sohbeti kapattı"
+        case .ar: text = "{name} أغلق المحادثة"
+        }
+        return text
+            .replacingOccurrences(of: "{name}", with: name)
+    }
+
+    static func sysClosed(_ l: Language) -> String {
+        switch l {
+        case .en: "The conversation was closed"
+        case .fa: "گفتگو بسته شد"
+        case .tr: "Sohbet kapatıldı"
+        case .ar: "أُغلقت المحادثة"
+        }
+    }
+
     static func sysNoAgentAvailable(_ l: Language) -> String {
         switch l {
         case .en: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can."
@@ -2301,13 +2355,43 @@ extension Str {
         }
     }
 
+    /// Read by the operator: the visitor is the one waiting.
     static func sysInQueue(_ l: Language) -> String {
         switch l {
-        case .en: "You are in the queue — someone will be with you shortly."
-        case .fa: "در صف هستید — به‌زودی همکاری پاسخ می‌دهد."
-        case .tr: "Sıradasınız — kısa süre içinde bir ekip arkadaşımız yanıtlayacak."
-        case .ar: "أنت في قائمة الانتظار — سيكون أحدنا معك قريبًا."
+        case .en: "The visitor is waiting in the support queue"
+        case .fa: "کاربر در صف پشتیبانی منتظر است"
+        case .tr: "Ziyaretçi destek kuyruğunda bekliyor"
+        case .ar: "الزائر ينتظر في قائمة انتظار الدعم"
         }
+    }
+
+    /// A site user's rating of a platform-support conversation (internal:
+    /// only the support team sees it).
+    static func sysSupportRating(_ l: Language, score: Int) -> String {
+        let text: String
+        switch l {
+        case .en: text = "Rated the conversation {score}/5"
+        case .fa: text = "به این گفتگو {score} از ۵ امتیاز داد"
+        case .tr: text = "Görüşmeye 5 üzerinden {score} puan verdi"
+        case .ar: text = "قيّم المحادثة بـ {score}/5"
+        }
+        return text
+            .replacingOccurrences(of: "{score}", with: String(score))
+    }
+
+    static func sysSupportRatingComment(_ l: Language, rating: String, comment: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{rating} — “{comment}”"
+        case .fa: text = "{rating} — «{comment}»"
+        case .tr: text = "{rating} — “{comment}”"
+        case .ar: text = "{rating} — «{comment}»"
+        }
+        // The comment goes in last, so what the user typed is never read as
+        // a placeholder.
+        return text
+            .replacingOccurrences(of: "{rating}", with: rating)
+            .replacingOccurrences(of: "{comment}", with: comment)
     }
 
     static func sysCallInviteAudio(_ l: Language) -> String {

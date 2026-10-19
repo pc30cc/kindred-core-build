@@ -2,7 +2,7 @@ import Foundation
 
 /// One place that turns a system notice into text the reader can understand.
 ///
-/// This is the app's half of `src/lib/systemMessageText.ts`, and it exists for
+/// This is the app's half of `shared/systemMessageText.ts`, and it exists for
 /// the same reason that file does: the server writes system message bodies in
 /// English and freezes them into the row at insert time, so the stored body
 /// can never follow the reader's language. `Call ended by operator · 00:39`
@@ -26,18 +26,39 @@ enum SystemMessage {
             (meta?[key]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        /// A person's name, or "" for none. The English stand-ins the server
+        /// once stored as a name ('a colleague') count as none, so the reader
+        /// gets the generic sentence in their own language.
+        func person(_ raw: String) -> String {
+            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return placeholderNames.contains(name.lowercased()) ? "" : name
+        }
+
         switch kind {
         case "conversation_transferred":
-            return Str.sysTransferred(language, actor: value("actor_name"), to: value("to_name"))
+            let actor = person(value("actor_name"))
+            let to = person(value("to_name"))
+            if to.isEmpty { return Str.sysTransferredGeneric(language) }
+            return actor.isEmpty
+                ? Str.sysTransferredTo(language, to: to)
+                : Str.sysTransferred(language, actor: actor, to: to)
 
         case "conversation_unassigned":
-            return Str.sysUnassigned(language, actor: value("actor_name"))
+            let actor = person(value("actor_name"))
+            return actor.isEmpty
+                ? Str.sysUnassignedGeneric(language)
+                : Str.sysUnassigned(language, actor: actor)
 
         case "routing_agent_joined":
-            let name = value("agent_name")
+            let name = person(value("agent_name"))
             return name.isEmpty
                 ? Str.sysAgentJoinedGeneric(language)
                 : Str.sysAgentJoined(language, name: name)
+
+        case "conversation_closed":
+            // The visitor-visible line an operator's close writes.
+            let name = person(value("agent_name"))
+            return name.isEmpty ? Str.sysClosed(language) : Str.sysClosedBy(language, name: name)
 
         case "routing_no_agent_available":
             return Str.sysNoAgentAvailable(language)
@@ -45,9 +66,26 @@ enum SystemMessage {
         case "routing_in_queue":
             return Str.sysInQueue(language)
 
+        case "platform_support_requester":
+            // The "who is asking" card as one line, where the card is not drawn.
+            let name = person(meta?["user"]?["name"]?.stringValue ?? "")
+            return name.isEmpty ? RequesterStr.title(language) : "\(RequesterStr.title(language)) · \(name)"
+
+        case "support_rating":
+            // Without a whole score from 1 to 5 there is nothing to say; the
+            // stored body is better.
+            guard let raw = meta?["score"]?.doubleValue, raw == raw.rounded(), (1...5).contains(Int(raw)) else {
+                return nil
+            }
+            let rated = Str.sysSupportRating(language, score: Int(raw))
+            let comment = value("comment")
+            return comment.isEmpty
+                ? rated
+                : Str.sysSupportRatingComment(language, rating: rated, comment: comment)
+
         case "call_invitation":
             let isVideo = value("channel") == "video"
-            let op = value("operator_name")
+            let op = person(value("operator_name"))
             let text: String
             if op.isEmpty {
                 text = isVideo ? Str.sysCallInviteVideo(language) : Str.sysCallInviteAudio(language)
@@ -76,6 +114,10 @@ enum SystemMessage {
             return nil
         }
     }
+
+    /// English stand-ins once stored as a name (chatRouting's 'a colleague',
+    /// the inbox PATCH's 'An operator') — shared/systemMessages.ts.
+    private static let placeholderNames: Set<String> = ["a colleague", "an operator"]
 
     /// The status word shown beside a call invitation.
     static func invitationStatus(_ status: String, language: Language) -> String {

@@ -41,7 +41,10 @@ struct ChatRow: Identifiable, Equatable {
 
     static func from(_ m: Message, _ s: Strings) -> ChatRow {
         let side: Side = m.isSystem ? .system : m.isOutgoing ? .outgoing : .incoming
-        var r = ChatRow(id: m.id, side: side, body: side == .system ? (SystemText.of(m.metadata, s) ?? m.body) : m.body)
+        // The requester card's body is the whole card (the server's
+        // requester.ts); SystemText writes it as one line for lists only.
+        let isRequesterCard = m.metadata?["kind"]?.string == "platform_support_requester"
+        var r = ChatRow(id: m.id, side: side, body: side == .system && !isRequesterCard ? (SystemText.of(m.metadata, s) ?? m.body) : m.body)
         r.createdAt = m.createdAt
         r.time = m.createdAt.map { Display.clockTime($0, s.language) } ?? ""
         r.isAi = m.senderType == SenderType.ai || m.senderType == SenderType.bot

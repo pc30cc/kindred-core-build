@@ -72,7 +72,8 @@ import {
   type ChatTemplateOptions,
 } from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
-import { launcherInitial, resolveLauncherStyle } from '../../../shared/launcherStyles.js';
+import { resolveLauncherStyle } from '../../../shared/launcherStyles.js';
+import { agentFaceInitial, onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from './poweredBy.js';
@@ -337,7 +338,11 @@ function aiAgentDisabledByPlatform(platform: PlatformAiAgentSettings | null): Wi
 
 export interface TeamProfile {
   id: string;
-  name: string;
+  /**
+   * The profile's own name, null without one. The stack's name is picked per
+   * request, in the widget's language (shared/widgetTeam.ts widgetTeamName).
+   */
+  fullName: string | null;
   avatar: string | null;
 }
 
@@ -368,7 +373,7 @@ export interface WorkspaceWidgetSnapshot {
   availabilityPrefs: WorkspaceAvailabilityPrefs;
   /** Lower-cased member ids, for `user:<id>` invalidation. */
   memberIds: Set<string>;
-  /** The first four members' profiles, in the order the read returned them; null = none. */
+  /** The first four members' profiles, in the order they joined (shared/widgetTeam.ts); null = none. */
   team: TeamProfile[] | null;
   logoUrl: string | null;
   fabImageUrl: string | null;
@@ -608,7 +613,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       console.error('[widget/config] entitlement resolution failed', err);
       return null;
     }),
-    sb.from('workspace_members').select('user_id').eq('workspace_id', workspaceId),
+    sb.from('workspace_members').select('user_id, created_at').eq('workspace_id', workspaceId),
     sb.from('ai_agent_settings')
       .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, metadata')
       .eq('workspace_id', workspaceId)
@@ -651,7 +656,8 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       ? applyWidgetEntitlementsToSettings({ ...DEFAULT_WIDGET_SETTINGS, ...widgetRow }, entitlements)
       : { ...DEFAULT_WIDGET_SETTINGS, ...widgetRow })
     : null;
-  const memberIds = ((membersResult.data || []) as Array<{ user_id: string | null }>)
+  const memberRows = (membersResult.data || []) as Array<{ user_id: string | null; created_at?: string | null }>;
+  const memberIds = memberRows
     .map((m) => m.user_id)
     .filter((id): id is string => !!id);
   const branding = brandingResult.data ?? null;
@@ -677,7 +683,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
         .in('user_id', memberIds)
         .is('workspace_id', null)
       : Promise.resolve({ data: [] as AvailabilityPrefsRow[], error: null }),
-    forConfig ? loadTeam(sb, resolver, memberIds) : Promise.resolve({ team: null, error: false }),
+    forConfig ? loadTeam(sb, resolver, widgetTeamMembers(memberRows).map((m) => m.user_id as string)) : Promise.resolve({ team: null, error: false }),
     // Smart Engagement rules (active + published only). Failure here must
     // never take down /config — the helper already degrades to an empty list.
     forConfig
@@ -752,21 +758,27 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
   };
 }
 
-/** The first four members' names and avatars (the team stack). */
+/**
+ * The team stack's members (shared/widgetTeam.ts: the first four to join,
+ * `teamIds` in that order) with their names and avatars, in that order
+ * whatever order the profiles come back in.
+ */
 async function loadTeam(
   sb: ServiceClient,
   resolver: StorageUrlResolver,
-  memberIds: string[],
+  teamIds: string[],
 ): Promise<{ team: TeamProfile[] | null; error: boolean }> {
-  const first = memberIds.slice(0, 4);
-  if (!first.length) return { team: null, error: false };
+  if (!teamIds.length) return { team: null, error: false };
   const { data: profiles, error } = await sb
     .from('profiles').select('id, full_name, avatar_storage_key')
-    .in('id', first);
+    .in('id', teamIds);
   if (!profiles) return { team: null, error: !!error };
-  const withAvatars = await hydrateUserAvatars(resolver, profiles);
+  const byId = new Map((await hydrateUserAvatars(resolver, profiles)).map((p) => [p.id, p]));
   return {
-    team: withAvatars.map((p) => ({ id: p.id, name: p.full_name || 'Operator', avatar: p.avatar_url })),
+    team: teamIds.filter((id) => byId.has(id)).map((id) => {
+      const p = byId.get(id);
+      return { id: p.id, fullName: p.full_name || null, avatar: p.avatar_url };
+    }),
     error: !!error,
   };
 }
@@ -1085,7 +1097,8 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   const platformDisabled = !!aiPlatform && aiPlatform.ai_agent_enabled === false;
   const aiAgentInfo: WidgetAiAgentInfo = platformDisabled ? aiAgentDisabledByPlatform(aiPlatform) : snap.aiAgent;
 
-  let teamMembers: Array<{ name: string; avatar: string | null; online: boolean }> = [];
+  // The team, with who of it is online; named below, in the widget's language.
+  let teamOnline: Array<{ profile: TeamProfile; online: boolean }> = [];
   if (snap.team) {
     // Resolve who's online right now so the widget can render a green status
     // dot on each avatar. Visitor-facing dots follow CUSTOMER availability
@@ -1095,13 +1108,7 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       const { available } = await listCustomerAvailableOperators(config, workspaceId, now, snap.availabilityPrefs);
       for (const op of available) presenceByUser.set(op.user_id, 'online');
     } catch { /* presence is cosmetic — never fail the bootstrap */ }
-    teamMembers = snap.team.map((p) => ({
-      name: p.name,
-      avatar: p.avatar,
-      online: presenceByUser.get(p.id) === 'online',
-    }));
-    // Online operators first so the stack leads with available staff.
-    teamMembers.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+    teamOnline = snap.team.map((p) => ({ profile: p, online: presenceByUser.get(p.id) === 'online' }));
   }
 
   const apiBase = resolveWidgetApiBase({
@@ -1172,6 +1179,15 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   const effectiveLocale = clampLoc(
     ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
   );
+  // Online operators first so the stack leads with available staff; a member
+  // without a name of their own is the widget's word for an operator, in
+  // the language the widget speaks (`locale`; a `widgetLanguage` that names
+  // one is the same).
+  const teamMembers = onlineFirst(teamOnline.map(({ profile, online }) => ({
+    name: widgetTeamName(profile.fullName, effectiveLocale),
+    avatar: profile.avatar,
+    online,
+  })));
   const effectiveWidgetLanguage =
     platformLocales.length === 1
       ? platformLocales[0]
@@ -1298,10 +1314,11 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       icon: launcher.icon,
       helpIcon: ws.fab_help_icon || 'help_circle',
       shape: launcher.shape,
-      // The agent's face shows the first operator's initial (online first,
-      // as the team stack), else the workspace's.
+      // The agent's face shows the first operator's initial by the stack's
+      // name (online first, as the stack), else the workspace's. The
+      // dashboard picks it by the same rule (shared/widgetTeam.ts).
       ...(launcher.icon === 'avatar' ? {
-        initial: launcherInitial([...teamMembers.map((m) => m.name), typeof ws.brand_name === 'string' ? ws.brand_name : workspace?.name]),
+        initial: agentFaceInitial(teamMembers, typeof ws.brand_name === 'string' ? ws.brand_name : workspace?.name),
       } : {}),
       label: ws.fab_label || '',
       chatLabel: ws.fab_chat_label || '',

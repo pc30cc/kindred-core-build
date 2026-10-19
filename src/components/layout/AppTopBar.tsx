@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { updateAccount } from '@/lib/account-api';
 import { UserMenu } from '@/components/layout/UserMenu';
 import { AlertsMenu } from '@/components/layout/AlertsMenu';
 
@@ -40,6 +41,14 @@ export function AppTopBar() {
   const isMobile = useIsMobile();
 
   const isDark = theme === 'dark';
+
+  // The operator's language, as Settings → Interface saves it: what the
+  // server writes for them (push, mail, the native apps' system lines)
+  // follows it. A failed save still switches this dashboard.
+  const switchLocale = (next: Locale) => {
+    setLocale(next);
+    void updateAccount({ preferred_locale: next }).catch(() => undefined);
+  };
 
   const pageSlot = (
     <div
@@ -91,7 +100,7 @@ export function AppTopBar() {
         {/* Group 2 — Preferences: language + theme */}
         <div className="ms-auto flex items-center gap-2">
           {canSwitchLanguage && (
-            <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+            <Select value={locale} onValueChange={(v) => switchLocale(v as Locale)}>
               <SelectTrigger className="h-10 w-[126px] rounded-2xl border-border/60 bg-muted/40 text-sm shadow-sm focus:ring-0">
                 <SelectValue />
               </SelectTrigger>

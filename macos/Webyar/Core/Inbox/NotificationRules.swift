@@ -85,21 +85,45 @@ enum SystemText {
     static func of(_ meta: JSONValue?, _ s: Strings) -> String? {
         guard let meta, meta.object != nil else { return nil }
         func str(_ key: String) -> String { meta[key]?.string?.trimmingCharacters(in: .whitespaces) ?? "" }
+        // A person's name, or "" for none: the English stand-ins once stored
+        // as a name ('a colleague') read as the generic sentence instead.
+        func person(_ key: String) -> String {
+            let name = str(key)
+            return placeholderNames.contains(name.lowercased()) ? "" : name
+        }
         switch str("kind") {
         case "conversation_transferred":
-            return s.get("sysTransferred", ["actor": str("actor_name"), "to": str("to_name")])
+            let actor = person("actor_name"), to = person("to_name")
+            if to.isEmpty { return s["sysTransferredGeneric"] }
+            return actor.isEmpty ? s.get("sysTransferredTo", "to", to) : s.get("sysTransferred", ["actor": actor, "to": to])
         case "conversation_unassigned":
-            return s.get("sysUnassigned", "actor", str("actor_name"))
+            let actor = person("actor_name")
+            return actor.isEmpty ? s["sysUnassignedGeneric"] : s.get("sysUnassigned", "actor", actor)
         case "routing_agent_joined":
-            let agent = str("agent_name")
+            let agent = person("agent_name")
             return agent.isEmpty ? s["sysAgentJoinedGeneric"] : s.get("sysAgentJoined", "name", agent)
+        case "conversation_closed":
+            // The visitor-visible line an operator's close writes.
+            let agent = person("agent_name")
+            return agent.isEmpty ? s["sysClosed"] : s.get("sysClosedBy", "name", agent)
         case "routing_no_agent_available":
             return s["sysNoAgentAvailable"]
         case "routing_in_queue":
             return s["sysInQueue"]
+        case "platform_support_requester":
+            // The "who is asking" card as one line.
+            let raw = meta["user"]?["name"]?.string?.trimmingCharacters(in: .whitespaces) ?? ""
+            let name = placeholderNames.contains(raw.lowercased()) ? "" : raw
+            return name.isEmpty ? s["requesterTitle"] : "\(s["requesterTitle"]) · \(name)"
+        case "support_rating":
+            // Without a whole score from 1 to 5 there is nothing to say; the stored body is better.
+            guard let score = meta["score"]?.int, (1...5).contains(score) else { return nil }
+            let rated = s.get("sysSupportRating", "score", String(score))
+            let comment = str("comment")
+            return comment.isEmpty ? rated : s.get("sysSupportRatingComment", ["rating": rated, "comment": comment])
         case "call_invitation":
             let video = str("channel") == "video"
-            let op = str("operator_name")
+            let op = person("operator_name")
             let text = op.isEmpty ? s[video ? "sysCallInviteVideo" : "sysCallInviteAudio"]
                 : s.get(video ? "sysCallInviteVideoFrom" : "sysCallInviteAudioFrom", "op", op)
             let status = str("status")
@@ -114,6 +138,10 @@ enum SystemText {
             return nil
         }
     }
+
+    /// English stand-ins once stored as a name (chatRouting's 'a colleague',
+    /// the inbox PATCH's 'An operator') — shared/systemMessages.ts.
+    private static let placeholderNames: Set<String> = ["a colleague", "an operator"]
 
     static func invitationStatus(_ status: String, _ s: Strings) -> String {
         switch status {

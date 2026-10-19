@@ -7,7 +7,8 @@
    Latin.
 
    Colour: the renderer sets the accent `--a` (and `--a-rgb`, `--on-a*`,
-   `--gs-primary`, and `--dk` for a light accent that needs dark text)
+   `--gs-primary`, and `--dk` for a light accent that needs dark text; any
+   other comes darkened until white on it reads 5:1)
    inline on each view root and on the close button; every other shade is
    derived here from `--a`, in OKLab like the design, with an rgba fallback
    where color-mix() is missing. An uncustomised accent is not inlined: the
@@ -204,7 +205,7 @@ button.cd:hover {
   transition: transform .16s var(--ease), filter .2s, box-shadow .2s;
 }
 .btn-p {
-  color: var(--on-a); background: linear-gradient(180deg, var(--a-hi), var(--a) 70%);
+  color: var(--on-a); background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), inset 0 -1px 0 rgba(0, 0, 0, .1), 0 1px 2px rgba(15, 18, 23, .16), 0 10px 22px -12px rgba(var(--a-rgb), .9);
 }
 .btn-p:hover { filter: brightness(1.06); transform: translateY(-1px); }
@@ -491,7 +492,7 @@ button.cd:hover {
 }
 .msg.operator { background: var(--op); color: var(--ink); }
 .msg.visitor {
-  color: var(--on-a); background: linear-gradient(180deg, var(--a-hi), var(--a) 70%);
+  color: var(--on-a); background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);
   box-shadow: 0 1px 2px rgba(var(--a-rgb), .28);
 }
 .msg-row.operator:not(.is-last) .msg, .welcome-row .msg-line:not(:last-of-type) .msg, .hc-subtitle { border-bottom-left-radius: 6px; }
@@ -534,8 +535,12 @@ button.cd:hover {
   display: block; margin: 1px -6px 6px; padding: 6px 10px; border-radius: 12px;
   background: rgba(15, 18, 23, .05); font-size: 12.5px; line-height: 1.6;
 }
-.msg.visitor .msg-quote { background: rgba(255, 255, 255, .17); }
-.msg-quote b { display: block; font-size: 11.5px; font-weight: 700; opacity: .9; }
+/* On the visitor's side a deeper panel: white ink on a white tint (or .9 of
+   it) falls below 4.5:1 on a 5:1 accent. The quote is the bubble's first
+   line, where the sheen is: that bubble is flat. */
+.msg.visitor .msg-quote { background: rgba(15, 18, 23, .12); }
+.msg.visitor:has(> .msg-quote) { background: var(--a); }
+.msg-quote b { display: block; font-size: 11.5px; font-weight: 700; }
 .msg-link {
   display: grid; grid-template-columns: 34px 1fr; align-items: center; column-gap: 10px; margin: 8px -5px 2px; padding: 8px 10px;
   border-radius: 14px; background: #fff; color: var(--ink); box-shadow: 0 0 0 1px var(--line);
@@ -559,6 +564,8 @@ button.cd:hover {
 .typing-dots i:nth-child(3) { animation-delay: .32s; }
 @keyframes wy-typ { 0%, 60%, 100% { opacity: .45; transform: rotate(45deg); } 25% { opacity: 1; transform: translateY(-3px) rotate(45deg); } }
 .typing-row { margin-bottom: 6px; }
+/* The thinking row has no line under its bubble (typing has its name). */
+.ai-thinking-row .msg-avatar { margin-bottom: 0; }
 .msg-system-pill {
   display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 99px; background: var(--bg);
   box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; color: var(--ink-2);
@@ -604,6 +611,8 @@ button.cd:hover {
 .msg-att-meta { flex: 1; min-width: 0; }
 .msg-att-name { overflow: hidden; font-size: 13px; font-weight: 700; line-height: 1.5; white-space: nowrap; text-overflow: ellipsis; }
 .msg-att-sub { font-size: 11.5px; color: var(--ink-3); }
+/* The visitor's file and voice lines in the bubble's own ink. */
+.msg.visitor .msg-att-sub, .msg.visitor .wy-ap-time { color: inherit; opacity: 1; }
 .msg-att-action { width: 32px; height: 32px; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
 /* A download's progress (feature `dlProgress`: Core's `--dl`, 0..1, on the
    control while the bytes come): a ring from the top around a voice note's

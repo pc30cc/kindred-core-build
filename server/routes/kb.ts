@@ -40,6 +40,8 @@ import { resolveKbLock } from '../services/knowledge-base/locks.js';
 import { publicArticles } from '../services/knowledge-base/publicArticles.js';
 import {
   kbSearchOrFilter,
+  kbSearchPhrase,
+  kbSearchText,
   kbSearchWindow,
   kbSearchWords,
   rankKbSearchRows,
@@ -315,14 +317,15 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   // grammar's and LIKE's own characters taken out
   // (services/knowledge-base/widgetSearch.ts). Without it (the help
   // center's search page of every workspace, and every older caller) the
-  // query is one phrase, exactly as before.
+  // query is one phrase, exactly as before. Either way a control character
+  // is a space (widgetSearch.ts).
   const byWord = req.query.match === 'words';
   const words = byWord ? kbSearchWords(q) : [];
-  if (byWord && !words.length) return res.json({ locale, q, results: [] });
+  const like = byWord ? '' : kbSearchPhrase(q);
+  if (byWord ? !words.length : !like) return res.json({ locale, q, results: [] });
 
   const kbLock = await resolveKbLock(config, workspace_id);
   // Search spans every language of the workspace.
-  const like = `%${q.replace(/[%_]/g, ' ')}%`;
   const articles = publicArticles(config, workspace_id, 'id, title, slug, excerpt, locale', kbLock);
   const { data: rows, error } = byWord
     ? await articles.or(kbSearchOrFilter(words)).order('updated_at', { ascending: false }).limit(kbSearchWindow(limit))
@@ -764,12 +767,13 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).send('Not found');
 
-  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
+  // A control character is a space (a NUL failed the database read).
+  const q = typeof req.query.q === 'string' ? kbSearchText(req.query.q).trim().slice(0, 200) : '';
   let results: KbArticleRow[] = [];
   // One phrase, as the help center always searched (the word search is the
   // t1/t2 widget's, `match=words` on /api/widget/kb/search).
-  if (q.length >= 2) {
-    const like = `%${q.replace(/[%_]/g, ' ')}%`;
+  const like = kbSearchPhrase(q);
+  if (q.length >= 2 && like) {
     const kbLock = await resolveKbLock(config, workspaceId);
     const { data } = await publicArticles(config, workspaceId, 'id, title, slug, excerpt, locale', kbLock)
       .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)

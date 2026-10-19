@@ -112,6 +112,23 @@ services:
           # from advertising the intended address consistently.
           use_external_ip: false
           node_ip: $${LIVEKIT_NODE_IP}
+          # Ramp-up. A call used to open blurry and sharpen slowly. Send-side
+          # BWE (transport-cc feedback) lets the allocator move a subscriber
+          # up a simulcast layer sooner than the REMB default, and allow_pause
+          # false keeps video from being paused while the estimate is still
+          # low at the start. All three are overridable per deploy.
+          congestion_control:
+            enabled: true
+            allow_pause: $${LIVEKIT_ALLOW_PAUSE:-false}
+            use_send_side_bwe: $${LIVEKIT_SEND_SIDE_BWE:-true}
+          # Keyframe requests: a layer switch waits for a keyframe, so answer
+          # PLIs sooner than the 500ms/1s/1s defaults.
+          pli_throttle:
+            low_quality: $${LIVEKIT_PLI_LOW:-200ms}
+            mid_quality: $${LIVEKIT_PLI_MID:-500ms}
+            high_quality: $${LIVEKIT_PLI_HIGH:-500ms}
+          # Deeper video retransmit buffer for NACK over a long, lossy path.
+          packet_buffer_size_video: $${LIVEKIT_PACKET_BUFFER_VIDEO:-1000}
         keys:
           $${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}
         room:

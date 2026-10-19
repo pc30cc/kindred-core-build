@@ -446,6 +446,8 @@ button.cd:hover {
 .cd.rc { padding: 12px 14px 14px; }
 .cd.hc, .cd.lc { padding: 12px 14px 4px; }
 .hc .ls { margin-top: 4px; }
+/* No articles under it: as much room below the field as above (4 + 8 = 12). */
+.hc .sr:last-child { margin-bottom: 8px; }
 /* Painted without Core's module (`.ext-off`: runtime-ext.js failed or is
    late) the home search would not answer: the card keeps its articles. */
 .ext-off .cd.hc .sr, .ext-off .cd.hc:not(:has(.ls)) { display: none; }

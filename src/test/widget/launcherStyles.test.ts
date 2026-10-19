@@ -48,6 +48,9 @@ async function startingSnapshot(key: string, config: Record<string, unknown>): P
 }
 afterAll(() => { if (UPDATE_FIXTURE) writeFileSync(FIXTURE, `${JSON.stringify(fixture, null, 1)}\n`); });
 const FAB_CSS = read('public/widget/runtime-fab.css');
+/** The phone shell's rules, behind `max-width: 640px` in the starting commit. */
+const PHONE_SHELL = '.shell.gs-mobile-open{top:0;left:0;right:0;bottom:auto;width:100vw;height:var(--gs-vvh,100dvh);}'
+  + '.shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,.shell.gs-mobile-open .smart-nudge{display:none!important;}';
 const FAB_URL = 'https://app.test/widget/runtime-fab.0123abcd.css';
 
 function jsonResponse(payload: unknown) {
@@ -154,8 +157,12 @@ describe('without a style, the launcher is the starting commit\'s, byte for byte
     expect(after.shell).toBe(before.shell);
     // The card beside it too (a pill not worn keeps its card).
     expect(after.card).toBe(before.card);
-    // The kit's 18px square is one rule more in its stylesheet.
-    expect(after.styles.map((s) => s!.replace('.launcher.lk-kit.square{border-radius:18px;}', ''))).toEqual(before.styles);
+    // The kit's 18px square is one rule more in its stylesheet; the phone
+    // shell's rules left their `max-width: 640px` block (a phone turned to
+    // landscape keeps the full-screen panel, mobileRotation.test.ts): the
+    // launcher's own rules are untouched.
+    expect(after.styles.map((s) => s!.replace('.launcher.lk-kit.square{border-radius:18px;}', '')
+      .replace(PHONE_SHELL, `@media(max-width:640px){${PHONE_SHELL}}`))).toEqual(before.styles);
     expect(after.links).toBe(0);
   }, 20_000);
 

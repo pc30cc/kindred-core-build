@@ -561,12 +561,13 @@
        While the panel is open on a phone the shell stops being a zero-size
        corner anchor and becomes the whole (visual) viewport, so the panel is
        pinned to the screen and the keyboard cannot push it around. The height
-       comes from visualViewport (--gs-vvh) with a 100dvh fallback. */
-    "@media(max-width:640px){",
+       comes from visualViewport (--gs-vvh) with a 100dvh fallback. Not
+       behind a width query: the class itself is the phone test (PHONE_MQ),
+       which a phone turned to landscape (844px wide) still passes. */
     ".shell.gs-mobile-open{top:0;left:0;right:0;bottom:auto;",
     "width:100vw;height:var(--gs-vvh,100dvh);}",
     ".shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,",
-    ".shell.gs-mobile-open .smart-nudge{display:none!important;}}",
+    ".shell.gs-mobile-open .smart-nudge{display:none!important;}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
@@ -1820,10 +1821,19 @@
   // On phones an open panel must behave like a native sheet: it covers the
   // visual viewport, follows the on-screen keyboard (visualViewport) and the
   // host page behind it must not scroll. Desktop is untouched.
+  // A phone in either orientation: narrow, or short with a touch screen (a
+  // phone turned to landscape is 844x390; a tablet is never that short).
+  // Re-evaluated whenever the viewport changes while the panel is open: the
+  // owner's iPhone, turned to landscape, kept the desktop box (cut off), and
+  // turned back it stayed a floating card once a sync had dropped the class.
+  var PHONE_MQ = "(max-width:640px),(max-height:500px) and (pointer:coarse)";
   var mobileLockState = null;
   function isPhoneViewport() {
-    try { return window.matchMedia("(max-width:640px)").matches; } catch (_) { return false; }
+    try { return window.matchMedia(PHONE_MQ).matches; } catch (_) { return false; }
   }
+  function onViewportTurn() { if (isOpen) applyMobileFullScreen(true); }
+  window.addEventListener("resize", onViewportTurn);
+  window.addEventListener("orientationchange", onViewportTurn);
   function syncVisualViewport() {
     if (!shellContentEl) return;
     var vv = window.visualViewport;
@@ -1860,7 +1870,6 @@
         window.visualViewport.addEventListener("resize", syncVisualViewport);
         window.visualViewport.addEventListener("scroll", syncVisualViewport);
       }
-      window.addEventListener("orientationchange", syncVisualViewport);
     } else {
       var st = mobileLockState;
       mobileLockState = null;
@@ -1870,7 +1879,6 @@
         window.visualViewport.removeEventListener("resize", syncVisualViewport);
         window.visualViewport.removeEventListener("scroll", syncVisualViewport);
       }
-      window.removeEventListener("orientationchange", syncVisualViewport);
       if (st) {
         document.body.style.position = st.bodyPosition;
         document.body.style.top = st.bodyTop;

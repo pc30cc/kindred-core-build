@@ -224,7 +224,7 @@
       var mine = ((m.metadata && m.metadata.reactions) || []).some(function (r) { return r && r.emoji === HEART && r.mine; });
       var label = esc(XL('simpleReact'));
       return '<button type="button" class="msg-act" data-msg-react="' + HEART + '" data-msg-id="' + esc(m.__id) +
-        '" aria-pressed="' + mine + '" title="' + label + '" aria-label="' + label + '">' + svg(HEART_ICON, 14, 1.8) + '</button>';
+        '" aria-pressed="' + mine + '" aria-label="' + label + '">' + svg(HEART_ICON, 14, 1.8) + '</button>';
     }
 
     // ── The message left while the team is away (`awayThread`) ──

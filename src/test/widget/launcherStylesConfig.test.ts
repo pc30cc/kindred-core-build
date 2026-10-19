@@ -7,7 +7,10 @@
  *
  *   - `fab.icon` / `fab.shape` are normalised (an unknown icon is `chat`, a
  *     pill needs its text); `fab.initial` only for the agent's face (the
- *     first operator, online first, else the workspace's name);
+ *     first operator, online first, by the stack's name: their own, else
+ *     the widget's word for an operator in its language; the workspace's
+ *     name without a team), from the team of the first four members to join
+ *     (shared/widgetTeam.ts), whatever order the rows come in;
  *   - `fabStyleUrl` (the hashed runtime-fab.css) only for a launcher wearing
  *     a style: every other payload is as before, key for key;
  *   - a plan without widget_launcher_icon wears a chat circle and gets no
@@ -115,13 +118,66 @@ describe('GET /config: the launcher', () => {
     expect(b.fab.initial).toBe('S');
     expect(Object.keys(b.fab)).toEqual([...FAB_KEYS.slice(0, 3), 'initial', ...FAB_KEYS.slice(3)]);
     expect(String(b.fabStyleUrl)).toMatch(FAB_URL);
-    // A nameless operator is "Operator" in the team stack, and so here.
     const noTeam = await body((t) => {
       fab({ fab_icon: 'avatar', brand_name: 'نیلوفر' })(t);
       (t as Record<string, unknown[]>).workspace_members = [];
     });
     expect(noTeam.teamMembers).toEqual([]);
     expect(noTeam.fab.initial).toBe('ن');
+  });
+
+  it('the agent\'s face: the first four to join, online first; a nameless operator is «اپراتور» in a Persian widget, in the stack and the letter', async () => {
+    const id = (n: number) => `2b3c4d5e-0000-4000-8000-00000000000${n}`;
+    const online = { workspace_id: null, force_offline: false, available_when_using_app: true, schedule_enabled: false, timezone: 'UTC', weekly_schedule: null };
+    const b = await body((t) => {
+      fab({ fab_icon: 'avatar', brand_name: 'نیلوفر' })(t);
+      const tt = t as Record<string, Array<Record<string, unknown>>>;
+      // Rows newest first; the profiles in yet another order.
+      tt.workspace_members = [
+        { workspace_id: WS, user_id: id(5), created_at: '2026-10-05T09:00:00+00:00' },
+        { workspace_id: WS, user_id: id(4), created_at: '2026-10-04T09:00:00+00:00' },
+        { workspace_id: WS, user_id: id(3), created_at: '2026-10-03T09:00:00+00:00' },
+        { workspace_id: WS, user_id: id(2), created_at: '2026-10-02T09:00:00+00:00' },
+        { workspace_id: WS, user_id: id(1), created_at: '2026-10-01T09:00:00+00:00' },
+      ];
+      tt.profiles = [
+        { id: id(4), full_name: 'سارا', email: 'sara@example.com', avatar_storage_key: null },
+        { id: id(5), full_name: 'Elif', email: 'elif@example.com', avatar_storage_key: null },
+        { id: id(2), full_name: 'Reza', email: 'reza@example.com', avatar_storage_key: null },
+        { id: id(1), full_name: null, email: 'first@example.com', avatar_storage_key: null },
+        { id: id(3), full_name: 'Kian', email: 'kian@example.com', avatar_storage_key: null },
+      ];
+      tt.user_availability_prefs = [1, 2, 3, 4, 5].map((n) => ({ ...online, user_id: id(n), force_offline: ![1, 4, 5].includes(n) }));
+    });
+    // The fifth to join (online) is not in the team; the nameless first one
+    // leads the online, under the widget's word for an operator (as t1's
+    // header draws its face), so the launcher wears that word's letter.
+    expect(b.teamMembers).toEqual([
+      { name: 'اپراتور', avatar: null, online: true },
+      { name: 'سارا', avatar: null, online: true },
+      { name: 'Reza', avatar: null, online: false },
+      { name: 'Kian', avatar: null, online: false },
+    ]);
+    expect(b.fab.initial).toBe('ا');
+    expect(JSON.stringify(b.teamMembers)).not.toContain('Operator');
+    // Nobody's email, nor any part of it, reaches the visitor.
+    expect(JSON.stringify(b)).not.toMatch(/example\.com|first@|sara@/);
+  });
+
+  it.each([
+    ['a Turkish widget', 'international', 'tr', 'Operatör', 'O'],
+    ['an English one', 'international', 'en', 'Operator', 'O'],
+    ['a Persian one set to Persian over an English workspace', 'iran', 'fa', 'اپراتور', 'ا'],
+  ] as const)('a nameless operator in %s: the word of the widget\'s language', async (_title, edition, language, word, letter) => {
+    const b = await body((t) => {
+      fab({ fab_icon: 'avatar' })(t);
+      const tt = t as Record<string, Array<Record<string, unknown>>>;
+      Object.assign(tt.widget_settings[0], { locale: 'en', widget_language: language });
+      tt.workspace_members = tt.workspace_members.slice(1);
+    }, { edition });
+    expect(b.locale).toBe(language);
+    expect(b.teamMembers).toEqual([{ name: word, avatar: null, online: expect.any(Boolean) }]);
+    expect(b.fab.initial).toBe(letter);
   });
 
   it('a plan without widget_launcher_icon: the chat circle, no stylesheet', async () => {

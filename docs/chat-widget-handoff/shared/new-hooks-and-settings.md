@@ -34,16 +34,16 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `templateId` (existing) | `default`, `intl`; new `simple`, `simple-intl` | `default` | all | Which renderer and skin a workspace wears | New registry entries and `shared/widgetTemplates.ts` ([brief §3](../CLAUDE_CODE_BRIEF.md), RP2 §9). The launcher kit follows `edition` only |
 | `navStyle` | `va`, `vb`, `vc`, `vd` | `vb` | T1 | Bottom-bar style: classic bar with diamond marker, floating dock with active capsule, segmented, brand dock | Class on `nav.wy-tabs`. `va`, `vc`, `vd` are optional alternatives and ignore `navMode` ([brief §7a](../CLAUDE_CODE_BRIEF.md)). WY1 §4.10, RP1 §4.12 |
 | `navMode` | `both`, `active`, `icon`, `text`, `none` | `active` | T1 | Label mode of the floating dock: icons and labels, icons with the active label, icons only, labels only, no menu | Super-admin setting. Class `nv-both`, `nv-icon`, `nv-text` or `nv-none` on each view root `.wy-view` (`active` has no class). `none` adds the home "All conversations" link and back buttons in Messages and Help. WY1 §4.10, RP1 §4.12 |
-| `logoDirection` | `thread`, `open` | `thread` | Respok: T1, T2 and the launcher | Respok logo direction: hero watermark, Messages-tab icon (T1), footer lockup, launcher glyph and its arrival animation, greeting corners | Class `lg-thread` / `lg-open` on `.shell`, so the launcher and the panel agree; brand elements carry `.g-t` / `.g-o`. The settings board's "Respok Open" and "Respok Thread" chat-button tiles set it. [Brief §5.6](../CLAUDE_CODE_BRIEF.md), RP1 §4.1, RP2 §4.33 |
+| `logoDirection` | `thread`, `open` | `thread` | Respok: T1, T2 and the launcher | Respok logo direction: hero watermark, Messages-tab icon (T1), footer lockup, launcher glyph and its arrival animation, greeting corners | Class `lg-thread` / `lg-open` on `.shell` (the loader's, in RESPOK's build only: `@intl-kit`), so the launcher and the panel agree; the skins draw the brand art from it (CSS masks of `data:` SVGs under `.lg-open`, Thread otherwise), with no class on the elements. The settings board's "Respok Open" and "Respok Thread" chat-button tiles set it. [Brief §5.6](../CLAUDE_CODE_BRIEF.md), RP1 §4.1, RP2 §4.33 |
 | `prechatMode` | `card`, `steps` | `card` | T1 | Pre-chat inside the conversation: one form card, or one question at a time | `steps` needs the step flow in Core (validation, skip of optional steps, the workspace's country-code prefix). After submit both modes show the saved-details summary with `data-prechat-edit`. **Built as a template option** (`config.templateOptions.prechatMode`, Super Admin default → workspace, `shared/chatTemplateCatalog.ts`); a conversation keeps the mode its form first rendered in. RP1 §5.11, WY1 §9 |
 | `csat` *(named here)* | `true`, `false` | `true` | T2 | The rating card under the «… closed the conversation» line | Template option (`config.templateOptions.csat`, Super Admin default → workspace). Off: the line only, and `POST …/csat` answers 403 `csat_disabled`. §6 |
 | `transcriptEmail` *(named here)* | `true`, `false` | `true` | T1, T2 | "Email me the transcript": the rating card's link (T2) and the ⋯ menu item (T1, T2) | Template option. Off: neither is drawn, and `POST …/transcript` answers 403 `transcript_disabled`. §6 |
 | `askExamples` | up to 2 strings | none | T2 | Lines 2 and 3 of the rotating ask placeholder, each shown after `simpleAskExamplePrefix` | Line 1 is `simpleAskPlaceholder`. With fewer than two examples, render the static field (`.field.static`, suggestion). WY2 §4.4, RP2 §4.5 |
 | `topics` | list of `{label, icon}` | none | T2 home and thread chips; T1 new-conversation chips | Topic chips (`data-topic`) | Without topics: Q&A chips (`data-qna-question`); T2 home falls back to article chips (`data-home-article`) or no chips. RP2 §4.17, WY2 §4.4 |
-| `fab.shape` (existing) | `circle`, `square`; new `pill` | `circle` | Launcher (both templates) | Launcher outline. `square` is the "WebYar square" tile (18px radius in the designs, 16px today). `pill` is "Pill with text" | With `pill` the launcher widens to the glyph plus the `fab.label` text inside it, and the separate `.gs-fab-label` card is not drawn. The pill's glyph follows `fab.icon` (the boards draw the kit glyph). WY1 §4.24, RP1 §4.29 |
-| `fab.icon` (existing) | `chat`, `message`, `help`, `headset`, `phone`, `sparkles`, `smile`; new `bubble`, `duo`, `avatar` | `chat` | Launcher | Launcher glyph. `chat` = the brand kit glyph (Respok: per `logoDirection`). `bubble` = classic bubble, `duo` = two bubbles, `headset` = support headset (the templates draw the design's glyph), `avatar` = agent face | `avatar` draws an initial tile with a presence dot. An agent photo stays production's `fab.imageUrl` (unchanged). The idle loops of board 11 / board 10 are settings-preview only. WY1 §4.24, RP1 §4.29 |
+| `fab.shape` (existing) | `circle`, `square`; new `pill` | `circle` | Launcher (both templates) | Launcher outline. `square` is the "WebYar square" tile (18px radius on WebYar's kit button, as the designs draw it; 16px on any other launcher). `pill` is "Pill with text" | With `pill` the launcher widens to the glyph plus the `fab.label` text inside it, and the separate `.gs-fab-label` card is not drawn. The pill's glyph follows `fab.icon` (the boards draw the kit glyph). A pill (and the glyphs `bubble`, `duo`, `avatar`) is drawn by `runtime-fab.css` (§6, "Launcher styles"). WY1 §4.24, RP1 §4.29 |
+| `fab.icon` (existing) | `chat`, `message`, `help`, `headset`, `phone`, `sparkles`, `smile`; new `bubble`, `duo`, `avatar` | `chat` | Launcher | Launcher glyph. `chat` = the brand kit glyph (Respok: per `logoDirection`). `bubble` = classic bubble, `duo` = two bubbles, `headset` = support headset (the templates draw the design's glyph), `avatar` = agent face | `avatar` draws an initial tile with a presence dot; the letter is `fab.initial` (the first character that shows of the team's first operator's stack name, online first, else of the workspace's; the team is the first four members to join, one without a name of their own named «اپراتور» / "Operatör" / "Operator" by the widget's language, in `teamMembers` too; the same rule in every dashboard preview and the picker, `shared/widgetTeam.ts`). An agent photo stays production's `fab.imageUrl` (unchanged). The idle loops of board 11 / board 10 are settings-preview only. WY1 §4.24, RP1 §4.29 |
 | `fab.label` (existing) | string | none | Launcher | Today the label card next to the launcher; with `fab.shape: "pill"`, the text inside the pill | Design defaults for the pill: «سؤالی دارید؟ بپرسید» (WY1 §10) and "Questions? Ask us" (RP1 §10) |
-| `primaryColor` (existing) | any hex; palette presets in [brief §5.5](../CLAUDE_CODE_BRIEF.md) | `#3B82F6` (= uncustomised) | all | Accent `--a` | Uncustomised (empty or `#3B82F6`) maps to the brand accent (`#0B7D6C` WebYar, `#16142B` Respok) and sets `.gs-accent-brand` ([brief §5.2](../CLAUDE_CODE_BRIEF.md)) |
+| `primaryColor` (existing) | any hex; palette presets in [brief §5.5](../CLAUDE_CODE_BRIEF.md) | `#3B82F6` (= uncustomised) | all | Accent `--a` | Uncustomised (empty, `#3B82F6` or unparseable) maps to the brand accent (`#0B7D6C` WebYar, `#16142B` Respok): the renderer writes no inline colour and puts `.gs-accent-brand` on its view roots and the panel's close button ([brief §5.2](../CLAUDE_CODE_BRIEF.md)). A chosen colour gets Ink text only when it is light; any other gets white, on the colour darkened until white on it reaches 5:1 (T1, T2 `accentTokens()`: `#EF4444` → `#CB3939`, `#8B5CF6` → `#7D53DF`; owner, 2026-10-18). The launcher keeps the raw colour |
 
 **Launcher options of the settings boards** (WebYar board 11, Respok board 10) mapped onto the settings above:
 
@@ -106,16 +106,18 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `nav.wy-tabs` > `button.wy-tab[data-view][aria-current]` | Bottom menu | Tabs Home / Messages / Help; design classes (`.tabs`, `.tab`, `.tic`, `.tl`, `.on`) may be added next to them | Renderer, after the footer of home, list and help list/results | T1 (WY1 §4.10, RP1 §4.12) |
 | `.va`, `.vb`, `.vc`, `.vd` on `nav.wy-tabs` | Bottom menu | Bar style from `navStyle` | Renderer | T1 |
 | `.nv-both`, `.nv-icon`, `.nv-text`, `.nv-none` on each view root `.wy-view` | Home, list, help views | Label mode from `navMode` (`active` = no class) | Renderer | T1 |
-| `.lg-thread` / `.lg-open` on `.shell`; `.g-t` / `.g-o` on brand elements | Shell, launcher, panel | Respok logo direction from `logoDirection` | Loader (class), renderer and kit (elements) | Respok T1, T2 |
-| `.gs-accent-brand` on `.shell` | Shell | Hand-tuned brand-default overrides (`tokens.json` → `brandOverrides`) | Loader: when the accent is uncustomised or the brand accent ([brief §5.2](../CLAUDE_CODE_BRIEF.md)) | T1, T2 |
-| `--gs-on-primary` on `.shell` | Shell | Text and icons on the accent: templates read `--on-a: var(--gs-on-primary, #fff)` | Loader, next to `--gs-shadow` (LD:1088-1107) ([brief §5.3](../CLAUDE_CODE_BRIEF.md)) | T1, T2 |
+| `.lg-thread` / `.lg-open` on `.shell` | Shell, launcher, panel | Respok logo direction from `logoDirection`: the skins draw the matching art (the home watermark, T1's greeting avatar and Messages tab icon, the launcher greeting's corners) as CSS masks under `.lg-open`, Thread otherwise. The drafts' `.g-t` / `.g-o` on the brand elements were not used | Loader, in RESPOK's build only (`@intl-kit`) | Respok T1, T2 |
+| `.gs-accent-brand` on each view root `.wy-view` and on `.panel-close` | View roots, close button | Hand-tuned brand-default overrides (`tokens.json` → `brandOverrides`): the brand colour and its hero, in the stylesheet (a skin gives its own) | Renderer (`accentTokens()`), when the accent is uncustomised; the brand's own colour chosen explicitly is matched by `[style*='--a:#0b7d6c;' i]` instead ([brief §5.2](../CLAUDE_CODE_BRIEF.md)) | T1, T2 |
+| `--on-a`, inline next to `--a` | View roots, close button | Text and icons on the accent | Renderer (`accentTokens()`): Ink on a light accent, else the stylesheet's white; the drafts' loader-set `--gs-on-primary` was not used ([brief §5.3](../CLAUDE_CODE_BRIEF.md)) | T1, T2 |
 | `.typing-row` (production class, unused today) | `div.msg-row.operator.is-last.typing-row[aria-hidden="true"]` > avatar + `div.msg.operator.typing-bubble > span.typing-dots` | Visible "operator is typing" row, last row of the thread | Renderer, from `view.operatorTyping` (§3); the sr-only `[data-typing-row]` keeps announcing | T1, T2 (WY1 §4.14, RP1 §4.15, WY2 §4.10, RP2 §4.11) |
-| `.msg-row.is-first` + `span.msg-sender-label` | First row of an operator run | Sender name above the first bubble | Renderer (from the group keys, PD:638-643) | T1, T2 (RP1 §4.14, WY2 §4.9) |
+| `.msg-row.is-first` + `span.msg-sender-label` | First row of an operator-side run | Sender name above it, only where the team's side changes hands: another person than the last operator-side run, or a person after the AI. Never on the thread's first run (the bar names who answers); a day break, the visitor's messages or a system row do not bring it back (owner, 2026-10-18) | Renderer (from the group keys, PD:638-643; T2 `prevOp`, T1 `lastLabel`) | T1, T2 (RP1 §4.14, WY2 §4.9) |
 | `.input-bar.is-locked` | Composer | Composer locked while the pre-chat card waits | Core (keeps the textarea disabled) | T1 (WY1 §4.16, RP1 §4.17) |
 | `.panel.wy-after-fab` | Panel | Delay the open by .2s when the launcher was on screen and drops first | Core or the loader | T1 (RP1 §6) |
 | `.wy-avatar-tile` | `span.wy-avatar` in the home hero | Logo tile look (48px, 15px radius) | Renderer | T1 (RP1 §4.3) |
 | `.wy-head-chat.is-new` | Chat header | Header variant while the thread is empty | Renderer | T1 (RP1 §9) |
 | `span.react[data-msg-id]` *(named here)* | The reaction badge under a bubble (`role="img"`, display only) | A badge already on screen | Core adds `.no-enter` to a badge it has shown, so a repaint does not replay its entrance | T2 |
+| `.msg-actions` *(production class)* in `.msg-line` | Reply, copy and the heart beside a bubble | Shown only on the line hovered (a tap hovers the tapped line on a phone) or holding keyboard focus (`:focus-within`); hidden, they take no taps on a touch screen (`@media (hover: none)`). No `title` tooltips; their `aria-label`s stay (owner, 2026-10-18) | Stylesheet | T1, T2 |
+| `.fx`, `.fx-<icon>`, `.fx-<shape>` and `.fx-off` on `button.launcher`; `data-fx`, `data-fi`, `dir` *(named here)* | Launcher | A launcher style (`fab.shape` / `fab.icon`, §1): `fx-off` while the team is away, the pill's text in `data-fx`, the agent's initial in `data-fi` | Loader, only with `config.fabStyleUrl`; the look is `runtime-fab.css` (§6, "Launcher styles") | every template |
 
 ### 2.4 Existing hooks in new places
 
@@ -126,8 +128,8 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `data-kb-action="switch-chat"` | T1 "Still have a question?" card and T2 `.cta`, shown always | None | T1, T2 |
 | `data-fb="email"`, `data-fb-submit`, `data-fb-status` | T1 in-thread away e-mail card `.ec`; T2 away thread's `.fcard` | The visitor's thread message becomes the fallback message (production map §4.6): `POST /api/widget/offline-messages` with `client_message_id`, then the address through `POST /api/widget/identity/offline-email` (§6) | T1 (WY1 §4.20, RP1 §4.21), T2 (WY2 §4.20) |
 | `data-prechat="email"`, `data-prechat-submit` | T2 email card `.fcard` (handoff card with only email, on the operator side) | None | T2 (WY2 §4.20, RP2 §4.30) |
-| `[data-emoji-picker]` | First child of `div.input-wrap` | Confirm Core finds it by attribute | T1 (WY1 §4.17, RP1 §4.18) |
-| `[data-presence]` | Visible as the T2 bar status line | None (CSS) | T2 (RP2 §4.8) |
+| `[data-emoji-picker]` | First child of `div.input-wrap` | Confirm Core finds it by attribute | T1 (WY1 §4.17, RP1 §4.18); T2 since 2026-10-18 (the grid opens inside the message box, which grows upward; Core's toggle, outside click and Escape unchanged) |
+| `[data-presence]` | T2: sr-only in the bar, whose visible small line is the operator's name or the status words (§3 `assignedOperator`) | None: Core writes its label from the chat frame, as for every template (`default`'s sr-only label is written too since 2026-10-18) | T2 (RP2 §4.8) |
 
 ---
 
@@ -140,11 +142,13 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | home, list (T1, T2) | `conversations[].operatorOnline` | boolean | Presence dot `.pr` on that operator's avatar | No dot |
 | home, list (T1, T2) | `conversations[].operatorAvatar` | URL | Photo in the operator avatar (named here; RP1 and RP2 ask for an avatar) | Initial tile `.c1`–`.c4` |
 | home, list (T1, T2) | `conversations[].lastFromVisitor` | boolean | "You: " prefix on the preview (named here; all four specs need it) | No prefix |
+| home, list (every template) | `conversations[].preview` of a system row | string | Core's sentence in the visitor's language (`systemRowText`, from the API's `systemKind` / `systemMeta`, §6 "System messages") | The stored English body (an older backend) |
 | home (T2) | `kbSummary` | `{ count, categories }`: article count and top category names | Help-row subtitle `simpleHelpSub` | The static `simpleHelpSubAway` line, or the title only |
-| chat frame (T1, T2) | `assignedOperator` | `{ name, avatar, online }` | Chat header identity, presence and typing look | Workspace avatar, name and `replyTimeText` (production) |
+| chat frame (T1, T2) | `assignedOperator` | `{ name, avatar, online }` | Chat header identity, presence and typing look. While an operator answers, the title is the workspace's name (`config.workspaceName`) and the operator's name the small line under it: T2 keeps its online dot, typing dots and grey away line there, and a long name ends in "…" (`.st b`); T1 (`.hn` / `.hs`) shows the name only. No workspace name, or the same name twice: the operator's name is the title (owner, 2026-10-18) | Workspace avatar, name and `replyTimeText` (production) |
 | messages: the `view` argument of `messagesHtml` (PD:630-796) (T1, T2) | `view.operatorTyping` | `{ name, avatar }`, absent when nobody types | Visible typing row (`.typing-row`, §2.3) and its "{name} is typing…" meta (T1). Core already knows from `setOperatorTyping` | No visible row; the sr-only `[data-typing-row]` still announces |
 | messages: the `view` argument of `messagesHtml` (T2) | `view.csat` *(named here)* | `{ closedId, name, avatar, rating, comment, state, transcript }`; `state` `ask` / `sending` / `done` / `error` / `gone`; `transcript` null or `{ state, to }` with `state` `idle` / `sending` / `sent` / `failed` / `no` | The rating card under the `conversation_closed` row whose id is `closedId` (runtime-late.js, from `GET …/csat`, §6) | No card: the closed line only |
 | chat frame (T1, T2) | `menu` in the `chatHeaderHtml` view model *(named here)* | `{ open, items }`, items `{ action: 'transcript', state, to }` and `{ action: 'sound', on }` | The ⋯ menu (`data-chat-menu*`, §2.1); null on a new conversation or with no item | No ⋯ button |
+| chat frame (T1) | `prechat` in the `chatHeaderHtml` view model *(named here)*, only for a renderer declaring the feature `prechatHeader` | boolean (runtime-ext.js) | The thread asks for the visitor's details (the card, the steps), or is the conversation they were given in (the saved details, then the thread while no AI answers it, until another conversation is opened): with no operator assigned, T1 draws the workspace with its lead's face (the first online team member), never "new conversation", and runtime-late.js gives it no ⋯ menu; an assigned operator stays the header's, with the menu; away, or nobody listed online, the workspace tile (boards 08·a-c) | The header as before (false without the feature: T2 does not declare it, so its header is not repainted for it) |
 | config `availability` (T1, T2) | `availability.nextOpenAt` | ISO 8601 date-time | `{time}` in `homeBackAt`, `awayBannerSub`, `simpleAwayBackAt`, `simpleAwaySub`; the day part of the T2 away note | `replyTimeText(false)` / `homeReplySlow`; drop the "back at" part |
 | kb (T1, T2) | `categories[].icon`, `categories[].count` | icon id, number | Category rows and tiles; `{n}` of `kbArticleCount` | Default icon (book); hide the count |
 | kb article (T1, T2) | `article.categoryTitle` | string | Article header title (the article title moves into the body `h1`) | Article title in the header (production) |
@@ -159,7 +163,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | messages: the `view` argument of `messagesHtml` (T2) | `view.react` *(named here)* | boolean | Reactions can be drawn: the badge (`reactHtml`) under each bubble with `metadata.reactions` and the visitor's heart (`reactBtnHtml`, `data-msg-react`) among a team message's actions; set only by the late pack, so no heart is drawn without the Core that answers it | No badge, no heart |
 | messages: the `view` argument of `messagesHtml` (T1) | `view.queue` *(named here)* | `{ at, position, waitMinutes }`: `at` the index of the queued row it belongs to, `waitMinutes` null without an estimate | Queue pill on the LAST `routing_in_queue` row while nothing after it (a join, a transfer, an operator's message) says the wait is over: `routingInQueue` `{n}` `{min}`, or `routingInQueuePosition` `{n}` without `waitMinutes`. From `GET /api/widget/queue` (§6), polled every 30 s while shown | Production queue text (`routingInQueue` without placeholders) |
 | messages: the `view` argument of `messagesHtml` (T1, T2) | `view.awayReply` *(named here)* | `{ at, email, status, value, error, skip }`: `at` the index of the visitor message captured while away, `email` the contact's address once known, `status` `ask` / `saving` / `saved` / `skipped` (T2), `value` and `error` the card's draft and its message key, `skip` the T2 card may offer «نه ممنون» (email not required) | The local auto-reply row after that message and its email card (`awayReplyHtml`); never a stored message, operators do not see it | No row |
-| messages: the `view` argument of `messagesHtml` (T1) | `view.away` *(named here; not built)* | boolean | The visitor's last message would show `msgSent` instead of the tick while away (07·09); round 3 does not set it, so T1 keeps the ticks | Ticks |
+| messages: the `view` argument of `messagesHtml` (T1) | `view.away` *(named here)* | boolean | While the team is away, the visitor's sent message says `msgSent` in words instead of the tick (07·09); set by runtime-late.js (`awayOn()`, round 4) | Ticks |
 | loader `setUnread` (T1 Respok) | `setUnread(count, preview)`, `preview { name, avatar, text }` | object | Reply card while the panel is closed (RP1 §4.28) | Badge only |
 
 ---
@@ -316,7 +320,7 @@ Core's table.
 | `simpleAutoReply` | «پاسخ خودکار» | Automatic reply | Meta under the auto reply |
 | `simpleAddMore` | «اگر چیزی اضافه دارید بنویسید…» | Add anything else… | Composer placeholder while away |
 | `convClosedBy` `{name}` | «{name} گفتگو را بست» | Sara closed the conversation | System line when the operator closes the conversation (`metadata.kind: "conversation_closed"`) |
-| `simpleReact` *(named here)* | «پسندیدن» | Like | The visitor's heart (`data-msg-react`): `title` and `aria-label` |
+| `simpleReact` *(named here)* | «پسندیدن» | Like | The visitor's heart (`data-msg-react`): its `aria-label` (no `title` tooltip, as reply and copy) |
 | `simpleReactions` `{list}` *(named here)* | «واکنش‌ها: ❤️ ۱، 👍 ۲» | Reactions: ❤️ 1, 👍 2 | Reaction badge `aria-label`; `{list}` = "emoji count" pairs joined by the dictionary's separator («، » in Persian, ", " in English and Turkish) |
 
 ### 4.9 Template 2: help center
@@ -547,7 +551,12 @@ minutes. A **hand-back** (an operator unassigns a queued conversation, or a paus
 `trg_conversations_queue_return` keeps `queued_at` (the place) and writes `metadata.queue_reentered_at` (when it came
 back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
 the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per
-return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back.
+return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back. The inbox's unassign
+(`PATCH /api/conversations/:id` with `assigned_to: null`) runs that routing at once (`routeQueueReturn`, after its
+internal «unassigned» notice), for a conversation waiting in the manual queue (not one the AI manages again: its next
+message is the AI's, and a handoff routes it) of a workspace still in mode `manual`; the visitor's next message then
+posts nothing more. Runs for one conversation at the same moment share one (`server/lib/inflight.ts` `coalesce`, per
+backend process), so a double-clicked unassign posts one queue row.
 
 **Away thread** (round 3, g4 f3): `POST /api/widget/offline-messages` takes `client_message_id` (8–64 characters;
 then any non-empty message up to the 5,000 characters `POST /message` takes, and the contact's stored name, email
@@ -612,7 +621,13 @@ Renderer feature / capability: `instantAnswers` (hook `[data-kb-suggest]`, rows 
 
 **Help results** (round 4, g3): `GET /api/widget/kb/search?match=words` (runtime-ext.js `kbSearch`) also gives each
 result `snippet` (≤ 160 characters of its summary around the first match) and `matches` (the words its title or
-summary contains). Without `match=words` (every help center) the rows are exactly as before.
+summary contains). Without `match=words` (every help center) the rows are exactly as before. In every help search
+(the words, the one phrase without `match=words`, and the help center's page `/help/:locale/search`) a control
+character is a space (a NUL failed the database read: no results), and a query of nothing else searches nothing; the
+words are lower-cased as ILIKE folds case (`kbSuggestFold`: «İade» finds «İade» and «iade»), the phrase is not
+lower-cased (ILIKE folds it). Any other query is searched exactly as before (`widgetSearch.ts`); only the word
+search's order changes where an article's title or summary holds «İ»: it is folded too, so «İade politikası» now
+counts as a title match for "iade" (it was found before, ranked as if it held no word).
 
 **KB article author** (round 4, g5-2a): `knowledge_base_articles.author_user_id` (migration 276). The widget asks for
 it with `meta=1` on `GET /api/widget/kb/article` (runtime-ext.js `kbMeta`, a renderer declaring `kbAuthor`): the
@@ -628,14 +643,75 @@ article is saved without it. The AI's article writers name no author. The editor
 **Emoji keywords** (round 4, g5-2c): `config.modules.emoji` (the hashed `runtime-emoji.js`) only for a template with
 `coreFeatures`, next to `modules.ext`; Core requests it only when a visitor first uses the picker's search.
 
+**Launcher styles** (round 5, g5-1; every template, the launcher being the loader's): `fab.shape` / `fab.icon` (§1)
+as `shared/launcherStyles.ts` resolves them (an unknown icon reads `chat`, an unknown shape or a pill without a text
+`circle`; all under the plan capability `widget_launcher_icon`). A pill, or the glyph `bubble`, `duo` or `avatar`,
+is a style: `/config` then names the hashed stylesheet as `config.fabStyleUrl` (absent otherwise, so every other
+payload is as before), and for `avatar` the agent's letter as `config.fab.initial` (the first character that shows,
+never an RLM, a ZWNJ or a lone mark, of the team's first operator's stack name, online first, else of the
+workspace's name; `shared/widgetTeam.ts`, the same rule in the dashboard's picker and previews). The loader requests
+`runtime-fab.css` into its shadow root (canonical-name retry), keeps the launcher and its card unseen until it is in
+(3 s at most), and puts `fx fx-<icon> fx-<shape>` (`fx-off` while the team is away) on the launcher, the pill's text
+in `data-fx`, the letter in `data-fi` and `dir` (§2.3). The file only restyles that launcher: inline `data:` SVG masks
+of the launcher's colour, the bubble's dots in the kit's second colour on the kit's own ground
+(`var(--rpk-kit-accent, var(--lk-kit-dot))`), no font, no host (WIDGET_TEMPLATE_RULES.md §2, §3). The team behind
+the stack and the letter is the first four members to join (`workspace_members.created_at`), online first; one
+without a name of their own is «اپراتور» / "Operatör" / "Operator" by the widget's language, never an e-mail.
+
+**System messages in the reader's language** (2026-10-18, every template): a `sender_type: 'system'` row keeps its
+stored English body and `metadata.kind`; every reader writes the sentence in its own reader's language, and nothing
+stored is rewritten. The kinds and the visitor's part of their metadata are `shared/systemMessages.ts`
+(`SYSTEM_MESSAGE_KINDS`, `VISITOR_PREVIEW_SYSTEM_KINDS`, `VISITOR_SYSTEM_META_KEYS`, `visitorSystemPreview`); a new
+kind is added there first, and Core, the operator localizer and the native apps are tested against that list.
+
+- `GET /api/widget/conversations`: a row whose preview is a system row also carries `systemKind` and `systemMeta`
+  (only `agent_name`, `to_name`, `channel`, `operator_name`, `ended_by`, `end_reason`, `duration_seconds`; names that
+  are a stand-in such as 'a colleague', or an e-mail address, are left out). `preview` stays the stored body for a
+  runtime loaded before the deploy. A system row the widget cannot write never becomes the preview: the previous row
+  the visitor can see does. Every other row has exactly its old keys. A quoted system row (`reply_to`) carries `kind`
+  and `meta` the same way (`server/routes/widgetAttachments.ts`).
+- Core's `systemRowText(t, locale, kind, meta)` (`public/widget/runtime.js`) writes that sentence wherever a renderer
+  does not draw the row itself: the home card and the conversation list of every template, the toast, the
+  screen-reader line, the public `message` event and the quote box. A transfer reads as a join naming whoever holds the
+  conversation now, a call's duration in the widget's digits. A kind it cannot write gives '': no toast text, no quote
+  (a toast for an attachment-only message stays). The thread renderers are unchanged.
+- What the visitor receives (`publish.ts` `visitorMessageMetadata`, `/poll`, `/history`, realtime) has no stand-in or
+  e-mail as a name. The AI's built-in name 'AI Assistant' (`DEFAULT_AI_AGENT_NAME`) still goes out as stored, there,
+  in the intro response and in `/config` `aiAgent.agentName`: a runtime.js loaded before this release labels the AI's
+  replies with it, and without a name `default` puts such a reply in one run with the system line under it (no badge,
+  no time). Core treats it as no name (`aiOwnName`): in `default` / `intl` it labels a nameless AI reply with its own
+  word (`wyAiAssistant`), so the reply keeps its badge and time beside a system line; t1 and t2 show the badge alone
+  and t1 the workspace's tile; the toast and the screen-reader line name the workspace. On `/poll` and `/history` a
+  name the owner gave the agent since wins over the default a row was stamped with. A later release may stop sending
+  the default once no runtime from before this one is served.
+- Producers: a join by an operator without a full name stores `agent_name: null` ("A colleague joined the
+  conversation."); a call invitation's `operator_name` is the full name only. The owner's per-language texts (the
+  hand-over acknowledgement and pre-chat subtitle, the availability labels and offline message, the intro) are used
+  only in the visitor's language, else the built-in text. Every error the call widget and the chat's call screen show
+  is the widget's own sentence, never the server's or the call engine's English.
+- Operators: the dashboard's localizer is `shared/systemMessageText.ts` (`src/lib/systemMessageText.ts` re-exports it)
+  and covers every kind; the inbox draws every system row as a notice (`SystemNoticeRow`), never as a bubble. The
+  operator APIs (`GET /api/conversations` `last_message.body`, `GET /api/conversations/:id/messages`, `?since`
+  included, `GET /api/contacts/:id/conversations` `last_message_body`) return a system row's `body` written in the
+  operator's language (`server/services/operatorSystemText.ts`, the server's copy of the dashboard's strings, tested
+  equal; the requester card keeps its stored details in a thread), `system_kind`, `system_meta` and `metadata` as
+  stored apart from stand-in names, set to null. The operator's language (`server/services/operatorLocale.ts`) is
+  `profiles.preferred_locale` when the platform offers it, else the platform's default language, else its first,
+  else English; push, the e-mail dispatcher, the transcript and the offline-capture e-mail (each recipient in their
+  own) use the same rule, and the top bar's language switch saves `preferred_locale` as Settings → Interface does.
+- Not yet everywhere: the native apps' sources have every kind, from their next release; until then an installed app
+  shows the English body of a live `conversation_closed`, `support_rating` or requester row until it reads the thread
+  again (the server-written body then). A widget loaded before the deploy keeps the English preview until a reload.
+
 **What a visitor never receives**: an operator's account id. Every message a visitor gets — the visitor's channel
 (`publishConversationEvent`), `GET /poll`, `/history`, `/identity/history` — goes through
 `server/services/realtime/publish.ts` `visitorMessagePayload` / `visitorMessageMetadata`: no `sender_id`, and no
 `actor_id`, `agent_id`, `operator_id`, `from_id`, `to_id`, `assigned_to`, `created_by_user_id` or
 `ended_by_user_id` in `metadata` (a join, a transfer, the closed line, call rows). The widget shows the names next to
-them (`agent_name`, `to_name`, `operator_name`) and groups bubbles by name and avatar. The inbox channel and every
-operator API keep the ids. (An operator's avatar URL is derived from a storage key that names their user id: a
-storage-layout matter, not covered here.)
+them (`agent_name`, `to_name`, `operator_name`; never a stand-in such as 'a colleague' or an e-mail address; the AI's
+built-in name, which Core shows as none: above) and groups bubbles by name and avatar. The inbox channel and every operator API keep the ids.
+(An operator's avatar URL is derived from a storage key that names their user id: a storage-layout matter, not
+covered here.)
 
 **Per-visitor setting**: the ⋯ menu's sound switch is remembered in the visitor's `localStorage` under
 `gs:sound:<workspaceId>` (`'0'` while off, removed when on); nothing about it reaches the server.

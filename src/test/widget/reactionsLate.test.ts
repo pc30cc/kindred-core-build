@@ -11,7 +11,11 @@
  *  - a live `message_reactions` event (the drivers' hook) repaints the
  *    badge; the newest `at` wins, so a late answer never undoes a newer one;
  *  - a badge already on screen does not pop in again, and the keyboard
- *    focus stays on the heart it toggled;
+ *    focus stays on the heart it toggled, also when the server's answer or
+ *    a live event changes its row, and when Core's late composer focus
+ *    (after the identity answer, after an open) comes after it; a control
+ *    Core focused itself (or one left focused by a closed panel) is not
+ *    the visitor's, and that late focus still takes the composer;
  *  - before the late pack is in (or without it) no heart is drawn.
  *
  * @vitest-environment jsdom
@@ -61,6 +65,25 @@ const gets = (h: ReturnType<typeof boot>, cid = 'c1') => h.fetches.filter((u) =>
 const posts = (h: ReturnType<typeof boot>) => h.posts.filter((p) => /\/conversations\/c1\/reactions$/.test(p.url));
 const badge = (h: ReturnType<typeof boot>, id: string) => h.q(`.react[data-msg-id="${id}"]`);
 const heart = (h: ReturnType<typeof boot>, id: string) => h.q<HTMLButtonElement>(`[data-msg-react][data-msg-id="${id}"]`)!;
+/**
+ * Core focuses the composer 200 ms after the visitor's identity is in and
+ * 300 ms after the panel opens. Under load (or on a slow network) either can
+ * come after the visitor reached a control: the two timers are held (by
+ * their delay; an open holds its latest) for the test to run where a race
+ * would put them.
+ */
+function holdLateFocus() {
+  const late: Record<number, () => void> = {};
+  const realTimeout = globalThis.setTimeout;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    if ((ms === 200 || ms === 300) && typeof fn === 'function' && /msgInput\.focus\(\)/.test(String(fn))) {
+      late[ms] = fn;
+      return 0;
+    }
+    return realTimeout(fn, ms, ...rest);
+  }) as unknown as typeof setTimeout);
+  return late;
+}
 
 describe('reading a conversation\'s reactions', () => {
   it('asks once when the thread shows (never on home) and draws the badges it gets', async () => {
@@ -194,15 +217,107 @@ describe('the visitor\'s heart', () => {
     const h = start({ route: (u, body) => (body ? { body: { ok: true, reactions: [{ emoji: HEART, count: 1, mine: true }], at: 5 } } : { body: { reactions: {}, at: 1 } }) });
     await flush(30);
     await open(h);
-    // Core focuses the composer 200 ms after the identity answer and 300 ms
-    // after an open; let those run first, so a slow machine cannot move the
-    // focus after the toggle (that race itself is a follow-up of #340).
-    await new Promise((r) => setTimeout(r, 350));
     heart(h, M2).focus();
     click(heart(h, M2));
     await flush(20);
     expect(h.shadow.activeElement).toBe(heart(h, M2));
     expect(heart(h, M2).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Core\'s late composer focus (after the identity answer, after an open) leaves the heart alone', async () => {
+    // The visitor is on a heart before either of Core's late focuses runs.
+    const late = holdLateFocus();
+    const h = start({ route: (u, body) => (body ? { body: { ok: true, reactions: [{ emoji: HEART, count: 1, mine: true }], at: 5 } } : { body: { reactions: {}, at: 1 } }) });
+    await flush(30);
+    await open(h);
+    expect(Object.keys(late).sort()).toEqual(['200', '300']);
+    heart(h, M2).focus();
+    click(heart(h, M2));
+    await flush(20);
+    late[300]();
+    late[200]();
+    expect(h.shadow.activeElement).toBe(heart(h, M2));
+    expect(heart(h, M2).getAttribute('aria-pressed')).toBe('true');
+    // Nothing of the panel focused: the composer, as before.
+    heart(h, M2).blur();
+    late[300]();
+    late[200]();
+    expect(h.shadow.activeElement).toBe(h.q('[data-msg-input]'));
+  });
+
+  it('the focus stays on the heart when the server\'s answer, or a live event, changes its row', async () => {
+    let answer: (a: ApiAnswer) => void = () => {};
+    const h = start({
+      route: (u, body) => (body
+        ? new Promise<ApiAnswer>((res) => { answer = res; })
+        : { body: { reactions: {}, at: 1 } }),
+    });
+    await flush(30);
+    await open(h);
+    heart(h, M2).focus();
+    click(heart(h, M2));
+    await flush(10);
+    expect(h.shadow.activeElement).toBe(heart(h, M2));
+    // Somebody else's heart is counted too: the row is drawn again.
+    answer({ body: { ok: true, message_id: M2, reactions: [{ emoji: HEART, count: 2, mine: true }], at: 5 } });
+    await flush(20);
+    expect(badge(h, M2)!.getAttribute('aria-label')).toBe('واکنش‌ها: ❤️ ۲');
+    expect(h.shadow.activeElement).toBe(heart(h, M2));
+    h.emitReaction({ kind: 'message_reactions', conversation_id: 'c1', message_id: M2, reactions: [{ emoji: HEART, count: 3, visitor: true }], at: 6 });
+    await flush(20);
+    expect(badge(h, M2)!.getAttribute('aria-label')).toBe('واکنش‌ها: ❤️ ۳');
+    expect(h.shadow.activeElement).toBe(heart(h, M2));
+    // A heart the visitor left is not taken back by a later paint.
+    h.q<HTMLTextAreaElement>('[data-msg-input]')!.focus();
+    h.emitReaction({ kind: 'message_reactions', conversation_id: 'c1', message_id: M2, reactions: [{ emoji: HEART, count: 2, visitor: true }], at: 7 });
+    await flush(20);
+    expect(badge(h, M2)!.getAttribute('aria-label')).toBe('واکنش‌ها: ❤️ ۲');
+    expect(h.shadow.activeElement).toBe(h.q('[data-msg-input]'));
+  });
+});
+
+// runtime-ext.js `autofocus`: a control of the panel the visitor is on keeps
+// the focus from Core's late composer focus; one Core focused itself, or one
+// left focused when the panel closed, is not the visitor's choice.
+describe('Core\'s late composer focus', () => {
+  for (const renderer of ['t1', 't2'] as const) {
+    it(`${renderer}: a control Core parked the focus on (the line not up yet at the open) gives way to the composer`, async () => {
+      // A layout, as in a browser (jsdom draws none): Core's park finds the
+      // panel's first control.
+      vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(() => [{}] as unknown as DOMRectList);
+      const late = holdLateFocus();
+      const h = start({ renderer });
+      await flush(30);
+      h.runtime.__test.openConversation('c1');
+      await flush(30);
+      h.runtime.__test.setConnectionState('connecting');
+      await flush(5);
+      late[300]();
+      const parked = h.shadow.activeElement;
+      expect(parked && h.panel.contains(parked) && parked !== h.q('[data-msg-input]')).toBe(true);
+      h.runtime.__test.setConnectionState('online');
+      await flush(10);
+      late[200]();
+      expect(h.shadow.activeElement).toBe(h.q('[data-msg-input]'));
+    });
+  }
+
+  it('a control left focused in the closed panel (the launcher hidden) is not the visitor\'s on the next open', async () => {
+    const late = holdLateFocus();
+    const h = start();
+    await flush(30);
+    await open(h);
+    // A host page that hides the launcher: close() has nowhere to hand the
+    // focus, and a browser without inert's focus fixup leaves it in place.
+    const launcher = Array.from(h.shadow.children).find((el) => el.tagName === 'BUTTON') as HTMLElement;
+    launcher.style.display = 'none';
+    heart(h, M2).focus();
+    h.runtime.close();
+    expect(h.shadow.activeElement).toBe(heart(h, M2));
+    h.runtime.open();
+    await flush(5);
+    late[300]();
+    expect(h.shadow.activeElement).toBe(h.q('[data-msg-input]'));
   });
 });
 

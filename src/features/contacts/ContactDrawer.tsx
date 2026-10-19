@@ -28,6 +28,7 @@ import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { formatDateTime } from '@/lib/date';
+import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 
 interface Props {
   contactId: string | null;
@@ -37,18 +38,12 @@ interface Props {
 
 /**
  * Conversation subjects are sometimes persisted with an English default
- * ("New conversation"). Map those onto the active locale.
+ * ("New conversation", "Offline message"). Map those onto the active
+ * locale (shared/conversationSubject.ts, the inbox's list).
  */
-const DEFAULT_SUBJECTS = new Set([
-  'new conversation',
-  'new chat',
-  'untitled conversation',
-  'untitled',
-]);
-
 function conversationTitle(conv: { subject?: string | null } | null | undefined, t: (k: TranslationKey) => string): string {
   const subject = (conv?.subject ?? '').trim();
-  if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
+  if (isPlaceholderSubject(subject)) {
     return t('contacts.conversationUntitled');
   }
   return subject;

@@ -60,7 +60,10 @@ own inbox, with the tools it already has.
     AI credits and storage, each against the plan's limit where it sets one
     (`-1` is unlimited).
   - The stored body is the same in plain English, for a client that does not
-    know the kind.
+    know the kind. A thread from the operator APIs keeps it (the macOS and
+    Electron apps print it under the card's title); a list preview and the
+    transcript show one line, the card's title and the person's name, in the
+    operator's language.
 - **The operator is the conversation's contact** in the support workspace:
   - Their name, email and photo come from their profile and follow it.
   - An existing contact with the same email is adopted rather than duplicated.

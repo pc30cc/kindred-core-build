@@ -35,6 +35,8 @@ import {
 } from '../services/visitors/networkProfile.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateContactAvatars, hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { operatorLocale } from '../services/operatorLocale.js';
+import { withOperatorSystemBody } from '../services/operatorSystemText.js';
 import {
   contactLockedBody,
   contactRowForPanel,
@@ -312,7 +314,7 @@ async function loadAndAuthorizeContact(
   sb: ReturnType<typeof getServiceClient>,
   contactId: string,
   opts: { manage?: boolean } = {},
-): Promise<{ contact: ContactRow } | null> {
+): Promise<{ contact: ContactRow; userId: string | null } | null> {
   const { data: contact } = await sb.from('contacts').select('*').eq('id', contactId).maybeSingle();
   if (!contact) {
     res.status(404).json({ error: 'not_found' });
@@ -322,7 +324,7 @@ async function loadAndAuthorizeContact(
     ? await authorizeWorkspaceAccess(req, res, contact.workspace_id, { manage: true })
     : await authorizeWorkspaceMember(req, res, config, contact.workspace_id);
   if (!auth) return null;
-  return { contact };
+  return { contact, userId: auth.userId ?? null };
 }
 
 /**
@@ -375,11 +377,15 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     // A chat older than the plan's retention is listed without its content.
     const lockedConv = new Set(convs.filter((c) => isConversationLocked(locks, c)).map((c) => c.id));
     const ids = convs.map((c) => c.id).filter((id) => !lockedConv.has(id));
-    const { data: msgs } = ids.length === 0 ? { data: [] } : await sb
-      .from('conversation_messages')
-      .select('conversation_id, sender_type, sender_id, body, created_at, metadata')
-      .in('conversation_id', ids)
-      .order('created_at', { ascending: true });
+    const [{ data: msgs }, readerLocale] = await Promise.all([
+      ids.length === 0 ? { data: [] } : sb
+        .from('conversation_messages')
+        .select('conversation_id, sender_type, sender_id, body, created_at, metadata')
+        .in('conversation_id', ids)
+        .order('created_at', { ascending: true }),
+      // A system preview's body is written in this operator's language.
+      operatorLocale(config, loaded.userId),
+    ]);
 
     const operatorIds = new Set<string>();
     for (const c of convs) if (c.assigned_to) operatorIds.add(c.assigned_to);
@@ -419,7 +425,10 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
       const lastAgentId = agentMsgs.length ? agentMsgs[agentMsgs.length - 1].sender_id : null;
       const operatorId = lastAgentId || c.assigned_to || null;
       const operator = operatorId ? profiles[operatorId] ?? null : null;
-      const lastMessage = mine.length ? mine[mine.length - 1] : null;
+      const last = mine.length ? mine[mine.length - 1] : null;
+      // Stored in English: written in the reader's language for a client
+      // that prints the body, the stand-in names nulled in the metadata.
+      const lastMessage = last ? withOperatorSystemBody(last, readerLocale) : null;
       return {
         ...c,
         handled_by_ai: hasAi,
@@ -429,7 +438,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
         last_message_body: lastMessage?.body ?? null,
         // System notices are stored in English and frozen at insert time, so
         // the preview has to rebuild the sentence from metadata — see
-        // src/lib/systemMessageText.ts.
+        // shared/systemMessageText.ts.
         last_message_meta:
           lastMessage?.sender_type === 'system' ? (lastMessage.metadata ?? null) : null,
         message_count: mine.length,

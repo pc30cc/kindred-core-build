@@ -92,7 +92,7 @@ command: register anytime, even before the loader has run.
 | `onReady` | — | The widget's command API has finished bootstrapping and is accepting commands. Registering `onReady` **after** the widget is already ready still fires immediately (it does not require having been queued in time). |
 | `onOpen` | — | The chat panel transitions from closed to open. |
 | `onClose` | — | The chat panel transitions from open to closed. |
-| `onMessage` | `{ text: string, senderType: string }` | A new inbound message (from an operator or the AI agent — never the visitor's own message) arrives while the panel is closed, on another tab, or the message isn't otherwise already visible. The payload is intentionally minimal — no message id, no conversation id, no attachment data — to avoid leaking anything beyond what a host page legitimately needs (e.g. driving its own notification UI). |
+| `onMessage` | `{ text: string, senderType: string }` | A new inbound message (from an operator, the AI agent or the system — a join, the queue notice — never the visitor's own message) arrives while the panel is closed, on another tab, or the message isn't otherwise already visible. `text` is what the visitor reads: a system row's sentence in the widget's language, empty for a kind the widget cannot write. The payload is intentionally minimal — no message id, no conversation id, no attachment data — to avoid leaking anything beyond what a host page legitimately needs (e.g. driving its own notification UI). |
 | `onUnreadChange` | `count: number` | The server-authoritative unread count changes (including going back to 0). |
 
 Multiple listeners may be registered for the same event; each is called

@@ -12,6 +12,8 @@
  *     the article with more of the words comes first;
  *   - the help center (its search page, and the route without
  *     `match=words`) keeps its one-phrase search, as before;
+ *   - a control character (a NUL failed the read) is a space and a Turkish
+ *     «İ» folds as ILIKE folds it, in all three searches;
  *   - each word-by-word result also carries its snippet and matched words;
  *     without `match=words` the rows are exactly what they always were;
  *   - instant answers (GET /api/widget/kb-suggest, widgetSuggest.ts): the
@@ -236,6 +238,49 @@ suite('help search: word by word, whatever the visitor typed', () => {
       } finally {
         await q(`ALTER TABLE public.knowledge_base_articles RENAME COLUMN author_user_id_hidden TO author_user_id`);
       }
+    });
+  });
+
+  describe('a control character or a Turkish «İ», in every help search', () => {
+    // The help search of every template (one phrase), t1/t2's word by word and
+    // the help center's page: a NUL used to make the database read fail (no
+    // results, an error logged); a capital «İ» lower-cased by JavaScript is
+    // «i» plus a combining dot, which ILIKE never matches (it folds «İ» to «i»).
+    beforeAll(async () => {
+      for (const [slug, title] of [['iptal-terms', 'İptal koşulları'], ['iptal-fee', 'iptal ücreti']]) {
+        await q(`INSERT INTO public.knowledge_base_articles (id, workspace_id, slug, locale, title, content, excerpt, status)
+                 VALUES ($1, $2, $3, 'tr', $4, 'metin', '', 'published')`, [randomUUID(), ws, slug, title]);
+      }
+    });
+    const phrase = (text: string) => request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: text });
+    const page = async (text: string) => {
+      const res = await request(app).get('/help/tr/search').query({ q: text });
+      expect(res.status).toBe(200);
+      return ['iptal-terms', 'iptal-fee'].filter((slug) => res.text.includes(`/help/tr/a/${slug}`));
+    };
+
+    it('word by word: «İptal» finds both spellings, ranked and marked as ILIKE folds it', async () => {
+      const res = await search('İptal ücreti');
+      expect(slugs(res.body.results)).toEqual(['iptal-fee', 'iptal-terms']);
+      expect(res.body.results.map((r: Row) => r.matches)).toEqual([['iptal', 'ücreti'], ['iptal']]);
+      expect(slugs((await search('IPTAL')).body.results).sort()).toEqual(['iptal-fee', 'iptal-terms']);
+    });
+
+    it('a NUL is a space: word by word, one phrase and the help center\'s page answer', async () => {
+      expect(slugs((await search('İptal\u0000ücreti')).body.results)).toEqual(['iptal-fee', 'iptal-terms']);
+      const one = await phrase('İptal\u0000koşulları');
+      expect(one.status).toBe(200);
+      expect(slugs(one.body.results)).toEqual(['iptal-terms']);
+      expect(await page('iptal\u0007ücreti')).toEqual(['iptal-fee']);
+    });
+
+    it('one phrase (the route without match=words, and the help center\'s page): «İ» as ILIKE folds it, the answers otherwise as before', async () => {
+      expect(slugs((await phrase('İptal')).body.results).sort()).toEqual(['iptal-fee', 'iptal-terms']);
+      expect(slugs((await phrase('iptal')).body.results).sort()).toEqual(['iptal-fee', 'iptal-terms']);
+      expect(await page('İPTAL')).toEqual(['iptal-terms', 'iptal-fee']);
+      expect(await page('iptal ücreti')).toEqual(['iptal-fee']);
+      // Still one phrase: words apart find nothing.
+      expect(await page('ücreti iptal')).toEqual([]);
     });
   });
 

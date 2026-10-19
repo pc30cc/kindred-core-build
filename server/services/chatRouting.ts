@@ -23,6 +23,7 @@
 import { isBotProvider } from '../../shared/channels/botProviders.js';
 import type { ServerConfig } from '../config.js';
 import { patchConversationMetadata } from './conversationMetadata.js';
+import { coalesce } from '../lib/inflight.js';
 import { getServiceClient } from '../supabase.js';
 import {
   resolveRoutingCandidates,
@@ -260,38 +261,54 @@ async function tagOutcome(
 
 }
 
-async function resolveAgentDisplayName(config: ServerConfig, userId: string): Promise<string> {
+/**
+ * The operator's full name, or null. Never an English stand-in: one stored
+ * as `agent_name` was read as a name in every language ("a colleague به
+ * گفتگو پیوست"); without a name each reader writes its own generic sentence.
+ */
+async function resolveAgentDisplayName(config: ServerConfig, userId: string): Promise<string | null> {
   try {
     const sb = getServiceClient(config);
     const { data } = await sb.from('profiles').select('full_name').eq('id', userId).maybeSingle();
     const name = (data as { full_name?: unknown } | null)?.full_name;
-    return typeof name === 'string' && name.trim() ? name.trim() : 'a colleague';
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
   } catch {
-    return 'a colleague';
+    return null;
   }
 }
 
+/** A join notice's stored body: the English fallback every system row has (readers write it from `metadata`). */
+function agentJoinedBody(name: string | null): string {
+  return name ? `${name} joined the conversation.` : 'A colleague joined the conversation.';
+}
+
+/**
+ * The stored (inbox-only) body of the "nobody available" notice. A bot
+ * conversation's is the offline text its user was sent, in the same
+ * language (offlineDelivery.ts conversationReplyLocale: the user's when the
+ * platform offers it, else the primary one).
+ */
 async function resolveNoAgentVisitorBody(
   config: ServerConfig,
   workspaceId: string,
+  conversationId: string,
   conversationMetadata: Record<string, unknown>,
 ): Promise<string> {
   const fallback = "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
   const provider = String(conversationMetadata.channel || '');
   if (!isBotProvider(provider)) return fallback;
   try {
-    const [{ getInstallation }, telegram, platformRegion] = await Promise.all([
+    const [{ getInstallation }, telegram, offline] = await Promise.all([
       import('./plugins/state.js'),
       import('./channels/telegram/settings.js'),
-      import('./platformRegion.js'),
+      import('./channels/telegram/offlineDelivery.js'),
     ]);
     const installation = await getInstallation(config, workspaceId, provider);
     if (!installation) return fallback;
     const settings = telegram.parseTelegramSettings(installation.settings);
-    const allowed = await platformRegion.getPlatformAllowedLocales(config);
-    const locale = allowed[0] || 'en';
+    const { locale, fallbackLocale } = await offline.conversationReplyLocale(config, workspaceId, conversationId);
     const key = settings.menu.lockWhenOffline ? 'offlineLocked' : 'offlineNotice';
-    return telegram.resolveLocalizedMessage(settings, locale, key, locale);
+    return telegram.resolveLocalizedMessage(settings, locale, key, fallbackLocale);
   } catch (err) {
     console.warn('[chat-routing] telegram visitor notice localization failed:', err instanceof Error ? err.message : err);
     return fallback;
@@ -372,7 +389,8 @@ async function insertRoutingSystemMessage(
 // at which place (`queue_entry_position`), so the next claim's sample
 // measures this wait, not the time an operator held it; and the next routing
 // run posts a new `routing_in_queue` row (once per return,
-// `queue_return_notice_at`), so the visitor's queue pill comes back.
+// `queue_return_notice_at`), so the visitor's queue pill comes back. The
+// inbox's unassign runs that routing at once (routeQueueReturn).
 
 /**
  * How long an earlier `queued_at` stays the conversation's entry into the
@@ -599,7 +617,7 @@ export async function routeConversationToOperator(
         const assignedName = await resolveAgentDisplayName(config, conv.assigned_to as string);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
-          `${assignedName} joined the conversation.`,
+          agentJoinedBody(assignedName),
           { kind: 'routing_agent_joined', agent_name: assignedName, agent_id: conv.assigned_to },
         );
         await tagOutcome(
@@ -707,7 +725,7 @@ export async function routeConversationToOperator(
       const agentName = await resolveAgentDisplayName(config, picked);
       await insertRoutingSystemMessage(
         config, args.workspaceId, args.conversationId,
-        `${agentName} joined the conversation.`,
+        agentJoinedBody(agentName),
         { kind: 'routing_agent_joined', agent_name: agentName, agent_id: picked },
       );
       try {
@@ -733,7 +751,7 @@ export async function routeConversationToOperator(
       // Team looked online but nobody was actually eligible/available —
       // never leave the visitor in a silent "connecting…" limbo (spec §16).
       if (!noticeAlreadySent) {
-        const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, metadata);
+        const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, args.conversationId, metadata);
         const telegramScreenQueued = isBotProvider(String(metadata.channel || ''))
           ? await maybeQueueTelegramOfflineScreen(config, {
               workspaceId: args.workspaceId,
@@ -772,6 +790,53 @@ export async function routeConversationToOperator(
 }
 
 /**
+ * The inbox handed a queued conversation back (PATCH assigned_to → NULL):
+ * route it now, so the visitor's new queue row (276's trigger stamped the
+ * return in that UPDATE) arrives at once instead of with their next message.
+ * Only for a conversation waiting in the manual queue again (nobody has it,
+ * open or pending, not spam, a return not announced yet, not the AI's again:
+ * the AI answers its next message, and a handoff routes it) of a workspace
+ * still in manual mode; anything else stays as the inbox left it. Routing
+ * announces each return once (`queue_return_notice_at`), so the visitor's
+ * next message posts nothing more. Two unassigns at once (a double click:
+ * both PATCHes read the holder before either writes, so both get here) share
+ * one run, which announces the return once. Never throws; null when it did
+ * not route.
+ */
+export function routeQueueReturn(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string },
+): Promise<RouteResult | null> {
+  return coalesce(`queue-return:${args.workspaceId}:${args.conversationId}`, () => routeQueueReturnNow(config, args));
+}
+
+async function routeQueueReturnNow(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string },
+): Promise<RouteResult | null> {
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .select('assigned_to, status, is_spam, metadata')
+      .eq('id', args.conversationId)
+      .eq('workspace_id', args.workspaceId)
+      .maybeSingle();
+    const conv = data as { assigned_to?: string | null; status?: string | null; is_spam?: boolean | null; metadata?: unknown } | null;
+    if (!conv || conv.assigned_to || conv.is_spam === true) return null;
+    if (conv.status !== 'open' && conv.status !== 'pending') return null;
+    const metadata = conv.metadata && typeof conv.metadata === 'object' && !Array.isArray(conv.metadata)
+      ? conv.metadata as Record<string, unknown> : {};
+    if (metadata.routing_outcome !== 'manual_queue' || !queueReturnToAnnounce(metadata)) return null;
+    if (metadata.ai_state === 'ai_managed') return null;
+    if ((await loadAssignmentConfig(config, args.workspaceId)).mode !== 'manual') return null;
+    return await routeConversationToOperator(config, args);
+  } catch (err) {
+    console.warn('[chat-routing] routeQueueReturn failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
  * Manual-mode claim: the first operator to press "claim" in the Unassigned
  * inbox owns the conversation. Atomic — two operators claiming at the same
  * instant can never both succeed.
@@ -794,7 +859,7 @@ export async function claimConversationManually(
   const agentName = await resolveAgentDisplayName(config, args.userId);
   await insertRoutingSystemMessage(
     config, args.workspaceId, args.conversationId,
-    `${agentName} joined the conversation.`,
+    agentJoinedBody(agentName),
     { kind: 'routing_agent_joined', agent_name: agentName, agent_id: args.userId },
   );
   try {

@@ -224,10 +224,6 @@ describe('the saved details, edited', () => {
     await answer(h, 'ali@example.com');
     click(h.q('[data-prechat-step-skip]'));
     await flush(20);
-    // Core parks the focus 300 ms after the panel opens (runtime.js open());
-    // the visitor edits later than that (under a loaded test run it could
-    // otherwise land after the edit's own focus).
-    await new Promise((r) => setTimeout(r, 320));
     click(h.q('[data-prechat-edit]'));
     await flush(20);
     expect(box(h)!.getAttribute('data-prechat-step')).toBe('name');
@@ -245,6 +241,165 @@ describe('the saved details, edited', () => {
     expect(box(h)).toBeNull();
     expect(bar(h).style.display).toBe('flex');
     expect(h.q('.sum')!.textContent).toContain('ali@new.example');
+  });
+});
+
+// Boards 08·a-c: while the thread asks for the details (steps or card), on
+// the details it saved and in the conversation that followed, until an
+// operator is assigned, the chat bar is the store's with its lead's face
+// (the first online team member, as the questions show it), not "new
+// conversation" or the store's own tile. An assigned operator is always
+// the bar's (08·a-c draw none), and away, or nobody listed online, the
+// store's own tile.
+describe('the chat bar while the details are asked, and on the saved details', () => {
+  const ONLINE = { availability: { state: 'online' } };
+  const bar2 = (h: ReturnType<typeof boot>) => ({
+    face: h.q('[data-chat-header] .who .av')?.textContent ?? null,
+    title: h.q('[data-chat-header] .hn')!.textContent,
+    status: h.q('[data-chat-header] .hs')?.textContent ?? null,
+  });
+  const STORE = { face: 'س', title: 'فروشگاه نیلوفر', status: 'آنلاین · پاسخ در چند دقیقه' };
+  // The store on top, the operator answering small under it (owner, 2026-10-18).
+  const MAHDI = { face: 'م', title: 'فروشگاه نیلوفر', status: 'مهدی' };
+  const mahdi = (id: string, cid: string) =>
+    ({ id, role: 'agent', sender_type: 'agent', sender_name: 'مهدی', text: 'سلام', time: new Date().toISOString(), conversation_id: cid });
+  async function send(h: ReturnType<typeof boot>, text: string) {
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    const msg = h.q<HTMLTextAreaElement>('[data-msg-input]')!;
+    typeInto(msg, text);
+    key(msg, 'Enter');
+    await flush(20);
+  }
+
+  it('steps: the store with its lead\'s face, on the saved details and after the first message, until an operator answers (08·c)', async () => {
+    const h = start({ config: ONLINE });
+    await toChat(h);
+    expect(bar2(h)).toEqual(STORE);
+    await answer(h, 'Ali');
+    expect(bar2(h)).toEqual(STORE);
+    await answer(h, 'ali@example.com');
+    click(h.q('[data-prechat-step-skip]'));
+    await flush(20);
+    expect(h.q('.sum')).not.toBeNull();
+    expect(bar2(h)).toEqual(STORE);
+    await send(h, 'سلام');
+    expect(h.q('.sum')).toBeNull();
+    expect(bar2(h)).toEqual(STORE);
+    // An operator answers: the conversation is theirs.
+    h.emitPoll([mahdi('m-op', String(h.runtime.__test.chatState().conversationId))]);
+    await flush(20);
+    expect(bar2(h)).toEqual(MAHDI);
+  });
+
+  it('the card after a handoff, with an operator assigned: the operator\'s bar, on the card and on the saved details', async () => {
+    const h = start({
+      mode: 'card',
+      config: ONLINE,
+      hint: { tab: 'chat', conversationId: 'c1' },
+      conversations: [{ id: 'c1', operatorName: 'مهدی', operatorOnline: true }],
+      history: { c1: [mahdi('m1', 'c1')] },
+      identity: ASK({ timing: 'after_handoff', ask_phone: false }),
+    });
+    await flush(40);
+    h.runtime.__test.openConversation('c1');
+    await flush(40);
+    expect(h.q('[data-prechat="name"]')).not.toBeNull();
+    expect(bar2(h)).toEqual(MAHDI);
+    // The conversation's ⋯, as on any thread an operator holds (04·04).
+    expect(h.q('[data-chat-header] [data-chat-menu-toggle]')).not.toBeNull();
+    typeInto(h.q<HTMLInputElement>('[data-prechat="name"]')!, 'Ali');
+    typeInto(h.q<HTMLInputElement>('[data-prechat="email"]')!, 'ali@example.com');
+    click(h.q('[data-prechat-submit]'));
+    await flush(20);
+    expect(h.q('.sum')).not.toBeNull();
+    expect(bar2(h)).toEqual(MAHDI);
+  });
+
+  it('the card after a handoff, nobody assigned yet: the store with its lead\'s face (08·a)', async () => {
+    const h = start({
+      mode: 'card',
+      config: ONLINE,
+      hint: { tab: 'chat', conversationId: 'c1' },
+      conversations: [{ id: 'c1' }],
+      history: { c1: [{ id: 'v1', role: 'visitor', sender_type: 'contact', text: 'سلام', time: new Date().toISOString(), conversation_id: 'c1' }] },
+      identity: ASK({ timing: 'after_handoff', ask_phone: false }),
+    });
+    await flush(40);
+    h.runtime.__test.openConversation('c1');
+    await flush(40);
+    expect(h.q('[data-prechat="name"]')).not.toBeNull();
+    expect(bar2(h)).toEqual(STORE);
+    // No ⋯ while the lead stands for the team (08·a-c draw none).
+    expect(h.q('[data-chat-header] [data-chat-menu-toggle]')).toBeNull();
+    typeInto(h.q<HTMLInputElement>('[data-prechat="name"]')!, 'Ali');
+    typeInto(h.q<HTMLInputElement>('[data-prechat="email"]')!, 'ali@example.com');
+    click(h.q('[data-prechat-submit]'));
+    await flush(20);
+    expect(h.q('.sum')).not.toBeNull();
+    expect(bar2(h)).toEqual(STORE);
+    expect(h.q('[data-chat-header] [data-chat-menu-toggle]')).toBeNull();
+    // An operator answers: theirs, with the conversation's ⋯.
+    h.emitPoll([mahdi('m-op', 'c1')]);
+    await flush(20);
+    expect(bar2(h)).toEqual(MAHDI);
+    expect(h.q('[data-chat-header] [data-chat-menu-toggle]')).not.toBeNull();
+  });
+
+  it('the saved details stay with their conversation: another one shows neither them nor the lead', async () => {
+    const h = start({
+      config: ONLINE,
+      conversations: [{ id: 'c1', operatorName: 'مهدی', operatorOnline: true }],
+      history: { c1: [mahdi('m1', 'c1')] },
+    });
+    await toChat(h);
+    await answer(h, 'Ali');
+    await answer(h, 'ali@example.com');
+    click(h.q('[data-prechat-step-skip]'));
+    await flush(20);
+    expect(h.q('.sum')).not.toBeNull();
+    // c1 has as many visitor messages (none) as the new chat had.
+    h.runtime.setTab('home');
+    await flush(10);
+    h.runtime.__test.openConversation('c1');
+    await flush(40);
+    expect(h.q('.sum')).toBeNull();
+    expect(bar2(h)).toEqual(MAHDI);
+  });
+
+  it('nobody listed online (the workspace is): the store\'s own tile, never an offline face with a green dot', async () => {
+    const h = start({
+      config: { ...ONLINE, teamMembers: [{ name: 'رضا', avatar: null, online: false }, { name: 'مهدی', avatar: null, online: false }] },
+    });
+    await toChat(h);
+    expect(box(h)).not.toBeNull();
+    expect(bar2(h)).toEqual({ ...STORE, face: 'ف' });
+  });
+
+  it('away: the store\'s own tile', async () => {
+    const h = start({ config: { availability: { state: 'offline', offline_mode: 'show_offline_message' } } });
+    await toChat(h);
+    expect(box(h)).not.toBeNull();
+    expect(bar2(h)).toEqual({ face: 'ف', title: 'فروشگاه نیلوفر', status: 'آفلاین · پاسخ از طریق ایمیل' });
+  });
+
+  it('t2 draws no lead in its bar: its view-model has no `prechat`, so the pre-chat repaints nothing there', async () => {
+    const h = boot({
+      renderer: 't2',
+      identity: ASK(),
+      config: { ...ONLINE, templateOptions: { prechatMode: 'card' } },
+    });
+    await toChat(h);
+    expect(h.q('[data-prechat="name"]')).not.toBeNull();
+    typeInto(h.q<HTMLInputElement>('[data-prechat="name"]')!, 'Ali');
+    typeInto(h.q<HTMLInputElement>('[data-prechat="email"]')!, 'ali@example.com');
+    click(h.q('[data-prechat-submit]'));
+    await flush(20);
+    // t2's own card for the saved details.
+    expect(h.q('.fcard.done')).not.toBeNull();
+    const vms = h.calls.filter((c) => c.surface === 'chatHeaderHtml').map((c) => c.args[0] as Record<string, unknown>);
+    expect(vms.length).toBeGreaterThan(0);
+    expect(vms.filter((vm) => vm.prechat)).toEqual([]);
   });
 });
 

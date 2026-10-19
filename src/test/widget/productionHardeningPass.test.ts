@@ -327,7 +327,10 @@ describe('reply-to-message — every read path resolves the structured relation 
     expect(widgetAttachmentsSvc).toContain('export async function enrichMessagesWithReplyTo(\n  config: ServerConfig,\n  conversationId: string,');
     expect(widgetAttachmentsSvc).toContain('select(\'id, conversation_id, body, sender_type, metadata\')');
     expect(widgetAttachmentsSvc).toContain('if (p.conversation_id !== conversationId) continue;');
-    expect(widgetAttachmentsSvc).toContain('if (!isVisitorVisibleMessageMeta(p.metadata)) continue;');
+    // The visibility rule (and a system row quoted as its kind) lives in
+    // visitorReplyPreview, which POST /message shares.
+    expect(widgetAttachmentsSvc).toContain('const preview = visitorReplyPreview(p);');
+    expect(widgetAttachmentsSvc).toContain('if (!isVisitorVisibleMessageMeta(parent.metadata)) return null;');
   });
 
   it('the canonical visitor-visibility rule lives in ONE place (filterVisitorVisibleMessages) and is reused by enrichMessagesWithSender and GET /identity/history alike', () => {
@@ -355,9 +358,9 @@ describe('reply-to-message — every read path resolves the structured relation 
     const idx = widgetRoute.indexOf('Reply-to: only ever accept a target');
     const body = widgetRoute.slice(idx, idx + 2500);
     expect(body).toContain("select('id, body, sender_type, metadata')");
-    expect(body).toContain('if (isVisitorVisibleMessageMeta(parent.metadata)) {');
-    expect(body).toContain('publicReplyToMessageId = parent.id;');
-    expect(body).toContain('replyToPreview = { id: parent.id, text: parent.body ?? \'\', sender_type: parent.sender_type };');
+    // Gated by the read paths' own rule (widgetAttachments.ts visitorReplyPreview).
+    expect(body).toContain('replyToPreview = visitorReplyPreview(parent);');
+    expect(body).toContain('if (replyToPreview) publicReplyToMessageId = parent.id;');
   });
 
   it('operator inbox (GET /:id/messages) already returns the raw column via select(\'*\') — zero code change needed for the FK to reach the operator', () => {

@@ -10,7 +10,7 @@
  * production behaviour.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,7 @@ import {
   WidgetLivePreview,
   type SmartPreviewPhase,
   type SmartPreviewScenario,
+  type WidgetLivePreviewProps,
 } from '@/components/app/widget/WidgetLivePreview';
 import {
   evaluateSmartRule,
@@ -38,8 +39,10 @@ import { draftToSmartRule, type SmartRuleDraft } from '@/lib/widget/smartRules';
 
 export interface SmartRulePreviewStudioProps {
   draft: SmartRuleDraft;
-  settings: Record<string, any> | null | undefined;
+  settings: WidgetLivePreviewProps['settings'];
   brandName: string;
+  /** The team visitors see (previewTeam.ts): the launcher's agent face and the stack, as the Appearance preview's. */
+  teamMembers?: WidgetLivePreviewProps['teamMembers'];
   locale: string;
   locales: string[];
   localeLabels: Record<string, string>;
@@ -56,7 +59,7 @@ const TIMELINE: SmartPreviewPhase[] = [
 ];
 
 export function SmartRulePreviewStudio({
-  draft, settings, brandName, locale, locales, localeLabels, kbArticles, kbCategories,
+  draft, settings, brandName, teamMembers, locale, locales, localeLabels, kbArticles, kbCategories,
 }: SmartRulePreviewStudioProps) {
   const { t, dir } = useTranslation();
 
@@ -204,7 +207,7 @@ export function SmartRulePreviewStudio({
 
   /** Force the configured trigger to be satisfied right now. */
   const fireTrigger = () => {
-    const cfg: any = draft.trigger_config || {};
+    const cfg = (draft.trigger_config || {}) as Record<string, unknown>;
     const seconds = Number(cfg.seconds) || 0;
     const percent = Number(cfg.percent) || 0;
     if (triggerType === 'time_on_page') setElapsedMs((seconds + 1) * 1000);
@@ -244,25 +247,25 @@ export function SmartRulePreviewStudio({
 
   /** Human sentence for a reason, using the numbers the evaluator reported. */
   const explain = (r: SmartReason) => {
-    const detail = (r.detail || {}) as Record<string, any>;
-    const label = t(`widgetPage.smart.studio.reason.${r.code}` as any);
+    const detail = r.detail || {};
+    const label = t(`widgetPage.smart.studio.reason.${r.code}` as TranslationKey);
     if (r.code === 'WAITING_FOR_DELAY' && detail.requiredMs != null) {
       return `${label} — ${t('widgetPage.smart.studio.detail.elapsedOf', {
-        elapsed: Math.round((detail.elapsedMs ?? elapsedMs) / 1000),
+        elapsed: Math.round(Number(detail.elapsedMs ?? elapsedMs) / 1000),
         required: Math.round(Number(detail.requiredMs) / 1000),
-      } as any)}`;
+      })}`;
     }
     if (r.code === 'SCROLL_NOT_REACHED' && detail.required != null) {
       return `${label} — ${t('widgetPage.smart.studio.detail.scrollOf', {
-        current: Math.round(detail.current ?? scrollPercent),
+        current: Math.round(Number(detail.current ?? scrollPercent)),
         required: Math.round(Number(detail.required)),
-      } as any)}`;
+      })}`;
     }
     if (r.code === 'FREQUENCY_LIMITED' && detail.cap != null) {
       return `${label} — ${t('widgetPage.smart.studio.detail.shownOf', {
         shown: detail.shown ?? shownTotal,
         cap: detail.cap,
-      } as any)}`;
+      })}`;
     }
     const rest = Object.entries(detail)
       .map(([k, v]) => `${k}: ${v}`)
@@ -302,7 +305,7 @@ export function SmartRulePreviewStudio({
                     onClick={() => setDevice(key)}
                   >
                     <Icon className="h-3.5 w-3.5" />
-                    {t(`widgetPage.smart.studio.${key}` as any)}
+                    {t(`widgetPage.smart.studio.${key}` as TranslationKey)}
                   </Button>
                 ))}
               </div>
@@ -410,7 +413,7 @@ export function SmartRulePreviewStudio({
             {toggles.map((tg) => (
               <label key={tg.key} className="flex items-center gap-2">
                 <Switch checked={tg.value} onCheckedChange={tg.set} />
-                <span className="text-[11px]">{t(`widgetPage.smart.studio.${tg.key}` as any)}</span>
+                <span className="text-[11px]">{t(`widgetPage.smart.studio.${tg.key}` as TranslationKey)}</span>
               </label>
             ))}
           </div>
@@ -445,7 +448,7 @@ export function SmartRulePreviewStudio({
                 outcomeTone === 'destructive' && 'text-destructive',
               )}
             />
-            <p className="text-sm font-semibold">{t(`widgetPage.smart.studio.outcome.${verdict.outcome}` as any)}</p>
+            <p className="text-sm font-semibold">{t(`widgetPage.smart.studio.outcome.${verdict.outcome}` as TranslationKey)}</p>
           </div>
 
           {/* Real lifecycle transitions, not a static checklist. */}
@@ -463,7 +466,7 @@ export function SmartRulePreviewStudio({
                     !reached && 'border-border text-muted-foreground',
                   )}
                 >
-                  {t(`widgetPage.smart.studio.timeline.${step}` as any)}
+                  {t(`widgetPage.smart.studio.timeline.${step}` as TranslationKey)}
                 </li>
               );
             })}
@@ -507,6 +510,7 @@ export function SmartRulePreviewStudio({
             settings={previewSettings}
             workspaceName={brandName}
             platformName={brandName}
+            teamMembers={teamMembers}
             view={mode === 'chat_message' ? 'chat' : 'home'}
             kbArticles={kbArticles}
             kbCategories={kbCategories}

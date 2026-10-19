@@ -319,8 +319,10 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
     chatHeader: () => {
       const h = parse(r().chatHeaderHtml({ online: true, typing: false, operator: { name: 'سارا', online: true }, isNew: false }));
       expect(h.querySelector('[data-presence]')).not.toBeNull();
-      expect(h.querySelector('.nm')!.textContent).toBe('سارا');
-      expect(h.querySelector('.ondot')).not.toBeNull();
+      // The workspace on top, the operator answering small under it.
+      expect(h.querySelector('.nm')!.textContent).toBe('فروشگاه نیلوفر');
+      expect(h.querySelector('.st')!.textContent).toBe('سارا');
+      expect(h.querySelector('.st .ondot')).not.toBeNull();
       // Core rewrites the header: nothing it binds once may live in there.
       expect(h.querySelector('[data-chat-jump],[data-escalate-btn],[data-msg-input]')).toBeNull();
       const frame = parse(r().chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
@@ -592,6 +594,36 @@ describe('t2: accent tokens', () => {
       .toBe('--a:#FFCC00;--on-a:#16142B;--gs-primary:#79630A;--a-tx:#79630A;--a-ink:#79630A');
   });
 
+  it('puts white on a mid-tone accent, darkened until white reads on it (owner, 2026-10-18: respok.app, webyar.ai)', () => {
+    // Ink on #EF4444 was 4.77:1 but did not read; white on it is 3.76:1.
+    expect(styleOf(make({ primaryColor: '#EF4444' }))).toBe('--a:#CB3939;--on-a:#FFFFFF;--gs-primary:#CB3939');
+    expect(styleOf(make({ primaryColor: '#8B5CF6' }))).toBe('--a:#7D53DF;--on-a:#FFFFFF;--gs-primary:#7D53DF');
+    // A light accent past L 0.30 keeps itself and Ink (#F97316, L 0.325).
+    expect(styleOf(make({ primaryColor: '#F97316' }))).toMatch(/^--a:#F97316;--on-a:#16142B;/);
+  });
+
+  it('over the colour space: white ≥ 5:1 on `--a`, Ink about 6:1, and `--a` the chosen colour unless it is a mid tone', () => {
+    const lum = (hex: string) => {
+      const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+    };
+    const ratio = (x: string, y: string) => { const [a, b] = [lum(x), lum(y)].sort((p, q) => q - p); return (a + 0.05) / (b + 0.05); };
+    const steps = [0, 36, 73, 109, 146, 182, 219, 255];
+    let seen = 0;
+    for (const r of steps) for (const g of steps) for (const b of steps) {
+      const c = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+      const [, a, on] = /^--a:(#[0-9A-F]{6});--on-a:(#[0-9A-F]{6});/.exec(styleOf(make({ primaryColor: c })))!;
+      if (on === '#FFFFFF') expect(ratio('#FFFFFF', a), c).toBeGreaterThanOrEqual(5);
+      // Ink only past L 0.30: 0.35 / (0.0085 + 0.05) = 5.99:1 at the edge.
+      else expect([on, ratio(on, a) > 5.98], c).toEqual(['#16142B', true]);
+      const L = lum(c);
+      if (L <= 0.16 || L > 0.3) expect(a, c).toBe(c);
+      seen++;
+    }
+    expect(seen).toBe(512);
+  });
+
   it('a light accent reads as text and as a ring through its darkened tone', () => {
     const s = styleOf(make({ primaryColor: '#F5D90A' }));
     const dk = /--a-tx:(#[0-9A-F]{6})/.exec(s)![1];
@@ -648,16 +680,32 @@ describe('t2: direction, people, the workspace', () => {
     // The same person keeps one colour on every surface.
     const thread = parse(make().messagesHtml({ messages: [msg({ senderName: 'سارا' })] }, '', {}));
     expect(thread.querySelector('.msg-avatar')!.classList.contains('c1')).toBe(true);
-    expect(thread.querySelector('.msg-sender-label')!.textContent).toBe('سارا');
+    // The bar names who answers: the thread's first run carries no name.
+    expect(thread.querySelector('.msg-sender-label')).toBeNull();
   });
 
-  it('labels the first row of a person\'s run only, and gives every run its avatar', () => {
+  it('labels a run only where the team\'s side changes hands, and gives every run its avatar', () => {
+    const labels = (messages: Vm[]) => Array.from(parse(make().messagesHtml({ messages }, '', {}))
+      .querySelectorAll('.msg-sender-label')).map((l) => l.textContent);
+    const sara = (body: string, over: Vm = {}) => msg({ senderName: 'سارا', body, ...over });
+    const visitor = (body: string) => msg({ sender: 'visitor', senderType: 'contact', body, status: 'seen' });
+    // One operator all along (owner, 2026-10-18: no name over and over).
+    expect(labels([sara('1'), sara('2'), visitor('3'), sara('4')])).toEqual([]);
+    // The AI hands over to a person: her name, once.
+    expect(labels([msg({ senderType: 'ai', senderName: 'دستیار', body: '1' }), visitor('2'), sara('3'), visitor('4'), sara('5')])).toEqual(['سارا']);
+    // A transfer to someone else.
+    expect(labels([sara('1'), visitor('2'), msg({ senderName: 'مهدی', body: '3' }), msg({ senderName: 'مهدی', body: '4' })])).toEqual(['مهدی']);
+    // A day break does not bring the name back.
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+    expect(labels([sara('1', { time: yesterday }), visitor('2'), sara('3')])).toEqual([]);
+    // A system row between two runs is no hand-over either.
+    expect(labels([sara('1'), msg({ senderType: 'system', senderName: null, body: 'x' }), sara('2')])).toEqual([]);
+
     const t = parse(make().messagesHtml({ messages: [
-      msg({ senderName: 'سارا', body: '1' }), msg({ senderName: 'سارا', body: '2' }),
-      msg({ sender: 'visitor', senderType: 'contact', body: '3', status: 'seen' }),
+      sara('1'), sara('2'), visitor('3'),
       msg({ senderType: 'ai', senderName: 'دستیار', body: '4' }),
     ] }, '', {}));
-    expect(t.querySelectorAll('.msg-sender-label').length).toBe(1);
+    expect(t.querySelectorAll('.msg-sender-label').length).toBe(0);
     expect(t.querySelectorAll('.msg-row.operator .msg-avatar:not(.msg-avatar-spacer)').length).toBe(2);
     expect(t.querySelectorAll('.msg-avatar-spacer').length).toBe(1);
     expect(t.querySelector('.msg-row.visitor .msg-ticks.is-seen')).not.toBeNull();
@@ -684,6 +732,148 @@ describe('t2: direction, people, the workspace', () => {
     expect(r.chatHeaderHtml({ online: false })).toContain('class="st off"');
     expect(r.chatHeaderHtml({ online: true })).not.toContain('st off');
     expect(T2_CSS).toMatch(/\.wy-view-chat:has\(\.st\.off\) \.messages > \.away \{ display: flex; \}/);
+  });
+});
+
+describe('t2: the chat bar names the workspace, the operator answering small under it (owner, 2026-10-18)', () => {
+  const SARA = { name: 'سارا', online: true };
+  const bar = (vm: Vm, opts: Parameters<typeof make>[0] = {}) => {
+    const h = parse(make(opts).chatHeaderHtml({ online: true, isNew: false, ...vm }));
+    const st = h.querySelector('.st');
+    return { nm: h.querySelector('.nm')!.textContent, st: st && st.textContent, cls: st && st.className, dot: !!h.querySelector('.st .ondot'), dots: st ? st.querySelectorAll('i:not(.ondot)').length : 0, h };
+  };
+
+  it('keeps the bar\'s states on the operator\'s line: online dot, typing dots, away', () => {
+    expect(bar({ operator: SARA })).toMatchObject({ nm: 'فروشگاه نیلوفر', st: 'سارا', cls: 'st', dot: true });
+    expect(bar({ operator: SARA, typing: true })).toMatchObject({ nm: 'فروشگاه نیلوفر', st: 'سارا', cls: 'st typ', dot: false, dots: 3 });
+    expect(bar({ operator: SARA, online: false })).toMatchObject({ nm: 'فروشگاه نیلوفر', st: 'سارا', cls: 'st off' });
+    // The operator offline while the team is in: the name, no dot.
+    expect(bar({ operator: { name: 'سارا', online: false } })).toMatchObject({ nm: 'فروشگاه نیلوفر', st: 'سارا', cls: 'st', dot: false });
+  });
+
+  it('keeps the avatar, its presence dot and the sr-only presence region as before', () => {
+    const { h } = bar({ operator: { ...SARA, avatar: 'https://cdn.test/s.png' } });
+    expect(h.querySelector('.who .av img')!.getAttribute('src')).toBe('https://cdn.test/s.png');
+    expect(h.querySelector('.who .av .pr')).not.toBeNull();
+    expect(h.querySelector('[data-presence].sr-only[aria-live="polite"]')).not.toBeNull();
+  });
+
+  it('is today\'s bar without a workspace name, with the same name twice, or with no operator', () => {
+    expect(bar({ operator: SARA }, { config: { workspaceName: '' } })).toMatchObject({ nm: 'سارا', st: 'آنلاین', dot: true });
+    expect(bar({ operator: SARA, typing: true }, { config: { workspaceName: '' } })).toMatchObject({ nm: 'سارا', st: 'در حال نوشتن', cls: 'st typ' });
+    expect(bar({ operator: SARA }, { config: { workspaceName: 'سارا' } })).toMatchObject({ nm: 'سارا', st: 'آنلاین', dot: true });
+    expect(bar({ operator: null })).toMatchObject({ nm: 'فروشگاه نیلوفر', st: FA.homeReplyFast, dot: false });
+    expect(bar({ operator: null, online: false })).toMatchObject({ nm: 'فروشگاه نیلوفر', cls: 'st off' });
+  });
+
+  it('reads the same left to right', () => {
+    const r = make({ locale: 'en', t: (k) => k, config: { workspaceName: 'Nilufar Store' } });
+    const h = parse(r.chatHeaderHtml({ online: true, isNew: false, operator: { name: 'Sara', online: true } }));
+    expect(h.querySelector('.nm')!.textContent).toBe('Nilufar Store');
+    expect(h.querySelector('.st')!.textContent).toBe('Sara');
+    expect(h.querySelector('.st .ondot')).not.toBeNull();
+  });
+
+  it('clips a long name on its line, so it never pushes the menu and the close button', () => {
+    expect(T2_CSS).toContain('.st { display: flex; align-items: center; gap: 6px; overflow: hidden;');
+  });
+
+  it('gives the small line\'s words a box of their own: a long name ends in an ellipsis, the dots after it stay', () => {
+    // `text-overflow` never reaches the flex line's anonymous text.
+    const words = (vm: Vm, opts: Parameters<typeof make>[0] = {}) =>
+      Array.from(bar(vm, opts).h.querySelectorAll('.st > b')).map((b) => b.textContent);
+    expect(words({ operator: SARA })).toEqual(['سارا']);
+    expect(words({ operator: SARA, typing: true })).toEqual(['سارا']);
+    expect(words({ operator: SARA, online: false })).toEqual(['سارا']);
+    expect(words({ operator: SARA }, { config: { workspaceName: '' } })).toEqual(['آنلاین']);
+    expect(words({ operator: null })).toEqual([FA.homeReplyFast]);
+    expect(words({ operator: null, online: false })).toEqual(['آفلاین؛ پاسخ با ایمیل']);
+    // Typing: the name first, then the three dots.
+    const typ = bar({ operator: SARA, typing: true }).h.querySelector('.st.typ')!;
+    expect(Array.from(typ.children).map((c) => c.tagName)).toEqual(['B', 'I', 'I', 'I']);
+    expect(T2_CSS).toContain('.st b { min-width: 0; overflow: hidden; font-weight: inherit; text-overflow: ellipsis; }');
+    expect(T2_CSS).toMatch(/^\.st\.typ i \{ flex: none;/m);
+  });
+});
+
+describe('t2: the thread and the composer after the owner\'s screenshots (2026-10-18)', () => {
+  const SKIN = read('public/widget/presentation-t2-intl.css');
+  const rule = (css: string, sel: string) => css.match(new RegExp('^' + sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}', 'm'))?.[1];
+
+  it('opens the emoji grid inside the message box, above the text (Core\'s toggle, outside click and Escape are unchanged)', () => {
+    const frame = parse(make().chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
+    expect(frame.querySelector('[data-input-wrap] > [data-emoji-picker][hidden]:first-child')).not.toBeNull();
+    expect(frame.querySelector('[data-composer-zone] > [data-emoji-picker]')).toBeNull();
+    expect(frame.querySelectorAll('[data-emoji-picker]')).toHaveLength(1);
+    // No card of its own: a hairline between the grid and the text.
+    const picker = T2_CSS.match(/^\.emoji-picker \{([^}]*)\}/m)![1];
+    expect(picker).toContain('grid-template-columns: repeat(8, 1fr);');
+    expect(picker).toContain('max-height: 212px;');
+    expect(picker).toContain('box-shadow: inset 0 -1px 0 var(--line);');
+    expect(picker).not.toMatch(/border-radius|background|--sh-tray/);
+    expect(T2_CSS).toContain('.reply-preview[hidden], .emoji-picker[hidden], .wy-jump[hidden] { display: none; }');
+  });
+
+  it('shows a message\'s actions only on the line hovered, tapped or reached by a key; hidden, a touch screen\'s taps pass them', () => {
+    expect(rule(T2_CSS, '.msg-actions')).toContain('opacity: 0; transition: opacity .15s;');
+    expect(T2_CSS).toContain('.msg-line:hover > .msg-actions, .msg-actions:focus-within { opacity: 1; pointer-events: auto; }');
+    // A mouse finds them where they are drawn (they hover their line); only
+    // a touch screen's taps go through them while they are hidden.
+    expect(rule(T2_CSS, '.msg-actions')).not.toContain('pointer-events');
+    expect(T2_CSS).toContain('@media (hover: none) { .msg { cursor: pointer; } .msg-actions { pointer-events: none; } }');
+    expect(T2_CSS).not.toMatch(/\.msg-actions \{ opacity: 0?\.6; \}/);
+    expect(T2_CSS).not.toContain('.msg-row:hover .msg-actions');
+    // Their names stay for assistive tech; the tooltip repeated them.
+    const h = parse(make().messagesHtml({ messages: [msg({ senderName: 'سارا' })] }, '', {}));
+    for (const b of Array.from(h.querySelectorAll('[data-msg-reply], [data-msg-copy]'))) {
+      expect(b.getAttribute('aria-label')).toBeTruthy();
+      expect(b.hasAttribute('title')).toBe(false);
+    }
+  });
+
+  it('draws the ring of a keyboard-focused emoji inside its button: the grid scrolls, so its edge would cut it', () => {
+    expect(T2_CSS).toContain('.emoji-picker button:focus-visible { outline-offset: -2px; }');
+    // After the views' ring (same specificity: the later rule wins).
+    expect(T2_CSS.indexOf('.emoji-picker button:focus-visible { outline-offset')).toBeGreaterThan(T2_CSS.indexOf('.wy-view :is(button, a):focus-visible {'));
+  });
+
+  it('keeps the visitor\'s quote, link, file and voice lines in the bubble\'s own ink; a bubble holding a quote is flat', () => {
+    // White at .75–.9, or on a white tint, fell below 4.5:1 on a 5:1 accent.
+    expect(T2_CSS).toContain('.visitor .msg-quote, .visitor .wy-ap-time { opacity: 1; }');
+    expect(rule(T2_CSS, '.visitor .msg-att-sub')).toBe(' color: inherit; ');
+    expect(rule(T2_CSS, '.msg-link')).not.toContain('background');
+    expect(rule(T2_CSS, '.msg.operator .msg-link')).toContain('background: #fff;');
+    // The quote is the bubble's first line, where the sheen is.
+    expect(T2_CSS).toContain('.msg.visitor:has(> .msg-quote) { background: var(--a); }');
+  });
+
+  it('ends the sheen of every text button on the accent above its label, as on the bubble', () => {
+    for (const sel of ['.btn, .wy-btn-primary', '.fab']) expect(rule(T2_CSS, sel), sel).toContain('background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);');
+    expect(T2_CSS).toContain('.wy-jump.has-new { background: linear-gradient(180deg, var(--a-hi), var(--a) 30%); color: var(--on-a); }');
+    // Core's proactive message paints its button in the raw colour inline: the accent and its ink instead.
+    expect(T2_CSS).toContain('.smart-msg .smart-cta { background: var(--a) !important; color: var(--on-a); }');
+  });
+
+  it('sits the typing and thinking rows\' avatar on their bubble\'s bottom (no time line under them)', () => {
+    expect(T2_CSS).toContain('.typing-row .msg-avatar, .ai-thinking-row .msg-avatar { margin-bottom: 0; }');
+  });
+
+  it('draws the visitor\'s text on the accent itself: the sheen ends above the first line', () => {
+    expect(T2_CSS).toContain('background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);\n  color: var(--on-a);');
+    expect(rule(T2_CSS, '.visitor .msg-att-file')).toContain('linear-gradient(180deg, var(--a-hi), var(--a) 30%)');
+    expect(rule(T2_CSS, '.visitor .msg-att-audio')).toContain('linear-gradient(180deg, var(--a-hi), var(--a) 30%)');
+    expect(T2_CSS).not.toContain('var(--a-hi), var(--a) 75%)');
+  });
+
+  it('paints the help bar and the call card\'s answer button flat in the accent, with its own ink', () => {
+    const cta = T2_CSS.match(/^\.cta \{([^}]*)\}/m)![1];
+    expect(cta).toContain('background: var(--a);');
+    expect(cta).toContain('color: var(--on-a);');
+    // Its second line in the same ink (white at .82 on #CB3939 was 3.85:1).
+    expect(rule(T2_CSS, '.cta small')).not.toContain('opacity');
+    expect(rule(T2_CSS, '.ci-btn-primary')).toBe(' background: var(--a); color: var(--on-a); ');
+    // The skin's Ink bar under the base's Ink text was the unreadable bar.
+    expect(SKIN).not.toMatch(/^\.cta \{/m);
   });
 });
 
@@ -1118,7 +1308,8 @@ describe('t2: a message\'s reactions (extras, feature `reactions`)', () => {
     const h = thread(r(), [team([{ emoji: HEART, count: 1, mine: true }]), team(undefined, { __id: '8d1f3e2a-4b5c-4d6e-8f90-a1b2c3d4e5f6', senderType: 'ai' })]);
     const hearts = Array.from(h.querySelectorAll('.msg-actions [data-msg-react]'));
     expect(hearts.map((b) => [b.getAttribute('data-msg-react'), b.getAttribute('aria-pressed'), b.getAttribute('aria-label'), b.getAttribute('title')]))
-      .toEqual([[HEART, 'true', 'پسندیدن', 'پسندیدن'], [HEART, 'false', 'پسندیدن', 'پسندیدن']]);
+      // No tooltip, as reply and copy beside it (the label is the name).
+      .toEqual([[HEART, 'true', 'پسندیدن', null], [HEART, 'false', 'پسندیدن', null]]);
     expect(hearts[0].getAttribute('data-msg-id')).toBe(UUID);
     expect((hearts[0] as HTMLButtonElement).type).toBe('button');
     // None on the visitor's own messages, a local row (no server id yet), or an attachment without text.

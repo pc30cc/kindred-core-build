@@ -285,8 +285,12 @@
   }
   /**
    * The accent tokens as an inline style attribute (` style="…"`): `--a` (the workspace
-   * colour), `--on-a` (white unless Ink reads better on it) and Core's
-   * `--gs-primary` (its focus ring). An uncustomised colour (empty, the
+   * colour), `--on-a` (its ink) and Core's `--gs-primary` (its focus ring).
+   * Ink only on a light accent (L > 0.30); otherwise white, with the accent
+   * darkened (each channel ×0.97, until L ≤ 0.16) until white on it, and it
+   * as text on white, both reach 5:1 (owner, 2026-10-18: Ink on a mid-tone
+   * red or violet did not read). An accent already that dark, a light one
+   * and the brand colour are written as given. An uncustomised colour (empty, the
    * seeded #3B82F6, unreadable) gets none ('', and the class
    * `gs-accent-brand` where they would go): the stylesheet (and a skin over
    * it) holds the brand colour and its hand-tuned hero stops, and gives
@@ -303,9 +307,11 @@
     var raw = String(primary || '').trim().toLowerCase();
     var rgb = rgbOf(raw);
     if (!rgb || raw === '#3b82f6') return '';
+    // Ink only on a light accent; on any other white, the accent darkened
+    // until white on it (and it as text on white) reaches 5:1.
+    var light = lum(rgb) > .3;
+    while (!light && lum(rgb) > .16) rgb = rgb.map(function (v) { return v * .97 | 0; });
     var a = hexOf(rgb);
-    var l = lum(rgb);
-    var light = 1.05 / (l + 0.05) < (l + 0.05) / (lum(rgbOf(INK)) + 0.05);
     var dk = light ? hexOf(rgb.map(function (v, i) { return Math.round(v * .45 + [11, 13, 18][i] * .55); })) : '';
     return ' style="--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
       (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '') + '"';
@@ -943,6 +949,7 @@
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
+      var prevOp;
 
       msgs.forEach(function (m, idx) {
         var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
@@ -988,9 +995,11 @@
         // rows keep the column with a spacer.
         var avatarHtml = visitor ? ''
           : isLast ? msgAvatarHtml(m) : '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
-        // A person's name above the first bubble of their run (people only).
-        var label = (!visitor && isFirst && !isAi && m.senderType !== 'system' && m.senderName)
+        // A person's name above their run only where the team's side changes
+        // hands (another person, or after the AI): the bar names who answers.
+        var label = (!visitor && isFirst && !isAi && m.senderType !== 'system' && m.senderName && prevOp != null && prevOp !== m.senderName)
           ? '<span class="msg-sender-label">' + esc(m.senderName) + '</span>' : '';
+        if (!visitor && isFirst && m.senderType !== 'system') prevOp = isAi ? '' : m.senderName || '';
 
         var aiMetaHtml = (isAi && isLast)
           ? '<span class="msg-ai-badge" title="' + esc(tf('wyAiAssistant', 'AI assistant')) + '">' +
@@ -1028,10 +1037,10 @@
               '<button type="button" class="msg-act" data-msg-reply="' + esc(m.__id || '') +
                 '" data-msg-reply-text="' + esc(String(bodyText || m.body || '').slice(0, 200)) +
                 '" data-msg-reply-author="' + esc(visitor ? tf('you', 'You') : (m.senderName || t('operator'))) +
-                '" title="' + esc(tf('reply', 'Reply')) + '" aria-label="' + esc(tf('reply', 'Reply')) + '">' +
+                '" aria-label="' + esc(tf('reply', 'Reply')) + '">' +
                 ico('quote', 13, 1.8) + '</button>' +
               '<button type="button" class="msg-act" data-msg-copy="' + esc(String(bodyText || m.body || '')) +
-                '" title="' + esc(tf('copy', 'Copy')) + '" aria-label="' + esc(tf('copy', 'Copy')) + '">' +
+                '" aria-label="' + esc(tf('copy', 'Copy')) + '">' +
                 ico('copy', 14, 1.7) + '</button>' + (view.react && !visitor ? x('reactBtnHtml', [m]) : '') +
             '</span>'
           : '';
@@ -1227,12 +1236,15 @@
       var stack = !op && vm.isNew && online ? stackHtml(28) : '';
       var avatar = op ? avatarHtml(op.name, op.avatar, 40, { pr: op.online ? 'on' : (online ? '' : 'off') })
         : stack || storeAvatarHtml(40, online ? '' : 'off');
-      var name = op ? op.name : stack ? tf('wyNewConversation', 'New conversation') : workspaceName;
-      var rt = replyTimeText(true);
-      var st = vm.typing ? '<span class="st typ">' + esc(L('typing')) + '<i></i><i></i><i></i></span>'
-        : !online ? '<span class="st off">' + esc(L('away')) + '</span>'
-        : op && op.online ? '<span class="st"><i class="ondot"></i>' + esc(L('online')) + '</span>'
-        : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
+      // Someone answering: the workspace on top, their name under it. The
+      // line's words in a box of their own (a long name ends in an ellipsis,
+      // the typing dots after it stay).
+      var sub = op && workspaceName != op.name && workspaceName ? op.name : '';
+      var name = sub ? workspaceName : op ? op.name : stack ? tf('wyNewConversation', 'New conversation') : workspaceName;
+      var on = online && op && op.online && !vm.typing;
+      var line = sub || (vm.typing ? L('typing') : !online ? L('away') : on ? L('online') : replyTimeText(true));
+      var st = line ? '<span class="st' + (vm.typing ? ' typ' : online ? '' : ' off') + '">' + (on ? '<i class="ondot"></i>' : '') +
+        '<b>' + esc(line) + '</b>' + (vm.typing ? '<i></i><i></i><i></i>' : '') + '</span>' : '';
       // The menu (`vm.menu`) only once Core's late module drew it a list.
       return backButtonHtml('home') + whoHtml(avatar, name, st) + (vm.menu ? chatMenuHtml(vm.menu) : '') +
         '<span class="cs" aria-hidden="true"></span>' +
@@ -1274,9 +1286,10 @@
               '<button type="button" class="reply-preview-cancel" data-reply-cancel aria-label="' +
                 esc(tf('cancel', 'Cancel')) + '">' + ico('x', 14, 2) + '</button>' +
             '</div>' +
-            '<div class="emoji-picker" data-emoji-picker hidden></div>' +
             '<div class="input-bar" data-input-bar>' +
               '<div class="input-wrap" data-input-wrap>' +
+                // The emoji grid opens inside the box, above the text.
+                '<div class="emoji-picker" data-emoji-picker hidden></div>' +
                 (attachCfg.enabled
                   ? '<div class="att-preview" data-attach-preview hidden>' +
                       '<div class="att-preview-thumb" data-attach-thumb>' +

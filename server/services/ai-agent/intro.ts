@@ -12,6 +12,7 @@ import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
 import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
 import { ensureVisitorContact } from '../widget/anonymousContact.js';
+import { isDefaultAiAgentName } from '../../../shared/systemMessages.js';
 import {
   clampLocaleToPlatformRegion,
   getPlatformAllowedLocales,
@@ -53,6 +54,17 @@ const FALLBACK_INTRO: Record<string, (name: string) => string> = {
     `Merhaba! Ben ${name}, bir yapay zeka asistanıyım. Yardım merkezimizden sorularınızı yanıtlayabilirim. Emin olmadığım konularda sizi bir temsilciye bağlarım.`,
 };
 
+/**
+ * The intro of an agent the owner gave no name of its own (none, or the
+ * English default): an unnamed assistant in a sentence of its own, not the
+ * named one above with a stand-in name ("I'm AI Assistant, an AI assistant").
+ */
+const UNNAMED_INTRO: Record<'en' | 'fa' | 'tr', string> = {
+  en: "Hi! I'm an AI assistant. I can answer questions from our help center. If I'm not sure about something, I'll connect you with a human agent.",
+  fa: 'سلام! من یک دستیار هوش مصنوعی هستم. می‌توانم به سوالات شما با کمک پایگاه دانش پاسخ بدهم. اگر مطمئن نباشم، شما را به یک کارشناس انسانی وصل می‌کنم.',
+  tr: 'Merhaba! Ben bir yapay zekâ asistanıyım. Yardım merkezimizden sorularınızı yanıtlayabilirim. Emin olmadığım konularda sizi bir temsilciye bağlarım.',
+};
+
 function pickLocale(loc?: string): 'en' | 'fa' | 'tr' {
   const l = (loc || 'en').toLowerCase();
   if (l.startsWith('fa')) return 'fa';
@@ -82,13 +94,8 @@ export function buildIntroBody(
       && direct.trim()
       && (!singleLanguage || textMatchesLocale(direct, loc))
     ) return direct.trim();
-    // Only fall back to another locale's text when the platform actually
-    // offers that language — a single-language deployment must never emit
-    // text stored for a different locale.
-    if (!singleLanguage) {
-      const en = localized.en;
-      if (typeof en === 'string' && en.trim() && allowed.includes('en')) return en.trim();
-    }
+    // Never another language's text (the owner's English for a Turkish
+    // visitor): the built-in intro below is in the visitor's language.
   }
   // Legacy single-string fields carry no locale — accept them only when the
   // script matches the active language.
@@ -96,10 +103,10 @@ export function buildIntroBody(
     .map((v) => (v || '').trim())
     .filter(Boolean);
   for (const text of legacy) {
-    if (!singleLanguage || textMatchesLocale(text, loc)) return text;
+    if (textMatchesLocale(text, loc)) return text;
   }
-  const name = settings.agent_name || 'AI Assistant';
-  return FALLBACK_INTRO[loc](name);
+  const own = (settings.agent_name || '').trim();
+  return own && !isDefaultAiAgentName(own) ? FALLBACK_INTRO[loc](own) : UNNAMED_INTRO[loc];
 }
 
 /**
@@ -131,7 +138,8 @@ async function alreadyIntroduced(
       .eq('sender_type', 'ai')
       .order('created_at', { ascending: true })
       .limit(20);
-    if ((msg || []).some((m: any) => (m.metadata?.source || '').startsWith('ai_agent_intro'))) {
+    const rows = (msg || []) as Array<{ metadata?: { source?: string } | null }>;
+    if (rows.some((m) => (m.metadata?.source || '').startsWith('ai_agent_intro'))) {
       return true;
     }
   } else if (sessionId) {
@@ -167,7 +175,7 @@ export async function maybeSendIntro(
     if (!settings.enabled || settings.mode === 'off') {
       return { sent: false, reason: 'disabled_or_off' };
     }
-    if ((settings as any).ai_intro_enabled === false) {
+    if (settings.ai_intro_enabled === false) {
       return { sent: false, reason: 'intro_disabled' };
     }
     // Only auto-reply modes get a visitor-facing intro. suggest_only stays silent.
@@ -347,7 +355,7 @@ export async function maybeSendIntro(
       agentName: display.agentName,
       agentLogoUrl: display.agentLogoUrl,
     };
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[ai-agent] intro failed:', e?.message || e);
     return { sent: false, reason: 'intro_failed' };
   }

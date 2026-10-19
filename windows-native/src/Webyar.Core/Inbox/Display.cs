@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Webyar.Core.Api;
 using Webyar.Core.Localization;
 
@@ -45,10 +46,19 @@ public static class Display
         return text[^4..];
     }
 
-    /// <summary>A one-line preview of the last message; attachments get a sentence instead of an empty line.</summary>
+    /// <summary>
+    /// A one-line preview of the last message; attachments get a sentence instead of an empty line.
+    /// A system notice is written from its kind in the operator's language: its stored body is English.
+    /// </summary>
     public static string Preview(MessagePreview? last, Strings s)
     {
         if (last is null) return string.Empty;
+        if (!string.IsNullOrEmpty(last.SystemKind) && last.SystemMeta is { ValueKind: JsonValueKind.Object } meta)
+        {
+            // system_meta carries the kind too; an older server's row without it falls through to the body.
+            var text = SystemText.For(meta, s);
+            if (!string.IsNullOrEmpty(text)) return OneLine(text);
+        }
         var body = OneLine(last.Body);
         if (body.Length > 0) return body;
         if (string.IsNullOrEmpty(last.AttachmentKind)) return string.Empty;

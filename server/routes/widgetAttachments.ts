@@ -40,6 +40,7 @@ import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
+import { visitorSystemPreview, type VisitorSystemPreview } from '../../shared/systemMessages.js';
 
 export const widgetAttachmentsRouter = Router();
 
@@ -544,11 +545,37 @@ export function filterVisitorVisibleMessages<T extends { metadata?: unknown }>(m
  *     visitor-visibility check (an internal staffing/system notice) — its
  *     body must never reach `reply_to.text`, and its id must not leak via
  *     `reply_to_message_id` either
+ *   - it is a system row the widget cannot write as a sentence (an
+ *     unknown kind: visitorReplyPreview below)
  * The true FK is whatever the DB row already had before this function ran
  * (untouched at the database level — this only sanitizes the copy that
  * goes out over the wire to the widget).
  */
-export type ReplyToPreview = { id: string; text: string; sender_type: string };
+export type ReplyToPreview = {
+  id: string;
+  text: string;
+  sender_type: string;
+  /** A system parent's kind and the names its sentence needs; the widget writes it in the visitor's language. */
+  kind?: VisitorSystemPreview['kind'];
+  meta?: VisitorSystemPreview['meta'];
+};
+
+/**
+ * The quote of a parent as the visitor gets it, or null when it must look
+ * like no reply at all. A system row ("Your message is in the support
+ * queue.") is quoted as its kind (shared/systemMessages.ts
+ * visitorSystemPreview), from which the widget writes the sentence in the
+ * visitor's language, as the thread does; one it cannot write is not
+ * quoted. `text` stays the stored body for a runtime loaded before `kind`.
+ * Shared by enrichMessagesWithReplyTo and POST /message (widget.ts).
+ */
+export function visitorReplyPreview(parent: { id: string; body: string | null; sender_type: string; metadata: unknown }): ReplyToPreview | null {
+  if (!isVisitorVisibleMessageMeta(parent.metadata)) return null;
+  const preview: ReplyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
+  if (parent.sender_type !== 'system') return preview;
+  const system = visitorSystemPreview(parent.metadata);
+  return system ? { ...preview, kind: system.kind, meta: system.meta } : null;
+}
 
 /** Any widget message shape carrying an optional reply-to FK. */
 type ReplyEnrichableMessage = { reply_to_message_id?: string | null; [k: string]: unknown };
@@ -584,8 +611,9 @@ export async function enrichMessagesWithReplyTo(
       .in('id', replyIds);
     for (const p of (data || []) as ReplyParentRow[]) {
       if (p.conversation_id !== conversationId) continue; // defense in depth — see doc comment above
-      if (!isVisitorVisibleMessageMeta(p.metadata)) continue; // internal notice — never preview its body
-      parentMap[p.id] = { id: p.id, text: p.body ?? '', sender_type: p.sender_type };
+      // An internal notice or a system row the widget cannot write — never preview its body.
+      const preview = visitorReplyPreview(p);
+      if (preview) parentMap[p.id] = preview;
     }
   } catch (e: unknown) {
     console.warn('[widget-reply-enrich] parent lookup failed:', (e as { message?: string } | null | undefined)?.message || e);

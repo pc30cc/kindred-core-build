@@ -23,7 +23,8 @@ import {
   LOCAL_KIT_LAUNCHER_CSS,
 } from '../../../../shared/localKitLauncher';
 import { SHIPS_INTL_KIT, SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
-import { launcherInitial, resolveLauncherStyle } from '../../../../shared/launcherStyles';
+import { resolveLauncherStyle } from '../../../../shared/launcherStyles';
+import { agentFaceInitial, onlineFirst, widgetTeamName } from '../../../../shared/widgetTeam';
 import {
   RESPOK_LAUNCHER_BASE_SIZE,
   RESPOK_LAUNCHER_CHAT_GLYPH,
@@ -254,7 +255,12 @@ export interface WidgetLivePreviewProps {
   poweredBy?: { text: string; brand: string; url: string | null } | null;
   /** @deprecated Compatibility alias; prefer workspaceName. */
   brandName?: string;
-  teamMembers?: { name: string; avatar?: string | null; online: boolean }[];
+  /**
+   * The team /config would send (previewTeam.ts). With `fullName`, their own
+   * name (null without one), the frame names them in its own language (the
+   * smart studio previews any of the workspace's); without the key, `name`.
+   */
+  teamMembers?: { name: string; fullName?: string | null; avatar?: string | null; online: boolean }[];
   view: PreviewView;
   /** Real published knowledge-base data so the preview matches the live widget. */
   kbArticles?: { title: string; excerpt?: string | null; content?: string | null }[];
@@ -408,14 +414,17 @@ export function WidgetLivePreview({
     // A launcher style (the pill, the bubble, two bubbles, the agent's face):
     // the loader's classes and texts on the same markup, its look from
     // runtime-fab.css (asked for in the frame, through the manifest). The
-    // agent's letter as /config picks it: the team, online first, then the
-    // workspace's name.
+    // team named as /config names it, in the frame's language, and the
+    // agent's letter as /config picks it (shared/widgetTeam.ts): the team,
+    // online first, by those names, then the workspace's name.
+    const team = (teamMembers || []).map(({ name, fullName, avatar, online }) => ({
+      name: fullName !== undefined ? widgetTeamName(fullName, locale) : name,
+      avatar,
+      online,
+    }));
     const fabStyled = launcher.styled;
     const fabInitial = launcher.icon === 'avatar'
-      ? launcherInitial([
-        ...[...(teamMembers || [])].sort((a, b) => Number(b.online) - Number(a.online)).map((m) => m.name),
-        typeof s.brand_name === 'string' ? s.brand_name : workspaceName || brandName,
-      ])
+      ? agentFaceInitial(team, typeof s.brand_name === 'string' ? s.brand_name : workspaceName || brandName)
       : '';
     const fabStyleAttrs = fabStyled
       ? ` data-fx="${esc(s.fab_label || '')}" data-fi="${esc(fabInitial)}" dir="${/^fa/.test(locale) ? 'rtl' : 'ltr'}" style="visibility:hidden"`
@@ -605,8 +614,9 @@ export function WidgetLivePreview({
         welcomeMessage: welcome,
         primaryColor: primary,
         showTeamAvatars: s.show_team_avatars !== false,
-        teamMembers: (teamMembers && teamMembers.length)
-          ? teamMembers
+        // As /config sends them: online first, name, avatar and dot only.
+        teamMembers: team.length
+          ? onlineFirst(team)
           : [{ name: operatorName || title, avatar: operatorAvatar || '', online: true }],
         articles: realArticles.map((a, i) => ({ title: a.title, slug: String(i) })),
         categories: [],

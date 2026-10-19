@@ -167,6 +167,50 @@ describe('default, the team away at load', () => {
     expect(drewForm(h)).toBe(false);
     expect(composer(h).disabled).toBe(false);
   });
+
+  // The label lives in the chat frame, which Core builds detached and
+  // mounts later: it was looked up in the panel, found nothing and stayed
+  // empty (issue #340: "the presence label stays empty").
+  it('the screen reader\'s presence label says the team is away, still hidden', async () => {
+    const h = await chat({ config: { availability: { ...AWAY, offline_mode: 'show_offline_message' } } });
+    expect(h.q('[data-presence]')!.className).toBe('presence sr-only status-offline');
+    expect(h.q('[data-presence-label]')!.textContent).toBe('تیم در دسترس نیست');
+  });
+});
+
+describe('default: the presence label follows every change', () => {
+  it('online in the opening hours, away after them (the visitor\'s clock, a backend without the server\'s state)', async () => {
+    const opening = new Date(2026, 9, 19, 10, 0);
+    vi.useFakeTimers({ toFake: ['Date'], now: opening });
+    // createPresence's 60 s re-check, run by hand.
+    let recheck: (() => void) | null = null;
+    const realInterval = globalThis.setInterval;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === 60_000 && /resolveStatus\(\)/.test(String(fn))) { recheck = fn; return 0; }
+      return realInterval(fn, ms, ...rest);
+    }) as unknown as typeof setInterval);
+    const h = await chat({
+      config: {
+        onlineOperators: 1,
+        availability: {
+          offline_mode: 'show_offline_message',
+          businessHours: { enabled: true, timezone: 'UTC', schedule: [{ day: opening.getDay(), open: '09:00', close: '17:00' }] },
+          labels: { online: 'در خدمتیم', offline: 'تیم در دسترس نیست' },
+        },
+      },
+    });
+    const wrap = h.q('[data-presence]')!;
+    const label = h.q('[data-presence-label]')!;
+    expect(wrap.className).toBe('presence sr-only status-online');
+    expect(label.textContent).toBe('در خدمتیم');
+    vi.setSystemTime(new Date(2026, 9, 19, 18, 0));
+    recheck!();
+    expect(wrap.className).toBe('presence sr-only status-offline');
+    expect(label.textContent).toBe('تیم در دسترس نیست');
+    // The thread and its composer stay (show_offline_message).
+    expect(h.q('[data-presence-label]')).toBe(label);
+    expect(composer(h).disabled).toBe(false);
+  });
 });
 
 describe('a template whose chat header shows the presence line (t1), away at load', () => {

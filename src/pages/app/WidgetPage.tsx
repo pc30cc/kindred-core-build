@@ -32,7 +32,7 @@ import { LauncherStylePicker } from '@/components/app/widget/LauncherStylePicker
 import { effectiveWorkspaceTemplate, templateCardVisible, useWorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
-import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useEdition } from '@/hooks/useEdition';
@@ -42,7 +42,8 @@ import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 import type { WidgetSettings } from '@/types/models';
 import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
-import { launcherChoiceFields, launcherInitial, type LauncherStyleChoice } from '../../../shared/launcherStyles';
+import { launcherChoiceFields, type LauncherStyleChoice } from '../../../shared/launcherStyles';
+import { previewAgentInitial, previewTeam } from '@/components/app/widget/previewTeam';
 
 /** Any column the appearance form may edit through `setField`. */
 type WidgetField = keyof WidgetSettings & string;
@@ -313,14 +314,13 @@ function WidgetPageContent() {
       url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
     };
   }, [effectiveEnts, platformWidget, platformName, live]);
-  const previewTeamMembers = useMemo(() => {
-    const byUser = presenceMap(teamPresence?.presence);
-    return (workspaceMembers || []).map(member => ({
-      name: member.full_name || member.email || '',
-      avatar: member.avatar_url,
-      online: byUser.get(member.user_id)?.state === 'online',
-    }));
-  }, [workspaceMembers, teamPresence]);
+  // The team /config sends visitors: the first four members to join, under
+  // the names visitors read in the widget's language, online as visitors see
+  // them (previewTeam.ts). Every preview of the page draws it.
+  const previewTeamMembers = useMemo(
+    () => previewTeam(workspaceMembers, teamPresence?.presence, effectiveLocale),
+    [workspaceMembers, teamPresence, effectiveLocale],
+  );
 
   /**
    * A chat button style tile (LauncherStylePicker): its shape and icon, the
@@ -330,11 +330,11 @@ function WidgetPageContent() {
   const chooseLauncher = (choice: LauncherStyleChoice) => {
     for (const [field, value] of launcherChoiceFields(choice, live?.widget_template_options)) setField(field, value, 0);
   };
-  /** The agent face's letter, as /config picks it: the first operator (online first), else the workspace. */
-  const launcherLetter = launcherInitial([
-    ...[...previewTeamMembers].sort((a, b) => Number(b.online) - Number(a.online)).map((m) => m.name),
+  /** The agent face's letter, as /config picks it: the first operator (online first) with a name, else the workspace. */
+  const launcherLetter = previewAgentInitial(
+    previewTeamMembers,
     typeof live?.brand_name === 'string' ? live.brand_name : workspace?.name,
-  ]);
+  );
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
@@ -1076,6 +1076,7 @@ function WidgetPageContent() {
                 kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a) => ({ title: a.title, slug: a.slug }))}
                 previewSettings={previewSettings}
                 brandName={workspace?.name || t('widgetPage.preview.brandFallback')}
+                teamMembers={previewTeamMembers}
                 studioKbArticles={previewKbArticles}
                 studioKbCategories={previewKbCategories}
               />

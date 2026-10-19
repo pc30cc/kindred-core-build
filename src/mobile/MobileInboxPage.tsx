@@ -20,6 +20,11 @@ import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
+import {
+  systemMessageText, attachmentPreviewText,
+  type SystemMessageMeta, type AttachmentPreviewKind,
+} from '@/lib/systemMessageText';
+import { useAuth } from '@/features/auth/AuthContext';
 import { formatRelative } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -41,6 +46,7 @@ export default function MobileInboxPage() {
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const workspace = useCurrentWorkspace();
+  const { user } = useAuth();
 
   const [filter, setFilter] = useState<MobileFilter>('open');
   const [query, setQuery] = useState('');
@@ -130,7 +136,30 @@ export default function MobileInboxPage() {
           {rows.map((c) => {
             const name = contactDisplayName(c.contacts, c.id, displayT, c.visitor_country_name, locale);
             const unread = c.unread_count || 0;
-            const last = c.last_message;
+            const last = c.last_message as
+              | { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null; system_kind?: string | null; system_meta?: SystemMessageMeta | null }
+              | null
+              | undefined;
+            // The desktop list's rule (InboxPage): a system notice is stored
+            // in English, so it is written from its kind in the app's
+            // language; an attachment-only turn is described; else the body.
+            const systemText = last?.system_kind
+              ? systemMessageText({ ...(last.system_meta || {}), kind: last.system_kind }, t)
+              : null;
+            const attachmentText = !systemText && !last?.body && last?.attachment_kind
+              ? attachmentPreviewText(
+                last.attachment_kind as AttachmentPreviewKind,
+                {
+                  isMe: last.sender_type === 'agent' && !!last.sender_id && last.sender_id === user?.id,
+                  name: last.sender_type === 'agent'
+                    ? last.sender_name
+                    : (last.sender_type === 'ai' || last.sender_type === 'bot')
+                      ? (t('inbox.previewAi') || 'AI')
+                      : (c.contacts?.name || null),
+                },
+                t,
+              )
+              : null;
             const channel = resolveChannelKey(c.metadata, c.contacts?.metadata);
             const clientPlatform = resolveClientPlatform(c.metadata, c.contacts?.metadata);
             return (
@@ -193,8 +222,12 @@ export default function MobileInboxPage() {
                         {last?.sender_type === 'ai' && (
                           <Bot className="me-1 inline h-3.5 w-3.5 -translate-y-px text-primary" />
                         )}
-                        {last?.sender_type === 'agent' ? '↩ ' : ''}
-                        {last?.body || '—'}
+                        {systemText || attachmentText || (
+                          <>
+                            {last?.sender_type === 'agent' ? '↩ ' : ''}
+                            {last?.body || '—'}
+                          </>
+                        )}
                       </p>
                       {unread > 0 && (
                         <span className="mt-0.5 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">

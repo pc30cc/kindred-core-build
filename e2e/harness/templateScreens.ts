@@ -291,13 +291,14 @@ const t1Thread = (f: Fixture, cid: string) => {
   f.conversations = [{ ...RECENT, id: cid }];
   f.threads = { ...f.threads, ...T1_THREADS };
 };
-/** 08·a: name and e-mail required (the card marks only the optional phone), its own subtitle. */
+/** 08·a: name and e-mail required (the card marks only the optional phone), its own subtitle; nobody assigned yet. */
 const t1PrechatCard = (f: Fixture) => {
   f.identity = {
     identity_state: 'anonymous', contact: null,
     prechat: { ask_name: true, require_name: true, ask_email: true, require_email: true, ask_phone: true, require_phone: false, timing: 'after_handoff' },
   };
-  f.conversations = [{ ...RECENT, id: 'c-t1-card', preview: '', unreadCount: 0 }];
+  f.conversations = [{ ...RECENT, id: 'c-t1-card', preview: '', unreadCount: 0, operatorName: null, operatorOnline: false }];
+  f.assignedOperator = null;
   f.threads = { ...f.threads, ...T1_THREADS };
   f.config.aiAgent = {
     ...(f.config.aiAgent as Record<string, unknown>),
@@ -621,6 +622,69 @@ function international(f: Fixture, locale: string, direction: 'thread' | 'open')
   });
 }
 
+// ─── The owner's RESPOK screenshots (2026-10-18): the thread's people ───
+/** An operator's photo, served by routeApi (a file under public/ would ship). */
+const HARNESS_AVATAR = `${ORIGIN}/harness/avatar.svg`;
+const AVATAR_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#D9C7B4"/>' +
+  '<circle cx="48" cy="40" r="19" fill="#6B4E3A"/><path d="M12 96c4-24 19-34 36-34s32 10 36 34z" fill="#23222B"/></svg>';
+/** Ids the server stores (uuids), so each operator line offers the heart too. */
+const p4Id = (n: number) => `c0c0c0c0-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+const withPhoto = (m: Msg): Msg => ({ ...m, sender_avatar: HARNESS_AVATAR });
+/** Sara (with her photo) answering: two runs of two lines. */
+const OPERATOR_THREAD: Msg[] = [
+  visitor(p4Id(1), 'سلام، دوشنبه یه کفش سفارش دادم ولی هنوز کد رهگیری برام نیومده.', at(19, 40)),
+  withPhoto(sara(p4Id(2), 'سلام علی جان، ممنون که پیام دادید.', at(19, 41))),
+  withPhoto(sara(p4Id(3), 'لطفاً شماره سفارش‌تون رو بفرستید.', at(19, 41))),
+  visitor(p4Id(4), 'حتماً، شماره سفارش ۴۸۲۱۳ هست', at(19, 43)),
+  withPhoto(sara(p4Id(5), 'ممنون! سفارش‌تون امروز صبح ارسال شد.', at(19, 44))),
+  withPhoto(sara(p4Id(6), 'کد رهگیری: TR-2290-5531', at(19, 44))),
+];
+/** The AI, then Sara (two runs), then Mehdi: who answers changes hands twice. */
+const handoverThread = (): Msg[] => [
+  visitor(p4Id(11), 'سلام، سفارش ۴۸۲۱۳ هنوز کد رهگیری نداره.', at(19, 30)),
+  {
+    id: p4Id(12), role: 'agent', sender_type: 'ai', sender_name: EN_FIXTURE ? 'Assistant' : 'دستیار', sender_avatar: null,
+    text: 'ممنون علی! یکی از همکارهام تا چند دقیقه دیگه جواب می‌ده. سؤال‌تون رو بنویسید.', time: at(19, 30),
+  },
+  sara(p4Id(13), 'سلام علی جان، ممنون که پیام دادید.', at(19, 31)),
+  sara(p4Id(14), 'لطفاً شماره سفارش‌تون رو بفرستید.', at(19, 31)),
+  visitor(p4Id(15), 'حتماً، شماره سفارش ۴۸۲۱۳ هست', at(19, 32)),
+  sara(p4Id(16), 'ممنون! سفارش‌تون امروز صبح ارسال شد.', at(19, 33)),
+  { ...sara(p4Id(17), 'کد رهگیری: TR-2290-5531', at(19, 40)), sender_name: 'مهدی' },
+];
+const P4_OPEN: Conversation = {
+  id: 'c-op', status: 'open', preview: 'کد رهگیری: TR-2290-5531', unreadCount: 0, lastMessageAt: at(19, 44),
+  operatorName: 'سارا', operatorOnline: true,
+};
+/** A returning visitor with an open conversation, Sara (online, with her photo) answering. */
+function chatOperator(f: Fixture) {
+  f.identity = RETURNING;
+  f.conversations = [P4_OPEN];
+  f.threads = { ...f.threads, 'c-op': OPERATOR_THREAD, 'c-handover': handoverThread() };
+  f.assignedOperator = { name: 'سارا', avatar: HARNESS_AVATAR, online: true };
+  f.config.teamMembers = [{ name: 'سارا', avatar: HARNESS_AVATAR, online: true }, ...TEAM_ONLINE.slice(1)];
+}
+function chatHandover(f: Fixture) {
+  chatOperator(f);
+  f.conversations = [{ ...P4_OPEN, id: 'c-handover', operatorName: 'مهدی' }];
+  f.assignedOperator = { name: 'مهدی', avatar: null, online: true };
+}
+/** The AI answering alone (its "thinking" row follows the visitor's next message). */
+function chatAi(f: Fixture) {
+  chatOperator(f);
+  f.config.aiAgent = { ...(f.config.aiAgent as Record<string, unknown>), suppressGreeting: true };
+  f.conversations = [{ ...P4_OPEN, id: 'c-ai', operatorName: null }];
+  f.threads = { ...f.threads, 'c-ai': handoverThread().slice(0, 2) };
+  f.assignedOperator = null;
+}
+/** Opens a thread once its rows are drawn and the line is up (no fixed wait). */
+async function openRows(page: Page, cid: string) {
+  await inst(page, `i.__test.openConversation(${JSON.stringify(cid)});`);
+  await page.locator('[data-chat-messages] .msg-row').first().waitFor();
+  await online(page);
+}
+
 export const SCREEN_STATES: Record<string, StateSpec> = {
   'home-first-visit': { home: true },
   'home-recent-chat': {
@@ -909,6 +973,22 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await step(page, 'ali@example.com');
       await page.locator('[data-prechat-step-skip]').click();
       await pause(page, 600);
+    },
+  },
+  // 08·c: the details sent, then the visitor's first message (nobody assigned yet).
+  't1-prechat-steps-sent': {
+    home: true,
+    setup: t1Steps,
+    drive: async ({ page }) => {
+      await startSteps(page);
+      await step(page, tx('علی رضایی'));
+      await step(page, 'ali@example.com');
+      await page.locator('[data-prechat-step-skip]').click();
+      await pause(page, 600);
+      const input = page.locator('[data-msg-input]');
+      await input.fill(tx('سلام، سفارش ۴۸۲۱۳ هنوز کد رهگیری نداره.'));
+      await input.press('Enter');
+      await pause(page, 500);
     },
   },
   // 08·c: the queued row with the visitor's place.
@@ -1231,6 +1311,56 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: t2Closed,
     drive: async ({ page }) => { await openThread(page, 'c-closed'); await pause(page, 300); },
   },
+  // The owner's RESPOK screenshots (2026-10-18): the operator answering
+  // (the bar, the runs, their actions), a hand-over AI → Sara → Mehdi (the
+  // names), the AI thinking, the help center with an open conversation and
+  // no articles (its bar); the panel and the phone.
+  'chat-operator': { setup: chatOperator, drive: async ({ page }) => { await openRows(page, 'c-op'); } },
+  'chat-handover': { setup: chatHandover, drive: async ({ page }) => { await openRows(page, 'c-handover'); } },
+  'chat-ai-thinking': {
+    setup: chatAi,
+    drive: async ({ page }) => {
+      await openRows(page, 'c-ai');
+      const input = page.locator('[data-msg-input]');
+      await input.fill(tx('عالیه، خیلی ممنون'));
+      await input.press('Enter');
+      await page.locator('.ai-thinking-row').waitFor();
+    },
+  },
+  'help-open-empty': {
+    home: true,
+    setup: (f) => { chatOperator(f); f.kb = { categories: [], articles: [], search: {} }; },
+    drive: async ({ page }) => { await inst(page, "i.setTab('help');"); await page.locator('.wy-view-kb:not(.wy-skeleton)').waitFor(); },
+  },
+  'mobile-chat-operator': { mobile: true, setup: chatOperator, drive: async ({ page }) => { await openRows(page, 'c-op'); } },
+  'mobile-chat-handover': { mobile: true, setup: chatHandover, drive: async ({ page }) => { await openRows(page, 'c-handover'); } },
+  'mobile-chat-ai-thinking': {
+    mobile: true,
+    setup: chatAi,
+    drive: async ({ page }) => {
+      await openRows(page, 'c-ai');
+      const input = page.locator('[data-msg-input]');
+      await input.fill(tx('عالیه، خیلی ممنون'));
+      await input.press('Enter');
+      await page.locator('.ai-thinking-row').waitFor();
+    },
+  },
+  'mobile-help-open-empty': {
+    mobile: true,
+    home: true,
+    setup: (f) => { chatOperator(f); f.kb = { categories: [], articles: [], search: {} }; },
+    drive: async ({ page }) => { await inst(page, "i.setTab('help');"); await page.locator('.wy-view-kb:not(.wy-skeleton)').waitFor(); },
+  },
+  // A long workspace name over a long operator name: each line of the bar ends in an ellipsis.
+  'mobile-chat-long-names': {
+    mobile: true,
+    setup: (f) => {
+      chatOperator(f);
+      f.config.workspaceName = EN_FIXTURE ? 'Nilufar Handmade Leather Shoes and Accessories' : 'فروشگاه کفش و اکسسوری چرم دست‌دوز نیلوفر';
+      f.assignedOperator = { name: EN_FIXTURE ? 'Mojtaba Davoudi-Kermanshahi Abolfazli' : 'مجتبی داوودی کرمانشاهی ابوالفضلی نژاد', avatar: HARNESS_AVATAR, online: true };
+    },
+    drive: async ({ page }) => { await openRows(page, 'c-op'); },
+  },
 };
 
 // ─── The fake widget API ────────────────────────────────────────────────
@@ -1290,6 +1420,7 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
     if (p === '/widget/runtime-rt-centrifugo.js') {
       return route.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE_DRIVER });
     }
+    if (p === '/harness/avatar.svg') return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: AVATAR_SVG });
     if (p.startsWith('/widget/') || p.startsWith('/brand/')) {
       const file = path.join(root, 'public', p);
       if (!existsSync(file)) return route.fulfill({ status: 404, body: '' });

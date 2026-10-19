@@ -73,9 +73,6 @@ async function thread(opts: BootOptions & { route?: Route; messages?: Array<Reco
   h.runtime.__test.openConversation('c1');
   await flush(30);
   h.runtime.__test.setConnectionState('online');
-  // Core focuses the composer 200 ms after the visitor's identity is in
-  // (runtime.js): past it, so the focus a test checks is the visitor's.
-  await new Promise((r) => setTimeout(r, 250));
   await flush(5);
   return h;
 }

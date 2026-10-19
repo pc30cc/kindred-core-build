@@ -14,7 +14,9 @@ import tr from '@/i18n/locales/tr';
  * the visitor saw Persian while the operator saw English for the same
  * message. The inbox now does the same.
  */
-const INBOX = readFileSync('src/pages/app/InboxPage.tsx', 'utf8');
+// The thread hands every system row to SystemNoticeRow, which draws the card.
+const INBOX = readFileSync('src/pages/app/InboxPage.tsx', 'utf8')
+  + readFileSync('src/components/inbox/SystemNoticeRow.tsx', 'utf8');
 const SERVER = readFileSync('server/services/calls/invitations.ts', 'utf8');
 
 /** Comments explain the bug by quoting it; only real code should be searched. */
@@ -44,7 +46,7 @@ function inboxStrings(bundle: Record<string, unknown>): Record<string, string> {
 
 describe('the invitation notice is localized for the operator', () => {
   it('renders from metadata rather than from the frozen English body', () => {
-    expect(INBOX).toContain("meta.kind === 'call_invitation'");
+    expect(INBOX).toContain("kind === 'call_invitation'");
     expect(INBOX).toContain("meta.channel === 'video'");
     // The persisted body must never be what the operator reads.
     expect(INBOX_CODE).not.toContain('You have been invited to');
@@ -54,7 +56,7 @@ describe('the invitation notice is localized for the operator', () => {
     // The key selection now lives in the one shared localizer, so the same
     // sentence is produced for the thread, the list preview and the contact
     // page (see systemMessageText.test.ts for the behaviour itself).
-    const LOCALIZER = readFileSync('src/lib/systemMessageText.ts', 'utf8');
+    const LOCALIZER = readFileSync('shared/systemMessageText.ts', 'utf8');
     expect(LOCALIZER).toContain('inbox.system.callInviteVideoFrom');
     expect(LOCALIZER).toContain('inbox.system.callInviteAudioFrom');
     expect(LOCALIZER).toContain('inbox.system.callInviteVideo');
@@ -64,7 +66,7 @@ describe('the invitation notice is localized for the operator', () => {
 
   it('shows the live invitation status, not only that one was sent', () => {
     // The card mutates in place as the visitor acts on it.
-    const LOCALIZER = readFileSync('src/lib/systemMessageText.ts', 'utf8');
+    const LOCALIZER = readFileSync('shared/systemMessageText.ts', 'utf8');
     for (const status of ['Joined', 'Expired', 'Cancelled', 'Declined', 'Pending']) {
       expect(LOCALIZER, status).toContain(`inbox.callInvite.status${status}`);
     }

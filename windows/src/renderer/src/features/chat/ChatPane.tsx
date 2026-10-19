@@ -350,9 +350,12 @@ function MessageRow({
   const language = useApp((s) => s.language)
 
   if (m.sender_type === 'system') {
+    // The requester card's body is the whole card (the server's
+    // requester.ts); systemText writes it as one line for the list only.
+    const requesterCard = m.metadata?.kind === 'platform_support_requester'
     return (
       <div className="my-2 flex justify-center">
-        <span className="max-w-[80%] rounded-lg bg-elevated px-3 py-1 text-center text-[12px] text-fg-2">{systemText(m.metadata, language) ?? m.body}</span>
+        <span className="max-w-[80%] rounded-lg bg-elevated px-3 py-1 text-center text-[12px] text-fg-2">{requesterCard ? m.body : (systemText(m.metadata, language) ?? m.body)}</span>
       </div>
     )
   }

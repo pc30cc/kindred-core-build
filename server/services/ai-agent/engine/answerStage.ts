@@ -36,6 +36,7 @@ import {
   applySafeRoutingSideEffects,
   pickPageNoUrl,
   pickPageNotIndexed,
+  ownerFallbackMessage,
 } from './helpers.js';
 import type { MaybeRunInput, MaybeRunResult } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
@@ -487,7 +488,8 @@ export async function runAnswerStage(
         // Handoff wording stays deterministic and owner-controlled: an
         // escalation must never depend on a second model call that can fail
         // or spend credits on a turn the model was not allowed to answer.
-        const body = settings.fallback_message
+        // The owner's line only in the visitor's language (helpers.ts).
+        const body = ownerFallbackMessage(settings.fallback_message, locale)
           || await resolveHandoffAckMessage(
             config, workspaceId, locale,
             availability.state === 'offline',

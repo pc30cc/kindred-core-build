@@ -40,24 +40,19 @@ import { Globe, Lock } from 'lucide-react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import { systemMessageText, type SystemMessageMeta } from '@/lib/systemMessageText';
-
-/**
- * Conversation subjects are sometimes persisted with an English default
- * ("New conversation"). Map those defaults onto the active locale so the
- * Persian UI never leaks English strings.
- */
-const DEFAULT_SUBJECTS = new Set([
-  'new conversation',
-  'new chat',
-  'untitled conversation',
-  'untitled',
-]);
+import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 
 type LabelT = (k: TranslationKey) => string;
 
+/**
+ * Conversation subjects are sometimes persisted with an English default
+ * ("New conversation", "Offline message"). Map those defaults onto the
+ * active locale so the Persian UI never leaks English strings
+ * (shared/conversationSubject.ts, the inbox's list).
+ */
 function conversationTitle(conv: { subject?: string | null } | null | undefined, t: LabelT): string {
   const subject = (conv?.subject ?? '').trim();
-  if (!subject || DEFAULT_SUBJECTS.has(subject.toLowerCase())) {
+  if (isPlaceholderSubject(subject)) {
     return t('contacts.conversationUntitled');
   }
   return subject;

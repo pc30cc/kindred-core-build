@@ -5,9 +5,11 @@
  * (`fx fx-<icon> fx-<shape>`, the pill's text in `data-fx`, the agent's
  * letter in `data-fi`, `dir`), the look from runtime-fab.css (asked for in
  * the frame through the manifest, as every widget file there), the launcher
- * and its card unseen until it is in. A launcher without a style is drawn as
- * before; an icon named after an Object.prototype key is the chat glyph; the
- * kit's square has its 18px corners.
+ * and its card unseen until it is in. The agent's letter and the team stack
+ * follow /config's rule (shared/widgetTeam.ts), in every preview of the page
+ * (the Appearance tab's, the smart studio's). A launcher without a style
+ * is drawn as before; an icon named after an Object.prototype key is the
+ * chat glyph; the kit's square has its 18px corners.
  *
  * RESPOK's button follows the build as the loader does (`@intl-kit`): an
  * Iran-brand build previews the plain launcher in the International edition,
@@ -18,6 +20,11 @@ import { cleanup, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { WidgetLivePreview } from '@/components/app/widget/WidgetLivePreview';
+import { SmartRulePreviewStudio } from '@/components/app/widget/smart/SmartRulePreviewStudio';
+import { previewAgentInitial, previewTeam } from '@/components/app/widget/previewTeam';
+import type { WorkspaceMember } from '@/hooks/useWorkspaceMembers';
+import type { OperatorPresence } from '@/hooks/useTeamPresence';
+import { createEmptySmartRule } from '@/lib/widget/smartRules';
 
 const flags = vi.hoisted(() => ({ edition: 'iran' as 'iran' | 'international', intlKit: true }));
 vi.mock('@/hooks/useEdition', () => ({
@@ -116,6 +123,76 @@ describe('a launcher wearing a style', () => {
     expect(launcher.getAttribute('data-fi')).toBe('س');
     expect(card!.getAttribute('style')).toBe('visibility:hidden');
     expect(frame({ fab_icon: 'avatar' }, { view: 'offline' }).launcher.className).toContain('fx-off');
+  });
+
+  it('the agent\'s face reads the stack\'s names: a nameless operator is the frame\'s word for an operator; the stack is online first, as /config sends it', () => {
+    // As WidgetPage passes the team (previewTeam.ts): the stack's name, and
+    // their own, from which the frame names them in its own language.
+    const team = [
+      { name: 'Operator', fullName: null, avatar: null, online: true },
+      { name: 'Reza', fullName: 'Reza', avatar: null, online: false },
+      { name: 'سارا', fullName: 'سارا', avatar: null, online: true },
+    ];
+    const drawn = (language: string) => {
+      const { container } = render(
+        <WidgetLivePreview settings={{ widget_language: language, fab_icon: 'avatar' }} brandName="نیلوفر" view="home" teamMembers={team} templateId="default" templateOptions={{}} />,
+      );
+      const doc = container.querySelector('iframe')!.getAttribute('srcdoc') || '';
+      cleanup();
+      return {
+        letter: new DOMParser().parseFromString(doc, 'text/html').getElementById('gs-launcher')!.getAttribute('data-fi'),
+        stack: (JSON.parse(/var GS_PREVIEW = (\{.*\});\n/.exec(doc)![1]) as { homeVm: { teamMembers: unknown[] } }).homeVm.teamMembers,
+      };
+    };
+    expect(drawn('fa')).toEqual({
+      letter: 'ا',
+      stack: [
+        { name: 'اپراتور', avatar: null, online: true },
+        { name: 'سارا', avatar: null, online: true },
+        { name: 'Reza', avatar: null, online: false },
+      ],
+    });
+    expect(drawn('tr').stack[0]).toEqual({ name: 'Operatör', avatar: null, online: true });
+    expect(drawn('en').letter).toBe('O');
+  });
+
+  it('the smart studio\'s frame wears the agent face and the team of the Appearance preview and the picker', () => {
+    // The studio's controls measure themselves; jsdom has no ResizeObserver.
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as never;
+    const members = [
+      { user_id: 'u1', role: 'agent', full_name: 'سارا', email: 'sara@example.com', avatar_url: null, created_at: '2026-10-01T09:00:00+00:00' },
+      { user_id: 'u2', role: 'agent', full_name: null, email: 'reza@example.com', avatar_url: null, created_at: '2026-10-02T09:00:00+00:00' },
+    ] as WorkspaceMember[];
+    const presence = [{ user_id: 'u1', state: 'online', customer_availability: 'available' }] as unknown as OperatorPresence[];
+    const team = previewTeam(members, presence, 'fa');
+    const settings = { widget_language: 'fa', fab_icon: 'avatar' };
+    const frameOf = (el: JSX.Element) => {
+      const { container } = render(el);
+      const doc = container.querySelector('iframe')!.getAttribute('srcdoc') || '';
+      cleanup();
+      return {
+        letter: new DOMParser().parseFromString(doc, 'text/html').getElementById('gs-launcher')!.getAttribute('data-fi'),
+        stack: (JSON.parse(/var GS_PREVIEW = (\{.*\});\n/.exec(doc)![1]) as { homeVm: { teamMembers: unknown[] } }).homeVm.teamMembers,
+      };
+    };
+    const appearance = frameOf(
+      <WidgetLivePreview settings={settings} workspaceName="نیلوفر" view="home" teamMembers={team} templateId="default" templateOptions={{}} />,
+    );
+    // As SmartRulesTab renders the studio (WidgetPage hands it the same team).
+    const studio = frameOf(
+      <SmartRulePreviewStudio
+        draft={createEmptySmartRule('fa', 'UTC')} settings={settings} brandName="نیلوفر"
+        locale="fa" locales={['fa']} localeLabels={{ fa: 'فارسی' }} teamMembers={team}
+      />,
+    );
+    expect(previewAgentInitial(team, 'نیلوفر')).toBe('س');
+    expect(appearance.letter).toBe('س');
+    expect(studio).toEqual(appearance);
+    expect(JSON.stringify(studio)).not.toContain('example.com');
   });
 
   it('the agent\'s face without a team: the workspace\'s letter', () => {

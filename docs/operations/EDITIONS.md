@@ -137,9 +137,13 @@ phone size is not used: the loader keeps the configured size on phones.
 RESPOK's chat button is in the loader's `@intl-kit` block: the Iran (WebYar)
 build leaves it out, so a WebYar deployment switched to the International
 edition shows the plain launcher with no other brand's art; RESPOK's build
-keeps it. With the `t1-intl` / `t2-intl` option `logoDirection: 'open'`, the
-button draws the Open logo (a bubble; the Signal dot springs in with a new
-message), the shell gets `lg-open` (else `lg-thread`), and the credit uses
+keeps it. The marker is the widgets' copy of the dashboard's `SHIPS_INTL_KIT`
+(`shared/buildBrand.ts`; `scripts/build/widgetBrand.mjs`,
+WIDGET_TEMPLATE_RULES.md §5), so the dashboard's live preview and launcher
+picker draw RESPOK's kit in RESPOK's build only, as the loader does. With
+the `t1-intl` / `t2-intl` option `logoDirection: 'open'`, the button draws
+the Open logo (a bubble; the Signal dot springs in with a new message), the
+shell gets `lg-open` (else `lg-thread`), and the credit uses
 `respok-open-horizontal-color.svg`. `intl` reads no option and stays Thread.
 The launcher styles (`runtime-fab.css`, WIDGET_TEMPLATE_RULES.md §2) dress the
 kit's button like any other; the kit's square (18px) is the Iranian kit's

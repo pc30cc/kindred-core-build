@@ -914,9 +914,11 @@ describe('messages of two operators, as the visitor now gets them (no operator i
         (r.classList.contains('is-last') ? '|' : '');
     });
   }
-  const RUNS = ['شما|', 'سارا: سارا', 'سارا|', 'مهدی: مهدی', 'مهدی|'];
+  // The chat bar names who answers, so the first run has no label; a
+  // label only where the team's side changes hands (owner, 2026-10-18).
+  const RUNS = ['شما|', 'سارا', 'سارا|', 'مهدی: مهدی', 'مهدی|'];
 
-  it('t1 and t2: a label over each operator\'s run, one avatar per run', async () => {
+  it('t1 and t2: a label where another operator takes over, one avatar per run', async () => {
     for (const renderer of ['t1', 't2'] as const) {
       resetWindow();
       const { cid, rows } = await twoOperators();

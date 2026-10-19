@@ -7,7 +7,11 @@
    default template's stylesheet.
 
    Accent: the renderer writes `--a` (the workspace colour) and `--on-a`
-   inline on every view root and on the close button; every other accent
+   (its ink: Ink on a light accent; on any other white, with `--a` the
+   colour darkened until white on it reaches 5:1, so every fill, tint and
+   ring below follows that tone) inline on every view root and on the
+   close button. Text on the accent sits on `--a` itself: a sheen
+   (`--a-hi`) ends at 30 % of the height, above the words. Every other accent
    shade is derived here (color-mix, with the brand's resolved values for
    browsers without it). An uncustomised accent is not inlined: the
    renderer marks those elements `gs-accent-brand` and the brand colour and
@@ -277,9 +281,12 @@
 .wt { display: flex; flex-direction: column; min-width: 0; }
 .nm, .ttl { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .nm { font-size: 15px; font-weight: 700; line-height: 1.35; }
-.st { display: flex; align-items: center; gap: 6px; font-size: 12.5px; line-height: 1.4; color: var(--ink-3); white-space: nowrap; }
+.st { display: flex; align-items: center; gap: 6px; overflow: hidden; font-size: 12.5px; line-height: 1.4; color: var(--ink-3); white-space: nowrap; }
+/* Its words in a box of their own: a long name ends in an ellipsis (the
+   line's anonymous text cannot), and the typing dots after it stay. */
+.st b { min-width: 0; overflow: hidden; font-weight: inherit; text-overflow: ellipsis; }
 .st.typ { color: var(--a-ink); }
-.st.typ i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: t2-wave 1.2s ease-in-out infinite; }
+.st.typ i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: t2-wave 1.2s ease-in-out infinite; }
 .st.typ i:nth-of-type(2), .typing-dots i:nth-child(2) { animation-delay: .15s; }
 .st.typ i:nth-of-type(3), .typing-dots i:nth-child(3) { animation-delay: .3s; }
 .ondot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
@@ -317,6 +324,8 @@
 .msg-avatar { display: grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; background: #EBE1FA; color: #57309A; font-weight: 700; margin-bottom: 22px; }
 .msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .msg-avatar-spacer { visibility: hidden; }
+/* The typing and thinking rows have no time line under their bubble. */
+.typing-row .msg-avatar, .ai-thinking-row .msg-avatar { margin-bottom: 0; }
 .c1 { background: #FCE3D4; color: #8A3410; }
 .c2 { background: #DCE6FB; color: #1C4A92; }
 .c3 { background: #D2EEDF; color: #145E39; }
@@ -580,6 +589,9 @@
   font-size: 12.5px;
   font-weight: 700;
 }
+/* Core's proactive message paints its button in the raw colour (inline):
+   the accent and its ink instead, as everywhere else. */
+.smart-msg .smart-cta { background: var(--a) !important; color: var(--on-a); }
 .smart-dismiss { position: absolute; top: 6px; inset-inline-end: 6px; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; color: var(--ink-3); }
 
 /* ─── Footer ────────────────────────────────────────────────────────── */
@@ -654,7 +666,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .msg.operator { border-radius: 20px 20px 20px 6px; background: var(--bubble); color: var(--ink); }
 .msg.visitor {
   border-radius: 20px 20px 6px 20px;
-  background: linear-gradient(180deg, var(--a-hi), var(--a) 75%);
+  background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);
   color: var(--on-a);
   box-shadow: 0 1px 2px var(--a25);
 }
@@ -672,6 +684,11 @@ a.wy-powered:hover { color: var(--ink-2); }
 .visitor .msg ::selection { background: rgba(255, 255, 255, .35); }
 .is-failed .msg:not(.has-att-only) { opacity: .72; }
 .msg-quote { display: block; margin-bottom: 4px; padding-inline-start: 8px; border-inline-start: 3px solid currentColor; overflow: hidden; font-size: 12px; opacity: .75; white-space: nowrap; text-overflow: ellipsis; }
+/* The visitor's own lines in the bubble's ink at full strength (white at
+   .75 to .9, or on a white tint, falls below 4.5:1 on a 5:1 accent). A
+   quote is the bubble's first line, where the sheen is: that bubble is flat. */
+.visitor .msg-quote, .visitor .wy-ap-time { opacity: 1; }
+.msg.visitor:has(> .msg-quote) { background: var(--a); }
 .msg-link {
   display: inline-flex;
   align-items: center;
@@ -680,7 +697,6 @@ a.wy-powered:hover { color: var(--ink-2); }
   margin: 2px 0;
   padding: 3px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .16);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55);
   font-size: 12.5px;
   font-weight: 600;
@@ -696,8 +712,11 @@ a.wy-powered:hover { color: var(--ink-2); }
 .msg-actions { position: absolute; bottom: 0; display: inline-flex; gap: 1px; padding: 0 4px 2px; opacity: 0; transition: opacity .15s; }
 .visitor .msg-actions { right: 100%; }
 .operator .msg-actions { left: 100%; }
-.msg-row:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
-@media (hover: none) { .msg-actions { opacity: .6; } }
+/* Only for the line the pointer is on (a tap on a touch screen hovers it)
+   or the one a key moved into. A mouse finds them where they are drawn
+   (they hover their line); on a touch screen, hidden, they take no taps. */
+.msg-line:hover > .msg-actions, .msg-actions:focus-within { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .msg { cursor: pointer; } .msg-actions { pointer-events: none; } }
 .msg-act { display: inline-flex; padding: 3px; border-radius: 6px; color: var(--ink-4); transition: background-color .15s, color .15s; }
 .msg-act:hover { background: var(--paper); color: var(--ink); }
 .msg-act.is-done { color: var(--a); }
@@ -776,7 +795,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .cap bdi { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .is-loading > .cap, .failed > .cap { display: none; }
 .msg-att-file { display: flex; align-items: center; gap: 12px; width: 250px; max-width: 100%; padding: 10px 12px; background: var(--bubble); color: var(--ink); }
-.visitor .msg-att-file { background: linear-gradient(180deg, var(--a-hi), var(--a) 75%); color: var(--on-a); }
+.visitor .msg-att-file { background: linear-gradient(180deg, var(--a-hi), var(--a) 30%); color: var(--on-a); }
 .msg-att-icon {
   display: grid;
   place-items: center;
@@ -794,7 +813,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .msg-att-meta { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .msg-att-name { overflow: hidden; font-size: 13px; font-weight: 600; line-height: 1.5; white-space: nowrap; text-overflow: ellipsis; unicode-bidi: plaintext; }
 .msg-att-sub { font-size: 11.5px; color: var(--ink-3); }
-.visitor .msg-att-sub { color: inherit; opacity: .8; }
+.visitor .msg-att-sub { color: inherit; }
 .msg-att-action { position: relative; display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 50%; background: #fff; color: var(--a-ink); box-shadow: 0 0 0 1px var(--line); }
 .msg-att-action.downloading::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 2.5px solid transparent; border-top-color: var(--a); animation: t2-spin .8s linear infinite; }
 /* A download's progress (feature `dlProgress`: Core's `--dl`, 0..1, on the
@@ -810,7 +829,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 /* A voice note: play at the start of the reading direction, the wave
    always left→right, its played share drawn over it. */
 .msg-att-audio { display: flex; align-items: center; gap: 10px; width: 244px; max-width: 100%; padding-block: 8px; padding-inline: 8px 14px; background: var(--bubble); color: var(--ink); }
-.visitor .msg-att-audio { background: linear-gradient(180deg, var(--a-hi), var(--a) 75%); color: var(--on-a); }
+.visitor .msg-att-audio { background: linear-gradient(180deg, var(--a-hi), var(--a) 30%); color: var(--on-a); }
 .wy-ap-play { position: relative; display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 50%; background: #fff; color: var(--a-ink); }
 .visitor .wy-ap-play { background: rgba(255, 255, 255, .22); color: inherit; }
 .wy-ap-ico, .vn-ico { display: none; line-height: 0; }
@@ -968,11 +987,10 @@ a.wy-powered:hover { color: var(--ink-2); }
   grid-template-columns: repeat(8, 1fr);
   max-height: 212px;
   overflow-y: auto;
-  margin: 0 12px 8px;
-  padding: 6px;
-  border-radius: 20px;
-  background: #fff;
-  box-shadow: var(--sh-tray);
+  margin: -6px -2px 6px;
+  padding: 0 0 6px;
+  box-shadow: inset 0 -1px 0 var(--line);
+  animation: t2-fade .18s ease both;
 }
 .emoji-picker button { height: 36px; border-radius: 10px; font-size: 20px; line-height: 1; }
 .emoji-picker button:hover { background: var(--paper); }
@@ -994,7 +1012,7 @@ a.wy-powered:hover { color: var(--ink-2); }
   box-shadow: 0 0 0 1px var(--line), 0 8px 20px -10px rgba(15, 18, 23, .4);
   animation: t2-pop .3s var(--bounce) both;
 }
-.wy-jump.has-new { background: linear-gradient(180deg, var(--a-hi), var(--a)); color: var(--on-a); }
+.wy-jump.has-new { background: linear-gradient(180deg, var(--a-hi), var(--a) 30%); color: var(--on-a); }
 .wy-jump-ico { display: inline-flex; }
 .wy-jump-label:empty { display: none; }
 
@@ -1120,7 +1138,7 @@ button.lnk2:not(:disabled):hover { color: var(--ink-2); }
   width: 100%;
   height: 46px;
   border-radius: 14px;
-  background: linear-gradient(180deg, var(--a-hi), var(--a));
+  background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);
   color: var(--on-a);
   font-size: 14px;
   font-weight: 700;
@@ -1165,7 +1183,7 @@ button.lnk2:not(:disabled):hover { color: var(--ink-2); }
   height: 48px;
   padding: 0 20px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--a-hi), var(--a));
+  background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);
   color: var(--on-a);
   font-size: 14px;
   font-weight: 700;
@@ -1288,14 +1306,15 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
   margin: 0 14px 4px;
   padding: 12px 14px;
   border-radius: 20px;
-  background: linear-gradient(165deg, var(--h1), var(--h2) 60%, var(--h3));
+  background: var(--a);
   color: var(--on-a);
   text-align: start;
   box-shadow: 0 12px 24px -16px rgba(15, 18, 23, .6);
 }
 .cta .av { box-shadow: 0 0 0 2.5px rgba(255, 255, 255, .9); }
 .cta .tx { font-size: 14px; font-weight: 700; line-height: 1.45; }
-.cta small { font-size: 12px; font-weight: 500; line-height: 1.5; opacity: .82; }
+/* Full ink: white at .82 over a mid-tone accent was below 4.5:1. */
+.cta small { font-size: 12px; font-weight: 500; line-height: 1.5; }
 .go { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; background: rgba(255, 255, 255, .16); transition: transform .25s var(--ease); }
 .cta:hover .go { transform: translateX(3px); }
 [dir='rtl'] .cta:hover .go { transform: translateX(-3px); }
@@ -1359,7 +1378,7 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .ci-actions { display: flex; gap: 8px; }
 .ci-btn { padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 500; transition: filter 0.15s, background-color 0.15s, transform 0.15s var(--ease); }
 .ci-btn:active { transform: scale(0.97); }
-.ci-btn-primary { background: var(--a); color: #fff; }
+.ci-btn-primary { background: var(--a); color: var(--on-a); }
 .ci-btn-primary:hover { filter: brightness(1.07); }
 .ci-btn-ghost { background: var(--paper); color: var(--ink-3); }
 .ci-btn-ghost:hover { background: var(--line); }
@@ -1627,6 +1646,8 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .cta:focus-visible { border-radius: 20px; }
 /* The bubble clips the image (overflow: hidden): its ring is drawn inside. */
 .msg .msg-att-img-btn:focus-visible { outline-offset: -4px; border-radius: 16px; }
+/* So does the emoji grid, which scrolls, at its edges. */
+.emoji-picker button:focus-visible { outline-offset: -2px; }
 
 /* ─── Phones: the panel is the screen ───────────────────────────────── */
 @media (max-width: 640px) {

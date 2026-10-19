@@ -35,6 +35,7 @@ import {
 } from './types.js';
 import type { ConversationEventEnvelope } from './publishers/types.js';
 import { rtDebug, rtWarn } from './debug.js';
+import { isPlaceholderName, looksLikeEmail } from '../../../shared/systemMessages.js';
 
 export type { ConversationEventEnvelope } from './publishers/types.js';
 
@@ -188,17 +189,34 @@ export const OPERATOR_ID_METADATA_KEYS: readonly string[] = [
 ];
 
 /**
- * A message's metadata as the visitor gets it: without OPERATOR_ID_METADATA_KEYS.
- * The same object when it has none of them (so such a row answers exactly as
- * it always did), else a shallow copy, keys in their order.
+ * Metadata keys that hold the NAME the visitor's sentence shows (a join's
+ * `agent_name`, a transfer's `to_name`, a call invitation's
+ * `operator_name`). A value that is an English stand-in ('a colleague',
+ * which chatRouting.ts once stored as a name: shared/systemMessages.ts
+ * isPlaceholderName) or an email address (call invitations once fell back
+ * to the operator's) is not a name: without it every renderer writes its
+ * own generic sentence, in the visitor's language.
+ */
+const VISITOR_NAME_METADATA_KEYS: readonly string[] = ['agent_name', 'to_name', 'operator_name'];
+
+function notAVisitorName(key: string, value: unknown): boolean {
+  return VISITOR_NAME_METADATA_KEYS.includes(key) && (isPlaceholderName(value) || looksLikeEmail(value));
+}
+
+/**
+ * A message's metadata as the visitor gets it: without
+ * OPERATOR_ID_METADATA_KEYS, and without a name key that holds no name
+ * (above). The same object when nothing goes (so such a row answers exactly
+ * as it always did), else a shallow copy, keys in their order.
  */
 export function visitorMessageMetadata<T>(metadata: T): T {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata;
   const meta = metadata as Record<string, unknown>;
-  if (!OPERATOR_ID_METADATA_KEYS.some((key) => Object.prototype.hasOwnProperty.call(meta, key))) return metadata;
+  const drop = (key: string) => OPERATOR_ID_METADATA_KEYS.includes(key) || notAVisitorName(key, meta[key]);
+  if (!Object.keys(meta).some(drop)) return metadata;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta)) {
-    if (!OPERATOR_ID_METADATA_KEYS.includes(key)) out[key] = value;
+    if (!drop(key)) out[key] = value;
   }
   return out as T;
 }
@@ -209,13 +227,19 @@ export function visitorMessageMetadata<T>(metadata: T): T {
  * and /identity/history. No `sender_id` (an operator's user id on their
  * replies, the inviting or hanging-up operator's on call rows; nothing in the
  * widget groups or labels by it: runtime.js keys a sender by its name and
- * avatar) and metadata through visitorMessageMetadata. Keys keep their order.
+ * avatar) and metadata through visitorMessageMetadata. A `sender_name` that
+ * is a placeholder is null. An AI row keeps its stored name, the built-in
+ * 'AI Assistant' too: the runtime.js loaded before this release labels the
+ * reply with it, and today's treats it as no name (runtime.js aiOwnName).
+ * Keys keep their order.
  */
 export function visitorMessagePayload<T extends Record<string, unknown>>(payload: T): T {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'sender_id') continue;
-    out[key] = key === 'metadata' ? visitorMessageMetadata(value) : value;
+    if (key === 'metadata') out[key] = visitorMessageMetadata(value);
+    else if (key === 'sender_name') out[key] = isPlaceholderName(value) ? null : value;
+    else out[key] = value;
   }
   return out as T;
 }
@@ -249,7 +273,10 @@ export type OperatorEventKind =
   // A message's reactions changed (services/messageReactions.ts): its new
   // counts, read by the visitor's widget too (WIDGET_EVENT_FIELDS). No
   // actor ids.
-  | 'message_reactions';
+  | 'message_reactions'
+  // A call invitation's status changed (services/calls/invitations.ts),
+  // read by the inbox's call card (src/lib/call-invitations-events.ts).
+  | 'call_invitation_changed';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

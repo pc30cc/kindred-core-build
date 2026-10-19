@@ -6,6 +6,7 @@ import tr from '@/i18n/locales/tr';
 import {
   systemMessageText, invitationStatusText, formatCallDuration,
 } from '@/lib/systemMessageText';
+import { SYSTEM_MESSAGE_KINDS } from '../../../shared/systemMessages';
 
 /**
  * System message bodies are written in English by the server and frozen into
@@ -38,7 +39,27 @@ const KINDS = [
   { kind: 'support_rating', internal: true, score: 4, comment: 'great help' },
   { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Sara', status: 'resolved' },
   { kind: 'conversation_closed', by: 'agent', agent_name: null, status: 'closed' },
+  { kind: 'platform_support_requester', internal: true, user: { name: 'Sara' }, workspace_count: 1 },
+  { kind: 'platform_support_requester', internal: true, user: { name: null } },
+  { kind: 'conversation_transferred', to_name: 'Sara' },
+  { kind: 'conversation_transferred' },
+  { kind: 'conversation_unassigned' },
 ];
+
+describe('every kind the server writes has a sentence', () => {
+  it('covers SYSTEM_MESSAGE_KINDS in fa, en and tr, and Persian differs from English', () => {
+    // A new kind is added to shared/systemMessages.ts first; this is what
+    // makes the operator side follow.
+    for (const kind of SYSTEM_MESSAGE_KINDS) {
+      const sample = KINDS.find((m) => m.kind === kind);
+      expect(sample, `no sample for ${kind}`).toBeTruthy();
+      for (const [name, t] of Object.entries(T)) {
+        expect(systemMessageText(sample, t), `${name} / ${kind}`).toBeTruthy();
+      }
+      expect(systemMessageText(sample, T.fa), kind).not.toBe(systemMessageText(sample, T.en));
+    }
+  });
+});
 
 describe('every system message kind has text, in every locale', () => {
   it('never falls through to null for a kind the product emits', () => {
@@ -159,6 +180,63 @@ describe('the sentences say the right thing', () => {
     }
   });
 
+  it('reads the queue line from the operator\'s side: the visitor waits, not "you"', () => {
+    expect(systemMessageText({ kind: 'routing_in_queue' }, T.en)).toBe('The visitor is waiting in the support queue');
+    expect(systemMessageText({ kind: 'routing_in_queue' }, T.fa)).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(systemMessageText({ kind: 'routing_in_queue' }, T.tr)).toBe('Ziyaretçi destek kuyruğunda bekliyor');
+    for (const t of Object.values(T)) {
+      expect(systemMessageText({ kind: 'routing_in_queue' }, t)).not.toMatch(/You are|هستید|Sıradasınız/);
+    }
+  });
+
+  it('a transfer or unassign without names never starts with a blank', () => {
+    expect(systemMessageText({ kind: 'conversation_transferred', to_name: 'Sara' }, T.en))
+      .toBe('This conversation was transferred to Sara');
+    expect(systemMessageText({ kind: 'conversation_transferred', to_name: 'Sara' }, T.fa))
+      .toBe('این گفتگو به Sara منتقل شد');
+    expect(systemMessageText({ kind: 'conversation_transferred', actor_name: 'Ali' }, T.en))
+      .toBe('This conversation was transferred');
+    expect(systemMessageText({ kind: 'conversation_unassigned' }, T.tr))
+      .toBe('Bu görüşmenin ataması kaldırıldı');
+    expect(systemMessageText({ kind: 'conversation_unassigned', actor_name: '  ' }, T.en))
+      .toBe('This conversation was unassigned');
+    for (const meta of [
+      { kind: 'conversation_transferred', to_name: 'Sara' },
+      { kind: 'conversation_transferred' },
+      { kind: 'conversation_unassigned' },
+    ]) {
+      for (const [name, t] of Object.entries(T)) {
+        expect(systemMessageText(meta, t), `${name} / ${JSON.stringify(meta)}`).not.toMatch(/^\s/);
+      }
+    }
+  });
+
+  it('treats the English stand-ins once stored as a name as no name', () => {
+    // chatRouting stored 'a colleague' as agent_name, which a Persian
+    // sentence then printed in English.
+    for (const agent_name of ['a colleague', ' A Colleague ', 'An operator']) {
+      expect(systemMessageText({ kind: 'routing_agent_joined', agent_name }, T.fa)).toBe('یکی از همکاران به گفتگو پیوست');
+      expect(systemMessageText({ kind: 'routing_agent_joined', agent_name }, T.en)).toBe('A colleague joined the conversation');
+    }
+    expect(systemMessageText({ kind: 'conversation_transferred', actor_name: 'An operator', to_name: 'Sara' }, T.en))
+      .toBe('This conversation was transferred to Sara');
+    expect(systemMessageText({ kind: 'conversation_closed', agent_name: 'a colleague' }, T.tr)).toBe('Sohbet kapatıldı');
+  });
+
+  it('writes the requester card as its title, with the name when there is one', () => {
+    expect(systemMessageText({ kind: 'platform_support_requester', user: { name: 'Sara' } }, T.en)).toBe('Who is asking · Sara');
+    expect(systemMessageText({ kind: 'platform_support_requester', user: { name: 'Sara' } }, T.fa)).toBe('مشخصات درخواست‌کننده · Sara');
+    expect(systemMessageText({ kind: 'platform_support_requester', user: null }, T.tr)).toBe('Talep eden');
+    expect(systemMessageText({ kind: 'platform_support_requester' }, T.en)).toBe('Who is asking');
+  });
+
+  it('prints names as typed, even when they look like placeholders', () => {
+    expect(systemMessageText({ kind: 'conversation_transferred', actor_name: '{to}', to_name: '$&' }, T.en))
+      .toBe('{to} transferred this conversation to $&');
+    expect(systemMessageText({ kind: 'routing_agent_joined', agent_name: '$1 {name}' }, T.en))
+      .toBe('$1 {name} joined the conversation');
+  });
+
   it('formats durations past an hour', () => {
     expect(formatCallDuration(0)).toBe('00:00');
     expect(formatCallDuration(72)).toBe('01:12');
@@ -185,13 +263,16 @@ describe('every surface reads from the one localizer', () => {
   it('gets the whole metadata object from the server, not a field per kind', () => {
     // Shipping named fields meant every new kind needed a server change too,
     // and the list silently fell behind the thread when one was forgotten.
-    expect(CONVERSATIONS_ROUTE).toContain('system_meta: meta?.kind ? meta : null,');
+    expect(CONVERSATIONS_ROUTE).toContain('system_meta: meta?.kind ? (isSystem ? withoutPlaceholderNames(meta) : meta) : null,');
     expect(CONVERSATIONS_ROUTE).not.toContain('actor_name: meta?.actor_name ? String(meta.actor_name) : null,');
     expect(CONTACTS_ROUTE).toContain('last_message_meta:');
     expect(CONTACTS_ROUTE).toContain("select('conversation_id, sender_type, sender_id, body, created_at, metadata')");
   });
 
   it('the thread draws the closed line as a centred notice, not as a bubble', () => {
-    expect(INBOX).toMatch(/meta\.kind === 'routing_agent_joined' \|\| meta\.kind === 'conversation_closed'/);
+    // Every system row is a SystemNoticeRow (inboxSystemRows.test.tsx).
+    const NOTICE = readFileSync('src/components/inbox/SystemNoticeRow.tsx', 'utf8');
+    expect(INBOX).toContain('<SystemNoticeRow');
+    expect(NOTICE).toContain("from '@/lib/systemMessageText'");
   });
 });

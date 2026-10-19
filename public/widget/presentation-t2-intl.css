@@ -75,7 +75,6 @@
 /* Paper tiles with Ink icons. */
 .r .it, .res .it, .tray .it { background: var(--paper); color: var(--ink); }
 .cat .it, .st.typ { color: var(--ink); }
-.cta { background: var(--ink); }
 
 /* ─── Thread and composer: flat Ink fills, Signal rings and caret ────── */
 .msg.visitor, .has-draft .send-btn, .fab, .csat .btn { background: var(--a); }

@@ -14,6 +14,9 @@ import { getPlatformAllowedLocales } from '../../platformRegion.js';
 const OFFLINE_NOTICE_COOLDOWN_MS = 10 * 60 * 1000;
 const OFFLINE_LOCK_COOLDOWN_MS = 45 * 1000;
 
+/** A conversations row read for its metadata alone. */
+type MetadataRow = { metadata?: Record<string, unknown> | null } | null;
+
 export async function isWorkspaceUnreachable(
   config: ServerConfig,
   workspaceId: string,
@@ -26,6 +29,44 @@ export async function isWorkspaceUnreachable(
   if (availability?.state === 'offline') return true;
   if (presence && presence.memberCount > 0 && !presence.anyAvailable) return true;
   return false;
+}
+
+/**
+ * The language to answer a bot conversation's user in when the caller does
+ * not know it (routing, the AI hand-over): the contact's `channel_language`
+ * (the Telegram user's, channels/inboundProcessing.ts) when the platform
+ * offers it, else the platform's primary locale — the rule every bot reply
+ * follows (runtime.ts resolveTelegramReplyLocale).
+ */
+export async function conversationReplyLocale(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+): Promise<{ locale: string; fallbackLocale: string }> {
+  let language: string | null = null;
+  try {
+    const sb = getServiceClient(config);
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('contact_id')
+      .eq('id', conversationId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    const contactId = (conv as { contact_id?: string | null } | null)?.contact_id;
+    if (contactId) {
+      const { data: contact } = await sb
+        .from('contacts')
+        .select('metadata')
+        .eq('id', contactId)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      const value = ((contact as { metadata?: Record<string, unknown> | null } | null)?.metadata || {}).channel_language;
+      language = typeof value === 'string' ? value : null;
+    }
+  } catch { /* the primary locale below */ }
+  // runtime.ts imports this module; loaded when first needed.
+  const { resolveTelegramReplyLocale } = await import('./runtime.js');
+  return resolveTelegramReplyLocale(config, language);
 }
 
 /**
@@ -57,12 +98,19 @@ export async function maybeQueueTelegramOfflineScreen(
     provider?: string | null;
   },
 ): Promise<boolean> {
-  const platformLocales = await getPlatformAllowedLocales(config).catch(() => ['en']);
-  const fallbackLocale = args.fallbackLocale || platformLocales[0] || 'en';
-  const locale = args.locale || fallbackLocale;
-
+  // Not a bot conversation (every widget hand-over asks): nothing else is read.
   const provider = await resolveConversationProvider(config, args);
   if (!provider) return false;
+
+  const platformLocales = await getPlatformAllowedLocales(config).catch(() => ['en']);
+  // A caller that does not know the user's language (routing, the AI
+  // hand-over) gets it from the conversation's contact.
+  const userLocale = args.locale
+    ? null
+    : await conversationReplyLocale(config, args.workspaceId, args.conversationId).catch(() => null);
+  const fallbackLocale = args.fallbackLocale || userLocale?.fallbackLocale || platformLocales[0] || 'en';
+  const locale = args.locale || userLocale?.locale || fallbackLocale;
+
   const installation = await getInstallation(config, args.workspaceId, provider);
   if (!installation) return false;
   const settings = parseTelegramSettings(installation.settings);
@@ -94,7 +142,7 @@ export async function maybeQueueTelegramOfflineScreen(
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
     if (!data) return false;
-    const metadata = (((data as any).metadata as Record<string, unknown>) || {});
+    const metadata = (data as MetadataRow).metadata || {};
     const lastAt = Date.parse(String(metadata.telegram_offline_notice_at || '')) || 0;
     // Another concurrent path already owns this visitor-facing response.
     // Return true so callers suppress their plain-text channel fallback;
@@ -124,7 +172,7 @@ export async function maybeQueueTelegramOfflineScreen(
     .select('metadata')
     .eq('id', args.conversationId)
     .maybeSingle();
-  const conversationMetadata = (((metadataResult.data as any)?.metadata as Record<string, unknown>) || {});
+  const conversationMetadata = (metadataResult.data as MetadataRow)?.metadata || {};
   const chatId = String(conversationMetadata.channel_chat_id ?? '');
   if (!chatId) return false;
 
@@ -174,6 +222,6 @@ async function resolveConversationProvider(
     .eq('id', args.conversationId)
     .eq('workspace_id', args.workspaceId)
     .maybeSingle();
-  const channel = String((((data as any)?.metadata ?? {}) as Record<string, unknown>).channel ?? '');
+  const channel = String(((data as MetadataRow)?.metadata ?? {}).channel ?? '');
   return isBotProvider(channel) ? channel : null;
 }

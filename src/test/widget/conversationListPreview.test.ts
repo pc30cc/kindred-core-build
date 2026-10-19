@@ -7,8 +7,10 @@
  * the inbox-only notice "Ali unassigned this conversation" (English, written
  * for the inbox) became the visitor's preview and added one unread. The
  * `conversation_closed` line (drawn by templates that show it, in the thread)
- * is skipped the same way. Everything else about the answer stays as it was,
- * which the last test pins for `default` (no operator=1).
+ * is skipped the same way. Everything else about the answer stays as it was
+ * (apart from a system row's systemKind/systemMeta,
+ * conversationListSystemPreview.test.ts), which the last test pins for
+ * `default` (no operator=1).
  *
  * The REAL widgetRouter runs in-process against an in-memory fake of the
  * data layer (as widgetOperatorFields.test.ts does).
@@ -155,6 +157,9 @@ describe('GET /api/widget/conversations — preview and unread', () => {
       {
         id: 'c1', status: 'open', updatedAt: '2026-10-17T10:00:00Z', preview: 'Sara joined the conversation.',
         attachmentKind: null, outbound: false, unreadCount: 2, lastMessageAt: '2026-10-17T09:31:00Z',
+        // A system row also says which it is, so the widget writes it in the
+        // visitor's language (conversationListSystemPreview.test.ts).
+        systemKind: 'routing_agent_joined', systemMeta: { agent_name: 'Sara' },
       },
       {
         id: 'c2', status: 'resolved', updatedAt: '2026-10-16T10:00:00Z', preview: `${'x'.repeat(119)}…`,

@@ -131,21 +131,25 @@ templates: `docs/operations/EDITIONS.md`.
   order instead) put them on the page before painting.
   `src/test/widget/runtimeExt.test.ts` checks who asks and when, the
   all-or-nothing rule and the one repaint. Sizes on 2026-10-18, after issue
-  #340's rounds 1–4 (gzip 5, as shipped, both brands): runtime.js 54.8 KB
-  (+0.2 KB for the issue so far: round 2's closed-row guards, the hook
-  points `send`, `away`, `inline`, `reaction`, `kbMeta`, `media`, the typing
-  payload and the capability flips), runtime-ext.js
-  7.3 KB (of 8; the pack's loader, the late module's API, those hooks' own
-  empty handlers, the typing name and an article's author), runtime-late.js
+  #340 and its follow-ups (gzip 5, as shipped, both brands): runtime.js
+  55.5 KB (54.8 KB after rounds 1–4, +0.2 KB: round 2's closed-row guards,
+  the hook points `send`, `away`, `inline`, `reaction`, `kbMeta`, `media`,
+  the typing payload and the capability flips; then +0.8 KB for every
+  template: the system rows' sentence in the visitor's language,
+  `systemRowText`, `default`'s presence label, the hook point `autofocus`
+  and the AI's built-in name read as none, `aiOwnName`), runtime-ext.js 7.4 KB (of 8; the pack's loader, the late
+  module's API, those hooks' own empty handlers, the typing name, an
+  article's author, the control the visitor is on and t1's pre-chat
+  header), runtime-late.js
   10.4 KB (of 12: the rating card, the chat bar's menu, reactions, the
   pre-chat one question at a time, the message left while away, the place
   in the queue, the help articles offered while a first message is written,
   a download's progress, the emoji search), presentation-t1-x.js 4.8 KB and
   presentation-t2-x.js 5.9 KB (of 12 each; t1's emoji grid and its search
   field, t2's order card and articles tray, every late surface, out of the
-  first paint); the renderers keep their first-open budgets (t1 19.4 KB,
-  t2 19.9 KB in the Iranian build, 19.3 / 19.8 KB in RESPOK's, of 20: t2
-  has 62 B left, so its next surface goes in its extras).
+  first paint); the renderers keep their first-open budgets (t1 19.5 KB,
+  t2 20.0 KB (19,990 B) in the Iranian build, 19.4 / 19.8 KB in RESPOK's,
+  of 20: t2 has 10 B left, so its next surface goes in its extras).
 - The emoji search's keywords (`public/widget/runtime-emoji.js`, ModuleLoader
   name `emoji`, `config.modules.emoji` for a template with `coreFeatures`):
   pure data (the renderer rules apply: no network, storage or host), the

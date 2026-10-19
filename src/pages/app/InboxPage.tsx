@@ -34,11 +34,11 @@ import { Progress } from '@/components/ui/progress';
 import {
   Inbox, Send, CheckCircle2, Filter, MessageSquare,
   ChevronDown, ChevronUp, Search, MoreHorizontal, Archive,
-  UserCheck, AlertCircle, Clock, Star, X,
-  Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
+  UserCheck, AlertCircle, Clock, X,
+  Mail, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
-  PhoneOff, Ban, ShieldOff, Users, Play, Pause, Mic, Video,
+  Ban, ShieldOff, Users, Play, Pause, Mic,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -89,12 +89,15 @@ import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { usePanelTheme } from '@/themes/usePanelTheme';
 import { isArtFamilyTheme } from '../../../shared/panelThemes';
 import {
-  systemMessageText, invitationStatusText, attachmentPreviewText,
+  systemMessageText, attachmentPreviewText,
   type SystemMessageMeta, type AttachmentPreviewKind,
 } from '@/lib/systemMessageText';
-import { SupportRequesterCard } from '@/components/inbox/SupportRequesterCard';
+import { SystemNoticeRow } from '@/components/inbox/SystemNoticeRow';
+// English placeholder subjects ("New conversation", "Offline message") show
+// as the localized "untitled" instead; the list is shared with the server's
+// emails.
+import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 import { MessageReactionChips, ReactionPickerButton } from '@/components/inbox/MessageReactions';
-import { REQUESTER_KIND, type RequesterCardMeta } from '@/components/inbox/requesterMeta';
 
 const API_BASE = RESOLVED_API_BASE || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -122,25 +125,6 @@ const priorityColors: Record<string, string> = {
 };
 
 type FilterStatus = 'all' | 'open' | 'pending' | 'resolved' | 'closed';
-
-/**
- * Some conversations are persisted with an English placeholder subject
- * ("New conversation") by the widget/AI. Map those onto the active locale so
- * the UI never leaks English, and drop them entirely once the conversation
- * has real content (a contact name or an actual message).
- */
-const PLACEHOLDER_SUBJECTS = new Set([
-  'new conversation',
-  'new chat',
-  'untitled conversation',
-  'untitled',
-  '[attachment]',
-]);
-
-function isPlaceholderSubject(subject?: string | null): boolean {
-  const s = (subject ?? '').trim().toLowerCase();
-  return !s || PLACEHOLDER_SUBJECTS.has(s);
-}
 
 /** A conversation row as the inbox lists it (server-enriched). */
 type InboxConversation = NonNullable<ReturnType<typeof useConversations>['data']>[number] & {
@@ -2345,98 +2329,12 @@ export default function InboxPage() {
                 }
 
 
-                // Routing system notices are stored in English by the server;
-                // render them from metadata so they follow the app locale.
-                if (msg.sender_type === 'system'
-                  && (meta.kind === 'conversation_transferred' || meta.kind === 'conversation_unassigned')) {
-                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
-                  return (
-                    <div key={msg.id} className="flex justify-center my-1">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
-                        <span>{text}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                // A join, and the «X closed the conversation» line the
-                // visitor also sees (widget conversations of a template that
-                // draws it, under which they are asked to rate the chat).
-                if (msg.sender_type === 'system'
-                  && (meta.kind === 'routing_agent_joined' || meta.kind === 'conversation_closed')) {
-                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
-                  return (
-                    <div key={msg.id} className="flex justify-center my-1">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
-                        <span>{text}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                if (msg.sender_type === 'system' && meta.kind === 'routing_no_agent_available') {
-                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
-                  return (
-                    <div key={msg.id} className="flex justify-center my-1">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
-                        <span>{text}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                // The invitation body is written in English by the server
-                // (server/services/calls/invitations.ts) and frozen into the
-                // message row at insert time, so it can never follow the
-                // reader's language. Render it from metadata instead — the
-                // visitor widget already does exactly this, which is why the
-                // visitor saw a localized card while the operator inbox
-                // showed "You have been invited to an audio call."
-                if (msg.sender_type === 'system' && meta.kind === 'call_invitation') {
-                  const isVideo = meta.channel === 'video';
-                  // The shared localizer appends the live status; the thread
-                  // shows it as its own chip, so take the sentence alone.
-                  const full = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
-                  const status = String(meta.status || 'pending');
-                  const statusText = invitationStatusText(t, status);
-                  const text = full.endsWith(` · ${statusText}`)
-                    ? full.slice(0, -(statusText.length + 3))
-                    : full;
-                  return (
-                    <div key={msg.id} className="flex justify-center my-1">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
-                        {isVideo ? <Video className="w-3 h-3" /> : <Phone className="w-3 h-3" />}
-                        <span>{text}</span>
-                        <span className="opacity-70">· {statusText}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                if (msg.sender_type === 'system' && meta.kind === 'call_ended') {
-                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
-                  return (
-                    <div key={msg.id} className="flex justify-center my-1">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
-                        <PhoneOff className="w-3 h-3" />
-                        <span>{text}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                // Who is asking: the site user's account, workspaces, plans
-                // and usage, at the top of a platform-support conversation.
-                if (msg.sender_type === 'system' && meta.kind === REQUESTER_KIND) {
-                  return <SupportRequesterCard key={msg.id} meta={meta as RequesterCardMeta} />;
-                }
-                // A site user's rating of a platform-support conversation
-                // (docs/PLATFORM_SUPPORT.md). Internal: only the team sees it.
-                if (msg.sender_type === 'system' && meta.kind === 'support_rating') {
-                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
-                  return (
-                    <div key={msg.id} className="flex justify-center my-1">
-                      <div className="inline-flex max-w-[85%] items-start gap-1.5 px-3 py-1 rounded-2xl bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
-                        <Star className="w-3 h-3 mt-0.5 shrink-0 text-warning" />
-                        <span className="whitespace-pre-wrap break-words">{text}</span>
-                      </div>
-                    </div>
-                  );
+                // System notices are stored in English by the server; every
+                // one is drawn from its metadata in the app locale, as a
+                // centred notice — never an operator bubble with reply and
+                // copy, even for a kind this thread does not know yet.
+                if (msg.sender_type === 'system') {
+                  return <SystemNoticeRow key={msg.id} body={msg.body} meta={meta} t={t} />;
                 }
                 return (
                   <div key={msg.id}>

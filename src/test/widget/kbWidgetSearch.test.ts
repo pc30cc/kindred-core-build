@@ -20,6 +20,8 @@ import { parseLogicValue } from '../../../server/db/postgrest/grammar';
 import {
   KB_SEARCH_MAX_WORDS,
   kbSearchOrFilter,
+  kbSearchPhrase,
+  kbSearchText,
   kbSearchWindow,
   kbSearchWords,
   rankKbSearchRows,
@@ -83,6 +85,78 @@ describe('the order of the answers', () => {
     expect(rankKbSearchRows(rows, ['ارسال'], 2)).toHaveLength(2);
     expect(kbSearchWindow(8)).toBe(24);
     expect(kbSearchWindow(20)).toBe(50);
+  });
+});
+
+describe('a control character or a Turkish «İ» (every help search), and nothing else', () => {
+  // The three as they were before, for the queries that hold neither (and,
+  // for the order, rows that hold no «İ»: see the last case).
+  const wordsBefore = (query: string) => {
+    const words = String(query || '').replace(/[,()"{}%_*\\]/g, ' ').split(/\s+/).map((w) => w.trim()).filter(Boolean);
+    const long = words.filter((w) => w.length >= 2);
+    return Array.from(new Set((long.length ? long : words).map((w) => w.toLocaleLowerCase()))).slice(0, KB_SEARCH_MAX_WORDS);
+  };
+  const phraseBefore = (q: string) => `%${q.replace(/[%_]/g, ' ')}%`;
+  const rankBefore = <T extends { title?: string | null; excerpt?: string | null }>(rows: T[], words: string[], limit: number) => {
+    const score = (row: T) => words.reduce((s, w) => s
+      + (String(row.title || '').toLocaleLowerCase().includes(w) ? 2 : 0)
+      + (String(row.excerpt || '').toLocaleLowerCase().includes(w) ? 1 : 0), 0);
+    return rows.map((row, index) => ({ row, index, score: score(row) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, limit).map((r) => r.row);
+  };
+  const QUERIES = [
+    'سلام, سفارشم (جدید)', 'ارسال و سفارش ارسال', 'می‌خواهم سفارش را پیگیری کنم', 'Price (NEW) 100%_off', 'Kargo ÜCRETI ılık ŞIK',
+    'IADE süreci', 'Straße GROSS', 'ΟΔΟΣ οδός', 'a', ' ', 'x.y.z title.eq.1', 'one two three four five six seven eight',
+  ];
+  const ROWS = [
+    { slug: 'a', title: 'Kargo ücreti', excerpt: 'Şık paket' },
+    { slug: 'b', title: 'iade süreci', excerpt: 'ılık' },
+    { slug: 'c', title: 'زمان ارسال و پیگیری سفارش', excerpt: 'کد رهگیری' },
+    { slug: 'd', title: 'Price list', excerpt: 'new 100 off' },
+    { slug: 'e', title: 'ΟΔΟΣ', excerpt: 'straße' },
+  ];
+
+  it('the same words, phrase and order as before for every query without either, over rows without «İ»', () => {
+    for (const q of QUERIES) {
+      expect(kbSearchWords(q), q).toEqual(wordsBefore(q));
+      expect(kbSearchPhrase(q), q).toBe(phraseBefore(q));
+      expect(kbSearchText(q), q).toBe(q);
+      expect(rankKbSearchRows(ROWS, kbSearchWords(q), 5).map((r) => r.slug), q).toEqual(rankBefore(ROWS, wordsBefore(q), 5).map((r) => r.slug));
+    }
+  });
+
+  it('a control character is a space; a query of nothing else searches nothing', () => {
+    expect(kbSearchWords('سفارش\u0000ارسال\u0007کد')).toEqual(['سفارش', 'ارسال', 'کد']);
+    expect(kbSearchPhrase('İade\u0000politikası')).toBe('%İade politikası%');
+    expect(kbSearchText('a\u0000b\u001fc\u007fd\u0085e')).toBe('a b c d e');
+    expect(kbSearchPhrase('\u0000\u0000')).toBeNull();
+    // The Persian ZWNJ is a letter-joiner (Cf), not a control character.
+    expect(kbSearchWords('می‌خواهم')).toEqual(['می‌خواهم']);
+  });
+
+  it('«İ» is lower-cased as ILIKE folds it, and ranks and matches its title', () => {
+    expect(kbSearchWords('İade İSTİYORUM')).toEqual(['iade', 'istiyorum']);
+    expect('İade'.toLocaleLowerCase()).not.toBe('iade');
+    const rows = [{ slug: 'x', title: 'Kargo', excerpt: '' }, { slug: 'tr', title: 'İade politikası', excerpt: '' }];
+    expect(rankKbSearchRows(rows, kbSearchWords('İade'), 2).map((r) => r.slug)).toEqual(['tr', 'x']);
+  });
+
+  it('an article\'s «İ» now counts for a query without one too: the rows are folded as the words are (the one change of order)', () => {
+    // As the database returns them (newest first): both match `iade` (ILIKE folds «İ»).
+    const rows = [
+      { slug: 'kargo', title: 'Kargo ücreti', excerpt: 'iade için kargo' },
+      { slug: 'iade', title: 'İade politikası', excerpt: '' },
+      { slug: 'summary', title: 'Sipariş', excerpt: 'İADE süresi' },
+    ];
+    for (const q of ['iade', 'IADE', 'iade süresi']) {
+      expect(kbSearchWords(q), q).toEqual(wordsBefore(q));
+      // Before: «İade» lower-cased to «i̇ade», which holds no `iade`, so the title scored nothing.
+      expect(rankBefore(rows, wordsBefore(q), 3).map((r) => r.slug), q)
+        .toEqual(q === 'iade süresi' ? ['kargo', 'summary', 'iade'] : ['kargo', 'iade', 'summary']);
+    }
+    expect(rankKbSearchRows(rows, kbSearchWords('iade'), 3).map((r) => r.slug)).toEqual(['iade', 'kargo', 'summary']);
+    expect(rankKbSearchRows(rows, kbSearchWords('IADE'), 3).map((r) => r.slug)).toEqual(['iade', 'kargo', 'summary']);
+    expect(rankKbSearchRows(rows, kbSearchWords('iade süresi'), 3).map((r) => r.slug)).toEqual(['iade', 'summary', 'kargo']);
   });
 });
 
@@ -165,5 +239,20 @@ describe('GET /api/widget/kb/search', () => {
     expect(seen.or).toEqual(['title.ilike.%ارسال سفارش%,excerpt.ilike.%ارسال سفارش%,content.ilike.%ارسال سفارش%']);
     expect(seen.limit).toEqual([2]);
     expect(body.results.map((r) => r.slug)).toEqual(['a', 'b']);
+  });
+
+  it('a control character is a space in both; nothing but control characters reads nothing', async () => {
+    seen.or.length = 0;
+    seen.rows = [];
+    await search('ارسال\u0000سفارش', 2, null);
+    await search('ارسال\u0000سفارش', 2);
+    expect(seen.or).toEqual([
+      'title.ilike.%ارسال سفارش%,excerpt.ilike.%ارسال سفارش%,content.ilike.%ارسال سفارش%',
+      kbSearchOrFilter(['ارسال', 'سفارش']),
+    ]);
+    seen.or.length = 0;
+    expect((await search('\u0000', 2, null)).results).toEqual([]);
+    expect((await search('\u0000', 2)).results).toEqual([]);
+    expect(seen.or).toEqual([]);
   });
 });

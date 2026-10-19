@@ -75,7 +75,11 @@ describe('both sides can render it', () => {
 
   it('the inbox draws one too', () => {
     expect(ROUTE.length).toBeGreaterThan(0);
+    // Every system row goes to SystemNoticeRow, which writes it with the
+    // shared localizer (src/test/inbox/inboxSystemRows.test.tsx).
     const INBOX = readFileSync('src/pages/app/InboxPage.tsx', 'utf8');
-    expect(INBOX).toContain("meta.kind === 'routing_agent_joined'");
+    const LOCALIZER = readFileSync('shared/systemMessageText.ts', 'utf8');
+    expect(INBOX).toContain('<SystemNoticeRow');
+    expect(LOCALIZER).toContain("case 'routing_agent_joined'");
   });
 });

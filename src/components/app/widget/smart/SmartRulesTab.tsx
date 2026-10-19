@@ -4,7 +4,7 @@
  * operator always sees the real widget reacting to the real evaluator.
  */
 import { useState } from 'react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ import {
 } from '@/hooks/useSmartRules';
 import { createEmptySmartRule, type SmartRuleDraft, type SmartRuleRow } from '@/lib/widget/smartRules';
 import { SmartRuleEditor } from './SmartRuleEditor';
-import { SmartRulePreviewStudio } from './SmartRulePreviewStudio';
+import { SmartRulePreviewStudio, type SmartRulePreviewStudioProps } from './SmartRulePreviewStudio';
 import { AiProactiveNudgeCard } from './AiProactiveNudgeCard';
 
 export interface SmartRulesTabProps {
@@ -30,15 +30,17 @@ export interface SmartRulesTabProps {
   localeLabels: Record<string, string>;
   kbArticles?: { title: string; slug?: string | null }[];
   /** Real widget settings — the studio renders the production preview with them. */
-  previewSettings?: Record<string, any> | null;
+  previewSettings?: SmartRulePreviewStudioProps['settings'];
   brandName?: string;
+  /** The team visitors see (previewTeam.ts), for the studio's launcher and stack. */
+  teamMembers?: SmartRulePreviewStudioProps['teamMembers'];
   studioKbArticles?: { title: string; excerpt?: string | null; content?: string | null }[];
   studioKbCategories?: { name: string; description?: string | null }[];
 }
 
 export function SmartRulesTab({
   workspaceId, masterEnabled, onToggleMaster, locale, locales, localeLabels,
-  kbArticles, previewSettings, brandName,
+  kbArticles, previewSettings, brandName, teamMembers,
   studioKbArticles, studioKbCategories,
 }: SmartRulesTabProps) {
   const { t, dir } = useTranslation();
@@ -58,12 +60,13 @@ export function SmartRulesTab({
       await save.mutateAsync({ ...draft, status });
       toast({ description: t(status === 'active' ? 'widgetPage.smart.published' : 'widgetPage.smart.saved') });
       setDraft(null);
-    } catch (err: any) {
+    } catch (err) {
+      const failure = err as { issues?: unknown[]; message?: string } | null;
       toast({
         variant: 'destructive',
-        description: err?.issues?.length
+        description: failure?.issues?.length
           ? t('widgetPage.smart.validationFailed')
-          : err?.message || t('widgetPage.smart.validationFailed'),
+          : failure?.message || t('widgetPage.smart.validationFailed'),
       });
     }
   };
@@ -88,6 +91,7 @@ export function SmartRulesTab({
               draft={draft}
               settings={previewSettings}
               brandName={brandName || ''}
+              teamMembers={teamMembers}
               locale={locale}
               locales={locales}
               localeLabels={localeLabels}
@@ -172,13 +176,13 @@ export function SmartRulesTab({
                             rule.status === 'paused' && 'border-warning/40 bg-warning/10 text-warning',
                           )}
                         >
-                          {t(`widgetPage.smart.statusLabel.${rule.status}` as any)}
+                          {t(`widgetPage.smart.statusLabel.${rule.status}` as TranslationKey)}
                         </Badge>
                       </div>
                       <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                        {t(`widgetPage.smart.trigger.${rule.trigger_config?.type}` as any)}
+                        {t(`widgetPage.smart.trigger.${rule.trigger_config?.type}` as TranslationKey)}
                         {' · '}
-                        {t(`widgetPage.smart.message.modes.${rule.presentation_config?.mode}` as any)}
+                        {t(`widgetPage.smart.message.modes.${rule.presentation_config?.mode}` as TranslationKey)}
                       </p>
                       {stat && (
                         <p className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted-foreground">

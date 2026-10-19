@@ -22,6 +22,16 @@ export interface WorkspaceMember {
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
+  /** When they joined the workspace (the widget's team is its first four to join, shared/widgetTeam.ts). */
+  created_at: string | null;
+}
+
+/** A row of GET /api/workspace-members, as far as this hook reads it. */
+interface MemberRow {
+  user_id: string;
+  role: string;
+  created_at?: string | null;
+  profile?: { full_name?: string | null; email?: string | null; avatar_url?: string | null } | null;
 }
 
 export function useWorkspaceMembers(workspaceId: string | undefined) {
@@ -33,13 +43,14 @@ export function useWorkspaceMembers(workspaceId: string | undefined) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(body.error || `API error: ${res.status}`);
       }
-      const { members } = await res.json();
-      return (members ?? []).map((m: any) => ({
+      const { members } = (await res.json()) as { members?: MemberRow[] | null };
+      return (members ?? []).map((m) => ({
         user_id: m.user_id,
         role: m.role,
         full_name: m.profile?.full_name ?? null,
         email: m.profile?.email ?? null,
         avatar_url: m.profile?.avatar_url ?? null,
+        created_at: m.created_at ?? null,
       }));
     },
     enabled: !!workspaceId,

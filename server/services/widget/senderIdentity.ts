@@ -24,6 +24,7 @@
 import type { ServerConfig } from '../../config.js';
 import { hydrateUserAvatars } from '../storage/urlResolver.js';
 import { resolveAgentLogoUrl } from '../ai-agent/settings.js';
+import { isDefaultAiAgentName } from '../../../shared/systemMessages.js';
 import { filterVisitorVisibleMessages } from '../../routes/widgetAttachments.js';
 import { getWorkspaceWidgetSnapshot } from './configSnapshot.js';
 import { listCustomerAvailableOperators } from './customerAvailability.js';
@@ -164,9 +165,16 @@ export async function enrichMessagesWithSender(
     if (m.sender_type === 'ai') {
       const { _sender_id: _ignored, ...rest } = m;
       const meta = (m.metadata && typeof m.metadata === 'object') ? m.metadata : {};
+      // A name the owner gave the agent wins over the built-in default a row
+      // was stamped with before. The default itself still goes out, as on
+      // the realtime envelope (publish.ts visitorMessagePayload): the
+      // runtime.js loaded before this release labels the reply with it, and
+      // today's treats it as no name (runtime.js aiOwnName).
+      const name = [meta.agent_name, aiDisplay?.name].find((n) => n && !isDefaultAiAgentName(n))
+        || meta.agent_name || aiDisplay?.name || null;
       return {
         ...rest,
-        sender_name: meta.agent_name || aiDisplay?.name || null,
+        sender_name: name,
         // No `meta.agent_logo_url` fallback: a provider URL is no longer
         // snapshotted into a message row (see ai-agent/responder.ts).
         sender_avatar: aiDisplay?.avatar || null,

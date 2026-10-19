@@ -135,6 +135,8 @@ const en = {
   quitApp: 'Quit Webyar',
   loadingMore: 'Loading…',
   mediaPermission: 'Allow microphone and camera access for Webyar in Windows Settings → Privacy.',
+  // The platform-support "who is asking" notice, written as one line.
+  requesterTitle: 'Who is asking',
 }
 
 type Keys = keyof typeof en
@@ -271,6 +273,7 @@ const fa: Record<Keys, string> = {
   quitApp: 'خروج از وب‌یار',
   loadingMore: 'در حال بارگذاری…',
   mediaPermission: 'در تنظیمات ویندوز ← حریم خصوصی، دسترسی وب‌یار به میکروفون و دوربین را روشن کنید.',
+  requesterTitle: 'مشخصات درخواست‌کننده',
 }
 
 const tr: Record<Keys, string> = {
@@ -405,6 +408,7 @@ const tr: Record<Keys, string> = {
   quitApp: 'Webyar’dan çık',
   loadingMore: 'Yükleniyor…',
   mediaPermission: 'Windows Ayarları → Gizlilik bölümünden Webyar’ın mikrofon ve kamera erişimine izin verin.',
+  requesterTitle: 'Talep eden',
 }
 
 export const extra = { en, fa, tr }

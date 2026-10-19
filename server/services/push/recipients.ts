@@ -21,6 +21,7 @@ import { getServiceClient } from '../../supabase.js';
 import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
+import { operatorLocales } from '../operatorLocale.js';
 
 /**
  * `team_message` is a colleague's direct message in team chat: addressed to
@@ -221,14 +222,10 @@ export async function resolveRecipients(
   // The notification copy is rendered in the recipient's OWN language, not
   // the sender's: a Turkish operator must not get a Persian push because the
   // customer wrote in Persian.
-  const localeByUser = new Map<string, string>();
-  const { data: profileRows } = await sb
-    .from('profiles')
-    .select('id, preferred_locale')
-    .in('id', eligible);
-  for (const row of (profileRows ?? []) as { id: string; preferred_locale: string | null }[]) {
-    if (row.preferred_locale) localeByUser.set(String(row.id), String(row.preferred_locale));
-  }
+  // An operator who never chose a language, or chose one the platform no
+  // longer offers, reads the platform's (operatorLocale.ts): not English on
+  // a Persian platform. One profiles read for everyone.
+  const localeByUser = await operatorLocales(config, eligible);
 
   // Platform defaults apply ONLY where the operator has no explicit value of
   // their own — a saved preference always wins over an admin default.

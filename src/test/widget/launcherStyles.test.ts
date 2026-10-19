@@ -127,6 +127,16 @@ describe('shared/launcherStyles', () => {
     expect(launcherInitial([undefined, '😀 team'])).toBe('😀');
     expect(launcherInitial([])).toBe('');
   });
+
+  it('the initial is a character that shows: a mark pasted before a name is passed over, a name of marks only skipped', () => {
+    // An RLM before a Persian name (pasted from an RTL app), a BOM, an LRM, a lone combining mark.
+    expect(launcherInitial(['‏سارا'])).toBe('س');
+    expect(launcherInitial(['﻿‎Sara'])).toBe('S');
+    expect(launcherInitial(['́reza'])).toBe('r');
+    // A ZWNJ, an embedding mark or a NUL alone: the next name's.
+    expect(launcherInitial(['‌', '‫‬', '\u0000', 'نیلوفر'])).toBe('ن');
+    expect(launcherInitial(['‏', null])).toBe('');
+  });
 });
 
 describe('without a style, the launcher is the starting commit\'s, byte for byte', () => {

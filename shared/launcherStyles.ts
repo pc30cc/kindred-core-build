@@ -48,13 +48,20 @@ export function resolveLauncherStyle(input: { shape?: unknown; icon?: unknown; l
 }
 
 /**
- * The agent face's letter: the first character (a whole code point) of the
- * first name that has one, in order (the team, online first, then the
- * workspace's name); '' when none has.
+ * What the agent face cannot show as its letter: a control or format mark
+ * (an RLM pasted before a Persian name, a ZWNJ, a BOM), a space, a combining
+ * mark with no letter under it. The tile would be blank.
+ */
+const UNSHOWN_CHAR = /[\p{C}\p{Z}\p{M}]/u;
+
+/**
+ * The agent face's letter: the first character that shows (a whole code
+ * point) of the first name that has one, in order (the team, online first,
+ * then the workspace's name); '' when none has.
  */
 export function launcherInitial(names: ReadonlyArray<string | null | undefined>): string {
   for (const name of names) {
-    const first = Array.from(String(name || '').trim())[0];
+    const first = Array.from(String(name || '')).find((ch) => !UNSHOWN_CHAR.test(ch));
     if (first) return first;
   }
   return '';

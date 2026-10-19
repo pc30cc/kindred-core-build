@@ -144,6 +144,9 @@ export function attachmentName(a: MessageAttachment): string | null {
   return t && t.includes('.') && t.length > 4 ? t : null
 }
 
+/** English stand-ins once stored as a name (chatRouting's 'a colleague', the inbox PATCH's 'An operator'). */
+const PLACEHOLDER_NAMES = new Set(['a colleague', 'an operator'])
+
 function metaString(meta: JSONObject | null | undefined, key: string): string {
   const v = meta?.[key]
   return typeof v === 'string' ? v.trim() : ''
@@ -157,22 +160,54 @@ export function systemText(meta: JSONObject | null | undefined, language: Langua
   const kind = metaString(meta, 'kind')
   if (!kind) return null
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string>) => translate(language, key, params)
+  // A person's name, or '' for none: the English stand-ins once stored as a
+  // name ('a colleague') read as the generic sentence in this language.
+  const person = (key: string) => {
+    const name = metaString(meta, key)
+    return PLACEHOLDER_NAMES.has(name.toLowerCase()) ? '' : name
+  }
   switch (kind) {
-    case 'conversation_transferred':
-      return t('sysTransferred', { actor: metaString(meta, 'actor_name'), to: metaString(meta, 'to_name') })
-    case 'conversation_unassigned':
-      return t('sysUnassigned', { actor: metaString(meta, 'actor_name') })
+    case 'conversation_transferred': {
+      const actor = person('actor_name')
+      const to = person('to_name')
+      if (!to) return t('sysTransferredGeneric')
+      return actor ? t('sysTransferred', { actor, to }) : t('sysTransferredTo', { to })
+    }
+    case 'conversation_unassigned': {
+      const actor = person('actor_name')
+      return actor ? t('sysUnassigned', { actor }) : t('sysUnassignedGeneric')
+    }
     case 'routing_agent_joined': {
-      const name = metaString(meta, 'agent_name')
+      const name = person('agent_name')
       return name ? t('sysAgentJoined', { name }) : t('sysAgentJoinedGeneric')
+    }
+    case 'conversation_closed': {
+      // The visitor-visible line an operator's close writes.
+      const name = person('agent_name')
+      return name ? t('sysClosedBy', { name }) : t('sysClosed')
     }
     case 'routing_no_agent_available':
       return t('sysNoAgentAvailable')
     case 'routing_in_queue':
       return t('sysInQueue')
+    case 'platform_support_requester': {
+      // The "who is asking" card as one line.
+      const user = meta?.user
+      const raw = user && typeof user === 'object' && !Array.isArray(user) ? (user as JSONObject).name : null
+      const name = typeof raw === 'string' && !PLACEHOLDER_NAMES.has(raw.trim().toLowerCase()) ? raw.trim() : ''
+      return name ? `${t('requesterTitle')} · ${name}` : t('requesterTitle')
+    }
+    case 'support_rating': {
+      // Without a whole score from 1 to 5 there is nothing to say; the stored body is better.
+      const score = meta?.score
+      if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5) return null
+      const rated = t('sysSupportRating', { score: String(score) })
+      const comment = metaString(meta, 'comment')
+      return comment ? t('sysSupportRatingComment', { rating: rated, comment }) : rated
+    }
     case 'call_invitation': {
       const video = metaString(meta, 'channel') === 'video'
-      const op = metaString(meta, 'operator_name')
+      const op = person('operator_name')
       const text = op
         ? t(video ? 'sysCallInviteVideoFrom' : 'sysCallInviteAudioFrom', { op })
         : t(video ? 'sysCallInviteVideo' : 'sysCallInviteAudio')

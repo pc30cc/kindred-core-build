@@ -314,10 +314,10 @@ function pickLocalized<T extends string>(
   fallback: T,
 ): T {
   if (!source || typeof source !== 'object') return fallback;
+  // The visitor's language only (locked rule 3): never the owner's English
+  // for a Persian visitor.
   const direct = source[locale];
   if (typeof direct === 'string' && direct.length > 0) return direct;
-  const en = source['en'];
-  if (typeof en === 'string' && en.length > 0) return en;
   return fallback;
 }
 
@@ -409,7 +409,9 @@ async function snapshotFor(
   const localizedMsgSrc = settings?.offline_message_localized ?? null;
   const legacyOfflineMsg = typeof settings?.offline_message === 'string' ? settings.offline_message : '';
 
-  const localeLabels = labelsSrc && typeof labelsSrc === 'object' ? (labelsSrc[locale] || labelsSrc['en'] || {}) : {};
+  // The owner's labels in the visitor's language, else the built-in ones
+  // in it (never the owner's English for a Persian visitor).
+  const localeLabels = labelsSrc && typeof labelsSrc === 'object' ? (labelsSrc[locale] || {}) : {};
   const def = DEFAULT_LABELS[locale] || DEFAULT_LABELS.en;
   const labels = {
     online: typeof localeLabels.online === 'string' && localeLabels.online ? localeLabels.online : def.online,

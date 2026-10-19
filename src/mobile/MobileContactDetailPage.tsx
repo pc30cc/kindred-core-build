@@ -10,8 +10,17 @@ import { useContact, useContactConversations } from '@/hooks/useContacts';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { getDisplayName, getCompanyFromMetadata, getLocalizedLocation } from '@/features/contacts/utils';
 import { formatDate, formatRelative } from '@/lib/date';
+import { isPlaceholderSubject } from '../../shared/conversationSubject';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MobileScreen, MobileGroup, MobileRow } from './MobileScreen';
+
+/** The fields of a contact's conversation (GET /api/contacts/:id/conversations) the history reads. */
+interface ContactConversationRow {
+  id: string;
+  subject: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
 
 export default function MobileContactDetailPage() {
   const { t, locale, dir } = useTranslation();
@@ -22,9 +31,9 @@ export default function MobileContactDetailPage() {
   const { data: conversations } = useContactConversations(id);
 
   const BackIcon = dir === 'rtl' ? ChevronRight : ChevronLeft;
-  const name = contact ? getDisplayName(contact as any, t as any, locale as any) : '';
-  const company = contact ? getCompanyFromMetadata(contact as any) : null;
-  const location = contact ? getLocalizedLocation(contact as any, locale as any) : null;
+  const name = contact ? getDisplayName(contact, t, null, locale) : '';
+  const company = contact ? getCompanyFromMetadata(contact) : null;
+  const location = contact ? getLocalizedLocation(contact, locale) : null;
 
   return (
     <MobileScreen
@@ -53,21 +62,21 @@ export default function MobileContactDetailPage() {
           <div className="px-4 pt-4">
             <div className="flex items-center gap-4 rounded-2xl bg-card p-4 shadow-[0_1px_2px_hsl(220_40%_20%/0.06),0_8px_24px_-16px_hsl(220_40%_20%/0.35)]">
               <ContactAvatar
-                name={(contact as any).name}
-                email={(contact as any).email}
-                avatarUrl={(contact as any).avatar_url}
+                name={contact.name}
+                email={contact.email}
+                avatarUrl={contact.avatar_url}
                 size="lg"
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[19px] font-bold text-foreground">{name}</p>
-                {(contact as any).email && (
+                {contact.email && (
                   <p className="truncate text-[14px] text-muted-foreground" dir="ltr">
-                    {(contact as any).email}
+                    {contact.email}
                   </p>
                 )}
-                {(contact as any).phone && (
+                {contact.phone && (
                   <p className="truncate text-[14px] text-muted-foreground" dir="ltr">
-                    {(contact as any).phone}
+                    {contact.phone}
                   </p>
                 )}
               </div>
@@ -75,18 +84,18 @@ export default function MobileContactDetailPage() {
           </div>
 
           <MobileGroup title={t('contacts.tabInfo')}>
-            {(contact as any).email && (
-              <MobileRow icon={Mail} label={t('contacts.email')} value={<span dir="ltr">{(contact as any).email}</span>} />
+            {contact.email && (
+              <MobileRow icon={Mail} label={t('contacts.email')} value={<span dir="ltr">{contact.email}</span>} />
             )}
-            {(contact as any).phone && (
-              <MobileRow icon={Phone} label={t('contacts.phone')} value={<span dir="ltr">{(contact as any).phone}</span>} />
+            {contact.phone && (
+              <MobileRow icon={Phone} label={t('contacts.phone')} value={<span dir="ltr">{contact.phone}</span>} />
             )}
             {company && <MobileRow icon={Building2} label={t('contacts.company')} value={company} />}
             {location?.label && <MobileRow icon={MapPin} label={t('contacts.location')} value={`${location.flag ?? ''} ${location.label ?? ''}`.trim()} />}
             <MobileRow
               icon={Calendar}
               label={t('contacts.createdAt')}
-              value={formatDate((contact as any).created_at)}
+              value={formatDate(contact.created_at)}
             />
           </MobileGroup>
 
@@ -96,12 +105,12 @@ export default function MobileContactDetailPage() {
                 {t('contacts.noConversations')}
               </p>
             ) : (
-              (conversations ?? []).map((c: any) => (
+              ((conversations ?? []) as ContactConversationRow[]).map((c) => (
                 <MobileRow
                   key={c.id}
                   icon={MessageSquare}
                   onClick={() => navigate(`/${slug}/inbox/${c.id}`)}
-                  label={(c.subject || '').trim() || t('contacts.conversationUntitled')}
+                  label={isPlaceholderSubject(c.subject) ? t('contacts.conversationUntitled') : String(c.subject).trim()}
                   value={formatRelative(c.updated_at || c.created_at)}
                 />
               ))

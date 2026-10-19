@@ -31,7 +31,7 @@ import {
   createRealActionRunner, createConversationIdempotencyStore, readExecutedActionKeys,
   wantsBusinessHours, renderToolResults, businessHoursToolResult, BUSINESS_HOURS_DIRECTIVE, type GateContext,
 } from '../actions/index.js';
-import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
+import { resolveHandoffAckMessage, pickHandoffAck, ownerFallbackMessage } from './helpers.js';
 import { runCommerceToolStage } from '../commerce-tools/runner.js';
 import { runWhmcsToolStage, hasWhmcsData, intentForAccountData, type WhmcsStageResult } from '../commerce-tools/whmcsRunner.js';
 import { listWorkspaceConnections, selectConnection } from '../../commerce/connectionSelection.js';
@@ -714,7 +714,8 @@ export async function runGenerationStage(
       };
     }
     const display = deriveAgentDisplay(settings);
-    const handoffAckBody = settings.fallback_message
+    // The owner's line only in the visitor's language (helpers.ts).
+    const handoffAckBody = ownerFallbackMessage(settings.fallback_message, locale)
       || await resolveHandoffAckMessage(
         config, workspaceId, locale,
         availability.state === 'offline',

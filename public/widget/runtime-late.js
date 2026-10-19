@@ -338,6 +338,9 @@
     function menuVm(vm) {
       var cid = chatStore.get().conversationId;
       if (!menuOn || !header || !vm || vm.isNew || !cid) return null;
+      // Not while the bar stands for the team after a pre-chat, nobody
+      // assigned yet (`vm.prechat`, boards 08·a-c draw no ⋯).
+      if (vm.prechat && !(vm.operator && vm.operator.name)) return null;
       var items = [];
       var c = convFor(cid);
       // Without the sound item only the transcript could fill the menu: ask now.
@@ -512,7 +515,7 @@
         var id;
         for (id in lists) if (!busy[id] && !Object.prototype.hasOwnProperty.call(got, id)) setList(id, [], j.at);
         for (id in got) if (Object.prototype.hasOwnProperty.call(got, id) && !busy[id]) setList(id, norm(got[id], 'mine'), j.at);
-        repaintThread(api);
+        paint();
       });
     }
     // Read when a thread is on screen: a new one, or one read over a minute ago.
@@ -554,17 +557,26 @@
       }).filter(function (r) { return r.count > 0; });
       if (!found && on) next.push({ emoji: emoji, count: 1, mine: true });
       busy[id] = 1;
-      if (root.activeElement === el) refocus = id;
       setList(id, next, null);
-      api.renderBody();
+      paint(true);
       request(api, '/api/widget/conversations/' + enc(c) + '/reactions', { workspace_id: ctx.workspaceId, message_id: id, emoji: emoji, on: on }, function (status, j) {
         if (c !== cid) return;
         busy[id] = 0;
         if (status === 200 && Array.isArray(j.reactions)) setList(id, norm(j.reactions, 'mine'), j.at);
         // Not saved: the state before, unless a newer one came meanwhile.
         else if (ats[id] === atBefore) setList(id, before, null);
-        repaintThread(api);
+        paint();
       });
+    }
+    // A paint draws the hearts anew: the one with the keyboard focus gets it
+    // back (`wired` below), whatever changed its row (the toggle, the
+    // server's answer, a live event, a read). `all`: any chat view (a heart
+    // above a pre-chat card too), else a plain thread only.
+    function paint(all) {
+      var a = root.activeElement;
+      refocus = a && a.hasAttribute && a.hasAttribute('data-msg-react') ? a.getAttribute('data-msg-id') : null;
+      if (all) api.renderBody(); else repaintThread(api);
+      refocus = null;
     }
     api.panel.addEventListener('click', function (ev) {
       var el = ev.target && ev.target.closest ? ev.target.closest('[data-msg-react]') : null;
@@ -573,7 +585,7 @@
     // Another visitor tab or an operator reacted (the visitor's own reaction is `visitor`).
     api.on('reaction', function (p) {
       if (!p || cid == null || String(p.conversation_id) !== cid || !p.message_id) return;
-      if (setList(String(p.message_id), norm(p.reactions, 'visitor'), Number(p.at) || 0)) repaintThread(api);
+      if (setList(String(p.message_id), norm(p.reactions, 'visitor'), Number(p.at) || 0)) paint();
     });
     api.on('wired', function (host) {
       // A badge already on screen does not pop in again.
@@ -854,13 +866,10 @@
       var p = presenceStore.get();
       var av = config.availability || {};
       var ai = config.aiAgent;
-      // Presence publishes its mode on its first change of status; offline
-      // from the start (the server's `availability.state`), the store still
-      // holds its initial 'accept_messages' and the workspace's own mode is
-      // the one (a capture unless it hides the widget or only shows a
-      // message, as createPresence normalises it).
+      // The workspace's offline mode as createPresence publishes it (a
+      // capture unless it hides the widget or only shows a message);
+      // 'accept_messages' is the store's value until presence publishes.
       var m = p.offlineMode;
-      if (m === 'accept_messages' && av.state === 'offline') m = av.offlineMode || av.offline_mode;
       return p.status === 'offline' && p.liveChatEnabled !== false
         && m !== 'accept_messages' && m !== 'hide_widget' && m !== 'show_offline_message'
         && !(ai && ai.suppressGreeting === true)

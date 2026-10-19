@@ -5,8 +5,9 @@
  * Enough of the chain for those services and the widget routes around them:
  * select (with a head count), eq / neq / in / gte / lte / is / contains /
  * not(…, 'is', null) / filter('col->>key', 'eq', v) filters, order, limit,
- * single / maybeSingle, insert (… select().single()), update, upsert,
- * delete (… select()) and rpc (answered by `db.rpc`).
+ * single / maybeSingle, insert (… select().single()), update (through
+ * `db.beforeUpdate`, a trigger's stand-in), upsert, delete (… select()) and
+ * rpc (answered by `db.rpc`).
  *
  * `missing` tables answer 42P01 (a database before migration 276), `failing`
  * ones a plain error; `conversation_ratings.closed_message_id` and a
@@ -27,6 +28,8 @@ export interface FakeServiceDb {
   now: () => string;
   /** Runs before each inserted row is checked and stored (a racing writer). */
   beforeInsert?: (table: string, row: Row) => void;
+  /** Runs before each matching row is updated (a BEFORE UPDATE trigger): the patch to apply, or none for the asked one. */
+  beforeUpdate?: (table: string, row: Row, patch: Row) => Row | void;
   /** Answers `rpc(fn, args)`; none: `{ data: null, error: null }`. */
   rpc?: (fn: string, args: Record<string, unknown>) => { data: unknown; error: unknown };
   /** Every rpc call, in order. */
@@ -127,7 +130,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
         for (const row of rows) db.deletes.push({ table, row });
         return { data: returning ? rows.map((r) => ({ ...r })) : null, error: null };
       }
-      for (const r of rows) Object.assign(r, patch);
+      for (const r of rows) Object.assign(r, db.beforeUpdate?.(table, r, patch) ?? patch);
       return { data: returning ? rows.map((r) => ({ ...r })) : null, error: null };
     }
 

@@ -23,8 +23,19 @@ templates: `docs/operations/EDITIONS.md`.
   restyle that reuses a renderer), and a fonts stylesheet
   (`presentation-<id>-fonts.css`, or the shared
   `presentation-default-fonts.css`).
-- Call widget: a presentation `presentation-<id>.js` (or a registration in an
-  existing one) and a stylesheet `presentation-<id>.css`.
+- Call widget: a core presentation `presentation-<id>.js` (or a registration in
+  an existing one: `default` and `intl` both register in
+  `presentation-default.js`), a panel module pair
+  `presentation-<core>-panel.js` + `presentation-<core>-panel.css` (named by the
+  descriptor's `panel: { script, style }`), and a skin `presentation-<id>.css`.
+  The core holds what a page view shows (host, theme, launcher, placement, the
+  persistent panel shell); the module every screen of the panel. The module
+  registers `window.__ccw_panel = { v, create(H) }`: `v` is the version of its
+  contract with the core (`PANEL_V` in the core), `create(H)` returns the panel
+  instance, built on the core's frozen helpers `H`. Change `v` in both files
+  whenever `H` or the instance contract changes (a module of another `v` is
+  refused, never half-applied). Design and decisions of the 2026-10 call
+  designs: `docs/call-widget-handoff/IMPLEMENTATION_NOTES.md`.
 - Chat widget, optionally: the renderer's extras `presentation-<renderer>-x.js`,
   its markup that no first paint needs (t1's emoji grid; the late surfaces of
   issue #340 as they come). It registers `window.__gs_mod_extras = { id, v,
@@ -68,13 +79,39 @@ templates: `docs/operations/EDITIONS.md`.
   intent also preconnects (crossorigin) to the API and the fonts' host, the
   two uncredentialed connections a first open needs; runtime.init() still
   waits for a real open.
-- Call widget: its presentation mounts at page load (the launcher lives in
-  it), so every byte of a call template is paid on a first page view. l.js
-  does not request its scripts early inside the host page's load (a script
-  requested before the load event delays it by its download): at once on a
-  loaded page, else at the load event or when the bootstrap answers,
-  whichever is first (a bootstrap answering first still starts them inside
-  the load, as it always did).
+- Call widget: its core presentation mounts at page load (the launcher lives
+  in it), so every byte of the core, `runtime.css` and the skin is paid on a
+  first page view. l.js does not request its scripts early inside the host
+  page's load (a script requested before the load event delays it by its
+  download): at once on a loaded page, else at the load event or when the
+  bootstrap answers, whichever is first (a bootstrap answering first still
+  starts them inside the load, as it always did). Page load is exactly the
+  loader, the registry, the engine, the core, `runtime.css`, the skin and the
+  fonts stylesheet.
+- Call widget panel (the 2026-10 designs): the panel module and its
+  stylesheet load on the visitor's first intent (pointer over the launcher,
+  keyboard focus, a press or a touch on it), when the panel opens by any
+  path, at mount for a call being restored (l.js starts the module with the
+  page-load scripts when it remembers an active call session), and at idle on
+  touch screens without hover. The core asks l.js through the engine's render
+  context (`loadPanel`, l.js `ensurePanel`: the hashed name, then once the
+  fixed name `?v=` as a new `<script>`; a failed attempt lets the next intent
+  try again) and links the stylesheet itself into the shadow root right
+  before the skin (cascade runtime.css → panel → skin; on error once more by
+  the fixed name). Readiness: the panel's DOM is built as soon as the module
+  is in; the visual open waits for the module **and** the stylesheet's
+  `load` (and the first paint's faces, 500 ms at most; the launcher says
+  `aria-busy` meanwhile), so no unstyled frame ever
+  shows; if either fails after its retry the open is put back and the
+  launcher keeps working. A render context without `loadPanel` (an old
+  loader) and no module on the page counts as a failure, without an error.
+  The operator preview (`CallWidgetPreview` in
+  `src/pages/app/call-center/SettingsPage.tsx`) and the visual harness's
+  `--source` mode put the module on the page before the engine. Checked by
+  `src/test/callWidget/panelLoading.test.ts`, `callWidgetLoader.test.ts` and
+  `e2e/callWidgetBehaviour.spec.ts` (item 10: page-load set, one request per
+  file, hashed names, the fixed-name retry, a restored call, no unstyled
+  frame, the refused module, the old loader; Slow 4G timing reported).
 - Renderer features (chat): a behaviour a template needs beyond what Core
   does for `default` (search as you type, tab badges, a visible typing row,
   the home ask field, …) is declared by the renderer (`features` returned
@@ -229,7 +266,9 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   for the International skins only): a new family is downloaded by every
   visitor of that template.
 - Figtree (SIL OFL 1.1, no Reserved Font Name) is the Latin and Turkish face
-  of the International edition's skins `t1-intl` / `t2-intl` only. It is
+  of the International edition's skins: the chat's `t1-intl` / `t2-intl` and
+  the call widget's `intl` (its skin `presentation-intl.css`; the call
+  `default` names IRANSans and InterWY). It is
   variable (wght axis) and cut into two files in the shared
   `presentation-default-fonts.css`: `figtree-latin.woff2` (18,540 B: Basic
   Latin, Latin-1, the dotless ı and typographic punctuation) and
@@ -243,7 +282,24 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   their visitors never download it. For an `-intl` id, prepare() warms the
   Latin file, and in Turkish the Turkish file too (that first paint draws
   ğ ş İ): en 18.5 KB, tr 20.9 KB. Code in articles is the system monospace
-  (no DM Mono).
+  (no DM Mono), as is the call widget's reference code.
+- Call widget faces: the family stacks live in the skins only (the call
+  scripts name no family; `designContract.test.ts`). WebYar: `IRANSans`
+  first in RTL, `InterWY` first in LTR (an English page never downloads
+  IRANSans); Respok: `Figtree` first in LTR, `IRANSans` first in RTL. At page
+  load the host stays hidden until both stylesheets have loaded and, for a
+  launcher that shows text (every style but `round` and `dark_square`), the
+  faces that text needs are in (1 s at most; Persian: IRANSans 400 + 700;
+  WebYar English: the InterWY Latin file; Respok English: `figtree-latin`).
+  On the first intent the core warms the panel's first paint: it reads the
+  root's computed stack and loads its first family for a sample of the
+  locale's script, so the browser fetches exactly the faces whose
+  `unicode-range` the text needs (Persian ≤ 120 KB, English or Turkish ≤ 50 KB;
+  `e2e/callWidgetBehaviour.spec.ts` item 8 checks the files per brand and
+  language). A touch screen's idle prefetch brings the panel's two files
+  only: nothing of the panel is painted before an intent (a hidden panel
+  that is laid out still fetches its faces), so a page view that never
+  opens pays no panel face (item 10 checks it).
 - `prepare(context)` (`context = { locale, templateId }`) warms only the faces
   the locale's FIRST paint draws, resolves within 500 ms even if a font never
   arrives, and never throws. A Persian first paint may cost at most 120 KB of
@@ -262,8 +318,9 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
   A hook only a new template needs is a renderer feature (§2): Core's code
   for it goes in `runtime-ext.js`, not in `runtime.js`.
-- Call widget: the presentation never calls the network or storage; the
-  runtime never touches the DOM (`src/test/callWidgetPresentationContract.test.ts`).
+- Call widget: the presentation (the core and the panel module) never calls
+  the network or storage; the runtime never touches the DOM
+  (`src/test/callWidgetPresentationContract.test.ts`).
 - Shipped JS targets ES2017 (the build lowers it); no new npm dependencies
   in widget files.
 - No forbidden template-system tokens (`src/test/widget/noTemplateSystem.test.ts`).
@@ -292,17 +349,64 @@ one is a decision, with the reason in the commit and here.
 | chat renderer extras (each `presentation-<renderer>-x.js`; not in the template total) | 12 KB | after the first paint |
 | chat `runtime-fab.css` | 2 KB | page views of a workspace wearing a launcher style |
 | chat `runtime-emoji.js` | 4 KB | the emoji search's first use |
-| call `l.js` | 3 KB | every page view |
-| call `runtime.css` | 5 KB | first page view |
-| call presentation | 10 KB | first page view |
-| call stylesheet | 3 KB | first page view |
+| call `l.js` (built) | 2.6 KB | every page view |
+| call engine `runtime.js` | 21.1 KB | first page view |
+| call core presentation | 10.5 KB | first page view |
+| call `runtime.css` | 4.9 KB | first page view |
+| call skin | 2.2 KB | first page view |
+| call page-load total (l.js + registry + engine + core + `runtime.css` + skin + fonts stylesheet) | 42.2 KB | first page view |
+| call panel module | 18.5 KB | the visitor's first intent |
+| call panel stylesheet | 10.8 KB | the visitor's first intent |
+| call first-open total (panel module + its stylesheet) | 29.3 KB | the visitor's first intent |
 | one font file | 45 KB | when its text is on screen |
 | Persian first-paint fonts / English or Turkish | 120 KB / 50 KB | first open |
 
 Each brand's build is measured as it ships: the loader in both (the RESPOK
 build leaves out the Iran region's kit), each chat template in the brand of
 every edition that offers it (`EDITION_CHAT_WIDGET_TEMPLATES`: Iranian →
-`iran`, International → `respok`), Core's modules in both.
+`iran`, International → `respok`), Core's modules in both. The call widget
+likewise: each call template in its own brand's build (`default` → `iran`,
+`intl` → `respok`), the files every call template ships (loader, registry,
+engine, `runtime.css`, the core, the panel pair) in both, the larger
+counting; the call `l.js` is measured **built**: with the names a build
+writes into it (`__CALL_WIDGET_BUILD__` made as `scripts/call-widget-hash.js`
+makes it, each file's shipped bytes' sha256, and the chat build's names for
+the fonts stylesheet and LiveKit), not as its raw source and not with a
+repeated fake hash (which compresses 75–77 B better than real names); the
+test checks its names and its `l.js` against what the script itself writes
+on a scratch tree.
+
+The call caps were set for the 2026-10 designs (owner decision: the design
+may cost what it needs, measured, plus a small headroom): each is the size
+measured on 2026-10-19 + max(250 B, 6%), rounded up to the next 100 B. Before
+that, the round-7 search for waste in the two files above their estimates
+(the core 9.8 KB vs 8.5, the panel module 17.4 KB vs 15) measured each
+function's share of the shipped gzip: the bytes are spread over the drawn
+features (the nine launcher styles 1.0 KB, the chat stacking 0.6 KB, the
+theme pipeline 0.6 KB, the lazy-panel loading 0.45 KB in the core; some 60
+screen and control builders of 0.05–0.8 KB each in the module), with no
+lowered-syntax helper, no unused function and one dead statement (removed,
+18–22 B). The core's cap was set again on 2026-10-20 (round 7b), the same
+way, after WebYar's stage hold for colours lighter than its lightest preset
+(+32 B in the core, +129 B in WebYar's skin; the page-load total's cap
+comes out unchanged). Measured (gzip 5, as shipped; at `6f8af41`, before
+the designs, in brackets):
+
+| Cap | Measured | Cap set | Why it grew |
+| --- | --- | --- | --- |
+| `l.js` built | 2,254 iran / 2,253 respok (2,055) | 2,600 | `ensurePanel` (the panel's lazy load, the active-call preload) and the panel pair's two names in the build |
+| engine `runtime.js` | 19,863 iran / 19,792 respok (17,105) | 21,100 | the design's strings in fa/en/tr, positions, transfers (E19), cancel during loading (E21), callback booking, connection quality, level meter, microphone retry, camera denied, operator reference privacy |
+| core `presentation-default.js` | 9,816 (7,821) | 10,500 | nine launcher styles and their states, placements, chat stacking, theme and accent pipeline (with Respok's stage tint and WebYar's stage hold), digits and dates, the lazy panel's loading and readiness, the launcher faces' wait |
+| `runtime.css` | 4,561 (3,621) | 4,900 | design tokens with their `@supports` fallbacks, nine launcher styles, five placements, launcher motion |
+| skin | 1,886 `intl` / 323 `default` (519 / 269) | 2,200 | Respok's skin re-keys every non-chrome rule of the design (launcher, panel, stage); WebYar's adds its stage hold |
+| page-load total | 39,806 `intl` / 38,315 `default` (32,555 / 32,369) | 42,200 | the sum of the above (registry 337 and fonts stylesheet 1,161 unchanged) |
+| panel module | 17,445 respok / 17,024 iran (new) | 18,500 | every panel screen (19 screens, light and stage), forms, callback steps and slots, media, the minimised bars, the phone sheet; the Respok build adds its lockup |
+| panel stylesheet | 10,167 (new) | 10,800 | the panel frame, every screen, the stage, video, the minimised bars, the phone sheet and full screen, panel motion |
+| first-open total | 27,612 respok / 27,191 iran (new) | 29,300 | panel module + its stylesheet, on the visitor's first intent only |
+
+A page view that never opens the call panel pays the page-load total only
+(+5.9–7.3 KB over `6f8af41`); the panel's 27.6 KB come on the first intent
+(pointer over the launcher, focus, a press), before the click.
 
 The International skins on 2026-10-18: `presentation-t1-intl.css` 2.1 KB
 and `presentation-t2-intl.css` 2.0 KB (of 6), in both builds.
@@ -371,3 +475,13 @@ declaration it cannot read (a destructuring one).
    own typeface, and only the expected font files are requested.
 5. The widget Playwright specs (`e2e/widget*.spec.ts`) locally: CI does not
    run them.
+6. A call template: its harness and specs locally, one worker
+   (`docs/call-widget-handoff/IMPLEMENTATION_NOTES.md`, "Visual QA"):
+   `e2e/callWidgetScreens.spec.ts` (Tier A: every state of both brands
+   against the re-rendered reference HTML, ≤ 0.20% of pixels and box probes
+   within ±0.5px; `npx tsx e2e/harness/callScreens.ts --matrix` for every
+   preset accent and radius), `e2e/callWidgetBehaviour.spec.ts` (no rebuild
+   per tick, minimise and restore, forms, audio, accessibility, reduced
+   motion, digits and dates, fonts, phones, the lazy panel, transfers) and
+   `e2e/callWidgetPlacement.spec.ts` (the eight placements, the chat widget
+   on the same page in both load orders, the page lock).

@@ -7,27 +7,64 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { callCenterApi, type CallCenterPlatformSettings, type CallCenterWorkspaceSettings } from '@/lib/call-center-api';
-import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, ChevronDown, RotateCcw, Save, Languages, Plus, Trash2,
-  Palette, Phone, ClipboardList, CalendarClock, Route, Mic,
+  CALLBACK_HOURS_LIMITS,
+  callCenterApi,
+  callWidgetDesignPatch,
+  defaultCallbackHours,
+  effectiveCallWidgetLocales,
+  isCallbackHoursStrict,
+  isMigrationPendingError,
+  type CallCenterPlatformSettings,
+  type CallCenterWorkspaceSettings,
+  type CallWidgetDesignKey,
+} from '@/lib/call-center-api';
+import { useQueryClient } from '@tanstack/react-query';
+import { useWidgetSettings } from '@/hooks/useWidgetSettings';
+import { useWorkspaceMembers, type WorkspaceMember } from '@/hooks/useWorkspaceMembers';
+import { CallLauncherStylePicker } from '@/components/app/call-center/CallLauncherStylePicker';
+import { WeeklyHoursEditor } from '@/components/app/widget/WeeklyHoursEditor';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import type { BusinessHoursConfig, WidgetSettings } from '@/types/models';
+import {
+  AlertCircle, RotateCcw, Save, Languages, Plus, Trash2,
+  Palette, Phone, ClipboardList, CalendarClock, Route, Mic, Monitor, Smartphone,
 } from 'lucide-react';
 import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { intlLocaleFor } from '@/lib/region';
 import { useEdition } from '@/hooks/useEdition';
 import { brandName as platformBrandName, useBrandVersion } from '@/lib/brand';
 import {
   CALL_WIDGET_TEMPLATES,
   EDITION_CALL_WIDGET_TEMPLATES,
   resolveCallWidgetTemplateForEdition,
+  widgetDateHints,
 } from '../../../../shared/widgetTemplates';
+import {
+  CALL_WIDGET_POSITIONS,
+  callLauncherNeedsPresence,
+  normalizeCallLauncherStyle,
+  normalizeCallWidgetPosition,
+} from '../../../../shared/callLauncherStyles';
+import {
+  CALLBACK_DAYS_AHEAD,
+  CALLBACK_SLOT_CAPACITY,
+  CALLBACK_SLOT_MINUTES,
+  DAY_KEYS,
+  callbackHoursHaveInterval,
+  computeCallbackSlots,
+  type BusinessHours,
+} from '../../../../shared/callbackSlots';
+import { chatTemplateOptionKeys } from '../../../../shared/chatTemplateCatalog';
+import { widgetTeamMembers } from '../../../../shared/widgetTeam';
+import { launcherInitial } from '../../../../shared/launcherStyles';
+import type { Edition } from '../../../../shared/edition';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
@@ -110,10 +147,16 @@ export default function CallCenterSettingsPage() {
     (d) => d.enabled && (d.cc_voice_enabled || d.cc_video_enabled || d.cc_callback_enabled),
   );
   const qc = useQueryClient();
+  const { edition, isInternational } = useEdition();
+  // The chat widget's side (the stacking hint) and logo direction (the
+  // preview); the team's first members (the preview's sample operators).
+  const { data: chatSettings } = useWidgetSettings(workspace?.id);
+  const { data: members } = useWorkspaceMembers(workspace?.id);
   const fileRef = useRef<HTMLInputElement>(null);
   const [s, setS] = useState<SettingsDraft | null>(null);
   const [original, setOriginal] = useState<SettingsDraft | null>(null);
   const [previewOnline, setPreviewOnline] = useState(true);
+  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>('desktop');
   const [tab, setTab] = useState('general');
 
   useEffect(() => {
@@ -132,6 +175,8 @@ export default function CallCenterSettingsPage() {
       'default_department_id', 'widget_default_locale', 'widget_enabled_locales',
       'widget_custom_texts', 'operator_video_visible_to_visitor',
       'widget_template_id', 'widget_theme', 'pre_call_form_schema',
+      'business_hours', 'launcher_style', 'callback_slots_enabled',
+      'callback_slot_minutes', 'callback_days_ahead', 'callback_slot_capacity',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -157,15 +202,29 @@ export default function CallCenterSettingsPage() {
   const planRecording = !!data?.recording?.enabled_by_plan;
   const showRecordingTab = platformRecording && planRecording;
 
+  /** The loaded settings have this migration-277 key (the backend and its database have 277). */
+  const designLoaded = (key: CallWidgetDesignKey) =>
+    !!data?.settings && Object.prototype.hasOwnProperty.call(data.settings, key);
+  const themeDefaults = CALL_THEME_DEFAULTS[isInternational ? 'international' : 'iran'];
+
   async function save() {
-    if (!workspace) return;
-    await update.mutateAsync({
+    if (!workspace || !s || !original) return;
+    // The callback hours are sent only when edited (an untouched legacy value
+    // is never rewritten), and only in the shape the server stores.
+    const hoursChanged = JSON.stringify(s.business_hours) !== JSON.stringify(original.business_hours);
+    if (hoursChanged && !isCallbackHoursStrict(s.business_hours)) {
+      toast({ title: t('callCenter.settingsPage.callbackHoursInvalid'), variant: 'destructive' });
+      return;
+    }
+    const patch: Partial<CallCenterWorkspaceSettings> = {
       enabled: s.enabled, display_name: s.display_name,
       voice_enabled: s.voice_enabled, video_enabled: s.video_enabled,
       callback_enabled: s.callback_enabled, pre_call_form_enabled: s.pre_call_form_enabled,
       offline_behavior: s.offline_behavior, recording_enabled: s.recording_enabled,
       recording_consent_required: s.recording_consent_required, routing_mode: s.routing_mode,
-      widget_position: s.widget_position, business_hours: s.business_hours,
+      // As loaded unless the admin chose another (an older spelling stays
+      // what an old backend's widget reads until then).
+      widget_position: s.widget_position,
       widget_template_id: s.widget_template_id || 'default',
       widget_theme: s.widget_theme || {},
       pre_call_form_schema: s.pre_call_form_schema || [],
@@ -174,7 +233,18 @@ export default function CallCenterSettingsPage() {
       widget_enabled_locales: s.widget_enabled_locales ?? null,
       widget_custom_texts: s.widget_custom_texts ?? {},
       operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
-    });
+      ...(hoursChanged ? { business_hours: s.business_hours } : {}),
+      // Migration 277: only what the loaded settings have and the admin changed.
+      ...callWidgetDesignPatch(original, s),
+    };
+    try {
+      await update.mutateAsync(patch);
+    } catch (err: unknown) {
+      toast(isMigrationPendingError(err)
+        ? { title: t('callCenter.settingsPage.migrationPending'), variant: 'destructive' }
+        : { title: t('callCenter.settingsPage.saveFailed'), description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
+      return;
+    }
     setOriginal({ ...s });
     toast({ title: t('callCenter.settingsPage.saved') });
   }
@@ -233,7 +303,7 @@ export default function CallCenterSettingsPage() {
       </TabsList>
 
       <TabsContent value="general" className="mt-0">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] xl:grid-cols-[minmax(0,1fr)_520px] items-start">
         <Section icon={Palette} title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
         <Row label={t('callCenter.settingsPage.displayName')}>
           <Input value={s.display_name || ''} onChange={(e) => setS({ ...s, display_name: e.target.value })} placeholder="Support" className="w-60" />
@@ -253,14 +323,16 @@ export default function CallCenterSettingsPage() {
 
         </div>
         <Row label={t('callCenter.settingsPage.widgetPosition')}>
-          <Select value={s.widget_position || 'right'} onValueChange={(v) => setS({ ...s, widget_position: v })}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <Select value={normalizeCallWidgetPosition(s.widget_position)} onValueChange={(v) => setS({ ...s, widget_position: v })}>
+            <SelectTrigger className="w-44" data-call-position aria-label={t('callCenter.settingsPage.widgetPosition')}><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="right">{t('callCenter.settingsPage.right')}</SelectItem>
-              <SelectItem value="left">{t('callCenter.settingsPage.left')}</SelectItem>
+              {CALL_WIDGET_POSITIONS.map((position) => (
+                <SelectItem key={position} value={position}>{t(`callCenter.settingsPage.positionOptions.${position}`)}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </Row>
+        <PlacementNotes settings={s} chat={chatSettings} />
         <WidgetTextsEditor
           settings={s}
           platform={platform}
@@ -268,13 +340,17 @@ export default function CallCenterSettingsPage() {
         />
         </Section>
         <div className="lg:sticky lg:top-4">
-          <LivePreviewSection t={t} settings={s} previewOnline={previewOnline} setPreviewOnline={setPreviewOnline} />
+          <LivePreviewSection
+            t={t} settings={s} platform={platform} chat={chatSettings} members={members}
+            previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
+            device={previewDevice} setDevice={setPreviewDevice}
+          />
         </div>
         </div>
       </TabsContent>
 
       <TabsContent value="presentation" className="mt-0">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] xl:grid-cols-[minmax(0,1fr)_520px] items-start">
         <Section
           icon={Palette}
           title={t('callCenter.settingsPage.presentationTitle')}
@@ -287,15 +363,30 @@ export default function CallCenterSettingsPage() {
               t={t}
             />
           </Row>
+          <div className="border-b border-border/50 py-2.5">
+            <CallLauncherStylePicker
+              value={s.launcher_style}
+              onChange={(v) => setS({ ...s, launcher_style: v })}
+              accent={s.widget_theme?.primary}
+              international={isInternational}
+              disabled={!designLoaded('launcher_style')}
+            />
+          </div>
+          {isInternational && (
+            <p className="flex items-start gap-1.5 py-2 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />{t('callCenter.settingsPage.logoDirectionNote')}
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              ['primary', t('callCenter.settingsPage.primaryColor'), '#1f93ff'],
-              ['accent', t('callCenter.settingsPage.accentColor'), '#1a7f4b'],
-              ['surface', t('callCenter.settingsPage.surfaceColor'), '#fcfcfd'],
-              ['text', t('callCenter.settingsPage.textColor'), '#1c2024'],
-              ['muted', t('callCenter.settingsPage.mutedColor'), '#60646c'],
-              ['danger', t('callCenter.settingsPage.dangerColor'), '#e5484d'],
-            ].map(([key, label, fallback]) => (
+            {/* Unset colours wear the design's defaults of this edition (stored ones win). */}
+            {([
+              ['primary', t('callCenter.settingsPage.primaryColor'), themeDefaults.primary],
+              ['accent', t('callCenter.settingsPage.accentColor'), themeDefaults.accent],
+              ['surface', t('callCenter.settingsPage.surfaceColor'), themeDefaults.surface],
+              ['text', t('callCenter.settingsPage.textColor'), themeDefaults.text],
+              ['muted', t('callCenter.settingsPage.mutedColor'), themeDefaults.muted],
+              ['danger', t('callCenter.settingsPage.dangerColor'), themeDefaults.danger],
+            ] as const).map(([key, label, fallback]) => (
               <div key={key} className="space-y-1.5">
                 <Label>{label}</Label>
                 <div className="flex gap-2">
@@ -349,7 +440,11 @@ export default function CallCenterSettingsPage() {
           </div>
         </Section>
         <div className="lg:sticky lg:top-4">
-          <LivePreviewSection t={t} settings={s} previewOnline={previewOnline} setPreviewOnline={setPreviewOnline} />
+          <LivePreviewSection
+            t={t} settings={s} platform={platform} chat={chatSettings} members={members}
+            previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
+            device={previewDevice} setDevice={setPreviewDevice}
+          />
         </div>
         </div>
       </TabsContent>
@@ -512,16 +607,10 @@ export default function CallCenterSettingsPage() {
             </SelectContent>
           </Select>
         </Row>
-        <Collapsible>
-          <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <ChevronDown className="h-3 w-3" /> {t('callCenter.settingsPage.advancedBusinessHours')}
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <pre className="bg-muted p-2 rounded text-xs mt-2 overflow-x-auto">{JSON.stringify(s.business_hours || {}, null, 2)}</pre>
-            <p className="text-xs text-muted-foreground mt-1">{t('callCenter.settings.businessHoursPlaceholder')}</p>
-          </CollapsibleContent>
-        </Collapsible>
       </Section>
+      {platformCallback && s.callback_enabled && (
+        <CallbackHoursSection s={s} setS={setS} loaded={designLoaded('callback_slots_enabled')} edition={edition} />
+      )}
       </TabsContent>
 
       <TabsContent value="routing" className="space-y-6 mt-0">
@@ -774,89 +863,423 @@ function CallWidgetTemplateSelect({ value, onChange, t }: {
   );
 }
 
-function CallWidgetPreview({ settings, online }: { settings: SettingsDraft; online: boolean }) {
+/** The design's colour defaults of each edition (tokens.json of both decks): what an unset colour wears. */
+const CALL_THEME_DEFAULTS = {
+  iran: { primary: '#0B7D6C', accent: '#12A150', surface: '#FFFFFF', text: '#0F1217', muted: '#626A77', danger: '#E5484D' },
+  international: { primary: '#16142B', accent: '#FF5A3C', surface: '#FFFFFF', text: '#16142B', muted: '#5E5C75', danger: '#E5432A' },
+} as const;
+
+/**
+ * The preview's page sizes. Desktop is wider than the widget's phone
+ * breakpoint (640px, the chat widget's) and tall enough for the whole
+ * 400×660 panel under its `100dvh - 130px` cap; both are scaled down to
+ * the column they sit in.
+ */
+const PREVIEW_DEVICES = {
+  desktop: { width: 660, height: 800 },
+  phone: { width: 390, height: 760 },
+} as const;
+type PreviewDevice = keyof typeof PREVIEW_DEVICES;
+
+/** Roles that answer calls (server/services/callCenter/publicPresence.ts). */
+const OPERATOR_ROLES = new Set(['owner', 'admin', 'team_lead', 'agent', 'support_agent']);
+
+/**
+ * The preview's sample operators for `card` and `operator_face`: the team's
+ * first three operators to join, by the rule the bootstrap's
+ * `presence.operators` follows (their own name or null, never an e-mail),
+ * without photos.
+ */
+function previewOperators(members: readonly WorkspaceMember[] | undefined) {
+  return widgetTeamMembers((members || []).filter((m) => OPERATOR_ROLES.has(m.role)))
+    .slice(0, 3)
+    .map((m) => {
+      const own = (m.full_name || '').trim();
+      const name = own && launcherInitial([own]) ? own : null;
+      return { name, initial: launcherInitial([name]), avatar_url: null };
+    });
+}
+
+/** The browser's own time zone (an International schedule starts in it). */
+function browserTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Callback hours of the strict shape that name a schedule (a `weekly`), else null. */
+function scheduleOf(value: unknown): BusinessHours | null {
+  return isCallbackHoursStrict(value) && !!value && typeof value === 'object' && 'weekly' in value
+    ? value as BusinessHours
+    : null;
+}
+
+/** Hours as the settings row stores them. */
+function storedHours(hours: BusinessHoursConfig): Record<string, unknown> {
+  return { ...hours };
+}
+
+/** A stored schedule as the editor shows it: every day present; the zone the server would use when it names none. */
+function editorHours(schedule: BusinessHours, edition: Edition): BusinessHoursConfig {
+  const stored = schedule as Partial<BusinessHoursConfig>;
+  const weekly: BusinessHoursConfig['weekly'] = {};
+  for (const day of DAY_KEYS) weekly[day] = stored.weekly?.[day] ?? [];
+  return {
+    enabled: stored.enabled ?? true,
+    timezone: stored.timezone || (edition === 'international' ? 'UTC' : 'Asia/Tehran'),
+    weekly,
+    overrides: stored.overrides ?? [],
+  };
+}
+
+/** Where the launcher sits: the edge tab's side, and the chat button on the same side. */
+function PlacementNotes({ settings, chat }: { settings: SettingsDraft; chat: WidgetSettings | null | undefined }) {
+  const { t } = useTranslation();
+  const style = normalizeCallLauncherStyle(settings.launcher_style);
+  const position = normalizeCallWidgetPosition(settings.widget_position);
+  const chatSide = chat?.enabled ? (chat.position === 'bottom-left' ? 'left' : chat.position === 'bottom-right' ? 'right' : null) : null;
+  const stacks = style !== 'edge_tab' && chatSide !== null && chatSide === position;
+  if (style !== 'edge_tab' && !stacks) return null;
+  return (
+    <div className="space-y-1 pb-2">
+      {style === 'edge_tab' && <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.positionEdgeNote')}</p>}
+      {stacks && <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.positionStacksAboveChat')}</p>}
+    </div>
+  );
+}
+
+/**
+ * Availability → Callback hours (migration 277): slots on/off, the weekly
+ * schedule, slot length, days offered and callbacks per slot. A stored value
+ * of another shape (written before 277, by API) is shown read-only until the
+ * admin replaces it; it is never rewritten silently.
+ */
+function CallbackHoursSection({ s, setS, loaded, edition }: {
+  s: SettingsDraft;
+  setS: (next: SettingsDraft) => void;
+  loaded: boolean;
+  edition: Edition;
+}) {
+  const { t, locale } = useTranslation();
+  // Numbers in the page's digits (Persian digits in Persian, as its one-day option).
+  const num = (n: number) => n.toLocaleString(intlLocaleFor(locale));
+  const stored = s.business_hours;
+  const legacy = !isCallbackHoursStrict(stored);
+  const schedule = scheduleOf(stored);
+  const fresh = () => defaultCallbackHours(edition, browserTimeZone());
+  const hours = schedule ? editorHours(schedule, edition) : fresh();
+  const slotsOn = s.callback_slots_enabled === true;
+  const minutes = s.callback_slot_minutes ?? CALLBACK_SLOT_MINUTES.default;
+  const days = s.callback_days_ahead ?? CALLBACK_DAYS_AHEAD.default;
+  const minuteOptions = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
+  if (!minuteOptions.includes(minutes)) minuteOptions.push(minutes);
+  minuteOptions.sort((a, b) => a - b);
+
+  return (
+    <div data-callback-hours>
+      <Section icon={CalendarClock} title={t('callCenter.settingsPage.callbackHours')} description={t('callCenter.settingsPage.callbackHoursHint')}>
+        {!loaded ? (
+          <p className="text-xs text-warning">{t('callCenter.settingsPage.designSettingsPending')}</p>
+        ) : (
+          <div className="space-y-4">
+            <Row
+              label={t('callCenter.settingsPage.callbackHoursSlots')}
+              hint={t('callCenter.settingsPage.callbackHoursSlotsHint')}
+              locked={legacy ? t('callCenter.settingsPage.callbackHoursNeedsReplace') : undefined}
+            >
+              <Switch
+                data-callback-slots
+                aria-label={t('callCenter.settingsPage.callbackHoursSlots')}
+                checked={slotsOn}
+                disabled={legacy}
+                onCheckedChange={(on) => setS({
+                  ...s,
+                  callback_slots_enabled: on,
+                  // Turning slots on with no schedule yet starts the edition's default week.
+                  ...(on && !schedule ? { business_hours: storedHours(fresh()) } : {}),
+                })}
+              />
+            </Row>
+            {legacy ? (
+              <div className="space-y-2" data-callback-hours-legacy>
+                <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.callbackHoursLegacy')}</p>
+                <pre className="max-h-48 overflow-auto rounded bg-muted p-2 text-xs" dir="ltr">{JSON.stringify(stored ?? {}, null, 2)}</pre>
+                <Button
+                  type="button" variant="outline" size="sm"
+                  onClick={() => setS({ ...s, business_hours: storedHours(fresh()) })}
+                >
+                  {t('callCenter.settingsPage.callbackHoursReplace')}
+                </Button>
+              </div>
+            ) : (
+              <WeeklyHoursEditor
+                hours={hours}
+                onChange={(next) => setS({ ...s, business_hours: storedHours(next) })}
+                disabled={!slotsOn}
+                firstDay={edition === 'international' ? 'mon' : 'sat'}
+                limits={CALLBACK_HOURS_LIMITS}
+              />
+            )}
+            {slotsOn && schedule && !callbackHoursHaveInterval(hours) && (
+              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <p>{t('callCenter.settingsPage.callbackHoursNoInterval')}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>{t('callCenter.settingsPage.callbackHoursSlotMinutes')}</Label>
+                <Select
+                  value={String(minutes)}
+                  disabled={!slotsOn}
+                  onValueChange={(v) => setS({ ...s, callback_slot_minutes: Number(v) })}
+                >
+                  <SelectTrigger data-callback-slot-minutes aria-label={t('callCenter.settingsPage.callbackHoursSlotMinutes')}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {minuteOptions.map((n) => (
+                      <SelectItem key={n} value={String(n)}>{t('callCenter.settingsPage.callbackHoursMinutes', { n: num(n) })}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t('callCenter.settingsPage.callbackHoursDaysAhead')}</Label>
+                <Select
+                  value={String(days)}
+                  disabled={!slotsOn}
+                  onValueChange={(v) => setS({ ...s, callback_days_ahead: Number(v) })}
+                >
+                  <SelectTrigger data-callback-days-ahead aria-label={t('callCenter.settingsPage.callbackHoursDaysAhead')}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: CALLBACK_DAYS_AHEAD.max }, (_, i) => i + 1).map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n === 1 ? t('callCenter.settingsPage.callbackHoursDayOne') : t('callCenter.settingsPage.callbackHoursDays', { n: num(n) })}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="callback-slot-capacity">{t('callCenter.settingsPage.callbackHoursCapacity')}</Label>
+                <Input
+                  id="callback-slot-capacity"
+                  data-callback-capacity
+                  type="number"
+                  inputMode="numeric"
+                  min={CALLBACK_SLOT_CAPACITY.min}
+                  max={CALLBACK_SLOT_CAPACITY.max}
+                  disabled={!slotsOn}
+                  value={s.callback_slot_capacity ?? ''}
+                  placeholder={t('callCenter.settingsPage.callbackHoursCapacityHint')}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setS({
+                      ...s,
+                      callback_slot_capacity: Number.isFinite(n)
+                        ? Math.min(CALLBACK_SLOT_CAPACITY.max, Math.max(CALLBACK_SLOT_CAPACITY.min, n))
+                        : null,
+                    });
+                  }}
+                />
+                <p className="text-[11px] text-muted-foreground">{t('callCenter.settingsPage.callbackHoursCapacityHint')}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * The live preview: the real widget files (registry, core renderer, panel
+ * module, engine; no loader, so the panel module is on the page) in a frame,
+ * fed the bootstrap the server would send for the draft (edition, dates,
+ * assets with the shared fonts stylesheet, launcher style, placement, the
+ * International logo direction, sample operators, slots from the draft
+ * hours). Calls are off (`preview: true`).
+ */
+function CallWidgetPreview({ settings, platform, chat, members, online, device }: {
+  settings: SettingsDraft;
+  platform: Partial<CallCenterPlatformSettings> | null | undefined;
+  chat: WidgetSettings | null | undefined;
+  members: readonly WorkspaceMember[] | undefined;
+  online: boolean;
+  device: PreviewDevice;
+}) {
   const { edition, isInternational } = useEdition();
   const webyarKit = useWebyarKit() && !isInternational;
   const { locale } = useTranslation();
   useBrandVersion();
+  // One instant for the frame's lifetime: slots before it are past.
+  const [now] = useState(() => Date.now());
   const templateId = isInternational
     ? resolveCallWidgetTemplateForEdition(edition, settings.widget_template_id)
     : settings.widget_template_id || 'default';
+  const template = CALL_WIDGET_TEMPLATES[templateId as keyof typeof CALL_WIDGET_TEMPLATES] ?? CALL_WIDGET_TEMPLATES.default;
+  const style = normalizeCallLauncherStyle(settings.launcher_style);
+  const dates = widgetDateHints(edition);
+  const logoDirection: 'open' | 'thread' = chat && chatTemplateOptionKeys(String(chat.widget_template_id || '')).includes('logoDirection')
+    && chat.widget_template_options?.logoDirection === 'open' ? 'open' : 'thread';
+  // The channels the platform and the workspace both allow (the bootstrap's
+  // capabilities; the master switches aside, so a switched-off widget still
+  // previews).
+  const callbackOn = platform?.callback_requests_enabled !== false && settings.callback_enabled !== false;
+  const voiceOn = platform?.voice_calls_enabled !== false && settings.voice_enabled !== false;
+  const videoOn = platform?.video_calls_enabled !== false && settings.video_enabled !== false;
+  const locales = effectiveCallWidgetLocales(platform, settings);
+  const schedule = settings.callback_slots_enabled === true && callbackOn ? scheduleOf(settings.business_hours) : null;
+  const slots = schedule && callbackHoursHaveInterval(schedule)
+    ? computeCallbackSlots({
+      hours: schedule,
+      slotMinutes: settings.callback_slot_minutes ?? CALLBACK_SLOT_MINUTES.default,
+      daysAhead: settings.callback_days_ahead ?? CALLBACK_DAYS_AHEAD.default,
+      capacity: settings.callback_slot_capacity ?? null,
+      now,
+      defaultTimeZone: edition === 'international' ? 'UTC' : 'Asia/Tehran',
+    })
+    : null;
   const bootstrap = {
     status: 'ok',
     provider_ready: true,
     assets_version: 'preview',
     session: 'preview',
-    // The International edition previews its own stylesheet and credit.
+    edition,
+    calendar: dates.calendar,
+    time_zone: dates.timeZone,
+    assets: {
+      // Faces register at document level (the chat widget's stylesheet).
+      font_style_url: '/widget/presentation-default-fonts.css',
+      presentation_style_url: `/call-widget/${template.style}`,
+      presentation_panel_script_url: `/call-widget/${template.panel.script}`,
+      presentation_panel_style_url: `/call-widget/${template.panel.style}`,
+    },
+    // The International edition previews its own credit, in the logo
+    // direction the bootstrap follows (the chat widget's).
     ...(isInternational
       ? {
-          edition: 'international',
-          assets: { presentation_style_url: `/call-widget/${CALL_WIDGET_TEMPLATES[templateId as keyof typeof CALL_WIDGET_TEMPLATES]?.style ?? 'presentation-default.css'}` },
           powered_by: {
             brand: platformBrandName(locale),
             brands: { en: platformBrandName('en'), fa: platformBrandName('fa'), tr: platformBrandName('tr') },
             url: null,
-            // The platform's logo, resolved by the runtime against this origin.
-            logo: INTL_BRAND.horizontal.light,
+            logo: logoDirection === 'open' ? INTL_BRAND.horizontalOpen.light : INTL_BRAND.horizontal.light,
           },
         }
       : {}),
     // The Iranian edition (known, never assumed) previews WebYar's logotype
     // in its credit, as the bootstrap sends it (server/routes/callWidget.ts).
-    ...(webyarKit ? { edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
+    ...(webyarKit ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
     config: {
       display_name: settings.display_name,
       avatar_url: settings.avatar_url,
-      widget_position: settings.widget_position,
+      widget_position: normalizeCallWidgetPosition(settings.widget_position),
       widget_template_id: templateId,
+      launcher_style: style,
+      ...(isInternational ? { logoDirection } : {}),
       widget_theme: settings.widget_theme || {},
       pre_call_form_enabled: settings.pre_call_form_enabled,
       pre_call_form_schema: settings.pre_call_form_schema || [],
       offline_behavior: settings.offline_behavior || 'show_callback',
+      recording_consent_required: !!settings.recording_consent_required,
       custom_texts: settings.widget_custom_texts || {},
     },
     capabilities: {
-      voice: online && settings.voice_enabled !== false,
-      video: online && settings.video_enabled !== false,
-      callback: settings.callback_enabled !== false,
+      voice: online && voiceOn,
+      video: online && videoOn,
+      callback: callbackOn,
       recording: false,
       operator_video_visible: true,
     },
-    callback_policy: { enabled: true, show_when_online: true },
+    // Staffed while previewed online; names only for the styles that show them.
+    presence: online
+      ? { any_available: true, ...(callLauncherNeedsPresence(style) ? { operators: previewOperators(members) } : {}) }
+      : { any_available: false },
+    callback_policy: {
+      enabled: callbackOn,
+      show_when_online: platform?.callback_show_when_online !== false,
+      require_contact: !!platform?.callback_require_contact,
+      min_message_length: platform?.callback_min_message_length ?? 0,
+      ...(slots ? { slots } : {}),
+    },
     departments: { voice: [], video: [], callback: [] },
     recording: { effective_enabled: false },
-    i18n: {
-      default_locale: settings.widget_default_locale || 'en',
-      available_locales: settings.widget_enabled_locales?.length ? settings.widget_enabled_locales : ['en'],
-    },
+    // The languages the bootstrap would give (the platform's while the workspace chose none).
+    i18n: { default_locale: locales.default_locale, available_locales: locales.available },
   };
+  // Inert JSON in its own script element: "<" is escaped, so no value can end it.
   const data = JSON.stringify(bootstrap).replace(/</g, '\\u003c');
   const srcDoc = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+    <script type="application/json" id="ccw-preview-bootstrap">${data}</script>
     <script src="/call-widget/presentation-registry.js"></script>
     <script src="/call-widget/presentation-default.js"></script>
+    <script src="/call-widget/presentation-default-panel.js"></script>
     <script src="/call-widget/runtime.js"></script>
-    <script>window.CallCenterWidget.mount({apiBase:'',origin:parent.location.origin,preview:true,bootstrap:${data}});</script>
+    <script>window.CallCenterWidget.mount({apiBase:'',origin:parent.location.origin,preview:true,bootstrap:JSON.parse(document.getElementById('ccw-preview-bootstrap').textContent)});</script>
   </body></html>`;
+  return <ScaledPreviewFrame device={device} srcDoc={srcDoc} frameKey={`${device}:${data}`} />;
+}
+
+/**
+ * The frame at the device's own size (the widget lays itself out with
+ * `position: fixed` and its phone media query against it), scaled down to
+ * the column's width and centred.
+ */
+function ScaledPreviewFrame({ device, srcDoc, frameKey }: { device: PreviewDevice; srcDoc: string; frameKey: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return undefined;
+    const measure = () => setAvailable(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const { width, height } = PREVIEW_DEVICES[device];
+  const scale = available > 0 ? Math.min(1, available / width) : 1;
   return (
-    <iframe
-      key={data}
-      title="Call Widget live preview"
-      sandbox="allow-scripts allow-same-origin"
-      // Sized to the widget's own footprint (368x508 panel + its 20px
-      // anchor offset, plus a little breathing room), not an arbitrary
-      // large box — the widget positions itself with `position: fixed`
-      // inside this iframe exactly as it does on the real site.
-      srcDoc={srcDoc}
-      className="w-full h-[560px] rounded-lg border bg-muted/20"
-    />
+    <div
+      ref={box}
+      data-preview-frame
+      data-device={device}
+      data-scale={scale.toFixed(3)}
+      className="relative w-full overflow-hidden rounded-lg border bg-muted/20"
+      style={{ height: Math.round(height * scale) }}
+    >
+      <iframe
+        key={frameKey}
+        title="Call Widget live preview"
+        sandbox="allow-scripts allow-same-origin"
+        srcDoc={srcDoc}
+        className="absolute top-0 border-0"
+        style={{
+          width,
+          height,
+          left: Math.max(0, (available - width * scale) / 2),
+          transform: scale < 1 ? `scale(${scale})` : undefined,
+          transformOrigin: 'top left',
+        }}
+      />
+    </div>
   );
 }
 
-function LivePreviewSection({ t, settings, previewOnline, setPreviewOnline }: {
-  t: (key: string) => string;
+function LivePreviewSection({
+  t, settings, platform, chat, members, previewOnline, setPreviewOnline, device, setDevice,
+}: {
+  t: ReturnType<typeof useTranslation>['t'];
   settings: SettingsDraft;
+  platform: Partial<CallCenterPlatformSettings> | null | undefined;
+  chat: WidgetSettings | null | undefined;
+  members: readonly WorkspaceMember[] | undefined;
   previewOnline: boolean;
   setPreviewOnline: (v: boolean) => void;
+  device: PreviewDevice;
+  setDevice: (v: PreviewDevice) => void;
 }) {
   return (
     <Section
@@ -864,14 +1287,34 @@ function LivePreviewSection({ t, settings, previewOnline, setPreviewOnline }: {
       title={t('callCenter.settingsPage.livePreview')}
       description={t('callCenter.settingsPage.livePreviewHint')}
     >
-      <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
-        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
-          <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
-        </SelectContent>
-      </Select>
-      <CallWidgetPreview settings={settings} online={previewOnline} />
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
+        <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
+          <SelectTrigger className="w-44" data-preview-state><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
+            <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
+          </SelectContent>
+        </Select>
+        <ToggleGroup
+          type="single"
+          size="sm"
+          variant="outline"
+          value={device}
+          onValueChange={(v) => { if (v === 'desktop' || v === 'phone') setDevice(v); }}
+          aria-label={t('callCenter.settingsPage.previewDevice')}
+        >
+          <ToggleGroupItem value="desktop" aria-label={t('callCenter.settingsPage.previewDesktop')}>
+            <Monitor className="h-4 w-4" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="phone" aria-label={t('callCenter.settingsPage.previewPhone')}>
+            <Smartphone className="h-4 w-4" />
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+      <CallWidgetPreview
+        settings={settings} platform={platform} chat={chat} members={members}
+        online={previewOnline} device={device}
+      />
     </Section>
   );
 }
@@ -880,14 +1323,20 @@ function LivePreviewSection({ t, settings, previewOnline, setPreviewOnline }: {
 const CALLBACK_TEXT_KEYS = new Set([
   'callback', 'leave_details', 'callback_desk',
   'leave_callback_request', 'offline_copy',
-  'request_callback', 'request_callback_instead',
+  'request_callback', 'request_callback_instead', 'callback_intro',
 ]);
 
+/**
+ * The widget texts an owner may override, with the widget's own copy as the
+ * placeholder (public/call-widget/runtime.js I18N, the 2026-10 design).
+ */
 const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
   { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
   { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },
   { key: 'callback',            label: 'Launcher text (offline)',    placeholder: { en: 'Callback',            fa: 'درخواست تماس',        tr: 'Geri arama' } },
   { key: 'leave_details',       label: 'Launcher subtitle (offline)',placeholder: { en: 'Leave details',       fa: 'ثبت اطلاعات',         tr: 'Bilgilerini bırak' } },
+  { key: 'launcher_pill',       label: 'Pill launcher text',         placeholder: { en: 'Call support',        fa: 'تماس با پشتیبانی',    tr: 'Desteği ara' } },
+  { key: 'launcher_tab',        label: 'Edge tab text',              placeholder: { en: 'Call us',             fa: 'تماس با ما',          tr: 'Bizi arayın' } },
   { key: 'operators_available', label: 'Header subtitle (online)',   placeholder: { en: 'Operators available', fa: 'اپراتورها آماده‌اند', tr: 'Operatörler müsait' } },
   { key: 'callback_desk',       label: 'Header subtitle (offline)',  placeholder: { en: 'Callback desk',       fa: 'میز درخواست تماس',    tr: 'Geri arama masası' } },
   { key: 'talk_to_team',        label: 'Hero title (online)',        placeholder: { en: 'Talk to our team',    fa: 'با تیم ما صحبت کنید', tr: 'Ekibimizle konuşun' } },
@@ -897,7 +1346,8 @@ const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string
   { key: 'voice_call',          label: 'Voice call button',          placeholder: { en: 'Voice call',          fa: 'تماس صوتی',           tr: 'Sesli arama' } },
   { key: 'video_call',          label: 'Video call button',          placeholder: { en: 'Video call',          fa: 'تماس تصویری',         tr: 'Görüntülü arama' } },
   { key: 'request_callback',    label: 'Callback button',            placeholder: { en: 'Request callback',    fa: 'درخواست تماس',        tr: 'Geri arama iste' } },
-  { key: 'request_callback_instead', label: 'Callback alternative (during call)', placeholder: { en: 'Request a callback instead', fa: 'درخواست تماس', tr: 'Bunun yerine geri arama iste' } },
+  { key: 'request_callback_instead', label: 'Home callback row title', placeholder: { en: 'Request a callback', fa: 'درخواست تماس', tr: 'Geri arama iste' } },
+  { key: 'callback_intro',      label: 'Home callback row subtitle', placeholder: { en: 'Tell us how to reach you and our team calls back fast.', fa: 'راه ارتباطی را وارد کنید؛ تیم ما سریع تماس می‌گیرد.', tr: 'Size nasıl ulaşacağımızı yazın; ekibimiz hızlıca geri arar.' } },
 ];
 
 const LOC_LABELS_FULL: Record<string, string> = {

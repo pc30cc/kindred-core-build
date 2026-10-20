@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import express from 'express';
 
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key-widget-security';
@@ -103,10 +104,10 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from(table: string) {
       let eqCol: string | undefined;
-      let eqVal: any;
-      const b: any = {
+      let eqVal: unknown;
+      const b: Record<string, unknown> = {
         select: () => b,
-        eq: (col: string, val: any) => { eqCol = col; eqVal = val; return b; },
+        eq: (col: string, val: unknown) => { eqCol = col; eqVal = val; return b; },
         in: () => b,
         contains: () => b,
         order: () => b,
@@ -116,8 +117,8 @@ vi.mock('@supabase/supabase-js', () => ({
         maybeSingle: async () => {
           if (table === 'platform_call_center_settings') return { data: PLATFORM_ROW, error: null };
           if (table === 'call_center_settings') {
-            if (eqCol === 'public_key') return { data: WORKSPACES_BY_KEY[eqVal] || null, error: null };
-            if (eqCol === 'workspace_id') return { data: WORKSPACES_BY_ID[eqVal] || null, error: null };
+            if (eqCol === 'public_key') return { data: WORKSPACES_BY_KEY[String(eqVal)] || null, error: null };
+            if (eqCol === 'workspace_id') return { data: WORKSPACES_BY_ID[String(eqVal)] || null, error: null };
             return { data: null, error: null };
           }
           return { data: null, error: null };
@@ -132,7 +133,7 @@ vi.mock('@supabase/supabase-js', () => ({
 
 vi.mock('../../../server/supabase.js', async () => {
   const { createClient } = await import('@supabase/supabase-js');
-  const client = (createClient as any)();
+  const client = (createClient as unknown as () => unknown)();
   return { getServiceClient: () => client };
 });
 
@@ -141,7 +142,7 @@ const { resolveRateLimitWorkspaceKey, callWidgetSessionRateLimiter } = await imp
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
+  (req as unknown as { serverConfig: object }).serverConfig = {
     supabaseUrl: 'https://example.supabase.co',
     supabaseAnonKey: 'ANON_KEY',
     supabaseServiceRoleKey: 'SERVICE_KEY',
@@ -154,21 +155,32 @@ app.use(express.json());
 app.use('/api/call-widget', callWidgetSessionRateLimiter, callWidgetRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
+
+/** The answers these tests read (bootstrap, protected routes). */
+type CallBody = {
+  session: string;
+  reason?: string;
+  error?: string;
+  presence?: unknown;
+  config: Record<string, unknown>;
+};
+/** A hand-built request for the rate-limit key resolver. */
+type RateLimitRequest = Parameters<typeof resolveRateLimitWorkspaceKey>[0];
 
 function call(
   method: string,
   path: string,
   headers: Record<string, string> = {},
-): Promise<{ status: number; body: any }> {
+): Promise<{ status: number; body: CallBody }> {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port: port(), path, method, headers }, (res) => {
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => {
-        let parsed: any = d;
+        let parsed: unknown = d;
         try { parsed = JSON.parse(d); } catch { /* leave raw */ }
-        resolve({ status: res.statusCode || 0, body: parsed });
+        resolve({ status: res.statusCode || 0, body: parsed as CallBody });
       });
     });
     req.on('error', reject);
@@ -191,7 +203,7 @@ describe('call widget bootstrap — real route, credential trust boundary', () =
       body: {},
       query: {},
       originalUrl: '/api/call-widget/calls/x/status',
-    } as any);
+    } as unknown as RateLimitRequest);
     expect(key).not.toBe(`ws:${VICTIM_WS}`);
   });
 
@@ -199,6 +211,22 @@ describe('call widget bootstrap — real route, credential trust boundary', () =
     const res = await call('GET', `/api/call-widget/bootstrap?workspaceId=${VICTIM_WS}`, { origin: VICTIM_ORIGIN });
     expect(res.status).toBe(200);
     expect(typeof res.body.session).toBe('string');
+  });
+
+  // The bootstrap is public (its Origin can be forged, above): what the call
+  // widget design added publishes no e-mail, no stored hours and, for a
+  // launcher that draws no operator, nobody (callWidgetPresence.test.ts
+  // covers the styles that do).
+  it('the design fields leak nothing: no e-mail, no business hours, no operators for the default launcher', async () => {
+    const res = await call('GET', `/api/call-widget/bootstrap?publicKey=${VICTIM_PUBLIC_KEY}`, { origin: VICTIM_ORIGIN });
+    expect(res.status).toBe(200);
+    const text = JSON.stringify(res.body);
+    expect(text).not.toContain('@');
+    expect(text).not.toContain('business_hours');
+    expect(res.body.presence).toEqual({ any_available: expect.any(Boolean) });
+    expect(res.body.config.launcher_style).toBe('round_label');
+    // A stored `bottom-right` is sent as its placement.
+    expect(res.body.config.widget_position).toBe('right');
   });
 
   // Missing Origin — call-widget's originAllowed() was already fail-closed
@@ -244,7 +272,7 @@ describe('call widget bootstrap — real route, credential trust boundary', () =
         body: {},
         query: {},
         originalUrl: '/api/call-widget/calls/x/status',
-      } as any);
+      } as unknown as RateLimitRequest);
       expect(key).not.toBe(`ws:${FARM_WS}`);
     }
   });
@@ -274,7 +302,7 @@ describe('call widget bootstrap — real route, credential trust boundary', () =
 describe('backward compatibility — pre-trust-claim call-widget sessions', () => {
   it('TEST 12: a legacy session (no nonce, no rl) never selects ws:VICTIM', async () => {
     const crypto = await import('node:crypto');
-    const config: any = { widgetTokenSecret: undefined, sessionSecret: undefined, supabaseServiceRoleKey: 'SERVICE_KEY' };
+    const config = { widgetTokenSecret: undefined as string | undefined, sessionSecret: undefined as string | undefined, supabaseServiceRoleKey: 'SERVICE_KEY' };
     function legacySecret(): string {
       return config.widgetTokenSecret || config.sessionSecret || config.supabaseServiceRoleKey;
     }
@@ -292,9 +320,9 @@ describe('backward compatibility — pre-trust-claim call-widget sessions', () =
     const legacyToken = `${body}.${sig}`;
 
     const { verifyWidgetSession } = await import('../../../server/services/callCenter/widgetSession.js');
-    const parsed = verifyWidgetSession(config, legacyToken);
+    const parsed = verifyWidgetSession(config as unknown as Parameters<typeof verifyWidgetSession>[0], legacyToken);
     expect(parsed?.workspace_id).toBe(VICTIM_WS);
-    expect((parsed as any)?.rl).toBeUndefined();
+    expect((parsed as { rl?: unknown } | null)?.rl).toBeUndefined();
 
     const key = resolveRateLimitWorkspaceKey({
       ip: '198.51.100.11',
@@ -303,7 +331,7 @@ describe('backward compatibility — pre-trust-claim call-widget sessions', () =
       body: {},
       query: {},
       originalUrl: '/api/call-widget/calls/x/status',
-    } as any);
+    } as unknown as RateLimitRequest);
     expect(key).not.toBe(`ws:${VICTIM_WS}`);
   });
 });

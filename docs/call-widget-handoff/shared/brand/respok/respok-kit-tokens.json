@@ -1,0 +1,306 @@
+{
+  "color": {
+    "ink": {
+      "$type": "color",
+      "$value": "#16142B",
+      "$description": "wordmark, text, dark surfaces, default launcher"
+    },
+    "signal": {
+      "$type": "color",
+      "$value": "#FF5A3C",
+      "$description": "the dot / the answer pill, live status, highlights"
+    },
+    "signal-deep": {
+      "$type": "color",
+      "$value": "#D3361A",
+      "$description": "coral text and links on white (4.87:1), unread badges"
+    },
+    "slate": {
+      "$type": "color",
+      "$value": "#5E5C75",
+      "$description": "secondary text (6.43:1 on white)"
+    },
+    "mist": {
+      "$type": "color",
+      "$value": "#E4E3EC",
+      "$description": "borders, dividers, quiet fills"
+    },
+    "paper": {
+      "$type": "color",
+      "$value": "#F5F5F8",
+      "$description": "page and panel backgrounds"
+    },
+    "white": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "surfaces, reversed marks"
+    },
+    "away": {
+      "$type": "color",
+      "$value": "#A9A7BC",
+      "$description": "away state of the dot / answer pill"
+    }
+  },
+  "font": {
+    "family": {
+      "ui": {
+        "$type": "fontFamily",
+        "$value": [
+          "Figtree",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "sans-serif"
+        ],
+        "$description": "interface, headings, body"
+      },
+      "mono": {
+        "$type": "fontFamily",
+        "$value": [
+          "DM Mono",
+          "ui-monospace",
+          "SF Mono",
+          "Menlo",
+          "monospace"
+        ],
+        "$description": "numbers, codes, specs"
+      },
+      "fa": {
+        "$type": "fontFamily",
+        "$value": [
+          "Vazirmatn",
+          "Tahoma",
+          "sans-serif"
+        ],
+        "$description": "Persian / Arabic interfaces"
+      }
+    },
+    "weight": {
+      "regular": {
+        "$type": "fontWeight",
+        "$value": 400
+      },
+      "medium": {
+        "$type": "fontWeight",
+        "$value": 500
+      },
+      "semibold": {
+        "$type": "fontWeight",
+        "$value": 600
+      },
+      "bold": {
+        "$type": "fontWeight",
+        "$value": 700
+      },
+      "extrabold": {
+        "$type": "fontWeight",
+        "$value": 800
+      }
+    }
+  },
+  "size": {
+    "launcher": {
+      "$type": "dimension",
+      "$value": "60px",
+      "$description": "launcher, desktop"
+    },
+    "launcher-compact": {
+      "$type": "dimension",
+      "$value": "48px",
+      "$description": "launcher, phones (560px wide or less)"
+    },
+    "launcher-offset": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "distance from the window edges, desktop"
+    },
+    "launcher-offset-mobile": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "distance from the window edges, phones"
+    },
+    "badge": {
+      "$type": "dimension",
+      "$value": "22px",
+      "$description": "unread badge"
+    },
+    "touch-target": {
+      "$type": "dimension",
+      "$value": "44px",
+      "$description": "minimum hit area"
+    },
+    "panel-width": {
+      "$type": "dimension",
+      "$value": "372px"
+    },
+    "panel-height": {
+      "$type": "dimension",
+      "$value": "560px",
+      "$description": "never taller than the window minus 140px"
+    },
+    "panel-gap-thread": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Thread: space between the button and the panel"
+    },
+    "greeting-width": {
+      "$type": "dimension",
+      "$value": "272px",
+      "$description": "proactive greeting card"
+    }
+  },
+  "radius": {
+    "panel": {
+      "$type": "dimension",
+      "$value": "24px"
+    },
+    "panel-tail": {
+      "$type": "dimension",
+      "$value": "6px",
+      "$description": "the panel's squared corner, both directions"
+    },
+    "greeting-open": {
+      "$type": "dimension",
+      "$value": "18px",
+      "$description": "Open greeting card (tail corner uses panel-tail)"
+    },
+    "bubble-thread": {
+      "$type": "dimension",
+      "$value": "21px",
+      "$description": "Thread greeting and message pills: round ends"
+    },
+    "bubble-tail-thread": {
+      "$type": "dimension",
+      "$value": "4px",
+      "$description": "their squared corner, as in the logo"
+    },
+    "chip": {
+      "$type": "dimension",
+      "$value": "999px"
+    }
+  },
+  "shadow": {
+    "launcher": {
+      "$value": "0 10px 28px rgba(22, 20, 43, 0.28)"
+    },
+    "launcher-hover": {
+      "$value": "0 16px 36px rgba(22, 20, 43, 0.36)"
+    },
+    "launcher-press": {
+      "$value": "0 5px 14px rgba(22, 20, 43, 0.24)"
+    },
+    "panel": {
+      "$value": "0 24px 60px rgba(22, 20, 43, 0.22), 0 0 0 1px rgba(22, 20, 43, 0.06)"
+    },
+    "greeting": {
+      "$value": "0 14px 36px rgba(22, 20, 43, 0.18), 0 0 0 1px #ECEBF2"
+    },
+    "focus-ring": {
+      "$value": "0 0 0 3px #FFFFFF, 0 0 0 6px #FF5A3C",
+      "$description": "keyboard focus: white gap + Signal ring"
+    }
+  },
+  "motion": {
+    "easing": {
+      "spring": {
+        "$type": "cubicBezier",
+        "$value": [
+          0.2,
+          0.9,
+          0.25,
+          1
+        ],
+        "$description": "panel and greeting opening"
+      },
+      "pop": {
+        "$type": "cubicBezier",
+        "$value": [
+          0.3,
+          1.5,
+          0.5,
+          1
+        ],
+        "$description": "Open dot pop, unread badge"
+      },
+      "slide": {
+        "$type": "cubicBezier",
+        "$value": [
+          0.3,
+          1.4,
+          0.5,
+          1
+        ],
+        "$description": "Thread answer pill sliding in"
+      },
+      "standard": {
+        "$type": "cubicBezier",
+        "$value": [
+          0.25,
+          0.1,
+          0.25,
+          1
+        ],
+        "$description": "CSS ease: hover, press, closing, fades"
+      }
+    },
+    "duration": {
+      "hover": {
+        "$type": "duration",
+        "$value": "160ms"
+      },
+      "press": {
+        "$type": "duration",
+        "$value": "90ms"
+      },
+      "glyph": {
+        "$type": "duration",
+        "$value": "200ms",
+        "$description": "glyph turns into a chevron"
+      },
+      "open-open": {
+        "$type": "duration",
+        "$value": "280ms",
+        "$description": "Open: panel grows out of the button (scale 0.2 to 1)"
+      },
+      "open-thread": {
+        "$type": "duration",
+        "$value": "240ms",
+        "$description": "Thread: panel rises 16px and scales 0.96 to 1"
+      },
+      "close-open": {
+        "$type": "duration",
+        "$value": "180ms"
+      },
+      "close-thread": {
+        "$type": "duration",
+        "$value": "160ms"
+      },
+      "arrival": {
+        "$type": "duration",
+        "$value": "360ms",
+        "$description": "new message: dot pops / answer slides in"
+      },
+      "badge": {
+        "$type": "duration",
+        "$value": "340ms",
+        "$description": "unread badge springs in"
+      },
+      "badge-bump": {
+        "$type": "duration",
+        "$value": "320ms",
+        "$description": "badge already showing: 1 to 1.15 to 1"
+      },
+      "greeting": {
+        "$type": "duration",
+        "$value": "300ms"
+      },
+      "reduced": {
+        "$type": "duration",
+        "$value": "120ms",
+        "$description": "prefers-reduced-motion: fades only"
+      }
+    }
+  }
+}

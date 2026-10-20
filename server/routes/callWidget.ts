@@ -16,10 +16,13 @@ import {
   computeEffectiveCallCenterCaps,
   computeEffectiveCallCenterLocales,
   originAllowed,
+  callWidgetDesignSettings,
+  type CallWidgetDesignSettings,
   type WorkspaceCallCenterSettings,
 } from '../services/callCenter/settings.js';
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { memoCallWidgetBootstrap } from '../services/callCenter/bootstrapCache.js';
+import { loadPublicCallPresence, operatorOwnName } from '../services/callCenter/publicPresence.js';
 import { issuePresenceTicket, readPresenceTicket } from '../services/callCenter/presenceTicket.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { takeAnonymousCallBootstrap } from '../services/widget/security.js';
@@ -63,10 +66,16 @@ import { resolveWidgetAssetBase, getLoaderAssetBase } from '../services/widget/p
 import { widgetTemplateAssetKeys, resolveWidgetTemplateId } from '../services/widget/presentationAssets.js';
 import { buildPoweredByConfig, isPoweredByAllowedForPlan } from '../services/widget/poweredBy.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { workspaceChatTemplate } from '../services/widget/configSnapshot.js';
+import type { Edition } from '../../shared/edition.js';
 import { widgetDateHints } from '../../shared/widgetTemplates.js';
+import { callLauncherNeedsPresence, resolveCallLauncher, type CallLauncherStyle } from '../../shared/callLauncherStyles.js';
+import { CALLBACK_BOOKING_MAX_AHEAD_MS, computeCallbackSlots, isBookableSlot, type CallbackSlot } from '../../shared/callbackSlots.js';
 import { INTL_BRAND } from '../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../shared/webyarBrand.js';
 import {
+  callbackSlotHours,
+  callWidgetPanelAssetKeys,
   callWidgetTemplateAssetKeys,
   normalizeCallWidgetFormSchema,
   normalizeCallWidgetOfflineBehavior,
@@ -576,6 +585,8 @@ type PublicBootstrap = {
   fontName: string | null;
   /** The International edition's credit, as read (its logo URL is built per request). */
   brand: CallWidgetBrandRows | null;
+  /** The launcher the bootstrap names (`presence.operators` is sent only for some). */
+  launcherStyle?: CallLauncherStyle;
 };
 
 function loadPublicBootstrap(
@@ -687,11 +698,24 @@ async function computePublicBootstrap(
   // provider that is primary right now; the row persists no URL of ours.
   const avatarUrl = (await createStorageUrlResolver(config).workspace(ws.workspace_id, ws.avatar_storage_path))
     ?? ws.avatar_url ?? null;
+  // The call widget design (migration 277; its defaults while a database has
+  // not got it): the launcher and placement, the panel module (loaded on the
+  // visitor's first intent), and the International logo direction.
+  const design = callWidgetDesignSettings(ws);
+  const launcher = resolveCallLauncher({ launcher_style: design.launcher_style, widget_position: ws.widget_position });
+  const panelAssets = callWidgetPanelAssetKeys(callTemplateId);
+  const logoDirection = edition === 'international' ? await readCallLogoDirection(config, ws.workspace_id) : null;
+  // Callback slots: only while the workspace turned them on, from hours that
+  // pass the strict shape. The hours themselves are never sent.
+  const slots = effective.callback_enabled
+    ? await loadCallbackSlots(config, ws, design, edition, Date.now())
+    : null;
   return {
     ws,
     disabled: null,
     fontName,
-    brand,
+    brand: brand ? { ...brand, logoDirection } : null,
+    launcherStyle: launcher.style,
     body: {
       assets_version: CALL_WIDGET_ASSETS_VERSION,
       // Additive: the platform's edition (null when it cannot be read; the
@@ -709,13 +733,19 @@ async function computePublicBootstrap(
         presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,
         presentation_script_url: `/call-widget/${callTemplateAssets.script}`,
         presentation_style_url: `/call-widget/${callTemplateAssets.style}`,
+        presentation_panel_script_url: `/call-widget/${panelAssets.panelScript}`,
+        presentation_panel_style_url: `/call-widget/${panelAssets.panelStyle}`,
       },
       workspace_id: ws.workspace_id,
       config: {
         display_name: ws.display_name,
         avatar_url: avatarUrl,
-        widget_position: ws.widget_position,
+        // One of the five placements (a stored older spelling read as its
+        // placement); the engine maps the same spellings for old servers.
+        widget_position: launcher.position,
         widget_template_id: callTemplateId,
+        launcher_style: launcher.style,
+        ...(logoDirection ? { logoDirection } : {}),
         widget_theme: normalizeCallWidgetTheme(ws.widget_theme),
         pre_call_form_enabled: ws.pre_call_form_enabled,
         pre_call_form_schema: normalizeCallWidgetFormSchema(ws.pre_call_form_schema),
@@ -738,6 +768,7 @@ async function computePublicBootstrap(
         min_message_length: platform.callback_min_message_length,
         honeypot_enabled: platform.callback_honeypot_enabled,
         min_form_seconds: platform.callback_min_form_seconds,
+        ...(slots ? { slots } : {}),
       },
       queue_experience: {
         ringback_enabled: platform.ringback_enabled,
@@ -759,6 +790,72 @@ async function computePublicBootstrap(
       departments,
     },
   };
+}
+
+/**
+ * The International edition's logo direction for the call widget: the one the
+ * workspace's chat widget wears (its template option `logoDirection`, from
+ * the cached chat snapshot), `thread` otherwise and whenever it cannot be read.
+ */
+async function readCallLogoDirection(config: ServerConfig, workspaceId: string): Promise<'open' | 'thread'> {
+  try {
+    const template = await workspaceChatTemplate(config, workspaceId);
+    return (template?.options as { logoDirection?: unknown } | undefined)?.logoDirection === 'open' ? 'open' : 'thread';
+  } catch {
+    return 'thread';
+  }
+}
+
+/** The zone callback hours are in when they name none: Tehran in Iran (and unknown), UTC abroad. */
+function callbackDefaultTimeZone(edition: Edition | null): string {
+  return edition === 'international' ? 'UTC' : 'Asia/Tehran';
+}
+
+/** The statuses of a callback that still holds its time (the partial index idx_callback_requests_scheduled_for). */
+const OPEN_CALLBACK_STATUSES = ['requested', 'scheduled', 'in_progress'];
+
+/**
+ * The workspace's callback slots now, or null while slots are off (or its
+ * hours fail the strict shape, or name no interval). With a capacity, the
+ * open callbacks booked in the slots' range are counted in one query.
+ */
+async function loadCallbackSlots(
+  config: ServerConfig,
+  ws: WorkspaceCallCenterSettings,
+  design: CallWidgetDesignSettings,
+  edition: Edition | null,
+  now: number,
+): Promise<CallbackSlot[] | null> {
+  const hours = callbackSlotHours(design.callback_slots_enabled, ws.business_hours);
+  if (!hours) return null;
+  const input = {
+    hours,
+    slotMinutes: design.callback_slot_minutes,
+    daysAhead: design.callback_days_ahead,
+    capacity: design.callback_slot_capacity,
+    now,
+    defaultTimeZone: callbackDefaultTimeZone(edition),
+  };
+  const slots = computeCallbackSlots(input);
+  if (design.callback_slot_capacity == null || !slots.length) return slots;
+  const from = new Date(Date.parse(slots[0].at) - 60_000).toISOString();
+  const to = new Date(Date.parse(slots[slots.length - 1].at) + design.callback_slot_minutes * 60_000).toISOString();
+  const { data, error } = await getServiceClient(config)
+    .from('callback_requests')
+    .select('scheduled_for')
+    .eq('workspace_id', ws.workspace_id)
+    .in('status', OPEN_CALLBACK_STATUSES)
+    .gte('scheduled_for', from)
+    .lt('scheduled_for', to)
+    .limit(5000);
+  // Unreadable bookings: the slots without them (the capacity is a soft
+  // limit, and the booking re-checks); never a failed bootstrap.
+  if (error) {
+    console.warn('[call-widget] callback bookings read failed:', error.message || error);
+    return slots;
+  }
+  const booked = ((data || []) as Array<{ scheduled_for: string | null }>).map((r) => r.scheduled_for);
+  return computeCallbackSlots({ ...input, booked });
 }
 
 /**
@@ -882,10 +979,17 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     ? buildCallWidgetBrand(pub.brand, loaderAssetBase)
     : null;
   const poweredBy = intlBrand ? intlBrand.poweredBy : undefined;
+  // Whether an operator is available (always), and who (only for the
+  // launchers that draw them): its own 30 s memo, no query on a hit.
+  const withOperators = callLauncherNeedsPresence(pub.launcherStyle);
+  const presence = await loadPublicCallPresence(config, ws.workspace_id, { withOperators });
   res.json({
     status: 'ok',
     session,
     ...pub.body,
+    presence: withOperators
+      ? { any_available: presence.any_available, operators: presence.operators }
+      : { any_available: presence.any_available },
     ...(intlBrand ? { platform_brand: { names: intlBrand.names } } : {}),
     ...(poweredBy !== undefined ? { powered_by: poweredBy } : {}),
     assets: { font_style_url: callWidgetFontStyleUrl(pub.fontName, loaderAssetBase), ...pub.body.assets },
@@ -902,6 +1006,8 @@ type CallWidgetBrandRows = {
   override: boolean;
   /** The platform's widget asset origins (widget_platform_settings). */
   bases: { widgetBaseUrl?: string | null; widgetLoaderBaseUrl?: string | null; widgetPublicBaseUrl?: string | null };
+  /** The workspace's logo direction (the chat widget's), for the credit's lockup. */
+  logoDirection?: 'open' | 'thread' | null;
 };
 
 /**
@@ -965,9 +1071,12 @@ function buildCallWidgetBrand(
   // runtime resolves against the origin it was loaded from.
   const assetBase = resolveWidgetAssetBase({ ...rows.bases, assetBaseUrl: null, loaderAssetBase });
   const logo = `${assetBase ?? ''}${INTL_BRAND.horizontal.light}`;
+  // The Open lockup when the workspace's widgets wear the Open logo (as the
+  // chat widget's credit does), so the footer agrees with the launcher.
+  const lockup = rows.logoDirection === 'open' ? `${assetBase ?? ''}${INTL_BRAND.horizontalOpen.light}` : logo;
   return {
     names: rows.names,
-    poweredBy: { brand: rows.footer.brand, brands: rows.override ? {} : rows.names, url: rows.footer.url, logo },
+    poweredBy: { brand: rows.footer.brand, brands: rows.override ? {} : rows.names, url: rows.footer.url, logo: lockup },
   };
 }
 
@@ -1370,26 +1479,22 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   const session = guard.session;
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
+  // What the visitor's widget reads, and nothing more: not the provider nor
+  // its room (the join token names them, to this visitor only).
   const { data: call } = await sb.from('call_sessions')
-    .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state,assigned_agent_id,started_at,duration_seconds')
+    .select('id,state,ended_at,end_reason,call_type,recording_enabled,recording_state,assigned_agent_id,started_at,duration_seconds')
     .eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
-  // Resolve operator display name for the visitor UI. Only the
-  // operator's first/display name is exposed — never email or role.
+  // The operator's own name, or null: never their e-mail or any part of it
+  // (the widget then says "operator"). Never their role.
   let operator_name: string | null = null;
   const agentId = call.assigned_agent_id as string | null;
   if (agentId) {
     try {
       const { data: prof } = await sb.from('profiles')
-        .select('full_name,email')
+        .select('full_name')
         .eq('id', agentId).maybeSingle();
-      if (prof) {
-        const fn = prof.full_name as string | null;
-        const em = prof.email as string | null;
-        operator_name = (fn && fn.trim())
-          || (em ? em.split('@')[0] : null)
-          || null;
-      }
+      operator_name = operatorOwnName(prof?.full_name);
     } catch {/* ignore */}
   }
   // Compute live queue position + ETA from the queue table, not from
@@ -1421,8 +1526,40 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
       } catch { eta_seconds = position ? (position - 1) * 45 + 30 : null; }
     }
   }
-  res.json({ call, position, eta_seconds, operator_name });
+  // The operator's user id never reaches the visitor: `assigned_agent_id`
+  // keeps its name (an older engine compares it to notice a transfer) and
+  // carries an opaque reference, the same for one operator on one call.
+  res.json({
+    call: {
+      id: call.id,
+      state: call.state,
+      ended_at: call.ended_at,
+      end_reason: call.end_reason,
+      call_type: call.call_type,
+      recording_enabled: call.recording_enabled,
+      recording_state: call.recording_state,
+      assigned_agent_id: agentId ? operatorReference(config, String(call.id), agentId) : null,
+      started_at: call.started_at,
+      duration_seconds: call.duration_seconds,
+    },
+    position,
+    eta_seconds,
+    operator_name,
+  });
 });
+
+/**
+ * The visitor's stand-in for the operator's user id on a call: the first 16
+ * hex of HMAC-SHA256 under the widget-session secret, over a prefix that no
+ * other use of that secret signs (`ccw-agent-ref:`), the call and the
+ * operator. Stable while that operator has the call, different on another
+ * call or for another operator, and never the id itself.
+ */
+function operatorReference(config: ServerConfig, callId: string, agentId: string): string {
+  const secrets = config as ServerConfig & OptionalCookieSecrets;
+  const key = secrets.widgetTokenSecret || secrets.sessionSecret || config.signingSecret || config.supabaseServiceRoleKey;
+  return crypto.createHmac('sha256', key).update(`ccw-agent-ref:${callId}:${agentId}`).digest('hex').slice(0, 16);
+}
 
 // ── Visitor join token (only after operator accepts) ──────────────────────
 callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
@@ -1493,6 +1630,8 @@ async function markVisitorJoined(sb: ReturnType<typeof getServiceClient>, callId
 }
 
 // ── Callback request ──────────────────────────────────────────────────────
+/** A requested time this far in the past is still taken (the visitor was slow to submit). */
+const CALLBACK_PAST_GRACE_MS = 2 * 60_000;
 const callbackSchema = z.object({
   name: z.string().max(120).optional().nullable(),
   email: z.string().email().max(200).optional().nullable(),
@@ -1541,7 +1680,22 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   // ── Anti-spam enforcement ──────────────────────────────────────────────
   // 1) Honeypot — bots fill hidden fields. Silently 200 to avoid signal.
   if (platform.callback_honeypot_enabled && parsed.data.hp_company && parsed.data.hp_company.trim() !== '') {
-    return res.json({ ok: true, callback_id: 'hp_' + crypto.randomBytes(6).toString('hex') });
+    return res.json({
+      ok: true,
+      callback_id: 'hp_' + crypto.randomBytes(6).toString('hex'),
+      scheduled_for: parsed.data.scheduled_for || null,
+      channel: parsed.data.channel === 'video' ? 'video' : 'audio',
+    });
+  }
+  // The callback's time: not in the past (two minutes for a slow submit) and
+  // at most 30 days ahead.
+  const nowMs = Date.now();
+  const scheduledFor = parsed.data.scheduled_for || null;
+  if (scheduledFor) {
+    const at = Date.parse(scheduledFor);
+    if (!Number.isFinite(at) || at < nowMs - CALLBACK_PAST_GRACE_MS || at > nowMs + CALLBACK_BOOKING_MAX_AHEAD_MS) {
+      return res.status(400).json({ error: 'invalid_scheduled_for' });
+    }
   }
   // 2) Minimum form-fill time.
   const minFormSec = Math.max(0, platform.callback_min_form_seconds || 0);
@@ -1609,6 +1763,18 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       }
     }
   }
+  // While the workspace's slots are on, a time must be one of them, still
+  // available now (the capacity is a soft limit: two visitors booking its
+  // last place at the same instant may both get it).
+  if (scheduledFor) {
+    const design = callWidgetDesignSettings(ws);
+    if (callbackSlotHours(design.callback_slots_enabled, ws.business_hours)) {
+      const slots = await loadCallbackSlots(config, ws, design, await getPlatformEditionOrNull(config), nowMs);
+      if (!slots || !isBookableSlot(slots, scheduledFor)) {
+        return res.status(409).json({ error: 'slot_unavailable' });
+      }
+    }
+  }
   // Validate optional visitor-selected department.
   let cbDepartmentId: string | null = parsed.data.department_id || null;
   if (cbDepartmentId) {
@@ -1672,7 +1838,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
     contact_phone: parsed.data.phone || null,
     contact_email: parsed.data.email || null,
     notes: parsed.data.message || parsed.data.subject || null,
-    scheduled_for: parsed.data.scheduled_for || null,
+    scheduled_for: scheduledFor,
     metadata: {
       source: 'call_widget',
       name: parsed.data.name || null,
@@ -1693,7 +1859,15 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
     callbackId: data!.id,
     visitorName: parsed.data.name || null,
   });
-  res.json({ ok: true, callback_id: data!.id });
+  // The time and channel as stored: the widget keeps them for the booked
+  // callback's launcher.
+  const storedAt = data!.scheduled_for ? Date.parse(String(data!.scheduled_for)) : NaN;
+  res.json({
+    ok: true,
+    callback_id: data!.id,
+    scheduled_for: Number.isFinite(storedAt) ? new Date(storedAt).toISOString() : (data!.scheduled_for ?? null),
+    channel: data!.channel ?? (parsed.data.channel === 'video' ? 'video' : 'audio'),
+  });
 });
 
 // ── Post-call rating submitted by the visitor (1–5 stars + optional comment)

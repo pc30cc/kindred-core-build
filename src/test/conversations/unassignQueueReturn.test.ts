@@ -98,7 +98,8 @@ afterAll(() => { server.close(); });
 const WS = randomUUID();
 const SARA = randomUUID();
 const ALI = randomUUID();
-let clock = Date.parse('2026-10-18T09:00:00Z');
+// An hour ago, a second per stamp: a queue entry stays recent (queueEntryStamp's 24 h window runs on the real clock).
+let clock = Date.now() - 60 * 60 * 1000;
 const tick = () => new Date((clock += 1000)).toISOString();
 let QUEUED_AT = '';
 

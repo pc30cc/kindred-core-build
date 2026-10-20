@@ -2,13 +2,33 @@
  * In-memory stand-in for the Supabase/PostgREST client the server uses
  * (getServiceClient): every from()/rpc() round trip is logged as
  * "<op> <table>" or "rpc <fn>", so a test can count the database work a
- * request does. Filters are applied for real; ordering is not.
+ * request does. Filters are applied for real (ranges too: timestamps by
+ * instant, as PostgreSQL compares timestamptz); ordering is not; `or()` is
+ * not.
  */
 export type Row = Record<string, unknown>;
 export const db: Record<string, Row[]> = {};
 export const log: string[] = [];
 export function resetLog() { log.length = 0; }
 let seq = 0;
+
+/**
+ * a <op> b as PostgreSQL would: NULL never matches; two timestamps (ISO
+ * strings, any offset) by instant; numbers by value; other text by code point.
+ */
+function compare(a: unknown, b: unknown): number | null {
+  if (a == null || b == null) return null;
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  const sa = String(a);
+  const sb = String(b);
+  const iso = /^\d{4}-\d{2}-\d{2}T/;
+  if (iso.test(sa) && iso.test(sb)) {
+    const ta = Date.parse(sa);
+    const tb = Date.parse(sb);
+    if (Number.isFinite(ta) && Number.isFinite(tb)) return ta - tb;
+  }
+  return sa < sb ? -1 : sa > sb ? 1 : 0;
+}
 
 /** A column, or `col->>key` (a JSON field). */
 function get(row: Row, col: string): unknown {
@@ -77,7 +97,11 @@ function builder(table: string): FakeQuery {
     not: (c, _o, v) => filter((r) => (get(r, c) ?? null) !== v),
     in: (c, vs) => filter((r) => vs.includes(get(r, c))),
     contains: (c, v) => filter((r) => Object.entries(v).every(([k, x]) => (r[c] as Row | undefined)?.[k] === x)),
-    or: () => b, order: () => b, gte: () => b, lte: () => b, gt: () => b, lt: () => b,
+    or: () => b, order: () => b,
+    gte: (c, v) => filter((r) => { const d = compare(get(r, c as string), v); return d != null && d >= 0; }),
+    lte: (c, v) => filter((r) => { const d = compare(get(r, c as string), v); return d != null && d <= 0; }),
+    gt: (c, v) => filter((r) => { const d = compare(get(r, c as string), v); return d != null && d > 0; }),
+    lt: (c, v) => filter((r) => { const d = compare(get(r, c as string), v); return d != null && d < 0; }),
     limit: (n) => { limitN = n; return b; },
     maybeSingle: async () => ({ data: exec().data[0] ?? null, error: null }),
     single: async () => ({ data: exec().data[0] ?? null, error: null }),

@@ -1,0 +1,142 @@
+/*
+ * The call widget's reference re-render, as production must draw it.
+ *
+ * e2e/harness/callReference.ts opens the handoff's reference pages
+ * (docs/call-widget-handoff/<brand>/template-1-call-center/reference/*.html)
+ * and adds this stylesheet after their cc.css. Each rule below applies one
+ * deviation the build contract documents (00-contract §8.3, the numbers in
+ * the comments); nothing else may differ between the reference and the live
+ * widget. Masks (§8.3 #4, #7, #9) are not CSS: they are rectangles the diff
+ * ignores, listed in e2e/harness/callScreensFixture.ts.
+ *
+ * Not here, on purpose:
+ *   - the font faces: the harness puts production's own document-level
+ *     stylesheet (public/widget/presentation-default-fonts.css) on the
+ *     reference page and empties the handoff's css/fonts.css, so both sides
+ *     draw with the same files, unicode-ranges and weight mapping;
+ *   - board chrome (captions, tags, mock pages, card frames): the harness
+ *     hides what surrounds the frame it crops;
+ *   - `--a`, `--on-a` and `--a-ink` for another accent, and `data-r` for
+ *     another radius (the --matrix runs): the harness sets them inline on `.cc`.
+ */
+
+/* ---- §8.3 #1 fonts (D3, §2.8): IRANSans for Persian (not Vazirmatn), the
+   repo's Figtree for Respok, the system monospace for reference codes (not
+   DM Mono). The stacks are production's (presentation-default.css and
+   presentation-intl.css), in both directions. */
+.cc.b-wy {
+  --font: 'InterWY', 'IRANSans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+}
+.cc.b-wy[dir='rtl'] {
+  --font: 'IRANSans', 'InterWY', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+}
+.cc.b-rp {
+  --font: 'Figtree', 'IRANSans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+}
+.cc.b-rp[dir='rtl'] {
+  --font: 'IRANSans', 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+}
+.cc .code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace !important;
+}
+/* D3: weight 800 is written 700 in production (no 800 face ships; the
+   variable Figtree would otherwise draw a true 800). cc:405, cc:874. */
+.cc .ql .me,
+.cc .ql2 .me {
+  font-weight: 700 !important;
+}
+
+/* ---- §8.3 #2: cc.css defect (cc:594), the label's close button keeps the
+   browser's button border and padding; the label is its positioning box. */
+.cc .lbl .x {
+  border: 0;
+  padding: 0;
+}
+.cc .lbl {
+  position: relative;
+}
+
+/* ---- §8.3 #3: screen 06 draws one sound toggle, the dock's `.gbtn` (D7);
+   the timer row's `.sbt` (cc:397) is not drawn there. */
+.cc .tmr .sbt {
+  display: none !important;
+}
+
+/* ---- §8.3 #8: the on-accent fixes of §2.6, so a light accent (#F5D90A in
+   the --matrix runs, `--on-a` = Ink) reads as production draws it.
+   Identical at every preset, where `--on-a` is white. */
+
+/* `#fff` on the accent → `var(--on-a)` (Respok rules cc:157, 276, 567, 583,
+   599, 616, 620, 628, 659). Selectors keep each original rule's targets and
+   leave out the elements a later rule of the same weight recolours
+   (`.ln-c.off` cc:573, `.ln-c.logo` cc:581). */
+.cc.b-rp .opt.voice { color: var(--on-a); }                 /* cc:157 */
+.cc.b-rp .okc .in { color: var(--on-a); }                   /* cc:276 */
+.cc.b-rp .ln-c:not(.off):not(.logo) { color: var(--on-a); } /* cc:567 */
+.cc.b-rp .ln-c.logo .f2 { color: var(--on-a); }             /* cc:583 */
+.cc.b-rp .ln-p { color: var(--on-a); }                      /* cc:599 */
+.cc.b-rp .ln-r .go2 { color: var(--on-a); }                 /* cc:616 */
+.cc.b-rp .ln-s { color: var(--on-a); }                      /* cc:620 */
+.cc.b-rp .ln-t { color: var(--on-a); }                      /* cc:628 */
+.cc.b-rp .ln-f .pb { color: var(--on-a); }                  /* cc:659 */
+
+/* White translucent overlays on accent surfaces → the same share of
+   `--on-a` (identical at white): cc:158, 160, 161, 600, 602, 622-624, 634. */
+.cc .opt.voice .oi {
+  background: color-mix(in oklab, var(--on-a) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--on-a) 16%, transparent);
+}
+.cc .opt.voice .go { background: color-mix(in oklab, var(--on-a) 16%, transparent); }
+/* Respok's tile rings are Signal (cc:164): WebYar only. */
+.cc:not(.b-rp) .opt.voice .rw { border-color: color-mix(in oklab, var(--on-a) 22%, transparent); }
+.cc .ln-p .pi { background: color-mix(in oklab, var(--on-a) 18%, transparent); }
+.cc .ln-p .ld,
+.cc .ln-t .ld { box-shadow: 0 0 0 3px color-mix(in oklab, var(--on-a) 22%, transparent); }
+.cc .ln-s .hf.pri {
+  background: color-mix(in oklab, var(--on-a) 17%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--on-a) 12%, transparent);
+}
+/* cc:623 follows cc:622 at the same weight: hover still wins over `.pri`. */
+.cc .ln-s .hf:hover { background: color-mix(in oklab, var(--on-a) 24%, transparent); }
+.cc .ln-s .dv { background: color-mix(in oklab, var(--on-a) 22%, transparent); }
+
+/* Respok's selected time slot is Ink (cc:325), so its text stays white
+   whatever the accent (cc:324 would give Ink on Ink with a light accent). */
+.cc.b-rp .slots .chip.on { color: #fff; }
+
+/* ---- §8.3 #11 (owner, 2026-10-19): Respok's stage in a workspace colour
+   other than Ink, as board 12-02 ("any brand colour") draws it, held dark.
+   The harness sets `tint` and `--a-k` on `.cc` for such an accent (the
+   --matrix runs; callScreensFixture.ts stageTintK, the renderer's formula);
+   the tokens and the stage ground are presentation-intl.css's own
+   (callWidgetTheme.test.ts keeps the two identical). At Ink and at no
+   colour nothing here applies. */
+.cc.b-rp.tint {
+  --a-st: color-mix(in oklab, var(--a) var(--a-k, 100%), #000);
+  --s1: color-mix(in oklab, var(--a-st) 40%, #0C0C10);
+  --s2: color-mix(in oklab, var(--a-st) 20%, #0C0C10);
+  --s3: color-mix(in oklab, var(--a-st) 8%, #0D0C1C);
+  --glow: color-mix(in oklab, var(--a-st) 55%, #fff);
+}
+.cc.b-rp.tint .cp.stage, .cc.b-rp.tint .stage-bg { background: radial-gradient(110% 58% at 50% 30%, color-mix(in oklab, var(--glow) 24%, transparent), transparent 72%), linear-gradient(180deg, var(--s1) 0%, var(--s2) 52%, var(--s3) 100%); }
+/* The video panel keeps its black ground (cc:449) under the feed. */
+.cc.b-rp.tint .cp.stage.vid { background: #0A0D10; }
+/* The dark square's status dot stays Signal (the live colour). */
+.cc.b-rp.tint .ln-q .ls { background: #FF5A3C; }
+
+/* ---- §8.3 #12 (owner, 2026-10-19, round 7b): WebYar in a colour lighter
+   than its lightest preset (#D9480F, luminance .1942), e.g. the --matrix
+   light accent #F5D90A: the stage, its glow and the Se/Sf bars take cc.css's
+   own formulas on the colour held at a luminance of .195. The harness sets
+   `hold` and `--a-k` on `.cc` for such an accent (callScreensFixture.ts
+   stageHoldK, the renderer's formula); the tokens are presentation-default.css's
+   own (callWidgetTheme.test.ts keeps the two identical). cc.css's stage
+   ground reads these tokens, so nothing else changes. At the default and
+   every preset nothing here applies. */
+.cc.b-wy.hold {
+  --a-st: color-mix(in oklab, var(--a) var(--a-k, 100%), #000);
+  --glow: color-mix(in oklab, var(--a-st) 42%, #5CF2D6);
+  --s1: color-mix(in oklab, var(--a-st) 60%, #03110F);
+  --s2: color-mix(in oklab, var(--a-st) 30%, #03100E);
+  --s3: color-mix(in oklab, var(--a-st) 12%, #020807);
+}

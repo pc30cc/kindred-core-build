@@ -85,8 +85,61 @@ export interface WorkspaceCallCenterSettings {
   widget_enabled_locales: string[] | null;
   /** Per-locale overrides for widget labels (header, buttons, launcher). */
   widget_custom_texts: Record<string, Record<string, string>> | null;
+  /*
+   * Migration 277 (the call widget design). Optional: a database 277 has not
+   * reached yet (RESPOK's migrator races its backend) has none of them, and
+   * every reader goes through callWidgetDesignSettings() for the defaults.
+   */
+  /** The launcher (shared/callLauncherStyles.ts); default round_label. */
+  launcher_style?: string | null;
+  /** Visitors book callbacks from slots (shared/callbackSlots.ts); default false. */
+  callback_slots_enabled?: boolean | null;
+  /** Slot length in minutes (10–240); default 30. */
+  callback_slot_minutes?: number | null;
+  /** Open days offered, today included (1–14); default 4. */
+  callback_days_ahead?: number | null;
+  /** Callbacks per slot (1–100); null = unlimited. */
+  callback_slot_capacity?: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/** The columns migration 277 adds to call_center_settings. */
+export const CALL_WIDGET_DESIGN_COLUMNS = [
+  'launcher_style',
+  'callback_slots_enabled',
+  'callback_slot_minutes',
+  'callback_days_ahead',
+  'callback_slot_capacity',
+] as const;
+
+export interface CallWidgetDesignSettings {
+  launcher_style: string;
+  callback_slots_enabled: boolean;
+  callback_slot_minutes: number;
+  callback_days_ahead: number;
+  callback_slot_capacity: number | null;
+}
+
+function intIn(value: unknown, min: number, max: number): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= min && n <= max ? n : null;
+}
+
+/**
+ * A row's migration-277 settings, with the defaults for a column the row does
+ * not have (277 not applied yet) or a value out of range: round_label, slots
+ * off, 30 minutes, 4 days, unlimited. The style is returned as stored (the
+ * bootstrap resolves an unknown one to round_label).
+ */
+export function callWidgetDesignSettings(ws: Partial<WorkspaceCallCenterSettings> | null | undefined): CallWidgetDesignSettings {
+  return {
+    launcher_style: typeof ws?.launcher_style === 'string' && ws.launcher_style ? ws.launcher_style : 'round_label',
+    callback_slots_enabled: ws?.callback_slots_enabled === true,
+    callback_slot_minutes: intIn(ws?.callback_slot_minutes, 10, 240) ?? 30,
+    callback_days_ahead: intIn(ws?.callback_days_ahead, 1, 14) ?? 4,
+    callback_slot_capacity: intIn(ws?.callback_slot_capacity, 1, 100),
+  };
 }
 
 let _platformCache: { value: PlatformCallCenterSettings; at: number } | null = null;

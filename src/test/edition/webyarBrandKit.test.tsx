@@ -17,6 +17,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
+import { mountCallWidget } from '../callWidget/mountCallWidget';
 import { render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -189,80 +190,53 @@ describe('chat widget "powered by"', () => {
 });
 
 describe('call widget "powered by"', () => {
-  const cw = (name: string) => read(`public/call-widget/${name}`);
-  function callWidget(extra: Record<string, unknown>, locale = 'fa') {
-    const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://customer.example/page', runScripts: 'outside-only' });
-    const win = dom.window as unknown as Window & { eval(code: string): unknown; CallCenterWidget: { mount(o: unknown): void } };
-    win.eval(cw('presentation-registry.js'));
-    win.eval(cw('presentation-default.js'));
-    win.eval(cw('runtime.js'));
-    win.CallCenterWidget.mount({
-      apiBase: 'https://api.example',
-      origin: 'https://app.webyar.ai',
-      preview: true,
-      bootstrap: {
-        status: 'ok', provider_ready: true, session: 'preview',
-        config: { widget_template_id: 'default', widget_position: 'right', offline_behavior: 'show_callback', pre_call_form_enabled: false, pre_call_form_schema: [] },
-        capabilities: { voice: true, video: false, callback: true },
-        callback_policy: { enabled: true, show_when_online: true },
-        recording: { effective_enabled: false },
-        departments: { voice: [], video: [], callback: [] },
-        i18n: { default_locale: locale, available_locales: [locale] },
-        ...extra,
-      },
-    });
-    const root = (win.document.querySelector('#call-center-widget-host') as HTMLElement).shadowRoot!.querySelector('.ccw-root') as HTMLElement;
-    (root.querySelector('.ccw-launcher-btn') as HTMLButtonElement | null)?.click();
-    return { root, win };
+  function callWidget(extra: Record<string, unknown>, locale: 'fa' | 'en' | 'tr' = 'fa', edition: 'iran' | null = 'iran') {
+    const m = mountCallWidget({ locale, edition, bootstrap: extra });
+    m.open();
+    return { root: m.root, credit: m.q('[data-screen="home"] .ccw-powered') as HTMLElement };
   }
 
-  it('Iran (fa): the label first, then the logotype; absolute from the widget origin; the dead link kept', () => {
-    const { root } = callWidget({ edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light });
-    const link = root.querySelector('.ccw-powered') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('#');
-    expect(link.firstElementChild!.textContent).toBe('قدرت گرفته از');
-    const img = link.lastElementChild as HTMLImageElement;
-    expect(img.tagName).toBe('IMG');
-    expect(img.getAttribute('src')).toBe(`https://app.webyar.ai${WEBYAR_BRAND.logo.light}`);
-    expect(img.getAttribute('alt')).toBe('وب یار');
+  it('Iran (fa): the designed lockup, the mark, the words and the brand in bold with its ZWNJ; no image, no dead link (D20)', () => {
+    const { credit } = callWidget({ powered_by_logo: WEBYAR_BRAND.logo.light });
+    expect(credit.tagName).toBe('SPAN');
+    expect(credit.hasAttribute('href')).toBe(false);
+    expect(credit.firstElementChild!.getAttribute('class')).toBe('wm');
+    expect(credit.querySelector('.ccw-powered-label')!.textContent).toBe('قدرت گرفته از ');
+    expect(credit.querySelector('b')!.textContent).toBe('وب‌یار');
+    expect(credit.textContent).toBe('قدرت گرفته از وب‌یار');
+    expect(credit.querySelector('img')).toBeNull();
   });
 
-  it('Iran: English and Turkish keep their label around the same Persian logotype', () => {
-    const en = callWidget({ edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light }, 'en').root.querySelector('.ccw-powered')!;
-    expect(en.textContent).toBe('Powered by');
-    expect(en.querySelector('img')!.getAttribute('src')).toContain('webyar-logo-fa-color.svg');
-    const tr = callWidget({ edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light }, 'tr').root.querySelector('.ccw-powered')!;
-    expect(tr.firstElementChild!.tagName).toBe('IMG');
-    expect(tr.textContent).toBe('tarafından desteklenmektedir');
+  it('Iran: English and Turkish keep their words around the brand, the mark first', () => {
+    const en = callWidget({ powered_by_logo: WEBYAR_BRAND.logo.light }, 'en').credit;
+    expect(en.textContent).toBe('Powered by Web Yar');
+    expect(en.firstElementChild!.getAttribute('class')).toBe('wm');
+    const tr = callWidget({ powered_by_logo: WEBYAR_BRAND.logo.light }, 'tr').credit;
+    expect([...tr.children].map((c) => c.tagName.toLowerCase())).toEqual(['svg', 'b', 'span']);
+    expect(tr.textContent).toBe('Web Yar tarafından desteklenmektedir');
   });
 
-  it('Iran: a logo that cannot load becomes the words again', () => {
-    const { root, win } = callWidget({ edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light });
-    root.querySelector('img.ccw-powered-logo')!.dispatchEvent(new (win as unknown as { Event: typeof Event }).Event('error'));
-    expect(root.querySelector('.ccw-powered')!.textContent).toBe('قدرت گرفته ازوب یار');
-  });
-
-  it('an unknown edition, or Iran without the field (older backend), keeps the exact words', () => {
-    for (const extra of [{ powered_by_logo: WEBYAR_BRAND.logo.light }, { edition: null, powered_by_logo: WEBYAR_BRAND.logo.light }, { edition: 'iran' }]) {
-      const link = callWidget(extra).root.querySelector('.ccw-powered')!;
-      expect(link.querySelector('img')).toBeNull();
-      expect(link.textContent).toBe('قدرت گرفته از وب یار');
+  it('an unknown edition (an older backend) keeps the words alone', () => {
+    for (const extra of [{ powered_by_logo: WEBYAR_BRAND.logo.light }, {}]) {
+      const credit = callWidget(extra, 'fa', null).credit;
+      expect(credit.querySelector('img, svg')).toBeNull();
+      expect(credit.textContent).toBe('قدرت گرفته از وب‌یار');
     }
   });
 
-  it('a workspace\'s own "powered by" text still wins over the logo', () => {
+  it('a workspace\'s own "powered by" text still wins over the lockup', () => {
     const custom = callWidget({
-      edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light,
-      config: { widget_template_id: 'default', widget_position: 'right', offline_behavior: 'show_callback', pre_call_form_enabled: false, pre_call_form_schema: [], custom_texts: { fa: { powered_by: 'ساخت آکمه' } } },
-    }).root;
-    expect(custom.querySelector('img.ccw-powered-logo')).toBeNull();
-    expect(custom.querySelector('.ccw-powered')!.textContent).toBe('ساخت آکمه');
+      powered_by_logo: WEBYAR_BRAND.logo.light,
+      config: { custom_texts: { fa: { powered_by: 'ساخت آکمه' } } },
+    }).credit;
+    expect(custom.querySelector('img, svg')).toBeNull();
+    expect(custom.textContent).toBe('ساخت آکمه');
   });
 
-  it('the server names the logo for Iran only; the default stylesheet sizes it, never the intl root', () => {
+  it('the server still names the logotype for Iran (older widgets); the skin sizes the mark', () => {
     const route = read('server/routes/callWidget.ts');
     expect(route).toContain('...(isWebyarKitEdition(edition) ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),');
-    const css = cw('presentation-default.css');
-    expect(css).toMatch(/\.ccw-presentation-default:not\(\.ccw-presentation-intl\) \.ccw-powered-logo \{[^}]*height: 16px;/);
+    expect(read('public/call-widget/presentation-default.css')).toMatch(/\.pw \.wm \{ width: 11px; height: 15px;/);
   });
 });
+

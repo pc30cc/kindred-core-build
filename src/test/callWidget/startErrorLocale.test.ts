@@ -7,8 +7,8 @@
  * refusal now reads `err_failed_start` in the active language; the mapped
  * ones (consent, department) keep their own sentence.
  *
- * The shipped runtime and default presentation in jsdom; `fetch` answers
- * the start request with the refusal.
+ * The runtime, the core presentation and its panel module in jsdom; `fetch`
+ * answers the start request with the refusal.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
@@ -52,6 +52,7 @@ function mount(
   });
   win.eval(source('presentation-registry.js'));
   win.eval(source('presentation-default.js'));
+  win.eval(source('presentation-default-panel.js'));
   win.eval(source('runtime.js'));
   win.CallCenterWidget.mount({
     apiBase: 'https://api.example',
@@ -77,7 +78,7 @@ function mount(
   const host = win.document.querySelector('#call-center-widget-host') as HTMLElement;
   const root = host.shadowRoot!.querySelector('.ccw-root') as HTMLElement;
   (root.querySelector('.ccw-launcher-btn') as HTMLButtonElement).click();
-  if (!stay) (root.querySelector('.ccw-btn.primary') as HTMLButtonElement).click();
+  if (!stay) (root.querySelector('[data-action="voice"]') as HTMLButtonElement).click();
   return { root, requests, dom };
 }
 
@@ -87,7 +88,7 @@ describe('a refused call start reads in the widget\'s language', () => {
   for (const locale of ['fa', 'en', 'tr'] as const) {
     it(`${locale}: an unmapped refusal with an English message`, async () => {
       const { root, requests } = mount(locale, { error: 'calls_minutes_exhausted', message: 'Monthly call minutes exhausted' });
-      await vi.waitFor(() => expect(root.textContent).toContain(FAILED_START[locale]));
+      await vi.waitFor(() => expect(root.querySelector('[data-screen="error"] h3[data-error]')?.textContent).toBe(FAILED_START[locale]));
       expect(requests.some((u) => u.includes('/api/call-widget/calls/request'))).toBe(true);
       expect(root.textContent).not.toContain('Monthly call minutes exhausted');
       expect(root.textContent).not.toContain('calls_minutes_exhausted');
@@ -120,10 +121,11 @@ describe('a failure that is not a refusal reads in the widget\'s language too', 
       ? Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: 'callback_queue_full', message: 'The callback queue is full' }) })
       : undefined);
     const { root, dom } = mount('fa', {}, refused, true);
-    (root.querySelector('.ccw-btn.ghost') as HTMLButtonElement).click();
-    const form = root.querySelector('form') as HTMLFormElement;
+    (root.querySelector('[data-screen="home"] [data-action="callback"]') as HTMLButtonElement).click();
+    (root.querySelector('[data-action="continue"]') as HTMLButtonElement).click();
+    const form = root.querySelector('[data-screen="callback"] form') as HTMLFormElement;
     form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect(root.querySelector('.ccw-error')?.textContent).toBe('ناموفق بود.'));
+    await vi.waitFor(() => expect(root.querySelector('[data-screen="callback"] [data-error]')?.textContent).toBe('ناموفق بود.'));
     expect(root.textContent).not.toContain('callback_queue_full');
     expect(root.textContent).not.toContain('The callback queue is full');
   });

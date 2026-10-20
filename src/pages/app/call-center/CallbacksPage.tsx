@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { callCenterApi, type CallbackRequest } from '@/lib/call-center-api';
+import { callCenterApi, callbackMatchesSearch, callbackReference, type CallbackRequest } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,6 +27,27 @@ import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 
 type StatusKey = 'requested' | 'in_progress' | 'scheduled' | 'completed' | 'cancelled';
+
+/** What a callback's metadata may carry (the widget's form, the operator's resolution note). */
+interface CallbackMeta {
+  name?: string;
+  subject?: string;
+  message?: string;
+  page_url?: string;
+  urgency?: string;
+  resolution_note?: string;
+}
+
+/** A callback's metadata, with only the string fields this page reads. */
+function callbackMeta(c: CallbackRequest): CallbackMeta {
+  const raw = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
+  const out: CallbackMeta = {};
+  for (const key of ['name', 'subject', 'message', 'page_url', 'urgency', 'resolution_note'] as const) {
+    const value = raw[key];
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return '—';
@@ -64,7 +85,7 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function KpiCard({ label, value, accent, icon: Icon }: { label: string; value: number | string; accent: string; icon: any }) {
+function KpiCard({ label, value, accent, icon: Icon }: { label: string; value: number | string; accent: string; icon: React.ComponentType<{ className?: string }> }) {
   return (
     <Card className="p-3.5 flex items-center gap-3">
       <div className={cn('h-10 w-10 rounded-lg flex items-center justify-center', accent)}>
@@ -95,7 +116,7 @@ function CallbackRow({
   profile?: VisitorNetworkProfile | null;
 }) {
   const { t, locale } = useTranslation();
-  const meta = (c.metadata || {}) as Record<string, any>;
+  const meta = callbackMeta(c);
   const name: string = meta.name || c.contact_email || c.contact_phone || t('callCenter.common.anonymousVisitor');
   const subject: string = meta.subject || '—';
   const message: string = meta.message || c.notes || '';
@@ -104,7 +125,8 @@ function CallbackRow({
   const isUrgent = urgency === 'urgent';
   const isVideo = c.channel === 'video';
   const requested = c.requested_at || c.created_at;
-  const ref = c.id.slice(0, 8).toUpperCase();
+  // The reference code the visitor saw on the widget (screen 19); the search finds it too.
+  const ref = callbackReference(c.id);
   const isOpen = c.status === 'requested' || c.status === 'in_progress' || c.status === 'scheduled';
   const resolutionNote: string | undefined = meta.resolution_note;
 
@@ -121,7 +143,7 @@ function CallbackRow({
   }
 
   return (
-    <div ref={rowRef as any} className="scroll-mt-24">
+    <div ref={rowRef} className="scroll-mt-24">
     <Card className={cn(
       'p-0 overflow-hidden transition hover:shadow-md',
       isUrgent && isOpen && 'ring-1 ring-destructive/40',
@@ -280,8 +302,8 @@ export default function CallbacksPage() {
       await callCenterApi[fn](workspace.id, id);
       qc.invalidateQueries({ queryKey: ['call-center', 'callbacks'] });
       toast({ title: fn === 'assignCallback' ? t('callCenter.callbacks.callbackAssigned') : t('callCenter.callbacks.callbackCancelled') });
-    } catch (e: any) {
-      toast({ title: t('callCenter.callbacks.actionFailed'), description: e?.message || t('callCenter.callbacks.tryAgain'), variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('callCenter.callbacks.actionFailed'), description: (e instanceof Error && e.message) || t('callCenter.callbacks.tryAgain'), variant: 'destructive' });
     }
   }
 
@@ -294,8 +316,8 @@ export default function CallbacksPage() {
       toast({ title: t('callCenter.callbacks.callbackCompleted') });
       setCompleteTarget(null);
       setCompleteNote('');
-    } catch (e: any) {
-      toast({ title: t('callCenter.callbacks.actionFailed'), description: e?.message || t('callCenter.callbacks.tryAgain'), variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('callCenter.callbacks.actionFailed'), description: (e instanceof Error && e.message) || t('callCenter.callbacks.tryAgain'), variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
@@ -327,20 +349,15 @@ export default function CallbacksPage() {
   }, [items]);
 
   const urgent = useMemo(
-    () => items.filter((c) => (c.metadata as any)?.urgency === 'urgent' && (c.status === 'requested' || c.status === 'in_progress')).length,
+    () => items.filter((c) => callbackMeta(c).urgency === 'urgent' && (c.status === 'requested' || c.status === 'in_progress')).length,
     [items],
   );
 
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    return items.filter((c) => {
-      if (tab !== 'all' && c.status !== tab) return false;
-      if (!term) return true;
-      const meta = (c.metadata || {}) as any;
-      const hay = `${meta.name || ''} ${meta.subject || ''} ${c.notes || ''} ${c.contact_email || ''} ${c.contact_phone || ''}`.toLowerCase();
-      return hay.includes(term);
-    });
-  }, [items, tab, q]);
+  // Name, subject, notes, e-mail, phone, or the reference code a visitor reads out.
+  const filtered = useMemo(
+    () => items.filter((c) => (tab === 'all' || c.status === tab) && callbackMatchesSearch(c, q)),
+    [items, tab, q],
+  );
 
   // When a focus id is set (from Overview deep link), switch to "All" tab
   // and scroll to the target row.
@@ -467,7 +484,7 @@ export default function CallbacksPage() {
             <DialogDescription>
               {completeTarget ? (
                 <>{t('callCenter.callbacks.completeDescPrefix')} <span className="font-medium text-foreground">
-                  {(completeTarget.metadata as any)?.name || completeTarget.contact_phone || completeTarget.contact_email || t('callCenter.callbacks.thisVisitor')}
+                  {callbackMeta(completeTarget).name || completeTarget.contact_phone || completeTarget.contact_email || t('callCenter.callbacks.thisVisitor')}
                 </span> {t('callCenter.callbacks.completeDescSuffix')}</>
               ) : null}
             </DialogDescription>

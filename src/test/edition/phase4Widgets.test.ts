@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
+import { mountCallWidget } from '../callWidget/mountCallWidget';
 import {
   CHAT_WIDGET_TEMPLATES,
   EDITION_CALL_WIDGET_TEMPLATES,
@@ -306,47 +307,26 @@ describe('call widget templates on the server', () => {
 });
 
 describe('call widget runtime: template and "powered by"', () => {
-  const source = (name: string) => read(`public/call-widget/${name}`);
-
-  function mount(extra: Record<string, unknown>, locale = 'en') {
-    const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://customer.example/page', runScripts: 'outside-only' });
-    const win = dom.window as unknown as Window & { eval(code: string): unknown; CallCenterWidget: { mount(o: unknown): void } };
-    win.eval(source('presentation-registry.js'));
-    win.eval(source('presentation-default.js'));
-    win.eval(source('runtime.js'));
-    win.CallCenterWidget.mount({
-      apiBase: 'https://api.example',
-      origin: 'https://api.example',
-      preview: true,
-      bootstrap: {
-        status: 'ok',
-        provider_ready: true,
-        session: 'preview',
-        config: { widget_template_id: 'default', widget_position: 'right', offline_behavior: 'show_callback', pre_call_form_enabled: false, pre_call_form_schema: [] },
-        capabilities: { voice: true, video: false, callback: true },
-        callback_policy: { enabled: true, show_when_online: true },
-        recording: { effective_enabled: false },
-        departments: { voice: [], video: [], callback: [] },
-        i18n: { default_locale: locale, available_locales: [locale] },
-        ...extra,
-      },
-    });
-    const host = win.document.querySelector('#call-center-widget-host') as HTMLElement;
-    const root = host.shadowRoot!.querySelector('.ccw-root') as HTMLElement;
-    (root.querySelector('.ccw-launcher-btn') as HTMLButtonElement | null)?.click();
-    return root;
+  function mount(extra: Record<string, unknown>, locale: 'en' | 'fa' | 'tr' = 'en', edition: 'iran' | 'international' | null = null) {
+    const m = mountCallWidget({ locale, edition, bootstrap: extra });
+    m.open();
+    return m.root;
   }
 
   it.each([
     ['en', 'Powered by Web Yar'],
-    ['fa', 'قدرت گرفته از وب یار'],
+    ['fa', 'قدرت گرفته از وب‌یار'],
     ['tr', 'Web Yar tarafından desteklenmektedir'],
-  ])('Iran (no edition in the bootstrap) keeps the %s credit exactly: %s', (locale, text) => {
-    for (const extra of [{}, { edition: 'iran' }, { edition: null }]) {
-      const root = mount(extra, locale);
-      const link = root.querySelector('.ccw-powered') as HTMLAnchorElement;
-      expect(link.textContent).toBe(text);
-      expect(link.getAttribute('href')).toBe('#');
+  ])('Iran (and no edition) keeps the %s credit\'s words: %s', (locale, text) => {
+    for (const edition of ['iran', null] as const) {
+      const root = mount({}, locale as 'en', edition);
+      const credit = root.querySelector('[data-screen="home"] .ccw-powered') as HTMLElement;
+      expect(credit.textContent).toBe(text);
+      // No link: a credit with nowhere to go is not an anchor any more.
+      expect(credit.tagName).toBe('SPAN');
+      expect(credit.hasAttribute('href')).toBe(false);
+      // The Iran region's edition draws its mark beside the words (D20); an unknown one the words alone.
+      expect(!!credit.querySelector('svg.wm')).toBe(edition === 'iran');
       expect(root.classList.contains('ccw-presentation-default')).toBe(true);
       expect(root.classList.contains('ccw-presentation-intl')).toBe(false);
     }
@@ -354,20 +334,20 @@ describe('call widget runtime: template and "powered by"', () => {
 
   it('International credits its own platform, per language, as a link when one is set', () => {
     const root = mount({
-      edition: 'international',
-      config: { widget_template_id: 'intl', widget_position: 'right', offline_behavior: 'show_callback', pre_call_form_enabled: false, pre_call_form_schema: [] },
+      config: { widget_template_id: 'intl' },
       powered_by: { brand: 'RESPOK', brands: { en: 'RESPOK', fa: 'رسپاک' }, url: 'https://respok.app' },
-    }, 'fa');
-    const link = root.querySelector('.ccw-powered') as HTMLAnchorElement;
+    }, 'fa', 'international');
+    const link = root.querySelector('[data-screen="home"] .ccw-powered') as HTMLAnchorElement;
     expect(link.textContent).toBe('قدرت گرفته از رسپاک');
     expect(link.getAttribute('href')).toBe('https://respok.app');
     expect(root.classList.contains('ccw-presentation-intl')).toBe(true);
-    expect(root.textContent).not.toMatch(/Web Yar|وب یار/);
+    expect(root.textContent).not.toMatch(/Web Yar|وب.?یار/);
   });
 
-  it('International with the credit switched off shows no line at all', () => {
-    const root = mount({ edition: 'international', powered_by: null });
+  it('International with the credit switched off keeps an empty footer row', () => {
+    const root = mount({ powered_by: null }, 'en', 'international');
     expect(root.querySelector('.ccw-powered')).toBeNull();
+    expect(root.querySelector('[data-screen="home"] .ccw-footer .pw')!.textContent).toBe('');
     expect(root.textContent).not.toMatch(/Web Yar|Powered by/);
   });
 });
@@ -431,78 +411,62 @@ describe('"powered by" with the platform logo (International template)', () => {
     expect(read('server/services/widget/configSnapshot.ts')).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');
   });
 
-  const cwSource = (name: string) => read(`public/call-widget/${name}`);
-  function callWidget(extra: Record<string, unknown>, locale = 'en') {
-    const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://customer.example/page', runScripts: 'outside-only' });
-    const win = dom.window as unknown as Window & { eval(code: string): unknown; CallCenterWidget: { mount(o: unknown): void } };
-    win.eval(cwSource('presentation-registry.js'));
-    win.eval(cwSource('presentation-default.js'));
-    win.eval(cwSource('runtime.js'));
-    win.CallCenterWidget.mount({
-      apiBase: 'https://api.example',
-      origin: 'https://app.respok.app',
-      preview: true,
-      bootstrap: {
-        status: 'ok', provider_ready: true, session: 'preview',
-        config: { widget_template_id: 'intl', widget_position: 'right', offline_behavior: 'show_callback', pre_call_form_enabled: false, pre_call_form_schema: [] },
-        capabilities: { voice: true, video: false, callback: true },
-        callback_policy: { enabled: true, show_when_online: true },
-        recording: { effective_enabled: false },
-        departments: { voice: [], video: [], callback: [] },
-        i18n: { default_locale: locale, available_locales: [locale] },
-        edition: 'international',
-        ...extra,
-      },
-    });
-    const root = (win.document.querySelector('#call-center-widget-host') as HTMLElement).shadowRoot!.querySelector('.ccw-root') as HTMLElement;
-    (root.querySelector('.ccw-launcher-btn') as HTMLButtonElement | null)?.click();
-    return { root, win };
+  function callWidget(extra: Record<string, unknown>, locale: 'en' | 'fa' | 'tr' = 'en', shipped?: 'iran' | 'respok') {
+    const m = mountCallWidget({ locale, edition: 'international', shipped, bootstrap: { config: { widget_template_id: 'intl' }, ...extra } });
+    m.open();
+    return { root: m.root, win: m.win, credit: m.q('[data-screen="home"] .ccw-powered') as HTMLElement };
   }
 
-  it('call widget: the label then the logo, alt = platform name, absolute URL, link kept', () => {
-    const { root } = callWidget({ powered_by: { brand: 'RESPOK', brands: { en: 'RESPOK' }, url: 'https://respok.app', logo: '/brand/intl/respok-thread-horizontal-color.svg' } });
-    const link = root.querySelector('.ccw-powered') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('https://respok.app');
-    const img = link.querySelector('img.ccw-powered-logo') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe('https://app.respok.app/brand/intl/respok-thread-horizontal-color.svg');
-    expect(img.getAttribute('alt')).toBe('RESPOK');
-    expect(link.textContent).toBe('Powered by');
-    expect(link.firstElementChild!.className).toBe('ccw-powered-label');
+  it('call widget: the label then the platform\'s own lockup, inline (both directions; the root picks one), link kept', () => {
+    const { root, credit } = callWidget({ powered_by: { brand: 'RESPOK', brands: { en: 'RESPOK' }, url: 'https://respok.app', logo: '/brand/intl/respok-thread-horizontal-color.svg' } });
+    expect(credit.getAttribute('href')).toBe('https://respok.app');
+    expect(credit.firstElementChild!.className).toBe('ccw-powered-label');
+    expect(credit.textContent).toBe('Powered by');
+    const lockups = [...credit.querySelectorAll('svg.lk')];
+    expect(lockups.map((l) => l.getAttribute('class'))).toEqual(['lk g-o', 'lk g-t']);
+    expect(lockups.every((l) => l.getAttribute('role') === 'img' && l.getAttribute('aria-label') === 'RESPOK')).toBe(true);
+    expect(credit.querySelector('img')).toBeNull();
+    expect(root.classList.contains('lg-thread')).toBe(true);
   });
 
-  it('call widget: Turkish puts the logo first; Persian keeps its label before it (RTL)', () => {
-    const tr = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO } }, 'tr').root.querySelector('.ccw-powered')!;
-    expect(tr.firstElementChild!.tagName).toBe('IMG');
+  it('call widget: Turkish puts the lockup first; Persian keeps its label before it (RTL)', () => {
+    const tr = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO } }, 'tr').credit;
+    expect(tr.firstElementChild!.tagName.toLowerCase()).toBe('svg');
     expect(tr.textContent).toBe('tarafından desteklenmektedir');
-    const fa = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO } }, 'fa').root.querySelector('.ccw-powered')!;
+    const fa = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO } }, 'fa').credit;
     expect(fa.firstElementChild!.textContent).toBe('قدرت گرفته از');
-    expect(fa.lastElementChild!.tagName).toBe('IMG');
+    expect(fa.lastElementChild!.tagName.toLowerCase()).toBe('svg');
   });
 
-  it('call widget: a logo that cannot load becomes the name', () => {
-    const { root, win } = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO } });
-    const img = root.querySelector('img.ccw-powered-logo')!;
+  it('call widget: an Iran-brand build (no International kit) draws the logo image; one that cannot load becomes the name', () => {
+    const { credit, win } = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO } }, 'en', 'iran');
+    expect(credit.querySelector('svg.lk')).toBeNull();
+    const img = credit.querySelector('img.ccw-powered-logo') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe(LOGO);
+    expect(img.getAttribute('alt')).toBe('RESPOK');
     img.dispatchEvent(new (win as unknown as { Event: typeof Event }).Event('error'));
-    const link = root.querySelector('.ccw-powered')!;
-    expect(link.querySelector('img')).toBeNull();
-    expect(link.textContent).toBe('Powered byRESPOK');
+    expect(credit.querySelector('img')).toBeNull();
+    expect(credit.textContent).toBe('Powered byRESPOK');
   });
 
   it('call widget: no logo, or a workspace\'s own text, keeps the text credit', () => {
-    const noLogo = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null } }).root;
-    expect(noLogo.querySelector('img.ccw-powered-logo')).toBeNull();
-    expect(noLogo.querySelector('.ccw-powered')!.textContent).toBe('Powered by RESPOK');
+    const noLogo = callWidget({ powered_by: { brand: 'RESPOK', brands: {}, url: null } }).credit;
+    expect(noLogo.querySelector('svg, img')).toBeNull();
+    expect(noLogo.textContent).toBe('Powered by RESPOK');
     const custom = callWidget({
       powered_by: { brand: 'RESPOK', brands: {}, url: null, logo: LOGO },
-      config: { widget_template_id: 'intl', widget_position: 'right', offline_behavior: 'show_callback', pre_call_form_enabled: false, pre_call_form_schema: [], custom_texts: { en: { powered_by: 'By Acme' } } },
-    }).root;
-    expect(custom.querySelector('img.ccw-powered-logo')).toBeNull();
-    expect(custom.querySelector('.ccw-powered')!.textContent).toBe('By Acme');
+      config: { widget_template_id: 'intl', custom_texts: { en: { powered_by: 'By Acme' } } },
+    }).credit;
+    expect(custom.querySelector('svg, img')).toBeNull();
+    expect(custom.textContent).toBe('By Acme');
   });
 
-  it('call widget: the server sends the kit\'s logo only abroad; the intl stylesheet sizes it', () => {
+  it('call widget: the server sends the kit\'s logo only abroad; the skins size the lockup and the image', () => {
     const route = read('server/routes/callWidget.ts');
     expect(route).toContain('const logo = `${assetBase ?? \'\'}${INTL_BRAND.horizontal.light}`;');
-    expect(read('public/call-widget/presentation-intl.css')).toMatch(/\.ccw-presentation-intl \.ccw-powered-logo \{[^}]*height: 14px;/);
+    expect(read('public/call-widget/presentation-intl.css')).toMatch(/\.ccw-presentation-intl \.pw \.lk \{ width: 53px; height: 13px;/);
+    expect(read('public/call-widget/presentation-intl.css')).toMatch(/\.ccw-presentation-intl \.pw \.lk\.g-o \{ width: 50px; \}/);
+    expect(read('public/call-widget/presentation-default-panel.css')).toMatch(/\.pw \.ccw-powered-logo \{[^}]*height: 13px;/);
   });
+
 });

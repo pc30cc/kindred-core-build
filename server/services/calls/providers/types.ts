@@ -82,6 +82,11 @@ export interface ParticipantTokenInput {
 export interface ParticipantTokenResult {
   token: string;
   expiresAt: number;
+  /**
+   * The participant's identity in the room, as minted (LiveKit). A member's is
+   * `<type>:<opaque reference>`, never their user id (operatorIdentity.ts).
+   */
+  identity?: string;
   /** Resolver-provided endpoints (rtc/ws/turn). Set by signaling layer, not provider. */
   network?: unknown;
 }

@@ -27,6 +27,24 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { anyCustomerAvailableOperator, type WorkspaceAvailabilityPrefs } from './customerAvailability.js';
+// The time-zone helpers are shared with the call widget's callback slots
+// (one implementation; shared/callbackSlots.ts).
+import {
+  DAY_KEYS,
+  dateKey,
+  formatterFor,
+  hhmm,
+  intervalsForDate,
+  parseHHMM,
+  partsInTz,
+  tzWallToUtc,
+  usableIntervals,
+  type BusinessHours,
+  type DayKey,
+  type HoursInterval,
+  type HoursOverride,
+  type WeeklyHours,
+} from '../../../shared/callbackSlots.js';
 
 export type AvailabilityState = 'online' | 'offline';
 export type OfflineMode = 'hide_widget' | 'show_offline_message' | 'capture_message';
@@ -53,9 +71,6 @@ export interface AvailabilitySnapshot {
    */
   schedule?: BusinessHoursSchedule | null;
 }
-
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-type DayKey = (typeof DAY_KEYS)[number];
 
 /**
  * Business hours as the AI states them to a visitor ("when are you open?").
@@ -88,92 +103,8 @@ function normalizeOfflineMode(value: unknown): OfflineMode {
   return 'capture_message';
 }
 
-function parseHHMM(v: unknown): { h: number; m: number } | null {
-  if (typeof v !== 'string') return null;
-  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
-  if (!m) return null;
-  const h = Number(m[1]);
-  const mm = Number(m[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(mm)) return null;
-  if (h < 0 || h > 23 || mm < 0 || mm > 59) return null;
-  return { h, m: mm };
-}
-
-/**
- * Convert a Date to {y,m,d,h,min,dow} as observed in the given IANA tz.
- * Uses Intl.DateTimeFormat — Node 18+ supports IANA tz natively.
- */
-/**
- * Formatters per time zone. Building an Intl.DateTimeFormat costs far more
- * than using one, and an outside-hours resolve walks up to two weeks of days,
- * so each visitor request used to build dozens. An invalid zone maps to null
- * (callers fall back to UTC). The set of zones in use is small; the bound only
- * guards against junk values.
- */
-const tzFormatters = new Map<string, Intl.DateTimeFormat | null>();
-const MAX_TZ_FORMATTERS = 200;
-
-function formatterFor(timeZone: string): Intl.DateTimeFormat | null {
-  let fmt = tzFormatters.get(timeZone);
-  if (fmt !== undefined) return fmt;
-  try {
-    fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short',
-    });
-  } catch {
-    fmt = null;
-  }
-  if (tzFormatters.size >= MAX_TZ_FORMATTERS) tzFormatters.clear();
-  tzFormatters.set(timeZone, fmt);
-  return fmt;
-}
-
-function partsInTz(date: Date, timeZone: string): {
-  y: number; mo: number; d: number; h: number; min: number; dow: number;
-} {
-  // Invalid tz — fall back to UTC parts so we still produce *something*.
-  const fmt = formatterFor(timeZone) ?? formatterFor('UTC')!;
-  const parts = fmt.formatToParts(date);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
-  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return {
-    y: Number(get('year')),
-    mo: Number(get('month')),
-    d: Number(get('day')),
-    h: Number(get('hour') === '24' ? '0' : get('hour')),
-    min: Number(get('minute')),
-    dow: dowMap[get('weekday') as string] ?? 0,
-  };
-}
-
-/**
- * Find the wall-clock UTC instant corresponding to (y, mo, d, h, min) in tz.
- * Two-pass approximation: build a UTC guess, measure tz offset at that guess,
- * subtract. Good enough for hour-boundary checks; DST edges land on the next
- * resolvable boundary which is the desired UX behavior.
- */
-function tzWallToUtc(y: number, mo: number, d: number, h: number, min: number, tz: string): Date {
-  const guess = new Date(Date.UTC(y, mo - 1, d, h, min, 0));
-  const observed = partsInTz(guess, tz);
-  // Difference between what we asked for and what tz actually shows for our guess.
-  const observedUtcGuess = Date.UTC(observed.y, observed.mo - 1, observed.d, observed.h, observed.min, 0);
-  const targetUtcGuess = Date.UTC(y, mo - 1, d, h, min, 0);
-  const diffMs = targetUtcGuess - observedUtcGuess;
-  return new Date(guess.getTime() + diffMs);
-}
-
-function dateKey(y: number, mo: number, d: number): string {
-  return `${y.toString().padStart(4, '0')}-${mo.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
-}
-
-// Shapes of widget_settings.business_hours as stored (all fields optional:
-// the JSON is edited by the dashboard and must be read defensively).
-type HoursInterval = { from: string; to: string };
-type WeeklyHours = Record<string, HoursInterval[] | undefined>;
-type HoursOverride = { date?: string; closed?: boolean; intervals?: HoursInterval[] } | null;
-type BusinessHours = { enabled?: boolean; timezone?: unknown; weekly?: WeeklyHours | null; overrides?: HoursOverride[] | null };
+// widget_settings.business_hours as stored: shared/callbackSlots.ts's
+// BusinessHours (all fields optional: read defensively).
 type WidgetAvailabilityRow = {
   business_hours?: BusinessHours | null;
   offline_mode?: unknown;
@@ -182,20 +113,6 @@ type WidgetAvailabilityRow = {
   offline_message_localized?: Record<string, string> | null;
   live_chat_enabled?: boolean | null;
 };
-
-function intervalsForDate(weekly: WeeklyHours | null | undefined, overrides: HoursOverride[], tzParts: { y: number; mo: number; d: number; dow: number }):
-  { intervals: Array<{ from: string; to: string }>; closedByOverride: boolean } {
-  const ovList = Array.isArray(overrides) ? overrides : [];
-  const key = dateKey(tzParts.y, tzParts.mo, tzParts.d);
-  const hit = ovList.find((o) => o && o.date === key);
-  if (hit) {
-    if (hit.closed === true) return { intervals: [], closedByOverride: true };
-    if (Array.isArray(hit.intervals)) return { intervals: hit.intervals, closedByOverride: false };
-  }
-  const dayKey = DAY_KEYS[tzParts.dow] || 'mon';
-  const list = weekly && typeof weekly === 'object' ? weekly[dayKey] : null;
-  return { intervals: Array.isArray(list) ? list : [], closedByOverride: false };
-}
 
 function isWithin(intervals: Array<{ from: string; to: string }>, h: number, min: number): boolean {
   const cur = h * 60 + min;
@@ -234,28 +151,6 @@ function nextOpenAt(weekly: WeeklyHours | null | undefined, overrides: HoursOver
 
 const WEEK_ORDER: readonly DayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const UPCOMING_DAYS = 14;
-const MAX_INTERVALS_PER_DAY = 6;
-
-function hhmm(t: { h: number; m: number }): string {
-  return `${String(t.h).padStart(2, '0')}:${String(t.m).padStart(2, '0')}`;
-}
-
-/**
- * The intervals the resolver itself would honour, in order: valid HH:mm and
- * `from` before `to` (isWithin never matches any other interval).
- */
-function usableIntervals(list: unknown): HoursInterval[] {
-  if (!Array.isArray(list)) return [];
-  const out: Array<{ start: number; it: HoursInterval }> = [];
-  for (const raw of list) {
-    const f = parseHHMM((raw as HoursInterval | null)?.from);
-    const t = parseHHMM((raw as HoursInterval | null)?.to);
-    if (!f || !t || f.h * 60 + f.m >= t.h * 60 + t.m) continue;
-    out.push({ start: f.h * 60 + f.m, it: { from: hhmm(f), to: hhmm(t) } });
-  }
-  return out.sort((a, b) => a.start - b.start).slice(0, MAX_INTERVALS_PER_DAY).map((x) => x.it);
-}
-
 function wallClock(date: Date, tz: string): { date: string; day: DayKey; time: string } {
   const p = partsInTz(date, tz);
   return { date: dateKey(p.y, p.mo, p.d), day: DAY_KEYS[p.dow] || 'mon', time: hhmm({ h: p.h, m: p.min }) };

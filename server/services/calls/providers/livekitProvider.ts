@@ -28,6 +28,7 @@ import {
 import { getRtcBaseUrl, getTurnConfig } from '../rtcResolver.js';
 import { normalizeRtcBaseUrl } from '../rtcResolver.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../livekitConfig.js';
+import { isMemberParticipantType, memberParticipantIdentity } from '../operatorIdentity.js';
 import {
   twirp,
   mintParticipantToken,
@@ -326,12 +327,19 @@ export const livekitProvider: CallProvider = {
     input: ParticipantTokenInput,
   ): Promise<ParticipantTokenResult> {
     const { apiKey, apiSecret } = await resolveLk(config);
-    const identity = input.participantType + ':' + input.participantId;
+    // Everyone in the room sees this identity and name, the visitor included:
+    // a member joins under the opaque reference of their user on this call,
+    // and under the name given (their public name) or none, never their id.
+    const type = input.participantType;
+    const member = isMemberParticipantType(type);
+    const identity = isMemberParticipantType(type)
+      ? memberParticipantIdentity(config, input.callSessionId, type, input.participantId)
+      : type + ':' + input.participantId;
     const { token, expiresAt } = mintParticipantToken({
       apiKey,
       apiSecret,
       identity,
-      name: input.displayName ?? input.participantId,
+      name: input.displayName ?? (member ? '' : input.participantId),
       room: input.providerRoomId,
       ttlSeconds: input.ttlSeconds,
       canPublish: input.canPublish,
@@ -342,7 +350,7 @@ export const livekitProvider: CallProvider = {
         participant_type: input.participantType,
       }),
     });
-    return { token, expiresAt };
+    return { token, expiresAt, identity };
   },
 
   async revokeParticipant(config, providerRoomId, providerParticipantId): Promise<void> {

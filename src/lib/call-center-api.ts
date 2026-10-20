@@ -1,10 +1,31 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import type { BusinessHoursConfig } from '@/types/models';
+import type { Edition } from '../../shared/edition';
+import { DAY_KEYS, MAX_INTERVALS_PER_DAY, isValidTimeZone } from '../../shared/callbackSlots';
 /**
  * Call Center — workspace + admin client API.
  * All endpoints require a Supabase auth bearer token.
  */
 
 const API_BASE = RESOLVED_API_BASE || '';
+
+/** A failed request: the server's error code (or null), the HTTP status and the server's details when it gave any. */
+export interface CallCenterApiError extends Error {
+  code: string | null;
+  status: number;
+  /** e.g. `invalid_body`'s zod `flatten()` (`formErrors`, `fieldErrors`). */
+  details?: unknown;
+}
+
+type ApiErrorBody = { error?: unknown; message?: unknown; details?: unknown; raw?: string } | null;
+
+function apiError(message: string, code: unknown, status: number, details?: unknown): CallCenterApiError {
+  return Object.assign(new Error(message), {
+    code: typeof code === 'string' && code ? code : null,
+    status,
+    ...(details !== undefined ? { details } : {}),
+  });
+}
 
 /** CC-2H Phase 7 — Friendly messages for known transient/infra errors. */
 const FRIENDLY_API_ERRORS: Record<string, string> = {
@@ -21,15 +42,12 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   const text = await res.text();
-  let body: any = null;
+  let body: ApiErrorBody = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
   if (!res.ok) {
-    const code = body?.error || body?.message || `HTTP ${res.status}`;
+    const code = String(body?.error || body?.message || `HTTP ${res.status}`);
     const friendly = FRIENDLY_API_ERRORS[String(body?.error || '')];
-    const err: any = new Error(friendly || code);
-    err.code = body?.error || null;
-    err.status = res.status;
-    throw err;
+    throw apiError(friendly || code, body?.error, res.status, body?.details);
   }
   return body as T;
 }
@@ -62,6 +80,201 @@ export interface CallCenterWorkspaceSettings {
   widget_default_locale?: 'en' | 'fa' | 'tr' | null;
   widget_enabled_locales?: string[] | null;
   widget_custom_texts?: Record<string, Record<string, string>> | null;
+  /*
+   * Migration 277 (the 2026-10 call widget design). Present only when the
+   * backend that answered and its database have them (a rolling deploy can
+   * pair a new dashboard with either); see callWidgetDesignPatch.
+   */
+  /** The call button (shared/callLauncherStyles.ts); round_label when unknown. */
+  launcher_style?: string;
+  /** Visitors book a callback from slots of `business_hours` (off by default). */
+  callback_slots_enabled?: boolean;
+  /** Slot length in minutes (10–240). */
+  callback_slot_minutes?: number;
+  /** Open days offered, today included (1–14). */
+  callback_days_ahead?: number;
+  /** Callbacks per slot (1–100); null = unlimited. */
+  callback_slot_capacity?: number | null;
+}
+
+// ── Call widget design settings (migration 277) ─────────────────────────────
+
+/** The settings migration 277 adds (server/services/callCenter/settings.ts CALL_WIDGET_DESIGN_COLUMNS). */
+export const CALL_WIDGET_DESIGN_KEYS = [
+  'launcher_style',
+  'callback_slots_enabled',
+  'callback_slot_minutes',
+  'callback_days_ahead',
+  'callback_slot_capacity',
+] as const;
+export type CallWidgetDesignKey = (typeof CALL_WIDGET_DESIGN_KEYS)[number];
+
+const hasOwn = (obj: object, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
+
+/**
+ * The migration-277 settings a save sends: only those the loaded settings
+ * have (a backend whose database lacks 277 returns none, and its PUT would
+ * fail on them) and only those the admin changed (a backend from before the
+ * design reads a database that already has 277 and returns the columns, but
+ * its strict PUT refuses them: an untouched one must never be resent).
+ */
+export function callWidgetDesignPatch(
+  loaded: object | null | undefined,
+  draft: object | null | undefined,
+): Partial<Pick<CallCenterWorkspaceSettings, CallWidgetDesignKey>> {
+  const out: Record<string, unknown> = {};
+  if (!loaded || !draft) return out;
+  for (const key of CALL_WIDGET_DESIGN_KEYS) {
+    if (!hasOwn(loaded, key) || !hasOwn(draft, key)) continue;
+    const value = (draft as Record<string, unknown>)[key];
+    if (value === undefined) continue;
+    if (JSON.stringify(value) !== JSON.stringify((loaded as Record<string, unknown>)[key])) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * The settings save failed because the server is not updated yet: its
+ * database has no migration 277 (the backend answers 503
+ * migration_pending), or the backend is still the one from before the design
+ * (the dashboard and the backend deploy minutes apart) and its strict schema
+ * refused a migration-277 key (400 invalid_body, "Unrecognized key(s) in
+ * object: 'launcher_style'"). Either way: try again in a few minutes.
+ */
+export function isMigrationPendingError(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown; details?: unknown } | null;
+  if (!e || typeof e !== 'object') return false;
+  if (e.status === 503 && e.code === 'migration_pending') return true;
+  if (e.status !== 400 || e.code !== 'invalid_body') return false;
+  const form = isPlainObject(e.details) ? e.details.formErrors : null;
+  return Array.isArray(form) && form.some((m) => typeof m === 'string'
+    && m.startsWith('Unrecognized key')
+    && CALL_WIDGET_DESIGN_KEYS.some((key) => m.includes(`'${key}'`)));
+}
+
+// ── Callback hours (call_center_settings.business_hours) ────────────────────
+
+const HHMM_STRICT = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const DATE_STRICT = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
+const MAX_HOURS_OVERRIDES = 60;
+const MAX_OVERRIDE_LABEL = 120;
+
+/** The caps of the strict hours shape, for the editor (so the page never builds hours the server refuses). */
+export const CALLBACK_HOURS_LIMITS = {
+  intervalsPerDay: MAX_INTERVALS_PER_DAY,
+  overrides: MAX_HOURS_OVERRIDES,
+  labelLength: MAX_OVERRIDE_LABEL,
+} as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((k) => keys.includes(k));
+}
+function isStrictInterval(value: unknown): boolean {
+  return isPlainObject(value) && onlyKeys(value, ['from', 'to'])
+    && typeof value.from === 'string' && HHMM_STRICT.test(value.from)
+    && typeof value.to === 'string' && HHMM_STRICT.test(value.to);
+}
+function isStrictDay(value: unknown): boolean {
+  return Array.isArray(value) && value.length <= MAX_INTERVALS_PER_DAY && value.every(isStrictInterval);
+}
+function isStrictOverride(value: unknown): boolean {
+  if (!isPlainObject(value) || !onlyKeys(value, ['date', 'closed', 'intervals', 'label'])) return false;
+  if (typeof value.date !== 'string' || !DATE_STRICT.test(value.date)) return false;
+  if (value.closed !== undefined && typeof value.closed !== 'boolean') return false;
+  if (value.intervals !== undefined && !isStrictDay(value.intervals)) return false;
+  return value.label === undefined || (typeof value.label === 'string' && value.label.length <= MAX_OVERRIDE_LABEL);
+}
+
+/**
+ * Callback hours a save may store: `{}` (no hours) or the chat's business
+ * hours shape, strictly: HH:mm times, at most six intervals a day, a time
+ * zone the runtime knows, at most 60 dated overrides. The client side of the
+ * server's callbackHoursSchema (server/services/callCenter/presentation.ts,
+ * a test keeps them in agreement). A stored value that fails it is a legacy
+ * one: shown read-only, never rewritten unless the admin replaces it.
+ */
+export function isCallbackHoursStrict(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  if (Object.keys(value).length === 0) return true;
+  if (!onlyKeys(value, ['enabled', 'timezone', 'weekly', 'overrides'])) return false;
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return false;
+  if (value.timezone !== undefined && !(typeof value.timezone === 'string' && isValidTimeZone(value.timezone))) return false;
+  const weekly = value.weekly;
+  if (!isPlainObject(weekly) || !onlyKeys(weekly, DAY_KEYS)) return false;
+  if (!DAY_KEYS.every((day) => weekly[day] === undefined || isStrictDay(weekly[day]))) return false;
+  if (value.overrides === undefined) return true;
+  return Array.isArray(value.overrides) && value.overrides.length <= MAX_HOURS_OVERRIDES && value.overrides.every(isStrictOverride);
+}
+
+/**
+ * The schedule a workspace's callback hours start from: 09:00–17:00 on the
+ * edition's working week (Iran: Saturday to Wednesday, in Tehran time;
+ * International: Monday to Friday, in the admin's browser zone, else UTC).
+ */
+export function defaultCallbackHours(edition: Edition | null | undefined, browserZone: string | null | undefined): BusinessHoursConfig {
+  const iran = edition !== 'international';
+  const open: readonly string[] = iran ? ['sat', 'sun', 'mon', 'tue', 'wed'] : ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const weekly: BusinessHoursConfig['weekly'] = {};
+  for (const day of DAY_KEYS) weekly[day] = open.includes(day) ? [{ from: '09:00', to: '17:00' }] : [];
+  return {
+    enabled: true,
+    timezone: iran ? 'Asia/Tehran' : isValidTimeZone(browserZone) ? browserZone : 'UTC',
+    weekly,
+    overrides: [],
+  };
+}
+
+// ── Callbacks: the reference code visitors see ──────────────────────────────
+
+/** The reference code the call widget shows a visitor for a booked callback (screen 19): the id's first 8 characters, upper-cased. */
+export function callbackReference(id: string): string {
+  return String(id || '').slice(0, 8).toUpperCase();
+}
+
+/** Persian (۰–۹) and Arabic-Indic (٠–٩) digits as ASCII: a code or phone typed on a Persian keyboard. */
+function asciiDigits(value: string): string {
+  return value.replace(/[\u06F0-\u06F9\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) & 0xf));
+}
+
+/** A callback's own words for the search: name, subject, notes, e-mail, phone and its reference code. */
+export function callbackMatchesSearch(c: CallbackRequest, query: string): boolean {
+  const term = asciiDigits(String(query || '').trim().replace(/^#/, '').trim().toLowerCase());
+  if (!term) return true;
+  const meta = isPlainObject(c.metadata) ? c.metadata : {};
+  const text = (value: unknown) => (typeof value === 'string' ? value : '');
+  return asciiDigits([text(meta.name), text(meta.subject), c.notes, c.contact_email, c.contact_phone, callbackReference(c.id)]
+    .map((value) => text(value))
+    .join(' ')
+    .toLowerCase())
+    .includes(term);
+}
+
+/**
+ * The widget's languages as the bootstrap gives them (the server's
+ * computeEffectiveCallCenterLocales, a test keeps them in agreement): the
+ * workspace's languages the platform offers (all of the platform's while it
+ * chose none; English when nothing is left), and its default when offered,
+ * else the platform's, else the first.
+ */
+export function effectiveCallWidgetLocales(
+  platform: { widget_available_locales?: readonly string[] | null; widget_default_locale?: string | null } | null | undefined,
+  workspace: { widget_enabled_locales?: readonly string[] | null; widget_default_locale?: string | null } | null | undefined,
+): { default_locale: string; available: string[] } {
+  const platformAvailable = (platform?.widget_available_locales || []).filter(Boolean);
+  const wsEnabled = workspace?.widget_enabled_locales;
+  const filtered = wsEnabled && wsEnabled.length > 0
+    ? wsEnabled.filter((l) => platformAvailable.includes(l))
+    : platformAvailable.slice();
+  const available = filtered.length > 0 ? filtered : ['en'];
+  const wsDefault = workspace?.widget_default_locale || null;
+  const platDefault = platform?.widget_default_locale || 'en';
+  const def = wsDefault && available.includes(wsDefault)
+    ? wsDefault
+    : available.includes(platDefault) ? platDefault : available[0];
+  return { default_locale: def, available };
 }
 
 export interface CallCenterPlatformSettings {
@@ -213,7 +426,7 @@ export interface CallEvent {
   event_type: string;
   actor_type: string | null;
   actor_id: string | null;
-  payload: any;
+  payload: unknown;
   created_at: string;
 }
 
@@ -237,7 +450,7 @@ export interface CallbackRequest {
   contact_phone?: string | null;
   contact_email?: string | null;
   notes?: string | null;
-  metadata?: Record<string, any> | null;
+  metadata?: Record<string, unknown> | null;
   scheduled_for?: string | null;
   requested_at?: string | null;
   completed_at?: string | null;
@@ -423,7 +636,7 @@ export const callCenterApi = {
       method: 'POST', body: JSON.stringify({ workspaceId }),
     }),
   getAgentStatus: (workspaceId: string) =>
-    jsonFetch<{ agents: any[] }>(`/api/call-center/agent-status?workspaceId=${encodeURIComponent(workspaceId)}`),
+    jsonFetch<{ agents: Array<{ user_id?: string; status?: string; [key: string]: unknown }> }>(`/api/call-center/agent-status?workspaceId=${encodeURIComponent(workspaceId)}`),
   updateAgentStatus: (workspaceId: string, status: string) =>
     jsonFetch<{ ok: boolean }>(`/api/call-center/agent-status?workspaceId=${encodeURIComponent(workspaceId)}`, {
       method: 'POST', body: JSON.stringify({ workspaceId, status }),
@@ -585,12 +798,9 @@ export const callCenterApi = {
       },
     );
     if (!res.ok) {
-      let body: any = null;
+      let body: ApiErrorBody = null;
       try { body = await res.json(); } catch { /* non-JSON */ }
-      const err: any = new Error(body?.error || `HTTP ${res.status}`);
-      err.code = body?.error || null;
-      err.status = res.status;
-      throw err;
+      throw apiError(String(body?.error || `HTTP ${res.status}`), body?.error, res.status);
     }
     const cd = res.headers.get('content-disposition') || '';
     const m = /filename="([^"]+)"/i.exec(cd);
@@ -626,12 +836,9 @@ export const callCenterApi = {
       },
     );
     if (!res.ok) {
-      let body: any = null;
+      let body: ApiErrorBody = null;
       try { body = await res.json(); } catch { /* non-JSON */ }
-      const err: any = new Error(body?.error || `HTTP ${res.status}`);
-      err.code = body?.error || null;
-      err.status = res.status;
-      throw err;
+      throw apiError(String(body?.error || `HTTP ${res.status}`), body?.error, res.status);
     }
     const cd = res.headers.get('content-disposition') || '';
     const m = /filename="([^"]+)"/i.exec(cd);

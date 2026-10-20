@@ -17,12 +17,14 @@ import {
   computeEffectiveCallCenterCaps,
   updatePlatformCallCenterSettings,
   invalidatePlatformCallCenterCache,
+  CALL_WIDGET_DESIGN_COLUMNS,
 } from '../services/callCenter/settings.js';
 import type { WorkspaceCallCenterSettings, PlatformCallCenterSettings } from '../services/callCenter/settings.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import { memberParticipantIdentity, publicMemberName } from '../services/calls/operatorIdentity.js';
 import {
   loadLiveKitConfig,
   getLiveKitClientWsUrl,
@@ -73,8 +75,13 @@ import {
   callWidgetTemplateIdSchema,
   isCallWidgetTemplateOffered,
   resolveCallWidgetTemplateId,
+  callWidgetLauncherStyleSchema,
+  callWidgetPositionSchema,
+  callbackHoursSchema,
 } from '../services/callCenter/presentation.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
+import { normalizeCallLauncherStyle, normalizeCallWidgetPosition } from '../../shared/callLauncherStyles.js';
 
 export const callCenterRouter = Router();
 
@@ -424,14 +431,61 @@ callCenterRouter.get('/settings', async (req, res) => {
     widget_theme: normalizeCallWidgetTheme(settingsRaw.widget_theme),
     pre_call_form_schema: normalizeCallWidgetFormSchema(settingsRaw.pre_call_form_schema),
     offline_behavior: normalizeCallWidgetOfflineBehavior(settingsRaw.offline_behavior),
+    ...normalizedPlacement(settingsRaw),
   };
   res.json({ settings, platform, effective, recording });
 });
 
+/**
+ * The placement as one of the five (an older spelling read as its
+ * placement), and the launcher style as one of the nine, both as the widget
+ * wears them. The style (like every migration-277 setting) only when the row
+ * has it: a dashboard sends those back only to a backend whose database can
+ * store them (rolling deploy; a database without 277 has none).
+ */
+function normalizedPlacement(row: Partial<WorkspaceCallCenterSettings>): Record<string, unknown> {
+  return {
+    widget_position: normalizeCallWidgetPosition(row.widget_position),
+    ...(Object.prototype.hasOwnProperty.call(row, 'launcher_style') ? { launcher_style: normalizeCallLauncherStyle(row.launcher_style) } : {}),
+  };
+}
+
+/** The same JSON value (object key order aside: jsonb does not keep it). */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameJson(v, b[i]));
+  }
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const ka = Object.keys(a as object);
+  const kb = Object.keys(b as object);
+  return ka.length === kb.length
+    && ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && sameJson((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/** A write that named a migration-277 column on a database without it (PostgREST PGRST204, the direct driver too; PostgreSQL 42703). */
+function isMissingDesignColumn(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown; details?: unknown } | null;
+  const code = String(e?.code ?? '');
+  if (code !== 'PGRST204' && code !== '42703') return false;
+  const text = `${String(e?.message ?? '')} ${String(e?.details ?? '')}`;
+  return CALL_WIDGET_DESIGN_COLUMNS.some((column) => text.includes(column));
+}
+
 const settingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
   allowed_domains: z.array(z.string()).optional(),
-  widget_position: z.string().optional(),
+  // Stored as one of the five placements: an older spelling becomes its
+  // placement, anything else `right` (where it always rendered), so an old
+  // dashboard resending what it loaded never fails.
+  widget_position: callWidgetPositionSchema.optional(),
+  // Migration 277: the launcher and the callback slots (a database without
+  // it answers 503 migration_pending below).
+  launcher_style: callWidgetLauncherStyleSchema.optional(),
+  callback_slots_enabled: z.boolean().optional(),
+  callback_slot_minutes: z.number().int().min(10).max(240).optional(),
+  callback_days_ahead: z.number().int().min(1).max(14).optional(),
+  callback_slot_capacity: z.number().int().min(1).max(100).nullable().optional(),
   // A known template id; the edition must also offer it (checked below).
   widget_template_id: callWidgetTemplateIdSchema.optional(),
   widget_theme: callWidgetThemeSchema.optional(),
@@ -447,6 +501,8 @@ const settingsPatchSchema = z.object({
   callback_enabled: z.boolean().optional(),
   pre_call_form_enabled: z.boolean().optional(),
   pre_call_form_schema: callWidgetFormSchema.optional(),
+  // `{}`, the strict business-hours shape (callbackHoursSchema), or exactly
+  // the stored value (checked in the handler).
   business_hours: z.record(z.unknown()).optional(),
   offline_behavior: callWidgetOfflineBehaviorSchema.optional(),
   recording_enabled: z.boolean().optional(),
@@ -474,10 +530,42 @@ callCenterRouter.put('/settings', async (req, res) => {
   ) {
     return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { widget_template_id: ['template_not_available_in_edition'] } } });
   }
-  const settingsRaw = await updateWorkspaceSettings(ctx.config, wid, parsed.data);
+  const patch: Record<string, unknown> = { ...parsed.data };
+  // The callback hours: `{}` or the strict shape. A value that is neither is
+  // accepted only as the stored one resent untouched (an old dashboard saves
+  // back what it loaded), and then not written.
+  const stored = patch.business_hours !== undefined || patch.callback_slots_enabled === true
+    ? await getOrCreateWorkspaceSettings(ctx.config, wid)
+    : null;
+  if (patch.business_hours !== undefined && !callbackHoursSchema.safeParse(patch.business_hours).success) {
+    if (!sameJson(patch.business_hours, stored?.business_hours)) {
+      return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { business_hours: ['invalid_business_hours'] } } });
+    }
+    delete patch.business_hours;
+  }
+  // Slots come from the hours: turning them on needs hours of the strict shape.
+  if (patch.callback_slots_enabled === true) {
+    const hours = patch.business_hours !== undefined ? patch.business_hours : stored?.business_hours;
+    if (!callbackHoursSchema.safeParse(hours ?? {}).success) {
+      return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { business_hours: ['slots_need_valid_business_hours'] } } });
+    }
+  }
+  let settingsRaw: WorkspaceCallCenterSettings;
+  try {
+    settingsRaw = await updateWorkspaceSettings(ctx.config, wid, patch as Partial<WorkspaceCallCenterSettings>);
+  } catch (e) {
+    // Migration 277 not applied yet (RESPOK's migrator runs beside the new
+    // backend): try again in a few minutes, not a 500.
+    if (isMissingDesignColumn(e)) return res.status(503).json({ error: 'migration_pending' });
+    throw e;
+  }
   // Sanitize: never expose avatar_storage_path to clients; derive the link.
   const { avatar_storage_path: _, ...rest } = settingsRaw;
-  const settings = { ...rest, avatar_url: await resolveCallCenterAvatarUrl(ctx.config, wid, settingsRaw) };
+  const settings = {
+    ...rest,
+    avatar_url: await resolveCallCenterAvatarUrl(ctx.config, wid, settingsRaw),
+    ...normalizedPlacement(settingsRaw),
+  };
   res.json({ settings });
 });
 
@@ -830,11 +918,14 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       });
       providerRoomId = room.providerRoomId;
     }
+    // The visitor is in this room: the operator joins under the opaque
+    // reference of their user on this call and their own name, never their id.
     const tok = await provider.createParticipantToken(ctx.config, {
       callSessionId: req.params.id,
       providerRoomId,
       participantId: ctx.userId,
       participantType: 'operator',
+      displayName: await publicMemberName(ctx.config, ctx.userId),
       canPublish: true, canSubscribe: true, canPublishData: true,
       ttlSeconds: 60 * 60,
     });
@@ -894,7 +985,7 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       try { await incrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
       catch {/* best-effort */}
     }
-    const identity = `operator:${ctx.userId}`;
+    const identity = tok.identity ?? memberParticipantIdentity(ctx.config, req.params.id, 'operator', ctx.userId);
     const connect = await buildClientConnectInfo(ctx.config, providerId, providerRoomId, identity);
     res.json({
       ok: true,
@@ -2192,6 +2283,8 @@ callCenterRouter.put('/agents/me/presence', async (req, res) => {
     const presence = await updateMyAgentPresence(
       ctx.config, wid, ctx.userId, parsed.data.status, parsed.data.status_message,
     );
+    // The call widget's public presence (who is available), on every process.
+    publishCacheInvalidation([`callpresence:${wid}`]);
     res.json({ presence });
   } catch (e) {
     res.status(500).json({ error: 'update_failed', message: e instanceof Error ? e.message : String(e) });
@@ -2646,7 +2739,15 @@ callCenterRouter.post('/calls/:id/transfer', async (req, res) => {
       reason: parsed.data.reason ?? null,
       actorId: ctx.userId,
     });
-    res.json(r);
+    // The room identity the colleague will join under (operators join as an
+    // opaque reference, not their user id): what the desktop apps wait for
+    // before stepping out. None while a department has nobody picked yet.
+    res.json({
+      ...r,
+      assigned_participant_identity: r.assigned_agent_id
+        ? memberParticipantIdentity(ctx.config, req.params.id, 'operator', r.assigned_agent_id)
+        : null,
+    });
   } catch (e) {
     if (e instanceof RoutingException) return res.status(e.httpStatus).json({ error: e.code });
     res.status(500).json({ error: 'transfer_failed', message: e instanceof Error ? e.message : String(e) });

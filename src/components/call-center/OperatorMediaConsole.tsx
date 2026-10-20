@@ -23,6 +23,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { loadLiveKitClient } from '@/lib/livekit-loader';
+import { callRoomOptions, precaptureLocalMedia, publishPrecaptured } from '@/lib/livekit-tuning';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Loader2,
   AlertTriangle, Wifi, WifiOff, RefreshCw, ShieldCheck, ChevronDown, ChevronUp,
@@ -308,8 +309,14 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       }
       if (cancelled) return;
 
-      const room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      const room = new LK.Room(callRoomOptions());
       roomRef.current = room;
+      // Open the devices while the room connects: one prompt, and the
+      // handshake no longer waits for it. Untaken tracks are stopped below.
+      const precaptured = precaptureLocalMedia(room, {
+        audio: selectedMic ? { deviceId: selectedMic } : true,
+        video: wantVideo ? (selectedCam ? { deviceId: selectedCam } : true) : false,
+      });
       const RoomEvent = LK.RoomEvent;
 
       // Try to detect device-switch support
@@ -408,6 +415,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       try {
         await room.connect(activeConnect.server_url!, activeToken!);
       } catch (e: any) {
+        precaptured.dispose();
         if (cancelled) return;
         const msg = String(e?.message || '').toLowerCase();
         if (msg.includes('expired') || msg.includes('invalid token') || msg.includes('unauthorized')) {
@@ -418,34 +426,42 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         }
         return;
       }
-      if (cancelled) { try { room.disconnect(); } catch { /* noop */ } return; }
+      if (cancelled) { precaptured.dispose(); try { room.disconnect(); } catch { /* noop */ } return; }
 
-      // Enable mic
-      try {
-        await room.localParticipant.setMicrophoneEnabled(true, selectedMic ? { deviceId: selectedMic } : undefined);
-        setMicOn(true);
-        // Start analyser on local mic mediaStream
+      // Mic and camera publish together. A device the early capture could not
+      // open falls back to the original call, which fails the way it always did.
+      const micStep = async (): Promise<boolean> => {
         try {
-          const pubs = Array.from(room.localParticipant.audioTrackPublications?.values?.() || []) as any[];
-          const t = pubs[0]?.track || pubs[0]?.audioTrack;
-          const ms = t?.mediaStream || (t?.mediaStreamTrack ? new MediaStream([t.mediaStreamTrack]) : null);
-          if (ms) startMicAnalyser(ms);
-        } catch { /* noop */ }
-      } catch (e: any) {
-        if (e?.name === 'NotAllowedError') { fail('microphone_permission_denied'); try { room.disconnect(); } catch { /* noop */ } return; }
-      }
-
-      if (wantVideo) {
+          const pub = await publishPrecaptured(room, precaptured, 'audio', LK.Track.Source.Microphone);
+          if (!pub) await room.localParticipant.setMicrophoneEnabled(true, selectedMic ? { deviceId: selectedMic } : undefined);
+          setMicOn(true);
+          // Start analyser on local mic mediaStream
+          try {
+            const pubs = Array.from(room.localParticipant.audioTrackPublications?.values?.() || []) as any[];
+            const t = pubs[0]?.track || pubs[0]?.audioTrack;
+            const ms = t?.mediaStream || (t?.mediaStreamTrack ? new MediaStream([t.mediaStreamTrack]) : null);
+            if (ms) startMicAnalyser(ms);
+          } catch { /* noop */ }
+        } catch (e: any) {
+          if (e?.name === 'NotAllowedError') return false;
+        }
+        return true;
+      };
+      const camStep = async (): Promise<void> => {
         try {
-          await room.localParticipant.setCameraEnabled(true, selectedCam ? { deviceId: selectedCam } : undefined);
-          const pub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0] as any;
-          const t = pub?.track || pub?.videoTrack;
+          const pub = await publishPrecaptured(room, precaptured, 'video', LK.Track.Source.Camera);
+          if (!pub) await room.localParticipant.setCameraEnabled(true, selectedCam ? { deviceId: selectedCam } : undefined);
+          const vpub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0] as any;
+          const t = vpub?.track || vpub?.videoTrack;
           if (t && localVideoRef.current) t.attach(localVideoRef.current);
           setCamOn(true);
         } catch (e: any) {
           if (e?.name === 'NotAllowedError') setCamOn(false);
         }
-      }
+      };
+      const [micOk] = await Promise.all([micStep(), wantVideo ? camStep() : Promise.resolve()]);
+      precaptured.dispose();
+      if (!micOk) { fail('microphone_permission_denied'); try { room.disconnect(); } catch { /* noop */ } return; }
 
       // Refresh device labels now that permissions exist
       refreshDevices();

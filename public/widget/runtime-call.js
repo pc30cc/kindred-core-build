@@ -150,6 +150,8 @@
   // ───── Singleton engine state ─────
   var room = null;
   var connecting = false;
+  // Devices opened while the room connects (see precaptureMedia); stopped if never published.
+  var precaptured = null;
   var emitter = createEmitter();
   var state = 'idle';
   var lastRemote = { audio: null, video: null, audioTrack: null, videoTrack: null };
@@ -244,6 +246,7 @@
       roomConnectSucceeded: roomConnectSucceeded,
       engineFullyConnected: engineFullyConnected,
     });
+    if (precaptured) { try { precaptured.dispose(); } catch (_) {} precaptured = null; }
     if (room) {
       try { room.disconnect(); } catch (_) { /* ignore */ }
     }
@@ -259,6 +262,72 @@
     emitter.emit('micEnabled', false);
     emitter.emit('cameraEnabled', false);
     setState(reasonState || 'disconnected');
+  }
+
+  // ─── Room tuning + early device capture ────────────────────────────
+  // Same numbers as src/lib/livekit-tuning.ts (the operator panel's copy).
+  // Two things made a call open blurry and slowly: the room asked for video
+  // sized from CSS pixels, a quarter of what a 2x phone screen can show
+  // (pixelDensity 'screen' fixes that), and the camera and microphone were
+  // opened one after the other only AFTER the room had connected, so their
+  // prompts and start-up were added to the connect time. The devices are now
+  // opened while the room connects, in one request, and published together.
+  function lkRoomOptions() {
+    return {
+      adaptiveStream: { pixelDensity: 'screen' },
+      dynacast: true,
+      publishDefaults: {
+        videoCodec: 'vp8',
+        dtx: true,
+        red: true,
+        audioPreset: { maxBitrate: 32000 },
+      },
+    };
+  }
+
+  // Never rejects: a refusal is reported by the fallback at publish time,
+  // which is the original setMicrophoneEnabled/setCameraEnabled call.
+  function precaptureMedia(theRoom, wantAudio, videoOpts) {
+    var held = { audio: null, video: null };
+    var disposed = false;
+    var stopTrack = function (t) { if (t) { try { t.stop(); } catch (_) {} } };
+    var ready = Promise.resolve();
+    if (wantAudio || videoOpts) {
+      try {
+        ready = theRoom.localParticipant.createTracks({
+          audio: !!wantAudio,
+          video: videoOpts || false,
+        }).then(function (tracks) {
+          tracks.forEach(function (t) {
+            if (disposed) { stopTrack(t); return; }
+            if (t.kind === 'audio') held.audio = t;
+            else if (t.kind === 'video') held.video = t;
+          });
+        }).catch(function (e) { dlog('early capture failed; falling back', describeError(e)); });
+      } catch (_) { ready = Promise.resolve(); }
+    }
+    return {
+      ready: ready,
+      take: function (kind) { var t = held[kind]; held[kind] = null; return t; },
+      dispose: function () {
+        disposed = true;
+        stopTrack(held.audio); held.audio = null;
+        stopTrack(held.video); held.video = null;
+      },
+    };
+  }
+
+  // Publishes what the early capture got, else runs `fallback` (the original call).
+  function publishEarlyOr(theRoom, pre, kind, source, fallback) {
+    if (!pre) return fallback();
+    return pre.ready.then(function () {
+      var track = pre.take(kind);
+      if (!track) return fallback();
+      return theRoom.localParticipant.publishTrack(track, { source: source }).catch(function () {
+        try { track.stop(); } catch (_) {}
+        return fallback();
+      });
+    });
   }
 
   function connect(opts) {
@@ -321,8 +390,11 @@
         },
       } : undefined;
 
-      var nextRoom = new LK.Room({ adaptiveStream: true, dynacast: true });
+      var nextRoom = new LK.Room(lkRoomOptions());
       room = nextRoom;
+      var camCapture = { facingMode: 'user', resolution: { width: 1280, height: 720, frameRate: 30 } };
+      var pre = precaptureMedia(nextRoom, publishMic, publishCamera ? camCapture : null);
+      precaptured = pre;
 
       nextRoom
         .on(LK.RoomEvent.ParticipantConnected, function (p) {
@@ -439,11 +511,15 @@
           throw makeErr('livekit_connect_failed', 'Connection cancelled before establishment.');
         }
 
-        var publishChain = Promise.resolve();
+        // Mic and camera publish together (each has its own failure path).
+        var micStep = Promise.resolve();
+        var camStep = Promise.resolve();
         if (publishMic) {
-          publishChain = publishChain.then(function () {
+          micStep = Promise.resolve().then(function () {
             dlog('publish mic start');
-            return nextRoom.localParticipant.setMicrophoneEnabled(true).then(function () {
+            return publishEarlyOr(nextRoom, pre, 'audio', LK.Track.Source.Microphone, function () {
+              return nextRoom.localParticipant.setMicrophoneEnabled(true);
+            }).then(function () {
               micEnabled = !!nextRoom.localParticipant.isMicrophoneEnabled;
               emitter.emit('micEnabled', micEnabled);
               dlog('publish mic success');
@@ -456,15 +532,14 @@
           });
         }
         if (publishCamera) {
-          publishChain = publishChain.then(function () {
+          camStep = Promise.resolve().then(function () {
             dlog('publish camera start');
             // Prefer the user-facing camera by default. Use ideal (not
             // exact) so desktops without a front camera still work, and
             // so we don't force portrait/landscape constraints that
             // would fight the device's natural capture orientation.
-            return nextRoom.localParticipant.setCameraEnabled(true, {
-              facingMode: 'user',
-              resolution: { width: 1280, height: 720, frameRate: 30 },
+            return publishEarlyOr(nextRoom, pre, 'video', LK.Track.Source.Camera, function () {
+              return nextRoom.localParticipant.setCameraEnabled(true, camCapture);
             }).then(function () {
               cameraEnabled = !!nextRoom.localParticipant.isCameraEnabled;
               emitter.emit('cameraEnabled', cameraEnabled);
@@ -493,7 +568,8 @@
           });
         }
 
-        return publishChain.then(function () {
+        return Promise.all([micStep, camStep]).then(function () {
+          pre.dispose();
           if (room !== nextRoom || explicitDisconnectRequested) {
             throw makeErr('livekit_connect_failed', 'Connection cancelled during publish.');
           }

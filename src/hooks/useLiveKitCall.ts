@@ -30,6 +30,7 @@ import {
   type RemoteVideoTrack,
 } from 'livekit-client';
 import { computeCanSwitchCamera, enumerateCameras, type CameraDevice } from '@/features/calls/cameraFacing';
+import { callRoomOptions, precaptureLocalMedia, publishPrecaptured } from '@/lib/livekit-tuning';
 
 /**
  * Client-side defensive re-normalization of the LiveKit ws_url.
@@ -344,9 +345,13 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     connectingRef.current = true;
     setError(null);
     setState('connecting');
-    const room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
+    const room = new Room(callRoomOptions());
+    // Open the devices now, while the room connects (one prompt, no wait for
+    // the handshake). Whatever is not published is stopped on every exit.
+    const capturePreset = presetForQuality(videoQualityRef.current);
+    const precaptured = precaptureLocalMedia(room, {
+      audio: publishMic,
+      video: publishCamera ? { resolution: capturePreset.resolution } : false,
     });
     // Apply ICE config via the connect-time options (LiveKit forwards this
     // to the underlying RTCPeerConnection). Falls back to defaults when the
@@ -371,19 +376,34 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       // CLIENT_REQUEST_LEAVE on its own timeout. This is the precise
       // disconnect path that produced the operator's premature leave.
       if (roomRef.current !== room) {
+        precaptured.dispose();
         try { await room.disconnect(); } catch { /* ignore */ }
         return;
       }
-      if (publishMic) {
-        await room.localParticipant.setMicrophoneEnabled(true);
-        setMicEnabled(true);
-      }
-      if (publishCamera) {
-        const preset = presetForQuality(videoQualityRef.current);
-        await room.localParticipant.setCameraEnabled(true, { resolution: preset.resolution });
-        setCameraEnabled(true);
-        refreshLocalVideo();
-      }
+      // Mic and camera publish together. A device the early capture could not
+      // open falls back to the original call, which fails (or prompts) the
+      // way it always did.
+      await Promise.all([
+        publishMic
+          ? (async () => {
+              const pub = await publishPrecaptured(room, precaptured, 'audio', Track.Source.Microphone);
+              if (!pub) await room.localParticipant.setMicrophoneEnabled(true);
+              setMicEnabled(true);
+            })()
+          : Promise.resolve(),
+        publishCamera
+          ? (async () => {
+              const pub = await publishPrecaptured(room, precaptured, 'video', Track.Source.Camera);
+              if (!pub) {
+                const preset = presetForQuality(videoQualityRef.current);
+                await room.localParticipant.setCameraEnabled(true, { resolution: preset.resolution });
+              }
+              setCameraEnabled(true);
+              refreshLocalVideo();
+            })()
+          : Promise.resolve(),
+      ]);
+      precaptured.dispose();
       // Re-check after the (potentially long) device-publish phase too —
       // device prompts can take seconds on first call.
       if (roomRef.current !== room) {
@@ -393,6 +413,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       setState('connected');
       refreshRemotes();
     } catch (e: any) {
+      precaptured.dispose();
       setError(e?.message || 'Failed to connect');
       setState('failed');
       try { await room.disconnect(); } catch { /* ignore */ }

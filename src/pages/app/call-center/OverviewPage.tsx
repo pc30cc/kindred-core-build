@@ -163,6 +163,11 @@ export default function CallCenterOverviewPage() {
             <div className="mt-0.5 truncate text-xl font-semibold leading-tight">{statusText}</div>
           </div>
           <div data-banner-actions className="flex items-center gap-2">
+            {platformOk && !wsEnabled && (
+              <Button asChild variant="outline" size="sm">
+                <Link to="settings">{t('callCenter.overview.turnOn')}</Link>
+              </Button>
+            )}
             {callbackOn && (
               <Button asChild variant="outline" size="sm">
                 <Link to="callbacks">

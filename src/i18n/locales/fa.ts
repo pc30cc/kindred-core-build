@@ -3625,6 +3625,7 @@ const fa: TranslationKeys = {
       operationsLive: 'سرویس فعال است',
       serviceDisabled: 'سرویس غیرفعال',
       workspaceOffline: 'فضای کاری آفلاین',
+      turnOn: 'روشن کردن',
       callsServiceDegraded: 'سرویس تماس‌ها مختل است',
       openLiveDesk: 'باز کردن میز زنده',
       callbacksLink: 'درخواست‌های تماس',
@@ -3875,6 +3876,9 @@ const fa: TranslationKeys = {
       domainCount: '{{{count}}} دامنه',
     },
     settingsPage: {
+      masterOnHint: 'روشن: بازدیدکنندگان از ویجت تماس با تیم شما تماس می‌گیرند و اپراتورها مرکز تماس را می‌بینند.',
+      masterOffHint: 'خاموش: ویجت تماس به بازدیدکنندگان نشان داده نمی‌شود و اپراتورها مرکز تماس را نمی‌بینند. تنظیمات شما حفظ می‌شود.',
+      masterPlanLocked: 'پلن شما مرکز تماس را ندارد. برای روشن کردنش پلن را ارتقا دهید.',
       platformDisabledBanner: 'مرکز تماس در حال حاضر توسط پلتفرم غیرفعال است. تنظیمات فضای کاری تا فعال‌سازی مجدد فقط ذخیره می‌شوند اما اعمال نمی‌شوند.',
       statusAvailability: 'وضعیت و دسترس‌پذیری',
       statusAvailabilityHint: 'کل ماژول مرکز تماس را برای فضای کاری خود فعال یا غیرفعال کنید.',

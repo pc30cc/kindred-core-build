@@ -39,6 +39,7 @@ import { Link, useParams } from 'react-router-dom';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { intlLocaleFor } from '@/lib/region';
 import { useEdition } from '@/hooks/useEdition';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { brandName as platformBrandName, useBrandVersion } from '@/lib/brand';
 import {
   CALL_WIDGET_TEMPLATES,
@@ -152,6 +153,7 @@ export default function CallCenterSettingsPage() {
   // preview); the team's first members (the preview's sample operators).
   const { data: chatSettings } = useWidgetSettings(workspace?.id);
   const { data: members } = useWorkspaceMembers(workspace?.id);
+  const { data: entitlements, loading: entitlementsLoading } = useWorkspaceEffectiveEntitlements(workspace?.id);
   const fileRef = useRef<HTMLInputElement>(null);
   const [s, setS] = useState<SettingsDraft | null>(null);
   const [original, setOriginal] = useState<SettingsDraft | null>(null);
@@ -206,6 +208,27 @@ export default function CallCenterSettingsPage() {
   const designLoaded = (key: CallWidgetDesignKey) =>
     !!data?.settings && Object.prototype.hasOwnProperty.call(data.settings, key);
   const themeDefaults = CALL_THEME_DEFAULTS[isInternational ? 'international' : 'iran'];
+
+  // The workspace's own switch: on only while the plan has the call center.
+  // It saves at once (like Team & Departments' switch), apart from the form.
+  const planCallCenter = !!entitlements?.modules?.call_center?.value;
+  async function setWorkspaceEnabled(next: boolean) {
+    if (!workspace) return;
+    try {
+      await update.mutateAsync({ enabled: next });
+      setS((p) => (p ? { ...p, enabled: next } : p));
+      setOriginal((p) => (p ? { ...p, enabled: next } : p));
+      qc.invalidateQueries({ queryKey: ['call-center'] });
+      toast({ title: t(next ? 'teamDept.ccMasterOn' : 'teamDept.ccMasterOff') });
+    } catch (err: unknown) {
+      const planDenied = (err as { code?: unknown }).code === 'plan_forbidden';
+      toast({
+        title: planDenied ? t('callCenter.settingsPage.masterPlanLocked') : t('callCenter.settingsPage.saveFailed'),
+        description: planDenied ? undefined : (err as Error).message,
+        variant: 'destructive',
+      });
+    }
+  }
 
   async function save() {
     if (!workspace || !s || !original) return;
@@ -288,6 +311,27 @@ export default function CallCenterSettingsPage() {
           <div className="text-sm">{t('callCenter.settingsPage.platformDisabledBanner')}</div>
         </Card>
       )}
+
+      <Card className="flex items-center justify-between gap-4 rounded-xl p-4" data-cc-master>
+        <div className="min-w-0">
+          <Label className="text-sm font-semibold">{t('teamDept.ccMasterTitle')}</Label>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {s.enabled ? t('callCenter.settingsPage.masterOnHint') : t('callCenter.settingsPage.masterOffHint')}
+          </p>
+          {!entitlementsLoading && !planCallCenter && (
+            <p className="mt-1 flex items-center gap-1 text-xs text-warning">
+              <AlertCircle className="h-3 w-3" />{t('callCenter.settingsPage.masterPlanLocked')}
+            </p>
+          )}
+        </div>
+        <Switch
+          checked={!!s.enabled}
+          onCheckedChange={(v) => void setWorkspaceEnabled(v)}
+          // Off is always allowed; on needs the plan and the platform.
+          disabled={update.isPending || (!s.enabled && (platformOff || entitlementsLoading || !planCallCenter))}
+          aria-label={t('teamDept.ccMasterTitle')}
+        />
+      </Card>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4" dir={dir}>
       <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">

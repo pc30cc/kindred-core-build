@@ -3629,6 +3629,7 @@ const tr: TranslationKeys = {
       operationsLive: 'Operasyon aktif',
       serviceDisabled: 'Servis devre dışı',
       workspaceOffline: 'Çalışma alanı çevrimdışı',
+      turnOn: 'Aç',
       callsServiceDegraded: 'Çağrı servisi sınırlı',
       openLiveDesk: 'Canlı Masayı Aç',
       callbacksLink: 'Geri aramalar',
@@ -3879,6 +3880,9 @@ const tr: TranslationKeys = {
       domainCount: '{{{count}}} alan',
     },
     settingsPage: {
+      masterOnHint: 'Açık: ziyaretçiler arama widget\'ından ekibinizi arayabilir ve operatörler Çağrı Merkezi\'ni görür.',
+      masterOffHint: 'Kapalı: arama widget\'ı ziyaretçilere gösterilmez ve operatörler Çağrı Merkezi\'ni görmez. Ayarlarınız korunur.',
+      masterPlanLocked: 'Planınız Çağrı Merkezi\'ni içermiyor. Açmak için planınızı yükseltin.',
       platformDisabledBanner: 'Çağrı Merkezi platform tarafından devre dışı. Yeniden etkinleştirilene kadar çalışma alanı ayarları salt-etkili olarak değerlendirilir.',
       statusAvailability: 'Durum ve erişilebilirlik',
       statusAvailabilityHint: 'Çalışma alanınız için Çağrı Merkezi modülünün tamamını açıp kapatın.',

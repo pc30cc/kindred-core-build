@@ -39,6 +39,7 @@ import {
 } from '../services/callCenter/recordingControl.js';
 import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
+import { checkModuleAccess } from '../middleware/featureGating.js';
 import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadWithConfig } from '../services/storage/index.js';
 import { callCenterAvatarKey, platformCallCenterRingbackKey } from '../services/storage/keys.js';
 import { storageUploadAllowed } from '../services/billing/planStops.js';
@@ -531,6 +532,16 @@ callCenterRouter.put('/settings', async (req, res) => {
     return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { widget_template_id: ['template_not_available_in_edition'] } } });
   }
   const patch: Record<string, unknown> = { ...parsed.data };
+  // Switching the call center on needs it in the workspace's plan. Only the
+  // switch from off to on is checked: a workspace that is already on resends
+  // `enabled: true` with every save, and switching off is always allowed.
+  if (patch.enabled === true) {
+    const current = await getOrCreateWorkspaceSettings(ctx.config, wid);
+    if (!current.enabled) {
+      const access = await checkModuleAccess(ctx.config.supabaseUrl, ctx.config.supabaseServiceRoleKey, wid, 'call_center');
+      if (!access.allowed) return res.status(403).json({ error: 'plan_forbidden', module: 'call_center' });
+    }
+  }
   // The callback hours: `{}` or the strict shape. A value that is neither is
   // accepted only as the stored one resent untouched (an old dashboard saves
   // back what it loaded), and then not written.

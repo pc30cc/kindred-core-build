@@ -3642,6 +3642,7 @@ const en = {
       operationsLive: 'Operations live',
       serviceDisabled: 'Service disabled',
       workspaceOffline: 'Workspace offline',
+      turnOn: 'Turn on',
       callsServiceDegraded: 'Calls service degraded',
       openLiveDesk: 'Open Live Desk',
       callbacksLink: 'Callbacks',
@@ -3892,6 +3893,9 @@ const en = {
       domainCount: '{{{count}}} domain(s)',
     },
     settingsPage: {
+      masterOnHint: 'On: visitors can call your team from the call widget, and operators see the Call Center.',
+      masterOffHint: 'Off: the call widget is hidden from visitors and operators do not see the Call Center. Your settings are kept.',
+      masterPlanLocked: 'Your plan does not include the Call Center. Upgrade the plan to switch it on.',
       platformDisabledBanner: 'Call Center is currently disabled by the platform. Workspace settings are read-only-effective until re-enabled.',
       statusAvailability: 'Status & availability',
       statusAvailabilityHint: 'Toggle the entire Call Center module for your workspace.',

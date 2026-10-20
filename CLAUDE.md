@@ -233,7 +233,10 @@ reserved blocks, so a full disk stops Postgres too.
     `276_widget_chat_features.sql` (2026-10-18 17:29; its header's
     `CREATE INDEX CONCURRENTLY` was run first; a dump of
     `knowledge_base_articles` and `email_templates` plus a schema dump taken
-    just before it: `/root/webyar-migrate-276/`).
+    just before it: `/root/webyar-migrate-276/`) and
+    `277_call_widget_design.sql` (2026-10-20 05:24; a dump of
+    `call_center_settings` and its schema taken just before it:
+    `/root/webyar-migrate-277/`).
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

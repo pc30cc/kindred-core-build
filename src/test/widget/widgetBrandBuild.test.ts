@@ -268,6 +268,7 @@ describe('the RESPOK call widget', () => {
     const win = dom.window as unknown as Window & { eval(code: string): unknown; CallCenterWidget: { mount(o: unknown): void } };
     win.eval(shipped('public/call-widget', 'presentation-registry.js', brand));
     win.eval(shipped('public/call-widget', 'presentation-default.js', brand));
+    win.eval(shipped('public/call-widget', 'presentation-default-panel.js', brand));
     win.eval(shipped('public/call-widget', 'runtime.js', brand));
     win.CallCenterWidget.mount({
       apiBase: 'https://api.example',
@@ -292,6 +293,9 @@ describe('the RESPOK call widget', () => {
   it('credits the platform the bootstrap names', () => {
     const root = mount('respok', { edition: 'international', powered_by: { brand: 'RESPOK', url: 'https://respok.app' } });
     expect(root.querySelector('.ccw-powered')!.textContent).toContain('RESPOK');
+    // With the platform's logo, the build's own lockup (inline, its International kit).
+    const kit = mount('respok', { edition: 'international', powered_by: { brand: 'RESPOK', url: null, logo: 'https://app.example/x.svg' } });
+    expect(kit.querySelector('.ccw-powered svg.lk')!.getAttribute('aria-label')).toBe('RESPOK');
   });
 
   it.each([['iran', { edition: 'iran', powered_by_logo: '/x.svg' }], ['unknown', { edition: null }], ['older backend', {}]])(
@@ -308,5 +312,6 @@ describe('the RESPOK call widget', () => {
   it('the Iran build keeps its words', () => {
     const root = mount('iran', { edition: 'iran' }, 'en');
     expect(root.querySelector('.ccw-powered')!.textContent).toBe(`Powered by ${['Web', 'Yar'].join(' ')}`);
+    expect(root.querySelector('.ccw-powered svg.wm')).not.toBeNull();
   });
 });

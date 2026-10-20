@@ -1,0 +1,69 @@
+/* Respok design tokens: CSS custom properties.
+   Same names and values as tokens.json, tokens.scss and tailwind.preset.js. */
+:root {
+  /* Color */
+  --rpk-color-ink: #16142B;  /* wordmark, text, dark surfaces, default launcher */
+  --rpk-color-signal: #FF5A3C;  /* the dot / the answer pill, live status, highlights */
+  --rpk-color-signal-deep: #D3361A;  /* coral text and links on white (4.87:1), unread badges */
+  --rpk-color-slate: #5E5C75;  /* secondary text (6.43:1 on white) */
+  --rpk-color-mist: #E4E3EC;  /* borders, dividers, quiet fills */
+  --rpk-color-paper: #F5F5F8;  /* page and panel backgrounds */
+  --rpk-color-white: #FFFFFF;  /* surfaces, reversed marks */
+  --rpk-color-away: #A9A7BC;  /* away state of the dot / answer pill */
+
+  /* Type */
+  --rpk-font-ui: Figtree, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;  /* interface, headings, body */
+  --rpk-font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;  /* numbers, codes, specs */
+  --rpk-font-fa: Vazirmatn, Tahoma, sans-serif;  /* Persian / Arabic interfaces */
+  --rpk-weight-regular: 400;
+  --rpk-weight-medium: 500;
+  --rpk-weight-semibold: 600;
+  --rpk-weight-bold: 700;
+  --rpk-weight-extrabold: 800;
+
+  /* Size */
+  --rpk-size-launcher: 60px;  /* launcher, desktop */
+  --rpk-size-launcher-compact: 48px;  /* launcher, phones (560px wide or less) */
+  --rpk-size-launcher-offset: 24px;  /* distance from the window edges, desktop */
+  --rpk-size-launcher-offset-mobile: 16px;  /* distance from the window edges, phones */
+  --rpk-size-badge: 22px;  /* unread badge */
+  --rpk-size-touch-target: 44px;  /* minimum hit area */
+  --rpk-size-panel-width: 372px;
+  --rpk-size-panel-height: 560px;  /* never taller than the window minus 140px */
+  --rpk-size-panel-gap-thread: 16px;  /* Thread: space between the button and the panel */
+  --rpk-size-greeting-width: 272px;  /* proactive greeting card */
+
+  /* Radius */
+  --rpk-radius-panel: 24px;
+  --rpk-radius-panel-tail: 6px;  /* the panel's squared corner, both directions */
+  --rpk-radius-greeting-open: 18px;  /* Open greeting card (tail corner uses panel-tail) */
+  --rpk-radius-bubble-thread: 21px;  /* Thread greeting and message pills: round ends */
+  --rpk-radius-bubble-tail-thread: 4px;  /* their squared corner, as in the logo */
+  --rpk-radius-chip: 999px;
+
+  /* Shadow */
+  --rpk-shadow-launcher: 0 10px 28px rgba(22, 20, 43, 0.28);
+  --rpk-shadow-launcher-hover: 0 16px 36px rgba(22, 20, 43, 0.36);
+  --rpk-shadow-launcher-press: 0 5px 14px rgba(22, 20, 43, 0.24);
+  --rpk-shadow-panel: 0 24px 60px rgba(22, 20, 43, 0.22), 0 0 0 1px rgba(22, 20, 43, 0.06);
+  --rpk-shadow-greeting: 0 14px 36px rgba(22, 20, 43, 0.18), 0 0 0 1px #ECEBF2;
+  --rpk-shadow-focus-ring: 0 0 0 3px #FFFFFF, 0 0 0 6px #FF5A3C;  /* keyboard focus: white gap + Signal ring */
+
+  /* Motion */
+  --rpk-ease-spring: cubic-bezier(.2, .9, .25, 1);  /* panel and greeting opening */
+  --rpk-ease-pop: cubic-bezier(.3, 1.5, .5, 1);  /* Open dot pop, unread badge */
+  --rpk-ease-slide: cubic-bezier(.3, 1.4, .5, 1);  /* Thread answer pill sliding in */
+  --rpk-ease-standard: cubic-bezier(.25, .1, .25, 1);  /* CSS ease: hover, press, closing, fades */
+  --rpk-duration-hover: 160ms;
+  --rpk-duration-press: 90ms;
+  --rpk-duration-glyph: 200ms;  /* glyph turns into a chevron */
+  --rpk-duration-open-open: 280ms;  /* Open: panel grows out of the button (scale 0.2 to 1) */
+  --rpk-duration-open-thread: 240ms;  /* Thread: panel rises 16px and scales 0.96 to 1 */
+  --rpk-duration-close-open: 180ms;
+  --rpk-duration-close-thread: 160ms;
+  --rpk-duration-arrival: 360ms;  /* new message: dot pops / answer slides in */
+  --rpk-duration-badge: 340ms;  /* unread badge springs in */
+  --rpk-duration-badge-bump: 320ms;  /* badge already showing: 1 to 1.15 to 1 */
+  --rpk-duration-greeting: 300ms;
+  --rpk-duration-reduced: 120ms;  /* prefers-reduced-motion: fades only */
+}

@@ -133,7 +133,12 @@ describe('typography ownership', () => {
     const callPresentation = readFileSync('public/call-widget/presentation-default.js', 'utf8');
     expect(callPresentation).toContain('font_style_url');
     expect(callPresentation).not.toContain('/widget/fonts.css');
-    expect(callPresentation).not.toContain('IRANSans');
+    // Family names live only in the skins' CSS: the core warms the faces the
+    // root's computed stack names, and the panel module names none either.
+    const callPanel = readFileSync('public/call-widget/presentation-default-panel.js', 'utf8');
+    for (const [file, src] of [['presentation-default.js', callPresentation], ['presentation-default-panel.js', callPanel]]) {
+      for (const family of ['IRANSans', 'Figtree', 'InterWY', 'Vazirmatn', 'DM Mono']) expect(src, `${file} names ${family}`).not.toContain(family);
+    }
     // And the server is the one that names it.
     expect(readFileSync('server/routes/callWidget.ts', 'utf8')).toContain('font_style_url:');
     const callCss = readFileSync('public/call-widget/runtime.css', 'utf8');
@@ -143,7 +148,16 @@ describe('typography ownership', () => {
     // (the loader's build names it, else the bootstrap's font_style_url)
     // has them.
     const callSheets = readdirSync('public/call-widget').filter((f) => /^presentation-[a-z0-9-]+\.css$/.test(f));
-    expect(callSheets).toEqual(expect.arrayContaining(['presentation-default.css', 'presentation-intl.css']));
+    expect(callSheets).toEqual(expect.arrayContaining(['presentation-default.css', 'presentation-intl.css', 'presentation-default-panel.css']));
+    // WebYar's English and Turkish read InterWY first, its Persian IRANSans
+    // first (the chat's WebYar stacks); Respok's Figtree first, IRANSans in RTL.
+    const wy = readFileSync('public/call-widget/presentation-default.css', 'utf8');
+    expect(wy).toMatch(/\.ccw-presentation-default \{ --font: 'InterWY', 'IRANSans',/);
+    expect(wy).toMatch(/\.ccw-presentation-default\[dir="rtl"\] \{ --font: 'IRANSans', 'InterWY',/);
+    const rp = readFileSync('public/call-widget/presentation-intl.css', 'utf8');
+    expect(rp).toMatch(/--font: 'Figtree', 'IRANSans',/);
+    expect(rp).toMatch(/\.ccw-presentation-intl\[dir="rtl"\] \{ --font: 'IRANSans', 'Figtree',/);
+    expect(readFileSync('public/call-widget/presentation-default-panel.css', 'utf8')).toMatch(/\.code \{ font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;/);
     for (const f of callSheets) {
       expect(readFileSync(`public/call-widget/${f}`, 'utf8'), f).not.toMatch(/@font-face|\.woff2/);
     }

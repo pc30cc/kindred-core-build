@@ -1844,14 +1844,29 @@
     shellContentEl.style.setProperty("--gs-vvo", Math.round((vv && vv.offsetTop) || 0) + "px");
     if (mobileLockState) shellContentEl.style.transform = "translateY(" + Math.round((vv && vv.offsetTop) || 0) + "px)";
   }
+  function watchPage() {
+    var mo = window.MutationObserver && new MutationObserver(function () { applyMobileFullScreen(isOpen); });
+    if (mo) mo.observe(document.body, { attributes: true, attributeFilter: ["style"] });
+    return mo || 1;
+  }
+  function unwatchPage(st) { if (st && st.held && st.held.disconnect) st.held.disconnect(); }
   function applyMobileFullScreen(open) {
     if (!shellContentEl) return;
     var want = open && isPhoneViewport();
-    if (want === !!mobileLockState) { if (want) syncVisualViewport(); return; }
+    if (want === !!mobileLockState) {
+      // The other widget let the page go while this panel stays: hold it now.
+      if (want && mobileLockState.held && document.body.style.position !== "fixed") { unwatchPage(mobileLockState); mobileLockState = null; applyMobileFullScreen(true); return; }
+      if (want) syncVisualViewport();
+      return;
+    }
     if (want) {
       var body = document.body;
       var docEl = document.documentElement;
-      mobileLockState = {
+      // A page another widget already holds (the call widget's phone
+      // panel) stays its holder's: each widget restores only what it
+      // changed, else whichever closed last would freeze the page again;
+      // it is watched, so that this panel holds it the moment it is let go.
+      mobileLockState = body.style.position === "fixed" ? { held: watchPage() } : {
         scrollY: window.scrollY || window.pageYOffset || 0,
         bodyOverflow: body.style.overflow,
         bodyPosition: body.style.position,
@@ -1860,11 +1875,13 @@
         docOverscroll: docEl.style.overscrollBehavior,
       };
       shellContentEl.classList.add("gs-mobile-open");
-      body.style.position = "fixed";
-      body.style.top = "-" + mobileLockState.scrollY + "px";
-      body.style.width = "100%";
-      body.style.overflow = "hidden";
-      docEl.style.overscrollBehavior = "none";
+      if (!mobileLockState.held) {
+        body.style.position = "fixed";
+        body.style.top = "-" + mobileLockState.scrollY + "px";
+        body.style.width = "100%";
+        body.style.overflow = "hidden";
+        docEl.style.overscrollBehavior = "none";
+      }
       syncVisualViewport();
       if (window.visualViewport) {
         window.visualViewport.addEventListener("resize", syncVisualViewport);
@@ -1879,7 +1896,8 @@
         window.visualViewport.removeEventListener("resize", syncVisualViewport);
         window.visualViewport.removeEventListener("scroll", syncVisualViewport);
       }
-      if (st) {
+      unwatchPage(st);
+      if (st && !st.held) {
         document.body.style.position = st.bodyPosition;
         document.body.style.top = st.bodyTop;
         document.body.style.width = st.bodyWidth;

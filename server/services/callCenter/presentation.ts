@@ -6,6 +6,14 @@ import {
   resolveCallWidgetTemplateForEdition,
   type CallWidgetTemplateId,
 } from '../../../shared/widgetTemplates.js';
+import { CALL_LAUNCHER_STYLES, normalizeCallWidgetPosition } from '../../../shared/callLauncherStyles.js';
+import {
+  DAY_KEYS,
+  MAX_INTERVALS_PER_DAY,
+  callbackHoursHaveInterval,
+  isValidTimeZone,
+  type BusinessHours,
+} from '../../../shared/callbackSlots.js';
 
 /**
  * Call widget templates per edition live in shared/widgetTemplates.ts: the
@@ -98,15 +106,86 @@ export function normalizeCallWidgetOfflineBehavior(value: unknown): CallWidgetOf
   return parsed.success ? parsed.data : 'show_callback';
 }
 
-/** The asset file names (public/call-widget/) of a template; unknown ids get `default`'s. */
-export function callWidgetTemplateAssetKeys(templateId: unknown) {
-  const id: CallWidgetTemplateId = Object.prototype.hasOwnProperty.call(CALL_WIDGET_TEMPLATES, String(templateId))
+function knownCallTemplate(templateId: unknown): CallWidgetTemplateId {
+  return Object.prototype.hasOwnProperty.call(CALL_WIDGET_TEMPLATES, String(templateId))
     ? (templateId as CallWidgetTemplateId)
     : CALL_WIDGET_DEFAULT_TEMPLATE_ID;
-  const template = CALL_WIDGET_TEMPLATES[id];
+}
+
+/** The asset file names (public/call-widget/) of a template; unknown ids get `default`'s. */
+export function callWidgetTemplateAssetKeys(templateId: unknown) {
+  const template = CALL_WIDGET_TEMPLATES[knownCallTemplate(templateId)];
   return {
     registry: 'presentation-registry.js',
     script: template.script,
     style: template.style,
   } as const;
+}
+
+/**
+ * The panel module and its stylesheet of a template (public/call-widget/),
+ * loaded on the visitor's first intent; unknown ids get `default`'s.
+ */
+export function callWidgetPanelAssetKeys(templateId: unknown) {
+  const { panel } = CALL_WIDGET_TEMPLATES[knownCallTemplate(templateId)];
+  return { panelScript: panel.script, panelStyle: panel.style } as const;
+}
+
+// ─── Launcher and placement (migration 277) ─────────────────────────────────
+
+/** A launcher style a save may store (shared/callLauncherStyles.ts). */
+export const callWidgetLauncherStyleSchema = z.enum(CALL_LAUNCHER_STYLES);
+
+/**
+ * A placement as a save sends it: a placement or one of its older spellings
+ * becomes the placement; any other string becomes `right`, which is where it
+ * always rendered (an old dashboard resending what it loaded never fails).
+ */
+export const callWidgetPositionSchema = z.string().max(64).transform((raw) => normalizeCallWidgetPosition(raw));
+
+// ─── Callback hours (business_hours, migration 277's slots) ─────────────────
+
+const hhmmStrict = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
+const callbackIntervalSchema = z.object({ from: hhmmStrict, to: hhmmStrict }).strict();
+const callbackDaySchema = z.array(callbackIntervalSchema).max(MAX_INTERVALS_PER_DAY);
+const callbackWeeklySchema = z.object(
+  Object.fromEntries(DAY_KEYS.map((day) => [day, callbackDaySchema.optional()])) as Record<(typeof DAY_KEYS)[number], z.ZodOptional<typeof callbackDaySchema>>,
+).strict();
+const callbackOverrideSchema = z.object({
+  date: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/),
+  closed: z.boolean().optional(),
+  intervals: callbackDaySchema.optional(),
+  label: z.string().max(120).optional(),
+}).strict();
+
+/**
+ * call_center_settings.business_hours as a save may store it: `{}` (no hours)
+ * or the chat's BusinessHoursConfig, strictly (HH:mm times, at most 6
+ * intervals a day, a time zone this server knows, at most 60 overrides).
+ */
+export const callbackHoursSchema = z.union([
+  z.object({}).strict(),
+  z.object({
+    enabled: z.boolean().optional(),
+    timezone: z.string().max(64).refine((tz) => isValidTimeZone(tz), { message: 'invalid_timezone' }).optional(),
+    weekly: callbackWeeklySchema,
+    overrides: z.array(callbackOverrideSchema).max(60).optional(),
+  }).strict(),
+]);
+
+/** Stored hours that pass the strict shape, else null (a legacy value a save never rewrote). */
+export function parseCallbackHours(value: unknown): BusinessHours | null {
+  const parsed = callbackHoursSchema.safeParse(value);
+  return parsed.success ? (parsed.data as BusinessHours) : null;
+}
+
+/**
+ * The hours callback slots come from: only while the workspace turned slots
+ * on AND its stored hours pass the strict shape AND name an interval; null
+ * otherwise (the widget then offers its date-and-time field).
+ */
+export function callbackSlotHours(slotsEnabled: boolean, businessHours: unknown): BusinessHours | null {
+  if (!slotsEnabled) return null;
+  const hours = parseCallbackHours(businessHours);
+  return hours && callbackHoursHaveInterval(hours) ? hours : null;
 }

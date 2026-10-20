@@ -1,0 +1,214 @@
+diff --git a/macos/Webyar/Core/Api/WebyarAPI.swift b/macos/Webyar/Core/Api/WebyarAPI.swift
+index 32777f7..17d2534 100644
+--- a/macos/Webyar/Core/Api/WebyarAPI.swift
++++ b/macos/Webyar/Core/Api/WebyarAPI.swift
+@@ -398,9 +398,12 @@ final class WebyarAPI {
+ 
+     /// Hands a live call to another operator or to a department. The call stays up: the new
+     /// operator joins the same room, and the one handing it on leaves without ending it.
+-    private struct TransferResult: Decodable { var assignedAgentId: String? }
++    private struct TransferResult: Decodable { var assignedAgentId: String?; var assignedParticipantIdentity: String? }
+ 
+-    /// Returns the colleague the call went to: the server picks one when handed to a department.
++    /// Returns the room identity of the colleague the call went to (the server picks one when it is
++    /// handed to a department), or nil while nobody is picked. Operators join the room under an opaque
++    /// `operator:<reference>`, which the server names; a server from before that names only the user,
++    /// whose identity was `operator:<user id>`.
+     @discardableResult
+     func transferCall(workspaceId: String, callId: String, toAgentId: String?, toDepartmentId: String?, reason: String?) async throws -> String? {
+         var body: [String: Any?] = ["workspaceId": workspaceId]
+@@ -408,7 +411,8 @@ final class WebyarAPI {
+         if let toDepartmentId { body["to_department_id"] = toDepartmentId }
+         if let reason, !reason.isEmpty { body["reason"] = reason }
+         let r: TransferResult = try await client.post("/api/call-center/calls/\(Self.e(callId))/transfer", body: body, query: [("workspaceId", workspaceId)])
+-        return r.assignedAgentId ?? toAgentId
++        if let identity = r.assignedParticipantIdentity, !identity.isEmpty { return identity }
++        return (r.assignedAgentId ?? toAgentId).map { "operator:\($0)" }
+     }
+ 
+     // MARK: People and notes
+diff --git a/macos/Webyar/Features/Calls/LiveCall.swift b/macos/Webyar/Features/Calls/LiveCall.swift
+index 3995a3c..833f714 100644
+--- a/macos/Webyar/Features/Calls/LiveCall.swift
++++ b/macos/Webyar/Features/Calls/LiveCall.swift
+@@ -114,7 +114,7 @@ final class LiveCall {
+         guard let notes else { return outbox.isEmpty ? nil : outbox }
+         return notes + outbox
+     }
+-    @ObservationIgnored private var transferTargetId: String?
++    @ObservationIgnored private var transferTargetIdentity: String?
+     @ObservationIgnored private var notesTask: Task<Void, Never>?
+     @ObservationIgnored private var handoverTask: Task<Void, Never>?
+     @ObservationIgnored private var remoteVideoGone: Task<Void, Never>?
+@@ -467,7 +467,8 @@ final class LiveCall {
+         Log.write("[call] \(line)")
+     }
+ 
+-    /// Operators join as `operator:<user id>` (the server's LiveKit identity); visitors as something else.
++    /// Operators join as `operator:<opaque reference>` (`operator:<user id>` on a server from before
++    /// that), the server's LiveKit identity; visitors as something else.
+     private static func isOperator(_ p: Participant) -> Bool {
+         p.identity?.stringValue.hasPrefix("operator:") == true
+     }
+@@ -492,7 +493,7 @@ final class LiveCall {
+                                                           toDepartmentId: departmentId, reason: reason)
+             Log.write("[call] transferred \(callId) to \(agentId ?? departmentId ?? "?")")
+             // Whoever the server gave it to — not just any other operator who happens to be in the room.
+-            transferTargetId = assigned
++            transferTargetIdentity = assigned
+             transferredTo = name
+             checkHandover()
+             return true
+@@ -514,7 +515,7 @@ final class LiveCall {
+         let me = room.localParticipant.identity?.stringValue
+         let joined = room.remoteParticipants.values.contains { p in
+             guard Self.isOperator(p), let id = p.identity?.stringValue, id != me else { return false }
+-            return transferTargetId.map { id == "operator:\($0)" } ?? true
++            return transferTargetIdentity.map { id == $0 } ?? true
+         }
+         guard joined else { return }
+         handoverJoined = true
+diff --git a/windows-native/src/Webyar.App/Views/LiveCall.cs b/windows-native/src/Webyar.App/Views/LiveCall.cs
+index 6563a3f..8ed9d97 100644
+--- a/windows-native/src/Webyar.App/Views/LiveCall.cs
++++ b/windows-native/src/Webyar.App/Views/LiveCall.cs
+@@ -71,6 +71,7 @@ public sealed class LiveCall
+     private string? _transferredTo;
+     private string? _transferText;
+     private string? _transferTargetId;
++    private string? _transferTargetIdentity;
+     private bool _transferring;
+     private bool _handoverJoined;
+     private string? _localIdentity;
+@@ -866,9 +867,10 @@ public sealed class LiveCall
+         Post(new { type = "transferState", busy = true });
+         try
+         {
+-            await Host.Api.TransferCallAsync(_workspaceId, desk.CallId, agentId, departmentId, reason);
++            var targetIdentity = await Host.Api.TransferCallAsync(_workspaceId, desk.CallId, agentId, departmentId, reason);
+             Log.Write($"[call] transferred {desk.CallId} to {agentId ?? departmentId}");
+             _transferTargetId = agentId;
++            _transferTargetIdentity = targetIdentity;
+             _transferredTo = name.Length > 0 ? name : s["callTransferDepartments"];
+             _transferText = s.Get("callTransferredWaiting", "name", _transferredTo);
+             Post(new { type = "transferState", busy = false, done = true });
+@@ -891,7 +893,7 @@ public sealed class LiveCall
+     private void CheckHandover()
+     {
+         if (_transferredTo is null || _handoverJoined || _ended) return;
+-        if (!Handover.Joined(_roomOperators, _localIdentity, _transferTargetId)) return;
++        if (!Handover.Joined(_roomOperators, _localIdentity, _transferTargetId, _transferTargetIdentity)) return;
+         _handoverJoined = true;
+         Log.Write("[call] colleague joined, leaving");
+         _transferText = Host.Strings.Get("callHandoverJoined", "name", _transferredTo);
+diff --git a/windows-native/src/Webyar.Core/Api/Models2.cs b/windows-native/src/Webyar.Core/Api/Models2.cs
+index 5db0e80..ae9a87c 100644
+--- a/windows-native/src/Webyar.Core/Api/Models2.cs
++++ b/windows-native/src/Webyar.Core/Api/Models2.cs
+@@ -174,6 +174,9 @@ public sealed record CallToken(
+ 
+ public sealed record TurnServer(IReadOnlyList<string>? Urls = null, string? Username = null, string? Credential = null);
+ 
++/// <summary>A transfer's answer: whom the call went to, and the room identity they will join under.</summary>
++public sealed record CallTransferResult(string? AssignedAgentId = null, string? AssignedParticipantIdentity = null);
++
+ public static class ConversationPriorities
+ {
+     public const string Low = "low";
+diff --git a/windows-native/src/Webyar.Core/Api/WebyarApi.cs b/windows-native/src/Webyar.Core/Api/WebyarApi.cs
+index f338d00..5f6106d 100644
+--- a/windows-native/src/Webyar.Core/Api/WebyarApi.cs
++++ b/windows-native/src/Webyar.Core/Api/WebyarApi.cs
+@@ -293,14 +293,18 @@ public sealed partial class WebyarApi
+     /// Hands a live call to another operator or to a department. The call stays
+     /// up: the new operator joins the same room, and the one handing it on
+     /// leaves without ending it. The reason goes only when there is one.
++    /// Returns the room identity the colleague will join under (operators join
++    /// as an opaque <c>operator:&lt;reference&gt;</c>, which the server names), or
++    /// null when it names none: nobody picked yet, or a server from before that.
+     /// </summary>
+-    public Task TransferCallAsync(string workspaceId, string callId, string? toAgentId, string? toDepartmentId, string? reason, CancellationToken ct = default)
++    public async Task<string?> TransferCallAsync(string workspaceId, string callId, string? toAgentId, string? toDepartmentId, string? reason, CancellationToken ct = default)
+     {
+         var body = new Dictionary<string, object?> { ["workspaceId"] = workspaceId };
+         if (!string.IsNullOrEmpty(toAgentId)) body["to_agent_id"] = toAgentId;
+         if (!string.IsNullOrEmpty(toDepartmentId)) body["to_department_id"] = toDepartmentId;
+         if (!string.IsNullOrWhiteSpace(reason)) body["reason"] = reason.Trim();
+-        return _client.SendAsync(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/transfer", body, [Q("workspaceId", workspaceId)], ct);
++        var result = await _client.SendAsync<CallTransferResult?>(HttpMethod.Post, $"/api/call-center/calls/{Uri.EscapeDataString(callId)}/transfer", [Q("workspaceId", workspaceId)], body, ct).ConfigureAwait(false);
++        return result?.AssignedParticipantIdentity is { Length: > 0 } identity ? identity : null;
+     }
+ 
+     public Task<RealtimeSubscribe> RealtimeInboxSubscribeAsync(string workspaceId, CancellationToken ct = default) =>
+diff --git a/windows-native/src/Webyar.Core/Calls/HandedCalls.cs b/windows-native/src/Webyar.Core/Calls/HandedCalls.cs
+index d21dd6f..4cef986 100644
+--- a/windows-native/src/Webyar.Core/Calls/HandedCalls.cs
++++ b/windows-native/src/Webyar.Core/Calls/HandedCalls.cs
+@@ -60,16 +60,24 @@ public sealed class HandedCalls
+ /// <summary>After a transfer: whether whoever took the call is in the room yet.</summary>
+ public static class Handover
+ {
+-    /// <summary>Operators join the room as `operator:&lt;user id&gt;` (the server's LiveKit identity); visitors as anything else.</summary>
++    /// <summary>
++    /// Operators join the room as `operator:&lt;opaque reference&gt;` (the server's LiveKit identity;
++    /// `operator:&lt;user id&gt;` on a server from before that); visitors as anything else.
++    /// </summary>
+     public const string OperatorPrefix = "operator:";
+ 
+     public static bool IsOperator(string? identity) => identity?.StartsWith(OperatorPrefix, StringComparison.Ordinal) == true;
+ 
+     /// <summary>
+-    /// The colleague the call went to is in the room — for a department, any
+-    /// operator other than me, since the server picks who takes it.
++    /// The colleague the call went to is in the room: under the identity the
++    /// transfer's answer named (<paramref name="targetIdentity"/>), or, from a
++    /// server from before that, `operator:&lt;their user id&gt;`. With neither (a
++    /// department nobody was picked for yet), any operator other than me, since
++    /// the server picks who takes it.
+     /// </summary>
+-    public static bool Joined(IEnumerable<string?> remoteIdentities, string? localIdentity, string? targetUserId) =>
++    public static bool Joined(IEnumerable<string?> remoteIdentities, string? localIdentity, string? targetUserId, string? targetIdentity = null) =>
+         remoteIdentities.Any(id => IsOperator(id) && id != localIdentity
+-                                   && (string.IsNullOrEmpty(targetUserId) || id == OperatorPrefix + targetUserId));
++                                   && (string.IsNullOrEmpty(targetIdentity)
++                                       ? string.IsNullOrEmpty(targetUserId) || id == OperatorPrefix + targetUserId
++                                       : id == targetIdentity || (!string.IsNullOrEmpty(targetUserId) && id == OperatorPrefix + targetUserId)));
+ }
+diff --git a/windows-native/tests/Webyar.Core.Tests/CallCenterTests.cs b/windows-native/tests/Webyar.Core.Tests/CallCenterTests.cs
+index 33a3d32..98025ee 100644
+--- a/windows-native/tests/Webyar.Core.Tests/CallCenterTests.cs
++++ b/windows-native/tests/Webyar.Core.Tests/CallCenterTests.cs
+@@ -191,6 +191,33 @@ public class CallCenterTests
+         Assert.False(Handover.IsOperator("visitor:operator:x"));
+     }
+ 
++    [Fact]
++    public void Handover_waits_for_the_identity_the_transfer_named()
++    {
++        // Operators join as an opaque reference; the transfer's answer names the colleague's.
++        const string me = "operator:0123456789abcdef", them = "operator:fedcba9876543210";
++        string?[] room = ["visitor:abc", me, them];
++        Assert.True(Handover.Joined(room, me, "u2", them));
++        Assert.False(Handover.Joined(room, me, "u2", "operator:1111111111111111"));
++        // Without a named identity (a server from before it) only `operator:<user id>` is the colleague.
++        Assert.False(Handover.Joined(room, me, "u2"));
++        Assert.True(Handover.Joined(["operator:me", "operator:u2"], "operator:me", "u2", "operator:1111111111111111"));
++        // A department the server picked someone for: that one, not any other operator.
++        Assert.False(Handover.Joined(room, me, null, "operator:1111111111111111"));
++        Assert.True(Handover.Joined(room, me, null, them));
++        Assert.True(Handover.Joined(room, me, null, null));
++    }
++
++    [Fact]
++    public async Task Transfer_returns_the_identity_the_colleague_joins_under()
++    {
++        var (api, _) = Make((_, _) => (HttpStatusCode.OK,
++            """{"ok":true,"assigned_agent_id":"u2","assigned_participant_identity":"operator:fedcba9876543210","department_id":null,"handoff":"manual"}"""));
++        Assert.Equal("operator:fedcba9876543210", await api.TransferCallAsync("w1", "c1", "u2", null, null));
++        var (older, _) = Make((_, _) => (HttpStatusCode.OK, """{"ok":true,"assigned_agent_id":"u2","department_id":null}"""));
++        Assert.Null(await older.TransferCallAsync("w1", "c1", "u2", null, null));
++    }
++
+     // ── Transfer targets ──
+ 
+     [Fact]

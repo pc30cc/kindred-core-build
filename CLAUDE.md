@@ -48,6 +48,24 @@ widget is IRANSans only (owner). Core behaviour only t1/t2 use lives in the
 lazy `public/widget/runtime-ext.js`, gated on the renderer's `features`, so
 `default` visitors never download it.
 
+The call center widget (`public/call-widget`) wears the 2026-10 handoff
+designs: template `default` is WebYar's (skin `presentation-default.css`),
+`intl` is RESPOK's (`presentation-intl.css`, over the same renderer). A page
+load is the loader, the registry, the engine, the core
+(`presentation-default.js`, which draws the launcher), `runtime.css`, the skin
+and the fonts stylesheet; the panel (`presentation-default-panel.js` and
+`.css`) loads on the visitor's first intent (rules doc, "Call widget panel").
+Its budgets are `BUDGETS.call` in the same test. The
+pixel gate is `e2e/callWidgetScreens.spec.ts` (Tier A, both brands, against
+the handoff's boards). Decisions, deviations and rollout:
+`docs/call-widget-handoff/IMPLEMENTATION_NOTES.md`. Members join a call room
+as `operator:<opaque reference>` (or `admin:`, `internal:`) with their profile
+name only (`server/services/calls/operatorIdentity.ts`): never put a
+user id or an e-mail in a LiveKit identity, name or metadata (the visitor
+sees them). The desktop apps' side of that is
+`docs/call-widget-handoff/desktop-transfer-handover.patch`, for their next
+release.
+
 ## The iOS app in Xcode on the Mac
 
 `~/dev/kcb-ios-preview` is the copy of the iOS app (`ios/Webyar`)

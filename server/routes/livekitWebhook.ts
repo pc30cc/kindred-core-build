@@ -37,6 +37,7 @@ import {
 import { resolveStorageConfig } from '../services/storage/index.js';
 import { assertCallRecordingKey, StorageKeyError } from '../services/storage/keys.js';
 import { mustDb } from '../utils/mustDb.js';
+import { parseParticipantIdentity, resolveParticipantId } from '../services/calls/operatorIdentity.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -235,11 +236,14 @@ export async function applyEvent(
     case 'participant_joined': {
       const identity = ev.participant?.identity || '';
       // Best-effort: create/update a call_participants row keyed by identity.
-      // Identity format set by livekitProvider: `${type}:${id}`.
-      const [pType, pId] = identity.split(':');
-      const ptype = (pType === 'visitor' || pType === 'operator' || pType === 'admin' || pType === 'internal')
-        ? pType
-        : 'internal';
+      // Identity format set by livekitProvider: `${type}:${id}`; a member's id
+      // is the opaque reference of their user on this call (the user id itself
+      // on calls from before that release), resolved back to the user here.
+      const ptype = parseParticipantIdentity(identity).type;
+      const participantId = await resolveParticipantId(config, sb, {
+        callSessionId: session.id, workspaceId: session.workspace_id, identity,
+      });
+      const memberId = ptype !== 'visitor' ? participantId : null;
       // Upsert pattern: try update first by provider_participant_id.
       const { data: existing } = await sb
         .from('call_participants')
@@ -250,18 +254,18 @@ export async function applyEvent(
       if (existing) {
         await sb
           .from('call_participants')
-          .update({ joined_at: new Date().toISOString(), left_at: null })
+          .update({ joined_at: new Date().toISOString(), left_at: null, ...(memberId ? { participant_id: memberId } : {}) })
           .eq('id', existing.id);
       } else {
         await sb.from('call_participants').insert({
           call_session_id: session.id,
           participant_type: ptype,
-          participant_id: pId && /^[0-9a-f-]{36}$/i.test(pId) ? pId : null,
+          participant_id: participantId,
           provider_participant_id: identity,
           joined_at: new Date().toISOString(),
         });
       }
-      await recordEvent('participant_joined', { identity });
+      await recordEvent('participant_joined', { identity, ...(memberId ? { user_id: memberId } : {}) });
       // The visitor is in the call: it starts now (duration, billable minutes),
       // unless their join token already stamped it. First writer wins.
       if (ptype === 'visitor') {
@@ -271,23 +275,26 @@ export async function applyEvent(
           .is('connected_at', null);
       }
       // Phase 8D — when an operator actually joins media, lock them as in-call.
-      if (ptype === 'operator' && pId && /^[0-9a-f-]{36}$/i.test(pId)) {
-        void markInCall(config, session.workspace_id, pId, session.id).catch(() => {});
+      if (ptype === 'operator' && memberId) {
+        void markInCall(config, session.workspace_id, memberId, session.id).catch(() => {});
       }
       return { applied: true };
     }
     case 'participant_left': {
       const identity = ev.participant?.identity || '';
+      const ptype = parseParticipantIdentity(identity).type;
+      const memberId = ptype !== 'visitor'
+        ? await resolveParticipantId(config, sb, { callSessionId: session.id, workspaceId: session.workspace_id, identity })
+        : null;
       await sb
         .from('call_participants')
-        .update({ left_at: new Date().toISOString() })
+        .update({ left_at: new Date().toISOString(), ...(memberId ? { participant_id: memberId } : {}) })
         .eq('call_session_id', session.id)
         .eq('provider_participant_id', identity);
-      await recordEvent('participant_left', { identity });
+      await recordEvent('participant_left', { identity, ...(memberId ? { user_id: memberId } : {}) });
       // Phase 8D — operator left media → release busy lock.
-      const [pType2, pId2] = identity.split(':');
-      if (pType2 === 'operator' && pId2 && /^[0-9a-f-]{36}$/i.test(pId2)) {
-        void clearInCall(config, session.workspace_id, pId2).catch(() => {});
+      if (ptype === 'operator' && memberId) {
+        void clearInCall(config, session.workspace_id, memberId).catch(() => {});
       }
       return { applied: true };
     }

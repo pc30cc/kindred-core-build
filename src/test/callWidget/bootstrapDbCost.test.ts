@@ -37,8 +37,13 @@ db.app_runtime_config = [
   { key: 'default_storage_provider', value: { provider: 'local' } },
 ];
 db.platform_settings = [{ region_mode: 'iran' }];
+// An operator who is available: the bootstrap's presence (its own 30 s memo).
+db.workspace_members = [{ workspace_id: WS, user_id: '44444444-4444-4444-8444-444444444444', role: 'agent', created_at: '2026-01-01T00:00:00Z' }];
+db.call_center_agent_presence = [{ workspace_id: WS, user_id: '44444444-4444-4444-8444-444444444444', status: 'available' }];
 
 const { callWidgetRouter } = await import('../../../server/routes/callWidget.js');
+const { invalidateCallWidgetBootstrapCache } = await import('../../../server/services/callCenter/bootstrapCache.js');
+const { invalidatePlatformRegionCache } = await import('../../../server/services/platformRegion.js');
 const app = express();
 app.use((req, _res, next) => { (req as unknown as { serverConfig: object }).serverConfig = { supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'a', supabaseServiceRoleKey: 'SERVICE_KEY' }; next(); });
 app.use(cookieParser());
@@ -55,6 +60,9 @@ type BootstrapBody = {
   visitor: { id: string; contact: Contact | null };
   assets: Record<string, unknown>;
   config: Record<string, unknown>;
+  callback_policy: Record<string, unknown>;
+  presence?: Record<string, unknown>;
+  edition?: string | null;
   active_call: unknown;
   workspace_id?: string;
 };
@@ -96,6 +104,10 @@ describe('call widget bootstrap: database work per page view', () => {
     expect(first.status).toBe(200);
     expect(first.body.status).toBe('ok');
     expect(first.ops.filter((o) => /contacts|call_sessions/.test(o))).toEqual([]);
+    // Who is available: two reads, kept 30 s (no profile: the default
+    // launcher draws no operator).
+    expect(first.ops.filter((o) => /workspace_members|call_center_agent_presence|profiles/.test(o)))
+      .toEqual(['select workspace_members', 'select call_center_agent_presence']);
     const ticket = lastSetCookies.find((c) => c.startsWith('dvccp='));
     expect(ticket).toMatch(/; Path=\/api\/call-widget\/bootstrap; HttpOnly; Max-Age=60; /);
   });
@@ -154,21 +166,51 @@ describe('call widget bootstrap: database work per page view', () => {
     }
   });
 
-  it('answers the same fields as before (the response contract the runtime reads)', async () => {
+  it('answers the fields the runtime reads: the same as before, plus the call widget design\'s', async () => {
     jar = {};
     const { body } = await pageView();
     expect(Object.keys(body).sort()).toEqual([
       'active_call', 'assets', 'assets_version', 'calendar', 'callback_policy', 'capabilities', 'config',
-      'departments', 'edition', 'i18n', 'powered_by_logo', 'provider_ready', 'queue_experience', 'recording',
+      'departments', 'edition', 'i18n', 'powered_by_logo', 'presence', 'provider_ready', 'queue_experience', 'recording',
       'session', 'status', 'time_zone', 'visitor', 'workspace_id',
     ]);
-    expect(Object.keys(body.assets).sort()).toEqual(['font_style_url', 'presentation_registry_url', 'presentation_script_url', 'presentation_style_url']);
+    expect(Object.keys(body.assets).sort()).toEqual([
+      'font_style_url', 'presentation_panel_script_url', 'presentation_panel_style_url',
+      'presentation_registry_url', 'presentation_script_url', 'presentation_style_url',
+    ]);
     expect(Object.keys(body.config).sort()).toEqual([
-      'avatar_url', 'custom_texts', 'display_name', 'offline_behavior', 'pre_call_form_enabled', 'pre_call_form_schema',
+      'avatar_url', 'custom_texts', 'display_name', 'launcher_style', 'offline_behavior', 'pre_call_form_enabled', 'pre_call_form_schema',
       'recording_consent_required', 'widget_position', 'widget_template_id', 'widget_theme',
     ]);
     expect(body.config.widget_template_id).toBe('default');
+    // The row has no 277 columns: the defaults.
+    expect(body.config.launcher_style).toBe('round_label');
+    // Slots are off (the default): the widget offers its date-and-time field.
+    expect(body.callback_policy).not.toHaveProperty('slots');
+    // round_label draws no operator: whether someone is available, nothing more.
+    expect(body.presence).toEqual({ any_available: true });
     expect(body.visitor).toEqual({ id: expect.any(String), contact: null });
     expect(body.active_call).toBeNull();
+  });
+
+  it('the International edition adds the logo direction (the chat widget\'s; thread by default)', async () => {
+    db.platform_settings = [{ region_mode: 'international' }];
+    invalidatePlatformRegionCache();
+    invalidateCallWidgetBootstrapCache();
+    try {
+      jar = {};
+      const { body } = await pageView();
+      expect(body.edition).toBe('international');
+      expect(Object.keys(body.config).sort()).toEqual([
+        'avatar_url', 'custom_texts', 'display_name', 'launcher_style', 'logoDirection', 'offline_behavior', 'pre_call_form_enabled',
+        'pre_call_form_schema', 'recording_consent_required', 'widget_position', 'widget_template_id', 'widget_theme',
+      ]);
+      expect(body.config.logoDirection).toBe('thread');
+      expect(body.config.widget_template_id).toBe('intl');
+    } finally {
+      db.platform_settings = [{ region_mode: 'iran' }];
+      invalidatePlatformRegionCache();
+      invalidateCallWidgetBootstrapCache();
+    }
   });
 });

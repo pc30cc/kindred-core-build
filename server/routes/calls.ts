@@ -63,6 +63,7 @@ import { loadLiveKitConfig, isMinimallyConfigured, providesOwnRelay } from '../s
 import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { mustDb } from '../utils/mustDb.js';
+import { isMemberParticipantType, publicMemberName } from '../services/calls/operatorIdentity.js';
 
 export const callsRouter = Router();
 
@@ -637,14 +638,27 @@ callsRouter.post('/:id/token', async (req, res) => {
       );
     }
     const provider = resolveCallProvider(ctx.session.provider);
+    const participantId = body.participant_id ?? ctx.userId;
+    // The visitor may be in this room and sees every participant's identity
+    // and name: a member joins under the opaque reference of their user on
+    // this call (livekitProvider) and under their own name or none, never the
+    // name a client asks for (the desktop apps send the e-mail when there is
+    // no name). Only the caller's own profile name: a token asked for another
+    // user's id carries none (the route never reads someone else's name for
+    // the caller).
+    const displayName = isMemberParticipantType(body.participant_type)
+      ? (participantId === ctx.userId
+        ? await publicMemberName((req as unknown as ReqWithConfig).serverConfig, participantId)
+        : '')
+      : body.display_name;
     let token;
     try {
       token = await provider.createParticipantToken((req as unknown as ReqWithConfig).serverConfig, {
         callSessionId: ctx.session.id,
         providerRoomId: ctx.session.provider_room_id,
-        participantId: body.participant_id ?? ctx.userId,
+        participantId,
         participantType: body.participant_type,
-        displayName: body.display_name,
+        displayName,
         canPublish: true,
         canSubscribe: true,
         canPublishData: true,

@@ -215,13 +215,21 @@ export interface CallWidgetTemplate {
   id: string;
   /** The presentation script; it registers the template id(s) with CallWidgetPresentations. */
   script: `presentation-${string}.js`;
-  /** The template's complete stylesheet (loaded on its own, next to runtime.css). */
+  /** The template's skin (loaded on its own, next to runtime.css): tokens, fonts and brand rules. */
   style: `presentation-${string}.css`;
+  /**
+   * The panel module and its stylesheet: everything the open panel draws.
+   * Not page-load files: the presentation asks for them on the visitor's
+   * first intent (l.js `loadPanel`, a stylesheet link in the shadow root).
+   */
+  panel: { script: `presentation-${string}.js`; style: `presentation-${string}.css` };
 }
 
+const CALL_PANEL = { script: 'presentation-default-panel.js', style: 'presentation-default-panel.css' } as const;
+
 export const CALL_WIDGET_TEMPLATES = {
-  default: { id: 'default', script: 'presentation-default.js', style: 'presentation-default.css' },
-  intl: { id: 'intl', script: 'presentation-default.js', style: 'presentation-intl.css' },
+  default: { id: 'default', script: 'presentation-default.js', style: 'presentation-default.css', panel: CALL_PANEL },
+  intl: { id: 'intl', script: 'presentation-default.js', style: 'presentation-intl.css', panel: CALL_PANEL },
 } as const satisfies Record<string, CallWidgetTemplate>;
 
 export type CallWidgetTemplateId = keyof typeof CALL_WIDGET_TEMPLATES;

@@ -6475,13 +6475,18 @@ export type Database = {
           avatar_storage_path: string | null
           avatar_url: string | null
           business_hours: Json
+          callback_days_ahead: number
           callback_enabled: boolean
+          callback_slot_capacity: number | null
+          callback_slot_minutes: number
+          callback_slots_enabled: boolean
           created_at: string
           default_department_id: string | null
           departments_enabled: boolean
           display_name: string | null
           enabled: boolean
           id: string
+          launcher_style: string
           offline_behavior: string
           operator_video_visible_to_visitor: boolean
           pre_call_form_enabled: boolean
@@ -6506,13 +6511,18 @@ export type Database = {
           avatar_storage_path?: string | null
           avatar_url?: string | null
           business_hours?: Json
+          callback_days_ahead?: number
           callback_enabled?: boolean
+          callback_slot_capacity?: number | null
+          callback_slot_minutes?: number
+          callback_slots_enabled?: boolean
           created_at?: string
           default_department_id?: string | null
           departments_enabled?: boolean
           display_name?: string | null
           enabled?: boolean
           id?: string
+          launcher_style?: string
           offline_behavior?: string
           operator_video_visible_to_visitor?: boolean
           pre_call_form_enabled?: boolean
@@ -6537,13 +6547,18 @@ export type Database = {
           avatar_storage_path?: string | null
           avatar_url?: string | null
           business_hours?: Json
+          callback_days_ahead?: number
           callback_enabled?: boolean
+          callback_slot_capacity?: number | null
+          callback_slot_minutes?: number
+          callback_slots_enabled?: boolean
           created_at?: string
           default_department_id?: string | null
           departments_enabled?: boolean
           display_name?: string | null
           enabled?: boolean
           id?: string
+          launcher_style?: string
           offline_behavior?: string
           operator_video_visible_to_visitor?: boolean
           pre_call_form_enabled?: boolean

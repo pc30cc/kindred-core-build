@@ -358,6 +358,148 @@ describe('the built l.js', () => {
   });
 });
 
+describe('the panel module (l.js ensurePanel, the presentation\'s `loadPanel`)', () => {
+  let build: CallWidgetBuild;
+  beforeAll(() => { build = buildCallWidget(null); }, 60_000);
+  afterAll(() => build?.cleanup());
+  const hashed = (name: string) => `${ASSETS}/call-widget/${build.manifest.files[name]}`;
+  type PanelWin = Win & { __ccw_panel?: unknown };
+  async function mounted() {
+    const p = page();
+    p.run(build.loader);
+    const mount = p.runtime();
+    for (const el of p.scripts()) el.onload!();
+    await p.respond(200, bootstrap());
+    const opts = mount.mock.calls[0][0];
+    return { p, loadPanel: opts.loadPanel as (cb: (ok: boolean) => void) => void, panelScripts: () => p.scripts().slice(3) };
+  }
+
+  it('is in the mount options; page load starts only the three scripts', async () => {
+    const { p, loadPanel, panelScripts } = await mounted();
+    expect(typeof loadPanel).toBe('function');
+    expect(p.scripts()).toHaveLength(3);
+    expect(panelScripts()).toEqual([]);
+    expect(build.manifest.files['presentation-default-panel.js']).toMatch(/^presentation-default-panel\.[a-f0-9]{12}\.js$/);
+  });
+
+  it('asks for this build\'s hashed copy once for every caller, then answers all of them', async () => {
+    const { p, loadPanel, panelScripts } = await mounted();
+    const a = vi.fn();
+    const b = vi.fn();
+    loadPanel(a);
+    loadPanel(b);
+    expect(panelScripts().map((el) => el.src)).toEqual([hashed('presentation-default-panel.js')]);
+    expect(panelScripts()[0].async).toBe(true);
+    (p.win as PanelWin).__ccw_panel = { v: 1, create() {} };
+    panelScripts()[0].onload!();
+    expect(a).toHaveBeenCalledWith(true);
+    expect(b).toHaveBeenCalledWith(true);
+    const c = vi.fn();
+    loadPanel(c);
+    expect(c).toHaveBeenCalledWith(true);
+    expect(panelScripts()).toHaveLength(1);
+  });
+
+  it('a hashed name that is not there: once the fixed name, as a new element; both failing answers false and lets the next intent retry', async () => {
+    const { p, loadPanel, panelScripts } = await mounted();
+    const a = vi.fn();
+    loadPanel(a);
+    const first = panelScripts()[0];
+    first.onerror!();
+    expect(first.isConnected).toBe(false);
+    const retry = panelScripts();
+    expect(retry.map((el) => el.src)).toEqual([`${ASSETS}/call-widget/presentation-default-panel.js?v=abc123def456`]);
+    expect(retry[0]).not.toBe(first);
+    retry[0].onerror!();
+    expect(a).toHaveBeenCalledWith(false);
+    const b = vi.fn();
+    loadPanel(b);
+    expect(panelScripts().map((el) => el.src)).toEqual([hashed('presentation-default-panel.js')]);
+    (p.win as PanelWin).__ccw_panel = { v: 1, create() {} };
+    panelScripts()[0].onload!();
+    expect(b).toHaveBeenCalledWith(true);
+  });
+
+  it('a file that loads but defines no module answers false', async () => {
+    const { loadPanel, panelScripts } = await mounted();
+    const a = vi.fn();
+    loadPanel(a);
+    panelScripts()[0].onload!();
+    expect(a).toHaveBeenCalledWith(false);
+  });
+
+  it('a remembered call starts the module with the page-load scripts (not waited for by the mount)', async () => {
+    const p = page();
+    p.win.sessionStorage.setItem(`ccw_active_call_session:${WS}:${API}`, 'call-token');
+    p.run(build.loader);
+    expect(p.scripts().map((el) => el.src)).toEqual([
+      hashed('presentation-registry.js'),
+      hashed('presentation-default.js'),
+      hashed('runtime.js'),
+      hashed('presentation-default-panel.js'),
+    ]);
+    const mount = p.runtime();
+    for (const el of p.scripts().slice(0, 3)) el.onload!();
+    await p.respond(200, bootstrap());
+    expect(mount).toHaveBeenCalledTimes(1);
+  });
+
+  it('a remembered call on a page still loading: the module waits with the page-load scripts, never inside the page\'s load', async () => {
+    const p = page({ loading: true });
+    p.win.sessionStorage.setItem(`ccw_active_call_session:${WS}:${API}`, 'call-token');
+    p.run(build.loader);
+    expect(p.scripts()).toHaveLength(0);
+    p.fireLoad();
+    expect(p.scripts().map((el) => el.src)).toEqual([
+      hashed('presentation-registry.js'),
+      hashed('presentation-default.js'),
+      hashed('runtime.js'),
+      hashed('presentation-default-panel.js'),
+    ]);
+    // The bootstrap's answer shares the module already on its way.
+    const mount = p.runtime();
+    for (const el of p.scripts().slice(0, 3)) el.onload!();
+    await p.respond(200, bootstrap());
+    expect(mount).toHaveBeenCalledTimes(1);
+    expect(p.scripts()).toHaveLength(4);
+  });
+
+  it('a remembered call whose bootstrap answers before the page\'s load: the module starts with the scripts at the answer', async () => {
+    const p = page({ loading: true });
+    p.win.sessionStorage.setItem(`ccw_active_call_session:${WS}:${API}`, 'call-token');
+    p.run(build.loader);
+    p.runtime();
+    await p.respond(200, bootstrap());
+    expect(p.scripts().map((el) => el.src)).toEqual([
+      hashed('presentation-registry.js'),
+      hashed('presentation-default.js'),
+      hashed('runtime.js'),
+      hashed('presentation-default-panel.js'),
+    ]);
+    p.fireLoad();
+    expect(p.scripts()).toHaveLength(4);
+  });
+
+  it('the raw loader starts it for a remembered call once the bootstrap gives the version', async () => {
+    const p = page();
+    p.win.sessionStorage.setItem(`ccw_active_call_session:${WS}:${API}`, 'call-token');
+    p.run(RAW_LOADER);
+    expect(p.scripts()).toHaveLength(0);
+    await p.respond(200, bootstrap());
+    expect(p.scripts().map((el) => el.src)).toContain(`${ASSETS}/call-widget/presentation-default-panel.js?v=abc123def456`);
+  });
+
+  it('a bootstrap may name the module', async () => {
+    const p = page();
+    p.run(RAW_LOADER);
+    const mount = p.runtime();
+    await p.respond(200, bootstrap({ assets: { ...bootstrap().assets, presentation_panel_script_url: '/call-widget/presentation-other-panel.js' } }));
+    for (const el of p.scripts()) el.onload!();
+    mount.mock.calls[0][0].loadPanel(() => {});
+    expect(p.scripts().map((el) => el.src)).toContain(`${ASSETS}/call-widget/presentation-other-panel.js?v=abc123def456`);
+  });
+});
+
 describe('the raw l.js (the API image, dev)', () => {
   it('waits for the bootstrap, then loads the fixed names versioned by assets_version, without a per-load token', async () => {
     const p = page();

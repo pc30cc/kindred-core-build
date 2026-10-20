@@ -41,7 +41,7 @@ const UPDATE_FIXTURE = process.env.UPDATE_LAUNCHER_FIXTURE === '1';
 const fixture: Record<string, Snapshot> = UPDATE_FIXTURE ? {} : JSON.parse(read('src/test/widget/fixtures/launcherWithoutStyle.json'));
 let startingLoader: string | null = null;
 async function startingSnapshot(key: string, config: Record<string, unknown>): Promise<Snapshot> {
-  if (!UPDATE_FIXTURE) return fixture[key];
+  if (!UPDATE_FIXTURE) return settledSnapshot(fixture[key]);
   startingLoader ??= execFileSync('git', ['show', 'a95fa39:public/widget/loader.js'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   fixture[key] = await snapshot(config, startingLoader);
   return fixture[key];
@@ -87,14 +87,25 @@ async function boot(config: Record<string, unknown>, src = LOADER_SRC) {
 
 type Snapshot = { launcher: string; shell: string; card: string | null; styles: (string | null)[]; links: number };
 
+/**
+ * Without element.animate (jsdom) the entry is an `enter` class that two
+ * animation frames take off the launcher and its card again; whether a
+ * snapshot still holds it depends on the machine's load, so it is left out
+ * on both sides (the fixture too).
+ */
+const settled = (html: string) => html.replace(/class="([^"]*)"/g, (_m, c: string) => `class="${c.split(' ').filter((x) => x !== 'enter').join(' ')}"`);
+function settledSnapshot(s: Snapshot): Snapshot {
+  return s && { ...s, launcher: settled(s.launcher), card: s.card === null ? null : settled(s.card) };
+}
+
 /** What the visitor's page holds of the launcher: its markup, the shell's classes, the kits' stylesheets. */
 async function snapshot(config: Record<string, unknown>, src: string): Promise<Snapshot> {
   reset();
   const { root, launcher, shell } = await boot(config, src);
   const out = {
-    launcher: launcher.outerHTML.replace(/ enter"/, '"'),
+    launcher: settled(launcher.outerHTML),
     shell: shell.className,
-    card: root.querySelector('.gs-fab-label')?.outerHTML ?? null,
+    card: (() => { const card = root.querySelector('.gs-fab-label'); return card ? settled(card.outerHTML) : null; })(),
     styles: [...root.querySelectorAll('style')].map((s) => s.textContent),
     links: root.querySelectorAll('link[data-gs-fab]').length,
   };

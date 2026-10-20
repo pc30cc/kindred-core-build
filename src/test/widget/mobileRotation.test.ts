@@ -159,6 +159,76 @@ describe('the chat loader: the phone shell follows the screen while the panel is
     expect(document.body.style.position).toBe('fixed');
   });
 
+  it('closing gives the page back where it was', async () => {
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 300 });
+    try {
+      await bootAndOpen();
+      expect([document.body.style.position, document.body.style.top]).toEqual(['fixed', '-300px']);
+      (w.__gs as { push: (c: unknown[]) => void }).push(['close']);
+      await tick();
+      expect([document.body.style.position, document.body.style.top, document.body.style.overflow]).toEqual(['', '', '']);
+      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 300);
+    } finally {
+      delete (window as unknown as { scrollY?: number }).scrollY;
+    }
+  });
+
+  it('a page another widget already holds (the call widget\'s phone panel) is left to it: the chat restores only what it changed', async () => {
+    // The call panel opened first: the page is fixed where the visitor had scrolled to.
+    Object.assign(document.body.style, { position: 'fixed', top: '-300px', width: '100%', overflow: 'hidden' });
+    const look = () => [document.body.style.position, document.body.style.top, document.body.style.width, document.body.style.overflow];
+    const shell = await bootAndOpen();
+    expect(shell.classList.contains('gs-mobile-open')).toBe(true);
+    // No jump of the page behind (a second lock would read scrollY 0 on the fixed page and pin it at the top).
+    expect(look()).toEqual(['fixed', '-300px', '100%', 'hidden']);
+    // The call closes first and lets the page go; then the chat closes: the page stays free, not frozen again.
+    Object.assign(document.body.style, { position: '', top: '', width: '', overflow: '' });
+    (w.__gs as { push: (c: unknown[]) => void }).push(['close']);
+    await tick();
+    expect(shell.classList.contains('gs-mobile-open')).toBe(false);
+    expect(look()).toEqual(['', '', '', '']);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('the moment the other widget lets the page go while the chat stays open, the chat holds it (no resize needed)', async () => {
+    Object.assign(document.body.style, { position: 'fixed', top: '-300px', width: '100%', overflow: 'hidden' });
+    const look = () => [document.body.style.position, document.body.style.top, document.body.style.width, document.body.style.overflow];
+    await bootAndOpen();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 300 });
+    try {
+      // The call panel closes first: it puts the page back where it was (its scroll included) and does nothing else.
+      Object.assign(document.body.style, { position: '', top: '', width: '', overflow: '' });
+      await tick(1);
+      // The chat panel, still open on the phone, holds the page at once, where the visitor is.
+      expect(look()).toEqual(['fixed', '-300px', '100%', 'hidden']);
+      (w.__gs as { push: (c: unknown[]) => void }).push(['close']);
+      await tick();
+      expect(look()).toEqual(['', '', '', '']);
+      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 300);
+    } finally {
+      delete (window as unknown as { scrollY?: number }).scrollY;
+    }
+  });
+
+  it('when the other widget lets the page go while the chat stays open, the chat holds it from the next resize, and gives it back on close', async () => {
+    Object.assign(document.body.style, { position: 'fixed', top: '-300px', width: '100%', overflow: 'hidden' });
+    const look = () => [document.body.style.position, document.body.style.top, document.body.style.width, document.body.style.overflow];
+    await bootAndOpen();
+    // The call closes and puts the page back where it was.
+    Object.assign(document.body.style, { position: '', top: '', width: '', overflow: '' });
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 300 });
+    try {
+      turn(390, 844);
+      expect(look()).toEqual(['fixed', '-300px', '100%', 'hidden']);
+      (w.__gs as { push: (c: unknown[]) => void }).push(['close']);
+      await tick();
+      expect(look()).toEqual(['', '', '', '']);
+      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 300);
+    } finally {
+      delete (window as unknown as { scrollY?: number }).scrollY;
+    }
+  });
+
   it('a tablet in landscape (820px tall) keeps the desktop panel, and a closed panel never takes the screen', async () => {
     Object.assign(screen, { w: 1180, h: 820, coarse: true });
     const shell = await bootAndOpen();

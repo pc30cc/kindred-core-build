@@ -1,107 +1,63 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
-import { JSDOM } from 'jsdom';
+import { afterEach, describe, expect, it } from 'vitest';
+import { closeCallWidgets, mountCallWidget } from './callWidget/mountCallWidget';
 
-const source = (name: string) => readFileSync(resolve(process.cwd(), 'public/call-widget', name), 'utf8');
+afterEach(() => closeCallWidgets());
 
 function mount(config: Record<string, unknown>, online = true) {
-  const dom = new JSDOM('<!doctype html><body></body>', {
-    url: 'https://customer.example/page',
-    runScripts: 'outside-only',
-  });
-  const win = dom.window as unknown as Window & {
-    eval(code: string): unknown;
-    CallCenterWidget: { mount(options: unknown): void };
-  };
-  win.eval(source('presentation-registry.js'));
-  win.eval(source('presentation-default.js'));
-  win.eval(source('runtime.js'));
-  win.CallCenterWidget.mount({
-    apiBase: 'https://api.example',
-    origin: 'https://api.example',
-    preview: true,
+  return mountCallWidget({
+    locale: 'en',
     bootstrap: {
-      status: 'ok',
-      provider_ready: true,
-      session: 'preview',
-      config: {
-        widget_template_id: 'default',
-        widget_position: 'right',
-        offline_behavior: 'show_callback',
-        pre_call_form_enabled: true,
-        pre_call_form_schema: [],
-        ...config,
-      },
+      config: { pre_call_form_enabled: true, ...config },
       capabilities: { voice: online, video: false, callback: true },
-      callback_policy: { enabled: true, show_when_online: true },
-      recording: { effective_enabled: false },
-      departments: { voice: [], video: [], callback: [] },
-      i18n: { default_locale: 'en', available_locales: ['en'] },
     },
   });
-  const host = win.document.querySelector('#call-center-widget-host') as HTMLElement;
-  return { dom, root: host.shadowRoot!.querySelector('.ccw-root') as HTMLElement };
 }
 
 describe('Call Widget runtime/presentation integration', () => {
-  beforeEach(() => {
-    // Every test gets an isolated Window because the public runtime is an IIFE singleton.
-  });
-
   it('mounts the default presentation and applies allowlisted theme tokens', () => {
     const { root } = mount({ widget_theme: { primary: '#ff0000', radius: 'lg', density: 'compact' } });
     expect(root.classList.contains('ccw-presentation-default')).toBe(true);
     expect(root.style.getPropertyValue('--ccw-primary')).toBe('0 100% 50%');
+    expect(root.style.getPropertyValue('--a')).toBe('#ff0000');
     expect(root.dataset.radius).toBe('lg');
     expect(root.dataset.density).toBe('compact');
   });
 
   /**
-   * The widget mounts collapsed now: a launcher, and a panel that only fills
-   * in once the visitor opens it. The cases below used to read the panel
-   * straight off a fresh mount, so they found nothing — and the `hide` case
-   * passed for the wrong reason, since `.ccw-launcher` matches no element
-   * either way (the launcher is `.ccw-launcher-wrap` / `.ccw-launcher-btn`,
-   * and class selectors match whole tokens).
+   * The widget mounts collapsed: a launcher, and a panel whose screens are
+   * drawn only once the visitor shows intent (the panel module is lazy).
+   * `hide` leaves the wrap in the DOM and hides it, so presence alone is not
+   * the question — visibility is.
    */
-  function openPanel(root: HTMLElement) {
-    (root.querySelector('.ccw-launcher-btn') as HTMLButtonElement | null)?.click();
-  }
-  function launcherShown(root: HTMLElement) {
-    // `hide` leaves the wrap in the DOM and hides it, so presence alone is
-    // not the question — visibility is.
-    const wrap = root.querySelector('.ccw-launcher-wrap') as HTMLElement | null;
-    return !!wrap && !wrap.hidden;
-  }
-
   it.each([
     ['hide', false, false],
     ['show_message', true, false],
     ['show_callback', true, true],
   ])('enforces offline behavior %s', (behavior, launcher, callback) => {
-    const { root } = mount({ offline_behavior: behavior }, false);
-    expect(launcherShown(root)).toBe(launcher);
-    openPanel(root);
-    expect(!!root.querySelector('.ccw-btn.primary')).toBe(callback);
+    const m = mount({ offline_behavior: behavior }, false);
+    const wrap = m.q('.ccw-launcher-wrap') as HTMLElement;
+    expect(!wrap.hidden).toBe(launcher);
+    if (launcher) m.open();
+    else m.ctrl.toggleOpen();
+    expect(!!m.q('[data-screen="offline"] [data-action="callback"]')).toBe(callback);
   });
 
-  it('the launcher is what reveals the panel — a fresh mount shows no call controls', () => {
-    const { root } = mount({});
-    expect(root.querySelector('.ccw-btn.primary')).toBeNull();
-    openPanel(root);
-    expect(root.querySelector('.ccw-btn.primary')).not.toBeNull();
+  it('the launcher is what reveals the panel — a fresh mount draws no screen', () => {
+    const m = mount({});
+    expect(m.q('[data-action="voice"]')).toBeNull();
+    expect(m.q('#ccw-panel')!.hasAttribute('inert')).toBe(true);
+    m.open();
+    expect(m.q('[data-action="voice"]')).not.toBeNull();
   });
 
   it('uses the authoritative pre-call schema', () => {
-    const { root } = mount({
+    const m = mount({
       pre_call_form_schema: [{ id: 'account_id', type: 'text', label: 'Account ID', required: true }],
     });
-    openPanel(root);
-    const voice = root.querySelector('.ccw-btn.primary') as HTMLButtonElement;
-    expect(voice).not.toBeNull();
-    voice.click();
-    expect(root.textContent).toContain('Account ID');
-    expect(root.textContent).not.toContain('Full name');
+    m.open();
+    m.click('[data-action="voice"]');
+    expect(m.screenId()).toBe('precall');
+    expect(m.screen()!.textContent).toContain('Account ID');
+    expect(m.screen()!.textContent).not.toContain('Full name');
   });
 });

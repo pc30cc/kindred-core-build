@@ -24,8 +24,9 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { JSDOM } from 'jsdom';
-import { CALL_WIDGET_TEMPLATES, CHAT_WIDGET_TEMPLATES, EDITION_CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
+import { CALL_WIDGET_TEMPLATES, CHAT_WIDGET_TEMPLATES, EDITION_CALL_WIDGET_TEMPLATES, EDITION_CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
 import { transformWidgetAsset } from '../../../scripts/build/widgetBrand.mjs';
+import { buildCallWidget } from './callWidgetBuildFixture';
 
 const ROOT = process.cwd();
 const CHAT_DIR = 'public/widget';
@@ -59,12 +60,33 @@ export const BUDGETS = {
     /** The emoji search's keywords (runtime-emoji.js), on the search's first use (issue #340). */
     emoji: 4_000,
   },
+  /**
+   * The call widget, after its 2026-10 redesign (the owner approved raising
+   * these to what the design needs): each cap is the size measured on
+   * 2026-10-19 plus max(250 B, 6%), rounded up to 100 B; the measured values
+   * and the reasons are in WIDGET_TEMPLATE_RULES.md §5. Each template is
+   * measured in its own brand's build (default: iran, intl: respok); the
+   * files every template ships, in both (the larger counts).
+   */
   call: {
-    /** The call widget mounts at page load, so all of these are page-view bytes. */
-    loader: 3_000,
-    runtimeCss: 5_000,
-    presentation: 10_000,
-    stylesheet: 3_000,
+    /** l.js as built (with this build's names): every page view of every site. Measured 2,254 (iran's dist l.js; this test computes 2,252 iran / 2,253 respok). */
+    loader: 2_600,
+    /** runtime.js, the engine: page load. Measured 19,863 (iran). */
+    engine: 21_100,
+    /** The core presentation (presentation-default.js): page load. Measured 9,816 (round 7b: WebYar's stage hold). */
+    presentation: 10_500,
+    /** The panel module: the visitor's first intent. Measured 17,445 (respok). */
+    panel: 18_500,
+    /** runtime.css (tokens, launcher, motion): page load. Measured 4,561. */
+    runtimeCss: 4_900,
+    /** The panel's stylesheet: the visitor's first intent. Measured 10,167. */
+    panelCss: 10_800,
+    /** The template's skin. Measured 1,886 (intl; default 323). */
+    stylesheet: 2_200,
+    /** l.js + registry + engine + core + runtime.css + skin + fonts stylesheet. Measured 39,806 (intl; default 38,315). */
+    pageLoadTotal: 42_200,
+    /** Panel module + its stylesheet. Measured 27,612 (intl; default 27,191). */
+    firstOpenTotal: 29_300,
   },
   fonts: {
     file: 45_000,
@@ -94,7 +116,7 @@ const brandsOf = (id: string) => unique((Object.keys(EDITION_CHAT_WIDGET_TEMPLAT
   .map((e) => EDITION_BRAND[e]));
 
 type ChatTemplate = { id: string; script: string; style: string; skin: string | null; fonts: string | null; extras: string | null };
-type CallTemplate = { id: string; script: string; style: string };
+type CallTemplate = { id: string; script: string; style: string; panel: { script: string; style: string } };
 const chatTemplates = Object.values(CHAT_WIDGET_TEMPLATES) as ChatTemplate[];
 const callTemplates = Object.values(CALL_WIDGET_TEMPLATES) as CallTemplate[];
 
@@ -149,8 +171,13 @@ describe('template files: named by the convention, present, discoverable by the 
     it(`call template "${t.id}"`, () => {
       expect(t.script).toMatch(/^presentation-[a-z0-9-]+\.js$/);
       expect(t.style).toMatch(/^presentation-[a-z0-9-]+\.css$/);
-      expect(exists(`${CALL_DIR}/${t.script}`), `${CALL_DIR}/${t.script}`).toBe(true);
-      expect(exists(`${CALL_DIR}/${t.style}`), `${CALL_DIR}/${t.style}`).toBe(true);
+      // The panel pair (lazy): a script and its stylesheet of the same name,
+      // so scripts/call-widget-hash.js hashes both and l.js knows them.
+      expect(t.panel.script).toMatch(/^presentation-[a-z0-9-]+\.js$/);
+      expect(t.panel.style).toBe(t.panel.script.replace(/\.js$/, '.css'));
+      for (const f of [t.script, t.style, t.panel.script, t.panel.style]) {
+        expect(exists(`${CALL_DIR}/${f}`), `${CALL_DIR}/${f}`).toBe(true);
+      }
     });
   }
 });
@@ -175,7 +202,7 @@ describe('template stylesheets carry no fonts and fetch nothing', () => {
   const FAB = `${CHAT_DIR}/runtime-fab.css`;
   const sheets = unique([
     ...chatTemplates.flatMap((t) => [t.style, t.skin].filter(Boolean).map((f) => `${CHAT_DIR}/${f}`)),
-    ...callTemplates.map((t) => `${CALL_DIR}/${t.style}`),
+    ...callTemplates.flatMap((t) => [`${CALL_DIR}/${t.style}`, `${CALL_DIR}/${t.panel.style}`]),
     `${CALL_DIR}/runtime.css`,
     `${CHAT_DIR}/runtime.css`,
     // The launcher styles (the loader's shadow root, like runtime.css).
@@ -394,7 +421,7 @@ describe('renderers reach no network, no storage and no other host', () => {
     ...chatTemplates.map((t) => `${CHAT_DIR}/${t.script}`),
     // A renderer's extras are renderer markup too.
     ...chatTemplates.flatMap((t) => (t.extras ? [`${CHAT_DIR}/${t.extras}`] : [])),
-    ...callTemplates.map((t) => `${CALL_DIR}/${t.script}`),
+    ...callTemplates.flatMap((t) => [`${CALL_DIR}/${t.script}`, `${CALL_DIR}/${t.panel.script}`]),
     `${CHAT_DIR}/presentation-registry.js`,
     `${CALL_DIR}/presentation-registry.js`,
     // Core's emoji keywords: pure data, held to the same rules.
@@ -466,15 +493,87 @@ describe('size budgets (minified as shipped, gzip level 5)', () => {
     }
   });
 
-  it(`call l.js ≤ ${BUDGETS.call.loader} B and runtime.css ≤ ${BUDGETS.call.runtimeCss} B`, () => {
-    expect(shippedGzip(`${CALL_DIR}/l.js`)).toBeLessThanOrEqual(BUDGETS.call.loader);
-    expect(shippedGzip(`${CALL_DIR}/runtime.css`)).toBeLessThanOrEqual(BUDGETS.call.runtimeCss);
+  // The call widget. l.js as a build ships it: with that build's own names in
+  // it, made as scripts/call-widget-hash.js makes them (in its order, each
+  // file's shipped bytes' sha256, 12 hex) and the chat build's names for the
+  // fonts stylesheet and LiveKit (scripts/widget-hash.js: md5, 8 hex).
+  const CALL_BRANDS = ['iran', 'respok'] as const;
+  const callFiles = ['runtime.js', 'runtime.css', ...readdirSync(resolve(ROOT, CALL_DIR)).filter((f) => /^presentation-[a-z0-9-]+\.(js|css)$/.test(f)).sort()];
+  const shippedBytes = (path: string, brand: Brand) => Buffer.from(transformWidgetAsset(path.split('/').pop()!, readFileSync(resolve(ROOT, path)), brand), 'utf8');
+  const hex = (algorithm: 'sha256' | 'md5', bytes: Buffer, length: number) => createHash(algorithm).update(bytes).digest('hex').slice(0, length);
+  const callBuilds = new Map<Brand, { files: Record<string, string>; livekit: string; fonts: string }>();
+  const callBuild = (brand: Brand) => {
+    if (!callBuilds.has(brand)) {
+      callBuilds.set(brand, {
+        files: Object.fromEntries(callFiles.map((f) => [f, f.replace(/\.(js|css)$/, `.${hex('sha256', shippedBytes(`${CALL_DIR}/${f}`, brand), 12)}.$1`)])),
+        livekit: `/widget/vendor/livekit-client.umd.min.${hex('md5', readFileSync(resolve(ROOT, CHAT_DIR, 'vendor/livekit-client.umd.min.js')), 8)}.js`,
+        fonts: `/widget/presentation-default-fonts.${hex('md5', shippedBytes(`${CHAT_DIR}/presentation-default-fonts.css`, brand), 8)}.css`,
+      });
+    }
+    return callBuilds.get(brand)!;
+  };
+  /** l.js with this build's names in it; `chat` replaces the chat build's two names. */
+  const builtLoaderSource = (brand: Brand, chat?: { livekit: string; fonts: string }) => {
+    const { files, livekit, fonts } = callBuild(brand);
+    return transformWidgetAsset('l.js', readFileSync(resolve(ROOT, CALL_DIR, 'l.js')), brand, {
+      define: { __CALL_WIDGET_BUILD__: JSON.stringify(JSON.stringify({ files, livekit: chat?.livekit ?? livekit, fonts: chat?.fonts ?? fonts })) },
+    });
+  };
+  const builtLoader = (brand: Brand) => gzipSync(Buffer.from(builtLoaderSource(brand), 'utf8'), { level: 5 }).length;
+
+  it('the call l.js measured is the one a build ships: scripts/call-widget-hash.js, run on a scratch tree, writes the same names and the same l.js', () => {
+    for (const brand of CALL_BRANDS) {
+      const real = buildCallWidget(brand);
+      try {
+        // Every file's own name (its shipped bytes' sha256, 12 hex), in the
+        // script's order: a repeated fake hash compresses better than real names.
+        expect(Object.entries(callBuild(brand).files), `names (${brand})`).toEqual(Object.entries(real.manifest.files));
+        // Given the chat manifest's names the scratch build was handed, the
+        // very bytes the script writes (the define's encoding included).
+        const src = builtLoaderSource(brand, { livekit: real.manifest.livekit!, fonts: real.manifest.fonts! });
+        expect(src === real.loader, `l.js (${brand}) differs from the one scripts/call-widget-hash.js writes`).toBe(true);
+      } finally {
+        real.cleanup();
+      }
+    }
+  }, 60_000);
+  /** A file every template ships: measured in both builds, the larger counts. */
+  const both = (path: string) => Math.max(...CALL_BRANDS.map((b) => shippedGzip(path, b)));
+  /** The brand whose build ships a call template (the edition that offers it). */
+  const callBrandOf = (id: string) => unique((Object.keys(EDITION_CALL_WIDGET_TEMPLATES) as Array<keyof typeof EDITION_CALL_WIDGET_TEMPLATES>)
+    .filter((e) => (EDITION_CALL_WIDGET_TEMPLATES[e].offered as readonly string[]).includes(id))
+    .map((e) => EDITION_BRAND[e]));
+
+  it(`call l.js ≤ ${BUDGETS.call.loader} B as built, runtime.js ≤ ${BUDGETS.call.engine} B, runtime.css ≤ ${BUDGETS.call.runtimeCss} B, in both builds`, () => {
+    for (const brand of CALL_BRANDS) expect(builtLoader(brand), `l.js built (${brand})`).toBeLessThanOrEqual(BUDGETS.call.loader);
+    expect(both(`${CALL_DIR}/runtime.js`)).toBeLessThanOrEqual(BUDGETS.call.engine);
+    expect(both(`${CALL_DIR}/runtime.css`)).toBeLessThanOrEqual(BUDGETS.call.runtimeCss);
   });
 
   for (const t of callTemplates) {
-    it(`call template "${t.id}"`, () => {
-      expect(shippedGzip(`${CALL_DIR}/${t.script}`), t.script).toBeLessThanOrEqual(BUDGETS.call.presentation);
-      expect(shippedGzip(`${CALL_DIR}/${t.style}`), t.style).toBeLessThanOrEqual(BUDGETS.call.stylesheet);
+    const brands = callBrandOf(t.id);
+    it(`call template "${t.id}" (${brands.join(', ')}): page load and first open`, () => {
+      expect(brands.length, 'a template no edition offers').toBeGreaterThan(0);
+      for (const brand of brands) {
+        const core = shippedGzip(`${CALL_DIR}/${t.script}`, brand);
+        const skin = shippedGzip(`${CALL_DIR}/${t.style}`, brand);
+        const panel = shippedGzip(`${CALL_DIR}/${t.panel.script}`, brand);
+        const panelCss = shippedGzip(`${CALL_DIR}/${t.panel.style}`, brand);
+        expect(core, `${t.script} (${brand})`).toBeLessThanOrEqual(BUDGETS.call.presentation);
+        expect(skin, `${t.style} (${brand})`).toBeLessThanOrEqual(BUDGETS.call.stylesheet);
+        expect(panel, `${t.panel.script} (${brand})`).toBeLessThanOrEqual(BUDGETS.call.panel);
+        expect(panelCss, `${t.panel.style} (${brand})`).toBeLessThanOrEqual(BUDGETS.call.panelCss);
+        expect(panel + panelCss, `first open (${brand})`).toBeLessThanOrEqual(BUDGETS.call.firstOpenTotal);
+        const pageLoad = builtLoader(brand) + shippedGzip(`${CALL_DIR}/presentation-registry.js`, brand) + shippedGzip(`${CALL_DIR}/runtime.js`, brand)
+          + core + shippedGzip(`${CALL_DIR}/runtime.css`, brand) + skin + shippedGzip(`${CHAT_DIR}/presentation-default-fonts.css`, brand);
+        expect(pageLoad, `page load (${brand})`).toBeLessThanOrEqual(BUDGETS.call.pageLoadTotal);
+      }
     });
   }
+
+  it('the call caps are consistent: a total is never above the sum of its parts\' caps', () => {
+    const c = BUDGETS.call;
+    expect(c.firstOpenTotal).toBeLessThanOrEqual(c.panel + c.panelCss);
+    expect(c.pageLoadTotal).toBeLessThanOrEqual(c.loader + c.engine + c.presentation + c.runtimeCss + c.stylesheet + BUDGETS.chat.fontsStylesheet);
+  });
 });

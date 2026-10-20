@@ -163,6 +163,37 @@
     else load(fixed, null);
   }
 
+  // The panel module (presentation-default-panel.js) is not a page-load
+  // file: the presentation asks for it on the visitor's first intent (a
+  // hover, a focus, a press) or for a call being restored. This build's
+  // hashed copy, then once the fixed name as a new element; after both fail
+  // the next intent tries again. Concurrent requests share one load.
+  var panelWaiters = null;
+  function ensurePanel(cb) {
+    if (window.__ccw_panel) { cb(true); return; }
+    if (panelWaiters) { panelWaiters.push(cb); return; }
+    panelWaiters = [cb];
+    function done() {
+      var waiting = panelWaiters;
+      panelWaiters = null;
+      for (var i = 0; i < waiting.length; i++) waiting[i](!!window.__ccw_panel);
+    }
+    function load(src, fallback) {
+      var sc = document.createElement('script');
+      sc.async = true;
+      sc.src = src;
+      sc.onload = done;
+      sc.onerror = function () { sc.remove(); if (fallback) load(fallback, null); else done(); };
+      head.appendChild(sc);
+    }
+    var path = pathOr(presentationAssets().presentation_panel_script_url, '/call-widget/presentation-default-panel.js');
+    var fixed = origin + path + (stale ? fallbackSuffix : '?v=' + versionToken());
+    var hashed = hashedName(path);
+    if (hashed) load(origin + '/call-widget/' + hashed, fixed);
+    else load(fixed, null);
+  }
+  function noop() {}
+
   function tryMount() {
     if (mounted || !bootstrap || pending > 0) return;
     if (!window.CallCenterWidget || typeof window.CallCenterWidget.mount !== 'function') return;
@@ -179,6 +210,7 @@
       pageTitle: document.title,
       bootstrap: bootstrap,
       loadLiveKitSdk: ensureLiveKitSdk,
+      loadPanel: ensurePanel,
     });
   }
 
@@ -202,14 +234,20 @@
     } catch (_) {}
     return false;
   }
+  // A call to restore opens its panel at mount: its module starts together
+  // with the page-load files (same moment, not counted by the mount).
+  function startFiles() {
+    loadScripts(scriptPaths());
+    if (activeSession) ensurePanel(noop);
+  }
   var pageLoaded = document.readyState === 'complete';
   if (!pageLoaded) {
     window.addEventListener('load', function () {
       pageLoaded = true;
-      if (BUILD && !knownOff()) loadScripts(scriptPaths());
+      if (BUILD && !knownOff()) startFiles();
     });
   }
-  if (BUILD && !knownOff() && pageLoaded) loadScripts(scriptPaths());
+  if (BUILD && !knownOff() && pageLoaded) startFiles();
 
   var bootstrapHeaders = { 'Accept': 'application/json' };
   if (activeSession) bootstrapHeaders['x-cc-active-call'] = activeSession;
@@ -253,8 +291,9 @@
         knownOff(false);
         if (!BUILD) fallbackSuffix = '?v=' + versionToken();
         // A template whose files this build did not start (raw source, or a
-        // template naming another script) is requested now.
-        loadScripts(scriptPaths());
+        // template naming another script) is requested now; a module already
+        // on its way is shared, not asked again.
+        startFiles();
         tryMount();
       })
       .catch(function (err) {

@@ -1,45 +1,154 @@
-/* International Call Widget presentation (`intl`, shared/widgetTemplates.ts):
- * the International edition's look. Loaded INSTEAD of
- * presentation-default.css, so it is complete on its own. The structural CSS
- * remains in runtime.css; a workspace's own colours (widget_theme, applied
- * inline) still win over these tokens.
+/* RESPOK's call widget skin (template `intl`, the International edition):
+ * loaded INSTEAD of presentation-default.css, after runtime.css (and the
+ * panel's stylesheet once it comes). Its tokens over the shared design:
+ * Ink on Paper, Mist hairlines, Slate text, Signal for what is live; the
+ * stage is Ink, or a workspace colour held dark (board 12-02). Every rule below is
+ * one of the design's Respok rules (cc.css `.b-rp …`), with the build
+ * contract's fixes: text on the accent reads --on-a, Signal is one token
+ * (--signal, which widget_theme.accent sets), the panel's tail sits on the
+ * physical corner of its placement.
  *
- * Palette: the RESPOK brand kit (shared/panelThemes.ts `respok`) — Ink on
- * Paper, Mist hairlines, Slate secondary text, Signal as the accent. */
-
-/* Typefaces: the shared, document-level font stylesheet (the one the
- * loader's build names, else the bootstrap's `assets.font_style_url`; linked
- * by createHost): Inter for Latin text, the Persian face for right-to-left
- * Persian text. */
+ * Typefaces: the shared, document-level fonts stylesheet (linked by
+ * createHost): Figtree for Latin, IRANSans for Persian. */
 
 .ccw-root.ccw-presentation-intl {
-  --ccw-ink: 245 37% 12%;
-  --ccw-muted: 245 12% 41%;
-  --ccw-faint: 246 10% 58%;
-  --ccw-border: 247 19% 90%;
-  --ccw-surface: 240 18% 97%;
-  --ccw-panel: 0 0% 100%;
-  --ccw-primary: 9 100% 62%;
-  --ccw-primary-disabled: 9 100% 88%;
-  --ccw-accent: 152 70% 34%;
-  --ccw-accent-bg: 152 50% 95%;
-  --ccw-active-bg: 9 100% 96%;
-  --ccw-danger: 358 75% 52%;
-  --ccw-danger-bg: 359 71% 96%;
-  --ccw-shadow: 245 37% 12%;
-  font-family: 'InterWY', 'IRANSans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ccw-primary: 245 37% 12%;
+  --a: #16142B;
+  --signal: #FF5A3C;
+  --signal-12: color-mix(in oklab, var(--signal) 12%, transparent);
+  --signal-20: color-mix(in oklab, var(--signal) 20%, transparent);
+  --signal-55: color-mix(in oklab, var(--signal) 55%, transparent);
+  --ink: #16142B; --ink-2: #3D3B55; --ink-3: #5E5C75; --ink-4: #A9A7BC;
+  --paper: #F5F5F8; --paper-2: #EDECF2; --line: #E4E3EC; --line-2: #D3D1DE;
+  --a-ink: var(--a);
+  --live: var(--signal); --live-hi: var(--signal);
+  --end: #E5432A; --bad: #D3361A;
+  --star: var(--signal);
+  --glow: var(--signal);
+  --s1: #2E2A5E; --s2: #1A1838; --s3: #0D0C1C;
+  --core: linear-gradient(160deg, #FFFFFF, #E9E8F1);
+  --core-ink: #16142B;
+  --tail: 8px; --tail-s: 5px;
+  --font: 'Figtree', 'IRANSans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.ccw-root.ccw-presentation-intl[dir="rtl"] { --font: 'IRANSans', 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+/* Browsers without color-mix(): the default's resolved values (a declaration
+   with var() is no fallback, so the tokens themselves are redefined). */
+@supports not (color: color-mix(in oklab, red, red)) {
+  .ccw-root.ccw-presentation-intl {
+    --a-1: #EFEFF1; --a-2: #DFDFE3; --a-3: #BBBBC3; --a-hi: #38384D; --bad-1: #FEF4F2; --bad-2: #FEEEEB;
+    --sh-ln: 0 14px 30px -10px rgba(22,20,43,.6), 0 3px 8px rgba(15,18,23,.14);
+    --signal-12: rgba(255,90,60,.12); --signal-20: rgba(255,90,60,.2); --signal-55: rgba(255,90,60,.55);
+  }
 }
 
-.ccw-presentation-intl[data-radius="sm"] { --ccw-radius-panel: 10px; --ccw-radius-control: 6px; }
-.ccw-presentation-intl[data-radius="md"] { --ccw-radius-panel: 16px; --ccw-radius-control: 8px; }
-.ccw-presentation-intl[data-radius="lg"] { --ccw-radius-panel: 22px; --ccw-radius-control: 12px; }
-.ccw-presentation-intl[data-density="compact"] .ccw-body { padding: 10px; }
-.ccw-presentation-intl[data-density="compact"] .ccw-btn { min-height: 34px; padding-block: 6px; }
-.ccw-presentation-intl .ccw-panel { border-radius: var(--ccw-radius-panel, 16px); }
-.ccw-presentation-intl .ccw-btn { border-radius: var(--ccw-radius-control, 8px); }
+/* ---------- focus: Signal on light, white on the stage ---------- */
+.ccw-presentation-intl :is(button, a, select, [tabindex="0"]):focus-visible { outline-color: var(--signal); }
+.ccw-presentation-intl .stage :is(button, a, select, [tabindex="0"]):focus-visible { outline-color: #fff; }
+.ccw-presentation-intl .lang:focus-within, .ccw-presentation-intl .bd:focus-visible { outline-color: var(--signal); }
 
-/* The "powered by" credit names the platform with its logo: small, on the
-   label's centre line, the label's words on either side of it (the order
-   follows the language: "Powered by ‹logo›", "‹logo› tarafından …"). */
-.ccw-presentation-intl .ccw-powered { gap: 5px; }
-.ccw-presentation-intl .ccw-powered-logo { display: block; height: 14px; width: auto; flex: none; }
+/* ---------- the panel: its tail on the corner it opens from (none mid-edge or centred) ---------- */
+.ccw-presentation-intl .ccw-panel.right { border-bottom-right-radius: var(--tail); }
+.ccw-presentation-intl .ccw-panel.left { border-bottom-left-radius: var(--tail); }
+.ccw-presentation-intl .ccw-panel.right.top { border-bottom-right-radius: var(--r-panel); border-top-right-radius: var(--tail); }
+.ccw-presentation-intl .ccw-panel.left.top { border-bottom-left-radius: var(--r-panel); border-top-left-radius: var(--tail); }
+.ccw-presentation-intl .ccw-panel.edge { border-radius: var(--r-panel); }
+
+/* ---------- header and footer ---------- */
+.ccw-presentation-intl .lg { background: var(--a); color: var(--on-a); box-shadow: 0 8px 16px -8px rgba(22,20,43,.6); }
+.ccw-presentation-intl .stage .lg { background: #fff; color: var(--ink); box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 8px 18px -8px rgba(0,0,0,.6); }
+/* The platform's lockup in the credit: Thread or Open (the chat widget's
+   logo direction), in the text colour; white on the stage. */
+.ccw-presentation-intl .pw .lk { width: 53px; height: 13px; color: var(--ink); }
+.ccw-presentation-intl .pw .lk.g-o { width: 50px; }
+.ccw-presentation-intl .stage .pw .lk { color: #fff; }
+.lg-open .g-t, .lg-thread .g-o { display: none !important; }
+
+/* ---------- home ---------- */
+.ccw-presentation-intl .badge { background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.ccw-presentation-intl .hh { font-size: 27px; line-height: 1.18; letter-spacing: -.022em; }
+.ccw-presentation-intl .hs { line-height: 1.55; }
+.ccw-presentation-intl .opt.voice { background: radial-gradient(120% 90% at 100% 0%, #3B3576 0%, transparent 60%), var(--a); color: var(--on-a); box-shadow: 0 18px 34px -16px rgba(22,20,43,.75); }
+.ccw-presentation-intl .opt.voice .rw { border-color: var(--signal-55); }
+.ccw-presentation-intl .opt.video .oi { background: var(--paper); color: var(--ink); }
+.ccw-presentation-intl .trust svg { color: var(--ink); }
+
+/* ---------- forms ---------- */
+.ccw-presentation-intl .ct { background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.ccw-presentation-intl .chip.on { background: var(--ink); box-shadow: none; color: #fff; }
+.ccw-presentation-intl .chip.on svg { color: #fff; }
+.ccw-presentation-intl .fr:focus-within, .ccw-presentation-intl .inp:focus-within, .ccw-presentation-intl .ta:focus { box-shadow: 0 0 0 2px var(--signal), 0 0 0 5px var(--signal-12); }
+.ccw-presentation-intl .sw.on { background: var(--signal); }
+.ccw-presentation-intl .btn.pri { background: var(--a); color: var(--on-a); box-shadow: 0 10px 22px -12px rgba(22,20,43,.7); }
+.ccw-presentation-intl .btn.pri:hover { box-shadow: 0 14px 26px -12px color-mix(in oklab, var(--a) 90%, transparent), inset 0 1px 0 rgba(255,255,255,.2); }
+.ccw-presentation-intl .known { background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); }
+.ccw-presentation-intl .seg button.on svg { color: var(--signal); }
+/* The selected time is Ink whatever the accent, so its text stays white. */
+.ccw-presentation-intl .slots .chip.on { background: var(--ink); color: #fff; }
+
+/* ---------- centred screens, after the call ---------- */
+.ccw-presentation-intl .ctr h3, .ccw-presentation-intl .rate h3 { font-size: 22px; line-height: 1.25; letter-spacing: -.015em; }
+.ccw-presentation-intl .ctr p { line-height: 1.55; }
+.ccw-presentation-intl .okc { background: #FFF1ED; }
+.ccw-presentation-intl .okc::before { box-shadow: 0 0 0 1.5px #FFC2B4; }
+.ccw-presentation-intl .okc .in { background: var(--a); color: var(--on-a); }
+.ccw-presentation-intl .okc .bdg { color: var(--signal); }
+.ccw-presentation-intl .oi2 { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.ccw-presentation-intl .sumc .avw .ck { background: var(--ink); }
+
+/* ---------- the call stage: Ink, an indigo light, a Signal glow ---------- */
+.ccw-presentation-intl .stage-bg { background: radial-gradient(90% 46% at 50% 30%, var(--signal-20), transparent 72%), radial-gradient(120% 70% at 100% 0%, #3B3576 0%, transparent 58%), linear-gradient(180deg, var(--s1) 0%, var(--s2) 52%, var(--s3) 100%); }
+.ccw-presentation-intl .sh { font-size: 23px; line-height: 1.25; letter-spacing: -.02em; }
+.ccw-presentation-intl .sp { line-height: 1.5; }
+.ccw-presentation-intl .ql .me, .ccw-presentation-intl .ql2 .me { color: var(--ink); }
+.ccw-presentation-intl .offer .btn { color: var(--ink); }
+.ccw-presentation-intl .who-c .nm { font-size: 22px; line-height: 1.3; letter-spacing: -.015em; }
+.ccw-presentation-intl .btn.wh { color: var(--ink); }
+/* A workspace colour other than Ink (`.tint`, set by the renderer with
+   --a-k) tints the stage, the Se/Sf bars and the glow as board 12-02 draws
+   them, held dark: the colour, brought down to a luminance of .15, mixed
+   into a near-black (Ink's darkest without its violet, so the colour keeps
+   its hue) and ending in Ink's darkest. White keeps 9:1 at the lightest
+   point; the live dot and End stay Signal. Without color-mix(): above. */
+@supports (color: color-mix(in oklab, red, red)) {
+  .ccw-root.ccw-presentation-intl.tint {
+    --a-st: color-mix(in oklab, var(--a) var(--a-k, 100%), #000);
+    --s1: color-mix(in oklab, var(--a-st) 40%, #0C0C10);
+    --s2: color-mix(in oklab, var(--a-st) 20%, #0C0C10);
+    --s3: color-mix(in oklab, var(--a-st) 8%, #0D0C1C);
+    --glow: color-mix(in oklab, var(--a-st) 55%, #fff);
+  }
+  .ccw-presentation-intl.tint .stage-bg { background: radial-gradient(110% 58% at 50% 30%, color-mix(in oklab, var(--glow) 24%, transparent), transparent 72%), linear-gradient(180deg, var(--s1) 0%, var(--s2) 52%, var(--s3) 100%); }
+  .ccw-presentation-intl.tint .ln-q .ls:not(.off) { background: var(--signal); }
+}
+
+/* ---------- launchers: flat Ink on the accent, Signal dots, small tails ---------- */
+.ccw-presentation-intl .ln .wv { animation-name: cc-lnwave-rp; }
+.ccw-presentation-intl .ln-c:not(.off):not(.logo) { background: var(--a); color: var(--on-a); box-shadow: 0 12px 28px -8px rgba(22,20,43,.55); }
+.ccw-presentation-intl .ln-c.off { background: var(--panel); color: var(--ink); }
+.ccw-presentation-intl .ln-c.logo .f2 { background: var(--a); color: var(--on-a); }
+.ccw-presentation-intl .lbl { border-radius: 20px 20px 4px 20px; }
+.ccw-presentation-intl .top .lbl { border-radius: 20px 4px 20px 20px; }
+.ccw-presentation-intl .at-l .lbl { border-radius: 20px 20px 20px 4px; }
+.ccw-presentation-intl .top .at-l .lbl { border-radius: 4px 20px 20px 20px; }
+/* The launchers' own tails stay where the design puts them in every
+   placement (drawn bottom-right in English): at the end of the line for
+   the pill, card, its go tile and split (cc writes them logical, so a
+   Persian page mirrors them with the rest), bottom-right on the dark
+   square, the inner bottom on the edge tab. Only the panel's tail
+   follows the corner it opens from (physical, above). */
+.ccw-presentation-intl .ln-p { background: var(--a); color: var(--on-a); border-end-end-radius: 10px; box-shadow: 0 12px 28px -8px rgba(22,20,43,.55); }
+.ccw-presentation-intl .ln-p .ld, .ccw-presentation-intl .ln-t .ld { background: var(--signal); }
+.ccw-presentation-intl .ln-p .ld.off, .ccw-presentation-intl .ln-t .ld.off { background: transparent; }
+.ccw-presentation-intl .ln-r { border-end-end-radius: 6px; }
+.ccw-presentation-intl .ln-r .go2 { background: var(--a); color: var(--on-a); border-end-end-radius: 5px; }
+.ccw-presentation-intl .ln-s { background: var(--a); color: var(--on-a); border-end-end-radius: 7px; box-shadow: 0 12px 28px -8px rgba(22,20,43,.55); }
+.ccw-presentation-intl .ln-t { background: var(--a); color: var(--on-a); }
+.ccw-presentation-intl .ln-t:not(.at-l) { border-bottom-left-radius: 6px; }
+.ccw-presentation-intl .ln-q { background: linear-gradient(160deg, #2E2A5E, #16142B); border-bottom-right-radius: 6px; }
+.ccw-presentation-intl .ln-q .ls:not(.off) { box-shadow: 0 0 0 2.5px #11141A, 0 0 12px 2px var(--signal-55); }
+.ccw-presentation-intl .ln-f .pb { background: var(--a); color: var(--on-a); }
+.ccw-presentation-intl .mc .mo { background: #fff; color: var(--ink); }
+.ccw-presentation-intl .sched .si { background: #FFEAE4; color: #C2361C; }
+
+@keyframes cc-lnwave-rp { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--signal) 45%, transparent); } 45%, 100% { box-shadow: 0 0 0 20px color-mix(in oklab, var(--signal) 0%, transparent); } }

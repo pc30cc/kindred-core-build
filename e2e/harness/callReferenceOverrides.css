@@ -140,3 +140,9 @@
   --s2: color-mix(in oklab, var(--a-st) 30%, #03100E);
   --s3: color-mix(in oklab, var(--a-st) 12%, #020807);
 }
+
+/* ---- §8.3 #13 (owner, 2026-10-21): the home's trust strip ("Secure line ·
+   Queue aware · Fast handoff") is not drawn in either brand. The reference
+   hides it too; it sat last in the home body (margin-top: auto), so nothing
+   above it moves. */
+.cc .trust { display: none !important; }

@@ -26,7 +26,7 @@ const DESIGN_KEYS = [
   'rating', 'error_callback_hint', 'step_of', 'asap_option', 'today', 'tomorrow', 'continue', 'change', 'at_time', 'time', 'copy_code',
   'mute', 'unmute', 'camera_off', 'camera_on', 'phone', 'video', 'schedule', 'urgent', 'recording_progress', 'connected_waiting',
   'ringing_operator', 'operator_joining', 'mute_sound', 'consent_required', 'contact_required_note', 'callback_intro', 'call_duration',
-  'connecting', 'live_now', 'secure_line', 'queue_aware', 'fast_handoff', 'queue_position', 'eta', 'request_callback_title',
+  'connecting', 'live_now', 'queue_position', 'eta', 'request_callback_title',
   'request_callback_instead', 'request_callback', 'callback', 'reach_out', 'back',
   'quality_excellent', 'quality_poor', 'quality_lost', 'summary_phone', 'summary_video', 'no_operator_now', 'copied',
 ];

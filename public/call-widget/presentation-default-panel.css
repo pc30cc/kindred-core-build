@@ -128,9 +128,6 @@
 .cbr small { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
 .cbr .ch { color: var(--ink-4); }
 .cbr + .msg { margin-top: 8px; }
-.trust { display: flex; justify-content: space-between; gap: 8px; margin-top: auto; padding: 14px 4px 4px; border-top: 1px solid var(--line); list-style: none; }
-.trust li { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--ink-3); white-space: nowrap; }
-.trust svg { color: var(--a); }
 
 /* ---------- forms ---------- */
 .ctx { display: flex; align-items: center; gap: 8px; flex: none; padding: 0 14px 8px; }

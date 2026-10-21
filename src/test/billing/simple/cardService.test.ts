@@ -1242,8 +1242,14 @@ describe('renewWithCard (design §2.5)', () => {
     expect(result).toEqual({ action: 'prepaid' });
     const moved = calls(`PATCH /subscriptions/${SUB}`)[0].body as Row;
     expect(moved.proration_billing_mode).toBe('do_not_bill');
+    // One calendar month on, held to the month's last day (Oct 31 → Nov 30,
+    // not setUTCMonth's Dec 1): E is ten days from today, so any day of the month.
+    const e = new Date(E);
+    const lastDay = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() + 2, 0)).getUTCDate();
     const prepaidEnd = new Date(E);
-    prepaidEnd.setUTCMonth(prepaidEnd.getUTCMonth() + 1);
+    prepaidEnd.setUTCDate(1);
+    prepaidEnd.setUTCMonth(e.getUTCMonth() + 1);
+    prepaidEnd.setUTCDate(Math.min(e.getUTCDate(), lastDay));
     expect(moved.next_billed_at).toBe(iso(prepaidEnd.getTime() - CARD_RENEWAL_LEAD_MS));
     expect(at(`paddle:PATCH /subscriptions/${SUB}/preview`)).toBeLessThan(at(`paddle:PATCH /subscriptions/${SUB}`));
     expect(h.plans.renewPlan).toHaveBeenCalledWith(CFG, W, 'u1', iso(E), 2900);

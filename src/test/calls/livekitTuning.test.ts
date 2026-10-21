@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Room } from 'livekit-client';
@@ -8,6 +8,8 @@ import {
   precaptureLocalMedia,
   publishPrecaptured,
 } from '@/lib/livekit-tuning';
+
+type Source = Parameters<typeof publishPrecaptured>[3];
 
 function fakeTrack(kind: 'audio' | 'video') {
   return { kind, stop: vi.fn() };
@@ -44,8 +46,8 @@ describe('precaptureLocalMedia', () => {
     const { room } = fakeRoom(async () => [a, v]);
     const media = precaptureLocalMedia(room, { audio: true, video: { facingMode: 'user' } });
     await media.ready;
-    expect((room.localParticipant.createTracks as any).mock.calls).toHaveLength(1);
-    expect((room.localParticipant.createTracks as any).mock.calls[0][0]).toEqual({
+    expect((room.localParticipant.createTracks as unknown as Mock).mock.calls).toHaveLength(1);
+    expect((room.localParticipant.createTracks as unknown as Mock).mock.calls[0][0]).toEqual({
       audio: true,
       video: { facingMode: 'user' },
     });
@@ -58,7 +60,7 @@ describe('precaptureLocalMedia', () => {
     const { room } = fakeRoom(async () => []);
     const media = precaptureLocalMedia(room, { audio: false, video: false });
     await media.ready;
-    expect((room.localParticipant.createTracks as any).mock.calls).toHaveLength(0);
+    expect((room.localParticipant.createTracks as unknown as Mock).mock.calls).toHaveLength(0);
   });
 
   it('never rejects: a refused device just leaves nothing to publish', async () => {
@@ -101,7 +103,7 @@ describe('publishPrecaptured', () => {
     const a = fakeTrack('audio');
     const { room, publishTrack } = fakeRoom(async () => [a]);
     const media = precaptureLocalMedia(room, { audio: true });
-    const pub = await publishPrecaptured(room, media, 'audio', 'microphone' as any);
+    const pub = await publishPrecaptured(room, media, 'audio', 'microphone' as Source);
     expect(pub).toEqual({ ok: true });
     expect(publishTrack).toHaveBeenCalledWith(a, { source: 'microphone' });
   });
@@ -109,16 +111,16 @@ describe('publishPrecaptured', () => {
   it('returns null when there is nothing captured, so the caller runs its original path', async () => {
     const { room, publishTrack } = fakeRoom(async () => { throw new Error('denied'); });
     const media = precaptureLocalMedia(room, { audio: true });
-    expect(await publishPrecaptured(room, media, 'audio', 'microphone' as any)).toBeNull();
+    expect(await publishPrecaptured(room, media, 'audio', 'microphone' as Source)).toBeNull();
     expect(publishTrack).not.toHaveBeenCalled();
   });
 
   it('stops the track and returns null when publishing fails', async () => {
     const v = fakeTrack('video');
     const failing = vi.fn(async () => { throw new Error('closed'); });
-    const { room } = fakeRoom(async () => [v], failing as any);
+    const { room } = fakeRoom(async () => [v], failing as unknown as ReturnType<typeof vi.fn>);
     const media = precaptureLocalMedia(room, { video: true });
-    expect(await publishPrecaptured(room, media, 'video', 'camera' as any)).toBeNull();
+    expect(await publishPrecaptured(room, media, 'video', 'camera' as Source)).toBeNull();
     expect(v.stop).toHaveBeenCalledTimes(1);
   });
 });

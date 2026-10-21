@@ -47,8 +47,6 @@
     'arrow-f': 'M5 12h14M13.5 6.5L19 12l-5.5 5.5',
     'chevron-forward': 'M9.5 6l6 6-6 6',
     back: 'M14.5 6l-6 6 6 6',
-    shield: 'M12 21.2s7.4-3.5 7.4-9.3V5.7L12 2.8 4.6 5.7v6.2c0 5.8 7.4 9.3 7.4 9.3z|M9 12l2.1 2.1L15.1 10',
-    users: 'c9.2 8.4 3.4|M3 19.6c.6-3.2 3-5.2 6.2-5.2s5.6 2 6.2 5.2M15.8 5.2a3.4 3.4 0 0 1 0 6.4M18.2 14.8c1.5.8 2.5 2.4 2.8 4.8',
     bolt: 'M13.2 2.8L5 13.4h6.4l-.9 7.8 8.2-10.6h-6.4z',
     check: 'M5 12.6l4.4 4.4L19 7.4',
     lock: 'r4.6 10.4 14.8 10.4 3|M8 10.4V7.6a4 4 0 0 1 8 0v2.8',
@@ -381,11 +379,6 @@
         tiles.length ? el('div', { class: 'opts cz' + (tiles.length === 1 ? ' one' : ''), style: { '--i': '3' } }, tiles) : null,
         cbr,
         errSlot(ups),
-        el('ul', { class: 'trust cz', style: { '--i': '5' } }, [
-          el('li', {}, [svg('shield', 16, 1.8), t('secure_line')]),
-          el('li', {}, [svg('users', 16, 1.8), t('queue_aware')]),
-          el('li', {}, [svg('bolt', 16, 1.8), t('fast_handoff')]),
-        ]),
       ]);
       return frame(ctrl, [bd], ups);
     }

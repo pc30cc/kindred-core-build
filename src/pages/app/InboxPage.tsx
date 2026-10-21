@@ -23,6 +23,10 @@ import { departmentFilterOptions, departmentNameOf, matchesDepartmentFilter } fr
 import { DepartmentFilter } from '@/components/inbox/DepartmentFilter';
 import { ClosedConversationNotice } from '@/components/inbox/ClosedConversationNotice';
 import { quickStatusAction, replyNeedsReopen } from '@/lib/inboxReply';
+import { CONVERSATION_STATUSES, conversationStatusLabel } from '@/lib/conversationStatus';
+import { lastSeenTeamMessageId } from '@/lib/inboxSeen';
+import { conversationReplyLocale } from '@/lib/inboxLanguage';
+import { operatorDisplayName, previewOperatorLabel, type KnownOperator } from '@/lib/operatorName';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -55,7 +59,7 @@ import {
 } from '@/lib/send-action-pref';
 import { cn } from '@/lib/utils';
 import { VisitorNetworkCard } from '@/features/visitors/VisitorNetworkCard';
-import { contactDisplayName } from '@/lib/contact-display';
+import { contactDisplayName, isAnonymousContact } from '@/lib/contact-display';
 import { localizedCountryName } from '@/lib/geo/countryLocalization';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
@@ -67,7 +71,7 @@ import { OperatorAssistPanel } from '@/components/inbox/OperatorAssistPanel';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { SidebarCallCard } from '@/components/inbox/SidebarCallCard';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
-import { interpolate } from '@/components/canned-responses/interpolation';
+import { interpolate, unresolvedPlaceholders } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
@@ -139,6 +143,8 @@ type InboxConversation = NonNullable<ReturnType<typeof useConversations>['data']
   /** The visitor's chosen (or routed) department; absent from older servers. */
   department_id?: string | null;
   department_name?: string | null;
+  /** When the visitor last read the conversation in the widget (null: never); for "Seen". */
+  visitor_last_read_at?: string | null;
 };
 
 /** The conversation metadata fields the inbox reads. */
@@ -616,6 +622,14 @@ export default function InboxPage() {
       : undefined
   );
 
+  // "Seen": the newest team message the visitor has read (I-03), from the
+  // conversation's visitor_last_read_at, kept live by `visitor_read` events.
+  const visitorLastReadAt = (selected as InboxConversation | undefined)?.visitor_last_read_at ?? null;
+  const seenMessageId = useMemo(
+    () => lastSeenTeamMessageId(rawMessages, visitorLastReadAt),
+    [rawMessages, visitorLastReadAt],
+  );
+
   /* Human Guidance UX — guidance surfaces (composer mode switch + sidebar
      viewer) exist only while the AI still owns the conversation. */
   const aiManagedConversation = metaOf(selected).ai_state === 'ai_managed';
@@ -787,6 +801,17 @@ export default function InboxPage() {
     }
     return 'en';
   }, [profile?.preferred_locale]);
+  // Canned responses rank by the language this conversation is answered in
+  // (the visitor's, else the widget's), not the operator's panel (I-14).
+  const replyLocale: CannedLocale = useMemo(() => conversationReplyLocale({
+    visitorTexts: (rawMessages ?? [])
+      .filter((m) => m.sender_type === 'contact')
+      .map((m) => m.body)
+      .reverse(),
+    widgetLocale: workspace?.widget_locale,
+    workspaceLocale: workspace?.default_locale,
+    operatorLocale,
+  }), [rawMessages, workspace?.widget_locale, workspace?.default_locale, operatorLocale]);
 
   const trackUseMut = useTrackCannedResponseUse(workspace?.id);
 
@@ -857,7 +882,9 @@ export default function InboxPage() {
   const insertCanned = useCallback((row: CannedResponse) => {
     const ctx = {
       contact: {
-        name: selected?.contacts?.name ?? null,
+        // An older anonymous contact carries the literal 'Visitor' as its
+        // name: that is no name (a reply would greet "Visitor" in English).
+        name: isAnonymousContact(selected?.contacts) ? null : (selected?.contacts?.name ?? null),
         email: selected?.contacts?.email ?? null,
       },
       workspace: { name: workspace?.name ?? null },
@@ -903,7 +930,7 @@ export default function InboxPage() {
       return next;
     });
     closePicker();
-  }, [closePicker, pickerSlash, profile?.full_name, profile?.email, selected?.contacts?.name, selected?.contacts?.email, user?.email, workspace?.name]);
+  }, [closePicker, pickerSlash, profile?.full_name, profile?.email, selected?.contacts, user?.email, workspace?.name]);
 
   // Fire track-use only for inserted rows whose body is still present in the
   // final sent message. We DO NOT track on preview / open / browse.
@@ -994,6 +1021,17 @@ export default function InboxPage() {
     if (!hasText && !hasAttachment) return;
     if (att.status === 'uploading') return; // wait for upload to finish
     if (reopening) return;
+    // A placeholder that did not resolve (a typo, an unknown variable) never
+    // reaches the visitor as raw braces (I-08); the draft stays as it is.
+    const leftover = unresolvedPlaceholders(message);
+    if (leftover.length) {
+      toast({
+        title: t('inbox.unresolvedPlaceholderTitle') || 'This reply still has a placeholder',
+        description: t('inbox.unresolvedPlaceholderDesc', { placeholders: leftover.join(' ') }),
+        variant: 'destructive',
+      });
+      return;
+    }
     // Reopen a closed conversation before the reply goes in; if that fails
     // the draft stays where it is.
     if (selectedClosed && !(await reopenSelected())) return;
@@ -1084,6 +1122,14 @@ export default function InboxPage() {
   const { data: tabCounts } = useInboxTabCounts(workspace?.id, scope);
   const { data: colleagueDir } = useColleagues(workspace?.id);
   const colleagueUnread = colleagueDir?.total_unread ?? 0;
+  // The team as the Inbox names its members (src/lib/operatorName.ts):
+  // colleagues from the directory, and the reader.
+  const operatorById = useMemo(() => {
+    const map = new Map<string, KnownOperator>();
+    for (const c of colleagueDir?.colleagues ?? []) map.set(c.user_id, { full_name: c.full_name, email: c.email });
+    if (user?.id) map.set(user.id, { full_name: profile?.full_name ?? null, email: profile?.email ?? user.email ?? null });
+    return map;
+  }, [colleagueDir, user?.id, user?.email, profile?.full_name, profile?.email]);
   const stableCounts: Record<string, number> = tabCounts ?? {};
 
   /* Live tabs: when a tab's counter grows (new conversation/message landed in
@@ -1167,12 +1213,10 @@ export default function InboxPage() {
     return (conversations ?? []).reduce((n, c) => n + (c.unread_count ?? 0), 0);
   }, [conversations]);
 
-  const statusLabels: Record<string, string> = {
-    open: t('inbox.open') || 'Open',
-    pending: t('inbox.pending') || 'Pending',
-    resolved: t('inbox.resolved') || 'Resolved',
-    closed: t('inbox.closed') || 'Closed',
-  };
+  // One name per status on every operator surface (src/lib/conversationStatus.ts).
+  const statusLabels: Record<string, string> = Object.fromEntries(
+    CONVERSATION_STATUSES.map((status) => [status, conversationStatusLabel(t, status)]),
+  );
 
   const pillCount = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
     'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
@@ -1565,7 +1609,7 @@ export default function InboxPage() {
               placeholder data — showing it would flash the wrong conversations.
               Treat placeholder state as loading and render skeletons instead. */}
           {(isLoadingConvos || isStaleConvos) ? (
-            <div className="px-3 py-3 space-y-2" dir={dir} aria-busy="true" aria-label="Loading conversations">
+            <div className="px-3 py-3 space-y-2" dir={dir} aria-busy="true" aria-label={t('inbox.loadingConversations') || 'Loading conversations'}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex gap-3 p-2 animate-pulse">
                   <div className="w-10 h-10 rounded-full bg-secondary/60 shrink-0" />
@@ -1747,15 +1791,18 @@ export default function InboxPage() {
                             }
                             // Name the operator who actually wrote the last
                             // reply; only fall back to "You" when it was me.
-                            const agentLabel = !last ? '' :
-                              last.sender_id && user?.id && last.sender_id === user.id
-                                ? (t('inbox.previewYou') || 'You')
-                                : (last.sender_name || t('inbox.previewYou') || 'You');
+                            const agentLabel = !last ? '' : previewOperatorLabel(
+                              { id: last.sender_id, name: last.sender_name, known: last.sender_id ? operatorById.get(last.sender_id) : null },
+                              user?.id,
+                              t,
+                            );
                             const prefix = !last ? '' :
                               last.sender_type === 'agent' ? `${agentLabel}: `
                               : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
                               : '';
-                            if (last?.body) return `${prefix}${last.body}`;
+                            // The body as written (a code «A1234» keeps its
+                            // Latin digits in the Persian panel, I-04).
+                            if (last?.body) return <>{prefix}<span data-latin-digits="">{last.body}</span></>;
                             // Attachment-only turn: describe the media instead
                             // of falling through to "no messages yet". A whole
                             // sentence, not `prefix` + a verb fragment — the
@@ -1765,7 +1812,7 @@ export default function InboxPage() {
                               const isMe = last.sender_type === 'agent'
                                 && !!last.sender_id && !!user?.id && last.sender_id === user.id;
                               const senderName = last.sender_type === 'agent'
-                                ? last.sender_name
+                                ? operatorDisplayName({ name: last.sender_name, known: last.sender_id ? operatorById.get(last.sender_id) : null }, t)
                                 : (last.sender_type === 'ai' || last.sender_type === 'bot')
                                   ? (t('inbox.previewAi') || 'AI')
                                   // The visitor. Their contact row may have no
@@ -2071,7 +2118,7 @@ export default function InboxPage() {
                       const app = resolveClientPlatform(selected?.metadata, selected?.contacts?.metadata);
                       return <ChannelBadge channel={ch} t={t} clientPlatform={app} size="xs" />;
                     })()}
-                    {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
+                    {selected.contacts?.email && <span data-latin-digits="" className="truncate">{selected.contacts.email}</span>}
                     {presence && presence.status !== 'unknown' && (
                       <>
                         {selected.contacts?.email && <span className="opacity-30">•</span>}
@@ -2331,7 +2378,10 @@ export default function InboxPage() {
                 const senderAvatar = sender.sender_avatar;
                 const agentLabel = isAi
                   ? (senderName || t('inbox.aiAssistant') || 'AI assistant')
-                  : (senderName || t('inbox.support') || 'Support');
+                  // A channel bot's automated rows (menus) have no person behind them.
+                  : msg.sender_type === 'bot'
+                    ? (senderName || t('inbox.support') || 'Support')
+                    : operatorDisplayName({ name: senderName, known: msg.sender_id ? operatorById.get(msg.sender_id) : null }, t);
                 // One identity marker per consecutive sender group. A different
                 // operator, AI/visitor switch, or new day starts a fresh group.
                 // Identity marker (avatar + name + time) sits *below* the last
@@ -2374,6 +2424,7 @@ export default function InboxPage() {
                           {run.map((item) => (
                             <span
                               key={item.id}
+                              data-latin-digits=""
                               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-muted/50 border border-border/50 text-[11px] text-muted-foreground whitespace-nowrap"
                             >
                               {item.body}
@@ -2486,8 +2537,12 @@ export default function InboxPage() {
                           }
                           const rest = lines.slice(i).join('\n').replace(/^\n+/, '');
                           if (!quoteLines.length) {
+                            // What the visitor or operator wrote, as written: the
+                            // Persian panel's digit conversion is for its own
+                            // interface only (I-04), so an order code «A1234»
+                            // stays copyable.
                             return raw ? (
-                              <p className={cn((msg as { attachment?: unknown }).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{raw}</p>
+                              <p data-latin-digits="" className={cn((msg as { attachment?: unknown }).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{raw}</p>
                             ) : null;
                           }
                           const qText = quoteLines.join('\n').trim();
@@ -2502,10 +2557,10 @@ export default function InboxPage() {
                                   ? 'bg-background/70 border-primary/60 text-muted-foreground'
                                   : 'bg-background/70 border-primary/60 text-muted-foreground',
                               )}>
-                                {qAuthor && <div className="font-semibold text-[11px] mb-0.5 opacity-90">{qAuthor}</div>}
-                                <div className="line-clamp-3 whitespace-pre-wrap break-words">{qBody}</div>
+                                {qAuthor && <div data-latin-digits="" className="font-semibold text-[11px] mb-0.5 opacity-90">{qAuthor}</div>}
+                                <div data-latin-digits="" className="line-clamp-3 whitespace-pre-wrap break-words">{qBody}</div>
                               </div>
-                              {rest && <p className="whitespace-pre-wrap break-words">{rest}</p>}
+                              {rest && <p data-latin-digits="" className="whitespace-pre-wrap break-words">{rest}</p>}
                             </>
                           );
                         })()}
@@ -2579,12 +2634,19 @@ export default function InboxPage() {
                             <span className="opacity-30">•</span>
                             <bdi title={formatDateTime(msg.created_at)}>{formatTime(msg.created_at)}</bdi>
                           </div>
-                          {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
-                            <span className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
+                          {msg.id === seenMessageId && (
+                            <span data-inbox="seen" className="text-[11px] text-primary/70 font-medium flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
                             </span>
                           )}
                         </div>
+                      )}
+                      {/* Inside a streak the strip is on its last bubble; the
+                          visitor's "Seen" stays on the message they read. */}
+                      {!showMeta && msg.id === seenMessageId && (
+                        <span data-inbox="seen" className="mt-1 text-[11px] text-primary/70 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> {t('inbox.seen') || 'Seen'}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -2757,7 +2819,7 @@ export default function InboxPage() {
                 <CannedResponsePicker
                   ref={pickerRef}
                   workspaceId={workspace?.id}
-                  locale={operatorLocale}
+                  locale={replyLocale}
                   query={pickerQuery}
                   open={pickerOpen}
                   slashMode={pickerSlash}
@@ -3188,7 +3250,7 @@ export default function InboxPage() {
                   {selected.contacts?.email && (
                     <div className="flex items-center gap-2.5 px-3 py-2.5 group/row hover:bg-secondary/20">
                       <Mail className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-[12.5px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
+                      <span data-latin-digits="" className="text-[12.5px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
                       <button
                         onClick={() => { navigator.clipboard.writeText(selected.contacts?.email || ''); toast({ title: t('inbox.copiedShort') || 'Copied!' }); }}
                         className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-foreground"
@@ -3240,7 +3302,7 @@ export default function InboxPage() {
                 {selected.tags && selected.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {selected.tags.map((tag: string) => (
-                      <span key={tag} className="text-xs px-2 py-1 rounded-lg bg-secondary/40 text-muted-foreground border border-border/40 font-medium">
+                      <span key={tag} data-latin-digits="" className="text-xs px-2 py-1 rounded-lg bg-secondary/40 text-muted-foreground border border-border/40 font-medium">
                         <Hash className="w-3 h-3 inline text-primary/50" />{tag}
                       </span>
                     ))}

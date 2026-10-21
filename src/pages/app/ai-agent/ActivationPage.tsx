@@ -11,7 +11,7 @@ import { Check, X, Loader2, AlertTriangle, Info, Power } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
-import type { AgentMode, AgentSettings, EscalationStyle } from '@/lib/ai-agent-api';
+import { operatorAvailabilityStatus, type AgentMode, type AgentSettings, type EscalationStyle } from '@/lib/ai-agent-api';
 
 function CheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
@@ -54,8 +54,8 @@ export default function ActivationPage() {
     try {
       await update.mutateAsync(p);
       toast.success(successMsg);
-    } catch (e: any) {
-      toast.error(e?.message || t('aiAgent.activation.updateFailed'));
+    } catch (e: unknown) {
+      toast.error((e instanceof Error && e.message) || t('aiAgent.activation.updateFailed'));
     }
   };
 
@@ -68,6 +68,7 @@ export default function ActivationPage() {
   };
 
   const availability = diag.operator_availability;
+  const availabilityStatus = operatorAvailabilityStatus(availability);
   const limits = diag.reply_limits;
 
   return (
@@ -87,7 +88,7 @@ export default function ActivationPage() {
           <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/70 px-4 py-2.5 backdrop-blur-sm">
             <div className="text-end">
               <p className="text-xs text-muted-foreground">{t('aiAgent.activation.modeLabel')}</p>
-              <p className="text-[13px] font-semibold">{t(`aiAgent.activation.${MODE_KEYS[settings.mode]}` as any)}</p>
+              <p className="text-[13px] font-semibold">{t(`aiAgent.activation.${MODE_KEYS[settings.mode]}` as Parameters<typeof t>[0])}</p>
             </div>
             <Switch checked={settings.enabled} onCheckedChange={onToggle} disabled={update.isPending} />
           </div>
@@ -103,7 +104,7 @@ export default function ActivationPage() {
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {(Object.keys(MODE_KEYS) as AgentMode[]).map((m) => (
-                <SelectItem key={m} value={m}>{t(`aiAgent.activation.${MODE_KEYS[m]}` as any)}</SelectItem>
+                <SelectItem key={m} value={m}>{t(`aiAgent.activation.${MODE_KEYS[m]}` as Parameters<typeof t>[0])}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -171,8 +172,8 @@ export default function ActivationPage() {
               <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.keepAutomatedHint')}</p>
             </div>
             <Switch
-              checked={(settings as any).keep_in_automated_until_handoff !== false}
-              onCheckedChange={(v) => patch({ keep_in_automated_until_handoff: v } as any)}
+              checked={settings.keep_in_automated_until_handoff !== false}
+              onCheckedChange={(v) => patch({ keep_in_automated_until_handoff: v })}
               disabled={update.isPending}
             />
           </div>
@@ -182,8 +183,8 @@ export default function ActivationPage() {
               <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.stopAfterHumanHint')}</p>
             </div>
             <Switch
-              checked={(settings as any).pause_auto_reply_after_human_reply !== false}
-              onCheckedChange={(v) => patch({ pause_auto_reply_after_human_reply: v } as any)}
+              checked={settings.pause_auto_reply_after_human_reply !== false}
+              onCheckedChange={(v) => patch({ pause_auto_reply_after_human_reply: v })}
               disabled={update.isPending}
             />
           </div>
@@ -193,8 +194,8 @@ export default function ActivationPage() {
               <p className="text-xs text-muted-foreground mt-1">{t('aiAgent.activation.allowSuggestionsHint')}</p>
             </div>
             <Switch
-              checked={(settings as any).allow_suggestions_after_takeover !== false}
-              onCheckedChange={(v) => patch({ allow_suggestions_after_takeover: v } as any)}
+              checked={settings.allow_suggestions_after_takeover !== false}
+              onCheckedChange={(v) => patch({ allow_suggestions_after_takeover: v })}
               disabled={update.isPending}
             />
           </div>
@@ -202,21 +203,21 @@ export default function ActivationPage() {
       </Card>
 
       {/* Automated inbox snapshot */}
-      {(diag as any).automated_inbox && (
+      {diag.automated_inbox && (
         <Card>
           <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.snapshotTitle')}</CardTitle></CardHeader>
           <CardContent className="text-sm grid grid-cols-3 gap-3">
             <div className="rounded-md border p-3">
               <div className="text-xs text-muted-foreground">{t('aiAgent.activation.aiManaged')}</div>
-              <div className="text-xl font-semibold">{(diag as any).automated_inbox.ai_managed}</div>
+              <div className="text-xl font-semibold">{diag.automated_inbox.ai_managed}</div>
             </div>
             <div className="rounded-md border p-3">
               <div className="text-xs text-muted-foreground">{t('aiAgent.activation.needsHuman')}</div>
-              <div className="text-xl font-semibold">{(diag as any).automated_inbox.needs_human}</div>
+              <div className="text-xl font-semibold">{diag.automated_inbox.needs_human}</div>
             </div>
             <div className="rounded-md border p-3">
               <div className="text-xs text-muted-foreground">{t('aiAgent.activation.humanActive')}</div>
-              <div className="text-xl font-semibold">{(diag as any).automated_inbox.human_active}</div>
+              <div className="text-xl font-semibold">{diag.automated_inbox.human_active}</div>
             </div>
           </CardContent>
         </Card>
@@ -349,14 +350,16 @@ export default function ActivationPage() {
         <Card>
           <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.availabilityTitle')}</CardTitle></CardHeader>
           <CardContent className="flex items-center gap-3 text-sm">
-            <div className={`h-2.5 w-2.5 rounded-full ${availability.status === 'online' ? 'bg-success' : 'bg-muted-foreground/40'}`} />
-            <span className="font-medium">{availability.status === 'online' ? t('aiAgent.activation.statusOnline') : availability.status === 'offline' ? t('aiAgent.activation.statusOffline') : t('aiAgent.activation.statusUnknown')}</span>
+            <div data-availability-status={availabilityStatus} className={`h-2.5 w-2.5 rounded-full ${availabilityStatus === 'online' ? 'bg-success' : 'bg-muted-foreground/40'}`} />
+            <span className="font-medium">{availabilityStatus === 'online' ? t('aiAgent.activation.statusOnline') : availabilityStatus === 'offline' ? t('aiAgent.activation.statusOffline') : t('aiAgent.activation.statusUnknown')}</span>
             {typeof availability.online_count === 'number' && (
               <span className="text-xs text-muted-foreground">
                 {t('aiAgent.activation.onlineCount', { online: String(availability.online_count), total: String(availability.total_count ?? '?') })}
               </span>
             )}
-            {isAutoMode && availability.status !== 'online' && settings.mode === 'auto_reply_when_offline' && (
+            {/* Only when the operators are known to be offline: an unknown
+                state is not "the AI answers now". */}
+            {isAutoMode && availabilityStatus === 'offline' && settings.mode === 'auto_reply_when_offline' && (
               <Badge variant="secondary" className="ml-auto">{t('aiAgent.activation.aiWillAnswer')}</Badge>
             )}
           </CardContent>

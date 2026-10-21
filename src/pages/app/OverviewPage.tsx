@@ -48,6 +48,8 @@ import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 interface DashboardConversation {
   id: string;
   status?: string | null;
+  /** The visitor waits for our answer (server-derived, server/services/needsReply.ts). */
+  needs_reply?: boolean | null;
   created_at?: string | null;
   last_message_at?: string | null;
   updated_at?: string | null;
@@ -146,7 +148,11 @@ export default function OverviewPage() {
   const fmt = (v: number) => v.toLocaleString(numberLocale);
 
   const list = (conversations ?? []) as unknown as DashboardConversation[];
+  // Waiting for an answer from us: the server's needs-reply (an open thread
+  // whose newest turn is the visitor's), not every open conversation — an
+  // answered one is open too (finding I-01).
   const openConvos = list.filter((c) => c.status === 'open').length;
+  const needsReplyConvos = list.filter((c) => c.status === 'open' && c.needs_reply === true).length;
   const resolved = list.filter((c) => c.status === 'resolved' || c.status === 'closed').length;
   // Truly online right now: presence status online AND seen in the last 5 minutes
   const onlineVisitors = ((visitors ?? []) as Array<{ status?: string; updated_at?: string | null; last_seen_at?: string | null }>).filter((v) => {
@@ -397,7 +403,7 @@ export default function OverviewPage() {
               </span>
               <span data-panel-stat className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
                 <Clock className="h-3.5 w-3.5" />
-                {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(openConvos)}</b>
+                {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(needsReplyConvos)}</b>
               </span>
             </div>
           </div>

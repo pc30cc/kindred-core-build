@@ -374,7 +374,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                       live.micEnabled ? '' : 'bg-destructive/10 border-destructive/30 text-destructive',
                     )}
                     onClick={() => void live.toggleMic()}
-                    aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                    aria-label={live.micEnabled ? safeT('inbox.callSurface.muteMic', 'Mute microphone') : safeT('inbox.callSurface.unmuteMic', 'Unmute microphone')}
                   >
                     {live.micEnabled ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
                   </Button>
@@ -387,7 +387,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                         live.cameraEnabled ? '' : 'bg-destructive/10 border-destructive/30 text-destructive',
                       )}
                       onClick={() => void live.toggleCamera()}
-                      aria-label={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+                      aria-label={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')}
                     >
                       {live.cameraEnabled ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
                     </Button>

@@ -43,7 +43,10 @@ vi.mock('../../../server/services/storage/urlResolver.js', async (orig) => ({
 }));
 vi.mock('@/hooks/useWorkspace', () => ({ useActiveWorkspace: () => ({ workspace: { id: 'ws-1' } }) }));
 vi.mock('@/hooks/useWorkspaceRole', () => ({ useWorkspaceRole: () => ({ data: 'owner' }), isWorkspaceAdmin: () => true }));
-vi.mock('@/lib/operator-activity-api', () => ({ fetchOperatorActivity: async () => state.stats }));
+vi.mock('@/lib/operator-activity-api', async (orig) => ({
+  ...(await orig<typeof import('@/lib/operator-activity-api')>()),
+  fetchOperatorActivity: async () => state.stats,
+}));
 
 const { operatorActivityRouter } = await import('../../../server/routes/operatorActivity.js');
 const { default: OperatorActivityPage } = await import('@/pages/app/settings/OperatorActivityPage');

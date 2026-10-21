@@ -79,6 +79,8 @@ export function resolveChannelKey(...sources: Array<unknown>): ChannelKey {
 const LABEL_KEYS: Partial<Record<ChannelKey, string>> = {
   widget: 'contacts.sourceChat',
   platform_support: 'contacts.sourcePlatformSupport',
+  email: 'contacts.sourceEmail',
+  phone: 'contacts.sourcePhone',
 };
 
 /**
@@ -174,7 +176,7 @@ export function ChannelIdentityCard({
   if (meta.channel_username) rows.push({ label: t('contacts.username') || 'Username', value: `@${meta.channel_username}` });
   if (meta.channel_user_id) rows.push({ label: t('contacts.channelUserId') || 'User ID', value: String(meta.channel_user_id) });
   if (meta.channel_language) rows.push({ label: t('contacts.channelLanguage') || 'Language', value: String(meta.channel_language) });
-  if (meta.channel_is_premium) rows.push({ label: 'Premium', value: '✓' });
+  if (meta.channel_is_premium) rows.push({ label: t('contacts.channelPremium') || 'Premium', value: '✓' });
 
   return (
     <div data-inbox-fact="channel" className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
@@ -185,7 +187,8 @@ export function ChannelIdentityCard({
       {rows.map((row) => (
         <div key={row.label} className="flex items-center justify-between gap-2 px-3 py-2.5">
           <span className="text-[11.5px] text-muted-foreground shrink-0">{row.label}</span>
-          <bdi dir={row.valueDir ?? 'ltr'} className="text-[12.5px] font-medium text-foreground truncate">{row.value}</bdi>
+          {/* Handles, ids and names as the provider sent them: Latin digits stay Latin in the Persian panel. */}
+          <bdi dir={row.valueDir ?? 'ltr'} data-latin-digits="" className="text-[12.5px] font-medium text-foreground truncate">{row.value}</bdi>
         </div>
       ))}
     </div>

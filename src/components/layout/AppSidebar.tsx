@@ -29,9 +29,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
-import { toast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
 import { useBranding } from '@/hooks/useBranding';
 import { useInboxCounts } from '@/hooks/useConversations';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
@@ -211,36 +209,6 @@ export function AppSidebar({
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
-
-  // Availability — used for the "invisible mode" quick toggle in the user menu
-  const queryClient = useQueryClient();
-  const { data: availability } = useQuery({
-    queryKey: ['availability', 'me'],
-    queryFn: () => fetchAvailability(),
-    enabled: !!user,
-    staleTime: 30_000,
-  });
-  const invisible = !!availability?.prefs?.force_offline;
-  const toggleInvisible = useMutation({
-    mutationFn: () => updateAvailability({ force_offline: !invisible }),
-    onSuccess: (res) => {
-      queryClient.setQueryData(['availability', 'me'], res);
-      queryClient.invalidateQueries({ queryKey: ['team-presence'] });
-      toast({
-        title: res.prefs.force_offline ? 'Invisible mode enabled' : 'Invisible mode disabled',
-        description: res.prefs.force_offline
-          ? 'You now appear offline to visitors.'
-          : 'You are visible based on your availability schedule.',
-      });
-    },
-    onError: (err: unknown) => {
-      toast({
-        title: 'Failed to update status',
-        description: (err instanceof Error && err.message) || 'Please try again.',
-        variant: 'destructive',
-      });
-    },
-  });
 
   // Close menus on outside click
   useEffect(() => {

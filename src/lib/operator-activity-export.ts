@@ -2,7 +2,7 @@
  * CSV export helpers for the operator activity report (owner/admin only).
  * Files are UTF-8 with BOM so Excel renders Persian/Turkish correctly.
  */
-import type { OperatorActivityRow, OperatorActivityStats } from '@/lib/operator-activity-api';
+import { onlineTimeTracked, type OperatorActivityRow, type OperatorActivityStats } from '@/lib/operator-activity-api';
 
 function esc(v: unknown): string {
   const s = v === null || v === undefined ? '' : String(v);
@@ -26,22 +26,34 @@ export function download(filename: string, csv: string) {
 
 const name = (o: OperatorActivityRow) => o.profile?.full_name || o.profile?.email || o.user_id;
 
-const SUMMARY_HEAD = [
-  'operator', 'email', 'role', 'current_state',
-  'online_minutes', 'online_hours', 'present_minutes',
-  'active_days', 'avg_minutes_per_active_day',
-  'replies_sent', 'conversations_assigned', 'conversations_resolved',
-  'last_seen',
-];
-
-function summaryRow(o: OperatorActivityRow) {
+/**
+ * The summary columns. The online-time ones only when the server records
+ * online time (R-25): otherwise they would be zeros that look measured.
+ */
+function summaryHead(tracked: boolean): string[] {
   return [
-    name(o), o.profile?.email || '', o.role, o.current_state,
-    o.online_minutes, (o.online_minutes / 60).toFixed(2), o.present_minutes,
-    o.active_days, o.avg_minutes_per_active_day,
-    o.replies_sent, o.conversations_assigned, o.conversations_resolved,
-    o.last_seen || '',
+    'operator', 'email', 'role', 'current_state', 'presence_state',
+    ...(tracked ? ['online_minutes', 'online_hours', 'present_minutes', 'active_days', 'avg_minutes_per_active_day'] : []),
+    'replies_sent', 'conversations_assigned', 'conversations_resolved',
+    ...(tracked ? ['last_seen'] : []),
   ];
+}
+
+function summaryRow(o: OperatorActivityRow, tracked: boolean) {
+  return [
+    name(o), o.profile?.email || '', o.role, o.current_state, o.presence_state || '',
+    ...(tracked
+      ? [o.online_minutes, (o.online_minutes / 60).toFixed(2), o.present_minutes, o.active_days, o.avg_minutes_per_active_day]
+      : []),
+    o.replies_sent, o.conversations_assigned, o.conversations_resolved,
+    ...(tracked ? [o.last_seen || ''] : []),
+  ];
+}
+
+/** The summary report's rows (exported for tests). */
+export function summaryRows(data: OperatorActivityStats): (string | number | null)[][] {
+  const tracked = onlineTimeTracked(data);
+  return [summaryHead(tracked), ...data.operators.map((o) => summaryRow(o, tracked))];
 }
 
 export function exportSummaryCsv(data: OperatorActivityStats) {
@@ -51,8 +63,7 @@ export function exportSummaryCsv(data: OperatorActivityStats) {
     ['days', data.days],
     ['generated_at', new Date().toISOString()],
     [],
-    SUMMARY_HEAD,
-    ...data.operators.map(summaryRow),
+    ...summaryRows(data),
   ];
   download(`operator-activity-${data.days}d-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows));
 }
@@ -65,12 +76,11 @@ export function exportDetailedCsv(data: OperatorActivityStats) {
     ['days', data.days],
     ['generated_at', new Date().toISOString()],
     [],
-    SUMMARY_HEAD,
-    ...data.operators.map(summaryRow),
-    [],
-    ['operator', 'email', 'date', 'online_minutes', 'online_hours'],
+    ...summaryRows(data),
   ];
-  for (const o of data.operators) {
+  // The per-day breakdown is online time only.
+  if (onlineTimeTracked(data)) rows.push([], ['operator', 'email', 'date', 'online_minutes', 'online_hours']);
+  for (const o of onlineTimeTracked(data) ? data.operators : []) {
     for (const date of Object.keys(o.daily).sort()) {
       const m = o.daily[date];
       rows.push([name(o), o.profile?.email || '', date, m, (m / 60).toFixed(2)]);
@@ -90,11 +100,11 @@ export function exportOperatorCsv(o: OperatorActivityRow, data: OperatorActivity
     ['since', data.since],
     ['days', data.days],
     [],
-    SUMMARY_HEAD,
-    summaryRow(o),
-    [],
-    ['date', 'online_minutes', 'online_hours'],
-    ...Object.keys(o.daily).sort().map((d) => [d, o.daily[d], (o.daily[d] / 60).toFixed(2)]),
+    summaryHead(onlineTimeTracked(data)),
+    summaryRow(o, onlineTimeTracked(data)),
+    ...(onlineTimeTracked(data)
+      ? [[], ['date', 'online_minutes', 'online_hours'], ...Object.keys(o.daily).sort().map((d) => [d, o.daily[d], (o.daily[d] / 60).toFixed(2)])]
+      : []),
   ];
   const slug = name(o).replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40);
   download(`operator-${slug}-${data.days}d.csv`, toCsv(rows));

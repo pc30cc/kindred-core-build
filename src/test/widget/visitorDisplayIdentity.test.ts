@@ -21,6 +21,8 @@ import {
   type ContactDisplayT,
 } from '../../lib/contact-display';
 import { getDisplayName } from '../../features/contacts/utils';
+import type { DisplayableContact } from '../../lib/contact-display';
+import type { Contact } from '../../types/models';
 
 const FSI = '⁨';
 const PDI = '⁩';
@@ -140,14 +142,20 @@ describe('contactDisplayName — anonymous fallback (no locale passed — canoni
     expect(contactDisplayName(contact, 'c1', en, null)).toBe(`Visitor · ${iso('NEWW')}`);
   });
 
-  it('email-only contact (no name) shows the localized anonymous label, NOT the email — email is metadata, not a display name', () => {
-    const contact = { name: null, email: 'ali@example.com', visitor_code: 'K7M4' };
-    expect(contactDisplayName(contact, 'c1', en, 'Tehran')).toBe(`Visitor from ${iso('Tehran')} · ${iso('K7M4')}`);
-    expect(contactDisplayName(contact, 'c1', fa, 'Tehran')).toBe(`بازدیدکننده از ${iso('Tehran')} · ${iso('K7M4')}`);
+  // I-07: one naming rule for every operator surface (shared/contactName.ts).
+  // The phone apps' lists and push notifications name an email-only visitor
+  // by the email's local part, so the web Inbox does too (it used to show
+  // the anonymous label, and the lock screen's «ali» was in no web row).
+  it('email-only contact (no name) is called by the part of the email before the @, as on the phones and in push', () => {
+    const contact = { name: null, email: 'ali.r@example.com', visitor_code: 'K7M4' };
+    expect(contactDisplayName(contact, 'c1', en, 'Tehran')).toBe(iso('ali.r'));
+    expect(contactDisplayName(contact, 'c1', fa, 'Tehran')).toBe(iso('ali.r'));
+    // The legacy 'Visitor' placeholder name is no name: the email still names them.
+    expect(contactDisplayName({ name: 'Visitor', email: 'sara@example.com' }, 'c1', fa, null)).toBe(iso('sara'));
   });
 
   it('phone-only contact (no name) shows the localized anonymous label, NOT the phone number', () => {
-    const contact = { name: null, phone: '+15551234567' } as any;
+    const contact = { name: null, phone: '+15551234567' } as DisplayableContact;
     const out = contactDisplayName(contact, 'c1', en, null);
     expect(out).not.toContain('+15551234567');
     expect(out).toMatch(/^Visitor · /);
@@ -310,7 +318,7 @@ describe('getDisplayName — Contacts city precedence (Inbox/Contacts consistenc
     const contact = {
       id: 'c1', name: 'Visitor', visitor_code: 'K7M4',
       metadata: { city: 'Isfahan' }, // stale snapshot
-    } as any;
+    } as unknown as Contact;
     // Anonymous contact created via ensureVisitorContact never got a
     // metadata.city write at all until identityMerge runs — but a live
     // session (networkCity) is available regardless.
@@ -321,18 +329,18 @@ describe('getDisplayName — Contacts city precedence (Inbox/Contacts consistenc
     const contact = {
       id: 'c1', name: 'Visitor', visitor_code: 'K7M4',
       metadata: { city: 'Isfahan' },
-    } as any;
+    } as unknown as Contact;
     expect(getDisplayName(contact, en, undefined)).toBe(`Visitor from ${iso('Isfahan')} · ${iso('K7M4')}`);
     expect(getDisplayName(contact, en, null)).toBe(`Visitor from ${iso('Isfahan')} · ${iso('K7M4')}`);
   });
 
   it('falls back to no-city label when neither a network profile nor metadata.city exists', () => {
-    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as any;
+    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as unknown as Contact;
     expect(getDisplayName(contact, en, undefined)).toBe(`Visitor · ${iso('K7M4')}`);
   });
 
   it('a real name still wins over any city source', () => {
-    const contact = { id: 'c1', name: 'Ali Ahmadi', metadata: { city: 'Isfahan' } } as any;
+    const contact = { id: 'c1', name: 'Ali Ahmadi', metadata: { city: 'Isfahan' } } as unknown as Contact;
     expect(getDisplayName(contact, en, 'Tehran')).toBe('Ali Ahmadi');
   });
 
@@ -340,18 +348,18 @@ describe('getDisplayName — Contacts city precedence (Inbox/Contacts consistenc
     const contact = {
       id: 'c1', name: 'Visitor', visitor_code: 'K7M4',
       metadata: { city: 'Tehran', country_code: 'IR' }, // no metadata.region
-    } as any;
+    } as unknown as Contact;
     expect(getDisplayName(contact, fa, undefined, 'fa')).toBe(`بازدیدکننده · ${iso('K7M4')}`);
   });
 
   it('locale param localizes the province from a live network-profile geo object (with region + country_code)', () => {
-    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as any;
+    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as unknown as Contact;
     const geo = { city: 'Mashhad', region: 'Razavi Khorasan', country_code: 'IR' };
     expect(getDisplayName(contact, fa, geo, 'fa')).toBe(`بازدیدکننده از استان ${iso('خراسان رضوی')} · ${iso('K7M4')}`);
   });
 
   it('non-Iranian city from a live network-profile geo object never localizes, even in fa', () => {
-    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as any;
+    const contact = { id: 'c1', name: 'Visitor', visitor_code: 'K7M4', metadata: {} } as unknown as Contact;
     const geo = { city: 'Istanbul', country_code: 'TR' };
     expect(getDisplayName(contact, fa, geo, 'fa')).toBe(`بازدیدکننده از ${iso('Istanbul')} · ${iso('K7M4')}`);
   });

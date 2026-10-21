@@ -157,6 +157,8 @@ export interface DiagnosticsResponse {
   intro_enabled?: boolean;
   operator_availability?: {
     status?: 'online' | 'offline' | 'unavailable' | string;
+    /** What the server always sent (`status` is newer): see operatorAvailabilityStatus. */
+    state?: 'online' | 'offline' | string;
     online_count?: number;
     total_count?: number;
   } | null;
@@ -281,3 +283,16 @@ export const assistantApi = {
   getOverview: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/overview?workspaceId=${workspaceId}`) as Promise<OverviewResponse>,
 };
+
+/**
+ * The operators' availability on the activation page (R-25). The page read
+ * `status`, which the server did not send (it sent `state`), so it always
+ * said "Unknown" — and, in "auto-reply when operators are offline", that the
+ * AI answers now. Either field counts; anything else is unknown.
+ */
+export function operatorAvailabilityStatus(
+  availability: DiagnosticsResponse['operator_availability'],
+): 'online' | 'offline' | 'unknown' {
+  const value = availability?.status ?? availability?.state;
+  return value === 'online' || value === 'offline' ? value : 'unknown';
+}

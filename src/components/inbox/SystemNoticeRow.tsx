@@ -10,12 +10,19 @@
  * notice, with the stored body as its text. `routing_in_queue` used to fall
  * through to the bubble and print "Your message is in the support queue."
  * in English, as if the operator had sent it.
+ *
+ * Each notice also says who else reads it (I-12): the team only
+ * (`metadata.internal`, which the widget never receives — an unassign, a
+ * support rating), or the visitor too. For a transfer the visitor reads
+ * something else than the team («Y به گفتگو پیوست», not «X گفتگو را به Y
+ * منتقل کرد»); its marker says what.
  */
-import { Phone, PhoneOff, Star, Video } from 'lucide-react';
+import { Eye, Lock, Phone, PhoneOff, Star, Video } from 'lucide-react';
 import {
   systemMessageText, invitationStatusText, type SystemMessageMeta, type Translate,
 } from '@/lib/systemMessageText';
 import { SupportRequesterCard } from './SupportRequesterCard';
+import { isVisitorVisibleNotice, visitorVersionOf } from './systemNoticeVisibility';
 import { REQUESTER_KIND, type RequesterCardMeta } from './requesterMeta';
 
 interface SystemNoticeRowProps {
@@ -25,6 +32,33 @@ interface SystemNoticeRowProps {
 }
 
 const PILL = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60';
+
+function word(t: Translate, key: string, fallback: string): string {
+  const text = t(key);
+  return text && text !== key ? text : fallback;
+}
+
+/** The "team only" / "the visitor sees this too" marker inside a notice. */
+function VisibilityMark({ meta, t }: { meta: Record<string, unknown>; t: Translate }) {
+  if (!isVisitorVisibleNotice(meta)) {
+    const label = word(t, 'inbox.internalOnly', 'Internal only');
+    return (
+      <span data-inbox="notice-visibility" data-visibility="internal" className="inline-flex shrink-0 items-center gap-0.5 opacity-80" title={word(t, 'inbox.systemInternalHint', 'Only your team sees this; the visitor does not.')}>
+        <Lock className="w-3 h-3" aria-hidden />
+        <span>{label}</span>
+      </span>
+    );
+  }
+  const visitorText = visitorVersionOf(meta, t);
+  const hint = visitorText
+    ? word(t, 'inbox.systemVisitorSees', 'The visitor sees: {{text}}').replace('{{text}}', () => `«${visitorText}»`)
+    : word(t, 'inbox.systemVisibleHint', 'The visitor sees this too');
+  return (
+    <span data-inbox="notice-visibility" data-visibility="visitor" role="img" aria-label={hint} className="inline-flex shrink-0 items-center opacity-70" title={hint}>
+      <Eye className="w-3 h-3" aria-hidden />
+    </span>
+  );
+}
 
 export function SystemNoticeRow({ body, meta, t }: SystemNoticeRowProps) {
   const kind = typeof meta.kind === 'string' ? meta.kind : '';
@@ -52,6 +86,7 @@ export function SystemNoticeRow({ body, meta, t }: SystemNoticeRowProps) {
           {isVideo ? <Video className="w-3 h-3" /> : <Phone className="w-3 h-3" />}
           <span>{sentence}</span>
           <span className="opacity-70">· {statusText}</span>
+          <VisibilityMark meta={meta} t={t} />
         </div>
       </div>
     );
@@ -66,6 +101,7 @@ export function SystemNoticeRow({ body, meta, t }: SystemNoticeRowProps) {
         <div className="inline-flex max-w-[85%] items-start gap-1.5 px-3 py-1 rounded-2xl bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
           {kind === 'support_rating' ? <Star className="w-3 h-3 mt-0.5 shrink-0 text-warning" /> : null}
           <span className="whitespace-pre-wrap break-words">{text}</span>
+          <span className="mt-0.5"><VisibilityMark meta={meta} t={t} /></span>
         </div>
       </div>
     );
@@ -78,6 +114,7 @@ export function SystemNoticeRow({ body, meta, t }: SystemNoticeRowProps) {
       <div className={PILL}>
         {kind === 'call_ended' ? <PhoneOff className="w-3 h-3" /> : null}
         <span>{text}</span>
+        <VisibilityMark meta={meta} t={t} />
       </div>
     </div>
   );

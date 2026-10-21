@@ -27,6 +27,12 @@ export function attachmentUrl(id: string, disposition?: 'attachment'): string {
   }`;
 }
 
+/** A translation, or the English word when the key is missing (the translator answers with the key). */
+function label(t: (key: string) => string, key: string, fallback: string): string {
+  const text = t(key);
+  return text && text !== key ? text : fallback;
+}
+
 function clockTime(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
@@ -49,6 +55,7 @@ function AudioAttachmentPlayer({
   att: { id: string; file_name: string; size_bytes: number };
   isAgent: boolean;
 }) {
+  const { t } = useTranslation();
   const { src: mediaSrc } = useAuthedMediaSrc(attachmentUrl(att.id));
   const ref = useRef<HTMLAudioElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -127,7 +134,7 @@ function AudioAttachmentPlayer({
       <button
         type="button"
         onClick={toggle}
-        aria-label={playing ? 'Pause' : 'Play'}
+        aria-label={playing ? label(t, 'inbox.attachmentPause', 'Pause') : label(t, 'inbox.attachmentPlay', 'Play')}
         className={cn(
           'relative w-9 h-9 rounded-full flex items-center justify-center shrink-0',
           'transition-transform duration-150 hover:scale-105 active:scale-95',
@@ -147,7 +154,7 @@ function AudioAttachmentPlayer({
           ref={trackRef}
           onPointerDown={onPointerDown}
           role="slider"
-          aria-label="Seek"
+          aria-label={label(t, 'inbox.attachmentSeek', 'Seek')}
           aria-valuemin={0}
           aria-valuemax={Math.round(duration)}
           aria-valuenow={Math.round(current)}
@@ -188,7 +195,7 @@ function AudioAttachmentPlayer({
         type="button"
         onClick={() => void openAuthedAttachment(attachmentUrl(att.id, 'attachment'), att.file_name)}
         className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
-        aria-label="Download"
+        aria-label={label(t, 'inbox.attachmentDownload', 'Download')}
       >
         <Download className="w-3.5 h-3.5" />
       </button>
@@ -277,7 +284,7 @@ function ImageAttachment({ att }: { att: { id: string; file_name: string } }) {
                 type="button"
                 onClick={(e) => { e.stopPropagation(); void openAuthedAttachment(attachmentUrl(att.id, 'attachment'), att.file_name); }}
                 className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
-                aria-label="Download"
+                aria-label={label(t, 'inbox.attachmentDownload', 'Download')}
               >
                 <Download className="w-4 h-4" />
               </button>
@@ -285,7 +292,7 @@ function ImageAttachment({ att }: { att: { id: string; file_name: string } }) {
                 type="button"
                 onClick={() => setOpen(false)}
                 className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
-                aria-label="Close"
+                aria-label={label(t, 'inbox.attachmentClose', 'Close')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -333,7 +340,7 @@ export function MessageAttachmentView({
   isAgent = false,
 }: {
   att: { id: string; file_name: string; mime_type: string; size_bytes: number; kind: string };
-  t: (key: any) => string;
+  t: (key: string) => string;
   isAgent?: boolean;
 }) {
   const mime = att.mime_type || '';

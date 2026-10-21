@@ -17,6 +17,7 @@ import {
   CALL_WIDGET_DESIGN_KEYS,
   callCenterApi,
   callWidgetDesignPatch,
+  cleanCallWidgetTexts,
   cleanCallWidgetTheme,
   callbackMatchesSearch,
   callbackReference,
@@ -214,5 +215,13 @@ describe('cleanCallWidgetTheme: only #rrggbb reaches the strict save', () => {
   it('names the first colour the server would refuse', () => {
     expect(cleanCallWidgetTheme({ primary: '#12', danger: 'red' }).invalid).toBe('primary');
     expect(cleanCallWidgetTheme(null)).toEqual({ theme: {}, invalid: null });
+  });
+});
+
+describe('cleanCallWidgetTexts: the widget shows exactly what is saved', () => {
+  it('trims, drops empty texts and empty languages', () => {
+    expect(cleanCallWidgetTexts({ fa: { talk_now: '  تماس  ', live_support: '   ' }, en: { support: '' } }))
+      .toEqual({ fa: { talk_now: 'تماس' } });
+    expect(cleanCallWidgetTexts(null)).toEqual({});
   });
 });

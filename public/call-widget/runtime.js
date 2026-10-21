@@ -695,7 +695,7 @@
     locale = normalizeLocale(locale) || this.locale || 'en';
     if (this.availableLocales.indexOf(locale) < 0) return;
     this.locale = locale;
-    try { window.localStorage.setItem(this.localeStorageKey, locale); } catch (_) {}
+    if (!this.preview) try { window.localStorage.setItem(this.localeStorageKey, locale); } catch (_) {}
     if (this.root) this.render();
   };
 
@@ -704,7 +704,8 @@
     var available = (i18n.available_locales || []).map(normalizeLocale).filter(Boolean);
     this.availableLocales = available.length ? available : ['en'];
     var stored = null;
-    try { stored = normalizeLocale(window.localStorage.getItem(this.localeStorageKey)); } catch (_) {}
+    // The dashboard's preview shows the language it is given, never a stored one.
+    if (!this.preview) try { stored = normalizeLocale(window.localStorage.getItem(this.localeStorageKey)); } catch (_) {}
     var nav = normalizeLocale((navigator.languages && navigator.languages[0]) || navigator.language);
     var def = normalizeLocale(i18n.default_locale) || 'en';
     this.locale = this.availableLocales.indexOf(stored) >= 0 ? stored

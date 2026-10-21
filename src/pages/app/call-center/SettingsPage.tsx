@@ -14,6 +14,7 @@ import {
   CALLBACK_HOURS_LIMITS,
   callCenterApi,
   callWidgetDesignPatch,
+  cleanCallWidgetTexts,
   cleanCallWidgetTheme,
   defaultCallbackHours,
   effectiveCallWidgetLocales,
@@ -75,6 +76,7 @@ import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 // surfaced as options here.
 import { useQuery } from '@tanstack/react-query';
 import { listDepartments } from '@/lib/workspace-departments-api';
+import { CALLBACK_TEXT_KEYS, WIDGET_TEXT_GROUPS, WIDGET_TEXT_KEYS, WIDGET_TEXT_MAX } from '@/lib/callWidgetTexts';
 import { useTranslation } from '@/i18n';
 import { SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
 
@@ -167,6 +169,8 @@ export default function CallCenterSettingsPage() {
   const [original, setOriginal] = useState<SettingsDraft | null>(null);
   const [previewOnline, setPreviewOnline] = useState(true);
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>('desktop');
+  // The language the texts editor edits; the preview shows the widget in it.
+  const [textLocale, setTextLocale] = useState<string | null>(null);
   const [tab, setTab] = useState('general');
 
   useEffect(() => {
@@ -268,7 +272,7 @@ export default function CallCenterSettingsPage() {
       default_department_id: s.default_department_id ?? null,
       widget_default_locale: (s.widget_default_locale ?? null) as CallCenterWorkspaceSettings['widget_default_locale'],
       widget_enabled_locales: s.widget_enabled_locales ?? null,
-      widget_custom_texts: s.widget_custom_texts ?? {},
+      widget_custom_texts: cleanCallWidgetTexts(s.widget_custom_texts),
       operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
       ...(hoursChanged ? { business_hours: s.business_hours } : {}),
       // Sent only when changed (a backend from before it refuses the keys).
@@ -289,7 +293,10 @@ export default function CallCenterSettingsPage() {
         : { title: t('callCenter.settingsPage.saveFailed'), description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
       return;
     }
-    setOriginal({ ...s });
+    // The form keeps what was stored (trimmed texts, cleaned colours).
+    const saved: SettingsDraft = { ...s, widget_theme: theme.theme as Record<string, string>, widget_custom_texts: patch.widget_custom_texts };
+    setS(saved);
+    setOriginal(saved);
     toast({ title: t('callCenter.settingsPage.saved') });
   }
   function reset() { setS({ ...original }); }
@@ -401,6 +408,9 @@ export default function CallCenterSettingsPage() {
         <WidgetTextsEditor
           settings={s}
           platform={platform}
+          locale={textLocale}
+          onLocale={setTextLocale}
+          onPreviewState={(state) => setPreviewOnline(state === 'online')}
           onChange={(next) => setS({ ...s, widget_custom_texts: next })}
         />
         </Section>
@@ -408,6 +418,7 @@ export default function CallCenterSettingsPage() {
           <LivePreviewSection
             t={t} settings={s} platform={platform} chat={chatSettings} members={members}
             departments={previewDepartments} recordingAvailable={platformRecording && planRecording}
+            locale={textLocale}
             previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
             device={previewDevice} setDevice={setPreviewDevice}
           />
@@ -509,6 +520,7 @@ export default function CallCenterSettingsPage() {
           <LivePreviewSection
             t={t} settings={s} platform={platform} chat={chatSettings} members={members}
             departments={previewDepartments} recordingAvailable={platformRecording && planRecording}
+            locale={textLocale}
             previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
             device={previewDevice} setDevice={setPreviewDevice}
           />
@@ -1186,13 +1198,15 @@ function CallbackHoursSection({ s, setS, loaded, edition }: {
 /** The bootstrap's `departments` (server/routes/callWidget.ts). */
 type PreviewDepartments = Record<'voice' | 'video' | 'callback', { id: string; name: string; sort_order: number }[]>;
 
-function CallWidgetPreview({ settings, platform, chat, members, departments, recordingAvailable, online, device }: {
+function CallWidgetPreview({ settings, platform, chat, members, departments, recordingAvailable, locale: shownLocale, online, device }: {
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
   chat: WidgetSettings | null | undefined;
   members: readonly WorkspaceMember[] | undefined;
   departments: PreviewDepartments;
   recordingAvailable: boolean;
+  /** The language to show (the texts editor's), when the widget offers it. */
+  locale: string | null;
   online: boolean;
   device: PreviewDevice;
 }) {
@@ -1298,7 +1312,10 @@ function CallWidgetPreview({ settings, platform, chat, members, departments, rec
       : { voice: [], video: [], callback: [] },
     recording: { effective_enabled: recordingOn, consent_required: recordingOn && !!settings.recording_consent_required },
     // The languages the bootstrap would give (the platform's while the workspace chose none).
-    i18n: { default_locale: locales.default_locale, available_locales: locales.available },
+    i18n: {
+      default_locale: shownLocale && locales.available.includes(shownLocale) ? shownLocale : locales.default_locale,
+      available_locales: locales.available,
+    },
   };
   // Inert JSON in its own script element: "<" is escaped, so no value can end it.
   const data = JSON.stringify(bootstrap).replace(/</g, '\\u003c');
@@ -1361,7 +1378,7 @@ function ScaledPreviewFrame({ device, srcDoc, frameKey }: { device: PreviewDevic
 }
 
 function LivePreviewSection({
-  t, settings, platform, chat, members, departments, recordingAvailable, previewOnline, setPreviewOnline, device, setDevice,
+  t, settings, platform, chat, members, departments, recordingAvailable, locale, previewOnline, setPreviewOnline, device, setDevice,
 }: {
   t: ReturnType<typeof useTranslation>['t'];
   settings: SettingsDraft;
@@ -1370,6 +1387,7 @@ function LivePreviewSection({
   members: readonly WorkspaceMember[] | undefined;
   departments: PreviewDepartments;
   recordingAvailable: boolean;
+  locale: string | null;
   previewOnline: boolean;
   setPreviewOnline: (v: boolean) => void;
   device: PreviewDevice;
@@ -1408,48 +1426,13 @@ function LivePreviewSection({
       <CallWidgetPreview
         settings={settings} platform={platform} chat={chat} members={members}
         departments={departments} recordingAvailable={recordingAvailable}
-        online={previewOnline} device={device}
+        locale={locale} online={previewOnline} device={device}
       />
     </Section>
   );
 }
 
 // ── Widget text overrides editor ──────────────────────────────
-const CALLBACK_TEXT_KEYS = new Set([
-  'callback', 'leave_details', 'callback_desk',
-  'leave_callback_request', 'offline_copy',
-  'request_callback', 'request_callback_instead', 'callback_intro',
-]);
-
-/**
- * The widget texts an owner may override, with the widget's own copy as the
- * placeholder (public/call-widget/runtime.js I18N, the 2026-10 design).
- */
-/** The server's cap on one widget text (server/routes/callCenter.ts); a longer one fails the whole save. */
-const WIDGET_TEXT_MAX = 200;
-
-const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
-  { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
-  { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },
-  { key: 'callback',            label: 'Launcher text (offline)',    placeholder: { en: 'Callback',            fa: 'درخواست تماس',        tr: 'Geri arama' } },
-  { key: 'leave_details',       label: 'Launcher subtitle (offline)',placeholder: { en: 'Leave details',       fa: 'ثبت اطلاعات',         tr: 'Bilgilerini bırak' } },
-  { key: 'launcher_pill',       label: 'Pill launcher text',         placeholder: { en: 'Call support',        fa: 'تماس با پشتیبانی',    tr: 'Desteği ara' } },
-  { key: 'launcher_tab',        label: 'Edge tab text',              placeholder: { en: 'Call us',             fa: 'تماس با ما',          tr: 'Bizi arayın' } },
-  { key: 'operators_available', label: 'Header subtitle (online)',   placeholder: { en: 'Operators available', fa: 'اپراتورها آماده‌اند', tr: 'Operatörler müsait' } },
-  { key: 'callback_desk',       label: 'Header subtitle (offline)',  placeholder: { en: 'Callback desk',       fa: 'میز درخواست تماس',    tr: 'Geri arama masası' } },
-  { key: 'talk_to_team',        label: 'Hero title (online)',        placeholder: { en: 'Talk to our team',    fa: 'با تیم ما صحبت کنید', tr: 'Ekibimizle konuşun' } },
-  { key: 'online_copy',         label: 'Hero subtitle (online)',     placeholder: { en: 'Start a secure voice or video call with the next available operator.', fa: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.', tr: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.' } },
-  { key: 'leave_callback_request', label: 'Hero title (offline)',    placeholder: { en: 'Leave a callback request', fa: 'درخواست تماس ثبت کنید', tr: 'Geri arama isteği bırakın' } },
-  { key: 'offline_copy',        label: 'Hero subtitle (offline)',    placeholder: { en: 'Our team is offline right now, but we can call you back.', fa: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', tr: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.' } },
-  { key: 'offline_title',       label: 'Offline message title',      placeholder: { en: 'We are offline',      fa: 'در حال حاضر آفلاین هستیم', tr: 'Şu anda çevrimdışıyız' } },
-  { key: 'offline_message',     label: 'Offline message text',       placeholder: { en: 'Our team is offline right now. Please try again later.', fa: 'تیم ما الان آفلاین است. لطفاً بعداً دوباره تلاش کنید.', tr: 'Ekibimiz şu anda çevrimdışı. Lütfen daha sonra tekrar deneyin.' } },
-  { key: 'voice_call',          label: 'Voice call button',          placeholder: { en: 'Voice call',          fa: 'تماس صوتی',           tr: 'Sesli arama' } },
-  { key: 'video_call',          label: 'Video call button',          placeholder: { en: 'Video call',          fa: 'تماس تصویری',         tr: 'Görüntülü arama' } },
-  { key: 'request_callback',    label: 'Callback button',            placeholder: { en: 'Request callback',    fa: 'درخواست تماس',        tr: 'Geri arama iste' } },
-  { key: 'request_callback_instead', label: 'Home callback row title', placeholder: { en: 'Request a callback', fa: 'درخواست تماس', tr: 'Geri arama iste' } },
-  { key: 'callback_intro',      label: 'Home callback row subtitle', placeholder: { en: 'Tell us how to reach you and our team calls back fast.', fa: 'راه ارتباطی را وارد کنید؛ تیم ما سریع تماس می‌گیرد.', tr: 'Size nasıl ulaşacağımızı yazın; ekibimiz hızlıca geri arar.' } },
-];
-
 const LOC_LABELS_FULL: Record<string, string> = {
   en: 'English', fa: 'فارسی', tr: 'Türkçe',
 };
@@ -1591,23 +1574,29 @@ function CheckRow({ ok, label }: { ok: boolean; label: string }) {
 function WidgetTextsEditor({
   settings,
   platform,
+  locale: wanted,
+  onLocale,
+  onPreviewState,
   onChange,
 }: {
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
+  /** The language being edited (shared with the live preview). */
+  locale: string | null;
+  onLocale: (locale: string) => void;
+  /** The preview shows the state of the field being edited. */
+  onPreviewState: (state: 'online' | 'offline') => void;
   onChange: (next: Record<string, Record<string, string>>) => void;
 }) {
   const { t } = useTranslation();
-  const platformAvail: string[] = platform?.widget_available_locales || ['en'];
-  const enabled: string[] = (settings.widget_enabled_locales && settings.widget_enabled_locales.length > 0)
-    ? settings.widget_enabled_locales.filter((l: string) => platformAvail.includes(l))
-    : platformAvail;
-  const [locale, setLocale] = useState<string>(enabled[0] || 'en');
-  useEffect(() => { if (!enabled.includes(locale)) setLocale(enabled[0] || 'en'); }, [enabled.join(','), locale]);
+  // The visitor's languages exactly as the bootstrap gives them.
+  const locales = effectiveCallWidgetLocales(platform, settings);
+  const enabled = locales.available;
+  const locale = wanted && enabled.includes(wanted) ? wanted : locales.default_locale;
 
   const all: Record<string, Record<string, string>> = settings.widget_custom_texts || {};
   const current = all[locale] || {};
-  const callbackOn = platform?.callback_requests_enabled !== false;
+  const callbackOn = platform?.callback_requests_enabled !== false && settings.callback_enabled !== false;
   const visibleKeys = WIDGET_TEXT_KEYS.filter((k) => callbackOn || !CALLBACK_TEXT_KEYS.has(k.key));
 
   function setField(key: string, val: string) {
@@ -1621,46 +1610,58 @@ function WidgetTextsEditor({
   }
 
   const isRtl = locale === 'fa';
+  const label = (key: string, fallback: string) => {
+    // Translated field name when the locale bundle has one; the English
+    // constant stays as the fallback so a missing key never shows a path.
+    const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
+    const translated = (t as unknown as (k: string) => string)(tk);
+    return translated === tk ? fallback : translated;
+  };
 
   return (
-    <div className="pt-3 border-t space-y-3">
+    <div className="pt-3 border-t space-y-3" data-cc-texts>
       <div className="flex items-center justify-between gap-3">
         <div>
           <Label>{t('callCenter.settingsPage.widgetLabelOverrides')}</Label>
           <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.widgetLabelOverridesHint')}</p>
         </div>
-        <Select value={locale} onValueChange={setLocale}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {enabled.map((c) => (
-              <SelectItem key={c} value={c}>{LOC_LABELS_FULL[c] || c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {enabled.length > 1 && (
+          <Select value={locale} onValueChange={onLocale}>
+            <SelectTrigger className="w-40" data-cc-texts-locale><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {enabled.map((c) => (
+                <SelectItem key={c} value={c}>{LOC_LABELS_FULL[c] || c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {visibleKeys.map(({ key, label, placeholder }) => {
-          // Translated field name when the locale bundle has one; the English
-          // constant stays as the fallback so a missing key never shows a path.
-          const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
-          const translated = (t as unknown as (k: string) => string)(tk);
-          const fieldLabel = translated === tk ? label : translated;
-          return (
-          <div key={key} className="space-y-1">
-            <Label className="text-xs">{fieldLabel}</Label>
-
-            <Input
-              value={current[key] || ''}
-              onChange={(e) => setField(key, e.target.value)}
-              placeholder={placeholder[locale] || placeholder.en}
-              maxLength={WIDGET_TEXT_MAX}
-              dir={isRtl ? 'rtl' : 'ltr'}
-            />
+      {WIDGET_TEXT_GROUPS.map((group) => {
+        const keys = visibleKeys.filter((k) => k.group === group);
+        if (!keys.length) return null;
+        return (
+          <div key={group} className="space-y-2" data-cc-texts-group={group}>
+            <p className="text-xs font-medium text-muted-foreground">{t(`callCenter.settingsPage.widgetTextGroups.${group}` as 'callCenter.settingsPage.widgetTextGroups.launcher')}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {keys.map(({ key, state, label: fallback, placeholder }) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs" htmlFor={`cc-text-${key}`}>{label(key, fallback)}</Label>
+                  <Input
+                    id={`cc-text-${key}`}
+                    data-cc-text={key}
+                    value={current[key] || ''}
+                    onChange={(e) => setField(key, e.target.value)}
+                    onFocus={() => onPreviewState(state)}
+                    placeholder={placeholder[locale] || placeholder.en}
+                    maxLength={WIDGET_TEXT_MAX}
+                    dir={isRtl ? 'rtl' : 'ltr'}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-          );
-        })}
-
-      </div>
+        );
+      })}
     </div>
   );
 }

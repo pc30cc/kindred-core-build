@@ -130,6 +130,26 @@ export function cleanCallWidgetTheme(theme: Record<string, unknown> | null | und
   return { theme: out, invalid };
 }
 
+/**
+ * The widget texts a save sends: each trimmed (the widget shows what is
+ * stored), an empty one left out (the widget's own copy again), a language
+ * with none left dropped.
+ */
+export function cleanCallWidgetTexts(
+  texts: Record<string, Record<string, string>> | null | undefined,
+): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  for (const [locale, entries] of Object.entries(texts || {})) {
+    const kept: Record<string, string> = {};
+    for (const [key, value] of Object.entries(entries || {})) {
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text) kept[key] = text;
+    }
+    if (Object.keys(kept).length) out[locale] = kept;
+  }
+  return out;
+}
+
 // ── Call widget design settings (migration 277) ─────────────────────────────
 
 /** The settings migration 277 adds (server/services/callCenter/settings.ts CALL_WIDGET_DESIGN_COLUMNS). */

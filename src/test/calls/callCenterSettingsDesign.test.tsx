@@ -438,6 +438,43 @@ describe('text overrides', () => {
     const patch = await save();
     expect(patch.widget_custom_texts).toEqual({ fa: { launcher_pill: 'زنگ بزنید' } });
   });
+
+  it('grouped by where they show, every text the widget draws there (offline status, badge, short labels included)', () => {
+    const { container } = mount();
+    expect([...container.querySelectorAll('[data-cc-texts-group]')].map((g) => g.getAttribute('data-cc-texts-group')))
+      .toEqual(['launcher', 'header', 'home', 'offline']);
+    for (const key of ['support', 'offline', 'no_operator_now', 'live_now', 'channel_voice', 'video', 'offline_title', 'offline_message']) {
+      expect(container.querySelector(`[data-cc-text="${key}"]`), key).not.toBeNull();
+    }
+    expect(container.querySelector<HTMLInputElement>('[data-cc-text="talk_now"]')!.maxLength).toBe(200);
+  });
+
+  it('a text is saved trimmed; one left blank is not saved at all', async () => {
+    const { container } = mount();
+    fireEvent.change(container.querySelector('[data-cc-text="talk_now"]')!, { target: { value: '  همین حالا  ' } });
+    fireEvent.change(container.querySelector('[data-cc-text="live_support"]')!, { target: { value: '   ' } });
+    const patch = await save();
+    expect(patch.widget_custom_texts).toEqual({ fa: { talk_now: 'همین حالا' } });
+  });
+
+  it('the preview shows the language being edited, with its texts, and the state of the field being edited', async () => {
+    const { container } = mount();
+    expect(previewBoot().boot.i18n.default_locale).toBe('fa');
+    await choose(container.querySelector<HTMLElement>('[data-cc-texts-locale]')!, 'English');
+    expect(previewBoot().boot.i18n.default_locale).toBe('en');
+    fireEvent.change(container.querySelector('[data-cc-text="talk_to_team"]')!, { target: { value: 'Hello there' } });
+    expect((previewBoot().boot.config.custom_texts as Record<string, Record<string, string>>).en.talk_to_team).toBe('Hello there');
+    fireEvent.focus(container.querySelector('[data-cc-text="offline_title"]')!);
+    expect(previewBoot().boot.capabilities.voice).toBe(false);
+    fireEvent.focus(container.querySelector('[data-cc-text="talk_now"]')!);
+    expect(previewBoot().boot.capabilities.voice).toBe(true);
+  });
+
+  it('callback texts are hidden while the workspace takes no callbacks', () => {
+    const { container } = mount({ callback_enabled: false });
+    expect(container.querySelector('[data-cc-text="request_callback"]')).toBeNull();
+    expect(container.querySelector('[data-cc-text="offline_title"]')).not.toBeNull();
+  });
 });
 
 describe('the live preview', () => {

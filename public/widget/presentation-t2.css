@@ -866,6 +866,13 @@ a.wy-powered:hover { color: var(--ink-2); }
   transition: box-shadow .22s ease;
 }
 .input-wrap:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 6px var(--a-2), 0 8px 20px -14px rgba(15, 18, 23, .3); }
+
+/* What is left of the message limit, drawn by Core from 500 characters on
+   (runtime.js syncCharsLeft sets `data-chars-left` on the pill). */
+[data-chars-left]::after {
+  content: attr(data-chars-left); align-self: flex-end; padding: 0 8px 2px;
+  font-size: 11px; line-height: 14px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
 /* The DOM order is Core's (mic, text, send, attach, emoji); the grid only
    paints them: text across the top, emoji and attach at the start of the
    tools row, the round action at its end. */

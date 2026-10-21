@@ -569,6 +569,9 @@
         if (src.forEach) src.forEach(function (v, k) { headers[k] = v; });
         else for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) headers[k] = src[k];
         if (t) headers['X-Widget-Token'] = t;
+        // The visitor credential the loader holds when this browser drops
+        // the dvsid cookie (loader.js vh; server visitorIdentity.ts).
+        try { if (window.__gs_token.vc) headers['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
         var next = {};
         for (var k2 in init) if (Object.prototype.hasOwnProperty.call(init, k2)) next[k2] = init[k2];
         next.headers = headers;
@@ -1021,7 +1024,10 @@
         reconnecting: 'Reconnecting…',
         connecting: 'Connecting…',
         connLimited: 'Connection is limited. Messaging still works.',
-        offlineComposerTip: 'Disabled while offline',
+        // The composer while the connection is being made (writing stays
+        // open), and when the chat itself is not available.
+        connectingComposerTip: 'Connecting… You can write: your message is sent once connected.',
+        chatUnavailableTip: 'Chat is not available right now',
         // Phase 5 — availability
         availOnline: "We're online",
         availAway: 'Replies may be slower',
@@ -1083,6 +1089,11 @@
         msgSent: 'Sent',
         msgSeen: 'Seen',
         msgFailed: 'Not delivered',
+        // Why a message was not sent (runtime chatUI sendFailure).
+        msgFailOffline: 'Not sent yet: it goes once you are connected',
+        msgFailRate: 'Too many messages at once: sending again in a moment',
+        msgFailLong: 'Too long: at most 5,000 characters',
+        msgFailClosed: 'Chat is not available right now',
         typingOperator: 'Support is typing…',
         aiThinking: 'Thinking…',
         routingAgentJoined: '{name} joined the conversation',
@@ -1257,7 +1268,8 @@
         reconnecting: 'در حال اتصال مجدد…',
         connecting: 'در حال اتصال…',
         connLimited: 'اتصال محدود است. ارسال پیام همچنان کار می‌کند.',
-        offlineComposerTip: 'در حالت آفلاین غیرفعال است',
+        connectingComposerTip: 'در حال اتصال… می‌توانید بنویسید؛ پیام پس از برقراری اتصال ارسال می‌شود.',
+        chatUnavailableTip: 'گفتگو در حال حاضر در دسترس نیست',
         availOnline: 'ما آنلاین هستیم',
         availAway: 'پاسخ‌گویی ممکن است کندتر باشد',
         availOffline: 'در حال حاضر آفلاین هستیم',
@@ -1315,6 +1327,10 @@
         msgSent: 'ارسال شد',
         msgSeen: 'دیده شد',
         msgFailed: 'ارسال نشد',
+        msgFailOffline: 'هنوز ارسال نشده؛ پس از برقراری اتصال ارسال می‌شود',
+        msgFailRate: 'پیام‌ها پشت سر هم زیاد شد؛ چند لحظهٔ دیگر دوباره ارسال می‌شود',
+        msgFailLong: 'پیام طولانی است؛ حداکثر ۵٬۰۰۰ نویسه',
+        msgFailClosed: 'گفتگو در حال حاضر در دسترس نیست',
         typingOperator: 'پشتیبانی در حال نوشتن…',
         aiThinking: 'در حال فکر…',
         routingAgentJoined: '{name} به گفتگو پیوست',
@@ -1480,7 +1496,8 @@
         reconnecting: 'Yeniden bağlanılıyor…',
         connecting: 'Bağlanıyor…',
         connLimited: 'Bağlantı sınırlı. Mesajlaşma çalışmaya devam ediyor.',
-        offlineComposerTip: 'Çevrimdışıyken devre dışı',
+        connectingComposerTip: 'Bağlanıyor… Yazabilirsiniz: mesajınız bağlanınca gönderilir.',
+        chatUnavailableTip: 'Sohbet şu anda kullanılamıyor',
         availOnline: 'Çevrimiçiyiz',
         availAway: 'Yanıtlar gecikebilir',
         availOffline: 'Şu an çevrimdışıyız',
@@ -1538,6 +1555,10 @@
         msgSent: 'Gönderildi',
         msgSeen: 'Görüldü',
         msgFailed: 'İletilemedi',
+        msgFailOffline: 'Henüz gönderilmedi: bağlanınca gönderilecek',
+        msgFailRate: 'Aynı anda çok fazla mesaj: birazdan yeniden gönderilecek',
+        msgFailLong: 'Çok uzun: en fazla 5.000 karakter',
+        msgFailClosed: 'Sohbet şu anda kullanılamıyor',
         typingOperator: 'Destek yazıyor…',
         aiThinking: 'Düşünüyor…',
         routingAgentJoined: '{name} görüşmeye katıldı',
@@ -1690,7 +1711,7 @@
   // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
   function createTransport(ctx, transportStore, fsm, isPanelOpen) {
-    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [] };
+    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [], seen: [] };
     function on(event, fn) {
       if (!subs[event]) return function () {};
       subs[event].push(fn);
@@ -1975,6 +1996,12 @@
           forceNewConversation: !!payload.forceNewConversation,
           // Phase 6b — attachment id flows through to the message endpoint.
           attachmentId: payload.attachmentId || null,
+          // The send's idempotency key (stable across its retries), the
+          // message it answers and the department the visitor chose: the
+          // chat module sends all three (runtime-chat.js).
+          clientMessageId: payload.clientMessageId || null,
+          replyToMessageId: payload.replyToMessageId || null,
+          departmentId: payload.departmentId || null,
 
           text: payload.text,
           onConversation: function (cid) {
@@ -2230,6 +2257,8 @@
                   onPresence: function (e) { emit('presence', e); },
                   // A message's reactions changed (runtime-late.js; nothing without it).
                   onReaction: function (p) { ext('reaction', p); },
+                  // An operator read the visitor's messages (server visitorSeen.ts).
+                  onSeen: function (p) { emit('seen', p); },
                   onReconnect: function () { emit('reconnect', {}); },
                   // Subscribe-ack from the driver — proves the per-conversation
                   // channel is live and the visitor is sendable. This is the
@@ -3229,7 +3258,7 @@
 
     function tickTypewriter() {
       if (!typewriter) return;
-      var step = typewriter.tokens.length > 90 ? 2 : 1;
+      var step = typewriter.step || 1;
       typewriter.revealedCount = Math.min(typewriter.tokens.length, typewriter.revealedCount + step);
       var done = typewriter.revealedCount >= typewriter.tokens.length;
       var body = lastRenderedBody;
@@ -3259,17 +3288,42 @@
     // exactly (including newlines) once fully revealed. Generic: id just
     // has to match a `data-typing-id` attribute buildMessagesHtml() (or any
     // other renderer) puts on the element to reveal into.
+    //
+    // It never moves for a visitor who asked for less motion (the text is
+    // there at once), and never runs longer than TYPEWRITER_MAX_MS: a long
+    // reply reveals more words per tick (WCAG 2.2.2 asks a way to stop
+    // anything moving for over 5 s; this one simply ends sooner).
+    var TYPEWRITER_TICK_MS = 85;
+    var TYPEWRITER_MAX_MS = 4000;
+    function prefersReducedMotion() {
+      try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+      catch (_) { return false; }
+    }
     function startTypewriterFor(id, text) {
       if (!id) return;
       var str = (text || '').toString();
       if (!str.trim()) return;
       if (typewriter && typewriter.id === id) return; // already animating this one
       stopTypewriter(true);
+      if (prefersReducedMotion()) {
+        // Whole at once. A message bubble is painted whole with no reveal
+        // running; a node already painted empty for the reveal (the
+        // hand-off card's subtitle) gets its text now.
+        var body = lastRenderedBody;
+        var el = body && body.querySelector ? body.querySelector('[data-typing-id="' + id + '"]') : null;
+        if (el) {
+          revealFinalText(el, str);
+          var host = el.closest('[data-typing-host]');
+          if (host) host.removeAttribute('data-typing-active');
+        }
+        return;
+      }
       var tokens = str.match(/\S+\s*/g) || [str];
+      var step = Math.max(tokens.length > 90 ? 2 : 1, Math.ceil(tokens.length / Math.floor(TYPEWRITER_MAX_MS / TYPEWRITER_TICK_MS)));
       // Start with the first token already revealed so the bubble never
       // paints empty for a frame (or forever, if the reveal node is missing).
-      typewriter = { id: id, tokens: tokens, revealedCount: 1, timer: null, misses: 0 };
-      typewriter.timer = setInterval(tickTypewriter, 85);
+      typewriter = { id: id, tokens: tokens, revealedCount: 1, step: step, timer: null, misses: 0 };
+      typewriter.timer = setInterval(tickTypewriter, TYPEWRITER_TICK_MS);
     }
 
     function startTypewriter(msg) {
@@ -3568,10 +3622,12 @@
       if (!c.apiBase || !c.workspaceId || !c.token) {
         return Promise.reject(new Error('widget context not ready'));
       }
+      var h = { 'Content-Type': 'application/json', 'X-Widget-Token': c.token };
+      try { if (window.__gs_token.vc) h['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
       return fetch(c.apiBase + '/api/widget/call-invitations/' + encodeURIComponent(invitationId) + '/' + action, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': c.token },
+        headers: h,
         body: JSON.stringify({
           workspace_id: c.workspaceId,
           visitor_id: c.visitorId || undefined,
@@ -4204,10 +4260,15 @@
     // never wipe the fields.
     function prechatValues() {
       var c = (identityStore.get().contact) || {};
+      // What the site passed with identify() (loader.js) fills what the
+      // contact does not have yet; an email that is not one is left out.
+      var idf = {};
+      try { idf = window.__gs_identify_data || {}; } catch (_) {}
+      var idEmail = idf.email && Util.isValidEmail(idf.email) ? idf.email : '';
       return {
-        name: prechatDraft.name || c.name || '',
-        email: prechatDraft.email || c.email || '',
-        phone: prechatDraft.phone || c.phone || '',
+        name: prechatDraft.name || c.name || idf.name || '',
+        email: prechatDraft.email || c.email || idEmail,
+        phone: prechatDraft.phone || c.phone || idf.phone || '',
       };
     }
 
@@ -4262,7 +4323,7 @@
      * is idempotent rather than creating a second message (see the
      * client_message_id contract in server/routes/widget.ts).
      */
-    function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange) {
+    function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange, done) {
       var s = chatStore.get();
       var req = {
         text: text,
@@ -4291,10 +4352,14 @@
         onAccepted: function (info) {
           // Bind canonical message id and flip to 'sent'. The next merge
           // (poll/history) will reconcile by __id and may promote to 'seen'.
+          clearAutoResend(localId);
           updateMessageByLocalId(localId, {
             status: 'sent',
             __id: info && info.messageId ? info.messageId : undefined,
+            failReason: null,
+            failText: null,
           }, onChange);
+          if (done) done();
         },
         onReply: function (reply) {
           var ns = chatStore.get();
@@ -4309,9 +4374,10 @@
           // gets the leave-a-message form instead of a failed bubble —
           // only when the server accepts captures over the quota
           // (availability.quota_full present) and no thread exists yet.
-          if (switchToQuotaForm(err, localId, text, onChange)) return;
+          if (switchToQuotaForm(err, localId, text, onChange)) { if (done) done(); return; }
           Util.warn('Send failed');
-          updateMessageByLocalId(localId, { status: 'failed' }, onChange);
+          markSendFailed(localId, sendFailure(err), onChange);
+          if (done) done();
         },
       };
       // A renderer feature may deliver it another way (the message left
@@ -4338,6 +4404,111 @@
       chatStore.set({ messages: rest });
       if (typeof onChange === 'function') onChange();
       return true;
+    }
+
+    // ─── A failed send: why, and sending it again by itself ───
+    // The bubble says why it failed (`failText`, drawn by every renderer in
+    // place of "not delivered"), and a failure that passes is sent again
+    // without the visitor doing anything, with the SAME localId (the
+    // server's idempotency key, so a retry never posts it twice):
+    //   offline  no connection (composed while connecting, or the request
+    //            never reached the server): when the connection is back, in
+    //            order, else after a backoff while the connection looks up;
+    //   rate     too many messages at once (429): after the wait the server
+    //            names (`retry_after`);
+    //   server   a 5xx: once or twice more after a short wait.
+    // One that cannot pass (too long, chat not available) keeps its Retry.
+    var MAX_AUTO_RESENDS = 5;
+    var autoResendTimers = {};
+    function sendFailure(err) {
+      var status = err && typeof err === 'object' ? err.status : null;
+      if (!status) return { reason: typeof err === 'string' ? 'error' : 'offline' };
+      if (status === 429) return { reason: 'rate', wait: Math.min(60, Math.max(1, Number(err.retryAfter) || 5)) };
+      if (status === 413 || (status === 400 && err.fields && (err.fields.indexOf('message') !== -1 || err.fields.indexOf('body') !== -1))) {
+        return { reason: 'long' };
+      }
+      if (status === 403) return { reason: 'closed' };
+      if (status >= 500) return { reason: 'server', wait: 5 };
+      return { reason: 'error' };
+    }
+    var FAIL_TEXT_KEYS = { offline: 'msgFailOffline', rate: 'msgFailRate', long: 'msgFailLong', closed: 'msgFailClosed' };
+    function markSendFailed(localId, failure, onChange) {
+      var msg = findByLocalId(localId);
+      var tries = (msg && msg.autoTries) || 0;
+      var key = FAIL_TEXT_KEYS[failure.reason];
+      updateMessageByLocalId(localId, {
+        status: 'failed',
+        failReason: failure.reason,
+        failText: key ? t(key) : null,
+      }, onChange);
+      if (tries >= (failure.reason === 'server' ? 2 : MAX_AUTO_RESENDS)) return;
+      var wait = failure.wait;
+      if (failure.reason === 'offline') {
+        // Without a usable connection the resend waits for it (flushQueued);
+        // a request that failed while the connection looks up backs off.
+        if (!canSendNow()) return;
+        wait = Math.min(30, 3 * Math.pow(2, tries));
+      }
+      if (!wait) return;
+      scheduleAutoResend(localId, wait * 1000, onChange);
+    }
+    function scheduleAutoResend(localId, ms, onChange) {
+      clearAutoResend(localId);
+      autoResendTimers[localId] = setTimeout(function () {
+        delete autoResendTimers[localId];
+        autoResend(localId, onChange);
+      }, ms);
+    }
+    function clearAutoResend(localId) {
+      if (autoResendTimers[localId]) { clearTimeout(autoResendTimers[localId]); delete autoResendTimers[localId]; }
+    }
+    function findByLocalId(localId) {
+      var arr = chatStore.get().messages;
+      for (var i = 0; i < arr.length; i++) if (arr[i].localId === localId) return arr[i];
+      return null;
+    }
+    function autoResend(localId, onChange, done) {
+      var msg = findByLocalId(localId);
+      if (!msg || msg.status !== 'failed' || !canSendNow()) { if (done) done(); return; }
+      updateMessageByLocalId(localId, { status: 'sending', autoTries: (msg.autoTries || 0) + 1 }, onChange);
+      attemptSend(localId, msg.body, msg.attachmentId, msg.departmentId, msg.replyToMessageId, onChange, done);
+    }
+    /**
+     * The connection is back: send what waited for it, one at a time and in
+     * the order it was written (the first may create the conversation the
+     * next one belongs to).
+     */
+    var flushing = 0;
+    function flushQueued(onChange) {
+      // One at a time; a request that never answers holds the queue 30 s at most.
+      if ((flushing && Date.now() - flushing < 30000) || !canSendNow()) return;
+      var arr = chatStore.get().messages;
+      var next = null;
+      for (var i = 0; i < arr.length; i++) {
+        var m = arr[i];
+        if (m.sender === 'visitor' && m.status === 'failed' && m.failReason === 'offline' && m.localId
+            && (m.autoTries || 0) < MAX_AUTO_RESENDS) { next = m; break; }
+      }
+      if (!next) return;
+      flushing = Date.now();
+      clearAutoResend(next.localId);
+      autoResend(next.localId, onChange, function () {
+        flushing = 0;
+        var sent = findByLocalId(next.localId);
+        if (sent && sent.status !== 'failed') flushQueued(onChange);
+      });
+    }
+    /**
+     * Whether a send may go to the network now. Online, yes. While the
+     * connection is being made (first connect, reconnecting) it waits for it
+     * (flushQueued). Realtime switched off or given up ('offline') says
+     * nothing about the plain HTTP send, which is tried unless the browser
+     * itself reports no network.
+     */
+    function canSendNow() {
+      var c = transportStore.get().connectionState;
+      if (c === 'online') return true;
+      return c === 'offline' && !(typeof navigator !== 'undefined' && navigator.onLine === false);
     }
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment, replyToMessageId) {
@@ -4368,7 +4539,11 @@
         // feedback and a retry action, rather than the message silently
         // vanishing — but never attempt the network call while there is no
         // usable connection.
-        status: transportStore.get().connectionState === 'online' ? 'sending' : 'failed',
+        // Without a usable connection it waits, said in words, and goes by
+        // itself once connected (flushQueued).
+        status: canSendNow() ? 'sending' : 'failed',
+        failReason: canSendNow() ? null : 'offline',
+        failText: canSendNow() ? null : t('msgFailOffline'),
         localId: localId,
         // The composer's own department selector can change before a retry;
         // pin the value the visitor actually had at compose time so a
@@ -4378,7 +4553,7 @@
       chatStore.set({ messages: messages });
       onChange();
 
-      if (transportStore.get().connectionState !== 'online') return;
+      if (!canSendNow()) return;
       attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange);
     }
 
@@ -4396,9 +4571,32 @@
         if (cs.messages[i].localId === localId) { msg = cs.messages[i]; break; }
       }
       if (!msg || msg.status !== 'failed') return;
-      if (transportStore.get().connectionState !== 'online') return;
-      updateMessageByLocalId(localId, { status: 'sending' }, onChange);
+      if (!canSendNow()) return;
+      clearAutoResend(localId);
+      // The visitor's own retry starts the automatic ones over.
+      updateMessageByLocalId(localId, { status: 'sending', autoTries: 0 }, onChange);
       attemptSend(localId, msg.body, msg.attachmentId, msg.departmentId, msg.replyToMessageId, onChange);
+    }
+
+    /**
+     * An operator read the visitor's messages (the `seen` envelope, server
+     * visitorSeen.ts): exactly those bubbles of the open thread turn "seen".
+     * Returns whether anything changed.
+     */
+    function applySeen(p) {
+      if (!p || !p.message_ids || !p.message_ids.length) return false;
+      var s = chatStore.get();
+      if (!s.conversationId || String(p.conversation_id) !== String(s.conversationId)) return false;
+      var ids = {};
+      for (var i = 0; i < p.message_ids.length; i++) ids[p.message_ids[i]] = 1;
+      var changed = false;
+      var arr = s.messages.map(function (m) {
+        if (m.sender !== 'visitor' || !m.__id || !ids[m.__id] || m.status === 'seen' || m.status === 'failed') return m;
+        changed = true;
+        return Object.assign({}, m, { status: 'seen', seenAt: p.seen_at || null });
+      });
+      if (changed) chatStore.set({ messages: arr });
+      return changed;
     }
 
     function bootstrapHistory(onChange) {
@@ -4554,6 +4752,8 @@
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       resendMessage: resendMessage,
+      flushQueued: flushQueued,
+      applySeen: applySeen,
       bootstrapHistory: bootstrapHistory,
       // P0-C / P0-3 — explicit thread selection. Loads exactly `cid`, never
       // lets the server pick a different conversation, and drops its own
@@ -6358,6 +6558,12 @@
     chatStore.subscribe(__persistViewHint);
 
     var DRAFT_PENDING_KEY = '__pending__';
+    // The longest message POST /api/widget/message takes (its schema's
+    // max): the composer stops there, and shows what is left from
+    // CHARS_LEFT_SHOW on (`data-chars-left` on the pill, which every
+    // template's stylesheet draws).
+    var MESSAGE_MAX_CHARS = 5000;
+    var CHARS_LEFT_SHOW = 500;
 
     // ─── Smart Engagement interaction bridge state ──────────────────────
     var smartInteractionListeners = [];
@@ -6717,7 +6923,7 @@
       srAnnouncer.textContent = (senderName ? senderName + ': ' : '') + text;
     }
     var msgInput = chatQ('[data-msg-input]');
-    if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); }
+    if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); msgInput.maxLength = MESSAGE_MAX_CHARS; }
     var sendBtn = chatQ('[data-send-btn]');
     var inputBar = chatQ('[data-input-bar]');
     var attachBtn = chatQ('[data-attach-btn]');
@@ -7753,25 +7959,30 @@
       //   - away with offline_mode capture_message, the leave-a-message form
       //     owns a new human thread (renderBody hides the composer); an
       //     existing thread and an AI chat keep theirs
+      // The connection never closes it: while it is being made the visitor
+      // writes and sends, and the message waits, said in words on its
+      // bubble, and goes by itself once connected (chatUI.flushQueued).
       var pState = presenceStore.get();
       var availOk = pState.liveChatEnabled !== false;
-      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
+      var canSend = shellStore.get().activeTab === 'chat' && availOk;
       // A locked composer is styled by its renderer (`.input-bar.is-locked`).
       var locked = ext('locked');
       if (locked) canSend = false;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
-      if (canSend || locked) {
-        msgInput.removeAttribute('title');
-        sendBtn.style.opacity = '';
-        msgInput.style.opacity = '';
-      } else {
-        var tip = t('offlineComposerTip');
+      var waits = conn === 'connecting' || conn === 'reconnecting' ||
+        (conn === 'offline' && typeof navigator !== 'undefined' && navigator.onLine === false);
+      var tip = locked ? '' : !canSend ? t('chatUnavailableTip') : waits ? t('connectingComposerTip') : '';
+      if (tip) {
         msgInput.setAttribute('title', tip);
         sendBtn.setAttribute('title', tip);
-        sendBtn.style.opacity = '0.5';
-        msgInput.style.opacity = '0.7';
+      } else {
+        msgInput.removeAttribute('title');
+        sendBtn.removeAttribute('title');
       }
+      // Dimmed only when it cannot be used, never for the connection.
+      sendBtn.style.opacity = canSend || locked ? '' : '0.5';
+      msgInput.style.opacity = canSend || locked ? '' : '0.7';
     }
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
@@ -7858,6 +8069,32 @@
       var has = !!String(msgInput.value || '').trim()
         || (att.status === 'ready' && !!att.attachmentId);
       inputBar.classList.toggle('has-draft', has);
+      syncCharsLeft();
+    }
+    // What is left of the limit, in the locale's digits, once it is near;
+    // reaching it is said to a screen reader once.
+    var charsLeftNf = null;
+    try {
+      var nfBase = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+      charsLeftNf = new Intl.NumberFormat(nfBase === 'fa' ? 'fa-IR' : nfBase === 'tr' ? 'tr-TR' : 'en-US');
+    } catch (_) { charsLeftNf = null; }
+    var inputWrapEl = chatQ('[data-input-wrap]');
+    var charsLimitSaid = false;
+    function syncCharsLeft() {
+      if (!msgInput || !inputWrapEl) return;
+      var left = MESSAGE_MAX_CHARS - String(msgInput.value || '').length;
+      if (left > CHARS_LEFT_SHOW) {
+        inputWrapEl.removeAttribute('data-chars-left');
+        charsLimitSaid = false;
+        return;
+      }
+      var label = Math.max(0, left);
+      try { if (charsLeftNf) label = charsLeftNf.format(label); } catch (_) {}
+      inputWrapEl.setAttribute('data-chars-left', String(label));
+      if (left <= 0 && !charsLimitSaid) {
+        charsLimitSaid = true;
+        srAnnouncer.textContent = t('msgFailLong');
+      }
     }
     attachmentStore.subscribe(function () {
       try { syncComposerDraftState(); } catch (_) {}
@@ -7919,7 +8156,8 @@
       if (!text && !hasReadyAttach) return;
       if (att.status === 'uploading') return; // wait for upload to finish
       if (!identityStore.get().loaded) return;
-      if (transportStore.get().connectionState !== 'online') return;
+      // No connection check: without one the message waits on its bubble
+      // and goes by itself once connected (chatUI.sendMessage, flushQueued).
       // Contextual pre-chat gate (spec §4) — must match renderBody()'s own
       // decision exactly, not the raw field-presence identity.needsPrechat().
       // Using the raw check here meant every send silently no-op'd (just
@@ -7964,7 +8202,12 @@
       if (pendingQuote && pendingQuote.text) {
         var qLine = String(pendingQuote.text).replace(/\s*\n+\s*/g, ' ').trim();
         if (pendingQuote.author) qLine = pendingQuote.author + ': ' + qLine;
-        outText = '> ' + qLine + '\n\n' + text;
+        // The quote never pushes the message past the server's limit: it is
+        // shortened to the room the visitor's own text leaves (and left out
+        // when there is none; the reply link still travels).
+        var room = MESSAGE_MAX_CHARS - text.length - 4;
+        if (qLine.length > room) qLine = room > 1 ? qLine.slice(0, room - 1) + '…' : '';
+        if (qLine) outText = '> ' + qLine + '\n\n' + text;
         replyToId = pendingQuote.id || null;
         setPendingQuote(null);
       }
@@ -8870,13 +9113,14 @@
       bindViewHooks(body);
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (ctaBtn) {
         ctaBtn.addEventListener('click', function () {
-          // When an unresolved thread exists the template labels this CTA
-          // "Start new", so it must genuinely force a new conversation.
-          // Otherwise it is just "Start chat" → resume normal resolution.
-          var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
-            return c.status !== 'resolved' && c.status !== 'closed';
-          });
-          if (hasUnresolved) { startNewConversation(); return; }
+          // The CTA does what it says. Beside any earlier thread every
+          // template labels it as a new one ("New conversation", "Send a
+          // new message", "Start chat" under a finished thread): it starts
+          // one, never reopening an old thread's history (a live thread has
+          // its own "continue" control). With no thread at all it simply
+          // opens the chat.
+          var hasThread = ((conversationsStore.get() || {}).items || []).length > 0;
+          if (hasThread) { startNewConversation(); return; }
           chatStore.set({ conversationId: chatStore.get().conversationId });
           switchTab('chat');
         });
@@ -9301,9 +9545,15 @@
       var activeCid = chatStore.get().conversationId;
       var panelOpen = shellStore.get().isOpen;
       var activeTab = shellStore.get().activeTab;
+      // A tab in the background is not looking at the chat, open or not:
+      // the reply counts as unread there (title, badge, chime).
+      var pageHidden = typeof document !== 'undefined' && document.hidden === true;
 
       var newCount = 0;
       var lastIncoming = null;
+      // A new reply in the thread the visitor has open and in view: no
+      // unread, but a screen reader still hears it (WCAG 4.1.3).
+      var lastVisible = null;
 
       for (var i = 0; i < allIncoming.length; i++) {
         var m = allIncoming[i] || {};
@@ -9320,8 +9570,10 @@
         // Resolve cid for this message; fall back to active.
         var cid = m.conversation_id || m.conversationId || activeCid || '__default__';
         // Active conversation visible to the user → no unread bump.
-        var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid;
-        if (isActiveVisible) continue;
+        var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid && !pageHidden;
+        if (isActiveVisible) { lastVisible = m; continue; }
+        // Read on the visitor's return to the page (the visibilitychange below).
+        if (pageHidden && panelOpen && activeTab === 'chat' && cid === activeCid) unreadWhileHiddenCid = cid;
         per[cid] = (per[cid] || 0) + 1;
         newCount += 1;
         lastIncoming = m;
@@ -9358,6 +9610,18 @@
           }
         }
       } catch (_) { /* never break on audio */ }
+
+      if (!(newCount > 0 && lastIncoming) && lastVisible) {
+        // The open thread's reply: the typing row gives way to it, and it is
+        // announced like any other (the bubble itself is in view).
+        hideThinkingIndicator();
+        var visMeta = lastVisible.metadata || (lastVisible.message && lastVisible.message.metadata) || null;
+        var visIsSystem = !!((lastVisible.role === 'system' || lastVisible.sender_type === 'system') && visMeta && visMeta.kind);
+        announceIncoming(
+          aiOwnName(lastVisible.sender_type, lastVisible.sender_name) || lastVisible.from_name || (ctx.config.brandName || ''),
+          visIsSystem ? systemRowText(t, ctx.locale, visMeta.kind, visMeta) : (lastVisible.text || lastVisible.body || ''),
+        );
+      }
 
       if (newCount > 0 && lastIncoming) {
         // What it reads as outside the thread: a system row (the queue
@@ -9439,13 +9703,27 @@
       Util.log('transport reconnect — refreshing history');
       // Capability-gated: only call history load if the driver supports it.
       if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
-        chatUI.bootstrapHistory(function () {
+        var repaint = function () {
           if (shellStore.get().activeTab === 'chat') renderBody();
-        });
+        };
+        // The thread on screen is reloaded, never swapped: the server's own
+        // pick (its latest continuable thread) is only for a visitor with
+        // none open, else another thread's messages would merge into this
+        // one and the next message would go there.
+        var activeCid = chatStore.get().conversationId;
+        if (activeCid) chatUI.loadConversationHistory(activeCid, repaint);
+        else chatUI.bootstrapHistory(repaint);
       }
     });
     transport.on('connectionstate', function (e) {
       Util.log('connection state →', e.state);
+    });
+    // What was written while the connection was being made goes as soon as
+    // a send can (whichever path moved the connection state).
+    transportStore.subscribe(function () { chatUI.flushQueued(renderBody); });
+    // An operator read the visitor's messages: their ticks turn "seen".
+    transport.on('seen', function (p) {
+      if (chatUI.applySeen(p) && shellStore.get().activeTab === 'chat') renderBody();
     });
     // Presence/typing inbound hooks — only wire if driver advertises support.
     // Under the polling driver these are no-ops; future WS/SSE drivers can
@@ -9708,6 +9986,21 @@
     shellStore.subscribe(function (s) {
       if (s.isOpen && s.activeTab === 'chat') { clearUnreadForActive(); flushPendingRead(); }
     });
+    // Replies that came while the page was in the background counted as
+    // unread (transport.on('message')): the visitor coming back to the open
+    // thread has now seen them.
+    var unreadWhileHiddenCid = null;
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) return;
+        var sh = shellStore.get();
+        if (!sh.isOpen || sh.activeTab !== 'chat') return;
+        var cid = chatStore.get().conversationId;
+        clearUnreadForActive();
+        if (cid && unreadWhileHiddenCid === cid) markConversationRead(cid);
+        unreadWhileHiddenCid = null;
+      });
+    }
 
     // ─── Renderer features (runtime-ext.js) ───
     // Requested now, alongside the visitor's identity and threads, which a

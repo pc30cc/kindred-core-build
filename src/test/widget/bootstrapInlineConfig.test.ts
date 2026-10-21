@@ -177,7 +177,7 @@ describe('include_config: the GET /config body inline', () => {
     expect(boot.body).not.toHaveProperty('config');
     expect(Object.keys(boot.body)).toEqual([
       'session_token', 'workspace_id', 'workspace_name', 'expires_at', 'platform_display_name', 'edition',
-      'visitor_id', 'is_new_visitor', 'availability', 'effective_policy', 'version', 'protocol',
+      'visitor_id', 'is_new_visitor', 'visitor_credential', 'visitor_cookie', 'availability', 'effective_policy', 'version', 'protocol',
     ]);
   });
 
@@ -257,7 +257,8 @@ describe('unchanged answers', () => {
 
 describe('POST /boot: the same bootstrap, the path the current loader tries first', () => {
   const strip = (b: Record<string, unknown>) => {
-    const { session_token: _t, expires_at: _e, visitor_id: _v, is_new_visitor: _n, ...rest } = b;
+    // A new visitor each time: its id and credential differ.
+    const { session_token: _t, expires_at: _e, visitor_id: _v, is_new_visitor: _n, visitor_credential: _c, ...rest } = b;
     return rest;
   };
 

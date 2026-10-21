@@ -709,7 +709,8 @@
       // A run = consecutive messages of one author on one day; system rows break runs.
       var keys = msgs.map(function (m, i) {
         if (isSystemRow(m)) return 's' + i;
-        return (m.sender === 'visitor' ? 'v' : 'o:' + (m.senderName || '') + '|' + (m.senderAvatar || '') + '|' + (m.senderType === 'ai' ? 1 : 0)) +
+        // A failed message is a run of its own: its label and Retry stay on it.
+        return (m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : 'o:' + (m.senderName || '') + '|' + (m.senderAvatar || '') + '|' + (m.senderType === 'ai' ? 1 : 0)) +
           '@' + dayKeyOf(m.time);
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
@@ -741,7 +742,7 @@
         var statusHtml = '';
         if (visitor && isLast && failed) {
           // Shown whatever the receipts setting: an error the visitor can act on.
-          statusHtml = '<span class="msg-ticks is-failed">' + svg(D.err, 14, 2.2) + '<b>' + esc(t('msgFailed')) + '</b></span>' +
+          statusHtml = '<span class="msg-ticks is-failed">' + svg(D.err, 14, 2.2) + '<b>' + esc(m.failText || t('msgFailed')) + '</b></span>' +
             '<span aria-hidden="true">·</span><button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
               '">' + esc(L('retry')) + '</button>';
         } else if (visitor && isLast && receiptsEnabled && m.status) {

@@ -36,7 +36,7 @@ contract changes.
 | `hide` | — | Closes the panel (if open) and hides the launcher bubble entirely. |
 | `getState` | `callback: (state) => void` | Reads current widget state — see below. |
 | `isOpen` | `callback: (state) => void` | Same callback/payload as `getState` — a shorter name for when you only care about `open`. |
-| `identify` | `{ name?, email?, phone? }` | Remembers visitor contact details and includes them on the visitor's next sent message, via the same `visitor_name`/`visitor_email`/`visitor_phone` fields the pre-chat form already sends. Does not create a conversation or send anything by itself. |
+| `identify` | `{ name?, email?, phone? }` | Remembers visitor contact details and includes them on the visitor's next sent message, via the same `visitor_name`/`visitor_email`/`visitor_phone` fields the pre-chat form already sends, and fills the pre-chat form's empty fields with them. A value that is not usable (an email that is not one, a phone over 30 characters) is left out, never a reason to refuse the visitor's message. Does not create a conversation or send anything by itself. |
 
 ### Querying state: `getState` / `isOpen`
 

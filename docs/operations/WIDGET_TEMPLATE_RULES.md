@@ -316,6 +316,13 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   (links, logos) come from the view-model.
 - Interaction is expressed with `data-*` behaviour hooks the core binds;
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
+- Two things every chat template draws for Core: a failed visitor message's
+  `failText` (why it was not sent, in the visitor's language: no connection
+  yet, too many at once, too long, chat not available) in place of the
+  generic `msgFailed`, on a run of its own (`'x' + index` as its group key,
+  so its Retry stays on it); and the composer pill's `data-chars-left`
+  (what is left of the 5,000-character limit, set by Core from 500 on),
+  drawn by the template's stylesheet with `content: attr(data-chars-left)`.
   A hook only a new template needs is a renderer feature (§2): Core's code
   for it goes in `runtime-ext.js`, not in `runtime.js`.
 - Call widget: the presentation (the core and the panel module) never calls

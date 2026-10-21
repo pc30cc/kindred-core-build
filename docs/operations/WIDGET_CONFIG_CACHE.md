@@ -122,10 +122,13 @@ Layers a widget request passes, outermost first (all per process, in memory):
 | `kbSuggestGlobalCeiling` (GET /kb-suggest only, after its `kb_suggest` bucket) | the process | `WIDGET_KB_SUGGEST_GLOBAL_PER_MIN`, 1800 per min |
 
 `widgetRateLimit(category)` counts a request with a **valid, HMAC-signed,
-workspace-bound `dvsid` visitor cookie** per visitor; a request without one
-(first visit, Safari and other browsers that block third-party cookies,
-non-browsers, a forged or other-workspace cookie) per (IP, workspace) at the
-anonymous cap; and EVERY request, with a cookie or without, in the shared
+workspace-bound `dvsid` visitor cookie** per visitor (or, when no such cookie
+came, the same visitor's signed **visitor credential**, which the widget
+keeps for browsers that drop the cookie: the `X-Widget-Visitor` header or the
+`visitor_credential` field of the CORS-simple bodies, see
+`server/services/widget/visitorIdentity.ts`); a request without either
+(first visit, non-browsers, a forged or other-workspace cookie) per (IP,
+workspace) at the anonymous cap; and EVERY request, with a cookie or without, in the shared
 bucket of its (IP, workspace), the true ceiling of one address whatever
 cookies it minted. Workspace ids are canonicalised first, so respelling one
 never opens a new bucket.

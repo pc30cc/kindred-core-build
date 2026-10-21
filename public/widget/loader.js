@@ -199,6 +199,7 @@
     bus.serverProtocol = 0;
     function noteProtocol(data) {
       if (data && data.session_token) bus.serverProtocol = Number(data.protocol) || 0;
+      adoptVisitor(data, cfg.workspaceId);
       return data;
     }
 
@@ -263,7 +264,7 @@
       bootstrapsInWindow += 1;
       // Always the CURRENT browser origin: a token is never migrated from
       // one origin to another, a brand-new origin-bound one is minted.
-      var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin });
+      var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin, visitor_credential: vcNow() || undefined });
       // First CORS-simple (text/plain, no preflight) to /boot; a backend
       // older than this loader has no such route and answers before any
       // bootstrap work, so anything but a current answer is dropped and the
@@ -447,7 +448,7 @@
           method: "POST",
           signal: abort ? abort.signal : undefined,
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
           body: JSON.stringify(body),
         }).then(function (r) {
           clearTimeout(deadline);
@@ -503,7 +504,7 @@
             fetch(_commerceSession.apiBase + "/api/widget/commerce/identity/unlink", {
               method: "POST",
               credentials: "include",
-              headers: { "Content-Type": "application/json", "X-Widget-Token": _commerceSession.token },
+              headers: vh({ "Content-Type": "application/json", "X-Widget-Token": _commerceSession.token }),
               body: JSON.stringify({ workspaceId: ws }),
             }).catch(function () {});
           }
@@ -1371,12 +1372,32 @@
   // the one that answered the bootstrap (a rolling deploy, a rollback): it is
   // sent once more in the header form, and when that goes through, this page
   // keeps the header form from then on.
+  // ─── The visitor credential (server/services/widget/visitorIdentity.ts) ───
+  // For browsers that drop the HttpOnly dvsid cookie (Safari, Brave): the
+  // bootstrap's signed visitor credential, on the token bus (`vc`, which
+  // runtime.js sends too) and, only while the server says the cookie did not
+  // arrive, in this page's own localStorage, so the next page view is still
+  // the same visitor. Sent as X-Widget-Visitor (vh), or as
+  // `visitor_credential` in the CORS-simple bodies (no preflight).
+  function vcKey(ws) { return "gs:vc:" + ws; }
+  function vcNow() { try { return window.__gs_token.vc || ""; } catch (_) { return ""; } }
+  function vh(h) { var v = vcNow(); if (v) h["X-Widget-Visitor"] = v; return h; }
+  function adoptVisitor(data, ws) {
+    if (!data || typeof data.visitor_credential !== "string" || !ws) return;
+    var keep = data.visitor_cookie === true ? "" : data.visitor_credential;
+    try { window.__gs_token.vc = keep; } catch (_) {}
+    try {
+      if (keep) window.localStorage.setItem(vcKey(ws), keep);
+      else window.localStorage.removeItem(vcKey(ws));
+    } catch (_) {}
+  }
+
   function tokenPost(url, payload, token) {
     function headerForm() {
       return fetch(url, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
         body: JSON.stringify(payload),
       });
     }
@@ -1389,6 +1410,7 @@
       if (Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
     }
     body.widget_token = token;
+    if (vcNow()) body.visitor_credential = vcNow();
     return fetch(url, { method: "POST", credentials: "include", body: JSON.stringify(body) })
       .then(function (r) {
         if (r.status !== 401 && r.status !== 400) return r;
@@ -1512,7 +1534,11 @@
         window.sessionStorage.removeItem("gs:view:" + WORKSPACE_ID);
         window.sessionStorage.removeItem(bindingKey(WORKSPACE_ID));
         document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
+        window.localStorage.removeItem(vcKey(WORKSPACE_ID));
       } catch (_) {}
+    } else {
+      try { window.__gs_token.vc = window.localStorage.getItem(vcKey(WORKSPACE_ID)) || ""; } catch (_) {}
+      if (vcNow()) bootstrapPayload.visitor_credential = vcNow();
     }
     requestBootstrap(apiBase, bootstrapPayload)
       .then(function (data) {
@@ -1521,6 +1547,7 @@
           if (shellEl) shellEl.remove();
           return null;
         }
+        adoptVisitor(data, data.workspace_id || WORKSPACE_ID);
         // Phase 8 — hide_widget on NEW loads only. We treat any widget
         // load that has no prior conversation cookie as a "new load".
         // Existing active sessions remain visible because the runtime
@@ -2784,7 +2811,7 @@
         return fetch(apiBase + "/api/widget/smart/event", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": tok },
+          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": tok }),
           body: JSON.stringify({
             workspace_id: WORKSPACE_ID,
             source: "ai_proactive",
@@ -2882,7 +2909,7 @@
       fetch(apiBase + "/api/widget/nudge/evaluate", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
         body: JSON.stringify({
           workspace_id: WORKSPACE_ID,
           // Visitor identity is resolved server-side from the signed
@@ -3070,7 +3097,7 @@
         fetch(apiBase + "/api/widget/smart/event", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
           body: JSON.stringify({
             workspace_id: WORKSPACE_ID,
             rule_id: rule.id,
@@ -3859,7 +3886,7 @@
           fetch(apiBase + "/api/widget/action", {
             method: "PUT",
             credentials: "include",
-            headers: { "Content-Type": "application/json", "X-Widget-Token": tokenToUse },
+            headers: vh({ "Content-Type": "application/json", "X-Widget-Token": tokenToUse }),
             body: JSON.stringify({
               workspace_id: workspaceId,
               action: "heartbeat",

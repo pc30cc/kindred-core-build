@@ -637,8 +637,10 @@
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
       var html = '<div class="messages">';
 
-      var groupKeys = s.messages.map(function (m) {
-        var author = m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+      var groupKeys = s.messages.map(function (m, i) {
+        // A failed message is a run of its own, so its "not delivered" and
+        // Retry stay on it when a later message goes through (as in t2).
+        var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         // A new calendar day always breaks the streak so the meta line (time +
         // ticks) closes the previous day's run.
         return author + '@' + dayKeyOf(m.time);
@@ -681,7 +683,10 @@
           // retry action the visitor can actually act on (unlike the old
           // static "!" glyph). data-msg-retry is handled by the same
           // delegated click handler as data-msg-reply/data-msg-copy.
-          statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>' +
+          // Core's reason (`failText`: no connection yet, too many at once,
+          // too long…) is said in words beside it.
+          statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(m.failText || t('msgFailed')) + '">!</span>' +
+            (m.failText ? '<span class="msg-fail-text">' + esc(m.failText) + '</span>' : '') +
             '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
               '" title="' + esc(t('retry')) + '" aria-label="' + esc(t('retry')) + '">' +
               esc(t('retry')) + '</button>';
@@ -1183,7 +1188,9 @@
       // the full list stays reachable via the conversations view.
       var convs = (vm.conversations || []).slice(0, 3);
       var hasThreads = convs.length > 0;
-      var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
+      // A thread still going (Core's rule: open or pending). A resolved or
+      // closed one is not "continued": the CTA beside it starts a new one.
+      var unresolved = (vm.conversations || []).filter(function (c) { return c.status === 'open' || c.status === 'pending'; })[0];
       var articles = (vm.articles || []);
       // Design source of truth (renderVals(): showArticleChips true,
       // showArticlesButton false): article chips stay visible even when the

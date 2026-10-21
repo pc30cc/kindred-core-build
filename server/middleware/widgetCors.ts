@@ -42,7 +42,9 @@ import { isOriginAllowed, toStrictOrigin } from '../utils/domain.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 
-const ALLOWED_HEADERS = 'Content-Type, Authorization, X-Widget-Token, x-widget-token';
+// X-Widget-Visitor: the visitor credential, sent only by a widget whose
+// browser drops the dvsid cookie (services/widget/visitorIdentity.ts).
+const ALLOWED_HEADERS = 'Content-Type, Authorization, X-Widget-Token, x-widget-token, X-Widget-Visitor';
 const ALLOWED_METHODS = 'GET, POST, PUT, OPTIONS';
 
 /**

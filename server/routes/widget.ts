@@ -400,6 +400,11 @@ async function handleBootstrap(req: Request, res: Response) {
       edition,
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
+      // The visitor credential (services/widget/visitorIdentity.ts) and
+      // whether this request carried the cookie: the loader stores the
+      // credential only while the browser does not keep the cookie.
+      visitor_credential: visitor.credential,
+      visitor_cookie: visitor.fromCookie,
       availability: availabilityPayload,
       effective_policy,
       version: '3.0.0',
@@ -1648,9 +1653,22 @@ const messageSchema = z.object({
   message: z.string().min(0).max(5000).optional(),
   body: z.string().min(0).max(5000).optional(),
   visitor_id: z.string().min(1).max(255).optional(),
-  visitor_name: z.string().max(200).optional(),
-  visitor_email: z.string().email().optional().nullable(),
-  visitor_phone: z.string().max(30).optional().nullable(),
+  // The contact details a site passes with identify() (loader.js) ride on
+  // every message, unchecked by the page: a value that is not usable is
+  // dropped here, never a reason to refuse the visitor's message (an
+  // invalid email used to make every send a 400).
+  visitor_name: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : undefined),
+    z.string().max(200).optional(),
+  ),
+  visitor_email: z.preprocess(
+    (v) => (typeof v === 'string' && z.string().email().max(255).safeParse(v.trim()).success ? v.trim() : undefined),
+    z.string().email().optional().nullable(),
+  ),
+  visitor_phone: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() && v.trim().length <= 30 ? v.trim() : undefined),
+    z.string().max(30).optional().nullable(),
+  ),
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
   attachment_id: z.string().uuid().optional().nullable(),
@@ -2059,6 +2077,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // an unrelated prior open conversation the way matching on a stable
       // visitor/session identity would.
       const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;
+      // "+ New conversation" (force_new_conversation): the visitor asked for
+      // a NEW thread, so nothing may match by who they are. The contact
+      // (and session) match below would hand back their latest open thread
+      // — the very one they chose to leave — and the "new" message would
+      // land in it. Only the client-message key stays: it reunites retries
+      // of this same first message with the thread it created.
+      const forceNew = body.force_new_conversation === true;
       const lockKey = clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
       // The link (not a match key): which session this conversation belongs
       // to, so presence-by-conversation and the Visitors list can pair them.
@@ -2070,8 +2095,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         p_workspace_id: workspaceId,
         p_lock_key: lockKey,
         p_match_thread_key: widgetThreadKey,
-        p_match_session_id: body.session_id || null,
-        p_match_contact_id: contactId,
+        p_match_session_id: forceNew ? null : body.session_id || null,
+        p_match_contact_id: forceNew ? null : contactId,
         p_contact_id: contactId,
         p_visitor_session_id: linkSessionId,
         p_subject: subjectText,

@@ -159,10 +159,13 @@
     function fetchTopic(cid) {
       if (typeof fetch !== 'function' || !ctx.apiBase) return Promise.resolve(null);
       var expectedPrefix = buildChannel(cid) + ':';
+      var h = { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() };
+      // The visitor credential, when this browser drops the dvsid cookie.
+      try { if (window.__gs_token.vc) h['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
       return fetch(ctx.apiBase + '/api/realtime/subscribe', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
+        headers: h,
         body: JSON.stringify({ workspace_id: ctx.workspaceId, conversation_id: cid, transport: 'supabase' }),
       })
         .then(function (r) { return r && r.ok ? r.json() : null; })
@@ -246,9 +249,13 @@
         if (hooks.onTyping) hooks.onTyping({ channel: name, payload: unwrapPayload(msg) || {} });
       });
       ch.on('broadcast', { event: 'seen' }, function (msg) {
-        // Re-emit as a message-level update so existing UI seen handler picks it up.
         var p = unwrapPayload(msg);
-        if (p && hooks.onMessage) hooks.onMessage({ channel: name, messages: [p] });
+        if (!p) return;
+        // An operator read the visitor's messages: their ids and when
+        // (server/services/widget/visitorSeen.ts). The runtime marks them.
+        if (p.message_ids && hooks.onSeen) hooks.onSeen(p);
+        // A single message's copy (an older publisher): merged like a message.
+        else if (p.id && hooks.onMessage) hooks.onMessage({ channel: name, messages: [p] });
       });
 
       // Phase 8B — `event` envelopes carry kind:'call:incoming' for ringing

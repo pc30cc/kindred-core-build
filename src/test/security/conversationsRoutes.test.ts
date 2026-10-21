@@ -185,8 +185,12 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
   },
   verifyOriginForMutation: () => true,
 }));
+const conversationPublishes = vi.hoisted(() => [] as Array<{ conversationId: string; event: { type: string; payload: Record<string, unknown> } }>);
 vi.mock('../../../server/services/realtime/publish.js', () => ({
-  publishConversationEvent: async () => ({ ok: false, reason: 'not_configured' }),
+  publishConversationEvent: async (_c: unknown, _w: string, conversationId: string, event: { type: string; payload: Record<string, unknown> }) => {
+    conversationPublishes.push({ conversationId, event });
+    return { ok: false, reason: 'not_configured' };
+  },
   publishOperatorEvent: async () => ({ ok: false }),
   buildMessageEnvelope: (m: unknown) => ({ type: 'message', payload: m }),
 }));
@@ -392,10 +396,25 @@ describe('POST /api/conversations/:id/seen', () => {
   it('marks unseen visitor messages as seen and is workspace-scoped by the conversation itself', async () => {
     const msgId = crypto.randomUUID();
     db.conversation_messages.push({ id: msgId, conversation_id: convOpen, sender_type: 'contact', body: 'hi', seen_at: null, created_at: '2026-01-01T00:00:00Z' });
+    conversationPublishes.length = 0;
     const res = await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
     expect(res.status).toBe(200);
     expect(res.json.count).toBe(1);
     expect(db.conversation_messages.find((m) => m.id === msgId)?.seen_at).not.toBeNull();
+    // The visitor's widget hears it live: exactly that message, when (I-03).
+    await vi.waitFor(() => expect(conversationPublishes.some((p) => p.event.type === 'seen')).toBe(true));
+    const seen = conversationPublishes.find((p) => p.event.type === 'seen')!;
+    expect(seen.conversationId).toBe(convOpen);
+    expect(seen.event.payload).toEqual({
+      conversation_id: convOpen,
+      seen_at: db.conversation_messages.find((m) => m.id === msgId)?.seen_at,
+      message_ids: [msgId],
+    });
+    // Nothing newly read → nothing published.
+    conversationPublishes.length = 0;
+    await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(conversationPublishes.filter((p) => p.event.type === 'seen')).toHaveLength(0);
   });
 
   it('rejects marking a foreign-workspace conversation as seen', async () => {

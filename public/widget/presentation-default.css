@@ -786,6 +786,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-ticks svg { display: block; }
 .msg-ticks.is-seen { color: var(--wy-accent); }
 .msg-ticks.is-failed { color: #e5484d; font-weight: 700; }
+.msg-fail-text { color: #c62a30; font-size: 10.5px; line-height: 1.3; }
 .msg-retry-btn {
   border: none; background: none; padding: 0; margin-inline-start: 2px;
   font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1;
@@ -1410,6 +1411,13 @@ a.wy-powered:hover { color: var(--wy-text); }
   transition: box-shadow 0.16s;
 }
 /* No focus state — the composer keeps its resting border when typing. */
+
+/* What is left of the message limit, drawn by Core from 500 characters on
+   (runtime.js syncCharsLeft sets `data-chars-left` on the pill). */
+[data-chars-left]::after {
+  content: attr(data-chars-left); align-self: flex-end; padding: 0 6px 4px;
+  font-size: 11px; line-height: 14px; color: var(--wy-muted); font-variant-numeric: tabular-nums;
+}
 
 .input-row {
   position: relative; display: flex; flex-direction: row; align-items: center;

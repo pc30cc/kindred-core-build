@@ -689,6 +689,13 @@ button.cd:hover {
   background: #fff; box-shadow: 0 0 0 1px var(--line-2), 0 6px 16px -12px rgba(15, 18, 23, .25); transition: box-shadow .2s;
 }
 .cbox:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx), 0 0 0 5px var(--a-3); }
+
+/* What is left of the message limit, drawn by Core from 500 characters on
+   (runtime.js syncCharsLeft sets `data-chars-left` on the pill). */
+[data-chars-left]::after {
+  content: attr(data-chars-left); align-self: flex-end; padding: 0 8px 2px;
+  font-size: 11px; line-height: 14px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
 .input-row {
   display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: 't t t t' 'e a . s';
   align-items: center; gap: 2px;

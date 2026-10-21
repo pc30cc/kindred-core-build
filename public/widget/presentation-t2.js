@@ -978,7 +978,7 @@
           // Error feedback, shown whatever the read-receipt setting, with a
           // retry the visitor can act on.
           statusHtml = ico('err', 14, 2.2, 'msg-err-ico') +
-            '<span class="msg-ticks is-failed">' + esc(tf('msgFailed', 'Not sent')) + '</span>' +
+            '<span class="msg-ticks is-failed">' + esc(m.failText || t('msgFailed')) + '</span>' +
             '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') + '">' + esc(L('retry')) + '</button>';
         } else if (visitor && isLast && receiptsEnabled && m.status) {
           if (m.status === 'sending') {

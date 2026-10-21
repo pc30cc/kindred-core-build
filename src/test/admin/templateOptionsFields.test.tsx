@@ -7,11 +7,16 @@
  * to `.vb`), so with another style the field offers only what changes the
  * widget, says why, and shows a saved dock-only mode as what is drawn.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { I18nProvider } from '@/i18n';
 import { TemplateOptionsFields } from '@/components/app/widget/TemplateOptionsFields';
 import type { ChatTemplateOptions } from '../../../shared/chatTemplateCatalog';
+
+// The transcript by email / the away email step as they come back once
+// visitor email is switched on (shared/visitorEmail.ts; off since 2026-10-21,
+// checked as such in src/test/widget/visitorEmailSwitch.test.ts).
+vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 
 afterEach(cleanup);
 

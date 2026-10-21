@@ -5,6 +5,7 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
  * Endpoints:
  *  - POST /bootstrap        — Public. Issues HMAC session token
  *  - GET  /config           — Token-secured. Full widget config
+ *  - GET  /availability     — Token-secured. The team's availability now (re-read while the panel is open)
  *  - GET  /poll             — Token-secured. Poll messages
  *  - GET  /history          — Token-secured. Conversation history
  *  - GET  /help-articles    — Token-secured. KB articles
@@ -13,7 +14,7 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
  *  - PUT  /action           — Token-secured. Heartbeat, typing, reopen
  *  - GET  /conversations/:id/csat       — The closed line's rating state, transcript availability
  *  - POST /conversations/:id/csat       — Rate the closed line
- *  - POST /conversations/:id/transcript — Mail the transcript to the contact's email
+ *  - POST /conversations/:id/transcript — Mail the transcript to the contact's email (403 while visitor email is off)
  *  - GET  /conversations/:id/reactions  — Message reactions of the thread (counts, the visitor's own)
  *  - POST /conversations/:id/reactions  — Set or take back the visitor's ❤️ on a team message
  *  - GET  /queue            — The conversation's place in the manual queue and the wait
@@ -111,6 +112,7 @@ import { clearAiManagementForPlatformOff, markNeedsHuman, type PlatformOffReason
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
 import { isContactIdentityConflict, placeUnverifiedIdentifiers } from '../services/widget/claimedIdentity.js';
+import { toAsciiDigits } from '../services/phoneVerification/phone.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from '../services/widget/visitorCode.js';
 import {
   pinContactOnVisitorSessions,
@@ -583,6 +585,40 @@ widgetRouter.get('/config', widgetRateLimit('config'), async (req: Request, res:
     }
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// GET /availability — The team's availability now
+// ───────────────────────────────────────────────
+// What /config's `availability` says, at this moment: the widget asks again
+// when the panel opens, every few minutes while it is open, and when the
+// team is due back (runtime.js createPresence), so a page opened before the
+// hours began (or ended) follows them. From the cached snapshots, as the
+// bootstrap computes it: no database read on a cache hit.
+// 200 { availability } | 400 workspace_id required.
+// ═══════════════════════════════════════════════
+widgetRouter.get('/availability', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  res.set('Cache-Control', 'no-store');
+  try {
+    const [snap, quotaFull] = await Promise.all([
+      getWorkspaceWidgetSnapshot(config, workspaceId),
+      getQuotaFull(config, workspaceId),
+    ]);
+    const locale = typeof req.query.locale === 'string' && req.query.locale ? req.query.locale.slice(0, 10) : 'en';
+    const availability = await bootstrapAvailability(config, workspaceId, snap, locale, new Date(), quotaFull);
+    return res.json({ availability });
+  } catch (err) {
+    if (err instanceof WidgetConfigBusyError) {
+      res.set('Retry-After', '1');
+      return res.status(503).json({ error: 'Internal error', code: err.code });
+    }
+    console.error('Widget availability error:', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 
@@ -3021,7 +3057,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           supabase,
           workspaceId,
           typeof visitor_email === 'string' ? visitor_email.trim().toLowerCase() || null : null,
-          typeof visitor_phone === 'string' ? visitor_phone.trim().replace(/[^\d+]/g, '') || null : null,
+          typeof visitor_phone === 'string' ? normalizeVisitorPhone(visitor_phone) : null,
           contact?.id ?? null,
         );
 
@@ -3692,7 +3728,10 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
 // ═══════════════════════════════════════════════
 const offlineMessageSchema = z.object({
   workspace_id: z.string().uuid(),
-  message: z.string().min(2).max(4000),
+  // What a chat message may be (POST /message's messageSchema): one
+  // character to 5,000, so a message the composer takes is never refused
+  // here (it used to be 2 to 4,000).
+  message: z.string().max(5000).refine((m) => m.trim().length > 0),
   email: z.string().email().max(255).optional(),
   name: z.string().max(120).optional(),
   phone: z.string().max(40).optional(),
@@ -3810,32 +3849,47 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   const visitorId = cookie?.v || null;
 
   let visitorSessionId: string | null = null;
+  let sessionContactId: string | null = null;
   if (visitorId) {
     const { data: vs } = await supabase
       .from('visitor_sessions')
-      .select('id')
+      .select('id, contact_id')
       .eq('workspace_id', workspace_id)
       .eq('visitor_id', visitorId)
       .order('last_seen_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     visitorSessionId = vs?.id || null;
+    sessionContactId = (vs?.contact_id as string | null | undefined) || null;
   }
 
-  // Resolve / create contact when email provided.
+  // The contact: this visitor's own (their session's, or the one made for
+  // their cookie), given what the form collected, or a new one made from
+  // ANY of name, email or phone (a visitor who left only a phone must still
+  // be called back; until 2026-10 only an email made one).
   //
   // SECURITY (C6): the typed email/phone are UNVERIFIED. They must never
   // attach this capture to an existing contact that holds them — that filed
   // the visitor's thread (and the operator's replies) under somebody else's
-  // contact. Reuse only this visitor's OWN contact (cookie visitor id);
-  // otherwise create one, storing an address another contact already holds
-  // only as an unverified claim in metadata so the operator still sees it.
+  // contact. Reuse only this visitor's OWN contact; otherwise create one,
+  // storing an address or number another contact already holds only as an
+  // unverified claim in metadata so the operator still sees it.
+  const typedEmail = email ? email.trim().toLowerCase() : null;
+  const typedPhone = normalizeVisitorPhone(phone);
+  const typedName = name ? name.trim() || null : null;
   let contactId: string | null = null;
-  if (email) {
-    const typedEmail = email.trim().toLowerCase();
-    const typedPhone = phone ? phone.trim().replace(/[^\d+]/g, '') || null : null;
+  {
     let own: { id: string; name: string | null; email: string | null; phone: string | null; metadata: Record<string, unknown> | null } | null = null;
-    if (visitorId) {
+    if (sessionContactId) {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, name, email, phone, metadata')
+        .eq('workspace_id', workspace_id)
+        .eq('id', sessionContactId)
+        .maybeSingle();
+      own = data || null;
+    }
+    if (!own && visitorId) {
       const { data } = await supabase
         .from('contacts')
         .select('id, name, email, phone, metadata')
@@ -3845,12 +3899,15 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
         .maybeSingle();
       own = data || null;
     }
-    const placement = await placeUnverifiedIdentifiers(supabase, workspace_id, typedEmail, typedPhone, own?.id ?? null);
+    const given = !!(typedEmail || typedPhone || typedName);
+    const placement = given
+      ? await placeUnverifiedIdentifiers(supabase, workspace_id, typedEmail, typedPhone, own?.id ?? null)
+      : { email: null, phone: null, metadata: {} as Record<string, unknown> };
 
     if (own) {
       contactId = own.id;
       const patch: Record<string, unknown> = {};
-      if (name && !own.name) patch.name = name;
+      if (typedName && !own.name) patch.name = typedName;
       if (placement.email && !own.email) patch.email = placement.email;
       if (placement.phone && !own.phone) patch.phone = placement.phone;
       if (Object.keys(placement.metadata).length) patch.metadata = { ...(own.metadata || {}), ...placement.metadata };
@@ -3861,13 +3918,13 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
           if (Object.keys(rest).length) await supabase.from('contacts').update(rest).eq('id', contactId);
         }
       }
-    } else {
+    } else if (given) {
       const insertContact = (cols: { email: string | null; phone: string | null }) => supabase
         .from('contacts')
         .insert({
           workspace_id,
           email: cols.email,
-          name: name || null,
+          name: typedName,
           phone: cols.phone,
           metadata: { source: 'offline_capture', visitor_id: visitorId, ...placement.metadata },
         })
@@ -3963,6 +4020,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       availability_reason: snap.reason,
       transitioning,
       contact_email: email || null,
+      contact_phone: typedPhone,
       next_open_at: snap.next_open_at,
       ...(overQuota ? { over_quota: true } : {}),
     },
@@ -3974,7 +4032,8 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     conversationId: conv.id,
     message,
     email: email || null,
-    name: name || null,
+    name: typedName,
+    phone: typedPhone,
   }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
 
   return res.json({
@@ -3990,6 +4049,17 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   });
 });
 
+/**
+ * A phone the visitor typed, as stored: Persian and Arabic-Indic digits as
+ * ASCII, then + and digits only (identityMerge.ts does the same); null when
+ * nothing is left.
+ */
+function normalizeVisitorPhone(value?: string | null): string | null {
+  if (!value) return null;
+  const s = toAsciiDigits(value).trim().replace(/[^\d+]/g, '');
+  return s || null;
+}
+
 /** Visitor text for an HTML mail body: `&`, `<`, `>` and `"` as entities. */
 export function escapeMailText(value: string): string {
   return String(value).replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
@@ -3998,7 +4068,7 @@ export function escapeMailText(value: string): string {
 async function notifyOfflineCapture(
   config: ServerConfig,
   workspaceId: string,
-  payload: { conversationId: string; message: string; email: string | null; name: string | null },
+  payload: { conversationId: string; message: string; email: string | null; name: string | null; phone?: string | null },
 ): Promise<void> {
   const supabase = getServiceClient(config);
   // Resolve workspace owners/admins. The codebase uses `workspace_members`
@@ -4059,11 +4129,12 @@ async function notifyOfflineCapture(
   const html = `
     <p>A visitor left a message while your workspace was offline.</p>
     <p><strong>From:</strong> ${escapeMailText(payload.name || 'Anonymous')} ${payload.email ? `&lt;${escapeMailText(payload.email)}&gt;` : ''}</p>
+    ${payload.phone ? `<p><strong>Phone:</strong> <span dir="ltr">${escapeMailText(payload.phone)}</span></p>` : ''}
     <p><strong>Message:</strong></p>
     <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${escapeMailText(payload.message)}</blockquote>
     <p>${inboxUrl ? `<a href="${escapeMailText(inboxUrl)}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
   `;
-  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
+  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}${payload.phone ? `\nPhone: ${payload.phone}` : ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
 
   for (const { to, locale } of recipients) {
     try {
@@ -4082,12 +4153,14 @@ async function notifyOfflineCapture(
           conversation_id: payload.conversationId,
           contact_name: payload.name || '',
           contact_email: payload.email || '',
+          contact_phone: payload.phone || '',
           message_body: payload.message,
           action_url: inboxUrl,
         },
         htmlData: {
           contact_name: escapeMailText(payload.name || ''),
           contact_email: escapeMailText(payload.email || ''),
+          contact_phone: escapeMailText(payload.phone || ''),
           message_body: escapeMailText(payload.message),
           action_url: escapeMailText(inboxUrl),
         },
@@ -4135,6 +4208,7 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
         conversation_id: 'test-conversation-id',
         contact_name: 'Test Visitor',
         contact_email: 'visitor@example.com',
+        contact_phone: '+989121234567',
         message_body:
           'Hello — this is a test message confirming your offline notification pipeline works.',
       },

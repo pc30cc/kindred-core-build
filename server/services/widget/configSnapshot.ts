@@ -76,6 +76,8 @@ import { resolveLauncherStyle } from '../../../shared/launcherStyles.js';
 import { agentFaceInitial, onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
+import { isPrechatFieldLocked, normalizePreChatPolicy } from '../../../shared/prechatPolicy.js';
+import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../../shared/visitorEmail.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from './poweredBy.js';
 import {
   resolveWidgetEntitlements,
@@ -201,23 +203,7 @@ export const PRECHAT_FIELD_KEYS = {
   email: 'widget_prechat_email',
   phone: 'widget_prechat_phone',
 } as const;
-const DEFAULT_PRECHAT_POLICY = {
-  name: 'default_on',
-  email: 'default_on',
-  phone: 'default_on',
-} as const;
-
-type PreChatMode = 'force_on' | 'force_off' | 'default_on' | 'default_off';
-
-export function normalizePreChatPolicy(value: unknown): Record<'name' | 'email' | 'phone', PreChatMode> {
-  const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
-  const valid = (v: unknown): v is PreChatMode => v === 'force_on' || v === 'force_off' || v === 'default_on' || v === 'default_off';
-  return {
-    name: valid(source.name) ? source.name : DEFAULT_PRECHAT_POLICY.name,
-    email: valid(source.email) ? source.email : DEFAULT_PRECHAT_POLICY.email,
-    phone: valid(source.phone) ? source.phone : DEFAULT_PRECHAT_POLICY.phone,
-  };
-}
+export { normalizePreChatPolicy };
 
 // Loads policy from widget_platform_settings (preferred) or falls back to app_runtime_config
 async function loadPlatformPreChatPolicy(supabase: ServiceClient): Promise<{ value: unknown; error: boolean }> {
@@ -244,15 +230,22 @@ async function loadPlatformPreChatPolicy(supabase: ServiceClient): Promise<{ val
   return { value: legacy?.value || null, error: !!error || !!legacyError };
 }
 
+/**
+ * `config.preChat`: each field's platform policy as the widget's fallback form
+ * reads it when /identity/me cannot be reached (runtime.js configFallback).
+ * A forced field is locked, on for `force_on` and off for `force_off`; the
+ * defaults follow the workspace override when one exists. What a visitor is
+ * really asked comes from /identity/me (shared/prechatPolicy.ts).
+ */
 export function buildPreChatConfig(policyValue: unknown, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
   const policy = normalizePreChatPolicy(policyValue);
   const flagMap = new Map(workspaceFlags.map((flag) => [flag.key, flag.enabled]));
 
   const resolveField = (field: keyof typeof PRECHAT_FIELD_KEYS) => {
     const mode = policy[field];
-    const locked = mode === 'force_off';
+    const locked = isPrechatFieldLocked(mode);
     const workspaceOverride = flagMap.has(PRECHAT_FIELD_KEYS[field]) ? flagMap.get(PRECHAT_FIELD_KEYS[field]) ?? false : null;
-    const enabled = locked ? false : workspaceOverride === null ? mode === 'default_on' : !!workspaceOverride;
+    const enabled = locked ? mode === 'force_on' : workspaceOverride === null ? mode === 'default_on' : !!workspaceOverride;
     return { enabled, locked, mode, workspaceOverride };
   };
 
@@ -910,6 +903,23 @@ export function resolveEffectiveChatTemplate(
 }
 
 /**
+ * The visitor's preferred language (an Accept-Language header, by its
+ * q-values, ties in order) among `platformLocales`, as a base tag; '' when
+ * none of them is wanted. Reads at most 20 entries.
+ */
+export function preferredPlatformLocale(header: unknown, platformLocales: readonly string[]): string {
+  if (typeof header !== 'string' || !header) return '';
+  const wanted = header.split(',').slice(0, 20).map((part, i) => {
+    const [tag, ...params] = part.trim().split(';');
+    const qParam = params.map((p) => p.trim()).find((p) => p.startsWith('q='));
+    const q = qParam ? Number(qParam.slice(2)) : 1;
+    return { base: (tag || '').trim().toLowerCase().split('-')[0], q: Number.isFinite(q) ? q : 0, i };
+  }).filter((w) => w.base && w.base !== '*' && w.q > 0).sort((a, b) => b.q - a.q || a.i - b.i);
+  for (const w of wanted) if (platformLocales.includes(w.base)) return w.base;
+  return '';
+}
+
+/**
  * resolveEffectiveChatTemplate for a workspace, from the cached snapshots (no
  * query on a hit): what the server reads before serving or writing anything
  * for a template's feature (the closed line, the rating after a chat, the
@@ -1176,8 +1186,13 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     if (base && platformLocales.includes(base)) return base;
     return fallbackToFirst ? (platformLocales[0] || 'en') : '';
   };
+  // 'auto' (the default): the visitor's browser language when the platform
+  // offers it, else the workspace's language. Every server-side text of the
+  // payload (availability labels, the welcome, the team's names) follows it.
+  const autoLanguage = !ws.widget_language || ws.widget_language === 'auto';
+  const browserLocale = autoLanguage ? preferredPlatformLocale(req?.headers?.['accept-language'], platformLocales) : '';
   const effectiveLocale = clampLoc(
-    ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+    !autoLanguage ? ws.widget_language : browserLocale || ws.locale,
   );
   // Online operators first so the stack leads with available staff; a member
   // without a name of their own is the widget's word for an operator, in
@@ -1407,6 +1422,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     // store that can answer order questions (getStoreOrders); absent
     // otherwise, so other payloads are unchanged.
     ...(trackOrder ? { commerce: { trackOrder: true } } : {}),
+    // Additive, only while visitor email is switched on (shared/visitorEmail.ts;
+    // off since 2026-10-21): the away thread's "where should the reply go"
+    // email step (runtime-late.js) is drawn only then. Absent otherwise.
+    ...(VISITOR_EMAIL_FEATURES_ENABLED ? { visitorEmail: true } : {}),
     presentationRegistryUrl: assetUrl(presentationRegistryJsName),
     presentationUrl: assetUrl(presentationJsName),
     presentationStyleUrl: assetUrl(presentationCssName),

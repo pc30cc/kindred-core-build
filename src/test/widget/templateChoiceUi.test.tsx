@@ -56,7 +56,7 @@ describe('effectiveWorkspaceTemplate', () => {
 
   it('the drafted choice while enabled, with the merged options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none', junk: 1 }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: true } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: false } });
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', null, {}, true).id).toBe('default');
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't2', {}, true).id).toBe('default');
   });
@@ -64,7 +64,7 @@ describe('effectiveWorkspaceTemplate', () => {
   it('a plan without widget_appearance previews the default with no workspace options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none' }, false)).toEqual({ id: 'default', options: {} });
     expect(effectiveWorkspaceTemplate({ ...VIEW, defaultId: 't1', planAllowsChoice: false }, 'iran', 'default', { navMode: 'none' }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: false } });
   });
 
   it('the card shows only with two or more templates enabled and 275 applied', () => {

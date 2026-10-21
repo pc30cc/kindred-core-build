@@ -197,6 +197,10 @@
       opts = opts || {};
       var title = esc(opts.title || workspaceName);
       var subtitle = opts.subtitle ? '<span class="wy-head-sub">' + esc(opts.subtitle) + '</span>' : '';
+      // `subOff`: the line while the team is away, which the stylesheet shows
+      // in its place while Core's live presence says so (the header's
+      // `.presence.status-*`).
+      if (subtitle && opts.subOff && opts.subOff !== opts.subtitle) subtitle += '<span class="wy-head-sub wy-sub-off">' + esc(opts.subOff) + '</span>';
       var dot = opts.online ? '<span class="wy-online-dot" aria-hidden="true"></span>' : '';
       return (opts.back ? backButtonHtml(opts.back) : '') +
         identityAvatarHtml(opts.avatarSize) +
@@ -257,11 +261,12 @@
       '</div>';
     }
 
+    /** File sizes in the visitor's digits and words (۲۴۰ کیلوبایت). */
     function humanSize(bytes) {
       var n = Number(bytes) || 0;
-      if (n < 1024) return n + ' B';
-      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
-      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+      var u = n < 1024 ? 0 : n < 1048576 ? 1 : 2;
+      var v = n / Math.pow(1024, u);
+      return fmtNum(u && v < 10 ? Math.round(v * 10) / 10 : Math.round(v)) + ' ' + tf(['sizeB', 'sizeKB', 'sizeMB'][u], ['B', 'KB', 'MB'][u]);
     }
 
     // Real attachments — authenticated media is loaded by Core through the
@@ -336,12 +341,12 @@
       var total = Math.ceil(ms / 1000);
       var timeStr;
       if (total < 60) {
-        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', String(total));
+        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', fmtNum(total));
       } else {
         var m = Math.floor(total / 60);
         var s = total % 60;
-        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', String(m));
-        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', String(m)).replace('{s}', String(s));
+        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', fmtNum(m));
+        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', fmtNum(m)).replace('{s}', fmtNum(s));
       }
       return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
     }
@@ -352,7 +357,11 @@
       var mm = Math.floor((s % 3600) / 60);
       var ss = s % 60;
       function pad(n) { return n < 10 ? '0' + n : '' + n; }
-      return hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss);
+      // In the visitor's digits, as every other number (Persian in fa).
+      return localDigits(hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss));
+    }
+    function localDigits(str) {
+      return /^fa/i.test(String(ctx.locale || '')) ? String(str).replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'.charAt(+d); }) : String(str);
     }
 
     function systemPillHtml(icon, text) {
@@ -487,7 +496,7 @@
       try {
         var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
         var tag = l === 'fa' ? 'fa-IR' : l === 'tr' ? 'tr-TR' : 'en-US';
-        return new Intl.NumberFormat(tag).format(Number(n) || 0);
+        return new Intl.NumberFormat(tag, { maximumFractionDigits: 1 }).format(Number(n) || 0);
       } catch (_) { return String(n); }
     }
 
@@ -495,7 +504,9 @@
       try {
         var date = (d instanceof Date) ? d : new Date(d);
         if (!date || isNaN(date.getTime())) return '';
-        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
+        // Persian in the day dividers' zone, so a time and its day agree.
+        var fa = /^fa/i.test(String(ctx.locale || ''));
+        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit', timeZone: fa ? persianTimeZone() : undefined });
       } catch (_) { return ''; }
     }
 
@@ -967,7 +978,7 @@
           back: 'home',
           title: vm.workspaceName || vm.brandName || workspaceName,
           subtitle: replyTimeText(true),
-
+          subOff: replyTimeText(false),
         }) +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
           '<span class="presence-dot" data-presence-dot></span>' +

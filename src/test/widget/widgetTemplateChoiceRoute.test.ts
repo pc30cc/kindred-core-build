@@ -158,7 +158,7 @@ describe('GET /:workspaceId/templates', () => {
       selectedOptions: { navMode: 'none' },
       selectedUnavailable: false,
       effectiveId: 't1',
-      effectiveOptions: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: true },
+      effectiveOptions: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: false },
       planAllowsChoice: true,
       canChoose: true,
     });

@@ -80,6 +80,18 @@
   // and time: they get the widget's own word for it, in the visitor's
   // language, where 'AI Assistant' stood. A renderer with features ends a
   // run at a system line and draws the badge alone.
+  /** The longest message POST /api/widget/message (and /offline-messages) takes. */
+  var MAX_MESSAGE_CHARS = 5000;
+
+  /**
+   * The owner's offline message (Availability, in the visitor's language:
+   * availability.offline_message, kept fresh by createPresence), or ''.
+   */
+  function offlineMessageOf(config) {
+    var av = (config && config.availability) || {};
+    return typeof av.offline_message === 'string' ? av.offline_message.trim() : '';
+  }
+
   function aiFallbackName(t, senderType) {
     if (senderType !== 'ai' || (Presentation && Presentation.features)) return null;
     return t('wyAiAssistant') || null;
@@ -282,13 +294,20 @@
       }
       return out + Util.escapeHtml(src.slice(cursor));
     },
+    // The server's rule (zod's `.email()`, as POST /identity/prechat and
+    // /offline-messages check it): an address the widget lets through is one
+    // the server keeps, so no form is refused with nothing said.
     isValidEmail: function (v) {
       if (!v) return false;
-      return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v).trim());
+      return /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i.test(String(v).trim());
+    },
+    /** Persian and Arabic-Indic digits as ASCII (what a Persian keyboard types). */
+    asciiDigits: function (v) {
+      return String(v == null ? '' : v).replace(/[۰-۹٠-٩]/g, function (c) { return String(c.charCodeAt(0) & 15); });
     },
     isValidPhone: function (v) {
       if (!v) return false;
-      var s = String(v).trim().replace(/[\s\-().]/g, '');
+      var s = Util.asciiDigits(v).trim().replace(/[\s\-().]/g, '');
       return /^\+?\d{6,20}$/.test(s);
     },
     debug: false,
@@ -989,7 +1008,7 @@
         homeStartChat: 'Start a conversation',
         homeLeaveMessage: 'Leave a message',
         homeReplyFast: 'Typically replies in a few minutes',
-        homeReplySlow: "We'll reply by email as soon as we're back",
+        homeReplySlow: "We'll reply here as soon as we're back",
         homeHelpTitle: 'Find an answer',
         homeSeeAll: 'See all',
         voiceCall: 'Voice', videoCall: 'Video',
@@ -1000,8 +1019,12 @@
         continue: 'Continue', back: 'Back',
         prechatIntro: 'Before we start, please share a few details so we can stay in touch.',
         required: 'required',
+        fieldRequired: 'Please fill in this field.',
         invalidEmail: 'Please enter a valid email address.',
         invalidPhone: 'Please enter a valid phone number.',
+        formError: "Couldn't save your details. Please try again.",
+        formRate: 'Too many attempts. Please wait a moment and try again.',
+        formOffline: 'No connection. Check your internet and try again.',
         prechatTitle: 'Welcome 👋',
         prechatSubtitle: "Tell us a bit about you so we can help faster.",
         handoffPrechatSubtitle: 'So our team can help you faster, please complete your info below.',
@@ -1038,9 +1061,11 @@
         quotaFullIntro: "We can't start a new chat right now. Share your details and a short message — we'll get back to you.",
         fallbackMessageLabel: 'Message',
         fallbackSubmit: 'Send message',
-        fallbackSent: "Thanks — we've got your message and will reply shortly.",
-        fallbackSentTransitioning: "Thanks — we've got your message. We may be back online sooner than expected and will reply right away.",
+        fallbackSent: "Thanks — we've got your message. The reply will appear here, in this chat.",
+        fallbackSentTransitioning: "Thanks — we've got your message. We may be back sooner than expected; the reply will appear here, in this chat.",
         fallbackError: "Couldn't send right now. Please try again.",
+        fallbackContactNeeded: 'Enter an email or a phone number.',
+        offlineNotice: "We're offline right now. Please come back during our working hours.",
         qnaTitle: 'You might also want to ask',
         qnaMore: 'More questions',
         // Phase 6a — attachments
@@ -1050,6 +1075,11 @@
         uploadFailed: 'Upload failed',
         typeNotAllowed: 'File type not allowed',
         tooLarge: 'File is too large',
+        tooLargeMax: 'File is too large (up to {size})',
+        typeNotAllowedList: 'This file type is not allowed. Allowed: {types}',
+        sizeB: 'B',
+        sizeKB: 'KB',
+        sizeMB: 'MB',
         selected: 'Selected',
         // Voice notes + emoji + escalate
         recordVoice: 'Record voice message',
@@ -1233,19 +1263,23 @@
         homeStartChat: 'شروع گفتگو',
         homeLeaveMessage: 'پیغام بگذارید',
         homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
-        homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
+        homeReplySlow: 'به‌محض بازگشت، همین‌جا در گفتگو پاسخ می‌دهیم',
         homeHelpTitle: 'پاسخ خود را پیدا کنید',
         homeSeeAll: 'مشاهده همه',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         typeMsg: 'پیام خود را بنویسید...',
-        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'AI',
+        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'هوش مصنوعی',
         intro: 'سوالی دارید؟ اینجا بنویسید.',
         name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
         continue: 'ادامه', back: 'بازگشت',
         prechatIntro: 'قبل از شروع، لطفاً اطلاعات تماس را وارد کنید تا بتوانیم در ارتباط باشیم.',
         required: 'الزامی',
+        fieldRequired: 'لطفاً این فیلد را پر کنید.',
         invalidEmail: 'لطفاً یک ایمیل معتبر وارد کنید.',
         invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
+        formError: 'ذخیرهٔ اطلاعات انجام نشد. لطفاً دوباره تلاش کنید.',
+        formRate: 'تعداد تلاش‌ها زیاد بود. لطفاً کمی صبر کنید و دوباره تلاش کنید.',
+        formOffline: 'اتصال برقرار نیست. اینترنت خود را بررسی کنید و دوباره تلاش کنید.',
         prechatTitle: 'خوش آمدید 👋',
         prechatSubtitle: 'برای پاسخ‌گویی سریع‌تر، چند نکته کوتاه دربارهٔ خودتان بگویید.',
         handoffPrechatSubtitle: 'برای اینکه اپراتورهای ما بتوانند بهتر به شما پاسخگو باشند لطفا اطلاعات خودتان را تکمیل کنید.',
@@ -1279,11 +1313,13 @@
         quotaFullIntro: 'الان امکان شروع گفتگوی تازه نیست. اطلاعات تماس و یک پیام کوتاه بنویسید تا با شما تماس بگیریم.',
         fallbackMessageLabel: 'پیام',
         fallbackSubmit: 'ارسال پیام',
-        fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
-        fallbackSentTransitioning: 'پیام شما دریافت شد. ممکن است زودتر از انتظار آنلاین شویم و فوراً پاسخ دهیم.',
+        fallbackSent: 'پیام شما دریافت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.',
+        fallbackSentTransitioning: 'پیام شما دریافت شد. ممکن است زودتر از انتظار برگردیم؛ پاسخ همین‌جا در گفتگو نمایش داده می‌شود.',
         fallbackError: 'ارسال انجام نشد. لطفاً دوباره تلاش کنید.',
-        qnaTitle: 'شاید این سوال‌ها رو هم بخوای بپرسی',
-        qnaMore: 'سوال‌های بیشتر',
+        fallbackContactNeeded: 'ایمیل یا شماره تلفن را وارد کنید.',
+        offlineNotice: 'در حال حاضر آفلاین هستیم. لطفاً در ساعات کاری دوباره سر بزنید.',
+        qnaTitle: 'شاید این پرسش‌ها هم برایتان مفید باشد',
+        qnaMore: 'پرسش‌های بیشتر',
         // Phase 6a — attachments
         attachFile: 'پیوست فایل',
         uploading: 'در حال بارگذاری…',
@@ -1291,6 +1327,11 @@
         uploadFailed: 'بارگذاری ناموفق بود',
         typeNotAllowed: 'این نوع فایل مجاز نیست',
         tooLarge: 'حجم فایل بیش از حد مجاز است',
+        tooLargeMax: 'حجم فایل بیش از حد مجاز است (حداکثر {size})',
+        typeNotAllowedList: 'این نوع فایل مجاز نیست. نوع‌های مجاز: {types}',
+        sizeB: 'بایت',
+        sizeKB: 'کیلوبایت',
+        sizeMB: 'مگابایت',
         selected: 'انتخاب شده',
         // پیام صوتی + شکلک + ارجاع به اپراتور
         recordVoice: 'ضبط پیام صوتی',
@@ -1304,7 +1345,7 @@
         talkToHuman: 'صحبت با اپراتور',
         escalateRequested: 'به تیم پشتیبانی اطلاع داده شد؛ به‌زودی یک اپراتور به گفتگو ملحق می‌شود.',
         escalateFailed: 'در حال حاضر امکان اتصال به اپراتور وجود ندارد.',
-        chatUnavailable: 'چت در حال حاضر در دسترس نیست',
+        chatUnavailable: 'گفتگو در حال حاضر در دسترس نیست',
         attachmentsDisabled: 'ارسال فایل فعال نیست',
         voiceNotesDisabled: 'ارسال پیام صوتی فعال نیست',
         receivingFile: 'در حال دریافت…',
@@ -1367,13 +1408,13 @@
         ciBodyVideo: 'یک اپراتور شما را به تماس تصویری دعوت می‌کند.',
         ciWaitMinutes: 'اپراتور حداکثر {m} دقیقه منتظر پیوستن شما می‌ماند.',
         ciWaitOneMinute: 'اپراتور حداکثر یک دقیقه منتظر پیوستن شما می‌ماند.',
-        csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}',
-        csEndedByVisitor: 'تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}',
-        csEndedBySystem: 'تماس پایان یافت · مدت مکالمه {duration}',
+        csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت تماس {duration}',
+        csEndedByVisitor: 'تماس از طرف بازدیدکننده پایان یافت · مدت تماس {duration}',
+        csEndedBySystem: 'تماس پایان یافت · مدت تماس {duration}',
         csEndedNotConnected: 'تماس برقرار نشد',
         csConnecting: 'در حال اتصال به تماس…',
         csReconnecting: 'در حال اتصال مجدد…',
-        csInCall: 'در حال مکالمه',
+        csInCall: 'در حال تماس',
         csEnded: 'تماس پایان یافت',
         csMicMute: 'بی‌صدا کردن میکروفون',
         csMicUnmute: 'فعال کردن میکروفون',
@@ -1410,7 +1451,7 @@
         operator: 'اپراتور',
         team: 'تیم',
         anonymous: 'ناشناس',
-        poweredBy: 'قدرت گرفته از',
+        poweredBy: 'با فناوری',
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
@@ -1461,7 +1502,7 @@
         homeStartChat: 'Sohbeti başlat',
         homeLeaveMessage: 'Mesaj bırakın',
         homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
-        homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
+        homeReplySlow: 'Döner dönmez burada yanıtlayacağız',
         homeHelpTitle: 'Yanıtınızı bulun',
         homeSeeAll: 'Tümünü gör',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
@@ -1472,8 +1513,12 @@
         continue: 'Devam', back: 'Geri',
         prechatIntro: 'Başlamadan önce iletişim bilgilerinizi girin.',
         required: 'zorunlu',
+        fieldRequired: 'Lütfen bu alanı doldurun.',
         invalidEmail: 'Lütfen geçerli bir e-posta girin.',
         invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
+        formError: 'Bilgileriniz kaydedilemedi. Lütfen tekrar deneyin.',
+        formRate: 'Çok fazla deneme. Lütfen biraz bekleyip tekrar deneyin.',
+        formOffline: 'Bağlantı yok. İnternetinizi kontrol edip tekrar deneyin.',
         prechatTitle: 'Hoş geldiniz 👋',
         prechatSubtitle: 'Size daha hızlı yardımcı olabilmemiz için kendinizden kısaca bahsedin.',
         handoffPrechatSubtitle: 'Ekibimizin size daha iyi yardımcı olabilmesi için lütfen bilgilerinizi tamamlayın.',
@@ -1507,9 +1552,11 @@
         quotaFullIntro: 'Şu an yeni bir sohbet başlatılamıyor. Bilgilerinizi ve kısa bir mesaj bırakın, size geri döneceğiz.',
         fallbackMessageLabel: 'Mesaj',
         fallbackSubmit: 'Mesaj gönder',
-        fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
-        fallbackSentTransitioning: 'Mesajınızı aldık. Beklenenden önce çevrimiçi olabiliriz ve hemen yanıt verebiliriz.',
+        fallbackSent: 'Mesajınızı aldık. Yanıt burada, bu sohbette görünecek.',
+        fallbackSentTransitioning: 'Mesajınızı aldık. Beklenenden önce dönebiliriz; yanıt burada, bu sohbette görünecek.',
         fallbackError: 'Şu an gönderilemedi. Lütfen tekrar deneyin.',
+        fallbackContactNeeded: 'Bir e-posta veya telefon numarası girin.',
+        offlineNotice: 'Şu anda çevrimdışıyız. Lütfen çalışma saatlerimizde tekrar gelin.',
         qnaTitle: 'Şunları da sorabilirsiniz',
         qnaMore: 'Daha fazla soru',
         // Phase 6a — attachments
@@ -1519,6 +1566,11 @@
         uploadFailed: 'Yükleme başarısız',
         typeNotAllowed: 'Bu dosya türü desteklenmiyor',
         tooLarge: 'Dosya çok büyük',
+        tooLargeMax: 'Dosya çok büyük (en fazla {size})',
+        typeNotAllowedList: 'Bu dosya türüne izin verilmiyor. İzin verilenler: {types}',
+        sizeB: 'B',
+        sizeKB: 'KB',
+        sizeMB: 'MB',
         selected: 'Seçildi',
         // Sesli mesaj + emoji + temsilciye yönlendirme
         recordVoice: 'Sesli mesaj kaydet',
@@ -2432,15 +2484,21 @@
   // Identity layer — server-driven, cookie-backed (UNCHANGED security model)
   // ════════════════════════════════════════════════════════════════════
   function createIdentity(ctx, identityStore) {
+    // The platform policy (config.preChat, configSnapshot.ts buildPreChatConfig)
+    // when /identity/me cannot be read: a field forced on is asked and
+    // required, one forced off never asked; the defaults ask name and email
+    // (required) and the phone (optional), as a workspace without its own
+    // form is asked.
     function configFallback() {
       var pc = ctx.config.preChat || {};
       function on(key) {
         var f = pc[key] || {};
-        return !!f.enabled && !f.locked;
+        return !!f.enabled;
       }
+      function forced(key) { return (pc[key] || {}).mode === 'force_on'; }
       return {
         ask_name: on('name'), ask_email: on('email'), ask_phone: on('phone'),
-        require_name: on('name'), require_email: on('email'), require_phone: on('phone'),
+        require_name: on('name'), require_email: on('email'), require_phone: forced('phone'),
         verify_email: false, verify_phone: false,
         // Offline fallback keeps the historical (safest) timing.
         timing: 'after_handoff',
@@ -2511,12 +2569,13 @@
           workspace_id: ctx.workspaceId,
           name: payload.name || null,
           email: payload.email || null,
-          phone: payload.phone || null,
+          phone: payload.phone ? Util.asciiDigits(payload.phone) : null,
         }),
       })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
         .then(function (res) {
-          if (!res.ok) { if (cb) cb(false, res.body); return; }
+          // The refusal with its status, so the form can say why (429, 5xx).
+          if (!res.ok) { if (cb) cb(false, Object.assign({ status: res.status }, res.body || {})); return; }
           var prev = identityStore.get().contact || {};
           identityStore.set({
             identityState: 'identified',
@@ -2536,9 +2595,11 @@
       var p = identityStore.get().prechat;
       return !!(p && p['ask_' + field]);
     }
+    // A field is required only while it is asked: one the form does not draw
+    // can never block the visitor (the server reads it the same way).
     function isRequired(field) {
       var p = identityStore.get().prechat;
-      return !!(p && p['require_' + field]);
+      return !!(p && p['ask_' + field] && p['require_' + field]);
     }
     // Owner-configured timing: 'always' | 'after_handoff' | 'never'.
     // Unknown/absent values fall back to the historical behaviour so an old
@@ -2934,25 +2995,67 @@
   // for it and never assume online. Polling fallback always produces a
   // valid availability state from the snapshot + business hours.
   // ════════════════════════════════════════════════════════════════════
-  function createPresence(ctx, presenceStore, transport, transportStore, t) {
+  function createPresence(ctx, presenceStore, transport, transportStore, t, watching) {
     var availability = (ctx.config && ctx.config.availability) || {};
     var liveChatEnabled = availability.liveChatEnabled !== false;
     // Phase 8 — three-mode shape from server resolver. Legacy two-mode
     // ('contact_fallback'/'accept_messages') still honored for older
     // backends until /config catches up.
-    var offlineMode = (function () {
-      var m = availability.offlineMode || availability.offline_mode;
+    function modeOf(av) {
+      var m = av.offlineMode || av.offline_mode;
       if (m === 'hide_widget' || m === 'show_offline_message' || m === 'capture_message') return m;
-      if (m === 'contact_fallback') return 'capture_message';
       return 'capture_message';
-    })();
-    var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
-    var customLabels = availability.labels || {};
+    }
     // Phase 8 — server-authoritative state. When present, runtime trusts it
     // and skips client-side hours math. Legacy clients without it fall back
     // to local hours below.
-    var serverState = (availability.state === 'online' || availability.state === 'offline')
-      ? availability.state : null;
+    function stateOf(av) {
+      return (av.state === 'online' || av.state === 'offline') ? av.state : null;
+    }
+    var offlineMode = modeOf(availability);
+    var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
+    var customLabels = availability.labels || {};
+    var serverState = stateOf(availability);
+
+    // The state is the server's at page load; it is read again
+    // (GET /api/widget/availability) when the panel opens (at most once a
+    // minute), every few minutes while it is open and seen, and when the
+    // team is due back (next_open_at, with a few seconds' spread), so a
+    // visitor who opened the page before the hours began (or before they
+    // ended) sees the team as it is now.
+    var REFRESH_OPEN_MS = 60000;
+    var REFRESH_WATCH_MS = 180000;
+    var lastFetch = Date.now();
+    var fetching = false;
+    var dueTimer = null;
+    function refresh(minAge) {
+      if (fetching || !ctx.workspaceId || !ctx.fetchWith) return;
+      if (Date.now() - lastFetch < (minAge == null ? REFRESH_OPEN_MS : minAge)) return;
+      fetching = true;
+      lastFetch = Date.now();
+      ctx.fetchWith(ctx.apiBase + '/api/widget/availability?workspace_id=' + encodeURIComponent(ctx.workspaceId) +
+        '&locale=' + encodeURIComponent(ctx.locale || 'en'), {})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { fetching = false; if (j && j.availability) apply(j.availability); })
+        .catch(function () { fetching = false; });
+    }
+    /** A fresh answer: the state, the offline mode, the labels and the offline message as the server has them now. */
+    function apply(next) {
+      if (!next || typeof next !== 'object') return;
+      availability = Object.assign({}, ctx.config.availability || {}, next);
+      ctx.config.availability = availability;
+      offlineMode = modeOf(availability);
+      customLabels = availability.labels || {};
+      serverState = stateOf(availability);
+      publish();
+      scheduleDue();
+    }
+    function scheduleDue() {
+      if (dueTimer) { clearTimeout(dueTimer); dueTimer = null; }
+      var wait = Date.parse(availability.next_open_at || '') - Date.now();
+      if (!isFinite(wait) || wait > 864e5) return;
+      dueTimer = setTimeout(function () { refresh(0); }, Math.max(0, wait) + 5000 + Math.floor(Math.random() * 25000));
+    }
 
     // Snapshot from /config (best-effort hint, refreshed on reconnect via REST is OUT OF SCOPE here).
     var snapshotOnlineOps = (typeof ctx.config.onlineOperators === 'number')
@@ -3022,14 +3125,20 @@
 
     // The store starts 'offline' with no label: a start the server reports
     // as away publishes once too (the workspace's offline mode, the label).
+    // A refresh publishes only what changed.
     function publish() {
       var status = resolveStatus();
       var cur = presenceStore.get();
-      if (cur.status === status && (serverState !== 'offline' || cur.label)) return;
+      var label = labelFor(status);
+      var message = typeof availability.offline_message === 'string' ? availability.offline_message.trim() : '';
+      if (cur.status === status && (cur.lastChange
+        ? cur.offlineMode === offlineMode && (cur.offlineMessage || '') === message && cur.label === label
+        : serverState !== 'offline' || cur.label)) return;
       presenceStore.set({
         status: status,
-        label: labelFor(status),
+        label: label,
         offlineMode: offlineMode,
+        offlineMessage: message,
         liveChatEnabled: liveChatEnabled,
         lastChange: Date.now(),
       });
@@ -3057,15 +3166,23 @@
       // We just re-evaluate from current inputs; rtPresence is left as-is.
       transport.on('reconnect', function () { publish(); });
       // Re-evaluate periodically so business-hours transitions take effect
-      // without requiring a new transport event. Lightweight (60s tick).
-      setInterval(publish, 60_000);
+      // without requiring a new transport event. Lightweight (60s tick);
+      // the server is asked again only while the visitor has the panel open
+      // and on screen.
+      setInterval(function () {
+        publish();
+        if (typeof watching === 'function' && watching()) refresh(REFRESH_WATCH_MS);
+      }, 60_000);
       // Initial publish
       publish();
+      scheduleDue();
     }
 
     return {
       wire: wire,
       publish: publish,
+      /** Read the state again (the panel opened); at most once a minute. */
+      refresh: function () { refresh(REFRESH_OPEN_MS); },
       isLiveChatEnabled: function () { return liveChatEnabled; },
       getOfflineMode: function () { return offlineMode; },
     };
@@ -3888,6 +4005,33 @@
         if (!f) return;
         if (valid) f.classList.add('is-valid'); else f.classList.remove('is-valid');
       }
+      // What is not a field's (the server's own error, too many attempts, no
+      // connection) is said under the fields, never not at all.
+      function formError(msg) {
+        var el = body.querySelector('[data-err="form"]');
+        if (!el && msg) {
+          var anchor = body.querySelector('.prechat-fields') || body.querySelector('[data-prechat-submit]');
+          if (!anchor || !anchor.parentNode) return;
+          el = document.createElement('div');
+          el.className = 'prechat-error err visible';
+          el.setAttribute('data-err', 'form');
+          el.setAttribute('role', 'alert');
+          anchor.parentNode.insertBefore(el, anchor.nextSibling);
+        }
+        if (el) el.textContent = msg || '';
+      }
+      /** The server's refusal, under its field when it names one. */
+      function showRefusal(resp) {
+        resp = resp || {};
+        var details = resp.details || {};
+        var f = resp.field || ['name', 'email', 'phone'].filter(function (k) { return details[k]; })[0];
+        if (f && getInput(f)) {
+          showError(f, t(/_required$/.test(resp.error || '') ? 'fieldRequired'
+            : f === 'email' ? 'invalidEmail' : f === 'phone' ? 'invalidPhone' : 'fieldRequired'));
+          return;
+        }
+        formError(t(resp.status === 429 ? 'formRate' : resp.error === 'network' ? 'formOffline' : 'formError'));
+      }
       function liveValidate(k, val) {
         var v = (val || '').trim();
         if (!v) { markValid(k, false); return; }
@@ -3930,19 +4074,20 @@
         }
         submitBtn.addEventListener('click', function () {
           if (prechatSubmitting) return;
+          formError('');
           var payload = {
             name: getInput('name') ? getInput('name').value.trim() : '',
             email: getInput('email') ? getInput('email').value.trim() : '',
             phone: getInput('phone') ? getInput('phone').value.trim() : '',
           };
           var ok = true;
-          if (identity.isRequired('name') && !payload.name) { showError('name', t('required')); ok = false; }
+          if (identity.isRequired('name') && !payload.name) { showError('name', t('fieldRequired')); ok = false; }
           if (identity.isAsked('email') && payload.email) {
             if (!Util.isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
-          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('required')); ok = false; }
+          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('fieldRequired')); ok = false; }
           if (identity.isAsked('phone') && payload.phone) {
             if (!Util.isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
-          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
+          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('fieldRequired')); ok = false; }
           if (!ok) return;
 
           prechatDraft = { name: payload.name, email: payload.email, phone: payload.phone };
@@ -3959,8 +4104,7 @@
               submitBtn.classList.remove('is-loading');
             } catch (_) {}
             if (!success) {
-              var f = resp && resp.field;
-              if (f) showError(f, t('required'));
+              showRefusal(resp);
               return;
             }
             prechatDraft = { name: '', email: '', phone: '' };
@@ -4631,17 +4775,23 @@
       // instead of "the team is offline", and keep what the visitor typed.
       var quotaDriven = ctx.__quotaFull === true
         || !!(ctx.config && ctx.config.availability && ctx.config.availability.quota_full === true);
+      // Away, the owner's offline message (Availability → offline message,
+      // in the visitor's language) is the form's intro in every template;
+      // without one, the template's own words.
+      var offlineText = offlineMessageOf(ctx.config);
       var formPresence = quotaDriven
         ? Object.assign({}, presence || {}, { introLabel: t('quotaFullIntro') })
-        : presence;
+        : offlineText ? Object.assign({}, presence || {}, { introLabel: offlineText }) : presence;
       body.innerHTML = Presentation.contactFallbackHtml(
         identity,
         (identityStore.get().contact) || {},
         locale,
         formPresence,
       );
+      var draftEl = body.querySelector('[data-fb="message"]');
+      // As long as a chat message may be (POST /message and /offline-messages).
+      if (draftEl) draftEl.maxLength = MAX_MESSAGE_CHARS;
       if (ctx.__quotaDraft) {
-        var draftEl = body.querySelector('[data-fb="message"]');
         if (draftEl) draftEl.value = ctx.__quotaDraft;
         ctx.__quotaDraft = '';
       }
@@ -4667,6 +4817,8 @@
       });
 
       if (!submitBtn) return;
+      // Whether the form asks the phone (then either way of reaching the visitor will do).
+      var phoneField = !!body.querySelector('[data-fb="phone"]');
       submitBtn.addEventListener('click', function () {
         var payload = {
           name: get('name'),
@@ -4675,11 +4827,13 @@
           message: get('message'),
         };
         var ok = true;
-        if (identity.isRequired('name') && !payload.name) { showErr('name', t('required')); ok = false; }
+        if (identity.isRequired('name') && !payload.name) { showErr('name', t('fieldRequired')); ok = false; }
         if (payload.email && !Util.isValidEmail(payload.email)) { showErr('email', t('invalidEmail')); ok = false; }
         if (payload.phone && !Util.isValidPhone(payload.phone)) { showErr('phone', t('invalidPhone')); ok = false; }
-        if (!payload.email && !payload.phone) { showErr('email', t('required')); ok = false; }
-        if (!payload.message) { showErr('message', t('required')); ok = false; }
+        // A way to reach the visitor: the email, or the phone where the form asks it.
+        if (!payload.email && !payload.phone) { showErr('email', t(phoneField ? 'fallbackContactNeeded' : 'fieldRequired')); ok = false; }
+        if (!payload.message) { showErr('message', t('fieldRequired')); ok = false; }
+        else if (payload.message.length > MAX_MESSAGE_CHARS) { showErr('message', t('msgFailLong')); ok = false; }
         if (!ok) return;
 
         submitBtn.disabled = true; submitBtn.style.opacity = '0.6';
@@ -4699,7 +4853,7 @@
         };
         if (payload.name) body.name = payload.name;
         if (payload.email) body.email = payload.email;
-        if (payload.phone) body.phone = payload.phone;
+        if (payload.phone) body.phone = Util.asciiDigits(payload.phone);
 
         ctx.fetchWith(ctx.apiBase + '/api/widget/offline-messages', {
           method: 'POST',
@@ -4707,8 +4861,13 @@
           body: JSON.stringify(body),
         })
           .then(function (r) {
-            if (!r.ok) throw new Error('http_' + r.status);
-            return r.json();
+            if (r.ok) return r.json();
+            return r.json().catch(function () { return {}; }).then(function (j) {
+              var e = new Error('http_' + r.status);
+              e.status = r.status;
+              e.body = j || {};
+              throw e;
+            });
           })
           .then(function (data) {
             // captured: false only happens for the honeypot path; treat
@@ -4716,31 +4875,55 @@
             if (data && data.conversation_id) {
               chatStore.set({ conversationId: data.conversation_id });
             }
-            // Echo the visitor message locally so they see what they sent.
+            // Echo the visitor message locally so they see what they sent,
+            // with the confirmation under it: it stays in the thread (the
+            // form's own status line goes with the form).
+            var msgKey = (data && data.transitioning) ? 'fallbackSentTransitioning' : 'fallbackSent';
             var s = chatStore.get();
             var messages = s.messages.slice();
-            messages.push({ body: payload.message, sender: 'visitor', time: new Date() });
+            var now = new Date();
+            messages.push({ body: payload.message, sender: 'visitor', time: now });
+            messages.push({
+              localId: 'offline-received-' + now.getTime(),
+              sender: 'system', senderType: 'system', text: t(msgKey), body: t(msgKey), time: now,
+              metadata: { kind: 'offline_received_local' },
+            });
             chatStore.set({ messages: messages });
 
-            // Persist contact details locally so subsequent prechat checks
-            // don't re-prompt this visitor for the same info on this device.
+            // The details just given are the visitor's (the server keeps them
+            // on their contact): no pre-chat asks for them again.
             if (payload.name || payload.email || payload.phone) {
+              var prevContact = identityStore.get().contact || {};
               identityStore.set({
-                contact: Object.assign({}, identityStore.get().contact || {}, {
-                  name: payload.name || (identityStore.get().contact || {}).name || '',
-                  email: payload.email || (identityStore.get().contact || {}).email || '',
-                  phone: payload.phone || (identityStore.get().contact || {}).phone || '',
+                identityState: 'identified',
+                contact: Object.assign({}, prevContact, {
+                  name: payload.name || prevContact.name || '',
+                  email: payload.email || prevContact.email || '',
+                  phone: (payload.phone && Util.asciiDigits(payload.phone)) || prevContact.phone || '',
                 }),
               });
             }
 
-            var msgKey = (data && data.transitioning) ? 'fallbackSentTransitioning' : 'fallbackSent';
             if (statusEl) { statusEl.textContent = t(msgKey); statusEl.className = 'fallback-status ok'; }
             if (typeof onSent === 'function') onSent();
           })
-          .catch(function () {
+          .catch(function (err) {
             submitBtn.disabled = false; submitBtn.style.opacity = '1';
-            if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+            // Said where it belongs: a field the server refused under it;
+            // otherwise why (too many at once, no connection) on the status line.
+            var st = err && err.status;
+            var fe = (err && err.body && err.body.details && err.body.details.fieldErrors) || {};
+            var fields = ['email', 'phone', 'name', 'message'].filter(function (k) { return fe[k]; });
+            if (st === 400 && fields.length) {
+              fields.forEach(function (k) {
+                showErr(k, t(k === 'email' ? 'invalidEmail' : k === 'phone' ? 'invalidPhone' : k === 'message' ? 'msgFailLong' : 'fieldRequired'));
+              });
+              return;
+            }
+            if (statusEl) {
+              statusEl.textContent = t(st === 429 ? 'formRate' : !st ? 'formOffline' : 'fallbackError');
+              statusEl.className = 'fallback-status error';
+            }
           });
       });
     }
@@ -6562,7 +6745,7 @@
     // max): the composer stops there, and shows what is left from
     // CHARS_LEFT_SHOW on (`data-chars-left` on the pill, which every
     // template's stylesheet draws).
-    var MESSAGE_MAX_CHARS = 5000;
+    var MESSAGE_MAX_CHARS = MAX_MESSAGE_CHARS;
     var CHARS_LEFT_SHOW = 500;
 
     // ─── Smart Engagement interaction bridge state ──────────────────────
@@ -6749,7 +6932,14 @@
       },
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
-    var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
+    var presence = createPresence(ctx, presenceStore, transport, transportStore, t, function () {
+      return !!shellStore.get().isOpen && !(typeof document !== 'undefined' && document.hidden);
+    });
+    var presenceSawOpen = false;
+    shellStore.subscribe(function (s) {
+      if (s.isOpen && !presenceSawOpen) presence.refresh();
+      presenceSawOpen = !!s.isOpen;
+    });
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
@@ -6923,7 +7113,17 @@
       srAnnouncer.textContent = (senderName ? senderName + ': ' : '') + text;
     }
     var msgInput = chatQ('[data-msg-input]');
-    if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); msgInput.maxLength = MESSAGE_MAX_CHARS; }
+    if (msgInput) {
+      msgInput.addEventListener('input', markVisitorTyping);
+      msgInput.maxLength = MESSAGE_MAX_CHARS;
+      // The owner's own composer text (Appearance → composer placeholder,
+      // plan-gated server-side), in every template; else the template's.
+      var ownPlaceholder = typeof config.placeholderText === 'string' ? config.placeholderText.trim() : '';
+      if (ownPlaceholder) {
+        msgInput.setAttribute('placeholder', ownPlaceholder);
+        if (msgInput.hasAttribute('aria-label')) msgInput.setAttribute('aria-label', ownPlaceholder);
+      }
+    }
     var sendBtn = chatQ('[data-send-btn]');
     var inputBar = chatQ('[data-input-bar]');
     var attachBtn = chatQ('[data-attach-btn]');
@@ -7265,11 +7465,31 @@
       });
     }
     // Phase 6b — small helper used by both the chip & in-message file cards.
+    // In the visitor's digits and words (۲۴۰ کیلوبایت).
     function humanSizeShell(bytes) {
       var n = Number(bytes) || 0;
-      if (n < 1024) return n + ' B';
-      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
-      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+      var u = n < 1024 ? 0 : n < 1048576 ? 1 : 2;
+      var v = n / Math.pow(1024, u);
+      return localNumber(u && v < 10 ? Math.round(v * 10) / 10 : Math.round(v)) + ' ' + t(['sizeB', 'sizeKB', 'sizeMB'][u]);
+    }
+    function localNumber(n) {
+      try {
+        var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+        return new Intl.NumberFormat(l === 'fa' ? 'fa-IR' : l === 'tr' ? 'tr-TR' : 'en-US', { maximumFractionDigits: 1 }).format(n);
+      } catch (_) { return String(n); }
+    }
+    // What a refused file may be: the size limit, and the kinds allowed.
+    function tooLargeText(maxBytes) {
+      return String(t('tooLargeMax')).split('{size}').join(humanSizeShell(maxBytes));
+    }
+    function typesAllowedText(mimes) {
+      var names = [];
+      (mimes || []).forEach(function (m) {
+        var sub = String(m || '').split('/')[1] || '';
+        var name = sub === 'jpeg' ? 'JPG' : sub === 'plain' ? 'TXT' : sub.replace(/^x-|^vnd\./, '').split(/[.+]/)[0].toUpperCase();
+        if (name && names.indexOf(name) < 0) names.push(name);
+      });
+      return names.length ? String(t('typeNotAllowedList')).split('{types}').join(names.join(/^fa/i.test(ctx.locale || '') ? '، ' : ', ')) : t('typeNotAllowed');
     }
     attachmentStore.subscribe(renderAttachmentPreview);
     renderAttachmentPreview();
@@ -7402,12 +7622,13 @@
     // lookup table can safely map each one to the visitor's locale instead
     // of leaking English into a Persian/Turkish chat.
     function localizeUploadError(serverMsg) {
+      var attachCfg = (ctx.config && ctx.config.attachments) || {};
       var map = {
         'Widget chat not enabled': t('chatUnavailable') || 'Chat is currently unavailable',
         'Attachments not enabled for this workspace': t('attachmentsDisabled') || 'File attachments are not enabled',
         'Voice notes not enabled for this workspace': t('voiceNotesDisabled') || 'Voice messages are not enabled',
-        'File type not allowed': t('typeNotAllowed'),
-        'File too large': t('tooLarge'),
+        'File type not allowed': typesAllowedText(attachCfg.allowedMimes),
+        'File too large': tooLargeText((attachCfg.maxSizeMb || 10) * 1024 * 1024),
       };
       return (serverMsg && map[serverMsg]) || (t('uploadFailed') || 'Upload failed');
     }
@@ -7427,11 +7648,11 @@
       // against attachCfg.allowedMimes, which only ever lists file types.
       var isVoiceNote = Object.prototype.hasOwnProperty.call(AUDIO_EXT_BY_MIME, file.type);
       if (!isVoiceNote && allowed.indexOf(file.type) < 0) {
-        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('typeNotAllowed') || 'File type not allowed', attachmentId: null });
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: typesAllowedText(allowed), attachmentId: null });
         return;
       }
       if (file.size > maxBytes) {
-        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('tooLarge') || 'File too large', attachmentId: null });
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: tooLargeText(maxBytes), attachmentId: null });
         return;
       }
       attachmentStore.set({ file: file, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'uploading', progress: 10, error: '', attachmentId: null });
@@ -9155,6 +9376,9 @@
       PRECHAT_FOR_HUMAN: 'PRECHAT_FOR_HUMAN',
       HANDOFF_PRECHAT: 'HANDOFF_PRECHAT',
       OFFLINE_CONTACT: 'OFFLINE_CONTACT',
+      // Away with the offline mode "show only the offline message": the
+      // owner's message alone, no form and no composer.
+      OFFLINE_NOTICE: 'OFFLINE_NOTICE',
       // CONNECTING_TO_AGENT / WAITING_UNASSIGNED / HUMAN_CONNECTED /
       // OFFLINE_SUBMITTED collapse to this: the widget has no
       // assignment/routing-outcome signal in /config or the message
@@ -9212,6 +9436,13 @@
         || !!(ctx.config && ctx.config.availability && ctx.config.availability.quota_full === true);
       if (quotaFull && !hasMsgs && !chatStore.get().conversationId) {
         return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
+      }
+      // Nobody (human or AI) answers, and the owner chose to show only the
+      // offline message: a new thread is that message, before any form.
+      var pNow = presenceStore.get();
+      if ((pNow.status === 'offline' || pNow.status === 'unavailable') && pNow.offlineMode === 'show_offline_message'
+          && !hasMsgs && !aiActiveNow && !chatStore.get().conversationId) {
+        return { name: ENTRY_FLOW_STATE.OFFLINE_NOTICE, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
 
       if (identity.shouldRequirePrechat(flow) && !ext('skip')) {
@@ -9431,6 +9662,16 @@
           return;
         }
 
+        if (state.name === ENTRY_FLOW_STATE.OFFLINE_NOTICE) {
+          // The owner's offline message alone, as the empty thread's welcome
+          // bubble (which every template draws), with no composer.
+          if (inputBar) inputBar.style.display = 'none';
+          var ownWelcome = config.welcomeMessage;
+          config.welcomeMessage = offlineMessageOf(config) || t('offlineNotice');
+          try { chatUI.renderChat(mountChatFrame() || body); } finally { config.welcomeMessage = ownWelcome; }
+          return;
+        }
+
         if (state.name === ENTRY_FLOW_STATE.OFFLINE_CONTACT) {
           // Contact-fallback form owns the input area — hide the chat composer.
           if (inputBar) inputBar.style.display = 'none';
@@ -9500,8 +9741,11 @@
     });
 
     // Re-render body when presence flips so fallback/normal swap takes effect.
+    // Never under a visitor typing into the leave-a-message form: it stays
+    // (the server takes the message whatever the team's state by then).
     presenceStore.subscribe(function () {
       var at = shellStore.get().activeTab;
+      if (at === 'chat' && body && Array.prototype.some.call(body.querySelectorAll('[data-fb]'), function (el) { return el.value !== (el.defaultValue || ''); })) return;
       if (at === 'chat' || at === 'home') renderBody();
     });
 

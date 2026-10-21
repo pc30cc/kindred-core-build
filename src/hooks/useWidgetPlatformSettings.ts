@@ -57,6 +57,14 @@ export interface WidgetPlatformSettings {
 
 const QUERY_KEY = ['widget-platform-settings'] as const;
 
+/** What the platform settings routes answer (a row, or an error with its details). */
+interface PlatformSettingsAnswer {
+  settings?: WidgetPlatformSettings | null;
+  error?: string;
+  detail?: string;
+  hint?: string;
+}
+
 const PLATFORM_PATH = '/api/widget-settings/platform/config';
 
 /**
@@ -98,7 +106,7 @@ export function useWidgetPlatformSettings() {
     queryFn: async () => {
       const res = await fetchPlatform();
       const raw = await res.text();
-      let json: any = null;
+      let json: PlatformSettingsAnswer | null = null;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {
@@ -124,10 +132,11 @@ export function useWidgetPlatformSettings() {
 
 /**
  * Non-admin projection of the platform singleton (embed URLs, embed header /
- * footer comments and the platform "Powered by" wording). Workspace owners are
- * not platform admins, so they must NOT call `/platform/config` — that route is
- * admin-only and returns 403, which previously left their Install snippet
- * without the platform-authored comments.
+ * footer comments, the platform "Powered by" wording and the pre-chat field
+ * policy). Workspace owners are not platform admins, so they must NOT call
+ * `/platform/config` — that route is admin-only and returns 403, which
+ * previously left their Install snippet without the platform-authored
+ * comments and their pre-chat form without the Super Admin's locks.
  */
 export type PublicWidgetPlatformSettings = Pick<
   WidgetPlatformSettings,
@@ -142,6 +151,9 @@ export type PublicWidgetPlatformSettings = Pick<
   | 'powered_by_text'
   | 'powered_by_brand_text'
   | 'powered_by_url'
+  | 'prechat_name_policy'
+  | 'prechat_email_policy'
+  | 'prechat_phone_policy'
 >;
 
 export function useWidgetPlatformPublicSettings() {
@@ -184,7 +196,7 @@ export function useUpdateWidgetPlatformSettings() {
         body: JSON.stringify({ id, ...updates }),
       });
       const raw = await res.text();
-      let json: any = null;
+      let json: PlatformSettingsAnswer | null = null;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {

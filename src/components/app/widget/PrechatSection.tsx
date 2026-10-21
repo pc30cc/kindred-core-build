@@ -1,12 +1,13 @@
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings, type PrechatTiming } from '@/hooks/useWidgetIdentity';
-import { useWidgetPlatformSettings, type PreChatPolicy } from '@/hooks/useWidgetPlatformSettings';
+import { useWidgetPlatformPublicSettings, type PreChatPolicy } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { User, Mail, Phone, ShieldCheck, Lock, Info, Clock, Sparkles, UserCheck, EyeOff } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { defaultPrechatRow } from '../../../../shared/prechatPolicy';
 
 
 interface Props {
@@ -36,33 +37,32 @@ function resolveLock(policy: PreChatPolicy | undefined) {
 export function PrechatSection({ workspaceId }: Props) {
   const { t, dir } = useTranslation();
   const { data: settings, isLoading } = useWidgetPrechatSettings(workspaceId);
-  const { data: platform } = useWidgetPlatformSettings();
+  // The public projection: workspace owners are not platform admins.
+  const { data: platform } = useWidgetPlatformPublicSettings();
   const updateMut = useUpdateWidgetPrechatSettings(workspaceId);
 
   const update = (patch: Partial<WidgetPrechatSettings>) => {
     updateMut.mutate(patch, {
       onSuccess: () => toast({ title: t('widgetPage.prechat.saved'), description: t('widgetPage.prechat.savedDescription') }),
-      onError: (e: any) => toast({ title: t('common.error'), description: e.message, variant: 'destructive' }),
+      onError: (e: Error) => toast({ title: t('common.error'), description: e.message, variant: 'destructive' }),
     });
   };
 
   if (isLoading) return <div dir={dir} className="text-sm text-muted-foreground">{t('widgetPage.loading')}</div>;
 
-  // Defaults if no row yet — match server fallback in widgetIdentity.ts
-  const s: WidgetPrechatSettings = settings || {
-    workspace_id: workspaceId || '',
-    ask_name: true, ask_email: true, ask_phone: false,
-    require_name: true, require_email: true, require_phone: false,
-    verify_email: false, verify_phone: false,
-    prechat_timing: 'after_handoff',
-    history_continue_window_hours: 24,
-
-  };
-
   const policyByField: Record<FieldKey, PreChatPolicy | undefined> = {
     name: platform?.prechat_name_policy,
     email: platform?.prechat_email_policy,
     phone: platform?.prechat_phone_policy,
+  };
+
+  // Defaults if no row yet: what the server asks visitors of a workspace
+  // that never saved its form (shared/prechatPolicy.ts).
+  const s: WidgetPrechatSettings = settings || {
+    workspace_id: workspaceId || '',
+    ...defaultPrechatRow(policyByField),
+    prechat_timing: 'after_handoff',
+    history_continue_window_hours: 24,
   };
 
   const anyFieldAsked = !!(s.ask_name || s.ask_email || s.ask_phone);
@@ -105,9 +105,9 @@ export function PrechatSection({ workspaceId }: Props) {
                   <Icon className={`h-4 w-4 ${selected ? 'text-primary' : 'text-muted-foreground'}`} />
                 </div>
                 <div className="space-y-0.5">
-                  <p className="text-sm font-medium">{t(`widgetPage.prechat.timing_${opt.value}` as any)}</p>
+                  <p className="text-sm font-medium">{t(`widgetPage.prechat.timing_${opt.value}` as TranslationKey)}</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    {t(`widgetPage.prechat.timing_${opt.value}_hint` as any)}
+                    {t(`widgetPage.prechat.timing_${opt.value}_hint` as TranslationKey)}
                   </p>
                 </div>
               </button>
@@ -135,7 +135,7 @@ export function PrechatSection({ workspaceId }: Props) {
         <CardContent className="space-y-4">
           {(Object.keys(FIELD_META) as FieldKey[]).map((key) => {
             const meta = FIELD_META[key];
-            const fieldLabel = t(`widgetPage.prechat.${key}` as any);
+            const fieldLabel = t(`widgetPage.prechat.${key}` as TranslationKey);
             const Icon = meta.icon;
             const lock = resolveLock(policyByField[key]);
             const askField = `ask_${key}` as keyof WidgetPrechatSettings;
@@ -153,14 +153,16 @@ export function PrechatSection({ workspaceId }: Props) {
                     <Label className="text-sm font-medium">{fieldLabel}</Label>
                     {lock.askLocked && (
                       <Badge variant="destructive" className="gap-1 text-[10px]">
-                        <Lock className="h-3 w-3" /> {lock.labelKey ? t(`widgetPage.prechat.${lock.labelKey}` as any) : ''}
+                        <Lock className="h-3 w-3" /> {lock.labelKey ? t(`widgetPage.prechat.${lock.labelKey}` as TranslationKey) : ''}
                       </Badge>
                     )}
                   </div>
                   <Switch
                     checked={askValue}
                     disabled={lock.askLocked || updateMut.isPending}
-                    onCheckedChange={(v) => update({ [askField]: v } as any)}
+                    // A field that is not asked is never required (the server
+                    // and the widget read it so too): turning one off clears both.
+                    onCheckedChange={(v) => update((v ? { [askField]: true } : { [askField]: false, [requireField]: false }) as Partial<WidgetPrechatSettings>)}
                   />
                 </div>
 
@@ -171,7 +173,7 @@ export function PrechatSection({ workspaceId }: Props) {
                       <Switch
                         checked={requireValue}
                         disabled={lock.requireLocked || updateMut.isPending}
-                        onCheckedChange={(v) => update({ [requireField]: v } as any)}
+                        onCheckedChange={(v) => update({ [requireField]: v } as Partial<WidgetPrechatSettings>)}
                       />
                     </div>
                     {/* OTP verification toggles removed by product decision. */}

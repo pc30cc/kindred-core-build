@@ -325,6 +325,16 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   drawn by the template's stylesheet with `content: attr(data-chars-left)`.
   A hook only a new template needs is a renderer feature (§2): Core's code
   for it goes in `runtime-ext.js`, not in `runtime.js`.
+- What Core puts in a template's own places, so a template draws nothing
+  more for it: the owner's composer text (`config.placeholderText`) as the
+  composer's `placeholder`; the owner's offline message
+  (`availability.offline_message`) as the leave-a-message form's
+  `presence.introLabel`, and, in the offline mode "show only the offline
+  message", as the empty thread's welcome (`config.welcomeMessage` while that
+  thread is drawn, the composer hidden). The availability itself is read
+  again while the panel is open (`GET /api/widget/availability`), so a
+  template drawing it from `config.availability` and the presence store
+  follows it.
 - Call widget: the presentation (the core and the panel module) never calls
   the network or storage; the runtime never touches the DOM
   (`src/test/callWidgetPresentationContract.test.ts`).

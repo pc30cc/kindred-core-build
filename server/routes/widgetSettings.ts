@@ -29,6 +29,16 @@ import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { getChatTemplateCatalog } from '../services/widget/configSnapshot.js';
+import { prechatPolicyInputs } from '../services/widget/prechatEffective.js';
+import {
+  PRECHAT_FIELDS,
+  defaultPrechatRow,
+  isPrechatFieldLocked,
+  normalizePreChatPolicy,
+  normalizePrechatTiming,
+  requireOnlyAsked,
+  type PrechatSettingsRow,
+} from '../../shared/prechatPolicy.js';
 import { isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
 import {
   CHAT_TEMPLATE_LOCALES,
@@ -618,12 +628,44 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   }
 
   const sb = getServiceClient(config);
+  // The row as it will be stored, whole (shared/prechatPolicy.ts): the
+  // stored one (or what a workspace without one is asked) under this patch,
+  // every field required only while it is asked. Writing every field keeps
+  // a first save from taking the table's defaults (name and email required)
+  // for the ones the patch leaves out. A field the Super Admin locked keeps
+  // the workspace's own choice: the lock applies when the form is served,
+  // and the choice comes back once the lock is lifted.
+  const [{ data: current, error: readError }, inputs] = await Promise.all([
+    sb.from('widget_prechat_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
+    prechatPolicyInputs(config, workspaceId),
+  ]);
+  if (readError) return res.status(500).json({ error: readError.message });
+  const policy = normalizePreChatPolicy(inputs.policy);
+  const patch: Record<string, unknown> = { ...parsed.data };
+  for (const field of PRECHAT_FIELDS) {
+    if (!isPrechatFieldLocked(policy[field])) continue;
+    delete patch[`ask_${field}`];
+    delete patch[`require_${field}`];
+  }
+  const base = (current as PrechatSettingsRow | null) ?? defaultPrechatRow(policy);
+  const merged = requireOnlyAsked({ ...base, ...patch } as PrechatSettingsRow);
+  const row: Record<string, unknown> = { workspace_id: workspaceId };
+  for (const field of PRECHAT_FIELDS) {
+    row[`ask_${field}`] = !!merged[`ask_${field}`];
+    row[`require_${field}`] = !!merged[`require_${field}`];
+  }
+  row.verify_email = !!merged.verify_email;
+  row.verify_phone = !!merged.verify_phone;
+  row.prechat_timing = normalizePrechatTiming(merged.prechat_timing);
+  if (parsed.data.history_continue_window_hours !== undefined) {
+    row.history_continue_window_hours = parsed.data.history_continue_window_hours;
+  }
   // workspace_id comes from the URL param (the authorized workspace), never
   // from the request body — parsed.data cannot carry it (the schema above
   // has no such field, and .strict() would reject it if the client tried).
   const { data, error } = await sb
     .from('widget_prechat_settings')
-    .upsert({ ...parsed.data, workspace_id: workspaceId }, { onConflict: 'workspace_id' })
+    .upsert(row, { onConflict: 'workspace_id' })
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -632,15 +674,17 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
 
 // ── Public (non-admin) projection of the platform singleton ───────
 // Workspace owners need the platform-owned embed URLs, embed comments and
-// "Powered by" wording to render their Install snippet. Only a safe subset is
-// exposed — never admin notes, limits or feature locks.
+// "Powered by" wording to render their Install snippet, and the pre-chat
+// field policy to show which of their fields the Super Admin locked
+// (PrechatSection). Only a safe subset is exposed — never admin notes or
+// limits.
 widgetSettingsRouter.get('/platform/public', async (req, res) => {
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_platform_settings')
     .select(
-      'id, widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, embed_header_comment, embed_footer_comment, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url',
+      'id, widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, embed_header_comment, embed_footer_comment, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url, prechat_name_policy, prechat_email_policy, prechat_phone_policy',
     )
     .limit(1)
     .maybeSingle();

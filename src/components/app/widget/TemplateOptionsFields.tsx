@@ -4,8 +4,9 @@
  * workspace owner (their own widget): Template 1's bottom menu style and
  * labels and its pre-chat form, quick topics (Templates 1 and 2), Template 2's
  * example questions and rating after a chat, the transcript by email
- * (Templates 1 and 2), and the International templates' logo direction. Only
- * the keys the template reads are shown.
+ * (Templates 1 and 2; hidden while visitor email is switched off,
+ * shared/visitorEmail.ts), and the International templates' logo direction.
+ * Only the keys the template reads are shown.
  *
  * `value` holds what this level sets; a key it leaves out reads `inherited`
  * (the level above). With `allowReset` a key this level sets can be handed
@@ -36,6 +37,7 @@ import {
   type ChatTemplateTopic,
   type ChatTemplateTopicIcon,
 } from '../../../../shared/chatTemplateCatalog';
+import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../../../shared/visitorEmail';
 
 const TOPIC_ICONS: Record<ChatTemplateTopicIcon, LucideIcon> = {
   truck: Truck,
@@ -310,7 +312,8 @@ export function TemplateOptionsFields({
       )}
 
       {keys.includes('csat') && toggle('csat', 'csat')}
-      {keys.includes('transcriptEmail') && toggle('transcriptEmail', 'transcript-email')}
+      {/* No email to visitors while the platform's switch is off (shared/visitorEmail.ts). */}
+      {keys.includes('transcriptEmail') && VISITOR_EMAIL_FEATURES_ENABLED && toggle('transcriptEmail', 'transcript-email')}
     </div>
   );
 }

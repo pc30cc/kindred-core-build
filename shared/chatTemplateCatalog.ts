@@ -43,6 +43,7 @@
  */
 import type { Edition } from './edition.js';
 import { EDITION_CHAT_WIDGET_TEMPLATES, chatWidgetTemplate, type ChatWidgetTemplateId } from './widgetTemplates.js';
+import { VISITOR_EMAIL_FEATURES_ENABLED, VISITOR_EMAIL_TEMPLATE_OPTIONS } from './visitorEmail.js';
 
 // ─── Names ─────────────────────────────────────────────────────────────────
 
@@ -141,7 +142,8 @@ export interface ChatTemplateOptions {
    * The visitor may have the conversation mailed to the address on their
    * contact (the rating card's link and the chat header's menu; default on).
    * Off: neither shows it, and POST …/transcript answers 403
-   * `transcript_disabled`.
+   * `transcript_disabled`. Always off while visitor email is switched off
+   * (shared/visitorEmail.ts).
    */
   transcriptEmail?: boolean;
   /**
@@ -439,11 +441,17 @@ export function resolveChatTemplateOptions(
   const keys = chatTemplateOptionKeys(templateId);
   if (!keys.length) return {};
   const entry = catalog.entries.find((e) => e.id === templateId);
-  return {
+  const out: ChatTemplateOptions = {
     ...chatTemplateOptionDefaults(templateId),
     ...(entry ? readTemplateOptions(entry.options, keys) : {}),
     ...readTemplateOptions(workspaceOptions, keys),
   };
+  // No email to visitors while the platform's switch is off
+  // (shared/visitorEmail.ts): whatever is stored, the option reads off.
+  if (!VISITOR_EMAIL_FEATURES_ENABLED) {
+    for (const key of VISITOR_EMAIL_TEMPLATE_OPTIONS) if (keys.includes(key)) out[key] = false;
+  }
+  return out;
 }
 
 // ─── The Super Admin's save ────────────────────────────────────────────────

@@ -11,8 +11,10 @@
  *   - Only once a human operator answered in the conversation. Visitor
  *     addresses are claims, not verified: without this an AI-only thread
  *     would mail anybody's address whatever text it was fed.
- *   - Only while the workspace's effective template offers it and its
- *     `transcriptEmail` option is on, and the platform has an email provider.
+ *   - Only while visitor email is switched on (shared/visitorEmail.ts; off
+ *     since 2026-10-21, owner), the workspace's effective template offers it
+ *     and its `transcriptEmail` option is on, and the platform has an email
+ *     provider.
  *   - At most 3 sent per conversation, one per 10 minutes, and 100 attempts
  *     per workspace per 24 hours, counted in the ledger
  *     `conversation_transcript_emails` (sent and failed; a failed send does
@@ -43,6 +45,7 @@ import { getWorkspaceWidgetSnapshot, workspaceChatTemplate } from './widget/conf
 import { enrichMessagesWithSender } from './widget/senderIdentity.js';
 import { enrichMessagesWithAttachments, isVisitorVisibleMessageMeta } from '../routes/widgetAttachments.js';
 import { chatTemplateOptionKeys } from '../../shared/chatTemplateCatalog.js';
+import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../shared/visitorEmail.js';
 import type { Edition } from '../../shared/edition.js';
 
 export const TRANSCRIPT_TEMPLATE_SLUG = 'visitor_conversation_transcript';
@@ -154,8 +157,12 @@ async function contactEmail(sb: ServiceClient, workspaceId: string, contactId: s
   return parsed.success ? parsed.data : null;
 }
 
-/** Whether the workspace's effective template offers the transcript and has it on. */
+/**
+ * Whether the workspace's effective template offers the transcript and has it
+ * on; never while visitor email is switched off (shared/visitorEmail.ts).
+ */
 async function transcriptOptionOn(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  if (!VISITOR_EMAIL_FEATURES_ENABLED) return false;
   const template = await workspaceChatTemplate(config, workspaceId);
   return chatTemplateOptionKeys(template.id).includes('transcriptEmail') && template.options.transcriptEmail !== false;
 }

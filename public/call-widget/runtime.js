@@ -770,11 +770,45 @@
     this.render();
     // Resume any in-flight call across refresh / navigation.
     try { this.resumeActiveCall(); } catch (_) {}
+    this.watchPresence();
   };
 
+  /**
+   * Offline only because nobody is available: asks again every minute while
+   * the page is shown (30 times at most), and comes online when an operator
+   * does (the bootstrap is memoised on the server, 30 s). Never in the preview.
+   */
+  CallCenterWidgetCtor.prototype.watchPresence = function () {
+    var self = this;
+    var b = this.bootstrap || {};
+    var caps = b.capabilities || {};
+    if (this.preview || this._presenceTimer || !(caps.voice || caps.video) || !b.presence || b.presence.any_available !== false || !b.workspace_id) return;
+    var left = 30;
+    this._presenceTimer = setInterval(function () {
+      if (self.state !== STATES.OFFLINE || --left < 0) { clearInterval(self._presenceTimer); self._presenceTimer = null; return; }
+      var page = window.document;
+      if (page && page.visibilityState === 'hidden') return;
+      fetch(self.apiBase + '/api/call-widget/bootstrap?workspaceId=' + encodeURIComponent(b.workspace_id), { credentials: 'include', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j || j.status !== 'ok' || !j.presence || j.presence.any_available !== true || self.state !== STATES.OFFLINE) return;
+          self.bootstrap.presence = j.presence;
+          clearInterval(self._presenceTimer); self._presenceTimer = null;
+          self.state = STATES.ONLINE;
+          self.render();
+        })
+        .catch(function () {});
+    }, 60000);
+  };
+
+  // Online: a call channel is on and someone takes calls. With nobody
+  // available (`presence`, the operators' call center status) the widget is
+  // offline, so the workspace's offline behaviour applies (hide, the offline
+  // message, a callback). A server without presence keeps the channels' rule.
   CallCenterWidgetCtor.prototype.isOnline = function () {
     var caps = this.bootstrap && this.bootstrap.capabilities;
-    return !!caps && (caps.voice || caps.video);
+    var pr = this.bootstrap && this.bootstrap.presence;
+    return !!caps && !!(caps.voice || caps.video) && !(pr && pr.any_available === false);
   };
 
   // The five placements (right, left, top_right, top_left, bottom_center)

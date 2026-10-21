@@ -425,18 +425,16 @@ describe('offline and unstaffed compositions (§2.11, D17)', () => {
     }
   });
 
-  it('online but nobody available: every dot off, the card says no operator now; the call buttons stay', () => {
+  it('channels on but nobody available: every launcher is the offline one (owner 2026-10-21), no call buttons', () => {
     const none = { presence: { any_available: false } };
     for (const style of ['round', 'round_label', 'dark_square']) {
       expect(launcher(style, none).q('.ccw-launcher-btn .ls')!.classList.contains('off')).toBe(true);
     }
-    expect(launcher('round_label', none).q('.lbl .dot')!.classList.contains('off')).toBe(true);
     for (const style of ['pill', 'edge_tab']) expect(launcher(style, none).q('.ld')!.classList.contains('off')).toBe(true);
     const card = launcher('card', none);
-    expect(text(card.q('.ln-r .tx small'))).toBe('No operator available right now');
-    expect(card.q('.ln-r .tx small .dot')!.classList.contains('off')).toBe(true);
-    expect(icon(card.q('.ln-r .go2 svg'))).toBe('phone');
-    expect(launcher('split', none).qa('.ln-s > button.hf')).toHaveLength(2);
+    expect(card.q('.ccw-launcher-btn')!.classList.contains('off')).toBe(true);
+    expect(icon(card.q('.ln-r .go2 svg'))).toBe('phone-in');
+    expect(launcher('split', none).qa('.ln-s > button[data-action="voice"], .ln-s > button[data-action="video"]')).toHaveLength(0);
   });
 });
 

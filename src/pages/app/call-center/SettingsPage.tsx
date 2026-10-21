@@ -1,5 +1,5 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterSettings, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
+import { useCallCenterAgentPresence, useCallCenterSettings, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Panel, SectionHeading } from '@/features/calls/callCenterUi';
 import { Button } from '@/components/ui/button';
@@ -196,6 +196,9 @@ export default function CallCenterSettingsPage() {
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
 
+  // Who is available now (the Availability tab): the widget is offline while nobody is.
+  const { data: presenceData } = useCallCenterAgentPresence(workspace?.id);
+
   if (isLoading || !s) {
     return (
       <div className="space-y-5">
@@ -216,6 +219,15 @@ export default function CallCenterSettingsPage() {
   const platformRecording = !!platform?.call_recording_enabled;
   const planRecording = !!data?.recording?.enabled_by_plan;
   const showRecordingTab = platformRecording && planRecording;
+  // Offline: the channels are off or nobody is available (public/call-widget/runtime.js isOnline).
+  const availableNow = presenceData
+    ? (presenceData.presence || []).filter((p) => p.status === 'available').length
+    : null;
+  // "Show callback request" only while visitors can request one; a stored
+  // choice without callbacks behaves as the offline message (the widget's rule).
+  const callbackAvailable = platformCallback && s?.callback_enabled !== false;
+  const offlineCallbackOff = !callbackAvailable && (s?.offline_behavior || 'show_callback') === 'show_callback';
+  const offlineChoice = offlineCallbackOff ? 'show_message' : (s?.offline_behavior || 'show_callback');
 
   /** The loaded settings have this migration-277 key (the backend and its database have 277). */
   const designLoaded = (key: CallWidgetDesignKey) =>
@@ -676,19 +688,38 @@ export default function CallCenterSettingsPage() {
 
       <TabsContent value="availability" className="space-y-6 mt-0">
       <Section icon={CalendarClock} title={t('callCenter.settingsPage.availabilityOffline')} description={t('callCenter.settingsPage.availabilityOfflineHint')}>
-        <Row label={t('callCenter.settingsPage.offlineBehavior')}>
-          <Select value={s.offline_behavior || 'show_callback'} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
-            <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
+        {/* Who takes calls now: the widget is offline while nobody is available. */}
+        <Row
+          label={t('callCenter.settingsPage.operatorsAvailableNow')}
+          hint={t('callCenter.settingsPage.operatorsAvailableNowHint')}
+        >
+          <span
+            data-cc-available-now={availableNow ?? ''}
+            className={cn('text-sm font-medium', availableNow === 0 ? 'text-warning' : 'text-success')}
+          >
+            {availableNow === null ? '…' : availableNow === 0
+              ? t('callCenter.settingsPage.noneAvailableNow')
+              : t('callCenter.settingsPage.availableNowCount', { count: availableNow })}
+          </span>
+        </Row>
+        <Row
+          label={t('callCenter.settingsPage.offlineBehavior')}
+          hint={offlineCallbackOff ? t('callCenter.settingsPage.offlineCallbackOff') : undefined}
+        >
+          <Select value={offlineChoice} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
+            <SelectTrigger className="w-60" data-cc-offline-behavior><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="hide">{t('callCenter.settingsPage.hideWidget')}</SelectItem>
-              {platformCallback && <SelectItem value="show_callback">{t('callCenter.settingsPage.showCallbackRequest')}</SelectItem>}
+              {callbackAvailable && <SelectItem value="show_callback">{t('callCenter.settingsPage.showCallbackRequest')}</SelectItem>}
               <SelectItem value="show_message">{t('callCenter.settingsPage.showOfflineMessage')}</SelectItem>
             </SelectContent>
           </Select>
         </Row>
       </Section>
-      {platformCallback && s.callback_enabled && (
+      {callbackAvailable ? (
         <CallbackHoursSection s={s} setS={setS} loaded={designLoaded('callback_slots_enabled')} edition={edition} />
+      ) : platformCallback && (
+        <p className="text-xs text-muted-foreground" data-cc-callback-hours-off>{t('callCenter.settingsPage.callbackHoursNeedCallbacks')}</p>
       )}
       </TabsContent>
 

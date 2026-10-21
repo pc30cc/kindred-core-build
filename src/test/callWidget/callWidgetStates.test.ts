@@ -162,6 +162,24 @@ describe('offline behaviours', () => {
     m.open();
     expect(m.screenId()).toBe('offline');
     expect(m.q('[data-screen="offline"] [data-action="callback"]')).toBeNull();
+    // The offline message, never the callback request's words.
+    expect(m.q('[data-screen="offline"] h3')!.textContent).toBe(m.ctrl.t('offline_title'));
+    expect(m.q('[data-screen="offline"] p')!.textContent).toBe(m.ctrl.t('offline_message'));
+    expect(m.q('.hd .st')!.textContent).toBe(m.ctrl.t('offline'));
+  });
+  it('show_callback with callbacks switched off: no callback offered anywhere', () => {
+    const m = mountCallWidget({ bootstrap: { capabilities: { voice: false, video: false, callback: false }, config: { offline_behavior: 'show_callback' } } });
+    expect(m.q('.lbl b')!.textContent).toBe(m.ctrl.t('support'));
+    expect(m.q('.ccw-launcher-btn')!.getAttribute('aria-label')).not.toBe(m.ctrl.t('callback'));
+    m.open();
+    expect(m.q('[data-screen="offline"] [data-action="callback"]')).toBeNull();
+    expect(m.q('[data-screen="offline"] h3')!.textContent).toBe(m.ctrl.t('offline_title'));
+  });
+  it('the offline message is the owner\'s own words when set', () => {
+    const m = mountCallWidget({ locale: 'fa', bootstrap: { ...off, config: { offline_behavior: 'show_message', custom_texts: { fa: { offline_title: 'تعطیل هستیم', offline_message: 'ساعت کاری ۹ تا ۱۷' } } } } });
+    m.open();
+    expect(m.q('[data-screen="offline"] h3')!.textContent).toBe('تعطیل هستیم');
+    expect(m.q('[data-screen="offline"] p')!.textContent).toBe('ساعت کاری ۹ تا ۱۷');
   });
   it('hide: launcher and panel hidden while offline only', () => {
     const m = mountCallWidget({ bootstrap: { ...off, config: { offline_behavior: 'hide' } } });
@@ -202,8 +220,20 @@ describe('the light screens draw what their state holds', () => {
     expect(m.qa('.opts .opt')).toHaveLength(2);
   });
 
+  it('pre-call with the form switched off: only the consent, no contact or schema field', () => {
+    const m = opened({ locale: 'en', legacy: false }, {
+      config: { pre_call_form_enabled: false, pre_call_form_schema: [{ id: 'account_id', type: 'text', label: 'Account ID', required: true }] },
+      recording: { effective_enabled: true, consent_required: true },
+    });
+    m.click('[data-action="voice"]');
+    expect(m.screenId()).toBe('precall');
+    expect(m.qa('[data-screen="precall"] input:not([type="checkbox"]):not([tabindex="-1"])')).toHaveLength(0);
+    expect(m.q('[data-screen="precall"]')!.textContent).not.toContain('Account ID');
+    expect(m.q('[data-screen="precall"]')!.textContent).toContain('being recorded');
+  });
+
   it('pre-call: an identified visitor sees the saved contact; Edit shows the fields', () => {
-    const m = opened({ locale: 'en', legacy: false }, { visitor: { contact: { id: 'k1', name: 'Ali Rezaei', email: 'ali@example.com' } }, recording: { effective_enabled: true, consent_required: true } });
+    const m = opened({ locale: 'en', legacy: false }, { config: { pre_call_form_enabled: true }, visitor: { contact: { id: 'k1', name: 'Ali Rezaei', email: 'ali@example.com' } }, recording: { effective_enabled: true, consent_required: true } });
     m.click('[data-action="video"]');
     expect(m.screenId()).toBe('precall');
     expect(m.q('[data-screen="precall"] .known b')!.textContent).toBe('Ali Rezaei');

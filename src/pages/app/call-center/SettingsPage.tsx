@@ -14,6 +14,7 @@ import {
   CALLBACK_HOURS_LIMITS,
   callCenterApi,
   callWidgetDesignPatch,
+  cleanCallWidgetTheme,
   defaultCallbackHours,
   effectiveCallWidgetLocales,
   isCallbackHoursStrict,
@@ -147,6 +148,13 @@ export default function CallCenterSettingsPage() {
   const ccDepartments = allDepartments.filter(
     (d) => d.enabled && (d.cc_voice_enabled || d.cc_video_enabled || d.cc_callback_enabled),
   );
+  // The preview's departments per channel, in the bootstrap's shape and order.
+  const previewDepartments = useMemo<PreviewDepartments>(() => {
+    const sorted = [...ccDepartments].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const pick = (on: (d: (typeof sorted)[number]) => boolean | undefined) =>
+      sorted.filter((d) => on(d)).map((d) => ({ id: d.id, name: d.name, sort_order: d.sort_order ?? 0 }));
+    return { voice: pick((d) => d.cc_voice_enabled), video: pick((d) => d.cc_video_enabled), callback: pick((d) => d.cc_callback_enabled) };
+  }, [ccDepartments]);
   const qc = useQueryClient();
   const { edition, isInternational } = useEdition();
   // The chat widget's side (the stacking hint) and logo direction (the
@@ -179,6 +187,7 @@ export default function CallCenterSettingsPage() {
       'widget_template_id', 'widget_theme', 'pre_call_form_schema',
       'business_hours', 'launcher_style', 'callback_slots_enabled',
       'callback_slot_minutes', 'callback_days_ahead', 'callback_slot_capacity',
+      'allow_visitor_department_choice',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -239,6 +248,11 @@ export default function CallCenterSettingsPage() {
       toast({ title: t('callCenter.settingsPage.callbackHoursInvalid'), variant: 'destructive' });
       return;
     }
+    const theme = cleanCallWidgetTheme(s.widget_theme);
+    if (theme.invalid) {
+      toast({ title: t('callCenter.settingsPage.colorInvalid'), description: t(`callCenter.settingsPage.${theme.invalid}Color` as 'callCenter.settingsPage.primaryColor'), variant: 'destructive' });
+      return;
+    }
     const patch: Partial<CallCenterWorkspaceSettings> = {
       enabled: s.enabled, display_name: s.display_name,
       voice_enabled: s.voice_enabled, video_enabled: s.video_enabled,
@@ -249,7 +263,7 @@ export default function CallCenterSettingsPage() {
       // what an old backend's widget reads until then).
       widget_position: s.widget_position,
       widget_template_id: s.widget_template_id || 'default',
-      widget_theme: s.widget_theme || {},
+      widget_theme: theme.theme,
       pre_call_form_schema: s.pre_call_form_schema || [],
       default_department_id: s.default_department_id ?? null,
       widget_default_locale: (s.widget_default_locale ?? null) as CallCenterWorkspaceSettings['widget_default_locale'],
@@ -257,6 +271,13 @@ export default function CallCenterSettingsPage() {
       widget_custom_texts: s.widget_custom_texts ?? {},
       operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
       ...(hoursChanged ? { business_hours: s.business_hours } : {}),
+      // Sent only when changed (a backend from before it refuses the keys).
+      // On turns both flags on (the bootstrap needs both); off, the choice only.
+      ...(!!s.allow_visitor_department_choice !== !!original.allow_visitor_department_choice
+        ? (s.allow_visitor_department_choice
+          ? { departments_enabled: true, allow_visitor_department_choice: true }
+          : { allow_visitor_department_choice: false })
+        : {}),
       // Migration 277: only what the loaded settings have and the admin changed.
       ...callWidgetDesignPatch(original, s),
     };
@@ -386,6 +407,7 @@ export default function CallCenterSettingsPage() {
         <div className="lg:sticky lg:top-4">
           <LivePreviewSection
             t={t} settings={s} platform={platform} chat={chatSettings} members={members}
+            departments={previewDepartments} recordingAvailable={platformRecording && planRecording}
             previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
             device={previewDevice} setDevice={setPreviewDevice}
           />
@@ -486,6 +508,7 @@ export default function CallCenterSettingsPage() {
         <div className="lg:sticky lg:top-4">
           <LivePreviewSection
             t={t} settings={s} platform={platform} chat={chatSettings} members={members}
+            departments={previewDepartments} recordingAvailable={platformRecording && planRecording}
             previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
             device={previewDevice} setDevice={setPreviewDevice}
           />
@@ -698,6 +721,21 @@ export default function CallCenterSettingsPage() {
               ))}
             </SelectContent>
           </Select>
+        </Row>
+        {/* The widget's department picker: the bootstrap sends the departments
+            only while the platform allows departments and this is on. */}
+        <Row
+          label={t('callCenter.settingsPage.visitorDepartmentChoice')}
+          hint={platform?.departments_enabled
+            ? t('callCenter.settingsPage.visitorDepartmentChoiceHint')
+            : t('callCenter.settingsPage.visitorDepartmentChoiceOff')}
+        >
+          <Switch
+            data-cc-dept-choice
+            checked={!!s.allow_visitor_department_choice && !!platform?.departments_enabled}
+            disabled={!platform?.departments_enabled || ccDepartments.length === 0}
+            onCheckedChange={(v) => setS({ ...s, allow_visitor_department_choice: v })}
+          />
         </Row>
         <div className="text-xs text-muted-foreground space-y-1">
           <div><b>{t('callCenter.settingsPage.broadcastOption').split('—')[0].trim()}</b> — {t('callCenter.settingsPage.broadcastDesc')}</div>
@@ -1145,11 +1183,16 @@ function CallbackHoursSection({ s, setS, loaded, edition }: {
  * International logo direction, sample operators, slots from the draft
  * hours). Calls are off (`preview: true`).
  */
-function CallWidgetPreview({ settings, platform, chat, members, online, device }: {
+/** The bootstrap's `departments` (server/routes/callWidget.ts). */
+type PreviewDepartments = Record<'voice' | 'video' | 'callback', { id: string; name: string; sort_order: number }[]>;
+
+function CallWidgetPreview({ settings, platform, chat, members, departments, recordingAvailable, online, device }: {
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
   chat: WidgetSettings | null | undefined;
   members: readonly WorkspaceMember[] | undefined;
+  departments: PreviewDepartments;
+  recordingAvailable: boolean;
   online: boolean;
   device: PreviewDevice;
 }) {
@@ -1174,6 +1217,7 @@ function CallWidgetPreview({ settings, platform, chat, members, online, device }
   const voiceOn = platform?.voice_calls_enabled !== false && settings.voice_enabled !== false;
   const videoOn = platform?.video_calls_enabled !== false && settings.video_enabled !== false;
   const locales = effectiveCallWidgetLocales(platform, settings);
+  const recordingOn = recordingAvailable && !!settings.recording_enabled;
   const schedule = settings.callback_slots_enabled === true && callbackOn ? scheduleOf(settings.business_hours) : null;
   const slots = schedule && callbackHoursHaveInterval(schedule)
     ? computeCallbackSlots({
@@ -1233,8 +1277,8 @@ function CallWidgetPreview({ settings, platform, chat, members, online, device }
       voice: online && voiceOn,
       video: online && videoOn,
       callback: callbackOn,
-      recording: false,
-      operator_video_visible: true,
+      recording: recordingOn,
+      operator_video_visible: settings.operator_video_visible_to_visitor !== false,
     },
     // Staffed while previewed online; names only for the styles that show them.
     presence: online
@@ -1247,8 +1291,12 @@ function CallWidgetPreview({ settings, platform, chat, members, online, device }
       min_message_length: platform?.callback_min_message_length ?? 0,
       ...(slots ? { slots } : {}),
     },
-    departments: { voice: [], video: [], callback: [] },
-    recording: { effective_enabled: false },
+    // As the bootstrap gates them (server/routes/callWidget.ts): the
+    // departments only while visitors may choose, recording as configured.
+    departments: settings.allow_visitor_department_choice && platform?.departments_enabled
+      ? departments
+      : { voice: [], video: [], callback: [] },
+    recording: { effective_enabled: recordingOn, consent_required: recordingOn && !!settings.recording_consent_required },
     // The languages the bootstrap would give (the platform's while the workspace chose none).
     i18n: { default_locale: locales.default_locale, available_locales: locales.available },
   };
@@ -1313,13 +1361,15 @@ function ScaledPreviewFrame({ device, srcDoc, frameKey }: { device: PreviewDevic
 }
 
 function LivePreviewSection({
-  t, settings, platform, chat, members, previewOnline, setPreviewOnline, device, setDevice,
+  t, settings, platform, chat, members, departments, recordingAvailable, previewOnline, setPreviewOnline, device, setDevice,
 }: {
   t: ReturnType<typeof useTranslation>['t'];
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
   chat: WidgetSettings | null | undefined;
   members: readonly WorkspaceMember[] | undefined;
+  departments: PreviewDepartments;
+  recordingAvailable: boolean;
   previewOnline: boolean;
   setPreviewOnline: (v: boolean) => void;
   device: PreviewDevice;
@@ -1357,6 +1407,7 @@ function LivePreviewSection({
       </div>
       <CallWidgetPreview
         settings={settings} platform={platform} chat={chat} members={members}
+        departments={departments} recordingAvailable={recordingAvailable}
         online={previewOnline} device={device}
       />
     </Section>
@@ -1374,6 +1425,9 @@ const CALLBACK_TEXT_KEYS = new Set([
  * The widget texts an owner may override, with the widget's own copy as the
  * placeholder (public/call-widget/runtime.js I18N, the 2026-10 design).
  */
+/** The server's cap on one widget text (server/routes/callCenter.ts); a longer one fails the whole save. */
+const WIDGET_TEXT_MAX = 200;
+
 const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
   { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
   { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },
@@ -1387,6 +1441,8 @@ const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string
   { key: 'online_copy',         label: 'Hero subtitle (online)',     placeholder: { en: 'Start a secure voice or video call with the next available operator.', fa: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.', tr: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.' } },
   { key: 'leave_callback_request', label: 'Hero title (offline)',    placeholder: { en: 'Leave a callback request', fa: 'درخواست تماس ثبت کنید', tr: 'Geri arama isteği bırakın' } },
   { key: 'offline_copy',        label: 'Hero subtitle (offline)',    placeholder: { en: 'Our team is offline right now, but we can call you back.', fa: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', tr: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.' } },
+  { key: 'offline_title',       label: 'Offline message title',      placeholder: { en: 'We are offline',      fa: 'در حال حاضر آفلاین هستیم', tr: 'Şu anda çevrimdışıyız' } },
+  { key: 'offline_message',     label: 'Offline message text',       placeholder: { en: 'Our team is offline right now. Please try again later.', fa: 'تیم ما الان آفلاین است. لطفاً بعداً دوباره تلاش کنید.', tr: 'Ekibimiz şu anda çevrimdışı. Lütfen daha sonra tekrar deneyin.' } },
   { key: 'voice_call',          label: 'Voice call button',          placeholder: { en: 'Voice call',          fa: 'تماس صوتی',           tr: 'Sesli arama' } },
   { key: 'video_call',          label: 'Video call button',          placeholder: { en: 'Video call',          fa: 'تماس تصویری',         tr: 'Görüntülü arama' } },
   { key: 'request_callback',    label: 'Callback button',            placeholder: { en: 'Request callback',    fa: 'درخواست تماس',        tr: 'Geri arama iste' } },
@@ -1597,6 +1653,7 @@ function WidgetTextsEditor({
               value={current[key] || ''}
               onChange={(e) => setField(key, e.target.value)}
               placeholder={placeholder[locale] || placeholder.en}
+              maxLength={WIDGET_TEXT_MAX}
               dir={isRtl ? 'rtl' : 'ltr'}
             />
           </div>

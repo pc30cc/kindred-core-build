@@ -511,6 +511,9 @@ const settingsPatchSchema = z.object({
   operator_video_visible_to_visitor: z.boolean().optional(),
   routing_mode: z.string().optional(),
   default_department_id: z.string().uuid().nullable().optional(),
+  // The widget's department picker (bootstrap `departments`): both must be on.
+  departments_enabled: z.boolean().optional(),
+  allow_visitor_department_choice: z.boolean().optional(),
   widget_default_locale: z.enum(['en', 'fa', 'tr']).nullable().optional(),
   widget_enabled_locales: z.array(z.enum(['en', 'fa', 'tr'])).nullable().optional(),
   widget_custom_texts: z.record(z.record(z.string().max(200))).nullable().optional(),

@@ -17,6 +17,7 @@ import {
   CALL_WIDGET_DESIGN_KEYS,
   callCenterApi,
   callWidgetDesignPatch,
+  cleanCallWidgetTheme,
   callbackMatchesSearch,
   callbackReference,
   defaultCallbackHours,
@@ -202,5 +203,16 @@ describe('review fixes (verify round 4)', () => {
   it.each(localeCases)('the preview speaks the languages the bootstrap would (%s)', (_name, platform, workspace) => {
     const server = computeEffectiveCallCenterLocales(platform as never, workspace as never);
     expect(effectiveCallWidgetLocales(platform, workspace)).toEqual({ default_locale: server.default_locale, available: server.available });
+  });
+});
+
+describe('cleanCallWidgetTheme: only #rrggbb reaches the strict save', () => {
+  it('drops emptied colours (the default again), spells #rgb out, lower-cases', () => {
+    expect(cleanCallWidgetTheme({ primary: '', accent: '  ', surface: '#FFF', text: '112233', muted: '#AbCdEf', radius: 'lg', density: 'compact' }))
+      .toEqual({ theme: { surface: '#ffffff', text: '#112233', muted: '#abcdef', radius: 'lg', density: 'compact' }, invalid: null });
+  });
+  it('names the first colour the server would refuse', () => {
+    expect(cleanCallWidgetTheme({ primary: '#12', danger: 'red' }).invalid).toBe('primary');
+    expect(cleanCallWidgetTheme(null)).toEqual({ theme: {}, invalid: null });
   });
 });

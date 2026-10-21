@@ -163,7 +163,8 @@ templates: `docs/operations/EDITIONS.md`.
   its handlers on runtime-ext's hooks (`api.on(hook, fn)`): runtime-ext's own
   handler runs first, then the late ones, each of which may consume or
   override its answer. The operator preview (`WidgetLivePreview.tsx`, which
-  has no Core: the extras only) and the screenshot harness
+  runs no Core: it loads runtime.js only for its words, `__gs_runtime.t`,
+  and paints with no dictionary of its own; the extras) and the screenshot harness
   (`e2e/harness/templateScreens.ts`, both; `--late-after` shoots the live
   order instead) put them on the page before painting.
   `src/test/widget/runtimeExt.test.ts` checks who asks and when, the

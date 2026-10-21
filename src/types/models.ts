@@ -176,7 +176,8 @@ export interface WidgetSettings {
   id: string;
   workspace_id: string;
   enabled: boolean;
-  primary_color: string;
+  /** `#RRGGBB`, or null: "Brand colour" (shared/widgetColor.ts). */
+  primary_color: string | null;
   launcher_text: string | null;
   welcome_message: string | null;
   /** Reply-time note under the workspace name in the widget header. */
@@ -231,6 +232,8 @@ export interface WidgetSettings {
   kb_enabled: boolean;
   visitor_tracking_enabled: boolean;
   locale: string;
+  /** 'auto' (the visitor's browser, among the platform's languages, else `locale`) or one language. */
+  widget_language?: string | null;
   debug_mode: boolean;
   // Phase 8 — Availability
   live_chat_enabled: boolean;

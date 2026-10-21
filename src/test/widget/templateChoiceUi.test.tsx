@@ -245,7 +245,7 @@ describe('WidgetLivePreview — the effective template', () => {
     expect(doc).toContain("panel.setAttribute('data-view', GS_PREVIEW.shellVm.activeTab)");
   });
 
-  it('the Messages view speaks as production: every list string equals Core\'s, per language', () => {
+  it('the Messages view speaks as production: every list string is Core\'s own, per language', () => {
     // Core's dictionaries (public/widget/runtime.js) come in the order en, fa, tr.
     const core = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
     // (Markup values, such as the `back` icon, are not dictionary entries.)
@@ -254,11 +254,22 @@ describe('WidgetLivePreview — the effective template', () => {
       .filter((v) => !v.startsWith('<'));
     const keys = ['wyConversations', 'wyNoConversations', 'wyNewConversation', 'wyStatusOpen', 'wyStatusResolved', 'wyUnread', 'back'];
     for (const [index, language] of (['en', 'fa', 'tr'] as const).entries()) {
-      const p = payload(srcdoc({ settings: { widget_language: language }, view: 'list', templateId: 'default' }));
+      // The frame paints with the runtime's own dictionary, which it loads.
+      const page = new JSDOM(srcdoc({ settings: { widget_language: language }, view: 'list', templateId: 'default' }), { runScripts: 'outside-only' });
+      const w = page.window as unknown as { eval: (s: string) => void; gsRenderPreview: (mod: unknown) => void };
+      w.eval(core);
+      w.eval(Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((x) => x.textContent).join('\n'));
+      let words: ((key: string) => string) | null = null;
+      w.gsRenderPreview({
+        create: (env: { t: (key: string) => string }) => {
+          words = env.t;
+          return { shellHtml: () => '<div data-body></div>', conversationListHtml: () => '' };
+        },
+      });
       for (const key of keys) {
         const values = coreValues(key);
         expect(values, key).toHaveLength(3);
-        expect(p.dict[key], `${language} ${key}`).toBe(values[index]);
+        expect(words!(key), `${language} ${key}`).toBe(values[index]);
       }
       cleanup();
     }
@@ -435,18 +446,30 @@ describe('WidgetLivePreview — the late surfaces, with the real renderers and e
     expect(card.querySelector('[data-prechat="name"]')).not.toBeNull();
   });
 
-  it('away: the visitor\'s message and the automated reply asking for an e-mail (t1, t2)', () => {
+  it('away, capturing a message: the visitor\'s message and the automated reply, which asks for no e-mail (t1, t2)', () => {
+    // Visitor e-mail is off (shared/visitorEmail.ts): the reply says the
+    // answer comes here, in the chat, as runtime-late.js tells the renderer.
     const t1 = paintReal('t1', { view: 'offline' });
-    expect(t1.querySelector('.away-reply [data-fb="email"]')).not.toBeNull();
+    expect(t1.querySelector('.away-reply')).not.toBeNull();
     const t2 = paintReal('t2', { view: 'offline' });
-    expect(t2.querySelector('.away-reply [data-fb="email"]')).not.toBeNull();
-    expect(t2.querySelector('.away-reply [data-fb-skip]')).not.toBeNull();
-    // An offline mode that takes no message keeps the offline line.
-    for (const mode of ['show_offline_message', 'hide_widget']) {
-      const line = paintReal('t1', { view: 'offline', settings: { widget_language: 'en', offline_mode: mode, offline_message: 'Back soon' } });
-      expect(line.querySelector('.away-reply'), mode).toBeNull();
-      expect(line.querySelector('[data-chat-messages]')!.textContent, mode).toContain('Back soon');
+    expect(t2.querySelector('.away-reply')).not.toBeNull();
+    expect(t2.querySelector('.away-reply [data-fb="email"]')).toBeNull();
+    expect(t2.querySelector('.away-reply [data-fb-skip]')).toBeNull();
+  });
+
+  it('away, "show only the offline message": that message alone, no form and no composer', () => {
+    for (const id of ['t1', 't2'] as const) {
+      const doc = paintReal(id, { view: 'offline', settings: { widget_language: 'en', offline_mode: 'show_offline_message', offline_message: 'Back soon' } });
+      expect(doc.querySelector('.away-reply'), id).toBeNull();
+      expect(doc.querySelector('[data-chat-messages]')!.textContent, id).toContain('Back soon');
+      expect((doc.querySelector('[data-input-bar]') as HTMLElement).style.display, id).toBe('none');
     }
+  });
+
+  it('away, "hide the widget": no launcher and no panel, a note says so', () => {
+    const doc = paintReal('t1', { view: 'offline', hiddenNote: 'Hidden while you are offline', settings: { widget_language: 'en', offline_mode: 'hide_widget' } });
+    expect(doc.querySelector('.shell')!.hasAttribute('hidden')).toBe(true);
+    expect(doc.querySelector('.gs-hidden-note')!.textContent).toBe('Hidden while you are offline');
   });
 });
 

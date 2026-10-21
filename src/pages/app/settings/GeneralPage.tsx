@@ -15,6 +15,7 @@ import {
   MessageSquare, Instagram, CheckCircle2, Loader2, Trash2, HelpCircle,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { SettingsRequestError, settingsErrorMessage } from '@/lib/settingsErrors';
 import {
   uploadWorkspaceIcon,
   removeWorkspaceIcon,
@@ -74,13 +75,13 @@ export default function SettingsGeneralPage() {
         body: JSON.stringify({ name }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+      if (!res.ok) throw new SettingsRequestError(String(json.code || json.error || ''), res.status);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       flashSaved();
     },
-    onError: (e: Error) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+    onError: (e: Error) => toast({ title: t('workspaceInfo.saveFailed'), description: settingsErrorMessage(e, t), variant: 'destructive' }),
   });
 
   const flashSaved = () => setSavedFlash(Date.now());
@@ -88,7 +89,7 @@ export default function SettingsGeneralPage() {
   const saveBranding = (patch: Record<string, unknown>) => {
     updateBranding.mutate(patch as Parameters<typeof updateBranding.mutate>[0], {
       onSuccess: () => flashSaved(),
-      onError: (e: Error) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+      onError: (e: Error) => toast({ title: t('workspaceInfo.saveFailed'), description: settingsErrorMessage(e, t), variant: 'destructive' }),
     });
   };
 
@@ -108,7 +109,7 @@ export default function SettingsGeneralPage() {
   const handleIconUpload = async (file: File) => {
     if (!workspace) return;
     if (!file.type.startsWith('image/')) {
-      toast({ title: 'Invalid file', description: 'Please select an image.', variant: 'destructive' });
+      toast({ title: t('workspaceInfo.invalidFile'), variant: 'destructive' });
       return;
     }
     setUploading(true);
@@ -120,7 +121,7 @@ export default function SettingsGeneralPage() {
       toast({ title: t('workspaceInfo.iconUpdated') });
       return res;
     } catch (e: unknown) {
-      toast({ title: 'Upload failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+      toast({ title: t('workspaceInfo.uploadFailed'), description: settingsErrorMessage(e, t), variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -134,7 +135,7 @@ export default function SettingsGeneralPage() {
       qc.invalidateQueries({ queryKey: ['branding', workspace.id] });
       flashSaved();
     } catch (e: unknown) {
-      toast({ title: 'Remove failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+      toast({ title: t('workspaceInfo.removeFailed'), description: settingsErrorMessage(e, t), variant: 'destructive' });
     } finally {
       setUploading(false);
     }

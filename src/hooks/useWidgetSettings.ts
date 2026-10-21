@@ -101,6 +101,27 @@ export function useWidgetAvailabilityNow(workspaceId: string | undefined, locale
   });
 }
 
+/** Widget → Appearance's welcome field: what visitors read while it is empty, and whether the AI agent greets instead. */
+export interface WidgetWelcomeInfo {
+  /** The platform's default welcome, else the built-in one, in the widget's language. */
+  default_text: string;
+  /** The AI agent speaks first, so no template shows the welcome. */
+  ai_greeting: boolean;
+}
+
+export function useWidgetWelcome(workspaceId: string | undefined, locale: string) {
+  return useQuery({
+    queryKey: ['widget-welcome', workspaceId, locale],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/widget-settings/${workspaceId}/welcome?locale=${encodeURIComponent(locale)}`, { credentials: 'include' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Load failed: ${res.status}`);
+      return json as WidgetWelcomeInfo;
+    },
+    enabled: !!workspaceId,
+  });
+}
+
 /**
  * Upload the widget launcher image.
  *

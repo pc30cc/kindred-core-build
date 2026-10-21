@@ -49,6 +49,10 @@ export const WIDGET_CUSTOMIZATION_CAPABILITY: Record<string, { capability: strin
   // The launcher's outline (circle / square / pill) is part of its style,
   // under the same capability (shared/launcherStyles.ts).
   fab_shape: { capability: 'widget_launcher_icon', reset: 'circle' },
+  // The launcher image too: without the capability the button is the chat
+  // circle (the upload is refused as well).
+  fab_image_storage_key: { capability: 'widget_launcher_icon', reset: null },
+  fab_image_url: { capability: 'widget_launcher_icon', reset: null },
   placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
   // The chat widget template choice and its options (migration 275): a plan
   // without the Appearance editor wears the catalog's default template with

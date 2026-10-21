@@ -39,6 +39,7 @@ vi.mock('@/hooks/useWidgetSettings', async (orig) => ({
     },
     isLoading: false,
   }),
+  useWidgetWelcome: () => ({ data: { default_text: 'Hello! How can we help you?', ai_greeting: false } }),
   useUploadWidgetFabImage: () => ({ mutateAsync: vi.fn() }),
   useRemoveWidgetFabImage: () => ({ mutateAsync: vi.fn() }),
   // The server's answer for this plan: the stored hours are not applied.
@@ -62,12 +63,16 @@ vi.mock('@/hooks/useWidgetCatalog', () => ({
 }));
 vi.mock('@/hooks/useKnowledgeBase', () => ({ useKBArticles: () => ({ data: [] }), useKBCategories: () => ({ data: [] }) }));
 vi.mock('@/hooks/useWorkspaceMembers', () => ({ useWorkspaceMembers: () => ({ data: [] }) }));
+vi.mock('@/hooks/useWorkspaceDomains', () => ({ useWorkspaceDomains: () => ({ data: [] }) }));
 vi.mock('@/hooks/useTeamPresence', () => ({ useTeamPresence: () => ({ data: undefined }) }));
 vi.mock('@/hooks/useWidgetIdentity', () => ({ useWidgetPrechatSettings: () => ({ data: undefined }) }));
 vi.mock('@/hooks/usePlatformRegion', () => ({
   usePlatformRegion: () => ({ mode: 'single', allowedLocales: ['en'], canSwitchLanguage: false, currency: 'USD' }),
 }));
-vi.mock('@/hooks/useEdition', () => ({ useEdition: () => ({ edition: 'iran', isInternational: false, ready: true }) }));
+vi.mock('@/hooks/useEdition', () => ({
+  useEdition: () => ({ edition: 'iran', isInternational: false, ready: true }),
+  useKnownEdition: () => 'iran',
+}));
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
 vi.mock('@/components/app/widget/WidgetLivePreview', () => ({ WidgetLivePreview: () => <div data-stub="preview" />, FAB_ICONS: {} }));
 vi.mock('@/components/app/widget/smart/SmartRulesTab', () => ({ SmartRulesTab: () => <div data-stub="smart" /> }));

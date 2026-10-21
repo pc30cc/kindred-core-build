@@ -12,6 +12,8 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { FAB_ICON_IDS, FAB_SHAPES } from '../../shared/launcherStyles.js';
+import { WIDGET_COLOR_PATTERN, widgetOwnColor } from '../../shared/widgetColor.js';
+import { resolveWelcomeMessage } from '../../shared/widgetTextDefaults.js';
 import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
@@ -32,7 +34,7 @@ import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
-import { getChatTemplateCatalog } from '../services/widget/configSnapshot.js';
+import { getChatTemplateCatalog, getWidgetPlatformSnapshot, getWorkspaceWidgetSnapshot } from '../services/widget/configSnapshot.js';
 import { isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
 import {
   CHAT_TEMPLATE_LOCALES,
@@ -190,6 +192,36 @@ widgetSettingsRouter.get('/:workspaceId/availability', async (req, res) => {
 });
 
 /**
+ * Widget → Appearance's welcome field: what visitors read while the field is
+ * empty (`default_text`: the Super Admin's platform default, else the
+ * built-in one in `?locale=`, shared/widgetTextDefaults.ts, the rule GET
+ * /config uses), and whether the AI agent's own greeting replaces the
+ * message (`ai_greeting`: every template then draws no welcome; /config's
+ * aiAgent.suppressGreeting, from the same cached snapshots).
+ */
+widgetSettingsRouter.get('/:workspaceId/welcome', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const asked = String(req.query.locale || '').toLowerCase();
+  const locale = ['en', 'fa', 'tr'].includes(asked) ? asked : 'en';
+  try {
+    const [platform, snapshot] = await Promise.all([
+      getWidgetPlatformSnapshot(config),
+      getWorkspaceWidgetSnapshot(config, workspaceId),
+    ]);
+    return res.json({
+      default_text: resolveWelcomeMessage(null, platform.widget?.default_welcome_message, locale),
+      ai_greeting: snapshot.aiAgent?.suppressGreeting === true,
+    });
+  } catch (err) {
+    console.error('[widget-settings] welcome failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'welcome_unavailable' });
+  }
+});
+
+/**
  * `fab_image_url` is DERIVED from `fab_image_storage_key` for whichever
  * storage provider is primary right now, so promoting a new one rewrites no
  * row. The key itself never leaves the server.
@@ -287,14 +319,24 @@ const businessHoursSchema = z.object({
 });
 
 const widgetSettingsPatchSchema = z.object({
-  // Appearance
-  primary_color: z.string().max(32).optional(),
+  // Appearance. The colour is `#RRGGBB` or null ("Brand colour"); the
+  // seeded #3B82F6 is the brand colour on the wire, so it is stored as null
+  // (shared/widgetColor.ts).
+  primary_color: z.string().trim().regex(WIDGET_COLOR_PATTERN, 'invalid_color').nullable()
+    .transform((v) => (v === null ? null : widgetOwnColor(v))).optional(),
   brand_name: z.string().max(200).nullable().optional(),
   reply_time_text: z.string().max(500).nullable().optional(),
   welcome_message: z.string().max(2000).nullable().optional(),
   placeholder_text: z.string().max(500).nullable().optional(),
   position: z.enum(['bottom-right', 'bottom-left']).optional(),
   locale: z.string().max(16).optional(),
+  // The widget's language: 'auto' (the visitor's browser, among the
+  // platform's languages, else `locale`) or one language, which /config
+  // clamps to the platform's.
+  widget_language: z.string().trim().toLowerCase().regex(/^(auto|[a-z]{2})$/).optional(),
+  // The legacy logo link (no field writes it any more) can only be cleared:
+  // the widget then shows the logo uploaded in Settings → General.
+  logo_url: z.null().optional(),
   show_logo: z.boolean().optional(),
   show_team_avatars: z.boolean().optional(),
   show_powered_by: z.boolean().optional(),
@@ -466,6 +508,14 @@ widgetSettingsRouter.post('/:workspaceId/fab-image', async (req, res) => {
   }
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
+  // The launcher image is a launcher style, under the capability of the
+  // icon choice (a plan without it wears the chat circle; /config then
+  // serves no image either: WIDGET_CUSTOMIZATION_CAPABILITY). Removing one
+  // stays possible on any plan.
+  const fabEntitlements = await resolveWidgetEntitlements(config, workspaceId);
+  if (fabEntitlements.features.widget_launcher_icon === false) {
+    return res.status(403).json({ error: 'plan_upgrade_required', denied: ['widget_launcher_icon'] });
+  }
 
   const ext = FAB_IMAGE_MIMES[parsed.data.contentType.toLowerCase()];
   if (!ext) return res.status(415).json({ error: 'unsupported_image_type' });

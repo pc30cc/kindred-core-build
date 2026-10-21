@@ -10,12 +10,12 @@ import { usePanelTheme } from '@/themes/usePanelTheme';
 import { isArtFamilyTheme } from '../../../shared/panelThemes';
 import {
   User, CreditCard, Settings, MessageSquare, Inbox,
-  BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
+  BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
   MessageCircleReply, ShieldCheck, Monitor, UserCog,
 } from 'lucide-react';
 
-const ADMIN_ONLY_GROUPS = new Set(['workspace', 'people', 'chatbox', 'integrations', 'email', 'knowledgeBase', 'billing']);
+const ADMIN_ONLY_GROUPS = new Set(['workspace', 'people', 'chatbox', 'integrations', 'email', 'billing']);
 
 interface SettingsGroup {
   key: string;
@@ -70,12 +70,6 @@ const settingsGroupsDef: SettingsGroup[] = [
   {
     key: 'integrations', icon: Plug, accent: 'rose',
     items: [{ key: 'providers', labelKey: 'providers', subPath: '/settings/providers' }],
-  },
-  {
-    key: 'knowledgeBase', icon: BookOpen, accent: 'cyan',
-    items: [
-      { key: 'translations', labelKey: 'translations', subPath: '/settings/translations' },
-    ],
   },
 ];
 

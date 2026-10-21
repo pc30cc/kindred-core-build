@@ -16,6 +16,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
 import { routeConversationToOperator } from '../chatRouting.js';
+import { shouldDeferRoutingForPrechat, deferRoutingForPrechat } from '../chatRoutingPrechat.js';
 
 export type AiConversationState =
   | 'ai_managed'
@@ -291,10 +292,12 @@ export async function commitNeedsHuman(
   // identified themselves (pre-chat) instead of connecting/queuing them the
   // instant AI hands off — the inline pre-chat card shouldn't be racing an
   // "operator joined" notice that already fired before they typed anything.
-  // widgetIdentity.ts's POST /identity/prechat is the deferred trigger.
+  // widgetIdentity.ts's POST /identity/prechat is the deferred trigger; a
+  // form never submitted is routed anyway two minutes later (the routing
+  // ticker; chatRoutingPrechat.ts).
   const deferred = await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId);
   if (deferred) {
-    await patchMeta(config, args.conversationId, { routing_pending: true }, args.workspaceId);
+    await deferRoutingForPrechat(config, args.workspaceId, args.conversationId);
   }
   return { ok: true, routingDeferred: deferred };
 }
@@ -340,55 +343,6 @@ export async function markNeedsHuman(
   return commit;
 }
 
-
-/**
- * True when the workspace's pre-chat asks for at least one field and this
- * conversation's contact hasn't actually supplied any of them yet — i.e.
- * the visitor is still looking at (or about to see) the pre-chat card.
- * Fails open (false = route now) on any lookup error so a DB hiccup can
- * never strand a conversation unrouted.
- */
-async function shouldDeferRoutingForPrechat(
-  config: ServerConfig,
-  workspaceId: string,
-  conversationId: string,
-): Promise<boolean> {
-  try {
-    const sb = getServiceClient(config);
-    const { data: prechat } = await sb
-      .from('widget_prechat_settings')
-      .select('ask_name, ask_email, ask_phone')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    const asks = prechat as { ask_name?: boolean | null; ask_email?: boolean | null; ask_phone?: boolean | null } | null;
-    const anyAsked = !!(asks && (asks.ask_name || asks.ask_email || asks.ask_phone));
-    if (!anyAsked) return false;
-
-    const { data: conv } = await sb
-      .from('conversations')
-      .select('contact_id')
-      .eq('id', conversationId)
-      .maybeSingle();
-    const contactId = (conv as { contact_id?: string | null } | null)?.contact_id;
-    if (!contactId) return true;
-
-    const { data: contact } = await sb
-      .from('contacts')
-      .select('name, email, phone')
-      .eq('id', contactId)
-      .maybeSingle();
-    if (!contact) return true;
-    // mergeVisitorIdentity() seeds an unidentified contact's name with the
-    // literal placeholder 'Visitor' — a real pre-chat submission always
-    // writes an actual field, so "still just the placeholder, no email/
-    // phone either" means pre-chat genuinely hasn't happened yet.
-    const who = contact as { name?: string | null; email?: string | null; phone?: string | null };
-    const hasReal = (who.name && who.name !== 'Visitor') || who.email || who.phone;
-    return !hasReal;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Mark a conversation as human-active: an operator has replied OR taken over.

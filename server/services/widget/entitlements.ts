@@ -162,6 +162,21 @@ async function resolveBoolean(
   return false;
 }
 
+/**
+ * One widget capability, resolved exactly as resolveWidgetEntitlements
+ * resolves it (module override, then the plan, then the registry default for
+ * a key the plan never heard of), for a caller that needs only that one —
+ * chat routing reads `widget_assignment_routing` on every routing run.
+ */
+export async function resolveWidgetCapability(
+  config: ServerConfig,
+  workspaceId: string,
+  key: (typeof WIDGET_CAPABILITY_KEYS)[number],
+): Promise<boolean> {
+  const overrides = MODULE_KEYS.has(key) ? await loadModuleOverrides(config, workspaceId) : new Map<string, boolean>();
+  return resolveBoolean(config, workspaceId, key, overrides, () => {});
+}
+
 export async function resolveWidgetEntitlements(
   config: ServerConfig,
   workspaceId: string,

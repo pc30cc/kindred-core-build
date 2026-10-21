@@ -199,7 +199,26 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
   if (await refuseLockedConversation(res, config, workspaceId, conv)) return;
 
   if (assign_to_me && !conv.assigned_to) {
-    await sb.from('conversations').update({ assigned_to: auth.userId }).eq('id', conversationId);
+    // Only while nobody has it (a concurrent routing or claim may have just
+    // assigned it), and on the timeline when it did (method take_over).
+    const { data: taken } = await sb.from('conversations')
+      .update({ assigned_to: auth.userId })
+      .eq('id', conversationId)
+      .is('assigned_to', null)
+      .select('id');
+    if (Array.isArray(taken) && taken.length > 0) {
+      void recordAuditAndEvent(config, {
+        workspaceId,
+        conversationId,
+        actorType: 'agent',
+        actorId: auth.userId,
+        eventType: 'assigned',
+        auditAction: 'conversation.assigned',
+        oldValue: { assigned_to: null },
+        newValue: { assigned_to: auth.userId },
+        payload: { from: null, to: auth.userId, method: 'take_over' },
+      });
+    }
   }
   await markHumanTakeover(config, {
     workspaceId,
@@ -883,7 +902,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
         auditAction: parsed.data.assigned_to ? 'conversation.assigned' : 'conversation.unassigned',
         oldValue: { assigned_to: before.assigned_to },
         newValue: { assigned_to: parsed.data.assigned_to },
-        payload: { from: before.assigned_to, to: parsed.data.assigned_to },
+        payload: { from: before.assigned_to, to: parsed.data.assigned_to, method: 'manual' },
       });
 
       // The operator it was handed to hears about it on their phone.

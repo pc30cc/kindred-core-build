@@ -100,19 +100,15 @@ describe('a handoff from the AI always names the human', () => {
     // `already_assigned` returned early and said nothing, so a visitor handed
     // over from the AI to an operator who already held the conversation was
     // never told who they were now talking to.
-    const block = ROUTING.slice(
-      ROUTING.indexOf('if (conv.assigned_to) {'),
-      ROUTING.indexOf("return { outcome: 'already_assigned'"),
-    );
+    const start = ROUTING.indexOf('if (row.assigned_to) {');
+    const block = ROUTING.slice(start, ROUTING.indexOf("return { outcome: 'already_assigned'", start));
     expect(block).toContain("kind: 'routing_agent_joined'");
-    expect(block).toContain('resolveAgentDisplayName(config, conv.assigned_to as string)');
+    expect(block).toContain('resolveAgentDisplayName(config, row.assigned_to)');
   });
 
   it('says it once per conversation, not on every handoff', () => {
-    const block = ROUTING.slice(
-      ROUTING.indexOf('if (conv.assigned_to) {'),
-      ROUTING.indexOf("return { outcome: 'already_assigned'"),
-    );
+    const start = ROUTING.indexOf('if (row.assigned_to) {');
+    const block = ROUTING.slice(start, ROUTING.indexOf("return { outcome: 'already_assigned'", start));
     expect(block).toContain("metadata.routing_notice_sent !== true");
     expect(block).toContain('routing_notice_sent: true');
   });

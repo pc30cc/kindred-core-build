@@ -19,6 +19,7 @@ import { resolveRolePermissions, type RoleSlug } from './permissions.js';
 import { listWorkspaceAvailability, isEligible } from './availability.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
+import { isRoutableChatRole } from '../../../shared/chatRoles.js';
 
 export type DepartmentChannel = 'chat' | 'audio' | 'video';
 
@@ -42,7 +43,13 @@ const generalCache = new Map<string, CacheEntry<string[]>>(); // key = workspace
 const fallbackCache = new Map<string, CacheEntry<FallbackPolicy>>(); // key = workspace_id
 const memberRowsCache = new Map<string, CacheEntry<MemberRow[]>>(); // key = workspace_id
 
-interface MemberRow { user_id: string; suspended: boolean }
+interface MemberRow {
+  user_id: string;
+  suspended: boolean;
+  role: string | null;
+  /** "Receive chats automatically" (migration 278); chat routing only. */
+  receives_chats: boolean;
+}
 
 function fresh<T>(e: CacheEntry<T> | undefined): e is CacheEntry<T> {
   return !!e && Date.now() - e.ts < CACHE_TTL_MS;
@@ -103,20 +110,31 @@ export async function resolveDepartmentMembers(
 }
 
 /**
- * The workspace's members and whether each is suspended, cached like the
- * lookups above (the general pool, the last-resort fallback and the
- * suspended filter share this one read).
+ * The workspace's members, whether each is suspended, their role and their
+ * "Receive chats automatically" switch, cached like the lookups above (the
+ * general pool, the last-resort fallback, the suspended filter and the chat
+ * pool share this one read).
  */
 async function resolveMemberRows(config: ServerConfig, workspaceId: string): Promise<MemberRow[]> {
   const hit = memberRowsCache.get(workspaceId);
   if (fresh(hit)) return hit.value;
   const { data } = await getServiceClient(config)
     .from('workspace_members')
-    .select('user_id, suspended_at')
+    .select('user_id, suspended_at, role, receives_chats')
     .eq('workspace_id', workspaceId);
-  const value = ((data ?? []) as Array<{ user_id?: string | null; suspended_at?: string | null }>)
+  const value = ((data ?? []) as Array<{
+    user_id?: string | null;
+    suspended_at?: string | null;
+    role?: string | null;
+    receives_chats?: boolean | null;
+  }>)
     .filter((r) => !!r.user_id)
-    .map((r) => ({ user_id: String(r.user_id), suspended: !!r.suspended_at }));
+    .map((r) => ({
+      user_id: String(r.user_id),
+      suspended: !!r.suspended_at,
+      role: r.role ?? null,
+      receives_chats: r.receives_chats !== false,
+    }));
   memberRowsCache.set(workspaceId, { value, ts: Date.now() });
   return value;
 }
@@ -219,6 +237,49 @@ export async function resolveRoutingCandidates(
 
   const all = rows.map((r) => r.user_id);
   return { user_ids: await routableMembers(config, workspaceId, all, suspended), source: 'all' };
+}
+
+/**
+ * Who chat routing may give a conversation (owner decisions of 2026-10-21,
+ * DECISIONS §3–§4): the owner and the team roles (shared/chatRoles.ts),
+ * never staff; not suspended; seat not paused by the plan; "Receive chats
+ * automatically" on.
+ *
+ *   team        every such member — the pool when no department was chosen,
+ *               and the fallback when the chosen department has nobody
+ *               available (unless the Super Admin turned the general pool
+ *               off; the caller decides that).
+ *   department  those of them in the chosen department, when it exists, is
+ *               enabled and takes chats; null otherwise.
+ *
+ * Calls keep resolveRoutingCandidates above: their pool is unchanged.
+ */
+export async function resolveChatRoutingPool(
+  config: ServerConfig,
+  workspaceId: string,
+  departmentId?: string | null,
+): Promise<{ team: string[]; department: string[] | null }> {
+  const rows = await resolveMemberRows(config, workspaceId);
+  const receiving = rows
+    .filter((r) => !r.suspended && r.receives_chats && isRoutableChatRole(r.role))
+    .map((r) => r.user_id);
+  const team = await routableMembers(config, workspaceId, receiving);
+  if (!departmentId) return { team, department: null };
+  const dept = (await resolveDepartments(config, workspaceId))
+    .find((d) => d.id === departmentId && departmentSupportsChannel(d, 'chat'));
+  if (!dept) return { team, department: null };
+  const inDept = new Set(await resolveDepartmentMembers(config, dept.id));
+  return { team, department: team.filter((id) => inDept.has(id)) };
+}
+
+/** One member's chat-routing row (role, suspension, switch), from the same cache. */
+export async function resolveChatRoutingMember(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+): Promise<{ role: string | null; suspended: boolean; receivesChats: boolean } | null> {
+  const row = (await resolveMemberRows(config, workspaceId)).find((r) => r.user_id === userId);
+  return row ? { role: row.role, suspended: row.suspended, receivesChats: row.receives_chats } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,11 +405,17 @@ export async function resolveWidgetVisibleDepartments(
   const sb = getServiceClient(config);
   const { data: members } = await sb
     .from('workspace_members')
-    .select('user_id, role, suspended_at')
+    .select('user_id, role, suspended_at, receives_chats')
     .eq('workspace_id', workspaceId);
   // A suspended member, or one whose seat the plan paused, never answers:
   // a department only they could serve is not offered to visitors.
-  const memberRows = (members ?? []) as Array<{ user_id: string; role?: string | null; suspended_at?: string | null }>;
+  const memberRows = (members ?? []) as Array<{
+    user_id: string;
+    role?: string | null;
+    suspended_at?: string | null;
+    receives_chats?: boolean | null;
+  }>;
+  const receivesChats = new Map(memberRows.map((m) => [m.user_id, m.receives_chats !== false]));
   const routable = new Set(
     await routableMembers(
       config,
@@ -381,9 +448,11 @@ export async function resolveWidgetVisibleDepartments(
     if (!role) return { eligible: false, available: false };
     const perms = perRole.get(role)!;
     if (channel === 'chat') {
-      // Chat eligibility — any active workspace member qualifies. We do NOT
+      // Chat eligibility — the members chat routing may pick (the owner and
+      // the team roles, receiving chats; resolveChatRoutingPool). We do NOT
       // require call-specific permissions for chat-only departments.
-      return { eligible: true, available: true };
+      const ok = isRoutableChatRole(role) && receivesChats.get(userId) === true;
+      return { eligible: ok, available: ok };
     }
     if (!perms.can_join_queue_calls) return { eligible: false, available: false };
     if (channel === 'audio' && !perms.can_receive_audio_call)

@@ -50,7 +50,7 @@ const prefs = (p: Person) => ({
 async function visitorConfig(people: Person[], brand: string) {
   const tables = widgetScenarioTables({ edition: 'iran', ai: false, smart: false }) as Record<string, Row[]>;
   Object.assign(tables.widget_settings[0], { fab_icon: 'avatar', brand_name: brand });
-  tables.workspace_members = [...people].reverse().map((p) => ({ workspace_id: WS, user_id: id(p.n), created_at: p.joined }));
+  tables.workspace_members = [...people].reverse().map((p) => ({ workspace_id: WS, user_id: id(p.n), created_at: p.joined, role: 'agent' }));
   tables.profiles = [...people].sort((a, b) => b.n - a.n).map((p) => ({
     id: id(p.n), full_name: p.name, email: `person${p.n}@example.com`, avatar_storage_key: null,
   }));

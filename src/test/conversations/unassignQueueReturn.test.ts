@@ -72,6 +72,11 @@ vi.mock('../../../server/services/platformSupport/service.js', async (orig) => (
 }));
 vi.mock('../../../server/services/platformSupport/changes.js', () => ({ onSupportConversationChanged: async () => undefined }));
 // The real routing; the PATCH's queue-return run is recorded so a test knows it finished.
+// The plan allows automatic assignment (a plan without it routes as manual).
+vi.mock('../../../server/services/widget/entitlements.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/widget/entitlements.js')>()),
+  resolveWidgetCapability: async () => true,
+}));
 vi.mock('../../../server/services/chatRouting.js', async (orig) => {
   const real = await orig<typeof import('../../../server/services/chatRouting.js')>();
   return {

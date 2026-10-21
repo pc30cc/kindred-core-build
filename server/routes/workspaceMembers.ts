@@ -210,7 +210,7 @@ workspaceMembersRouter.get('/', async (req, res) => {
   const sb = getServiceClient(config);
   const { data: members, error: memberErr } = await sb
     .from('workspace_members')
-    .select('id, role, created_at, user_id, suspended_at, suspend_reason')
+    .select('id, role, created_at, user_id, suspended_at, suspend_reason, receives_chats, max_concurrent_chats')
     .eq('workspace_id', workspaceId);
   if (memberErr) return res.status(500).json({ error: memberErr.message });
 
@@ -346,6 +346,48 @@ workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
 });
 
 
+
+const chatRoutingSchema = z.object({
+  receives_chats: z.boolean().optional(),
+  // null = the workspace default (widget_settings.default_max_concurrent_chats).
+  max_concurrent_chats: z.number().int().min(1).max(50).nullable().optional(),
+}).strict().refine((b) => b.receives_chats !== undefined || b.max_concurrent_chats !== undefined, {
+  message: 'nothing_to_update',
+});
+
+// PATCH /api/workspace-members/:memberId/chat-routing?workspaceId=...
+// The member's chat routing (migration 278): "Receive chats automatically"
+// (receives_chats) and their own maximum of concurrent chats (null = the
+// workspace default). The owner's own switch included — the owner decides
+// whether routing gives them chats too. Owners and admins only.
+workspaceMembersRouter.patch('/:memberId/chat-routing', async (req, res) => {
+  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
+  const parsedBody = chatRoutingSchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: 'invalid_body' });
+  const { workspaceId } = parsedQuery.data;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+
+  const config: ServerConfig = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const update: Record<string, unknown> = {};
+  if (parsedBody.data.receives_chats !== undefined) update.receives_chats = parsedBody.data.receives_chats;
+  if (parsedBody.data.max_concurrent_chats !== undefined) update.max_concurrent_chats = parsedBody.data.max_concurrent_chats;
+  const { data, error } = await sb
+    .from('workspace_members')
+    .update(update)
+    .eq('id', req.params.memberId)
+    .eq('workspace_id', workspaceId)
+    .select('id, user_id, receives_chats, max_concurrent_chats');
+  if (error) return res.status(500).json({ error: error.message });
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) return res.status(404).json({ error: 'member_not_found' });
+  // Routing's member cache, and the widget's online/offline (who counts).
+  invalidateDepartmentCache(workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
+  return res.json({ ok: true, member: row });
+});
 
 // DELETE /api/workspace-members/:memberId?workspaceId=... — remove a member.
 //

@@ -244,6 +244,12 @@ const widgetSettingsPatchSchema = z.object({
   allow_subdomains: z.boolean().optional(),
   // Assignment / availability
   assignment_mode: z.enum(['auto', 'round_robin', 'manual']).optional(),
+  // Chat routing (migration 278): the returning visitor's operator, the
+  // default capacity per operator and the first-response timeout (0 = off).
+  last_agent_routing_enabled: z.boolean().optional(),
+  last_agent_window_days: z.number().int().min(1).max(365).optional(),
+  default_max_concurrent_chats: z.number().int().min(1).max(50).optional(),
+  first_response_timeout_minutes: z.number().int().min(0).max(60).optional(),
   offline_mode: z.enum(['hide_widget', 'show_offline_message', 'capture_message']).optional(),
   offline_message_localized: z.record(z.string(), z.string()).nullable().optional(),
   availability_labels: z.record(z.string(), z.record(z.string(), z.string())).nullable().optional(),

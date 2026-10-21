@@ -10,6 +10,7 @@ import { RequireAuth } from '@/features/auth/RequireAuth';
 import { BrandingGate } from '@/features/branding/BrandingGate';
 import { WorkspaceRedirect } from '@/features/workspace/WorkspaceRedirect';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { RequireInboxAccess } from '@/components/inbox/RequireInboxAccess';
 
 import MobileLoginPage from './MobileLoginPage';
 import MobileSettingsPage from './MobileSettingsPage';
@@ -48,8 +49,8 @@ export function MobileRoutes() {
         }
       >
         <Route index element={<Navigate to="inbox" replace />} />
-        <Route path="inbox" element={<MobileInboxPage />} />
-        <Route path="inbox/:conversationId" element={<MobileConversationPage />} />
+        <Route path="inbox" element={<RequireInboxAccess showBack={false}><MobileInboxPage /></RequireInboxAccess>} />
+        <Route path="inbox/:conversationId" element={<RequireInboxAccess showBack={false}><MobileConversationPage /></RequireInboxAccess>} />
         <Route
           path="contacts"
           element={

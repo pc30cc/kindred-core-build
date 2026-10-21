@@ -256,6 +256,11 @@ export async function resolveRecipients(
 
     const isMentioned = mentioned.has(userId);
     const isAssignee = ctx.assignedTo === userId;
+    // A conversation nobody holds yet reaches 'all' and 'assigned' alike:
+    // that scope is "Assigned to me, and unassigned" (somebody has to pick a
+    // new customer up). It used to mean "assigned to me" only, which is not
+    // what the setting says.
+    const followsUnassigned = p.push_scope === 'all' || p.push_scope === 'assigned';
 
     // Quiet hours: silenced unless the operator was personally mentioned AND
     // the platform allows a mention to break the window. A colleague's
@@ -277,10 +282,10 @@ export async function resolveRecipients(
       // one, everyone who follows all conversations on an unassigned one.
       if (ctx.assignedTo) {
         if (!isAssignee && !isMentioned) continue;
-      } else if (p.push_scope !== 'all' && !isMentioned) continue;
+      } else if (!followsUnassigned && !isMentioned) continue;
     }
-    // Email and callbacks belong to no one yet: they reach those who follow
-    // everything, as an unassigned customer message does.
+    // Email and callbacks belong to no conversation yet: they reach those who
+    // follow everything.
     if ((ctx.eventType === 'email_message' || ctx.eventType === 'callback_request') && p.push_scope !== 'all') continue;
     // Each kind of event beyond a customer's message has its own switch.
     if (ctx.eventType === 'team_message' && p.push_team_chat === false) continue;
@@ -289,14 +294,12 @@ export async function resolveRecipients(
     if (ctx.eventType === 'handoff') {
       // Handed to somebody already: theirs alone. Handed to the queue: the
       // same people an unassigned customer message reaches.
-      if (ctx.assignedTo ? !isAssignee : p.push_scope !== 'all') continue;
+      if (ctx.assignedTo ? !isAssignee : !followsUnassigned) continue;
     }
     if (ctx.eventType === 'new_message') {
       if (p.push_scope === 'mentions' && !isMentioned) continue;
-      // "only assigned to me": an unassigned thread still reaches everyone
-      // whose scope is 'all', so a new customer never goes unanswered.
-      if (p.push_scope === 'assigned' && !isAssignee && !isMentioned) continue;
-      // An assigned thread is that operator's (plus anyone mentioned).
+      // An assigned thread is that operator's (plus anyone mentioned); an
+      // unassigned one reaches 'all' and 'assigned' (above).
       if (ctx.assignedTo && !isAssignee && !isMentioned) continue;
     }
 

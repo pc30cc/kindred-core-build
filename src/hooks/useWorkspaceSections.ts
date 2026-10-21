@@ -13,6 +13,7 @@ import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { sectionVisible, type AppSection, type SectionContext } from '@/lib/planAccess';
+import { inboxAllowed } from '@/lib/inboxAccess';
 
 export interface WorkspaceSections extends SectionContext {
   workspaceId: string | null;
@@ -36,6 +37,7 @@ export function useWorkspaceSections(): WorkspaceSections {
     const ctx: SectionContext = {
       plan,
       isAdmin: isWorkspaceAdmin(role),
+      inboxAllowed: inboxAllowed(roleKnown ? role ?? null : undefined),
       aiSurface: aiError ? false : ai ? ai.ai_agent_enabled === true && ai.customer_ai_agent_visible === true : null,
       aiAutoAnswer: aiError ? false : ai ? ai.auto_answer_enabled === true : null,
       callCenterEnabled: callCenterError ? false : callCenter ? callCenter.workspace_call_center_visible === true : null,

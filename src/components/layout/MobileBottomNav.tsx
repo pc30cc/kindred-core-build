@@ -21,9 +21,9 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const location = useLocation();
   const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
-  // Visitors is a plan section: the tab follows the sidebar's rule.
+  // Visitors is a plan section and the Inbox a role one: the tabs follow the sidebar's rules.
   const sections = useWorkspaceSections();
+  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
 
   const isActive = (subPath: string) => {
     const fullPath = wsPath(subPath);
@@ -35,7 +35,9 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
 
   const tabs: { key: string; icon: React.ElementType; onClick?: () => void; to?: string; active: boolean; badge?: number }[] = [
     { key: 'dashboard', icon: LayoutDashboard, to: wsPath(''), active: isActive('') },
-    { key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman },
+    ...(sections.visible('inbox')
+      ? [{ key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman }]
+      : []),
     ...(sections.visible('visitors')
       ? [{ key: 'visitors', icon: Radar, to: wsPath('/visitors'), active: isActive('/visitors') }]
       : []),

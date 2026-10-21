@@ -114,12 +114,12 @@ export function AppSidebar({
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
   // Every plan / role / platform rule for what this member sees:
   // src/lib/planAccess.ts via useWorkspaceSections. Until the plan snapshot
   // has resolved, plan-gated entries are NOT rendered — showing them first
   // and removing them a moment later is worse than waiting.
   const sections = useWorkspaceSections();
+  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
   const { plan } = sections;
   const entsReady = sections.ready;
   // The queues inside the inbox follow the same rules as the inbox's own tabs.
@@ -520,7 +520,8 @@ export function AppSidebar({
         </NavTip>
       </div>
 
-      {/* Inbox section */}
+      {/* Inbox section — the owner, admins and the chat team only (shared/chatRoles.ts). */}
+      {sections.visible('inbox') && (
       <div className="px-3 mt-2">
         <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
@@ -660,6 +661,7 @@ export function AppSidebar({
         })()}
 
       </div>
+      )}
 
       {/* Main navigation */}
       <nav className="flex-1 overflow-y-auto pt-3 px-3 space-y-0.5">

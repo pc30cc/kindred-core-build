@@ -16,6 +16,8 @@ import { Link } from 'react-router-dom';
 import { Lock, Sparkles, AlertTriangle, RefreshCw, ArrowLeft, SlidersHorizontal } from 'lucide-react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { inboxAllowed } from '@/lib/inboxAccess';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -91,6 +93,9 @@ export function EntitlementAccessGate({
   const { dir, locale } = useTranslation();
   const wsPath = useWorkspacePath();
   const tr = useEntitlementTr();
+  // "Back" leads to the Inbox, or to the dashboard for staff who have none.
+  const { data: role, isSuccess: roleKnown } = useWorkspaceRole(workspace?.id);
+  const backPath = inboxAllowed(roleKnown ? role ?? null : undefined) ? '/inbox' : '';
 
   // Loading (or no workspace resolved yet) — never mount children.
   if (loading || !workspace?.id) {
@@ -215,7 +220,7 @@ export function EntitlementAccessGate({
           </Button>
           {mode === 'page' && showBack && (
             <Button asChild variant="outline" className="flex-1">
-              <Link to={wsPath('/inbox')}>
+              <Link to={wsPath(backPath)}>
                 <ArrowLeft className="h-4 w-4 me-2 rtl:rotate-180" />
                 {tr('plan.locked.back', 'Back')}
               </Link>

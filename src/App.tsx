@@ -17,6 +17,7 @@ import { IdentityCacheBoundary } from "@/features/auth/IdentityCacheBoundary";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
 import { RequireWorkspaceAdmin } from "@/features/auth/RequireWorkspaceAdmin";
+import { RequireInboxAccess } from "@/components/inbox/RequireInboxAccess";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 import { WorkspaceRedirect } from "@/features/workspace/WorkspaceRedirect";
@@ -579,7 +580,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   (React Router ranks static segments above dynamic ones). */}
               <Route path="/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
-                <Route path="inbox" element={<InboxPage />} />
+                <Route path="inbox" element={<RequireInboxAccess><InboxPage /></RequireInboxAccess>} />
                 <Route path="inbox/widget-bridge" element={<RequireAdmin><WidgetBridgeInboxPage /></RequireAdmin>} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
                 <Route path="contacts/:id" element={<PlanLockedOverlay moduleKey="contacts"><ContactDetailPage /></PlanLockedOverlay>} />

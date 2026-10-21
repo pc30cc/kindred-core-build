@@ -9,14 +9,20 @@ import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
 import { emitCallEnded } from '@/lib/call-end-events';
-import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
-import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { useInboxDepartments } from '@/hooks/useInboxDepartments';
+import {
+  canSeeAllConversations, effectiveInboxScope, readStoredInboxScope, writeStoredInboxScope, type InboxScope,
+} from '@/lib/inboxAccess';
+import { departmentFilterOptions, departmentNameOf, matchesDepartmentFilter } from '@/lib/inboxDepartments';
+import { DepartmentFilter } from '@/components/inbox/DepartmentFilter';
+import { ClosedConversationNotice } from '@/components/inbox/ClosedConversationNotice';
+import { quickStatusAction, replyNeedsReopen } from '@/lib/inboxReply';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -38,7 +44,7 @@ import {
   Mail, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
-  Ban, ShieldOff, Users, Play, Pause, Mic,
+  Ban, ShieldOff, Users, Play, Pause, Mic, Building2, RotateCcw,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -78,11 +84,9 @@ import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { aiQueueVisible, colleaguesQueueVisible, needsHumanQueueVisible } from '@/lib/planAccess';
 import {
-  useOperatorMessageChime,
   getOperatorMessageSoundEnabled,
   setOperatorMessageSoundEnabled,
 } from '@/features/notifications/operatorMessageSound';
-import { useOperatorBrowserNotifications } from '@/features/notifications/operatorBrowserNotification';
 import { Volume2, VolumeX, Lock } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
@@ -132,6 +136,9 @@ type InboxConversation = NonNullable<ReturnType<typeof useConversations>['data']
   waiting_since?: string | null;
   ai_state?: string | null;
   is_spam?: boolean | null;
+  /** The visitor's chosen (or routed) department; absent from older servers. */
+  department_id?: string | null;
+  department_name?: string | null;
 };
 
 /** The conversation metadata fields the inbox reads. */
@@ -206,6 +213,8 @@ export default function InboxPage() {
   // Channel inbox (plugin channels): presentation-only narrowing of the
   // main list to conversations that arrived through one channel.
   const channelParam = searchParams.get('channel');
+  // Department filter (`<id>` or `none`), the same kind of narrowing.
+  const departmentParam = searchParams.get('department');
 
 
   // queue param is constrained to the real queues. Any other value (incl.
@@ -296,28 +305,19 @@ export default function InboxPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Assignment scope. Everyone (owners included) defaults to 'mine' so a
-  // conversation transferred to another operator leaves this Inbox. Managers
-  // can flip to the full workspace view; the server enforces the privilege.
+  // conversation transferred to another operator leaves this Inbox.
+  // Supervisors (owner, admin, team lead — the roles the server allows) can
+  // flip to the full workspace view at any time: the night the team has gone
+  // home with chats still in their names is exactly when it is needed. The
+  // choice is kept on this device; the alerts follow it (inboxAccess.ts).
   const { data: wsRole } = useWorkspaceRole(workspace?.id);
-  // Only the workspace owner may widen the Inbox to the whole workspace, and
-  // only while there is at least one other operator who is actually
-  // responsive (active/away) — otherwise the toggle has nothing to reveal.
-  const { data: teamPresence } = useTeamPresence(workspace?.id);
-  const responsiveOperators = useMemo(
-    () =>
-      (teamPresence?.presence ?? []).filter(
-        (p) =>
-          p.user_id !== user?.id &&
-          (p.state === 'online' || p.presence_state === 'active' || p.presence_state === 'away'),
-      ).length,
-    [teamPresence, user?.id],
-  );
-  const canSwitchScope = wsRole === 'owner' && responsiveOperators > 0;
-  const [inboxScope, setInboxScope] = useState<'mine' | 'all'>(
-    () => (localStorage.getItem('inbox.scope') === 'all' ? 'all' : 'mine'),
-  );
-  useEffect(() => { localStorage.setItem('inbox.scope', inboxScope); }, [inboxScope]);
-  const scope: 'mine' | 'all' = canSwitchScope && inboxScope === 'all' ? 'all' : 'mine';
+  const canSwitchScope = canSeeAllConversations(wsRole);
+  const [inboxScope, setInboxScope] = useState<InboxScope>(() => readStoredInboxScope());
+  const chooseInboxScope = useCallback((next: InboxScope) => {
+    setInboxScope(next);
+    writeStoredInboxScope(next);
+  }, []);
+  const scope: InboxScope = effectiveInboxScope(wsRole, inboxScope);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const isArt = isArtFamilyTheme(usePanelTheme().theme);
@@ -436,6 +436,8 @@ export default function InboxPage() {
     const next = new URLSearchParams(searchParams);
     next.delete('c');
     next.set('status', 'all');
+    // Nor may a department filter hide it.
+    next.delete('department');
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkConvId]);
@@ -568,29 +570,11 @@ export default function InboxPage() {
     },
   });
 
-  // Phase 5 — operator-only inbox-list channel: optimistically patch the
-  // conversation list when status/priority/assignee/tags change anywhere
-  // in the workspace, without needing a per-conversation subscription.
-  useInboxListRealtime(workspace?.id);
+  // The operator-only inbox-list channel (live list patches), the chime,
+  // the banners and "assigned to you" are the app shell's
+  // (useOperatorInboxAlerts in AppLayout), so they work on every page.
   // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
   useGeoEnrichmentRealtime(workspace?.id);
-
-  // Phase 5b — chime on incoming visitor messages (anywhere in the
-  // workspace). Honors per-device localStorage override + server
-  // notification prefs (disable_all / play_sound / quiet hours).
-  useOperatorMessageChime(workspace?.id);
-
-  // And the other half of it: an actual banner, for the operator who is in
-  // another window. The settings page has asked for the browser's permission
-  // since the day it shipped and nothing ever used it — a chime is no use to
-  // a tab nobody is looking at.
-  useOperatorBrowserNotifications({
-    workspaceId: workspace?.id,
-    viewerId: user?.id,
-    title: t('notifications.browserTitle'),
-    fallbackBody: t('notifications.browserFallback'),
-    onOpenConversation: (conversationId) => updateUrl({ c: conversationId }),
-  });
 
   // Header mute toggle (per-device).
   const [soundOn, setSoundOn] = useState<boolean>(() => getOperatorMessageSoundEnabled());
@@ -972,8 +956,32 @@ export default function InboxPage() {
     },
   };
 
+  // A closed conversation is over for the visitor: their next message starts
+  // a new one. Replying here reopens it first, so the answer arrives in this
+  // thread (ClosedConversationNotice says so above the composer).
+  const selectedClosed = replyNeedsReopen(selected?.status);
+  const [reopening, setReopening] = useState(false);
+  const reopenSelected = useCallback(async (): Promise<boolean> => {
+    if (!workspace?.id || !selectedId) return false;
+    setReopening(true);
+    try {
+      await updateConv.mutateAsync({ id: selectedId, workspace_id: workspace.id, status: 'open' });
+      qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
+      // Reopened from the Resolved tab, it would drop out of that list (and
+      // out of the selection) under the operator's hands: show every status.
+      if (filter === 'resolved' || filter === 'closed') setFilter('all');
+      return true;
+    } catch {
+      toast({ title: t('inbox.reopenFailed'), variant: 'destructive' });
+      return false;
+    } finally {
+      setReopening(false);
+    }
+  }, [workspace?.id, selectedId, updateConv, qc, t, filter, setFilter]);
+
   const sendDisabled =
     sendMessage.isPending ||
+    reopening ||
     att.status === 'uploading' ||
     (!message.trim() && att.status !== 'ready');
 
@@ -985,6 +993,10 @@ export default function InboxPage() {
     const hasAttachment = att.status === 'ready' && !!att.attachmentId;
     if (!hasText && !hasAttachment) return;
     if (att.status === 'uploading') return; // wait for upload to finish
+    if (reopening) return;
+    // Reopen a closed conversation before the reply goes in; if that fails
+    // the draft stays where it is.
+    if (selectedClosed && !(await reopenSelected())) return;
     // Snapshot draft, then clear UI immediately so the operator can keep
     // typing without waiting on the network round-trip. The realtime
     // publish + React-Query invalidate (in useSendMessage.onSuccess) will
@@ -1099,6 +1111,17 @@ export default function InboxPage() {
     }
   }, [extraChip]);
 
+  // Departments: the row badge, the list filter and the transfer picker.
+  const { data: inboxDepartments } = useInboxDepartments(workspace?.id);
+  const departmentNames = useMemo(
+    () => new Map((inboxDepartments ?? []).map((d) => [d.id, d.name] as [string, string])),
+    [inboxDepartments],
+  );
+  const departmentOptions = useMemo(
+    () => departmentFilterOptions(inboxDepartments, conversations),
+    [inboxDepartments, conversations],
+  );
+
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
@@ -1106,6 +1129,7 @@ export default function InboxPage() {
         const ch = resolveChannelKey(c?.metadata, c?.contacts?.metadata);
         if (ch !== channelParam) return false;
       }
+      if (!matchesDepartmentFilter(c, departmentParam)) return false;
       if (!search) return true;
       const name = conversationTitle(c, t, locale);
       return name.toLowerCase().includes(search.toLowerCase());
@@ -1136,7 +1160,7 @@ export default function InboxPage() {
       return 0;
     });
 
-  }, [conversations, search, t, locale, channelParam]);
+  }, [conversations, search, t, locale, channelParam, departmentParam]);
 
   const totalUnread = useMemo(() => {
     if (!conversations) return 0;
@@ -1404,6 +1428,14 @@ export default function InboxPage() {
               )}
             </div>
             <div className="flex items-center gap-1">
+              <DepartmentFilter
+                options={departmentOptions}
+                value={departmentParam}
+                onChange={(v) => updateUrl({ department: v })}
+                compact={compactTabs}
+                t={t}
+                dir={dir}
+              />
               <label
                 data-inbox="list-all"
                 data-active={filter === 'all'}
@@ -1795,6 +1827,20 @@ export default function InboxPage() {
                             <UserCheck className="w-3.5 h-3.5" />
                           </span>
                         )}
+                        {(() => {
+                          const dept = departmentNameOf(conv, departmentNames);
+                          if (!dept) return null;
+                          return (
+                            <span
+                              data-inbox="row-department"
+                              className="inline-flex max-w-[8rem] items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60 text-foreground/70"
+                              title={`${t('inbox.department')}: ${dept}`}
+                            >
+                              <Building2 className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{dept}</span>
+                            </span>
+                          );
+                        })()}
                         {/* AI lifecycle badge — Automated / Needs human / Human active */}
                         {(() => {
                           const aiState = metaOf(conv).ai_state
@@ -1899,7 +1945,7 @@ export default function InboxPage() {
           )}
         </ScrollArea>
 
-        {/* Owner-only workspace scope switch, pinned right above search. */}
+        {/* Supervisors' workspace scope switch, pinned right above search. */}
         {canSwitchScope ? (
           <div data-inbox="scope" className="px-3 pt-2.5 border-t border-border/60 bg-card/60">
             <label
@@ -1914,7 +1960,7 @@ export default function InboxPage() {
                 type="checkbox"
                 className="h-3.5 w-3.5 shrink-0 accent-primary cursor-pointer"
                 checked={scope === 'all'}
-                onChange={(e) => setInboxScope(e.target.checked ? 'all' : 'mine')}
+                onChange={(e) => chooseInboxScope(e.target.checked ? 'all' : 'mine')}
               />
               <Users className="w-3.5 h-3.5 shrink-0" />
               <span className="shrink-0">{t('inbox.scopeAll') || 'All conversations'}</span>
@@ -2205,6 +2251,17 @@ export default function InboxPage() {
                     className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <CheckCircle2 className="w-5 h-5" />
+                  </button>
+                )}
+                {quickStatusAction(selected.status) === 'reopen' && (
+                  <button
+                    aria-label={t('inbox.reopen') || 'Reopen'}
+                    title={t('inbox.reopen') || 'Reopen'}
+                    disabled={reopening}
+                    onClick={() => { void reopenSelected(); }}
+                    className="p-2 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-5 h-5" />
                   </button>
                 )}
 
@@ -2575,8 +2632,9 @@ export default function InboxPage() {
                   }}
                   sendAction={sendAction}
                   
-                  onSendNow={(text, action) =>
-                    new Promise<boolean>((resolve) => {
+                  onSendNow={async (text, action) => {
+                    if (selectedClosed && !(await reopenSelected())) return false;
+                    return new Promise<boolean>((resolve) => {
                       if (!user) { resolve(false); return; }
                       sendMessage.mutate(
                         {
@@ -2590,8 +2648,8 @@ export default function InboxPage() {
                           onError: () => resolve(false),
                         },
                       );
-                    })
-                  }
+                    });
+                  }}
 
                 />
               )}
@@ -2641,6 +2699,14 @@ export default function InboxPage() {
                 />
               ) : (
               <>
+              {selectedClosed && (
+                <ClosedConversationNotice
+                  onReopen={() => { void reopenSelected(); }}
+                  pending={reopening}
+                  t={t}
+                  dir={dir}
+                />
+              )}
               {/* Pending attachment chip */}
               {att.status !== 'idle' && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
@@ -2775,15 +2841,16 @@ export default function InboxPage() {
                   <Button
                     onClick={() => handleSend()}
                     disabled={sendDisabled}
-                    title={sendActionMeta[sendAction].label}
-                    aria-label={sendActionMeta[sendAction].label}
+                    title={selectedClosed ? t('inbox.reopenAndSend') : sendActionMeta[sendAction].label}
+                    aria-label={selectedClosed ? t('inbox.reopenAndSend') : sendActionMeta[sendAction].label}
+                    data-inbox="send"
                     className="h-9 gap-1.5 px-2.5 rounded-none transition-transform active:scale-95"
                   >
-                    {sendMessage.isPending
+                    {sendMessage.isPending || reopening
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : <Send className="w-4 h-4 rtl:-scale-x-100" />}
                     <span className="hidden md:inline text-[11px] font-medium max-w-[9rem] truncate">
-                      {sendActionMeta[sendAction].short}
+                      {selectedClosed ? t('inbox.reopenAndSend') : sendActionMeta[sendAction].short}
                     </span>
 
                   </Button>
@@ -3053,13 +3120,16 @@ export default function InboxPage() {
                         {t('inbox.markSpam') || 'Mark as spam'}
                       </Button>
                     )}
-                    {selected.status === 'resolved' ? (
+                    {quickStatusAction(selected.status) === 'reopen' ? (
                       <Button
                         size="sm"
                         variant="outline"
+                        data-inbox="reopen"
                         className="h-8 flex-1 px-2 text-[11.5px] font-semibold"
-                        onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}
+                        disabled={reopening}
+                        onClick={() => { void reopenSelected(); }}
                       >
+                        <RotateCcw className={cn('w-3.5 h-3.5', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
                         {t('inbox.reopen') || 'Reopen'}
                       </Button>
                     ) : (
@@ -3198,6 +3268,11 @@ export default function InboxPage() {
                   status={selected.status ?? 'open'}
                   priority={selected.priority ?? 'normal'}
                   assignedTo={selected.assigned_to ?? null}
+                  departmentId={selected.department_id ?? null}
+                  departmentName={departmentNameOf(selected, departmentNames)}
+                  viewerId={user?.id ?? null}
+                  viewerRole={wsRole ?? null}
+                  locale={locale}
                   tags={selected.tags ?? []}
                   onMutate={(vars) =>
                     workspace?.id && updateConv.mutate({

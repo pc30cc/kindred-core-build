@@ -136,18 +136,39 @@ describe('the AI letting go of a conversation', () => {
     expect(await who({ eventType: 'handoff', assignedTo: AGENT })).toEqual([AGENT]);
   });
 
-  it('with nobody holding it, goes to everyone following all conversations', async () => {
+  it('with nobody holding it, goes to everyone following all conversations or the unassigned ones', async () => {
+    // "Assigned to me, and unassigned" — the setting's own words; it used to
+    // leave the unassigned out.
     db.user_notification_prefs = [
       prefs(OWNER),
       prefs(AGENT, { push_scope: 'assigned' }),
-      prefs(OTHER),
+      prefs(OTHER, { push_scope: 'mentions' }),
     ];
-    expect(await who({ eventType: 'handoff' })).toEqual([OTHER, OWNER].sort());
+    expect(await who({ eventType: 'handoff' })).toEqual([AGENT, OWNER].sort());
   });
 
   it('is silenced by the assignments switch', async () => {
     db.user_notification_prefs = [prefs(OWNER, { push_assignments: false }), prefs(AGENT), prefs(OTHER)];
     expect(await who({ eventType: 'handoff' })).toEqual([AGENT, OTHER].sort());
+  });
+});
+
+describe('"Assigned to me, and unassigned"', () => {
+  it('hears a customer in a conversation nobody holds, and in its own, never in a colleague\'s', async () => {
+    db.user_notification_prefs = [prefs(OWNER), prefs(AGENT, { push_scope: 'assigned' }), prefs(OTHER)];
+    expect(await who({ eventType: 'new_message' })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'new_message', assignedTo: AGENT })).toEqual([AGENT]);
+    expect(await who({ eventType: 'new_message', assignedTo: OTHER })).toEqual([OTHER]);
+  });
+
+  it('hears an internal note on an unassigned conversation, as "all" does', async () => {
+    db.user_notification_prefs = [prefs(OWNER, { push_scope: 'mentions' }), prefs(AGENT, { push_scope: 'assigned' }), prefs(OTHER)];
+    expect(await who({ eventType: 'internal_note' })).toEqual([AGENT, OTHER].sort());
+  });
+
+  it('still leaves the shared email inbox to those following everything', async () => {
+    db.user_notification_prefs = [prefs(OWNER), prefs(AGENT, { push_scope: 'assigned' }), prefs(OTHER)];
+    expect(await who({ eventType: 'email_message', conversationId: null })).toEqual([OTHER, OWNER].sort());
   });
 });
 

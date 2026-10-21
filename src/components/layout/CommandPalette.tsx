@@ -47,7 +47,7 @@ export function CommandPalette() {
   type Item = { key: string; icon: typeof Inbox; path: string; section?: AppSection };
   const all: Item[] = [
     { key: 'overview', icon: Rocket, path: '' },
-    { key: 'inbox', icon: Inbox, path: '/inbox' },
+    { key: 'inbox', icon: Inbox, path: '/inbox', section: 'inbox' },
     { key: 'aiAgent', icon: Sparkles, path: '/ai-agent', section: 'aiAgent' },
     { key: 'callCenter', icon: PhoneCall, path: '/call-center', section: 'callCenter' },
     { key: 'visitors', icon: Eye, path: '/visitors', section: 'visitors' },

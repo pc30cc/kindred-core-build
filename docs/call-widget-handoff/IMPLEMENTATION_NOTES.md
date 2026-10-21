@@ -196,6 +196,10 @@ Applied in `e2e/harness/callReferenceOverrides.css` or masked:
     cc.css's own stage formulas on the held colour; cc.css's stage ground reads them). At the default and every preset
     nothing changes.
 
+13. The home's trust strip ("Secure line · Queue aware · Fast handoff", the boards' last row of the home body) is not
+    drawn in either brand (owner, 2026-10-21): the reference hides it too (`callReferenceOverrides.css`); it sat last
+    with `margin-top: auto`, so nothing above it moves. Its strings, styles and two icons are gone.
+
 Respok only: launcher tails as drawn; 14's summary centred as drawn; `.inl` renders 13.5px.
 
 ## Owner requests of 2026-10-19 (rounds 6b and 7b)

@@ -327,7 +327,7 @@ const MIRROR_STATES = [
 ];
 /** Icons, buttons, dock and orb (digest-infra §7: text-width elements excluded, below). */
 const MIRROR_SEL = [
-  '.hd .lg', '.hd .ib', '.ctx .ib', '.lang', '.badge', '.opt', '.opt .oi', '.opt .go', '.cbr .it', '.cbr .ch', '.trust svg', '.orb',
+  '.hd .lg', '.hd .ib', '.ctx .ib', '.lang', '.badge', '.opt', '.opt .oi', '.opt .go', '.cbr .it', '.cbr .ch', '.orb',
   '.dock button', '.vdock .bt', '.pip', '.qc', '.ql2 .op', '.ql2 .pp', '.sumc .avw', '.sumc .ck', '.stars .star', '.okc',
   '.okc .bdg', '.ei', '.oi2', '.oi2 .moon', '.sw', '.known .av', '.known .ed', '.cpy', '.sumchip .it', '.sumchip .chg',
   '.seg button', '.days .chip', '.slots .chip', '.stp .bars', '.bnr svg', '.bnr .spn', '.xf .av', '.xf .to', '.xf .ar',
@@ -341,7 +341,7 @@ const MIRROR_SEL = [
  */
 const MIRROR_ORDER_ONLY = new Set([
   '.acts .btn', '.row2 .btn', '.offer .btn', '.dock button', '.known .ed', '.sumchip .chg', '.ql2 .pp', '.rnote svg', '.net',
-  '.trust svg', '.slots .chip', '.badge', '.lang',
+  '.slots .chip', '.badge', '.lang',
 ]);
 /** A browser's address bar, drawn as it is in every language (left to right): the same in both directions. */
 const MIRROR_NONE = new Set(['.addr .bar', '.addr .lk2']);

@@ -684,8 +684,9 @@ describe('the International skin (presentation-intl.css)', () => {
 
   it('carries every non-chrome .b-rp rule of the design, re-keyed to .ccw-presentation-intl', () => {
     // Board chrome (cards, mock pages, captions, the system sheet) and the
-    // static stand-ins never ship; DM Mono is replaced by the system mono (D3).
-    const CHROME = /\.(kick|cc-h|cc-d|caret|lgc|stc|frm|pmk|pm|site2 \.sbar|bp|mn|curve|sc|sw-i|code)\b|\.fr\.fo|\.inp\.fo/;
+    // static stand-ins never ship; DM Mono is replaced by the system mono (D3);
+    // the home's trust strip is not drawn (owner, 2026-10-21; §8.3 #13).
+    const CHROME = /\.(kick|cc-h|cc-d|caret|lgc|stc|frm|pmk|pm|site2 \.sbar|bp|mn|curve|sc|sw-i|code|trust)\b|\.fr\.fo|\.inp\.fo/;
     // A selector list split on its top-level commas (not those inside :is()).
     const list = (sel: string) => sel.split(/,(?![^(]*\))/).map((s) => s.trim().replace(/^\.b-rp /, ''));
     const wanted = [...cc.matchAll(/^\.b-rp ([^{]+)\{/gm)]

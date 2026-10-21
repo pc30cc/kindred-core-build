@@ -1007,7 +1007,7 @@ export const ENGINE_METHODS = ['retryMicrophone', 'skipRating', 'dismissLabel'] 
 
 /** Box probes (§8.2): the same selectors on both sides, panel-relative rects within ±0.5px. */
 export const PANEL_PROBES = [
-  '.hd', '.bd', '.badge', '.hh', '.opts', '.opt', '.cbr', '.trust', '.pw', '.chips', '.grp', '.fr', '.cons', '.acts', '.btn',
+  '.hd', '.bd', '.badge', '.hh', '.opts', '.opt', '.cbr', '.pw', '.chips', '.grp', '.fr', '.cons', '.acts', '.btn',
   '.pill', '.orb', '.sh', '.tmr', '.qc', '.dock', '.vtop', '.pip', '.vdock', '.ctr', '.stars', '.kv', '.days', '.slots', '.sumchip',
 ] as const;
 export const PHONE_PROBES = [...PANEL_PROBES, '.sheet', '.grab'] as const;

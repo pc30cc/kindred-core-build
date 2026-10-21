@@ -22,7 +22,11 @@ import { invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import {
   resolveWidgetEntitlements,
   guardWidgetSettingsPatch,
+  widgetBusinessHoursAllowed,
 } from '../services/widget/entitlements.js';
+import { resolveAvailability } from '../services/widget/availability.js';
+import { listCustomerAvailableOperators, loadWorkspaceAvailabilityPrefs } from '../services/widget/customerAvailability.js';
+import { DAY_KEYS, MAX_INTERVALS_PER_DAY, isValidTimeZone, parseHHMM } from '../../shared/callbackSlots.js';
 import { uploadForOwner, deleteForOwner } from '../services/storage/index.js';
 import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
@@ -144,6 +148,47 @@ widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
   });
 });
 
+// ── what visitors see right now (Widget → Availability's "Now" card) ──
+//
+// The panel's own guess used to say "always online" whenever business hours
+// were off, while visitors were offline as soon as no operator was available.
+// This answers with the resolver the widget itself uses (business hours, the
+// operators' own status and personal hours, the plan), for the saved
+// settings, plus how many operators visitors may consider reachable.
+widgetSettingsRouter.get('/:workspaceId/availability', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const asked = String(req.query.locale || '').toLowerCase();
+  const locale = ['en', 'fa', 'tr'].includes(asked) ? asked : 'en';
+  try {
+    const now = new Date();
+    // One entitlement (the card refreshes every minute), null when unreadable.
+    const [businessHoursAllowed, prefs] = await Promise.all([
+      widgetBusinessHoursAllowed(config, workspaceId),
+      loadWorkspaceAvailabilityPrefs(config, workspaceId),
+    ]);
+    const [snapshot, operators] = await Promise.all([
+      resolveAvailability(config, { workspaceId, locale, now, businessHoursAllowed, availabilityPrefs: prefs }),
+      listCustomerAvailableOperators(config, workspaceId, now, prefs),
+    ]);
+    return res.json({
+      state: snapshot.state,
+      reason: snapshot.reason,
+      next_open_at: snapshot.next_open_at,
+      timezone: snapshot.timezone,
+      offline_mode: snapshot.offline_mode,
+      business_hours_allowed: businessHoursAllowed !== false,
+      operators: { members: operators.memberCount, available: operators.available.length },
+      checked_at: now.toISOString(),
+    });
+  } catch (err) {
+    console.error('[widget-settings] availability failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'availability_unavailable' });
+  }
+});
+
 /**
  * `fab_image_url` is DERIVED from `fab_image_storage_key` for whichever
  * storage provider is primary right now, so promoting a new one rewrites no
@@ -197,6 +242,50 @@ async function withDerivedFabImageUrl(
  * `widget_platform_settings`, a different table this router already keeps
  * separate).
  */
+/**
+ * widget_settings.business_hours as a save may store it (the chat's
+ * BusinessHoursConfig; read by server/services/widget/availability.ts). While
+ * the hours are on, every time is HH:mm and each interval ends after it
+ * starts (one that does not never matches, so the day would silently be
+ * closed), and the time zone is one this server knows; hours that are off
+ * apply to nothing, so turning them off is never refused for what they
+ * hold. At most MAX_INTERVALS_PER_DAY a day, dated overrides. Keys the
+ * resolver does not read are dropped.
+ */
+const hoursInterval = z.object({ from: z.string().max(8), to: z.string().max(8) });
+const hoursDay = z.array(hoursInterval).max(MAX_INTERVALS_PER_DAY);
+const businessHoursSchema = z.object({
+  enabled: z.boolean().optional(),
+  timezone: z.string().max(64).optional(),
+  weekly: z.object(
+    Object.fromEntries(DAY_KEYS.map((day) => [day, hoursDay.optional()])) as Record<(typeof DAY_KEYS)[number], z.ZodOptional<typeof hoursDay>>,
+  ).optional(),
+  overrides: z.array(z.object({
+    date: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/),
+    closed: z.boolean().optional(),
+    intervals: hoursDay.optional(),
+    label: z.string().max(120).optional(),
+  })).max(366).optional(),
+}).superRefine((hours, ctx) => {
+  if (hours.enabled !== true) return;
+  if (hours.timezone !== undefined && !isValidTimeZone(hours.timezone)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['timezone'], message: 'invalid_timezone' });
+  }
+  const check = (list: Array<{ from?: string; to?: string }> | undefined, path: Array<string | number>) => {
+    (list || []).forEach((it, i) => {
+      const f = parseHHMM(it.from);
+      const t = parseHHMM(it.to);
+      if (!f || !t) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, i], message: 'invalid_time' });
+      } else if (f.h * 60 + f.m >= t.h * 60 + t.m) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, i], message: 'interval_end_before_start' });
+      }
+    });
+  };
+  for (const day of DAY_KEYS) check(hours.weekly?.[day], ['weekly', day]);
+  (hours.overrides || []).forEach((ov, i) => { if (ov.closed !== true) check(ov.intervals, ['overrides', i, 'intervals']); });
+});
+
 const widgetSettingsPatchSchema = z.object({
   // Appearance
   primary_color: z.string().max(32).optional(),
@@ -245,9 +334,11 @@ const widgetSettingsPatchSchema = z.object({
   // Assignment / availability
   assignment_mode: z.enum(['auto', 'round_robin', 'manual']).optional(),
   offline_mode: z.enum(['hide_widget', 'show_offline_message', 'capture_message']).optional(),
-  offline_message_localized: z.record(z.string(), z.string()).nullable().optional(),
-  availability_labels: z.record(z.string(), z.record(z.string(), z.string())).nullable().optional(),
-  business_hours: z.record(z.string(), z.unknown()).nullable().optional(),
+  // The panel's fields carry the same caps (maxLength), so a save is never
+  // refused for a length the field allowed.
+  offline_message_localized: z.record(z.string(), z.string().max(2000)).nullable().optional(),
+  availability_labels: z.record(z.string(), z.record(z.string(), z.string().max(100))).nullable().optional(),
+  business_hours: businessHoursSchema.optional(),
 }).strict();
 
 widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {

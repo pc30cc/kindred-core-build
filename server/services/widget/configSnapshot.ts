@@ -84,7 +84,7 @@ import {
 } from './entitlements.js';
 import { loadPublishedSmartRules, isSmartRuleUnexpired, type PublicSmartRule } from './smartEngagement.js';
 import { resolveEffectiveAiNudgePolicy } from './aiNudge/policy.js';
-import { resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
+import { businessHoursAllowedOf, resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
 import {
   AVAILABILITY_PREFS_COLUMNS,
   listCustomerAvailableOperators,
@@ -176,7 +176,7 @@ export const DEFAULT_WIDGET_SETTINGS = {
   locale: 'en',
   // Phase 5 — Availability
   live_chat_enabled: true,
-  offline_mode: 'accept_messages',
+  offline_mode: 'capture_message',
   business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
   availability_labels: {},
   // Phase 6a — Attachments (off by default)
@@ -1343,10 +1343,14 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     },
     preChat,
     // Phase 8 — Server-authoritative availability. Computed via resolver
-    // so runtime never has to interpret weekly schedules. Locked rules:
-    //  - business_hours.enabled === false  =>  state = 'online' always.
+    // so runtime never has to interpret weekly schedules. Locked rules
+    // (availability.ts):
+    //  - business_hours.enabled === false  =>  no schedule: online while an
+    //    operator is customer-available, offline (offline_mode) otherwise.
     //  - offline_message comes from offline_message_localized (per-locale)
     //    with legacy offline_message as fallback. No translation pipeline.
+    //  - a plan without widget_business_hours wears no schedule and the
+    //    default offline behaviour, whatever the row stores.
     // `quota_full` (phase 4) only while billing locks are on: the monthly
     // chat quota is full, so a new conversation goes to the
     // leave-a-message form (see resolveConversationQuotaFull).
@@ -1354,8 +1358,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       await resolveAvailability(config, {
         workspaceId,
         locale: effectiveLocale,
-        // The raw row (not the entitlement-applied `ws`), as its own read was.
+        // The raw row (not the entitlement-applied `ws`, whose other columns
+        // the resolver does not read), with the plan's business-hours answer.
         settingsRow: widget,
+        businessHoursAllowed: businessHoursAllowedOf(snap.entitlements),
         availabilityPrefs: snap.availabilityPrefs,
         now,
       }),
@@ -1509,7 +1515,7 @@ export async function resolveWidgetConfigBody(
 
 /**
  * Phase 8 — the bootstrap's server-authoritative availability, from the
- * snapshot (the raw row and the prefs) at `now`; no I/O.
+ * snapshot (the raw row, the plan and the prefs) at `now`; no I/O.
  */
 export async function bootstrapAvailability(
   config: ServerConfig,
@@ -1523,6 +1529,7 @@ export async function bootstrapAvailability(
     workspaceId,
     locale: localeHint,
     settingsRow: snap.widgetRow,
+    businessHoursAllowed: businessHoursAllowedOf(snap.entitlements),
     availabilityPrefs: snap.availabilityPrefs,
     now,
   });

@@ -16,6 +16,7 @@ import { I18nProvider } from '@/i18n';
 import en from '@/i18n/locales/en';
 import type { BusinessHoursConfig } from '@/types/models';
 import { WeeklyHoursEditor } from '@/components/app/widget/WeeklyHoursEditor';
+import { hoursProblem, intervalsProblem } from '@/components/app/widget/businessHoursProblems';
 
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
 
@@ -105,12 +106,28 @@ describe('WeeklyHoursEditor', () => {
     }
   });
 
-  it('without limits (the chat, as before): no cap', () => {
+  it('without limits: no cap', () => {
     const six = Array.from({ length: 6 }, (_, i) => ({ from: `0${i}:00`, to: `0${i}:30` }));
     const { view } = mount({ hours: { ...HOURS, weekly: { ...HOURS.weekly, mon: six }, overrides: [{ date: '2026-10-29', closed: true }] } });
     const mon = view.container.querySelector<HTMLElement>('[data-hours-day="mon"]')!;
     expect(within(mon).getByRole<HTMLButtonElement>('button', { name: /Add interval/ }).disabled).toBe(false);
     expect(screen.getByPlaceholderText(en.widgetPage.availability.overrideLabel).hasAttribute('maxlength')).toBe(false);
+  });
+
+  it('hoursProblem: what the server refuses (an end not after its start, a bad time, an unknown zone), a closed override aside', () => {
+    expect(hoursProblem(HOURS)).toBeNull();
+    expect(intervalsProblem([{ from: '22:00', to: '02:00' }])).toBe('endAfterStart');
+    expect(intervalsProblem([{ from: '09:00', to: '09:00' }])).toBe('endAfterStart');
+    expect(intervalsProblem([{ from: '24:00', to: '25:00' }])).toBe('invalidTime');
+    expect(hoursProblem({ ...HOURS, weekly: { ...HOURS.weekly, fri: [{ from: '9', to: '17:00' }] } })).toBe('invalidTime');
+    expect(hoursProblem({ ...HOURS, timezone: 'Mars/Olympus' })).toBe('invalidTimezone');
+    expect(hoursProblem({ ...HOURS, overrides: [{ date: '2026-10-29', intervals: [{ from: '18:00', to: '10:00' }] }] })).toBe('endAfterStart');
+    expect(hoursProblem({ ...HOURS, overrides: [{ date: '2026-10-29', closed: true, intervals: [{ from: '18:00', to: '10:00' }] }] })).toBeNull();
+  });
+
+  it('a timezone this browser does not know is flagged under the select', () => {
+    const { view } = mount({ hours: { ...HOURS, timezone: 'Mars/Olympus' } });
+    expect(view.container.textContent).toContain(en.widgetPage.availability.invalidTimezone);
   });
 
   it('disabled: every control', () => {

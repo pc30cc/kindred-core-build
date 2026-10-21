@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import {
@@ -20,9 +20,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users, Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
+import { PlanReadOnlySection } from '@/components/app/widget/PlanReadOnlySection';
+import { WidgetSaveStatus } from '@/components/app/widget/WidgetSaveStatus';
+import { useWidgetSettingsDraft } from '@/hooks/useWidgetSettingsDraft';
 import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
@@ -38,7 +41,6 @@ import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useEdition } from '@/hooks/useEdition';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
-import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 import type { WidgetSettings } from '@/types/models';
 import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
@@ -115,21 +117,14 @@ function WidgetPageContent() {
 
   /**
    * Local draft layer: every keystroke updates the preview instantly while the
-   * actual save is debounced, so typing stays smooth and nothing is lost.
+   * actual save is debounced, so typing stays smooth and nothing is lost. A
+   * refused save says why and puts the field back on the stored value;
+   * leaving the page sends what is still waiting (useWidgetSettingsDraft).
    */
-  const [draft, setDraft] = useState<Partial<WidgetSettings>>({});
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
-
-  const setField = (field: WidgetField, value: unknown, delay = 500) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
-    clearTimeout(timers.current[field]);
-    timers.current[field] = setTimeout(() => {
-      updateWidget.mutate({ [field]: value });
-    }, delay);
-  };
-
-  const live = useMemo<Partial<WidgetSettings>>(() => ({ ...widget, ...draft }), [widget, draft]);
+  const {
+    live, setDraft, setField: setDraftField, setFields, saveNow, cancelField, status: saveStatus, errorMessage: saveError,
+  } = useWidgetSettingsDraft(workspace?.id, widget);
+  const setField = (field: WidgetField, value: unknown, delay = 500) => setDraftField(field, value, delay);
 
   /** Launcher (FAB) image upload — goes through the workspace storage provider. */
   const fabImageInputRef = useRef<HTMLInputElement>(null);
@@ -242,7 +237,7 @@ function WidgetPageContent() {
    * template the workspace does not wear.
    */
   const chooseTemplate = (id: string | null) => {
-    clearTimeout(timers.current.widget_template_id);
+    cancelField('widget_template_id');
     setDraft((prev) => ({ ...prev, widget_template_id: id }));
     updateWidget.mutateAsync({ widget_template_id: id }).then(
       () => {
@@ -429,9 +424,10 @@ function WidgetPageContent() {
 
 
   // Named `handleToggle` for its main use (a switch), but the assignment-mode
-  // select goes through it too, so the value is not boolean-only.
+  // select goes through it too, so the value is not boolean-only. A refusal
+  // is reported (useWidgetSettingsDraft); the control shows the stored value.
   const handleToggle = (field: WidgetField, value: boolean | string) => {
-    updateWidget.mutate({ [field]: value });
+    saveNow({ [field]: value } as Partial<WidgetSettings>);
   };
 
   const handleAddDomain = () => {
@@ -453,20 +449,21 @@ function WidgetPageContent() {
       return;
     }
     setDomainError('');
-    updateWidget.mutate({ allowed_domains: [...current, normalized] });
+    saveNow({ allowed_domains: [...current, normalized] });
     setNewDomain('');
   };
 
   const handleRemoveDomain = (domain: string) => {
     const current = widget?.allowed_domains || [];
-    updateWidget.mutate({ allowed_domains: current.filter(d => d !== domain) });
+    saveNow({ allowed_domains: current.filter(d => d !== domain) });
   };
 
   /**
-   * Plan-driven tab visibility. A tab whose plan feature is denied is NOT
-   * rendered at all (no locked/blurred placeholder) — the matching workspace
-   * configuration is already ignored by the server runtime. `install` has no
-   * capability: it is the embed snippet and always available.
+   * Plan-driven tabs. A tab whose plan feature is denied stays in the strip,
+   * marked with a lock, and opens read-only with the upgrade notice
+   * (PlanReadOnlySection): after a downgrade the owner still sees what is
+   * stored instead of the tab vanishing. `install` has no capability: it is
+   * the embed snippet and always available.
    */
   const TAB_CAPABILITY: Record<string, string | null> = {
     appearance: 'widget_appearance',
@@ -477,7 +474,7 @@ function WidgetPageContent() {
     domains: 'widget_domain_allowlist',
     install: null,
   };
-  const visibleTabs = ([
+  const visibleTabs = [
     { v: 'appearance', icon: Palette },
     { v: 'behavior', icon: Settings },
     { v: 'smart', icon: Sparkles },
@@ -485,17 +482,17 @@ function WidgetPageContent() {
     { v: 'availability', icon: Clock },
     { v: 'domains', icon: Shield },
     { v: 'install', icon: Code },
-  ] as const).filter(({ v }) => {
+  ] as const;
+  const tabAllowed = (v: string): boolean => {
     const cap = TAB_CAPABILITY[v];
     return !cap || capAllowed(cap);
-  });
-  const visibleTabValues = visibleTabs.map((x) => x.v as string).join(',');
-
-  // Never leave the page on a tab the plan just removed.
-  useEffect(() => {
-    const values = visibleTabValues.split(',').filter(Boolean);
-    if (values.length && !values.includes(tab)) setTab(values[0]);
-  }, [visibleTabValues, tab]);
+  };
+  /** A tab's content, read-only with the upgrade notice when the plan does not include it. */
+  const planTab = (v: string, children: ReactNode) => (
+    <PlanReadOnlySection featureKey={TAB_CAPABILITY[v] || v} allowed={tabAllowed(v)}>
+      {children}
+    </PlanReadOnlySection>
+  );
 
 
   // Never render the tab strip before the plan snapshot is known — otherwise
@@ -522,6 +519,8 @@ function WidgetPageContent() {
               <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{t('widgetPage.title')}</h1>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('widgetPage.subtitle')}</p>
             </div>
+            <div className="flex shrink-0 items-center gap-3">
+            <WidgetSaveStatus status={saveStatus} errorMessage={saveError} />
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-secondary/50 px-3 py-1.5">
               <span
                 className={cn(
@@ -536,6 +535,7 @@ function WidgetPageContent() {
                 checked={widget?.enabled ?? false}
                 onCheckedChange={v => handleToggle('enabled', v)}
               />
+            </div>
             </div>
           </div>
 
@@ -553,6 +553,9 @@ function WidgetPageContent() {
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">{t(`widgetPage.tabs.${v}` as Parameters<typeof t>[0])}</span>
+                {!tabAllowed(v) && (
+                  <Lock className="h-3 w-3 shrink-0 opacity-70" aria-label={t('plan.locked.upgradeHint')} />
+                )}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -569,6 +572,7 @@ function WidgetPageContent() {
           <div className="space-y-6">
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
+              {planTab('appearance',
               <div className="space-y-4">
               {/* 0 — Widget template: the picker with two or more templates
                   enabled; with one, only that template's own options */}
@@ -599,6 +603,7 @@ function WidgetPageContent() {
                         ? live.brand_name
                         : (workspace?.name || '')}
                       onChange={e => setField('brand_name', e.target.value)}
+                      maxLength={200}
                       placeholder={workspace?.name || t('widgetPage.appearance.brandNamePlaceholder')}
                     />
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.brandNameHint')}</p>
@@ -615,6 +620,7 @@ function WidgetPageContent() {
                             : t('widgetPage.appearance.replyTimeDefault'))
                         : ''}
                       onChange={e => setField('reply_time_text', e.target.value)}
+                      maxLength={500}
                       placeholder={t('widgetPage.appearance.replyTimeDefault')}
                     />
 
@@ -634,6 +640,7 @@ function WidgetPageContent() {
                         ? widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)
                         : widgetTextDefault('welcome', effectiveLocale)}
                       onChange={e => setField('welcome_message', e.target.value)}
+                      maxLength={2000}
                       rows={3}
                       placeholder={widgetTextDefault('welcome', effectiveLocale)}
                     />
@@ -657,6 +664,7 @@ function WidgetPageContent() {
                         <Input
                           value={primaryColor}
                           dir="ltr"
+                          maxLength={32}
                           onChange={e => setField('primary_color', e.target.value)}
                           className="text-start font-mono text-xs"
                         />
@@ -720,6 +728,7 @@ function WidgetPageContent() {
                       disabled={!capAllowed('widget_launcher_label')}
                       value={capAllowed('widget_launcher_label') ? (live?.fab_label || '') : ''}
                       onChange={e => setField('fab_label', e.target.value)}
+                      maxLength={100}
                       placeholder={t(isInternational ? 'widgetPage.appearance.fabLabelPlaceholderIntl' : 'widgetPage.appearance.fabLabelPlaceholder')}
                     />
                     {capAllowed('widget_launcher_label') ? (
@@ -864,6 +873,7 @@ function WidgetPageContent() {
                       disabled={!capAllowed('widget_composer_placeholder')}
                       value={capAllowed('widget_composer_placeholder') ? (live?.placeholder_text || '') : ''}
                       onChange={e => setField('placeholder_text', e.target.value)}
+                      maxLength={500}
                       placeholder={t('widgetPage.preview.inputPlaceholder')}
                     />
                     {!capAllowed('widget_composer_placeholder') && (
@@ -949,11 +959,13 @@ function WidgetPageContent() {
                   FIXED presentation spec in the Web Yar template — 56px round button,
                   chat/X icon, white glyph on the primary colour — so they are no longer
                   workspace-configurable. */}
-              </div>
+              </div>,
+              )}
             </TabsContent>
 
             {/* ─── Behavior ─── */}
             <TabsContent value="behavior">
+              {planTab('behavior',
               <Card className="card-elevated">
                 <CardContent className="p-6 space-y-5">
                   {[
@@ -1060,12 +1072,13 @@ function WidgetPageContent() {
                   </div>
 
                 </CardContent>
-              </Card>
+              </Card>,
+              )}
             </TabsContent>
 
             {/* ─── Smart actions ─── */}
             <TabsContent value="smart">
-              <PlanLockedOverlay featureKey="widget_smart_engagement">
+              {planTab('smart',
               <SmartRulesTab
                 workspaceId={workspace?.id}
                 masterEnabled={live?.smart_engagement_enabled === true}
@@ -1079,32 +1092,32 @@ function WidgetPageContent() {
                 teamMembers={previewTeamMembers}
                 studioKbArticles={previewKbArticles}
                 studioKbCategories={previewKbCategories}
-              />
-              </PlanLockedOverlay>
+              />,
+              )}
             </TabsContent>
 
             {/* ─── Availability ─── */}
             <TabsContent value="availability">
-              <PlanLockedOverlay featureKey="widget_business_hours">
-              {widget && (
-                <AvailabilitySection
-                  workspaceId={workspace?.id}
-                  settings={widget}
-                  onSave={(patch) => updateWidget.mutate(patch)}
-                  saving={updateWidget.isPending}
-                />
+              {planTab('availability',
+                widget && (
+                  <AvailabilitySection
+                    workspaceId={workspace?.id}
+                    settings={live}
+                    onChange={(patch, opts) => setFields(patch, opts)}
+                    saving={saveStatus === 'saving'}
+                  />
+                ),
               )}
-              </PlanLockedOverlay>
             </TabsContent>
 
             {/* ─── Pre-chat ─── */}
             <TabsContent value="prechat">
-              <PrechatSection workspaceId={workspace?.id} />
+              {planTab('prechat', <PrechatSection workspaceId={workspace?.id} />)}
             </TabsContent>
 
             {/* ─── Domains ─── */}
             <TabsContent value="domains">
-              <PlanLockedOverlay featureKey="widget_domain_allowlist">
+              {planTab('domains',
               <Card className="card-elevated">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -1158,8 +1171,8 @@ function WidgetPageContent() {
                     />
                   </div>
                 </CardContent>
-              </Card>
-              </PlanLockedOverlay>
+              </Card>,
+              )}
             </TabsContent>
 
             {/* Deployment tab moved to Super Admin → Widget Settings */}

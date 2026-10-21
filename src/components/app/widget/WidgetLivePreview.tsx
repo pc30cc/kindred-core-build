@@ -438,7 +438,10 @@ export function WidgetLivePreview({
     // Strict AND: either column being explicitly false hides the KB surface,
     // exactly like the production bootstrap (`features.knowledgeBase`).
     const kbEnabled = s.kb_enabled !== false && s.knowledge_base_enabled !== false;
-    const chatEnabled = s.chat_enabled !== false && s.live_chat_enabled !== false;
+    // As production's `features.chat`: the Behavior tab's switch only.
+    // Availability's live_chat_enabled never hides the chat; it makes the
+    // widget offline inside business hours (the offline behaviour).
+    const chatEnabled = s.chat_enabled !== false;
     const smartDoc = previewMode === 'smart';
 
     /* ── Real published knowledge-base content. The preview builds only the

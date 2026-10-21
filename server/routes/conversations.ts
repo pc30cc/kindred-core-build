@@ -46,7 +46,18 @@ import { resolveWorkspaceAgentLogoUrl } from '../services/ai-agent/settings.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
-import { authorizeWorkspaceAccess, isSeatLocked, serverConfigOf } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { authorizeInboxAccess, supervisesInbox } from '../lib/inboxAccess.js';
+import {
+  announceManualAssignment,
+  checkAssignmentTarget,
+  compareAndAssign,
+  mayReassign,
+  publishAssigneeChange,
+} from '../services/conversationAssignment.js';
+import { continueConversationThread, endConversationThread } from '../services/conversationLifecycle.js';
+import { patchConversationMetadata } from '../services/conversationMetadata.js';
+import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
@@ -80,7 +91,6 @@ import { isConversationId, parseConversationIds } from '../services/conversation
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { operatorLocale } from '../services/operatorLocale.js';
 import { operatorSystemText, withOperatorSystemBody, withoutPlaceholderNames } from '../services/operatorSystemText.js';
-import { notifyAssignment } from '../services/push/index.js';
 import { coalesce } from '../lib/inflight.js';
 import { onSupportConversationChanged, onTeamReply } from '../services/platformSupport/service.js';
 import {
@@ -133,9 +143,11 @@ const startFromVisitorSchema = z.object({
 });
 
 /**
- * Authenticate the request as a workspace member.
- * Returns { userId } on success, sends 401/403 on failure. Delegates to the
- * central first-party session helper (server/lib/workspaceAuth.ts).
+ * Authenticate the request as a workspace member who may use the Inbox.
+ * Returns { userId } on success, sends 401/403 on failure (403
+ * `inbox_not_allowed` for a staff role without an Inbox: every route here is
+ * the Inbox's; server/lib/inboxAccess.ts). Delegates to the central
+ * first-party session helper (server/lib/workspaceAuth.ts).
  */
 async function authorizeWorkspaceMember(
   req,
@@ -143,7 +155,7 @@ async function authorizeWorkspaceMember(
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; isAdmin: boolean; role: string | null } | null> {
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  const auth = await authorizeInboxAccess(req, res, workspaceId);
   if (!auth) return null;
   return { userId: auth.userId, isAdmin: auth.isAdmin, role: auth.role };
 }
@@ -164,6 +176,99 @@ async function refuseLockedConversation(
   if (!locked) return false;
   res.status(403).json(conversationLockedBody(state));
   return true;
+}
+
+/**
+ * An operator's reply into a closed conversation reopens it (send-message):
+ * only while it is still closed, on the timeline (`reopened`, reason
+ * operator_replied) and in every inbox. The operator continues the thread,
+ * so routing does not re-examine who has it when the visitor answers. Never
+ * throws: the reply itself already went out.
+ */
+async function reopenClosedOnReply(
+  config: ServerConfig,
+  a: { workspaceId: string; conversationId: string; actorId: string; messageId: string | null },
+): Promise<void> {
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .update({ status: 'open', updated_at: new Date().toISOString() })
+      .eq('id', a.conversationId)
+      .eq('workspace_id', a.workspaceId)
+      .eq('status', 'closed')
+      .select('id, updated_at')
+      .maybeSingle();
+    if (!data) return;
+    void recordAuditAndEvent(config, {
+      workspaceId: a.workspaceId,
+      conversationId: a.conversationId,
+      actorType: 'agent',
+      actorId: a.actorId,
+      eventType: 'reopened',
+      auditAction: 'conversation.status_changed',
+      oldValue: { status: 'closed' },
+      newValue: { status: 'open' },
+      payload: { from: 'closed', to: 'open', reason: 'operator_replied', source: 'composer', message_id: a.messageId },
+    });
+    void publishOperatorEvent(config, {
+      kind: 'conversation_reopened',
+      conversation_id: a.conversationId,
+      workspace_id: a.workspaceId,
+      actor_id: a.actorId,
+      changes: { status: { from: 'closed', to: 'open' } },
+      updated_at: (data as { updated_at?: string }).updated_at,
+    });
+    await continueConversationThread(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+    void onSupportConversationChanged(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+  } catch (err) {
+    console.warn('[conversations/send-message] reopening a closed conversation failed:', err?.message || err);
+  }
+}
+
+/**
+ * An operator makes an unassigned conversation theirs without asking — the
+ * first reply to it (send-message, method first_reply) or reaching out to
+ * its visitor (start-from-visitor, method manual): only while nobody has it
+ * (one conditional write, so of two operators replying at once exactly one
+ * gets it), on the timeline (`assigned`) and in every inbox — the colleagues'
+ * lists drop it. Never throws.
+ */
+async function claimUnassigned(
+  config: ServerConfig,
+  a: { workspaceId: string; conversationId: string; actorId: string; method: string; source?: string },
+): Promise<void> {
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .update({ assigned_to: a.actorId })
+      .eq('id', a.conversationId)
+      .eq('workspace_id', a.workspaceId)
+      .is('assigned_to', null)
+      .select('id, updated_at');
+    if (!Array.isArray(data) || data.length === 0) return;
+    void recordAuditAndEvent(config, {
+      workspaceId: a.workspaceId,
+      conversationId: a.conversationId,
+      actorType: 'agent',
+      actorId: a.actorId,
+      eventType: 'assigned',
+      auditAction: 'conversation.assigned',
+      oldValue: { assigned_to: null },
+      newValue: { assigned_to: a.actorId },
+      payload: { from: null, to: a.actorId, method: a.method, ...(a.source ? { source: a.source } : {}) },
+    });
+    publishAssigneeChange(config, {
+      workspaceId: a.workspaceId,
+      conversationId: a.conversationId,
+      actorId: a.actorId,
+      from: null,
+      to: a.actorId,
+      updatedAt: (data[0] as { updated_at?: string }).updated_at,
+    });
+    void onSupportConversationChanged(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+  } catch (err) {
+    console.warn('[conversations/send-message] claim on first reply failed:', err?.message || err);
+  }
 }
 
 /**
@@ -198,15 +303,30 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
   if (!auth) return;
   if (await refuseLockedConversation(res, config, workspaceId, conv)) return;
 
-  if (assign_to_me && !conv.assigned_to) {
-    // Only while nobody has it (a concurrent routing or claim may have just
-    // assigned it), and on the timeline when it did (method take_over).
-    const { data: taken } = await sb.from('conversations')
-      .update({ assigned_to: auth.userId })
-      .eq('id', conversationId)
-      .is('assigned_to', null)
-      .select('id');
-    if (Array.isArray(taken) && taken.length > 0) {
+  // Taking it is atomic (R-10): only while nobody has it — a routing run or
+  // a colleague's claim may have just assigned it, or a colleague holds it
+  // already — else 409 `already_assigned` with the holder, and the AI is
+  // left as it is (it is not this operator's to take over). On the timeline
+  // when it did (method take_over).
+  if (assign_to_me && conv.assigned_to !== auth.userId) {
+    let holder: string | null = conv.assigned_to ?? null;
+    let took = false;
+    if (!holder) {
+      const { data: taken } = await sb.from('conversations')
+        .update({ assigned_to: auth.userId })
+        .eq('id', conversationId)
+        .is('assigned_to', null)
+        .select('id');
+      took = Array.isArray(taken) && taken.length > 0;
+      if (!took) {
+        const { data: now } = await sb.from('conversations').select('assigned_to').eq('id', conversationId).maybeSingle();
+        holder = (now as { assigned_to?: string | null } | null)?.assigned_to ?? null;
+      }
+    }
+    if (holder && holder !== auth.userId) {
+      return res.status(409).json({ error: 'already_assigned', assigned_to: holder });
+    }
+    if (took) {
       void recordAuditAndEvent(config, {
         workspaceId,
         conversationId,
@@ -218,6 +338,7 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
         newValue: { assigned_to: auth.userId },
         payload: { from: null, to: auth.userId, method: 'take_over' },
       });
+      publishAssigneeChange(config, { workspaceId, conversationId, actorId: auth.userId, from: null, to: auth.userId });
     }
   }
   await markHumanTakeover(config, {
@@ -336,10 +457,11 @@ conversationsRouter.post('/send-message', async (req, res) => {
     const sb = getServiceClient(config);
 
     // Verify the conversation belongs to this workspace. `ai_state` rides
-    // along so the takeover below is announced only when it is news.
+    // along so the takeover below is announced only when it is news; the
+    // status and assignee for the reopen and the claim below.
     const { data: conv, error: convErr } = await sb
       .from('conversations')
-      .select('id, workspace_id, created_at, updated_at, ai_state:metadata->>ai_state, channel:metadata->>channel')
+      .select('id, workspace_id, status, assigned_to, created_at, updated_at, ai_state:metadata->>ai_state, channel:metadata->>channel')
       .eq('id', parsed.data.conversation_id)
       .maybeSingle();
     if (convErr) return res.status(500).json({ error: convErr.message });
@@ -464,6 +586,33 @@ conversationsRouter.post('/send-message', async (req, res) => {
         .from('conversations')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', parsed.data.conversation_id);
+    }
+
+    // A reply into a CLOSED conversation reopens it (I-05): a closed thread
+    // is never resumed by the visitor — their answer would start a new
+    // conversation, without this context and maybe with someone else. The
+    // operator who writes is continuing it. (A resolved one reopens by itself
+    // when the visitor answers.)
+    if (!duplicate && (conv as { status?: string | null }).status === 'closed') {
+      await reopenClosedOnReply(config, {
+        workspaceId: conv.workspace_id,
+        conversationId: conv.id,
+        actorId: auth.userId,
+        messageId: inserted?.id ?? null,
+      });
+    }
+
+    // The first operator reply to an unassigned conversation claims it, the
+    // way the apps' claim does (R-10): atomically, only while nobody has it,
+    // so a colleague's list drops it at once instead of two people answering.
+    // A platform admin's reply (no workspace seat) claims nothing.
+    if (!duplicate && !auth.isAdmin && !(conv as { assigned_to?: string | null }).assigned_to) {
+      await claimUnassigned(config, {
+        workspaceId: conv.workspace_id,
+        conversationId: conv.id,
+        actorId: auth.userId,
+        method: 'first_reply',
+      });
     }
 
     // Channel bridge: if this conversation came from a plugin channel
@@ -683,7 +832,7 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
     // operators click the button multiple times.
     const { data: existing } = await sb
       .from('conversations')
-      .select('id, status')
+      .select('id, status, assigned_to')
       .eq('workspace_id', parsed.data.workspace_id)
       .eq('visitor_session_id', parsed.data.visitor_session_id)
       .in('status', ['open', 'pending'])
@@ -691,7 +840,20 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
       .limit(1)
       .maybeSingle();
 
+    // The operator reaching out is who the visitor's answer goes to (R-29):
+    // a conversation they start is theirs, and so is the visitor's open one
+    // when nobody has it yet (taken atomically, as a claim).
+    const owner = auth.isAdmin ? null : auth.userId;
     if (existing?.id) {
+      if (owner && !(existing as { assigned_to?: string | null }).assigned_to) {
+        await claimUnassigned(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId: existing.id,
+          actorId: owner,
+          method: 'manual',
+          source: 'visitor_outreach',
+        });
+      }
       return res.json({ ok: true, conversation_id: existing.id, created: false });
     }
 
@@ -715,12 +877,26 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
         contact_id: session.contact_id ?? null,
         status: 'open',
         priority: 'normal',
+        assigned_to: owner,
       })
       .select('id')
       .single();
 
     if (createErr || !created) {
       return res.status(500).json({ error: createErr?.message || 'Create failed' });
+    }
+    if (owner) {
+      void recordAuditAndEvent(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: created.id,
+        actorType: 'agent',
+        actorId: owner,
+        eventType: 'assigned',
+        auditAction: 'conversation.assigned',
+        oldValue: { assigned_to: null },
+        newValue: { assigned_to: owner },
+        payload: { from: null, to: owner, method: 'manual', source: 'visitor_outreach' },
+      });
     }
 
     // Timeline event so the inbox shows where this conversation came from.
@@ -751,12 +927,22 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
 // We intentionally do NOT add a new realtime envelope type — the
 // 'message'|'typing'|'seen' contract stays untouched. Inbox refreshes
 // via React Query invalidation on the success response. Widget is unaffected.
+//
+// An assignee change (services/conversationAssignment.ts): supervisors move
+// anyone's conversation, everyone else takes an unassigned one or hands on /
+// gives back their own (403 `not_allowed`); the new assignee must be the
+// caller or a member who receives chats (400 `invalid_target`,
+// `assignee_seat_locked`); it applies only while the conversation is still
+// with whoever the caller saw — `expected_assigned_to` when sent, else the
+// holder this request read — or 409 `assignment_changed` with the holder now.
 // ═══════════════════════════════════════════════════════════════════
 const patchConversationSchema = z.object({
   workspace_id: z.string().uuid(),
   status: z.enum(ALLOWED_STATUSES).optional(),
   priority: z.enum(ALLOWED_PRIORITIES).optional(),
   assigned_to: z.string().uuid().nullable().optional(),
+  /** With `assigned_to`: the assignee the panel showed (null = nobody). */
+  expected_assigned_to: z.string().uuid().nullable().optional(),
   tags: z.array(z.string().min(1).max(50)).max(20).optional(),
 }).refine(
   d => d.status !== undefined || d.priority !== undefined
@@ -783,7 +969,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
     // Load current row to verify workspace ownership AND compute the diff.
     const { data: before, error: loadErr } = await sb
       .from('conversations')
-      .select('id, workspace_id, status, priority, assigned_to, tags, created_at, updated_at')
+      .select('id, workspace_id, status, priority, assigned_to, tags, ai_state, created_at, updated_at')
       .eq('id', conversationId)
       .maybeSingle();
     if (loadErr) return res.status(500).json({ error: loadErr.message });
@@ -792,20 +978,21 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
     if (await refuseLockedConversation(res, config, before.workspace_id, before)) return;
 
-    // Verify the assignee (if any) is also a workspace member.
-    if (parsed.data.assigned_to) {
-      const { data: targetIsMember } = await sb.rpc('is_workspace_member', {
-        _workspace_id: parsed.data.workspace_id,
-        _user_id: parsed.data.assigned_to,
-      });
-      if (!targetIsMember) {
-        return res.status(400).json({ error: 'Assignee is not a workspace member' });
+    const heldBy: string | null = before.assigned_to ?? null;
+    const assignTo: string | null | undefined = parsed.data.assigned_to;
+    // The panel acted on an assignee that is not the conversation's any more.
+    if (assignTo !== undefined && parsed.data.expected_assigned_to !== undefined
+        && (parsed.data.expected_assigned_to ?? null) !== heldBy) {
+      return res.status(409).json({ error: 'assignment_changed', assigned_to: heldBy });
+    }
+    const assignmentChanges = assignTo !== undefined && (assignTo ?? null) !== heldBy;
+    if (assignmentChanges) {
+      if (!mayReassign(auth, heldBy, assignTo ?? null)) {
+        return res.status(403).json({ error: 'not_allowed' });
       }
-      // A member whose seat the plan paused cannot open the chat (every call
-      // answers seat_locked): never hand it to them. Off with the switch.
-      if (parsed.data.assigned_to !== before.assigned_to
-          && await isSeatLocked(config, parsed.data.workspace_id, parsed.data.assigned_to)) {
-        return res.status(400).json({ error: 'assignee_seat_locked', upgrade_required: true });
+      if (assignTo) {
+        const target = await checkAssignmentTarget(config, parsed.data.workspace_id, auth.userId, assignTo);
+        if (target.ok === false) return res.status(target.status).json(target.body);
       }
     }
 
@@ -813,7 +1000,6 @@ conversationsRouter.patch('/:id', async (req, res) => {
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (parsed.data.status !== undefined) update.status = parsed.data.status;
     if (parsed.data.priority !== undefined) update.priority = parsed.data.priority;
-    if (parsed.data.assigned_to !== undefined) update.assigned_to = parsed.data.assigned_to;
     let normalizedTags: string[] | undefined;
     if (parsed.data.tags !== undefined) {
       const seen = new Set<string>();
@@ -827,15 +1013,32 @@ conversationsRouter.patch('/:id', async (req, res) => {
       update.tags = normalizedTags;
     }
 
-    const { data: after, error: updErr } = await sb
-      .from('conversations')
-      .update(update)
-      .eq('id', conversationId)
-      .select('id, workspace_id, status, priority, assigned_to, tags, updated_at')
-      .single();
-    if (updErr || !after) {
-      return res.status(500).json({ error: updErr?.message || 'Update failed' });
+    let after: { id: string; workspace_id: string; status: string; priority: string; assigned_to: string | null; tags: string[] | null; updated_at: string } | null;
+    if (assignmentChanges) {
+      // One conditional write: the other fields land only with the assignee.
+      const moved = await compareAndAssign(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId,
+        from: heldBy,
+        to: assignTo ?? null,
+        extra: update,
+      });
+      if ('conflict' in moved) return res.status(409).json({ error: 'assignment_changed', assigned_to: moved.assignedTo });
+      if ('error' in moved) return res.status(500).json({ error: moved.error });
+      after = moved.row as typeof after;
+    } else {
+      const { data, error: updErr } = await sb
+        .from('conversations')
+        .update(update)
+        .eq('id', conversationId)
+        .select('id, workspace_id, status, priority, assigned_to, tags, updated_at')
+        .single();
+      if (updErr || !data) {
+        return res.status(500).json({ error: updErr?.message || 'Update failed' });
+      }
+      after = data as typeof after;
     }
+    if (!after) return res.status(500).json({ error: 'Update failed' });
 
     // ─── Record events + audit per changed field ───
     const ip = getClientIp(req);
@@ -879,7 +1082,15 @@ conversationsRouter.patch('/:id', async (req, res) => {
         },
 
       });
-
+      // Resolved or closed: the thread is over, and the next one starts
+      // afresh (the AI may answer it; its operator is looked at again when
+      // the visitor writes — R-17). Reopened by the operator: theirs to
+      // continue.
+      if (statusEvType === 'resolved') {
+        await endConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
+      } else if (statusEvType === 'reopened') {
+        await continueConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
+      }
     }
 
     if (parsed.data.priority !== undefined && before.priority !== parsed.data.priority) {
@@ -894,130 +1105,22 @@ conversationsRouter.patch('/:id', async (req, res) => {
       });
     }
 
-    if (parsed.data.assigned_to !== undefined && before.assigned_to !== parsed.data.assigned_to) {
-      changes.assigned_to = { from: before.assigned_to, to: parsed.data.assigned_to };
-      void recordAuditAndEvent(config, {
-        ...eventBase,
-        eventType: parsed.data.assigned_to ? 'assigned' : 'unassigned',
-        auditAction: parsed.data.assigned_to ? 'conversation.assigned' : 'conversation.unassigned',
-        oldValue: { assigned_to: before.assigned_to },
-        newValue: { assigned_to: parsed.data.assigned_to },
-        payload: { from: before.assigned_to, to: parsed.data.assigned_to, method: 'manual' },
+    if (assignmentChanges) {
+      changes.assigned_to = { from: heldBy, to: assignTo ?? null };
+      // The timeline, the new operator's phone, the AI letting go of a
+      // thread it held (R-06), the thread's notice, and — handed back to
+      // nobody — routing again in every mode (R-20; the queue in manual).
+      void announceManualAssignment(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId,
+        actorId: auth.userId,
+        from: heldBy,
+        to: assignTo ?? null,
+        aiState: (before as { ai_state?: string | null }).ai_state ?? null,
+        ipAddress: ip,
+        stamp: String(after.updated_at ?? Date.now()),
       });
-
-      // The operator it was handed to hears about it on their phone.
-      if (parsed.data.assigned_to) {
-        void notifyAssignment(config, {
-          workspaceId: parsed.data.workspace_id,
-          conversationId,
-          assigneeId: parsed.data.assigned_to,
-          actorId: auth.userId,
-          stamp: String(after.updated_at ?? Date.now()),
-        });
-      }
-
-      // A notice inside the thread itself. Two genuinely different events
-      // share this route:
-      //
-      //   unassigned → assigned  is somebody JOINING. The visitor has been
-      //     waiting and should be told who picked their conversation up, so
-      //     this one is visitor-visible and uses the same
-      //     `routing_agent_joined` kind that auto-routing already emits.
-      //     It used to be filed as a transfer, which meant the visitor saw
-      //     nothing at all and the operator read "X transferred this
-      //     conversation to Y" for a conversation nobody had held.
-      //
-      //   assigned → someone else, or → nobody, is an internal staffing
-      //     move. The widget filters `metadata.internal === true` out of
-      //     /poll and /history, so the visitor never sees those.
-      void (async () => {
-        try {
-          const ids = [auth.userId, before.assigned_to, parsed.data.assigned_to]
-            .filter((v): v is string => !!v);
-          const nameById = new Map<string, string>();
-          if (ids.length) {
-            const { data: people } = await sb
-              .from('profiles')
-              .select('id, full_name')
-              .in('id', Array.from(new Set(ids)));
-            (people || []).forEach((p) => {
-              if (p?.full_name) nameById.set(p.id, p.full_name as string);
-            });
-          }
-          const actorName = nameById.get(auth.userId) || null;
-          const fromName = before.assigned_to ? (nameById.get(before.assigned_to) || null) : null;
-          const toName = parsed.data.assigned_to ? (nameById.get(parsed.data.assigned_to) || null) : null;
-          const isJoin = !before.assigned_to && !!parsed.data.assigned_to;
-          const body = isJoin
-            ? `${toName || 'An operator'} joined the conversation.`
-            : toName
-              ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
-              : `${actorName || 'An operator'} unassigned this conversation`;
-          const metadata = isJoin
-            ? {
-              kind: 'routing_agent_joined',
-              agent_id: parsed.data.assigned_to,
-              agent_name: toName,
-              actor_id: auth.userId,
-              actor_name: actorName,
-            }
-            : {
-              kind: parsed.data.assigned_to ? 'conversation_transferred' : 'conversation_unassigned',
-              // A transfer is news for the visitor too — the next operator
-              // arriving is who they will be talking to, and the widget
-              // renders it as a join naming `to_name`. Being unassigned is
-              // not: "nobody is handling you right now" helps no one, so it
-              // stays inbox-only (see isInternalMessage in routes/widget.ts).
-              internal: !parsed.data.assigned_to,
-              actor_id: auth.userId,
-              actor_name: actorName,
-              from_id: before.assigned_to,
-              from_name: fromName,
-              to_id: parsed.data.assigned_to,
-              to_name: toName,
-            };
-          const { data: noticeRow } = await sb.from('conversation_messages').insert({
-            conversation_id: conversationId,
-            sender_type: 'system',
-            body,
-            metadata,
-          }).select('id, conversation_id, sender_type, body, created_at, metadata, seen_at').single();
-          // A join is for the visitor to see, so it has to reach the widget
-          // in real time rather than waiting for a reload.
-          // Both a join and a transfer are visitor-facing, so both have to
-          // reach the widget in real time rather than waiting for a reload.
-          if (noticeRow && (isJoin || !!parsed.data.assigned_to)) {
-            void publishConversationEvent(
-              config, parsed.data.workspace_id, conversationId,
-              buildMessageEnvelope({
-                id: noticeRow.id as string,
-                conversation_id: noticeRow.conversation_id as string,
-                sender_type: 'system',
-                body: noticeRow.body as string,
-                created_at: noticeRow.created_at as string | null,
-                metadata: (noticeRow.metadata as Record<string, unknown>) ?? metadata,
-                seen_at: (noticeRow as { seen_at?: string | null }).seen_at ?? null,
-              }),
-            );
-          }
-        } catch (e) {
-          console.warn('[conversations PATCH] transfer notice failed:', e?.message || e);
-        }
-        // Handed back to the manual queue: routing tells the visitor they wait
-        // again now (276 stamped the return), after the inbox's own notice so
-        // the thread reads in order, not with their next message. Once per
-        // return, so that next message's routing run posts nothing more.
-        if (!parsed.data.assigned_to) {
-          try {
-            const { routeQueueReturn } = await import('../services/chatRouting.js');
-            await routeQueueReturn(config, { workspaceId: parsed.data.workspace_id, conversationId });
-          } catch (e) {
-            console.warn('[conversations PATCH] queue return failed:', e?.message || e);
-          }
-        }
-      })();
     }
-
 
     if (normalizedTags !== undefined) {
       const beforeTags = new Set<string>((before.tags as string[] | null) ?? []);
@@ -1088,10 +1191,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
 
     // A platform-support conversation: the operator's chat shows it ended,
     // reopened or taken by somebody.
-    if (
-      (parsed.data.status !== undefined && parsed.data.status !== before.status) ||
-      (parsed.data.assigned_to !== undefined && parsed.data.assigned_to !== before.assigned_to)
-    ) {
+    if ((parsed.data.status !== undefined && parsed.data.status !== before.status) || assignmentChanges) {
       void onSupportConversationChanged(config, { workspaceId: parsed.data.workspace_id, conversationId });
     }
 
@@ -1104,12 +1204,13 @@ conversationsRouter.patch('/:id', async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════
 // POST /api/conversations/:id/claim
-// Manual-routing-mode claim: the first operator to claim an unassigned
-// conversation owns it. Atomic via public.claim_conversation() — unlike
-// the PATCH assigned_to path above (a plain read-then-write, fine for a
-// deliberate reassignment by anyone with permission), this is a
-// compare-and-set so two operators racing to claim the same conversation
-// can never both succeed.
+// Taking an unassigned conversation: the first operator to claim it owns
+// it — the apps' claim and the web Inbox's "take" (R-10: the web used a
+// plain read-then-write, so two operators taking it at once both "won").
+// Atomic via public.claim_conversation(), a compare-and-set, so two
+// operators racing can never both succeed: the other gets 409
+// `already_assigned` with the holder. Claiming one you hold already is a
+// 200. A thread the AI held becomes the claimer's (human takeover).
 // ═══════════════════════════════════════════════════════════════════
 const claimConversationSchema = z.object({
   workspace_id: z.string().uuid(),
@@ -1129,7 +1230,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
     const conversationId = req.params.id;
     const { data: before } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to, created_at, updated_at')
+      .select('id, workspace_id, assigned_to, ai_state, created_at, updated_at')
       .eq('id', conversationId)
       .maybeSingle();
     if (!before || before.workspace_id !== parsed.data.workspace_id) {
@@ -1146,10 +1247,11 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 
     if (!result.claimed) {
       return res.status(409).json({
-        error: 'already_claimed',
+        error: 'already_assigned',
         assigned_to: result.assignedTo,
       });
     }
+    if (result.alreadyHeld) return res.json({ ok: true, assigned_to: auth.userId });
 
     void recordAuditAndEvent(config, {
       workspaceId: parsed.data.workspace_id,
@@ -1162,11 +1264,191 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
       newValue: { assigned_to: auth.userId },
       payload: { from: before.assigned_to, to: auth.userId, method: 'manual_claim' },
     });
+    if ((before as { ai_state?: string | null }).ai_state === 'ai_managed') {
+      void markHumanTakeover(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId,
+        operatorId: auth.userId,
+        reason: 'assignment',
+        previousAiState: 'ai_managed',
+      }).catch(() => undefined);
+    }
+    void onSupportConversationChanged(config, { workspaceId: parsed.data.workspace_id, conversationId });
 
     return res.json({ ok: true, assigned_to: auth.userId });
   } catch (err) {
     console.error('[conversations claim] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/conversations/:id/transfer — hand a conversation on (R-21).
+//
+// Body { workspace_id, user_id? | department_id? (exactly one),
+// expected_assigned_to? } → 200 { ok, conversation } (the list's shape) |
+// 400 invalid_target (not exactly one target; a non-member, a suspended
+// member, staff, a department that is unknown, off or takes no chats) /
+// assignee_seat_locked | 403 not_allowed | 404 conversation_not_found | 409
+// assignment_changed { assigned_to } (somebody moved it since the panel read
+// it, or meanwhile).
+//
+//   to an operator  as the PATCH's assignee change (permissions, target,
+//                   atomic, the visitor's transfer line, the new operator's
+//                   phone, the AI letting go);
+//   to a department the conversation leaves its operator (atomically), takes
+//                   the department, and is routed there now — the
+//                   department's available operators first, then the team
+//                   unless the Super Admin turned the general pool off; in
+//                   manual mode it waits in the queue — whatever the AI would
+//                   do (a person was asked for). Whoever held it is not
+//                   offered it again for this chat. The Inbox reads "X
+//                   transferred this conversation to <department>"
+//                   (internal); the visitor hears who joins.
+// Supervisors move anyone's conversation; everyone else only their own (or
+// takes an unassigned one themselves).
+// ═══════════════════════════════════════════════════════════════════
+const transferSchema = z.object({
+  workspace_id: z.string().uuid(),
+  user_id: z.string().uuid().optional(),
+  department_id: z.string().uuid().optional(),
+  expected_assigned_to: z.string().uuid().nullable().optional(),
+}).refine((d) => !!d.user_id !== !!d.department_id, { message: 'exactly one of user_id, department_id' });
+
+conversationsRouter.post('/:id/transfer', async (req, res) => {
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const conversationId = String(req.params.id || '');
+    const parsed = transferSchema.safeParse(req.body ?? {});
+    if (!isConversationId(conversationId) || !parsed.success) {
+      return res.status(400).json({ error: 'invalid_target' });
+    }
+    const workspaceId = parsed.data.workspace_id;
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const { data: before } = await sb
+      .from('conversations')
+      .select('id, workspace_id, status, assigned_to, ai_state, metadata, created_at, updated_at')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!before || before.workspace_id !== workspaceId) return res.status(404).json({ error: 'conversation_not_found' });
+    if (await refuseLockedConversation(res, config, workspaceId, before)) return;
+
+    const heldBy: string | null = before.assigned_to ?? null;
+    if (parsed.data.expected_assigned_to !== undefined && (parsed.data.expected_assigned_to ?? null) !== heldBy) {
+      return res.status(409).json({ error: 'assignment_changed', assigned_to: heldBy });
+    }
+    const ip = getClientIp(req);
+    const respond = async () => {
+      const listed = await listConversationRows(config, auth, {
+        workspaceId, queue: 'any', needsHuman: false, canSeeAllAssignments: true, ids: [conversationId.toLowerCase()],
+      });
+      return res.json({ ok: true, conversation: listed.rows[0] ?? null });
+    };
+
+    // ─── To an operator ───
+    if (parsed.data.user_id) {
+      const to = parsed.data.user_id;
+      if (to === heldBy) return await respond();
+      if (!mayReassign(auth, heldBy, to)) return res.status(403).json({ error: 'not_allowed' });
+      const target = await checkAssignmentTarget(config, workspaceId, auth.userId, to);
+      if (target.ok === false) return res.status(target.status).json(target.body);
+      const moved = await compareAndAssign(config, { workspaceId, conversationId, from: heldBy, to });
+      if ('conflict' in moved) return res.status(409).json({ error: 'assignment_changed', assigned_to: moved.assignedTo });
+      if ('error' in moved) return res.status(500).json({ error: moved.error });
+      await announceManualAssignment(config, {
+        workspaceId, conversationId, actorId: auth.userId, from: heldBy, to,
+        aiState: (before as { ai_state?: string | null }).ai_state ?? null,
+        source: 'transfer', ipAddress: ip, stamp: String(moved.row.updated_at ?? Date.now()),
+      });
+      publishAssigneeChange(config, { workspaceId, conversationId, actorId: auth.userId, from: heldBy, to, updatedAt: moved.row.updated_at });
+      void onSupportConversationChanged(config, { workspaceId, conversationId });
+      return await respond();
+    }
+
+    // ─── To a department ───
+    const departmentId = parsed.data.department_id as string;
+    if (!mayReassign(auth, heldBy, null)) return res.status(403).json({ error: 'not_allowed' });
+    const { data: dept } = await sb
+      .from('workspace_departments')
+      .select('id, name, enabled, chat_enabled')
+      .eq('workspace_id', workspaceId)
+      .eq('id', departmentId)
+      .maybeSingle();
+    const department = dept as { id: string; name: string | null; enabled?: boolean | null; chat_enabled?: boolean | null } | null;
+    if (!department || department.enabled === false || department.chat_enabled === false) {
+      return res.status(400).json({ error: 'invalid_target', reason: 'department' });
+    }
+    if (heldBy) {
+      const moved = await compareAndAssign(config, { workspaceId, conversationId, from: heldBy, to: null });
+      if ('conflict' in moved) return res.status(409).json({ error: 'assignment_changed', assigned_to: moved.assignedTo });
+      if ('error' in moved) return res.status(500).json({ error: moved.error });
+    }
+    const beforeMeta = (before.metadata || {}) as Record<string, unknown>;
+    const fromDepartment = typeof beforeMeta.department_id === 'string' ? beforeMeta.department_id : null;
+    await patchConversationMetadata(config, conversationId, { department_id: department.id }, workspaceId);
+
+    const { data: people } = await sb
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', [auth.userId, heldBy].filter((v): v is string => !!v));
+    const nameOf = (id: string | null) => (id
+      ? ((people || []) as Array<{ id: string; full_name?: string | null }>).find((p) => p.id === id)?.full_name || null
+      : null);
+    const actorName = nameOf(auth.userId);
+    if (heldBy) {
+      void recordAuditAndEvent(config, {
+        workspaceId,
+        conversationId,
+        actorType: 'agent',
+        actorId: auth.userId,
+        ipAddress: ip,
+        eventType: 'unassigned',
+        auditAction: 'conversation.unassigned',
+        oldValue: { assigned_to: heldBy },
+        newValue: { assigned_to: null },
+        payload: { from: heldBy, to: null, method: 'transfer_department', department_id: department.id },
+      });
+    }
+    void recordConversationEvent(config, {
+      workspaceId,
+      conversationId,
+      eventType: 'department_assigned',
+      actorType: 'agent',
+      actorId: auth.userId,
+      payload: { department_id: department.id, department_name: department.name ?? null, from: fromDepartment, source: 'transfer' },
+    });
+    publishAssigneeChange(config, {
+      workspaceId, conversationId, actorId: auth.userId, from: heldBy, to: null,
+      extra: { department_id: { from: fromDepartment, to: department.id } },
+    });
+    // The Inbox's line (never the visitor's: the operator who joins is theirs).
+    await sb.from('conversation_messages').insert({
+      conversation_id: conversationId,
+      sender_type: 'system',
+      body: `${actorName || 'An operator'} transferred this conversation to ${department.name || 'a department'}`,
+      metadata: {
+        kind: 'conversation_transferred',
+        internal: true,
+        actor_id: auth.userId,
+        actor_name: actorName,
+        from_id: heldBy,
+        from_name: nameOf(heldBy),
+        to_id: null,
+        to_name: department.name ?? null,
+        department_id: department.id,
+        department_name: department.name ?? null,
+      },
+    });
+    const { rerouteConversation } = await import('../services/chatRouting.js');
+    await rerouteConversation(config, { workspaceId, conversationId, skipUserId: heldBy, forPerson: true });
+    void onSupportConversationChanged(config, { workspaceId, conversationId });
+    return await respond();
+  } catch (err) {
+    console.error('[conversations transfer] error:', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 
@@ -1265,11 +1547,10 @@ conversationsRouter.get('/', async (req, res) => {
     }
     const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
     if (!auth) return;
-    const isPrivileged =
-      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
-    // Privileged roles keep the full view ONLY when they explicitly ask for
-    // it (scope=all). Otherwise their Inbox behaves like an operator's.
-    const canSeeAllAssignments = isPrivileged && scope === 'all';
+    // Supervisors (owner, admin, team lead: shared/chatRoles.ts) keep the
+    // full view ONLY when they explicitly ask for it (scope=all). Otherwise
+    // their Inbox behaves like an operator's.
+    const canSeeAllAssignments = supervisesInbox(auth) && scope === 'all';
 
     const listed = await listConversationRows(config, auth, {
       workspaceId: workspace_id,
@@ -1394,7 +1675,14 @@ async function listConversationRows(
 
   const ids = convos.map((c) => c.id).filter(Boolean);
   if (ids.length > 0) {
-    const [{ data: msgs }, readerLocale] = await Promise.all([
+    // The department the visitor chose (routing keeps it in the metadata),
+    // by id and name, on every row (R-22).
+    const departmentOf = (c: Record<string, unknown>): string | null => {
+      const id = (c.metadata as Record<string, unknown> | null)?.department_id;
+      return typeof id === 'string' && isConversationId(id) ? id : null;
+    };
+    const departmentIds = Array.from(new Set(convos.map(departmentOf).filter((id): id is string => !!id)));
+    const [{ data: msgs }, readerLocale, lastRead, { data: departments }] = await Promise.all([
       sb
         .from('conversation_messages')
         .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
@@ -1407,7 +1695,19 @@ async function listConversationRows(
         .limit(2000),
       // The language a system preview's `body` is written in (below).
       operatorLocale(config, auth.userId),
+      // When the visitor last read each thread in the widget (I-03).
+      readVisitorLastRead(sb, ids),
+      departmentIds.length
+        ? sb.from('workspace_departments').select('id, name').eq('workspace_id', workspaceId).in('id', departmentIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string | null }> }),
     ]);
+    const departmentName = new Map(((departments || []) as Array<{ id: string; name: string | null }>).map((d) => [d.id, d.name ?? null]));
+    for (const c of convos) {
+      const departmentId = departmentOf(c);
+      c.department_id = departmentId;
+      c.department_name = departmentId ? (departmentName.get(departmentId) ?? null) : null;
+      c.visitor_last_read_at = lastRead.get(c.id) ?? null;
+    }
 
     const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
     const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; system_meta?: Record<string, unknown> | null }> = {};
@@ -1650,9 +1950,7 @@ conversationsRouter.get('/inbox-counts', async (req, res) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const seesAll =
-      (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
-      && String(req.query.scope || 'mine') === 'all';
+    const seesAll = supervisesInbox(auth) && String(req.query.scope || 'mine') === 'all';
     const counters = await loadInboxCounters(sb, workspaceId, auth.userId, seesAll);
     if (counters) {
       return res.json({
@@ -1694,9 +1992,7 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const seesAll =
-      (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
-      && String(req.query.scope || 'mine') === 'all';
+    const seesAll = supervisesInbox(auth) && String(req.query.scope || 'mine') === 'all';
     const counters = await loadInboxCounters(sb, workspaceId, auth.userId, seesAll);
     if (counters) {
       return res.json({

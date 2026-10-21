@@ -162,6 +162,7 @@ import {
   setMessageReaction,
 } from '../services/messageReactions.js';
 import { readQueueStatus, routeHumanBoundConversation } from '../services/chatRouting.js';
+import { publishVisitorRead } from '../services/visitorReadReceipts.js';
 import {
   VISITOR_REACTION_EMOJI,
   normalizeReactionEmoji,
@@ -1302,15 +1303,18 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
     }
     if (!owns) return res.status(404).json({ error: 'not found' });
 
-    await supabase
+    const readAt = new Date().toISOString();
+    const { error: readError } = await supabase
       .from('widget_conversation_reads')
       .upsert({
         workspace_id: workspaceId,
         conversation_id: conversationId,
         visitor_id: visitorId,
-        last_read_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_read_at: readAt,
+        updated_at: readAt,
       }, { onConflict: 'conversation_id,visitor_id' });
+    // The operator's "Seen" follows live (services/visitorReadReceipts.ts).
+    if (!readError) void publishVisitorRead(config, { workspaceId, conversationId, readAt });
 
     return res.json({ ok: true });
   } catch (err) {

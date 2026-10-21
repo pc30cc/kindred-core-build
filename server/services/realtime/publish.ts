@@ -276,7 +276,11 @@ export type OperatorEventKind =
   | 'message_reactions'
   // A call invitation's status changed (services/calls/invitations.ts),
   // read by the inbox's call card (src/lib/call-invitations-events.ts).
-  | 'call_invitation_changed';
+  | 'call_invitation_changed'
+  // The visitor read the conversation in the widget
+  // (services/visitorReadReceipts.ts): `visitor_last_read_at`, for the
+  // operator's "Seen". Operators only.
+  | 'visitor_read';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

@@ -1,21 +1,24 @@
 // @vitest-environment node
 /**
- * The inbox's unassign of a queued conversation (PATCH /api/conversations/:id
- * with `assigned_to: null`, issue #340 g4 f2): 276's trigger stamps the
- * return on that UPDATE, and the PATCH runs routing at once, so the visitor's
- * new `routing_in_queue` row (their queue pill) arrives now instead of with
- * their next message:
+ * The inbox hands a conversation back (PATCH /api/conversations/:id with
+ * `assigned_to: null`): routing runs again at once, in every mode (R-20),
+ * and the visitor hears what happens next.
  *
- *   - one queue row, after the inbox's own (internal) unassigned notice, and
- *     the only row the visitor's channel receives; the place (`queued_at`) is
- *     kept and the return is marked announced (open or pending alike);
- *   - the visitor's next message routes again and posts nothing more; a
- *     second hand-back is announced again;
- *   - nothing is routed for a conversation that is not waiting in a manual
- *     queue: a workspace now in another mode, a conversation auto-routing
- *     gave out, one the AI has again, one marked as spam, one closed in the
- *     same PATCH, a transfer to a colleague, or a database without 276's
- *     trigger (no return stamp).
+ *   manual (issue #340 g4 f2): 276's trigger stamps the return on that
+ *     UPDATE, and the visitor's new `routing_in_queue` row (their queue
+ *     pill) arrives now instead of with their next message — one queue row,
+ *     after the inbox's own (internal) unassigned notice, and the only row
+ *     the visitor's channel receives; the place (`queued_at`) is kept and the
+ *     return is marked announced (open or pending alike). The visitor's next
+ *     message routes again and posts nothing more; a second hand-back is
+ *     announced again. A conversation that never waited in the queue (taken
+ *     by hand, or before 276) joins it, and the visitor is told so.
+ *   auto / round robin: the next operator gets it — never the one who let it
+ *     go — and the visitor reads who joined.
+ *   nothing: one the AI has again (it answers the next message; a handoff
+ *     routes it), one marked as spam, one closed in the same PATCH, a
+ *     transfer to a colleague. Two unassigns at once (a double click): the
+ *     second is refused (409), so the return is announced once.
  *
  * The PATCH route and routing run for real against an in-memory data layer;
  * the trigger is its stand-in (`beforeUpdate`, the WHEN clause of
@@ -34,8 +37,10 @@ const state = vi.hoisted(() => ({
   userId: '',
   /** What the visitor's conversation channel received, in order. */
   published: [] as Array<{ cid: string; envelope: { type: string; payload: Record<string, unknown> } }>,
-  /** Each queue-return routing the PATCH ran, with its result. */
+  /** Each routing the PATCH ran after an unassign, with its result. */
   routed: [] as unknown[],
+  /** user id → routing presence state. */
+  presence: new Map<string, string>(),
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -71,7 +76,16 @@ vi.mock('../../../server/services/platformSupport/service.js', async (orig) => (
   onSupportConversationChanged: async () => undefined,
 }));
 vi.mock('../../../server/services/platformSupport/changes.js', () => ({ onSupportConversationChanged: async () => undefined }));
-// The real routing; the PATCH's queue-return run is recorded so a test knows it finished.
+vi.mock('../../../server/services/widget/operatorPresence.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/widget/operatorPresence.js')>()),
+  readRoutingPresence: async (_c: unknown, _ws: string, ids: string[]) =>
+    new Map(ids.filter((id) => state.presence.has(id)).map((id) => [id, { state: state.presence.get(id)!, lastActivityAt: Date.now() - 60_000 }])),
+}));
+vi.mock('../../../server/services/billing/locks/state.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/billing/locks/state.js')>()),
+  resolveLockState: async () => ({ enabled: false, kb: null, contact: null, member: null, conversation: null }),
+}));
+// The real routing; the PATCH's routing run is recorded so a test knows it finished.
 // The plan allows automatic assignment (a plan without it routes as manual).
 vi.mock('../../../server/services/widget/entitlements.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/entitlements.js')>()),
@@ -81,8 +95,8 @@ vi.mock('../../../server/services/chatRouting.js', async (orig) => {
   const real = await orig<typeof import('../../../server/services/chatRouting.js')>();
   return {
     ...real,
-    routeQueueReturn: async (...args: Parameters<typeof real.routeQueueReturn>) => {
-      const result = await real.routeQueueReturn(...args);
+    rerouteConversation: async (...args: Parameters<typeof real.rerouteConversation>) => {
+      const result = await real.rerouteConversation(...args);
       state.routed.push(result);
       return result;
     },
@@ -91,6 +105,7 @@ vi.mock('../../../server/services/chatRouting.js', async (orig) => {
 
 const { conversationsRouter } = await import('../../../server/routes/conversations.js');
 const { routeConversationToOperator } = await import('../../../server/services/chatRouting.js');
+const { invalidateDepartmentCache } = await import('../../../server/services/calls/departments.js');
 
 const config = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as never;
 const app = express();
@@ -165,7 +180,9 @@ async function settled(cid: string, routed: number) {
 }
 
 let triggerInstalled = true;
+let skipped: Record<string, string[]> = {};
 beforeEach(() => {
+  skipped = {};
   state.db = createFakeServiceDb();
   state.db.now = tick;
   state.userId = SARA;
@@ -173,8 +190,14 @@ beforeEach(() => {
   state.routed.length = 0;
   triggerInstalled = true;
   QUEUED_AT = tick();
+  state.presence.clear();
+  invalidateDepartmentCache(WS);
   state.db.tables.widget_settings = [{ workspace_id: WS, assignment_mode: 'manual', round_robin_cursor_user_id: null }];
   state.db.tables.profiles = [{ id: SARA, full_name: 'سارا' }, { id: ALI, full_name: 'علی' }];
+  state.db.tables.workspace_members = [
+    { workspace_id: WS, user_id: SARA, role: 'agent', suspended_at: null, receives_chats: true },
+    { workspace_id: WS, user_id: ALI, role: 'agent', suspended_at: null, receives_chats: true },
+  ];
   // patch_conversation_metadata (057) merges routing's keys; is_workspace_member for a transfer.
   state.db.rpc = (fn, args) => {
     if (fn === 'patch_conversation_metadata') {
@@ -182,7 +205,17 @@ beforeEach(() => {
       row.metadata = { ...(row.metadata as Row), ...(args.p_patch as Row) };
       return { data: true, error: null };
     }
-    if (fn === 'is_workspace_member') return { data: true, error: null };
+    if (fn === 'chat_routing_skip') {
+      (skipped[String(args.p_conversation_id)] ||= []).push(String(args.p_user_id));
+      return { data: null, error: null };
+    }
+    // chat_route_claim's stand-in: the first candidate not skipped for this chat.
+    if (fn === 'chat_route_claim') {
+      const pick = (args.p_candidates as string[]).find((id) => !(skipped[String(args.p_conversation_id)] || []).includes(id)) ?? null;
+      if (!pick) return { data: [{ outcome: 'none', picked_user_id: null }], error: null };
+      conv(String(args.p_conversation_id)).assigned_to = pick;
+      return { data: [{ outcome: 'assigned', picked_user_id: pick }], error: null };
+    }
     return { data: null, error: null };
   };
   // trg_conversations_queue_return (276): a hand-back of a queued conversation stamps its return.
@@ -225,30 +258,28 @@ describe('the inbox hands a queued conversation back', () => {
     expect(visitorRows(cid)).toEqual(['routing_in_queue']);
   });
 
-  it('two unassigns at once (a double click: both PATCHes read Sara, so both route): the return is announced once', async () => {
+  it('two unassigns at once (a double click): only one lands — the other finds it done, or is refused — and the return is announced once', async () => {
     const cid = queuedConversation();
-    // Both PATCHes wrote null (276 stamped the return on the first); their
-    // two background runs race for it.
-    Object.assign(conv(cid), { assigned_to: null });
-    (conv(cid).metadata as Row).queue_reentered_at = tick();
-    const args = { workspaceId: WS, conversationId: cid };
-    const { routeQueueReturn } = await import('../../../server/services/chatRouting.js');
-    const results = await Promise.all([routeQueueReturn(config, args), routeQueueReturn(config, args)]);
-    expect(results).toContainEqual({ outcome: 'manual_queue', assignedTo: null });
+    const both = await Promise.all([patch(cid, { assigned_to: null }), patch(cid, { assigned_to: null })]);
+    for (const r of both) {
+      if (r.status === 409) expect(r.body).toEqual({ error: 'assignment_changed', assigned_to: null });
+      else expect(r.status).toBe(200);
+    }
+    await settled(cid, 1);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(state.routed).toHaveLength(1);
     expect(queueRows(cid)).toBe(2);
     expect(visitorRows(cid)).toEqual(['routing_in_queue']);
-    // Later, a run for an announced return posts nothing.
-    expect(await routeQueueReturn(config, args)).toBeNull();
-    expect(queueRows(cid)).toBe(2);
   });
 
   it('claimed again and handed back again: announced again, once', async () => {
     const cid = queuedConversation();
     await patch(cid, { assigned_to: null });
     await settled(cid, 1);
-    await patch(cid, { assigned_to: ALI });
-    await until(() => visitorRows(cid).includes('routing_agent_joined'));
+    // Ali takes it (only a supervisor may give it to someone else).
     state.userId = ALI;
+    expect((await patch(cid, { assigned_to: ALI })).status).toBe(200);
+    await until(() => visitorRows(cid).includes('routing_agent_joined'));
     await patch(cid, { assigned_to: null });
     await settled(cid, 2);
     expect(queueRows(cid)).toBe(3);
@@ -256,27 +287,42 @@ describe('the inbox hands a queued conversation back', () => {
   });
 });
 
-describe('nothing is routed for a conversation that is not waiting in a manual queue', () => {
-  it('the workspace switched to another mode meanwhile', async () => {
+describe('routed again in every mode (R-20)', () => {
+  it('auto: the next operator gets it, never the one who let it go; the visitor reads who joined', async () => {
     state.db.tables.widget_settings = [{ workspace_id: WS, assignment_mode: 'auto', round_robin_cursor_user_id: null }];
-    const cid = queuedConversation();
-    await patch(cid, { assigned_to: null });
-    await settled(cid, 1);
-    expect(state.routed).toEqual([null]);
-    expect(queueRows(cid)).toBe(1);
-    expect(conv(cid)).toMatchObject({ assigned_to: null });
-    expect((conv(cid).metadata as Row).queue_return_notice_at).toBeUndefined();
-  });
-
-  it('a conversation auto-routing gave out (no return stamp)', async () => {
+    state.presence.set(SARA, 'active');
+    state.presence.set(ALI, 'active');
     const cid = queuedConversation({ routing_outcome: 'assigned_auto', queued_at: undefined });
     await patch(cid, { assigned_to: null });
     await settled(cid, 1);
-    expect(state.routed).toEqual([null]);
-    expect(queueRows(cid)).toBe(1);
-    expect(visitorRows(cid)).toEqual([]);
+    expect(state.routed).toEqual([{ outcome: 'assigned_auto', assignedTo: ALI }]);
+    expect(skipped[cid]).toEqual([SARA]);
+    expect(conv(cid)).toMatchObject({ assigned_to: ALI });
+    expect(visitorRows(cid)).toEqual(['routing_agent_joined']);
   });
 
+  it('manual, a conversation that never waited in the queue (taken by hand): it joins the queue, and the visitor is told', async () => {
+    const cid = queuedConversation({ routing_outcome: 'assigned_auto', queued_at: undefined });
+    await patch(cid, { assigned_to: null });
+    await settled(cid, 1);
+    expect(state.routed).toEqual([{ outcome: 'manual_queue', assignedTo: null }]);
+    expect((conv(cid).metadata as Row).routing_outcome).toBe('manual_queue');
+    expect(typeof (conv(cid).metadata as Row).queued_at).toBe('string');
+    expect(visitorRows(cid)).toEqual(['routing_in_queue']);
+  });
+
+  it('manual, a database before 276 (no trigger, no return stamp): the queue, and the visitor is told once', async () => {
+    triggerInstalled = false;
+    const cid = queuedConversation();
+    await patch(cid, { assigned_to: null });
+    await settled(cid, 1);
+    expect(state.routed).toEqual([{ outcome: 'manual_queue', assignedTo: null }]);
+    expect(queueRows(cid)).toBe(2);
+    expect(visitorRows(cid)).toEqual(['routing_in_queue']);
+  });
+});
+
+describe('nothing is routed', () => {
   it('the AI has the conversation again (it answers the next message; a handoff routes it then)', async () => {
     const cid = queuedConversation({ ai_state: 'ai_managed' });
     await patch(cid, { assigned_to: null });
@@ -302,16 +348,6 @@ describe('nothing is routed for a conversation that is not waiting in a manual q
     await settled(cid, 1);
     expect(state.routed).toEqual([null]);
     expect(queueRows(cid)).toBe(1);
-  });
-
-  it('a database before 276 (no trigger, no return stamp)', async () => {
-    triggerInstalled = false;
-    const cid = queuedConversation();
-    await patch(cid, { assigned_to: null });
-    await settled(cid, 1);
-    expect(state.routed).toEqual([null]);
-    expect(queueRows(cid)).toBe(1);
-    expect(visitorRows(cid)).toEqual([]);
   });
 
   it('a transfer to a colleague routes nothing', async () => {

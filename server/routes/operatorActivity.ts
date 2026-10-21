@@ -19,8 +19,16 @@
  * ONLINE TIME is no longer recorded. It came from `operator_activity_samples`
  * (5-minute buckets), which is dropped — in production since 2026-09-17, in
  * the migration chains by database/migrations/223 and its hosted mirror — so
- * the stats endpoint reports zero online minutes; assignments and message
- * counts still come from live tables.
+ * the stats endpoint reports zero online minutes, and says so
+ * (`online_time_tracked: false`, for the report to hide those columns rather
+ * than show zeros as "accurate online time"); assignments and message counts
+ * still come from live tables.
+ *
+ * WHO IS ONLINE NOW is live presence (R-25): each operator's
+ * `presence_state` — active, away, disconnected (available but no panel or
+ * app connected) or offline — the same reading routing uses, and
+ * `totals.online_now` counts those connected (active or away).
+ * `current_state` stays the status-and-schedule availability it always was.
  *
  * SATISFACTION comes from the visitors' ratings after a chat
  * (`conversation_ratings`, migration 276): per operator the average score
@@ -42,6 +50,7 @@ import {
 } from '../lib/workspaceAuth.js';
 import {
   computeOperatorState,
+  readRoutingPresence,
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
 import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
@@ -287,7 +296,12 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       messages = msgs || [];
     }
 
-    const ratings = await ratingsByOperator(sb, workspaceId, sinceIso);
+    const [ratings, presence] = await Promise.all([
+      ratingsByOperator(sb, workspaceId, sinceIso),
+      // Live presence, not the settings alone: who has a panel or the app
+      // open right now (never fails: unknown reads as not connected).
+      readRoutingPresence(config, workspaceId, userIds),
+    ]);
 
     const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
     const prefsMap = new Map((prefsRows || []).map((p) => [p.user_id, p]));
@@ -323,6 +337,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
 
       const live = computeOperatorState(prefsMap.get(m.user_id), now);
       const rated = ratings.get(m.user_id);
+      const presenceState = presence.get(m.user_id)?.state ?? 'offline';
 
       return {
         user_id: m.user_id,
@@ -341,6 +356,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         csat_count: rated?.count ?? 0,
         current_state: live.state,
         current_reason: live.reason,
+        presence_state: presenceState,
       };
     });
 
@@ -349,12 +365,18 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
     return res.json({
       days,
       since: sinceIso,
+      // The online-time series is not recorded (header): online_minutes,
+      // present_minutes, daily and last_seen are empty, not measured zeros.
+      online_time_tracked: false,
       totals: {
         operators: rows.length,
         online_minutes: rows.reduce((s, r) => s + r.online_minutes, 0),
         replies_sent: rows.reduce((s, r) => s + r.replies_sent, 0),
         conversations_assigned: rows.reduce((s, r) => s + r.conversations_assigned, 0),
-        online_now: rows.filter((r) => r.current_state === 'online').length,
+        // Connected right now (active or away), not merely "available" in
+        // their settings.
+        online_now: rows.filter((r) => r.presence_state === 'active' || r.presence_state === 'away').length,
+        available_now: rows.filter((r) => r.current_state === 'online').length,
         // Every rating in the window, members' or not (a removed operator's
         // ratings still count for the team).
         csat_avg: averageScore(

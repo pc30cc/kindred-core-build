@@ -194,7 +194,8 @@ describe('R-01 a conversation no AI will answer is routed at the visitor\'s mess
     settings({ enabled: true, mode: 'auto_reply_when_offline' });
     const c = conversation({ ai_state: 'ai_managed' });
     await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: c.id as string });
-    expect(c.metadata).toMatchObject({ ai_state: 'human_assigned', managed_by_ai: false, routing_outcome: 'assigned_auto' });
+    // R-02: the AI will not answer it, so it is the team's before routing runs.
+    expect(c.metadata).toMatchObject({ ai_state: null, managed_by_ai: false, routing_outcome: 'assigned_auto' });
     expect(state.events).toEqual([expect.objectContaining({ eventType: 'assigned', actorType: 'system', payload: { from: null, to: ALI, method: 'auto' } })]);
   });
 

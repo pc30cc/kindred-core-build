@@ -49,6 +49,8 @@ import { clearLockStateCache, resolveLockState } from '../services/billing/locks
 import { isMemberLocked } from '../services/billing/locks/predicates.js';
 import { releaseLockedAgentChats } from '../services/billing/locks/release.js';
 import { invalidateDepartmentCache } from '../services/calls/departments.js';
+import { afterMemberReleased, releaseMemberChats, releasedConversationIds } from '../services/chatRouting.js';
+import { canUseInbox } from '../../shared/chatRoles.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -281,6 +283,17 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
     .eq('id', req.params.memberId)
     .eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: error.message });
+  // The role decides who routing may give chats (shared/chatRoles.ts): its
+  // cached member list follows at once. A role without an Inbox cannot
+  // answer the chats this member holds: they go back to routing (R-03).
+  invalidateDepartmentCache(workspaceId);
+  if (!canUseInbox(parsedBody.data.role)) {
+    void releaseMemberChats(config, {
+      workspaceId,
+      userId: (member as { user_id: string }).user_id,
+      method: 'member_role_changed',
+    });
+  }
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true });
 });
@@ -292,10 +305,13 @@ const suspensionSchema = z.object({
 
 // PATCH /api/workspace-members/:memberId/suspension?workspaceId=...
 // Bans (suspends) or reinstates a member. A suspended member keeps their
-// membership row — history, assignments and audit stay intact — but
+// membership row — history and audit stay intact — but
 // authorizeWorkspaceAccess denies every workspace capability while the ban
-// is active. The canonical owner can never be banned, and an owner/admin
-// cannot ban themselves (that would lock the workspace out of management).
+// is active. Their open and pending chats go back to routing (R-03: they
+// stayed theirs, invisible to colleagues, notifying nobody); finished ones
+// keep them as who handled them. The canonical owner can never be banned,
+// and an owner/admin cannot ban themselves (that would lock the workspace
+// out of management).
 workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
   const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
   if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
@@ -341,6 +357,9 @@ workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
   // A suspended member holds no seat (D3): suspending one can unpause the
   // next, reinstating one can pause the most recently joined.
   afterSeatChange(config, workspaceId);
+  if (parsedBody.data.suspended) {
+    void releaseMemberChats(config, { workspaceId, userId: targetUserId, method: 'member_suspended' });
+  }
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true, suspended: parsedBody.data.suspended });
 });
@@ -468,16 +487,33 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
       .eq('status', 'accepted');
   };
 
+  // Offboarding released the member's open and pending chats in its own
+  // transaction (278b: `released_conversation_ids`): they are announced and
+  // routed again. A database before 278b releases nothing itself, so they
+  // are released here (the member is gone by now, which changes nothing).
+  const removedUserId = (member as { user_id: string }).user_id;
+  const rerouteReleased = (result: unknown) => {
+    const released = (result as { released_conversation_ids?: unknown } | null)?.released_conversation_ids;
+    if (Array.isArray(released)) {
+      void afterMemberReleased(config, {
+        workspaceId, userId: removedUserId, conversationIds: releasedConversationIds(released), method: 'member_removed',
+      });
+    } else {
+      void releaseMemberChats(config, { workspaceId, userId: removedUserId, method: 'member_removed' });
+    }
+  };
+
   if (!requestId) {
     const { data, error } = await sb.rpc('offboard_workspace_member', {
       _workspace_id: workspaceId,
-      _user_id: (member as { user_id: string }).user_id,
+      _user_id: removedUserId,
       _actor_id: auth.userId,
       _reason: reason,
     });
     if (error) return res.status(500).json({ error: error.message });
     await purgeAcceptedInvitation().catch(() => undefined);
     afterSeatChange(config, workspaceId);
+    rerouteReleased(data);
     // The widget's team stack and availability follow the member set.
     publishCacheInvalidation([`widget:${workspaceId}`]);
     return res.json({ ok: true, replayed: false, offboarding: data });
@@ -485,7 +521,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
 
   const outcome = await runIdempotent(config, {
     ...idemCall,
-    args: { user_id: (member as { user_id: string }).user_id, reason },
+    args: { user_id: removedUserId, reason },
   });
   if (outcome.error) {
     if (/IDEMPOTENCY_KEY_REUSED/.test(outcome.error.message)) {
@@ -497,7 +533,10 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     return res.status(500).json({ error: outcome.error.message });
   }
   await purgeAcceptedInvitation().catch(() => undefined);
-  if (!outcome.replayed) afterSeatChange(config, workspaceId);
+  if (!outcome.replayed) {
+    afterSeatChange(config, workspaceId);
+    rerouteReleased(outcome.result);
+  }
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({
     ok: true,

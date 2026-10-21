@@ -21,7 +21,9 @@ import { isInternalMessage } from '../../../server/routes/widget.js';
  *     now" helps no one.
  */
 const WIDGET_ROUTE = readFileSync('server/routes/widget.ts', 'utf8');
-const CONVERSATIONS_ROUTE = readFileSync('server/routes/conversations.ts', 'utf8');
+// The inbox's assignee change, transfer and unassign write their notice here
+// (the conversations PATCH and transfer routes call it).
+const ASSIGNMENT = readFileSync('server/services/conversationAssignment.ts', 'utf8');
 const RENDERER = readFileSync('public/widget/presentation-default.js', 'utf8');
 const ROUTING = readFileSync('server/services/chatRouting.ts', 'utf8');
 
@@ -71,18 +73,17 @@ describe('the internal filter the comments always promised', () => {
 
 describe('a transfer is news for the visitor; an unassign is not', () => {
   it('marks only the unassign internal', () => {
-    expect(CONVERSATIONS_ROUTE).toContain('internal: !parsed.data.assigned_to,');
+    expect(ASSIGNMENT).toContain('internal: !a.to,');
     // The blanket `internal: true` on both is what hid transfers.
-    const block = CONVERSATIONS_ROUTE.slice(
-      CONVERSATIONS_ROUTE.indexOf('const isJoin = !before.assigned_to'),
-      CONVERSATIONS_ROUTE.indexOf('normalizedTags !== undefined'),
+    const block = ASSIGNMENT.slice(
+      ASSIGNMENT.indexOf('const isJoin = !a.from'),
+      ASSIGNMENT.indexOf('const { data: noticeRow }'),
     );
     expect(block).not.toContain('internal: true,');
   });
 
   it('pushes a transfer to the widget in real time, like a join', () => {
-    expect(CONVERSATIONS_ROUTE)
-      .toContain('if (noticeRow && (isJoin || !!parsed.data.assigned_to)) {');
+    expect(ASSIGNMENT).toContain('if (noticeRow && a.to) {');
   });
 
   it('reads a transfer as the next operator arriving, on the visitor side', () => {

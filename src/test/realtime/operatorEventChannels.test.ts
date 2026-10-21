@@ -180,7 +180,8 @@ vi.mock('../../../server/supabase.js', () => ({
 }));
 vi.mock('../../../server/lib/workspaceAuth.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/lib/workspaceAuth.js')>()),
-  authorizeWorkspaceAccess: async () => ({ userId: OP }),
+  // An operator: the note routes are the Inbox's (staff without one get 403).
+  authorizeWorkspaceAccess: async () => ({ userId: OP, isAdmin: false, role: 'agent' }),
 }));
 vi.mock('../../../server/services/conversationEvents.js', () => ({ recordConversationEvent: async () => ({ ok: true }) }));
 vi.mock('../../../server/services/push/index.js', () => ({ notifyInboundMessage: async () => undefined }));

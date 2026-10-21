@@ -76,9 +76,10 @@ const initRouteSbMock = {
         if (table === 'provider_configs') return { data: initRouteState.providerCfg, error: null };
         if (table === 'app_runtime_config') return { data: null, error: null };
         // Membership is the workspace_members row (is_workspace_member's
-        // definition); its presence follows initRouteState.isMember.
+        // definition); its presence follows initRouteState.isMember. An
+        // operator: the attachment routes are the Inbox's.
         if (table === 'workspace_members') {
-          return { data: initRouteState.isMember?.data ? { role: null, suspended_at: null } : null, error: null };
+          return { data: initRouteState.isMember?.data ? { role: 'agent', suspended_at: null } : null, error: null };
         }
         return { data: null, error: null };
       },

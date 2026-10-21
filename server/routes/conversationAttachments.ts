@@ -30,7 +30,8 @@ import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
-import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { authorizeInboxAccess } from '../lib/inboxAccess.js';
 import { verifyAttachmentAccess } from '../services/channels/mediaOutbound.js';
 
 export const conversationAttachmentsRouter = Router();
@@ -126,7 +127,7 @@ function buildStoragePath(workspaceId: string, fileName: string, mime: string): 
 async function authorizeMember(
   req: Request, res: Response, _config: ServerConfig, workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  const auth = await authorizeInboxAccess(req, res, workspaceId);
   if (!auth) return null;
   return { userId: auth.userId };
 }

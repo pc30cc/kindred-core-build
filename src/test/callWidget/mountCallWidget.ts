@@ -411,7 +411,7 @@ export function fakeApi(route: (req: ApiRequest) => ApiAnswer | Promise<ApiAnswe
 
 // ─── A fake media client (LiveKit's surface the engine uses) ───────────────
 
-export interface FakeTrack { sid: string; kind: 'audio' | 'video'; attach(): HTMLMediaElement; detach(el?: unknown): void }
+export interface FakeTrack { sid: string; kind: 'audio' | 'video'; attach(): HTMLMediaElement; detach(el?: unknown): void; stop?(): void; stopped?: number }
 export interface FakeParticipant { identity: string; isLocal: boolean; trackPublications: Map<string, { track: FakeTrack }> }
 export interface FakeLocalParticipant extends FakeParticipant {
   setMicrophoneEnabled(on: boolean): Promise<unknown>;
@@ -420,6 +420,11 @@ export interface FakeLocalParticipant extends FakeParticipant {
   /** Every setMicrophoneEnabled / setCameraEnabled argument, in order. */
   micCalls: boolean[];
   camCalls: boolean[];
+  /** With `early`: the devices opened before the room connected, and what was published. */
+  createTracks?(o: { audio?: unknown; video?: unknown }): Promise<FakeTrack[]>;
+  publishTrack?(t: FakeTrack, o: { source?: string }): Promise<unknown>;
+  created: Array<{ audio?: unknown; video?: unknown }>;
+  published: Array<{ kind: string; source?: string }>;
 }
 export interface FakeRoom {
   options: unknown;
@@ -455,6 +460,12 @@ export interface FakeLiveKitControls {
   /** The state a new AudioContext starts in, and whether resume() outside a gesture works. */
   audioState: 'suspended' | 'running';
   resumeWorks: boolean;
+  /** The media client has createTracks/publishTrack (the devices open while the room connects). */
+  early?: boolean;
+  /** Refusals left for the early createTracks (one prompt for the microphone and the camera). */
+  earlyDenials?: number;
+  /** Every track the early capture opened. */
+  earlyTracks?: FakeTrack[];
 }
 export interface FakeLiveKit extends FakeLiveKitControls {
   rooms: FakeRoom[];
@@ -510,6 +521,7 @@ export function installFakeLiveKit(win: Mounted['win'], init: Partial<FakeLiveKi
       const videos = new Map<string, { track: FakeTrack }>();
       const local: FakeLocalParticipant = {
         identity: 'visitor', isLocal: true, trackPublications: new Map(), videoTrackPublications: videos, micCalls: [], camCalls: [],
+        created: [], published: [],
         setMicrophoneEnabled(on) {
           local.micCalls.push(on);
           if (on && lk.micDenials > 0) { lk.micDenials -= 1; return Promise.reject(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' })); }
@@ -524,6 +536,30 @@ export function installFakeLiveKit(win: Mounted['win'], init: Partial<FakeLiveKi
           return Promise.resolve({ track: t });
         },
       };
+      if (lk.early) {
+        local.createTracks = (o) => {
+          local.created.push(o);
+          if ((lk.earlyDenials ?? 0) > 0) {
+            lk.earlyDenials = (lk.earlyDenials ?? 0) - 1;
+            return Promise.reject(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }));
+          }
+          const out: FakeTrack[] = [];
+          for (const kind of ['audio', 'video'] as const) {
+            if (!o[kind]) continue;
+            const t = track(kind);
+            t.stopped = 0;
+            t.stop = () => { t.stopped = (t.stopped ?? 0) + 1; };
+            (lk.earlyTracks ||= []).push(t);
+            out.push(t);
+          }
+          return Promise.resolve(out);
+        };
+        local.publishTrack = (t, o) => {
+          local.published.push({ kind: t.kind, source: o.source });
+          if (t.kind === 'video') videos.set(t.sid, { track: t });
+          return Promise.resolve({ track: t });
+        };
+      }
       this.localParticipant = local;
       lk.rooms.push(this);
     }
@@ -583,7 +619,7 @@ export function installFakeLiveKit(win: Mounted['win'], init: Partial<FakeLiveKi
     createAnalyser() { return node(); }
     createMediaStreamSource(stream: unknown) { this.analysed.push(stream); return node(); }
   }
-  Object.assign(win, { LivekitClient: { Room, RoomEvent: ROOM_EVENTS }, AudioContext });
+  Object.assign(win, { LivekitClient: { Room, RoomEvent: ROOM_EVENTS, Track: { Source: { Microphone: 'microphone', Camera: 'camera' } } }, AudioContext });
   return lk;
 }
 

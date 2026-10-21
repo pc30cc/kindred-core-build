@@ -1224,6 +1224,67 @@
     }).catch(function () { if (self.callId === id) { self.connectStatus = 'pending'; self.render(); } });
   };
 
+  // ─── Room tuning + early device capture ────────────────────────────
+  // Same numbers as src/lib/livekit-tuning.ts and public/widget/runtime-call.js.
+  // The room used to ask for video sized from CSS pixels (a quarter of what a
+  // 2x phone shows) and opened the microphone, then the camera, only AFTER
+  // the room had connected. The devices are now opened while it connects, in
+  // one request; a refusal falls back to the original call below.
+  function lkRoomOptions() {
+    return {
+      adaptiveStream: { pixelDensity: 'screen' },
+      dynacast: true,
+      publishDefaults: {
+        videoCodec: 'vp8',
+        dtx: true,
+        red: true,
+        audioPreset: { maxBitrate: 32000 },
+      },
+    };
+  }
+
+  // Never rejects.
+  function precaptureMedia(theRoom, wantAudio, wantVideo) {
+    var held = { audio: null, video: null };
+    var disposed = false;
+    var stopTrack = function (t) { if (t) { try { t.stop(); } catch (_) {} } };
+    var ready = Promise.resolve();
+    if (wantAudio || wantVideo) {
+      try {
+        ready = theRoom.localParticipant.createTracks({
+          audio: !!wantAudio,
+          video: !!wantVideo,
+        }).then(function (tracks) {
+          tracks.forEach(function (t) {
+            if (disposed) { stopTrack(t); return; }
+            if (t.kind === 'audio') held.audio = t;
+            else if (t.kind === 'video') held.video = t;
+          });
+        }).catch(function () { /* the fallback at publish time reports it */ });
+      } catch (_) { ready = Promise.resolve(); }
+    }
+    return {
+      take: function (kind) { return ready.then(function () { var t = held[kind]; held[kind] = null; return t; }); },
+      dispose: function () {
+        disposed = true;
+        stopTrack(held.audio); held.audio = null;
+        stopTrack(held.video); held.video = null;
+      },
+    };
+  }
+
+  // Publishes what the early capture got, else runs `fallback` (the original call).
+  function publishEarlyOr(theRoom, pre, kind, source, fallback) {
+    if (!pre) return fallback();
+    return pre.take(kind).then(function (track) {
+      if (!track) return fallback();
+      return theRoom.localParticipant.publishTrack(track, { source: source }).catch(function () {
+        try { track.stop(); } catch (_) {}
+        return fallback();
+      });
+    });
+  }
+
   CallCenterWidgetCtor.prototype.connectMedia = function () {
     var self = this;
     var info = this.joinInfo || {};
@@ -1274,10 +1335,13 @@
     self.connectStatus = 'connecting_media';
     self.render();
     try {
-      var room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      var room = new LK.Room(lkRoomOptions());
       self.lkRoom = room;
       self._attachedTracks = self._attachedTracks || {};
       var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
+      var SRC = (LK.Track && LK.Track.Source) || {};
+      var pre = precaptureMedia(room, true, wantVideo);
+      self._pre = pre;
       var RE = LK.RoomEvent || {};
       // The events of a room the widget has left (a cancel, a reset) change nothing.
       var on = function (name, fallback, fn) {
@@ -1389,7 +1453,9 @@
       // room, the live status.
       var afterMic = function () {
         self.micOn = true;
-        return (wantVideo ? room.localParticipant.setCameraEnabled(true).then(function (pub) {
+        return (wantVideo ? publishEarlyOr(room, pre, 'video', SRC.Camera, function () {
+          return room.localParticipant.setCameraEnabled(true);
+        }).then(function (pub) {
           if (self.lkRoom === room) self._attachLocal(pub);
         }, function () {
           // E7: no camera: the call goes on with the microphone.
@@ -1414,14 +1480,18 @@
       };
       self._afterMic = afterMic;
       room.connect(connect.server_url, info.token).then(function () {
-        if (self.lkRoom !== room) return;
-        return room.localParticipant.setMicrophoneEnabled(true).then(afterMic, function () {
+        if (self.lkRoom !== room) { pre.dispose(); return; }
+        return publishEarlyOr(room, pre, 'audio', SRC.Microphone, function () {
+          return room.localParticipant.setMicrophoneEnabled(true);
+        }).then(afterMic, function () {
+          pre.dispose();
           if (self.lkRoom !== room) return;
           self.connectStatus = 'microphone_permission_denied';
           self.error = self.t('mic_denied');
           self.render();
         });
       }).catch(function (err) {
+        pre.dispose();
         if (self.lkRoom !== room) return;
         var rawEm = String(err && err.message || err);
         var em = sanitize(rawEm).toLowerCase();
@@ -1507,6 +1577,8 @@
     });
   };
   CallCenterWidgetCtor.prototype.disconnectRoom = function () {
+    try { if (this._pre) this._pre.dispose(); } catch (_) {}
+    this._pre = null;
     try { if (this.lkRoom) this.lkRoom.disconnect(); } catch (_) {}
     this.lkRoom = null;
     this._attachedTracks = {};

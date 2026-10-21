@@ -33,7 +33,6 @@ export const WIDGET_TEXT_KEYS: { key: string; group: WidgetTextGroup; state: 'on
   { key: 'leave_details',       group: 'launcher', state: 'offline', label: 'Launcher subtitle (offline, callback)', placeholder: { en: 'Leave details', fa: 'ثبت اطلاعات', tr: 'Bilgilerini bırak' } },
   { key: 'support',             group: 'launcher', state: 'offline', label: 'Launcher text (offline, no callback) and header name', placeholder: { en: 'Support', fa: 'پشتیبانی', tr: 'Destek' } },
   { key: 'operators_available', group: 'header',   state: 'online',  label: 'Header subtitle (online)',   placeholder: { en: 'Operators available', fa: 'اپراتورها آماده‌اند', tr: 'Operatörler müsait' } },
-  { key: 'no_operator_now',     group: 'header',   state: 'online',  label: 'Header subtitle (no operator free)', placeholder: { en: 'No operator available right now', fa: 'فعلاً اپراتوری در دسترس نیست', tr: 'Şu anda müsait operatör yok' } },
   { key: 'callback_desk',       group: 'header',   state: 'offline', label: 'Header subtitle (offline, callback)', placeholder: { en: 'Callback desk', fa: 'میز درخواست تماس', tr: 'Geri arama masası' } },
   { key: 'offline',             group: 'header',   state: 'offline', label: 'Offline status (header, launcher)', placeholder: { en: 'Offline', fa: 'آفلاین', tr: 'Çevrimdışı' } },
   { key: 'live_now',            group: 'home',     state: 'online',  label: 'Home badge',                 placeholder: { en: 'Live now',            fa: 'آنلاین',              tr: 'Canlı' } },

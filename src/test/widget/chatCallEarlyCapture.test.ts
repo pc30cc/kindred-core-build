@@ -11,6 +11,18 @@ import { JSDOM } from 'jsdom';
 
 const SRC = readFileSync(resolve(process.cwd(), 'public/widget/runtime-call.js'), 'utf8');
 const doms: JSDOM[] = [];
+
+/** The loose shapes the fake LiveKit and the engine pass around. */
+type Obj = Record<string, unknown>;
+type Fn = (...args: unknown[]) => unknown;
+interface Track { kind: string; stop(): void; mediaStreamTrack: Obj }
+interface Win { LivekitClient: unknown; eval(src: string): void; __gs_call: { engine: Engine } }
+interface Engine {
+  connect(o: Obj): Promise<void>;
+  disconnect(): unknown;
+  getState(): { state: string } & Obj;
+  on(e: string, fn: (e: Obj) => void): void;
+}
 afterEach(() => { while (doms.length) doms.pop()!.window.close(); });
 
 interface Ctl { createDenied?: boolean; micDenied?: boolean; connectError?: string | null; slowConnect?: boolean }
@@ -18,32 +30,32 @@ interface Ctl { createDenied?: boolean; micDenied?: boolean; connectError?: stri
 function boot(ctl: Ctl = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://customer.example/', runScripts: 'outside-only' });
   doms.push(dom);
-  const win = dom.window as any;
-  const log = { created: [] as any[], published: [] as any[], mic: [] as boolean[], cam: [] as any[], stopped: 0, roomOptions: null as any, order: [] as string[] };
+  const win = dom.window as unknown as Win;
+  const log = { created: [] as Obj[], published: [] as Obj[], mic: [] as boolean[], cam: [] as unknown[], stopped: 0, roomOptions: null as unknown, order: [] as string[] };
   let finishConnect: () => void = () => {};
 
-  const pubs = () => new Map<string, any>();
+  const pubs = () => new Map<string, unknown>();
   class Room {
     remoteParticipants = new Map();
-    handlers: Record<string, Function[]> = {};
-    localParticipant: any;
-    constructor(o: any) {
+    handlers: Record<string, Fn[]> = {};
+    localParticipant: Obj;
+    constructor(o: unknown) {
       log.roomOptions = o;
-      const lp: any = {
+      const lp = {
         trackPublications: pubs(), videoTrackPublications: pubs(),
         isMicrophoneEnabled: false, isCameraEnabled: false,
-        createTracks(o2: any) {
+        createTracks(o2: Obj) {
           log.order.push('createTracks');
           log.created.push(o2);
           if (ctl.createDenied) return Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
-          const out: any[] = [];
+          const out: Track[] = [];
           for (const kind of ['audio', 'video']) {
             if (!o2[kind]) continue;
             out.push({ kind, stop() { log.stopped += 1; }, mediaStreamTrack: { readyState: 'live', getSettings: () => ({}) } });
           }
           return Promise.resolve(out);
         },
-        publishTrack(t: any, o3: any) {
+        publishTrack(t: Track, o3: { source: string }) {
           log.order.push('publish:' + o3.source);
           log.published.push({ kind: t.kind, source: o3.source });
           if (t.kind === 'audio') lp.isMicrophoneEnabled = true; else lp.isCameraEnabled = true;
@@ -54,11 +66,11 @@ function boot(ctl: Ctl = {}) {
           if (ctl.micDenied) return Promise.reject(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }));
           lp.isMicrophoneEnabled = on; return Promise.resolve({});
         },
-        setCameraEnabled(on: boolean, c?: any) { log.cam.push(c); lp.isCameraEnabled = on; return Promise.resolve({}); },
+        setCameraEnabled(on: boolean, c?: unknown) { log.cam.push(c); lp.isCameraEnabled = on; return Promise.resolve({}); },
       };
       this.localParticipant = lp;
     }
-    on(e: string, fn: Function) { (this.handlers[e] ||= []).push(fn); return this; }
+    on(e: string, fn: Fn) { (this.handlers[e] ||= []).push(fn); return this; }
     connect() {
       log.order.push('connect');
       if (ctl.connectError) return Promise.reject(new Error(ctl.connectError));
@@ -117,8 +129,8 @@ describe('chat widget call engine: early capture', () => {
 
   it('a refused request falls back to the original calls and keeps their error code', async () => {
     const { engine, log } = boot({ createDenied: true, micDenied: true });
-    const errors: any[] = [];
-    engine.on('error', (e: any) => errors.push(e));
+    const errors: Obj[] = [];
+    engine.on('error', (e: Obj) => errors.push(e));
     await engine.connect(opts({ publishCamera: true }));
     expect(log.mic).toEqual([true]);
     expect(log.cam.length).toBe(1);

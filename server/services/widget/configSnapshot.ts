@@ -667,6 +667,9 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
   const resolver = createStorageUrlResolver(config);
 
   // ── Wave 3 ──
+  const chatMemberIdsRead: Promise<string[] | undefined> = needsPrefs && memberIds.length
+    ? chatReceivingMemberIds(config, workspaceId, memberRows)
+    : Promise.resolve(undefined);
   const [prefsResult, chatMemberIds, teamResult, smart, aiProactive, aiAgent, logoUrl, fabImageUrl] = await Promise.all([
     needsPrefs && memberIds.length
       ? sb.from('user_availability_prefs')
@@ -674,10 +677,16 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
         .in('user_id', memberIds)
         .is('workspace_id', null)
       : Promise.resolve({ data: [] as AvailabilityPrefsRow[], error: null }),
-    needsPrefs && memberIds.length
-      ? chatReceivingMemberIds(config, workspaceId, memberRows)
-      : Promise.resolve(undefined),
-    forConfig ? loadTeam(sb, resolver, widgetTeamMembers(memberRows).map((m) => m.user_id as string)) : Promise.resolve({ team: null, error: false }),
+    chatMemberIdsRead,
+    // The team stack is the members who receive chats (shared/widgetTeam.ts),
+    // the same people the widget's online/offline counts.
+    forConfig
+      ? chatMemberIdsRead.then((ids) => {
+        const receiving = new Set(ids ?? []);
+        const rows = memberRows.filter((m) => !!m.user_id && receiving.has(m.user_id));
+        return loadTeam(sb, resolver, widgetTeamMembers(rows).map((m) => m.user_id as string));
+      })
+      : Promise.resolve({ team: null, error: false }),
     // Smart Engagement rules (active + published only). Failure here must
     // never take down /config — the helper already degrades to an empty list.
     forConfig

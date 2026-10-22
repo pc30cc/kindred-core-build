@@ -39,7 +39,16 @@ const { computeCustomerAvailability } = await import('../../../server/services/w
 const req = { query: {}, headers: {}, protocol: 'https', get: () => 'api.test', socket: { remoteAddress: '127.0.0.1' } } as unknown as Request;
 type Row = Record<string, unknown>;
 
-interface Person { n: number; joined: string; name: string | null; available: boolean }
+interface Person {
+  n: number; joined: string; name: string | null; available: boolean;
+  /** The workspace role ('agent' without one), suspension and "Receive chats automatically". */
+  role?: string; suspended?: boolean; receives?: boolean;
+}
+const memberFields = (p: Person) => ({
+  role: p.role ?? 'agent',
+  suspended_at: p.suspended ? '2026-10-10T09:00:00+00:00' : null,
+  receives_chats: p.receives !== false,
+});
 const id = (n: number) => `3c4d5e6f-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
 const prefs = (p: Person) => ({
   user_id: id(p.n), workspace_id: null, force_offline: !p.available, available_when_using_app: true,
@@ -50,7 +59,7 @@ const prefs = (p: Person) => ({
 async function visitorConfig(people: Person[], brand: string) {
   const tables = widgetScenarioTables({ edition: 'iran', ai: false, smart: false }) as Record<string, Row[]>;
   Object.assign(tables.widget_settings[0], { fab_icon: 'avatar', brand_name: brand });
-  tables.workspace_members = [...people].reverse().map((p) => ({ workspace_id: WS, user_id: id(p.n), created_at: p.joined, role: 'agent' }));
+  tables.workspace_members = [...people].reverse().map((p) => ({ workspace_id: WS, user_id: id(p.n), created_at: p.joined, ...memberFields(p) }));
   tables.profiles = [...people].sort((a, b) => b.n - a.n).map((p) => ({
     id: id(p.n), full_name: p.name, email: `person${p.n}@example.com`, avatar_storage_key: null,
   }));
@@ -68,7 +77,7 @@ async function visitorConfig(people: Person[], brand: string) {
 /** What the dashboard reads for them: the members list (in its own order) and the team's presence, nobody connected. */
 function dashboardTeam(people: Person[], locale: string) {
   const members: WorkspaceMember[] = people.map((p) => ({
-    user_id: id(p.n), role: 'agent', full_name: p.name, email: `person${p.n}@example.com`, avatar_url: null, created_at: p.joined,
+    user_id: id(p.n), full_name: p.name, email: `person${p.n}@example.com`, avatar_url: null, created_at: p.joined, ...memberFields(p),
   }));
   const presence = people.map((p) => ({
     user_id: id(p.n),
@@ -127,6 +136,22 @@ const SCENARIOS: Array<{ title: string; brand: string; people: Person[]; letter:
     ],
     letter: 'ا',
   },
+  {
+    // Staff never answer a visitor (shared/chatRoles.ts), nor a suspended
+    // member, nor one whose "Receive chats automatically" is off: the stack
+    // is the people who receive chats, the same the online/offline counts.
+    title: 'staff, a suspended member and one not receiving chats are in neither team',
+    brand: 'Acme',
+    people: [
+      { n: 1, joined: '2026-10-01T09:00:00+00:00', name: 'Dana', available: true, role: 'developer' },
+      { n: 2, joined: '2026-10-02T09:00:00+00:00', name: 'Arash', available: true, role: 'admin' },
+      { n: 3, joined: '2026-10-03T09:00:00+00:00', name: 'Bita', available: true, role: 'owner', receives: false },
+      { n: 4, joined: '2026-10-04T09:00:00+00:00', name: 'Cyrus', available: true, suspended: true },
+      { n: 5, joined: '2026-10-05T09:00:00+00:00', name: 'Nika', available: false, role: 'support_agent' },
+      { n: 6, joined: '2026-10-06T09:00:00+00:00', name: 'Elham', available: true, role: 'team_lead' },
+    ],
+    letter: 'E',
+  },
   { title: 'no members: the workspace\'s letter', brand: 'Acme', people: [], letter: 'A' },
 ];
 
@@ -143,5 +168,8 @@ describe('the agent face: the visitor\'s launcher and the dashboard pick the sam
     expect(onlineFirst(team).map(({ name, avatar, online }) => ({ name, avatar, online }))).toEqual(visitor.teamMembers);
     expect(JSON.stringify(visitor)).not.toContain('@example.com');
     expect(JSON.stringify(visitor.teamMembers)).not.toContain('Operator');
+    // Only members who receive chats, whoever joined first.
+    const receiving = people.filter((p) => (p.role ?? 'agent') !== 'developer' && p.role !== 'admin' && !p.suspended && p.receives !== false);
+    expect(visitor.teamMembers.length).toBe(Math.min(receiving.length, 4));
   });
 });

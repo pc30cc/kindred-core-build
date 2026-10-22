@@ -28,6 +28,8 @@ export interface WorkspaceMember {
   suspended_at?: string | null;
   /** The plan paused this seat (billing locks): cannot open a chat. */
   seat_locked?: boolean;
+  /** "Receive chats automatically" (false = routing gives them none; the widget's team leaves them out). */
+  receives_chats?: boolean;
   /** The departments they are in, by name. */
   department_names?: string[];
 }
@@ -39,6 +41,7 @@ interface MemberRow {
   created_at?: string | null;
   suspended_at?: string | null;
   seat_locked?: boolean | null;
+  receives_chats?: boolean | null;
   department_names?: string[] | null;
   profile?: { full_name?: string | null; email?: string | null; avatar_url?: string | null } | null;
 }
@@ -62,6 +65,7 @@ export function useWorkspaceMembers(workspaceId: string | undefined) {
         created_at: m.created_at ?? null,
         suspended_at: m.suspended_at ?? null,
         seat_locked: m.seat_locked === true,
+        receives_chats: m.receives_chats !== false,
         department_names: Array.isArray(m.department_names) ? m.department_names : [],
       }));
     },

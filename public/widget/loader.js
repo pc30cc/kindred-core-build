@@ -4045,10 +4045,11 @@
   }
 
   // On iOS every browser is WebKit and says "Safari"; Chrome, Firefox and
-  // Edge there add CriOS, FxiOS and EdgiOS.
+  // Edge there add CriOS, FxiOS and EdgiOS. Edge says Edg/ on computers,
+  // EdgA/ on Android and Edge/ in its old EdgeHTML version.
   function detectBrowser() {
     var ua = navigator.userAgent;
-    if (/EdgiOS|Edg\//.test(ua)) return "Edge";
+    if (/Edg(e|A|iOS)?\//.test(ua)) return "Edge";
     if (/CriOS/.test(ua)) return "Chrome";
     if (/FxiOS|Firefox/.test(ua)) return "Firefox";
     if (ua.indexOf("Chrome") > -1) return "Chrome";

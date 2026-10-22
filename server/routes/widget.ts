@@ -291,9 +291,9 @@ async function handleBootstrap(req: Request, res: Response) {
       // The page still embedding a switched-off widget must be able to read
       // this answer: unreadable (no CORS), the loader takes it for a network
       // error and leaves a grey launcher that says "chat unavailable" instead
-      // of removing itself. The origins that would get a session (below) may
-      // read it; it carries no token, cookie or visitor data. A lookup error
-      // grants nothing.
+      // of removing itself. The origins its allow-list accepts may read it
+      // (with no list, any site); it carries no token, cookie or visitor
+      // data. A lookup error grants nothing.
       const pageOrigin = req.headers.origin;
       if (pageOrigin) {
         const readable = await isWorkspaceOriginAllowed(config, resolvedWorkspaceId, pageOrigin).catch(() => false);

@@ -1,4 +1,5 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { SettingsRequestError } from '@/lib/settingsErrors';
 /**
  * Chat routing, as the workspace panel reads and sets it (migration 278,
  * server/services/chatRouting.ts):
@@ -51,7 +52,8 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
+  // The code and the status, for a sentence in the panel's language (settingsErrorMessage).
+  if (!res.ok) throw new SettingsRequestError((body as { error?: string }).error || `HTTP ${res.status}`, res.status);
   return body as T;
 }
 

@@ -15,6 +15,7 @@ import { useMutation } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
+import { settingsErrorMessage } from '@/lib/settingsErrors';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -81,7 +82,8 @@ export function MemberChatRoutingControls({
       if (patch.max_concurrent_chats !== undefined) {
         setText(maxConcurrentChats == null ? '' : String(maxConcurrentChats));
       }
-      toast.error(err.message || t('teamDept.chatRouting.saveFailed'));
+      // Why, in the panel's language: never the server's code ("member_not_found", "HTTP 503").
+      toast.error(t('teamDept.chatRouting.saveFailed'), { description: settingsErrorMessage(err, t) });
     },
   });
 

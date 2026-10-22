@@ -165,7 +165,7 @@ describe('radio groups', () => {
 
 describe('forms', () => {
   it('fields have labels, autocomplete, the consent a labelled switch, the honeypot off screen', () => {
-    const m = mountCallWidget({ locale: 'en', bootstrap: { recording: { effective_enabled: true, consent_required: true }, callback_policy: { require_contact: true } } });
+    const m = mountCallWidget({ locale: 'en', bootstrap: { config: { pre_call_form_enabled: true }, recording: { effective_enabled: true, consent_required: true }, callback_policy: { require_contact: true } } });
     m.open();
     m.click('[data-action="voice"]');
     for (const input of m.qa<HTMLInputElement>('[data-screen="precall"] .fr input')) {

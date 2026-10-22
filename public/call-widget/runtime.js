@@ -35,7 +35,7 @@
     en: {
       talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support', required: 'Required',
       operators_available: 'Operators available', callback_desk: 'Callback desk', loading: 'Loading…', offline: 'Offline',
-      leave_callback_request: 'Leave a callback request', offline_copy: 'Our team is offline right now, but we can call you back.', request_callback: 'Request callback',
+      leave_callback_request: 'Leave a callback request', offline_copy: 'Our team is offline right now, but we can call you back.', offline_title: 'We are offline', offline_message: 'Our team is offline right now. Please try again later.', request_callback: 'Request callback',
       live_now: 'Live now', channels: 'Voice · Video · Callback', talk_to_team: 'Talk to our team', online_copy: 'Start a secure voice or video call with the next available operator.',
       voice_call: 'Voice call', video_call: 'Video call', request_callback_instead: 'Request a callback',
       you_are_next: 'You are next', holding_place: 'Holding your place', queue_copy_many: 'Your request is in the live call queue. Keep this window open while we connect the operator.', queue_copy_next: 'We are ringing the next available operator now.',
@@ -71,7 +71,7 @@
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی', required: 'الزامی',
       operators_available: 'اپراتورها آماده‌اند', callback_desk: 'میز درخواست تماس', loading: 'در حال بارگذاری…', offline: 'آفلاین',
-      leave_callback_request: 'درخواست تماس ثبت کنید', offline_copy: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', request_callback: 'درخواست تماس',
+      leave_callback_request: 'درخواست تماس ثبت کنید', offline_copy: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', offline_title: 'در حال حاضر آفلاین هستیم', offline_message: 'تیم ما الان آفلاین است. لطفاً بعداً دوباره تلاش کنید.', request_callback: 'درخواست تماس',
       live_now: 'آنلاین', channels: 'صوتی · تصویری · درخواست تماس', talk_to_team: 'با تیم ما صحبت کنید', online_copy: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.',
       voice_call: 'تماس صوتی', video_call: 'تماس تصویری', request_callback_instead: 'درخواست تماس',
       you_are_next: 'نفر بعدی شما هستید', holding_place: 'جای شما محفوظ است', queue_copy_many: 'درخواست شما در صف تماس زنده است. این پنجره را باز نگه دارید تا اپراتور متصل شود.', queue_copy_next: 'در حال زنگ زدن به اولین اپراتور آزاد هستیم.',
@@ -107,7 +107,7 @@
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek', required: 'Zorunlu',
       operators_available: 'Operatörler müsait', callback_desk: 'Geri arama masası', loading: 'Yükleniyor…', offline: 'Çevrimdışı',
-      leave_callback_request: 'Geri arama isteği bırakın', offline_copy: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.', request_callback: 'Geri arama iste',
+      leave_callback_request: 'Geri arama isteği bırakın', offline_copy: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.', offline_title: 'Şu anda çevrimdışıyız', offline_message: 'Ekibimiz şu anda çevrimdışı. Lütfen daha sonra tekrar deneyin.', request_callback: 'Geri arama iste',
       live_now: 'Canlı', channels: 'Ses · Video · Geri arama', talk_to_team: 'Ekibimizle konuşun', online_copy: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.',
       voice_call: 'Sesli arama', video_call: 'Görüntülü arama', request_callback_instead: 'Geri arama iste',
       you_are_next: 'Sıradaki sizsiniz', holding_place: 'Yeriniz korunuyor', queue_copy_many: 'İsteğiniz canlı arama kuyruğunda. Operatöre bağlanırken bu pencereyi açık tutun.', queue_copy_next: 'Şimdi ilk uygun operatörü arıyoruz.',
@@ -695,7 +695,7 @@
     locale = normalizeLocale(locale) || this.locale || 'en';
     if (this.availableLocales.indexOf(locale) < 0) return;
     this.locale = locale;
-    try { window.localStorage.setItem(this.localeStorageKey, locale); } catch (_) {}
+    if (!this.preview) try { window.localStorage.setItem(this.localeStorageKey, locale); } catch (_) {}
     if (this.root) this.render();
   };
 
@@ -704,7 +704,8 @@
     var available = (i18n.available_locales || []).map(normalizeLocale).filter(Boolean);
     this.availableLocales = available.length ? available : ['en'];
     var stored = null;
-    try { stored = normalizeLocale(window.localStorage.getItem(this.localeStorageKey)); } catch (_) {}
+    // The dashboard's preview shows the language it is given, never a stored one.
+    if (!this.preview) try { stored = normalizeLocale(window.localStorage.getItem(this.localeStorageKey)); } catch (_) {}
     var nav = normalizeLocale((navigator.languages && navigator.languages[0]) || navigator.language);
     var def = normalizeLocale(i18n.default_locale) || 'en';
     this.locale = this.availableLocales.indexOf(stored) >= 0 ? stored
@@ -769,11 +770,45 @@
     this.render();
     // Resume any in-flight call across refresh / navigation.
     try { this.resumeActiveCall(); } catch (_) {}
+    this.watchPresence();
   };
 
+  /**
+   * Offline only because nobody is available: asks again every minute while
+   * the page is shown (30 times at most), and comes online when an operator
+   * does (the bootstrap is memoised on the server, 30 s). Never in the preview.
+   */
+  CallCenterWidgetCtor.prototype.watchPresence = function () {
+    var self = this;
+    var b = this.bootstrap || {};
+    var caps = b.capabilities || {};
+    if (this.preview || this._presenceTimer || !(caps.voice || caps.video) || !b.presence || b.presence.any_available !== false || !b.workspace_id) return;
+    var left = 30;
+    this._presenceTimer = setInterval(function () {
+      if (self.state !== STATES.OFFLINE || --left < 0) { clearInterval(self._presenceTimer); self._presenceTimer = null; return; }
+      var page = window.document;
+      if (page && page.visibilityState === 'hidden') return;
+      fetch(self.apiBase + '/api/call-widget/bootstrap?workspaceId=' + encodeURIComponent(b.workspace_id), { credentials: 'include', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j || j.status !== 'ok' || !j.presence || j.presence.any_available !== true || self.state !== STATES.OFFLINE) return;
+          self.bootstrap.presence = j.presence;
+          clearInterval(self._presenceTimer); self._presenceTimer = null;
+          self.state = STATES.ONLINE;
+          self.render();
+        })
+        .catch(function () {});
+    }, 60000);
+  };
+
+  // Online: a call channel is on and someone takes calls. With nobody
+  // available (`presence`, the operators' call center status) the widget is
+  // offline, so the workspace's offline behaviour applies (hide, the offline
+  // message, a callback). A server without presence keeps the channels' rule.
   CallCenterWidgetCtor.prototype.isOnline = function () {
     var caps = this.bootstrap && this.bootstrap.capabilities;
-    return !!caps && (caps.voice || caps.video);
+    var pr = this.bootstrap && this.bootstrap.presence;
+    return !!caps && !!(caps.voice || caps.video) && !(pr && pr.any_available === false);
   };
 
   // The five placements (right, left, top_right, top_left, bottom_center)

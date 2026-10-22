@@ -64,18 +64,12 @@ for (const brand of Object.keys(BRANDS) as Array<keyof typeof BRANDS>) {
       expect(m.q('[data-screen="home"] .badge .chn')!.textContent).not.toBe('');
     });
 
-    it.each(LOCALES)('%s: online but unstaffed, the header\'s "no operator now" over an off dot, no channel list', (locale) => {
-      const m = openHome(brand, locale, false);
-      const header = m.q('[data-screen="home"] .hd .st')!.textContent;
-      expect(header).toBe(WORDS[locale].none);
-      expect(t(m, 'no_operator_now')).toBe(WORDS[locale].none);
-      expect(status(m)).toBe(header);
-      expect(status(m)).not.toContain(WORDS[locale].live);
-      expect(m.q('[data-screen="home"] .badge .dot')!.classList.contains('off')).toBe(true);
-      expect(shown(m.q('[data-screen="home"] .badge .sep'))).toBe(false);
-      expect(shown(m.q('[data-screen="home"] .badge .chn'))).toBe(false);
-      // The call tiles stay: calls still queue (D17).
-      expect(m.qa('[data-screen="home"] .opts .opt')).toHaveLength(2);
+    it.each(LOCALES)('%s: nobody available, the widget opens on the offline screen, no call tiles (owner 2026-10-21)', (locale) => {
+      const b = BRANDS[brand] as { bootstrap?: { config?: Record<string, unknown> }; edition?: 'international' };
+      const m = mountCallWidget({ ...b, now: NOW, locale, bootstrap: { ...(b.bootstrap ?? {}), presence: { any_available: false } } });
+      m.open();
+      expect(m.screenId()).toBe('offline');
+      expect(m.qa('[data-action="voice"], [data-action="video"]')).toHaveLength(0);
     });
 
     it('follows presence both ways on the open panel, in place (same badge node)', () => {

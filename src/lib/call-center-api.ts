@@ -75,6 +75,9 @@ export interface CallCenterWorkspaceSettings {
   operator_video_visible_to_visitor?: boolean;
   routing_mode: string;
   default_department_id: string | null;
+  /** Visitors pick a department in the widget (with the platform's departments switch). */
+  departments_enabled?: boolean;
+  allow_visitor_department_choice?: boolean;
   created_at: string;
   updated_at: string;
   widget_default_locale?: 'en' | 'fa' | 'tr' | null;
@@ -97,6 +100,56 @@ export interface CallCenterWorkspaceSettings {
   callback_slot_capacity?: number | null;
 }
 
+const hasOwn = (obj: object, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
+
+/** The colour keys of `widget_theme` (server/services/callCenter/presentation.ts callWidgetThemeSchema). */
+export const CALL_WIDGET_THEME_COLOURS = ['primary', 'accent', 'surface', 'text', 'muted', 'danger'] as const;
+
+/**
+ * The theme a save sends, in the only colour shape the server accepts
+ * (`#rrggbb`): an emptied colour is left out (the widget's own default
+ * again), `#rgb` is spelt out, and `invalid` names the first colour the
+ * server would refuse (the whole save would fail on it).
+ */
+export function cleanCallWidgetTheme(theme: Record<string, unknown> | null | undefined): {
+  theme: Record<string, unknown>;
+  invalid: string | null;
+} {
+  const out: Record<string, unknown> = { ...(theme || {}) };
+  let invalid: string | null = null;
+  for (const key of CALL_WIDGET_THEME_COLOURS) {
+    if (!hasOwn(out, key)) continue;
+    const raw = typeof out[key] === 'string' ? (out[key] as string).trim() : '';
+    if (!raw) { delete out[key]; continue; }
+    const short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(raw);
+    const full = /^#?([0-9a-f]{6})$/i.exec(raw);
+    if (short) out[key] = `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
+    else if (full) out[key] = `#${full[1]}`.toLowerCase();
+    else if (!invalid) invalid = key;
+  }
+  return { theme: out, invalid };
+}
+
+/**
+ * The widget texts a save sends: each trimmed (the widget shows what is
+ * stored), an empty one left out (the widget's own copy again), a language
+ * with none left dropped.
+ */
+export function cleanCallWidgetTexts(
+  texts: Record<string, Record<string, string>> | null | undefined,
+): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  for (const [locale, entries] of Object.entries(texts || {})) {
+    const kept: Record<string, string> = {};
+    for (const [key, value] of Object.entries(entries || {})) {
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text) kept[key] = text;
+    }
+    if (Object.keys(kept).length) out[locale] = kept;
+  }
+  return out;
+}
+
 // ── Call widget design settings (migration 277) ─────────────────────────────
 
 /** The settings migration 277 adds (server/services/callCenter/settings.ts CALL_WIDGET_DESIGN_COLUMNS). */
@@ -109,7 +162,6 @@ export const CALL_WIDGET_DESIGN_KEYS = [
 ] as const;
 export type CallWidgetDesignKey = (typeof CALL_WIDGET_DESIGN_KEYS)[number];
 
-const hasOwn = (obj: object, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
 
 /**
  * The migration-277 settings a save sends: only those the loaded settings

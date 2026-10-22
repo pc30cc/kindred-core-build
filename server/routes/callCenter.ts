@@ -49,7 +49,7 @@ import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
-  getAgentPresence, updateMyAgentPresence,
+  getAgentPresence, updateMyAgentPresence, type PresenceStatus,
   incrementAgentActiveCallCount, decrementAgentActiveCallCount,
   DepartmentException,
 } from '../services/callCenter/departments.js';
@@ -511,6 +511,9 @@ const settingsPatchSchema = z.object({
   operator_video_visible_to_visitor: z.boolean().optional(),
   routing_mode: z.string().optional(),
   default_department_id: z.string().uuid().nullable().optional(),
+  // The widget's department picker (bootstrap `departments`): both must be on.
+  departments_enabled: z.boolean().optional(),
+  allow_visitor_department_choice: z.boolean().optional(),
   widget_default_locale: z.enum(['en', 'fa', 'tr']).nullable().optional(),
   widget_enabled_locales: z.array(z.enum(['en', 'fa', 'tr'])).nullable().optional(),
   widget_custom_texts: z.record(z.record(z.string().max(200))).nullable().optional(),
@@ -1829,7 +1832,16 @@ callCenterRouter.get('/agent-status', async (req, res) => {
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
   const { data } = await sb.from('operator_call_availability').select('*').eq('workspace_id', wid);
-  res.json({ agents: data || [] });
+  // The status routing, the ring and the call widget read is the call
+  // center's own (call_center_agent_presence): it wins wherever it exists,
+  // so the header shows what visitors and callers actually get.
+  const { data: presence } = await sb.from('call_center_agent_presence').select('user_id, status').eq('workspace_id', wid);
+  const byUser = new Map<string, Record<string, unknown>>();
+  for (const row of (data || []) as Record<string, unknown>[]) byUser.set(String(row.user_id), row);
+  for (const row of (presence || []) as { user_id: string; status: string }[]) {
+    byUser.set(String(row.user_id), { ...(byUser.get(String(row.user_id)) || { workspace_id: wid, user_id: row.user_id }), status: row.status });
+  }
+  res.json({ agents: [...byUser.values()] });
 });
 
 callCenterRouter.post('/agent-status', async (req, res) => {
@@ -1841,6 +1853,17 @@ callCenterRouter.post('/agent-status', async (req, res) => {
   await sb.from('operator_call_availability').upsert({
     workspace_id: wid, user_id: ctx.userId, status, updated_at: new Date().toISOString(),
   }, { onConflict: 'workspace_id,user_id' });
+  // The call center status (routing, the ring, the call widget's presence):
+  // without it an operator who chose "available" here stayed offline to all three.
+  const ccStatus: PresenceStatus = (['available', 'busy', 'away', 'offline'] as const).includes(status as PresenceStatus)
+    ? status as PresenceStatus
+    : 'offline';
+  try {
+    await updateMyAgentPresence(ctx.config, wid, ctx.userId, ccStatus);
+  } catch (e) {
+    return res.status(500).json({ error: 'update_failed', message: e instanceof Error ? e.message : String(e) });
+  }
+  publishCacheInvalidation([`callpresence:${wid}`]);
   await publishQueueEvent(ctx.config, wid, 'agent_status_changed', { user_id: ctx.userId, status });
   res.json({ ok: true });
 });

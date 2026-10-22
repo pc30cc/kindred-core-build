@@ -168,7 +168,7 @@
         upd: function (c2) {
           var staffed = H.staffed(c2);
           toggle(dot, 'off', !staffed);
-          setText(st, !c2.isOnline() ? t('callback_desk') : staffed ? t('operators_available') : t('no_operator_now'));
+          setText(st, !c2.isOnline() ? t(cfg().offline_behavior !== 'show_message' && caps().callback ? 'callback_desk' : 'offline') : staffed ? t('operators_available') : t('no_operator_now'));
         },
       };
     }
@@ -497,7 +497,10 @@
       var fields = [];
       var known = identified() && !ui.editingContact;
       var list = ((boot().departments || {})[video ? 'video' : 'voice']) || [];
-      var schema = Array.isArray(c.pre_call_form_schema) ? c.pre_call_form_schema : [];
+      // The form switched off: this screen is only the consent, the notice or
+      // the department choice, so no contact or schema field is drawn.
+      var formOn = !!c.pre_call_form_enabled;
+      var schema = formOn && Array.isArray(c.pre_call_form_schema) ? c.pre_call_form_schema : [];
       if (schema.length && known) schema = schema.filter(function (x) { return !BUILT_IN[x.id] || x.id === 'subject'; });
       var fm = el('div', { class: 'fm' });
       if (list.length) fm.appendChild(deptChips(list));
@@ -527,7 +530,7 @@
             grp = null;
           }
         });
-      } else {
+      } else if (formOn) {
         if (!known) fm.appendChild(contactGroup(false, fields));
         var subj = field({ label: t('subject'), type: 'text' }, function () { return fd().subject; }, function (v) { fd().subject = v; }, false);
         fields.push(subj);
@@ -654,10 +657,12 @@
     function offline(ctrl) {
       var ups = [];
       var can = cfg().offline_behavior !== 'show_message' && !!caps().callback;
+      // Without a callback to offer (show_message, or callbacks off) the
+      // offline message, never the callback request's words.
       var ctr = el('div', { class: 'ctr' }, [
         el('span', { class: 'oi2' }, [svg('phone-in', 34, 1.7), el('span', { class: 'moon' }, [svg('moon', 16, 1.9)])]),
-        el('h3', {}, [t('leave_callback_request')]),
-        el('p', {}, [t('offline_copy')]),
+        el('h3', {}, [t(can ? 'leave_callback_request' : 'offline_title')]),
+        el('p', {}, [t(can ? 'offline_copy' : 'offline_message')]),
         can ? el('div', { class: 'vstack' }, [btn('pri full', 'callback', [svg('phone-in', 18, 2), t('request_callback')], function () { C.openCallback(); })]) : null,
         errSlot(ups),
         can ? el('p', { class: 'inl' }, [svg('clock', 15, 1.9), t('reach_out', { when: t('asap') })]) : null,

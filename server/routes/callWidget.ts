@@ -645,6 +645,9 @@ async function computePublicBootstrap(
       .from('workspace_departments')
       .select('id, name, sort_order, cc_voice_enabled, cc_video_enabled, cc_callback_enabled')
       .eq('workspace_id', ws.workspace_id)
+      // A switched-off department is never offered (Team & Departments, and
+      // the settings page's preview, leave it out too).
+      .eq('enabled', true)
       .or('cc_voice_enabled.eq.true,cc_video_enabled.eq.true,cc_callback_enabled.eq.true')
       .order('sort_order', { ascending: true });
     const safeDept = (r) => ({ id: r.id, name: r.name, sort_order: r.sort_order ?? 0 });

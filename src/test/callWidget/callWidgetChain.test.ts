@@ -438,15 +438,26 @@ describe('settings chain: dashboard → PUT → bootstrap → widget (Iranian ed
     const away = await bootstrap();
     expect(away.presence).toEqual({ any_available: false, operators: [] });
     const m2 = visit(away);
-    // operator_face without a named operator is the default launcher, its status dot off (online but unstaffed, D17).
+    // Nobody available: the widget is offline (owner 2026-10-21), the default launcher's dot off.
     expect(m2.q('.ln-cl')).not.toBeNull();
     expect(m2.q('.ln-cl .ls.off')).not.toBeNull();
     m2.open();
-    expect(m2.screenId()).toBe('home');
-    expect(m2.q('[data-screen="home"] .hd .dot.off')).not.toBeNull();
-    expect(m2.q('[data-screen="home"] .hd .st')!.textContent).toBe(m2.ctrl.t('no_operator_now'));
-    // The calls still queue: the tiles stay.
-    expect(m2.q('[data-screen="home"] [data-action="voice"]')).not.toBeNull();
+    expect(m2.screenId()).toBe('offline');
+    expect(m2.q('[data-action="voice"]')).toBeNull();
+
+    // The Call Center header's "Set available" (POST /agent-status) is the
+    // status routing and the widget read: the next page view is online again,
+    // and the header reads it back.
+    db.operator_call_availability = db.operator_call_availability || [];
+    const set = await consoleOf(A).post(`/api/call-center/agent-status?workspaceId=${WS}`, { status: 'available' });
+    expect(set.status).toBe(200);
+    const back = await bootstrap();
+    expect((back.presence as { any_available: boolean }).any_available).toBe(true);
+    const m3 = visit(back);
+    m3.open();
+    expect(m3.screenId()).toBe('home');
+    const header = await consoleOf(A).get(`/api/call-center/agent-status?workspaceId=${WS}`);
+    expect((header.body as { agents: { user_id: string; status: string }[] }).agents.find((x) => x.user_id === A)?.status).toBe('available');
   });
 });
 

@@ -1,5 +1,5 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterSettings, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
+import { useCallCenterAgentPresence, useCallCenterSettings, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Panel, SectionHeading } from '@/features/calls/callCenterUi';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import {
   CALLBACK_HOURS_LIMITS,
   callCenterApi,
   callWidgetDesignPatch,
+  cleanCallWidgetTexts,
+  cleanCallWidgetTheme,
   defaultCallbackHours,
   effectiveCallWidgetLocales,
   isCallbackHoursStrict,
@@ -74,6 +76,7 @@ import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 // surfaced as options here.
 import { useQuery } from '@tanstack/react-query';
 import { listDepartments } from '@/lib/workspace-departments-api';
+import { CALLBACK_TEXT_KEYS, WIDGET_TEXT_GROUPS, WIDGET_TEXT_KEYS, WIDGET_TEXT_MAX } from '@/lib/callWidgetTexts';
 import { useTranslation } from '@/i18n';
 import { SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
 
@@ -147,6 +150,13 @@ export default function CallCenterSettingsPage() {
   const ccDepartments = allDepartments.filter(
     (d) => d.enabled && (d.cc_voice_enabled || d.cc_video_enabled || d.cc_callback_enabled),
   );
+  // The preview's departments per channel, in the bootstrap's shape and order.
+  const previewDepartments = useMemo<PreviewDepartments>(() => {
+    const sorted = [...ccDepartments].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const pick = (on: (d: (typeof sorted)[number]) => boolean | undefined) =>
+      sorted.filter((d) => on(d)).map((d) => ({ id: d.id, name: d.name, sort_order: d.sort_order ?? 0 }));
+    return { voice: pick((d) => d.cc_voice_enabled), video: pick((d) => d.cc_video_enabled), callback: pick((d) => d.cc_callback_enabled) };
+  }, [ccDepartments]);
   const qc = useQueryClient();
   const { edition, isInternational } = useEdition();
   // The chat widget's side (the stacking hint) and logo direction (the
@@ -159,6 +169,8 @@ export default function CallCenterSettingsPage() {
   const [original, setOriginal] = useState<SettingsDraft | null>(null);
   const [previewOnline, setPreviewOnline] = useState(true);
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>('desktop');
+  // The language the texts editor edits; the preview shows the widget in it.
+  const [textLocale, setTextLocale] = useState<string | null>(null);
   const [tab, setTab] = useState('general');
 
   useEffect(() => {
@@ -179,9 +191,13 @@ export default function CallCenterSettingsPage() {
       'widget_template_id', 'widget_theme', 'pre_call_form_schema',
       'business_hours', 'launcher_style', 'callback_slots_enabled',
       'callback_slot_minutes', 'callback_days_ahead', 'callback_slot_capacity',
+      'allow_visitor_department_choice',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
+
+  // Who is available now (the Availability tab): the widget is offline while nobody is.
+  const { data: presenceData } = useCallCenterAgentPresence(workspace?.id);
 
   if (isLoading || !s) {
     return (
@@ -203,6 +219,15 @@ export default function CallCenterSettingsPage() {
   const platformRecording = !!platform?.call_recording_enabled;
   const planRecording = !!data?.recording?.enabled_by_plan;
   const showRecordingTab = platformRecording && planRecording;
+  // Offline: the channels are off or nobody is available (public/call-widget/runtime.js isOnline).
+  const availableNow = presenceData
+    ? (presenceData.presence || []).filter((p) => p.status === 'available').length
+    : null;
+  // "Show callback request" only while visitors can request one; a stored
+  // choice without callbacks behaves as the offline message (the widget's rule).
+  const callbackAvailable = platformCallback && s?.callback_enabled !== false;
+  const offlineCallbackOff = !callbackAvailable && (s?.offline_behavior || 'show_callback') === 'show_callback';
+  const offlineChoice = offlineCallbackOff ? 'show_message' : (s?.offline_behavior || 'show_callback');
 
   /** The loaded settings have this migration-277 key (the backend and its database have 277). */
   const designLoaded = (key: CallWidgetDesignKey) =>
@@ -239,6 +264,11 @@ export default function CallCenterSettingsPage() {
       toast({ title: t('callCenter.settingsPage.callbackHoursInvalid'), variant: 'destructive' });
       return;
     }
+    const theme = cleanCallWidgetTheme(s.widget_theme);
+    if (theme.invalid) {
+      toast({ title: t('callCenter.settingsPage.colorInvalid'), description: t(`callCenter.settingsPage.${theme.invalid}Color` as 'callCenter.settingsPage.primaryColor'), variant: 'destructive' });
+      return;
+    }
     const patch: Partial<CallCenterWorkspaceSettings> = {
       enabled: s.enabled, display_name: s.display_name,
       voice_enabled: s.voice_enabled, video_enabled: s.video_enabled,
@@ -249,14 +279,21 @@ export default function CallCenterSettingsPage() {
       // what an old backend's widget reads until then).
       widget_position: s.widget_position,
       widget_template_id: s.widget_template_id || 'default',
-      widget_theme: s.widget_theme || {},
+      widget_theme: theme.theme,
       pre_call_form_schema: s.pre_call_form_schema || [],
       default_department_id: s.default_department_id ?? null,
       widget_default_locale: (s.widget_default_locale ?? null) as CallCenterWorkspaceSettings['widget_default_locale'],
       widget_enabled_locales: s.widget_enabled_locales ?? null,
-      widget_custom_texts: s.widget_custom_texts ?? {},
+      widget_custom_texts: cleanCallWidgetTexts(s.widget_custom_texts),
       operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
       ...(hoursChanged ? { business_hours: s.business_hours } : {}),
+      // Sent only when changed (a backend from before it refuses the keys).
+      // On turns both flags on (the bootstrap needs both); off, the choice only.
+      ...(!!s.allow_visitor_department_choice !== !!original.allow_visitor_department_choice
+        ? (s.allow_visitor_department_choice
+          ? { departments_enabled: true, allow_visitor_department_choice: true }
+          : { allow_visitor_department_choice: false })
+        : {}),
       // Migration 277: only what the loaded settings have and the admin changed.
       ...callWidgetDesignPatch(original, s),
     };
@@ -268,7 +305,10 @@ export default function CallCenterSettingsPage() {
         : { title: t('callCenter.settingsPage.saveFailed'), description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
       return;
     }
-    setOriginal({ ...s });
+    // The form keeps what was stored (trimmed texts, cleaned colours).
+    const saved: SettingsDraft = { ...s, widget_theme: theme.theme as Record<string, string>, widget_custom_texts: patch.widget_custom_texts };
+    setS(saved);
+    setOriginal(saved);
     toast({ title: t('callCenter.settingsPage.saved') });
   }
   function reset() { setS({ ...original }); }
@@ -380,12 +420,17 @@ export default function CallCenterSettingsPage() {
         <WidgetTextsEditor
           settings={s}
           platform={platform}
+          locale={textLocale}
+          onLocale={setTextLocale}
+          onPreviewState={(state) => setPreviewOnline(state === 'online')}
           onChange={(next) => setS({ ...s, widget_custom_texts: next })}
         />
         </Section>
         <div className="lg:sticky lg:top-4">
           <LivePreviewSection
             t={t} settings={s} platform={platform} chat={chatSettings} members={members}
+            departments={previewDepartments} recordingAvailable={platformRecording && planRecording}
+            locale={textLocale}
             previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
             device={previewDevice} setDevice={setPreviewDevice}
           />
@@ -486,6 +531,8 @@ export default function CallCenterSettingsPage() {
         <div className="lg:sticky lg:top-4">
           <LivePreviewSection
             t={t} settings={s} platform={platform} chat={chatSettings} members={members}
+            departments={previewDepartments} recordingAvailable={platformRecording && planRecording}
+            locale={textLocale}
             previewOnline={previewOnline} setPreviewOnline={setPreviewOnline}
             device={previewDevice} setDevice={setPreviewDevice}
           />
@@ -641,19 +688,38 @@ export default function CallCenterSettingsPage() {
 
       <TabsContent value="availability" className="space-y-6 mt-0">
       <Section icon={CalendarClock} title={t('callCenter.settingsPage.availabilityOffline')} description={t('callCenter.settingsPage.availabilityOfflineHint')}>
-        <Row label={t('callCenter.settingsPage.offlineBehavior')}>
-          <Select value={s.offline_behavior || 'show_callback'} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
-            <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
+        {/* Who takes calls now: the widget is offline while nobody is available. */}
+        <Row
+          label={t('callCenter.settingsPage.operatorsAvailableNow')}
+          hint={t('callCenter.settingsPage.operatorsAvailableNowHint')}
+        >
+          <span
+            data-cc-available-now={availableNow ?? ''}
+            className={cn('text-sm font-medium', availableNow === 0 ? 'text-warning' : 'text-success')}
+          >
+            {availableNow === null ? '…' : availableNow === 0
+              ? t('callCenter.settingsPage.noneAvailableNow')
+              : t('callCenter.settingsPage.availableNowCount', { count: availableNow })}
+          </span>
+        </Row>
+        <Row
+          label={t('callCenter.settingsPage.offlineBehavior')}
+          hint={offlineCallbackOff ? t('callCenter.settingsPage.offlineCallbackOff') : undefined}
+        >
+          <Select value={offlineChoice} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
+            <SelectTrigger className="w-60" data-cc-offline-behavior><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="hide">{t('callCenter.settingsPage.hideWidget')}</SelectItem>
-              {platformCallback && <SelectItem value="show_callback">{t('callCenter.settingsPage.showCallbackRequest')}</SelectItem>}
+              {callbackAvailable && <SelectItem value="show_callback">{t('callCenter.settingsPage.showCallbackRequest')}</SelectItem>}
               <SelectItem value="show_message">{t('callCenter.settingsPage.showOfflineMessage')}</SelectItem>
             </SelectContent>
           </Select>
         </Row>
       </Section>
-      {platformCallback && s.callback_enabled && (
+      {callbackAvailable ? (
         <CallbackHoursSection s={s} setS={setS} loaded={designLoaded('callback_slots_enabled')} edition={edition} />
+      ) : platformCallback && (
+        <p className="text-xs text-muted-foreground" data-cc-callback-hours-off>{t('callCenter.settingsPage.callbackHoursNeedCallbacks')}</p>
       )}
       </TabsContent>
 
@@ -698,6 +764,21 @@ export default function CallCenterSettingsPage() {
               ))}
             </SelectContent>
           </Select>
+        </Row>
+        {/* The widget's department picker: the bootstrap sends the departments
+            only while the platform allows departments and this is on. */}
+        <Row
+          label={t('callCenter.settingsPage.visitorDepartmentChoice')}
+          hint={platform?.departments_enabled
+            ? t('callCenter.settingsPage.visitorDepartmentChoiceHint')
+            : t('callCenter.settingsPage.visitorDepartmentChoiceOff')}
+        >
+          <Switch
+            data-cc-dept-choice
+            checked={!!s.allow_visitor_department_choice && !!platform?.departments_enabled}
+            disabled={!platform?.departments_enabled || ccDepartments.length === 0}
+            onCheckedChange={(v) => setS({ ...s, allow_visitor_department_choice: v })}
+          />
         </Row>
         <div className="text-xs text-muted-foreground space-y-1">
           <div><b>{t('callCenter.settingsPage.broadcastOption').split('—')[0].trim()}</b> — {t('callCenter.settingsPage.broadcastDesc')}</div>
@@ -1145,11 +1226,18 @@ function CallbackHoursSection({ s, setS, loaded, edition }: {
  * International logo direction, sample operators, slots from the draft
  * hours). Calls are off (`preview: true`).
  */
-function CallWidgetPreview({ settings, platform, chat, members, online, device }: {
+/** The bootstrap's `departments` (server/routes/callWidget.ts). */
+type PreviewDepartments = Record<'voice' | 'video' | 'callback', { id: string; name: string; sort_order: number }[]>;
+
+function CallWidgetPreview({ settings, platform, chat, members, departments, recordingAvailable, locale: shownLocale, online, device }: {
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
   chat: WidgetSettings | null | undefined;
   members: readonly WorkspaceMember[] | undefined;
+  departments: PreviewDepartments;
+  recordingAvailable: boolean;
+  /** The language to show (the texts editor's), when the widget offers it. */
+  locale: string | null;
   online: boolean;
   device: PreviewDevice;
 }) {
@@ -1174,6 +1262,7 @@ function CallWidgetPreview({ settings, platform, chat, members, online, device }
   const voiceOn = platform?.voice_calls_enabled !== false && settings.voice_enabled !== false;
   const videoOn = platform?.video_calls_enabled !== false && settings.video_enabled !== false;
   const locales = effectiveCallWidgetLocales(platform, settings);
+  const recordingOn = recordingAvailable && !!settings.recording_enabled;
   const schedule = settings.callback_slots_enabled === true && callbackOn ? scheduleOf(settings.business_hours) : null;
   const slots = schedule && callbackHoursHaveInterval(schedule)
     ? computeCallbackSlots({
@@ -1233,8 +1322,8 @@ function CallWidgetPreview({ settings, platform, chat, members, online, device }
       voice: online && voiceOn,
       video: online && videoOn,
       callback: callbackOn,
-      recording: false,
-      operator_video_visible: true,
+      recording: recordingOn,
+      operator_video_visible: settings.operator_video_visible_to_visitor !== false,
     },
     // Staffed while previewed online; names only for the styles that show them.
     presence: online
@@ -1247,10 +1336,17 @@ function CallWidgetPreview({ settings, platform, chat, members, online, device }
       min_message_length: platform?.callback_min_message_length ?? 0,
       ...(slots ? { slots } : {}),
     },
-    departments: { voice: [], video: [], callback: [] },
-    recording: { effective_enabled: false },
+    // As the bootstrap gates them (server/routes/callWidget.ts): the
+    // departments only while visitors may choose, recording as configured.
+    departments: settings.allow_visitor_department_choice && platform?.departments_enabled
+      ? departments
+      : { voice: [], video: [], callback: [] },
+    recording: { effective_enabled: recordingOn, consent_required: recordingOn && !!settings.recording_consent_required },
     // The languages the bootstrap would give (the platform's while the workspace chose none).
-    i18n: { default_locale: locales.default_locale, available_locales: locales.available },
+    i18n: {
+      default_locale: shownLocale && locales.available.includes(shownLocale) ? shownLocale : locales.default_locale,
+      available_locales: locales.available,
+    },
   };
   // Inert JSON in its own script element: "<" is escaped, so no value can end it.
   const data = JSON.stringify(bootstrap).replace(/</g, '\\u003c');
@@ -1313,13 +1409,16 @@ function ScaledPreviewFrame({ device, srcDoc, frameKey }: { device: PreviewDevic
 }
 
 function LivePreviewSection({
-  t, settings, platform, chat, members, previewOnline, setPreviewOnline, device, setDevice,
+  t, settings, platform, chat, members, departments, recordingAvailable, locale, previewOnline, setPreviewOnline, device, setDevice,
 }: {
   t: ReturnType<typeof useTranslation>['t'];
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
   chat: WidgetSettings | null | undefined;
   members: readonly WorkspaceMember[] | undefined;
+  departments: PreviewDepartments;
+  recordingAvailable: boolean;
+  locale: string | null;
   previewOnline: boolean;
   setPreviewOnline: (v: boolean) => void;
   device: PreviewDevice;
@@ -1357,43 +1456,14 @@ function LivePreviewSection({
       </div>
       <CallWidgetPreview
         settings={settings} platform={platform} chat={chat} members={members}
-        online={previewOnline} device={device}
+        departments={departments} recordingAvailable={recordingAvailable}
+        locale={locale} online={previewOnline} device={device}
       />
     </Section>
   );
 }
 
 // ── Widget text overrides editor ──────────────────────────────
-const CALLBACK_TEXT_KEYS = new Set([
-  'callback', 'leave_details', 'callback_desk',
-  'leave_callback_request', 'offline_copy',
-  'request_callback', 'request_callback_instead', 'callback_intro',
-]);
-
-/**
- * The widget texts an owner may override, with the widget's own copy as the
- * placeholder (public/call-widget/runtime.js I18N, the 2026-10 design).
- */
-const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
-  { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
-  { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },
-  { key: 'callback',            label: 'Launcher text (offline)',    placeholder: { en: 'Callback',            fa: 'درخواست تماس',        tr: 'Geri arama' } },
-  { key: 'leave_details',       label: 'Launcher subtitle (offline)',placeholder: { en: 'Leave details',       fa: 'ثبت اطلاعات',         tr: 'Bilgilerini bırak' } },
-  { key: 'launcher_pill',       label: 'Pill launcher text',         placeholder: { en: 'Call support',        fa: 'تماس با پشتیبانی',    tr: 'Desteği ara' } },
-  { key: 'launcher_tab',        label: 'Edge tab text',              placeholder: { en: 'Call us',             fa: 'تماس با ما',          tr: 'Bizi arayın' } },
-  { key: 'operators_available', label: 'Header subtitle (online)',   placeholder: { en: 'Operators available', fa: 'اپراتورها آماده‌اند', tr: 'Operatörler müsait' } },
-  { key: 'callback_desk',       label: 'Header subtitle (offline)',  placeholder: { en: 'Callback desk',       fa: 'میز درخواست تماس',    tr: 'Geri arama masası' } },
-  { key: 'talk_to_team',        label: 'Hero title (online)',        placeholder: { en: 'Talk to our team',    fa: 'با تیم ما صحبت کنید', tr: 'Ekibimizle konuşun' } },
-  { key: 'online_copy',         label: 'Hero subtitle (online)',     placeholder: { en: 'Start a secure voice or video call with the next available operator.', fa: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.', tr: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.' } },
-  { key: 'leave_callback_request', label: 'Hero title (offline)',    placeholder: { en: 'Leave a callback request', fa: 'درخواست تماس ثبت کنید', tr: 'Geri arama isteği bırakın' } },
-  { key: 'offline_copy',        label: 'Hero subtitle (offline)',    placeholder: { en: 'Our team is offline right now, but we can call you back.', fa: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', tr: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.' } },
-  { key: 'voice_call',          label: 'Voice call button',          placeholder: { en: 'Voice call',          fa: 'تماس صوتی',           tr: 'Sesli arama' } },
-  { key: 'video_call',          label: 'Video call button',          placeholder: { en: 'Video call',          fa: 'تماس تصویری',         tr: 'Görüntülü arama' } },
-  { key: 'request_callback',    label: 'Callback button',            placeholder: { en: 'Request callback',    fa: 'درخواست تماس',        tr: 'Geri arama iste' } },
-  { key: 'request_callback_instead', label: 'Home callback row title', placeholder: { en: 'Request a callback', fa: 'درخواست تماس', tr: 'Geri arama iste' } },
-  { key: 'callback_intro',      label: 'Home callback row subtitle', placeholder: { en: 'Tell us how to reach you and our team calls back fast.', fa: 'راه ارتباطی را وارد کنید؛ تیم ما سریع تماس می‌گیرد.', tr: 'Size nasıl ulaşacağımızı yazın; ekibimiz hızlıca geri arar.' } },
-];
-
 const LOC_LABELS_FULL: Record<string, string> = {
   en: 'English', fa: 'فارسی', tr: 'Türkçe',
 };
@@ -1535,23 +1605,29 @@ function CheckRow({ ok, label }: { ok: boolean; label: string }) {
 function WidgetTextsEditor({
   settings,
   platform,
+  locale: wanted,
+  onLocale,
+  onPreviewState,
   onChange,
 }: {
   settings: SettingsDraft;
   platform: Partial<CallCenterPlatformSettings> | null | undefined;
+  /** The language being edited (shared with the live preview). */
+  locale: string | null;
+  onLocale: (locale: string) => void;
+  /** The preview shows the state of the field being edited. */
+  onPreviewState: (state: 'online' | 'offline') => void;
   onChange: (next: Record<string, Record<string, string>>) => void;
 }) {
   const { t } = useTranslation();
-  const platformAvail: string[] = platform?.widget_available_locales || ['en'];
-  const enabled: string[] = (settings.widget_enabled_locales && settings.widget_enabled_locales.length > 0)
-    ? settings.widget_enabled_locales.filter((l: string) => platformAvail.includes(l))
-    : platformAvail;
-  const [locale, setLocale] = useState<string>(enabled[0] || 'en');
-  useEffect(() => { if (!enabled.includes(locale)) setLocale(enabled[0] || 'en'); }, [enabled.join(','), locale]);
+  // The visitor's languages exactly as the bootstrap gives them.
+  const locales = effectiveCallWidgetLocales(platform, settings);
+  const enabled = locales.available;
+  const locale = wanted && enabled.includes(wanted) ? wanted : locales.default_locale;
 
   const all: Record<string, Record<string, string>> = settings.widget_custom_texts || {};
   const current = all[locale] || {};
-  const callbackOn = platform?.callback_requests_enabled !== false;
+  const callbackOn = platform?.callback_requests_enabled !== false && settings.callback_enabled !== false;
   const visibleKeys = WIDGET_TEXT_KEYS.filter((k) => callbackOn || !CALLBACK_TEXT_KEYS.has(k.key));
 
   function setField(key: string, val: string) {
@@ -1565,45 +1641,58 @@ function WidgetTextsEditor({
   }
 
   const isRtl = locale === 'fa';
+  const label = (key: string, fallback: string) => {
+    // Translated field name when the locale bundle has one; the English
+    // constant stays as the fallback so a missing key never shows a path.
+    const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
+    const translated = (t as unknown as (k: string) => string)(tk);
+    return translated === tk ? fallback : translated;
+  };
 
   return (
-    <div className="pt-3 border-t space-y-3">
+    <div className="pt-3 border-t space-y-3" data-cc-texts>
       <div className="flex items-center justify-between gap-3">
         <div>
           <Label>{t('callCenter.settingsPage.widgetLabelOverrides')}</Label>
           <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.widgetLabelOverridesHint')}</p>
         </div>
-        <Select value={locale} onValueChange={setLocale}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {enabled.map((c) => (
-              <SelectItem key={c} value={c}>{LOC_LABELS_FULL[c] || c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {enabled.length > 1 && (
+          <Select value={locale} onValueChange={onLocale}>
+            <SelectTrigger className="w-40" data-cc-texts-locale><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {enabled.map((c) => (
+                <SelectItem key={c} value={c}>{LOC_LABELS_FULL[c] || c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {visibleKeys.map(({ key, label, placeholder }) => {
-          // Translated field name when the locale bundle has one; the English
-          // constant stays as the fallback so a missing key never shows a path.
-          const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
-          const translated = (t as unknown as (k: string) => string)(tk);
-          const fieldLabel = translated === tk ? label : translated;
-          return (
-          <div key={key} className="space-y-1">
-            <Label className="text-xs">{fieldLabel}</Label>
-
-            <Input
-              value={current[key] || ''}
-              onChange={(e) => setField(key, e.target.value)}
-              placeholder={placeholder[locale] || placeholder.en}
-              dir={isRtl ? 'rtl' : 'ltr'}
-            />
+      {WIDGET_TEXT_GROUPS.map((group) => {
+        const keys = visibleKeys.filter((k) => k.group === group);
+        if (!keys.length) return null;
+        return (
+          <div key={group} className="space-y-2" data-cc-texts-group={group}>
+            <p className="text-xs font-medium text-muted-foreground">{t(`callCenter.settingsPage.widgetTextGroups.${group}` as 'callCenter.settingsPage.widgetTextGroups.launcher')}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {keys.map(({ key, state, label: fallback, placeholder }) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs" htmlFor={`cc-text-${key}`}>{label(key, fallback)}</Label>
+                  <Input
+                    id={`cc-text-${key}`}
+                    data-cc-text={key}
+                    value={current[key] || ''}
+                    onChange={(e) => setField(key, e.target.value)}
+                    onFocus={() => onPreviewState(state)}
+                    placeholder={placeholder[locale] || placeholder.en}
+                    maxLength={WIDGET_TEXT_MAX}
+                    dir={isRtl ? 'rtl' : 'ltr'}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-          );
-        })}
-
-      </div>
+        );
+      })}
     </div>
   );
 }

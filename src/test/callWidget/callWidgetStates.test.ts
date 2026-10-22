@@ -162,6 +162,24 @@ describe('offline behaviours', () => {
     m.open();
     expect(m.screenId()).toBe('offline');
     expect(m.q('[data-screen="offline"] [data-action="callback"]')).toBeNull();
+    // The offline message, never the callback request's words.
+    expect(m.q('[data-screen="offline"] h3')!.textContent).toBe(m.ctrl.t('offline_title'));
+    expect(m.q('[data-screen="offline"] p')!.textContent).toBe(m.ctrl.t('offline_message'));
+    expect(m.q('.hd .st')!.textContent).toBe(m.ctrl.t('offline'));
+  });
+  it('show_callback with callbacks switched off: no callback offered anywhere', () => {
+    const m = mountCallWidget({ bootstrap: { capabilities: { voice: false, video: false, callback: false }, config: { offline_behavior: 'show_callback' } } });
+    expect(m.q('.lbl b')!.textContent).toBe(m.ctrl.t('support'));
+    expect(m.q('.ccw-launcher-btn')!.getAttribute('aria-label')).not.toBe(m.ctrl.t('callback'));
+    m.open();
+    expect(m.q('[data-screen="offline"] [data-action="callback"]')).toBeNull();
+    expect(m.q('[data-screen="offline"] h3')!.textContent).toBe(m.ctrl.t('offline_title'));
+  });
+  it('the offline message is the owner\'s own words when set', () => {
+    const m = mountCallWidget({ locale: 'fa', bootstrap: { ...off, config: { offline_behavior: 'show_message', custom_texts: { fa: { offline_title: 'تعطیل هستیم', offline_message: 'ساعت کاری ۹ تا ۱۷' } } } } });
+    m.open();
+    expect(m.q('[data-screen="offline"] h3')!.textContent).toBe('تعطیل هستیم');
+    expect(m.q('[data-screen="offline"] p')!.textContent).toBe('ساعت کاری ۹ تا ۱۷');
   });
   it('hide: launcher and panel hidden while offline only', () => {
     const m = mountCallWidget({ bootstrap: { ...off, config: { offline_behavior: 'hide' } } });
@@ -194,16 +212,63 @@ describe('the light screens draw what their state holds', () => {
     expect(css).toMatch(/\n\[dir="rtl"\] \.badge \.chn b \{ font-weight: 400; margin-inline: \.01875em; \}/);
   });
 
-  it('an online team nobody staffs: off dots and "no operator now", the tiles stay (D17)', () => {
-    const m = opened({ locale: 'en', legacy: false }, { presence: { any_available: false } });
-    expect(m.q('[data-screen="home"] .hd .st')!.textContent).toBe('No operator available right now');
-    expect(m.q('[data-screen="home"] .hd .dot')!.classList.contains('off')).toBe(true);
-    expect(m.q('.ccw-launcher-btn .ls')!.classList.contains('off')).toBe(true);
-    expect(m.qa('.opts .opt')).toHaveLength(2);
+  it('channels on but nobody available: the widget is offline, and the workspace\'s offline behaviour applies (D17, owner 2026-10-21)', () => {
+    const none = { presence: { any_available: false } };
+    const m = opened({ locale: 'en', legacy: false }, none);
+    expect(m.ctrl.state).toBe('offline');
+    expect(m.screenId()).toBe('offline');
+    expect(m.q('.ccw-launcher-btn')!.classList.contains('off')).toBe(true);
+    expect(m.qa('[data-action="voice"], [data-action="video"]')).toHaveLength(0);
+    const hidden = mountCallWidget({ bootstrap: { ...none, config: { offline_behavior: 'hide' } } });
+    expect((hidden.q('.ccw-launcher-wrap') as HTMLElement).hidden).toBe(true);
+    const message = opened({ locale: 'en', legacy: false }, { ...none, config: { offline_behavior: 'show_message' } });
+    expect(message.q('[data-screen="offline"] h3')!.textContent).toBe(message.ctrl.t('offline_title'));
+    // A server from before presence: the channels alone decide, as before.
+    expect(opened({ locale: 'en', legacy: true }).ctrl.state).not.toBe('offline');
+  });
+
+  it('offline because nobody is available: asks again each minute and comes online when an operator does (never in the preview)', async () => {
+    const ticks: Array<() => void> = [];
+    const setup = (win: Mounted['win']) => {
+      const real = win.setInterval.bind(win);
+      (win as unknown as { setInterval: (f: () => void, ms: number) => number }).setInterval = (f, ms) => (ms === 60000 ? (ticks.push(f), ticks.length) : real(f, ms));
+    };
+    let answer = { status: 'ok', presence: { any_available: false } };
+    const urls: string[] = [];
+    const fetch = async (url: string) => { urls.push(url); return { ok: true, status: 200, json: async () => answer, headers: { get: () => null } }; };
+    const m = mountCallWidget({ bootstrap: { presence: { any_available: false } }, setup, fetch });
+    expect(m.ctrl.state).toBe('offline');
+    expect(ticks).toHaveLength(1);
+    ticks[0]();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(urls.filter((u) => u.includes('/api/call-widget/bootstrap?workspaceId='))).toHaveLength(1);
+    expect(m.ctrl.state).toBe('offline');
+    answer = { status: 'ok', presence: { any_available: true } };
+    ticks[0]();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(m.ctrl.state).toBe('online_available');
+    m.open();
+    expect(m.screenId()).toBe('home');
+    // The dashboard's preview never asks.
+    ticks.length = 0;
+    mountCallWidget({ bootstrap: { presence: { any_available: false } }, setup });
+    expect(ticks).toHaveLength(0);
+  });
+
+  it('pre-call with the form switched off: only the consent, no contact or schema field', () => {
+    const m = opened({ locale: 'en', legacy: false }, {
+      config: { pre_call_form_enabled: false, pre_call_form_schema: [{ id: 'account_id', type: 'text', label: 'Account ID', required: true }] },
+      recording: { effective_enabled: true, consent_required: true },
+    });
+    m.click('[data-action="voice"]');
+    expect(m.screenId()).toBe('precall');
+    expect(m.qa('[data-screen="precall"] input:not([type="checkbox"]):not([tabindex="-1"])')).toHaveLength(0);
+    expect(m.q('[data-screen="precall"]')!.textContent).not.toContain('Account ID');
+    expect(m.q('[data-screen="precall"]')!.textContent).toContain('being recorded');
   });
 
   it('pre-call: an identified visitor sees the saved contact; Edit shows the fields', () => {
-    const m = opened({ locale: 'en', legacy: false }, { visitor: { contact: { id: 'k1', name: 'Ali Rezaei', email: 'ali@example.com' } }, recording: { effective_enabled: true, consent_required: true } });
+    const m = opened({ locale: 'en', legacy: false }, { config: { pre_call_form_enabled: true }, visitor: { contact: { id: 'k1', name: 'Ali Rezaei', email: 'ali@example.com' } }, recording: { effective_enabled: true, consent_required: true } });
     m.click('[data-action="video"]');
     expect(m.screenId()).toBe('precall');
     expect(m.q('[data-screen="precall"] .known b')!.textContent).toBe('Ali Rezaei');
@@ -1656,11 +1721,9 @@ describe('the engine\'s round-3 fields, end to end (the real runtime, a fake ser
     expect(m.q('.ccw-launcher-wrap .sched')).not.toBeNull();
   });
 
-  it('E2: Skip on the rating sends nothing and goes home; presence (nobody available) reads in the header while the call tiles stay', async () => {
-    const { m, c, api } = engine(undefined, { bootstrap: { presence: { any_available: false } } });
+  it('E2: Skip on the rating sends nothing and goes home', async () => {
+    const { m, c, api } = engine();
     m.open();
-    expect(m.q('[data-screen="home"] .hd .st')!.textContent).toBe('No operator available right now');
-    expect(m.q('[data-screen="home"] .hd .dot')!.classList.contains('off')).toBe(true);
     expect(m.qa('[data-screen="home"] .opt')).toHaveLength(2);
     m.set({ state: 'ended', endedCallId: 'c1', endedDuration: 134 });
     expect(m.screenId()).toBe('rating');

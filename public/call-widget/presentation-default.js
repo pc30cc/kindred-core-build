@@ -604,7 +604,8 @@
     var cfg = cfgOf();
     var caps = (ctrl.bootstrap && ctrl.bootstrap.capabilities) || {};
     var online = ctrl.isOnline();
-    var cb = !online && (cfg.offline_behavior || 'show_callback') === 'show_callback';
+    // The callback words only while a callback can be requested (the panel's own rule).
+    var cb = !online && !!caps.callback && (cfg.offline_behavior || 'show_callback') === 'show_callback';
     var staff = staffed(ctrl);
     var left = / ?left/.test(placement());
     var ic = online ? 'phone' : 'phone-in';

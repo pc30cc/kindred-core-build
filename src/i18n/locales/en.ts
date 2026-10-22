@@ -8055,7 +8055,7 @@ const en = {
       retentionHint: 'Visitor sessions, page history, analytics events and Smart Engagement records older than this are deleted permanently. Conversations and contacts are not affected.',
       retentionDefault: 'Platform default ({{period}})',
       retentionDefaultUnknown: 'Platform default',
-      retentionOff: 'The platform\'s data retention is currently paused, so nothing is deleted yet.',
+      retentionOff: 'Deleting old visitor data is not turned on for the platform yet, so nothing is deleted. The period you choose applies once it is.',
       months: '{{count}} months',
       month: '1 month',
       year: '1 year',

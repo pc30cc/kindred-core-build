@@ -8038,7 +8038,7 @@ const tr: TranslationKeys = {
       retentionHint: 'Bundan eski ziyaretçi oturumları, sayfa geçmişi, analiz olayları ve Akıllı Etkileşim kayıtları kalıcı olarak silinir. Sohbetler ve kişiler etkilenmez.',
       retentionDefault: 'Platform varsayılanı ({{period}})',
       retentionDefaultUnknown: 'Platform varsayılanı',
-      retentionOff: 'Platformun veri saklama işlemi şu anda duraklatıldı, bu yüzden henüz hiçbir şey silinmiyor.',
+      retentionOff: 'Eski ziyaretçi verilerinin silinmesi platformda henüz açılmadı, bu yüzden hiçbir şey silinmiyor. Seçtiğiniz süre açıldığında uygulanır.',
       months: '{{count}} ay',
       month: '1 ay',
       year: '1 yıl',

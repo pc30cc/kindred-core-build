@@ -10,13 +10,17 @@
  *       period of 30..1095 days, a line of at most 300 characters, an https
  *       policy link);
  *   T2  the five visitor tracking policies are seeded rolling, 395 days,
- *       enabled and workspace-overridable; a policy the Super Admin tuned is
- *       kept when the file runs again, and the file runs twice cleanly;
- *   T3  a sweep (visitorRetention.ts) deletes each workspace's rows older
- *       than its own period, else 13 months, and nothing newer: a preview
- *       counts without deleting; a deleted session takes its page views and
- *       presence along, unlinks its analytics events, and its conversation
- *       keeps its messages; every run is recorded;
+ *       workspace-overridable and DISABLED; a policy the Super Admin tuned
+ *       or enabled is kept when the file runs again, and the file runs twice
+ *       cleanly;
+ *   T3  while the policies are as seeded, a sweep (visitorRetention.ts)
+ *       deletes nothing and opens no run, however old the rows; once a
+ *       Super Admin enables them (the engine's updatePolicy, what Data
+ *       retention's switch calls), a sweep deletes each workspace's rows
+ *       older than its own period, else 13 months, and nothing newer: a
+ *       preview counts without deleting; a deleted session takes its page
+ *       views and presence along, unlinks its analytics events, and its
+ *       conversation keeps its messages; every run is recorded;
  *   T4  a disabled policy deletes nothing, and the functions refuse a
  *       policy that is not a workspace-overridable rolling one.
  *
@@ -96,12 +100,14 @@ suite('281 — visitor privacy: consent, the forms\' line, retention (real Postg
                           FROM public.data_retention_policies WHERE policy_key = ANY($1) ORDER BY policy_key`, [KEYS]);
     expect(rows.map((r) => r.policy_key)).toEqual(KEYS);
     for (const r of rows) {
-      expect(r).toMatchObject({ table_name: r.policy_key, retention_mode: 'rolling', hot_retention_days: 395, enabled: true, workspace_overridable: true, category: 'analytics' });
+      expect(r).toMatchObject({ table_name: r.policy_key, retention_mode: 'rolling', hot_retention_days: 395, enabled: false, workspace_overridable: true, category: 'analytics' });
     }
-    await q(`UPDATE public.data_retention_policies SET hot_retention_days = 200 WHERE policy_key = 'web_analytics_events'`);
+    await q(`UPDATE public.data_retention_policies SET hot_retention_days = 200, enabled = true WHERE policy_key = 'web_analytics_events'`);
     await applyMigrationSql(chain.db, readFileSync(FILE, 'utf8'));
-    expect(await n(`SELECT hot_retention_days AS n FROM public.data_retention_policies WHERE policy_key = 'web_analytics_events'`)).toBe(200);
-    await q(`UPDATE public.data_retention_policies SET hot_retention_days = 395 WHERE policy_key = 'web_analytics_events'`);
+    expect((await q(`SELECT hot_retention_days, enabled FROM public.data_retention_policies WHERE policy_key = 'web_analytics_events'`))[0])
+      .toEqual({ hot_retention_days: 200, enabled: true });
+    expect(await n(`SELECT count(*) AS n FROM public.data_retention_policies WHERE policy_key = ANY($1) AND enabled`, [KEYS])).toBe(1);
+    await q(`UPDATE public.data_retention_policies SET hot_retention_days = 395, enabled = false WHERE policy_key = 'web_analytics_events'`);
     expect(await n(`SELECT count(*) AS n FROM pg_index WHERE indexrelid = 'public.widget_smart_events_ws_created_idx'::regclass AND indisvalid`)).toBe(1);
   });
 
@@ -129,12 +135,24 @@ suite('281 — visitor privacy: consent, the forms\' line, retention (real Postg
     await q(`INSERT INTO public.conversations (id, workspace_id, visitor_session_id) VALUES ($1, $2, $3)`, [conversation, wsShort, sessions['short-old']]);
     await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'contact', 'سلام')`, [conversation]);
 
-    const { runPolicy } = await import('../../../server/services/retention/retentionService.js');
+    const { runPolicy, updatePolicy } = await import('../../../server/services/retention/retentionService.js');
+    const { sweepVisitorDataRetention } = await import('../../../server/services/privacy/visitorRetention.js');
+
+    // As seeded (disabled): the backend's own sweep does nothing at all.
+    const counts = async () => Promise.all(KEYS.map((k) => n(`SELECT count(*) AS n FROM public.${k}`)));
+    const before = await counts();
+    expect(await sweepVisitorDataRetention(config)).toEqual(Object.fromEntries(KEYS.map((k) => [k, 'skipped'])));
+    expect(await counts()).toEqual(before);
+    expect(await n(`SELECT count(*) AS n FROM public.data_retention_runs WHERE policy_key = ANY($1)`, [KEYS])).toBe(0);
+    expect(await n(`SELECT count(*) AS n FROM public.data_retention_policies WHERE policy_key = ANY($1) AND last_run_at IS NOT NULL`, [KEYS])).toBe(0);
+
+    // A Super Admin turns them on (Super Admin → Data retention).
+    for (const k of KEYS) await updatePolicy(config, k, { enabled: true });
+
     const preview = await runPolicy(config, 'visitor_sessions', { dryRun: true, triggeredBy: 'test' });
     expect(preview).toMatchObject({ status: 'completed', rowsMatched: 2, rowsDeleted: 0 });
     expect(await n(`SELECT count(*) AS n FROM public.visitor_sessions`)).toBe(4);
 
-    const { sweepVisitorDataRetention } = await import('../../../server/services/privacy/visitorRetention.js');
     const out = await sweepVisitorDataRetention(config);
     expect(out).toEqual(Object.fromEntries(KEYS.map((k) => [k, 'completed'])));
 

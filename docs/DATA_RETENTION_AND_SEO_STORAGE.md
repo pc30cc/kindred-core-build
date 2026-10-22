@@ -3,7 +3,7 @@
 Two independent subsystems, introduced by `database/migrations/169_data_retention.sql`
 and `database/migrations/170_seo_url_observation_model.sql`. Neither deletes any
 existing data on install: every seeded deleting policy ships `enabled = false`
-(except the visitor tracking policies of migration 281, below).
+(the visitor tracking policies of migration 281, below, included).
 
 ## 1. Central data retention
 
@@ -57,22 +57,31 @@ S3-compatible object storage; JSON/HTML are exports, not archive formats.
 `RETENTION_INTERVAL_MS` and `RETENTION_DRY_RUN`.
 
 ### Visitor tracking data (migration 281)
-The one exception to "seeded disabled": `281_widget_visitor_privacy.sql` seeds
-five `rolling`, **enabled**, `workspace_overridable` policies for the chat
-widget's visitor tracking tables — `visitor_sessions` (by `last_seen_at`),
-`visitor_page_views` (`viewed_at`), `web_analytics_events`,
+`281_widget_visitor_privacy.sql` seeds five `rolling`, `workspace_overridable`
+policies for the chat widget's visitor tracking tables — `visitor_sessions`
+(by `last_seen_at`), `visitor_page_views` (`viewed_at`), `web_analytics_events`,
 `widget_smart_events` and `widget_ai_nudges` (`created_at`) — at 395 days
-(13 months), so visitor data is no longer kept forever (GDPR / ePrivacy,
-finding P-01). A workspace may choose its own period (30–1095 days,
+(13 months), so visitor data need not be kept forever (GDPR / ePrivacy,
+finding P-01). Like every other deleting policy they ship **disabled**:
+nothing is deleted until a Super Admin turns each one on in Super Admin →
+Data Retention (preview first: the count of what the first run would
+delete). Re-running 281 never touches a policy that is already there, so an
+enabled or tuned policy stays as the Super Admin left it.
+
+A workspace may choose its own period (30–1095 days,
 `widget_settings.visitor_data_retention_days`, Settings → Privacy requests →
-Visitor privacy); `runTimeBased` sends such a policy to `runPerWorkspace`,
-which counts and deletes workspace by workspace with each one's period
+Visitor privacy), which replaces the 395 days for its own rows once the
+policy is enabled; while it is disabled, that card says nothing is deleted
+yet. `runTimeBased` sends such a policy to `runPerWorkspace`, which counts
+and deletes workspace by workspace with each one's period
 (`visitor_data_retention_count_expired` / `_delete_batch`). The backend runs
-these five every six hours itself (`server/services/privacy/visitorRetention.ts`,
+the five every six hours itself (`server/services/privacy/visitorRetention.ts`,
 first sweep 10 minutes after boot), whether or not the `retention` worker is
-deployed; disabling a policy here stops it. Deleting a session deletes its
-page views and presence (ON DELETE CASCADE) and unlinks its analytics
-events, calls and article votes; conversations and their messages stay.
+deployed; a disabled policy is skipped there (no run is opened, no row is
+read for deletion, and `_delete_batch` itself refuses a disabled policy).
+Deleting a session deletes its page views and presence (ON DELETE CASCADE)
+and unlinks its analytics events, calls and article votes; conversations
+and their messages stay.
 
 ### Admin surface
 Super Admin → Data Retention (`/admin/retention`), served by

@@ -72,13 +72,13 @@ describe('VisitorPrivacyCard', () => {
     stored = { ...stored, visitor_data_retention_days: 90 };
     await mount();
     await waitFor(() => expect(document.getElementById('visitor-retention')!.textContent).toBe('3 months'));
-    expect(document.body.textContent).not.toContain('paused');
+    expect(document.body.textContent).not.toContain('not turned on for the platform');
   });
 
-  it('says so when the platform\'s retention is paused', async () => {
+  it('says so while the platform\'s visitor retention is off (as 281 seeds it)', async () => {
     retention = { default_days: 395, enabled: false };
     await mount();
-    await waitFor(() => expect(document.body.textContent).toContain('The platform\'s data retention is currently paused'));
+    await waitFor(() => expect(document.body.textContent).toContain('Deleting old visitor data is not turned on for the platform yet'));
   });
 
   it('a database before 281: a note, no switches', async () => {

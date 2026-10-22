@@ -6,11 +6,13 @@
  * a rolling, workspace-overridable policy in data_retention_policies (13
  * months by default; a workspace's own period in
  * widget_settings.visitor_data_retention_days, Settings → Privacy requests).
- * This runs them through the retention engine every six hours, so a period
- * holds without anyone pressing "Run" in Super Admin → Data retention, which
- * still shows, previews, tunes and disables them (a disabled policy is
- * skipped by the engine). Page views go before their sessions, whose delete
- * would take them along anyway (ON DELETE CASCADE).
+ * They are seeded disabled: nothing is deleted until a Super Admin turns a
+ * policy on in Super Admin → Data retention, which also previews and tunes
+ * them. This runs them through the retention engine every six hours, so an
+ * enabled policy's period holds without anyone pressing "Run"; a disabled
+ * one is skipped by the engine (runPolicy) without opening a run or
+ * touching a row. Page views go before their sessions, whose delete would
+ * take them along anyway (ON DELETE CASCADE).
  *
  * Best-effort, in-process, never throws. Before migration 281 the policies
  * do not exist: that is logged once and the sweep keeps trying.

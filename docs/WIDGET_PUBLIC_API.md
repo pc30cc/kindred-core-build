@@ -120,9 +120,10 @@ is not tracking: it works whatever the visitor answered.
   needs them can turn on *Keep query strings in page history*. A referrer is
   always stored without its query string. Campaign (UTM) tags are read
   before and kept in their own fields.
-- **Retention.** Visitor sessions, page history, web analytics events and
-  Smart Engagement and AI nudge records are deleted after 13 months by
-  default, or after the period the workspace chooses (30 days to 3 years).
+- **Retention.** Once the platform turns visitor data retention on (it
+  starts off), visitor sessions, page history, web analytics events and
+  Smart Engagement and AI nudge records are deleted after 13 months, or
+  after the period the workspace chooses (30 days to 3 years).
   Conversations and contacts are not affected (they stay in the inbox; an
   anonymous visitor back after the period starts a new visit).
 - **The visitor's forms.** The pre-chat and leave-a-message forms can show

@@ -23,16 +23,19 @@
 -- 3. data_retention_policies: the visitor tracking tables — visitor_sessions
 --    (by last_seen_at), visitor_page_views (viewed_at), web_analytics_events,
 --    widget_smart_events and widget_ai_nudges (created_at) — rolling, 395
---    days (13 months), ENABLED, `workspace_overridable` (a workspace's
---    visitor_data_retention_days replaces the 395 for its own rows). Seeded
---    with ON CONFLICT DO NOTHING: a policy the Super Admin tuned is never
---    overwritten. The server runs them every six hours
+--    days (13 months), `workspace_overridable` (a workspace's
+--    visitor_data_retention_days replaces the 395 for its own rows), and
+--    DISABLED, like every deleting policy 169 seeds: nothing is deleted
+--    until a Super Admin turns a policy on in Super Admin → Data retention
+--    (which also previews and tunes them). Seeded with ON CONFLICT DO
+--    NOTHING: a policy the Super Admin tuned or enabled is never
+--    overwritten. The server runs the enabled ones every six hours
 --    (server/services/privacy/visitorRetention.ts) through the retention
---    engine (server/services/retention/retentionService.ts); Super Admin →
---    Data retention shows, previews, tunes and disables them. Deleting a
---    session also deletes its page views and presence (ON DELETE CASCADE)
---    and unlinks its analytics events, calls and article votes (SET NULL);
---    conversations keep their messages.
+--    engine (server/services/retention/retentionService.ts), which skips a
+--    disabled policy without opening a run. Deleting a session also deletes
+--    its page views and presence (ON DELETE CASCADE) and unlinks its
+--    analytics events, calls and article votes (SET NULL); conversations
+--    keep their messages.
 -- 4. visitor_data_retention_count_expired(policy) and
 --    visitor_data_retention_delete_batch(policy, batch): 169's count and
 --    bounded delete for a workspace-overridable policy, workspace by
@@ -60,9 +63,10 @@
 -- data_retention_policies for the seed, SHARE on widget_smart_events while
 -- its index builds (unless it was built beforehand as above). The file sets
 -- lock_timeout 5s itself and resets it (RESPOK's migrator runs without
--- PGOPTIONS); a statement stopped by it is simply run again. Nothing is deleted when it runs: the
--- policies delete on their first run, and only rows older than 13 months
--- (or the workspace's own period). Re-runnable. Dry run: the file inside
+-- PGOPTIONS); a statement stopped by it is simply run again. Nothing is
+-- deleted when it runs, nor afterwards until a Super Admin enables a policy;
+-- an enabled policy deletes only rows older than 13 months (or the
+-- workspace's own period). Re-runnable. Dry run: the file inside
 -- BEGIN … ROLLBACK. Drops nothing; touches no archive schema or table.
 
 SET lock_timeout = '5s';
@@ -121,15 +125,15 @@ INSERT INTO public.data_retention_policies
   (policy_key, table_name, timestamp_column, category, retention_mode, hot_retention_days, keep_last_n,
    workspace_overridable, enabled, batch_size, description)
 VALUES
-  ('visitor_sessions',     'visitor_sessions',     'last_seen_at', 'analytics', 'rolling', 395, NULL, true, true, 5000,
+  ('visitor_sessions',     'visitor_sessions',     'last_seen_at', 'analytics', 'rolling', 395, NULL, true, false, 5000,
    'Visitor sessions (device, place, first pages) — 13 months after the last visit, or the workspace''s own period'),
-  ('visitor_page_views',   'visitor_page_views',   'viewed_at',    'analytics', 'rolling', 395, NULL, true, true, 5000,
+  ('visitor_page_views',   'visitor_page_views',   'viewed_at',    'analytics', 'rolling', 395, NULL, true, false, 5000,
    'Visitor page history — 13 months, or the workspace''s own period'),
-  ('web_analytics_events', 'web_analytics_events', 'created_at',   'analytics', 'rolling', 395, NULL, true, true, 5000,
+  ('web_analytics_events', 'web_analytics_events', 'created_at',   'analytics', 'rolling', 395, NULL, true, false, 5000,
    'Web analytics custom events — 13 months, or the workspace''s own period'),
-  ('widget_smart_events',  'widget_smart_events',  'created_at',   'analytics', 'rolling', 395, NULL, true, true, 5000,
+  ('widget_smart_events',  'widget_smart_events',  'created_at',   'analytics', 'rolling', 395, NULL, true, false, 5000,
    'Smart Engagement events per visitor — 13 months, or the workspace''s own period'),
-  ('widget_ai_nudges',     'widget_ai_nudges',     'created_at',   'analytics', 'rolling', 395, NULL, true, true, 5000,
+  ('widget_ai_nudges',     'widget_ai_nudges',     'created_at',   'analytics', 'rolling', 395, NULL, true, false, 5000,
    'AI proactive nudges per visitor — 13 months, or the workspace''s own period')
 ON CONFLICT (policy_key) DO NOTHING;
 

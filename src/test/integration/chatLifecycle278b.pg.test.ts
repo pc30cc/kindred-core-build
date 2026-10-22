@@ -29,6 +29,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import express from 'express';
 import request from 'supertest';
+import pg from 'pg';
 import { createFullChainDatabase, type FullChainDatabase } from './fullChainDatabase';
 
 const DSN = process.env.TEST_DATABASE_URL;
@@ -447,6 +448,34 @@ suite('who has a conversation, on a real database (278b)', () => {
     await q(`SELECT public.chat_routing_skip($1, $2, NULL)`, [ws, open]);
     expect(await one(`SELECT * FROM public.chat_route_claim($1, $2, $3::uuid[], 'given', 'team', 'auto', NULL)`, [ws, open, [b]]))
       .toEqual({ outcome: 'assigned', picked_user_id: b });
+  });
+
+  it('D4 offboarding while a claim holds the routing lock waits for it instead of deadlocking (the lock first, then the workspace row)', async () => {
+    await q(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'agent')`, [ws, d]);
+    // No routing row yet: the claim's insert checks its foreign key on the workspace row.
+    const cid = await conversation();
+    const claimer = new pg.Client({ connectionString: chain.url });
+    const remover = new pg.Client({ connectionString: chain.url });
+    await claimer.connect();
+    await remover.connect();
+    try {
+      const removerPid = (await remover.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      await claimer.query('BEGIN');
+      await claimer.query(`SELECT pg_advisory_xact_lock(hashtextextended('chat_route_claim:' || $1::text, 0))`, [ws]);
+      const offboard = remover.query(`SELECT public.offboard_workspace_member($1, $2, $3, 'test') AS r`, [ws, d, owner]);
+      expect(await until(
+        async () => (await one(`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [removerPid])).wait_event_type,
+        (v) => v === 'Lock',
+      )).toBe('Lock');
+      const claimed = await claimer.query(`SELECT * FROM public.chat_route_claim($1, $2, $3::uuid[], 'given', 'team', 'auto', NULL)`, [ws, cid, [b]]);
+      await claimer.query('COMMIT');
+      expect(claimed.rows[0]).toEqual({ outcome: 'assigned', picked_user_id: b });
+      expect((await offboard).rows[0].r).toMatchObject({ user_id: d, released_conversation_ids: [] });
+    } finally {
+      await claimer.query('ROLLBACK').catch(() => undefined);
+      await Promise.all([claimer.end(), remover.end()]);
+      await q(`DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, d]);
+    }
   });
 
   // ─── E: threads, replies, outreach, the row ────────────────────────────

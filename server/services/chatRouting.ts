@@ -68,8 +68,9 @@ import { notifyAssignment, notifyHandoff } from './push/index.js';
 import { onSupportConversationChanged } from './platformSupport/changes.js';
 import { resolveLockState } from './billing/locks/state.js';
 import { isMemberLocked } from './billing/locks/predicates.js';
-import { deferRoutingForPrechat, shouldDeferRoutingForPrechat } from './chatRoutingPrechat.js';
+import { deferRoutingForPrechat, PRECHAT_ROUTING_GRACE_MS, shouldDeferRoutingForPrechat } from './chatRoutingPrechat.js';
 import { canUseInbox, isRoutableChatRole } from '../../shared/chatRoles.js';
+import { readWithColumnFallback } from '../lib/missingColumn.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -137,12 +138,21 @@ export async function loadRoutingSettings(
   const hit = cache?.settings.get(workspaceId);
   if (hit) return hit;
   const sb = getServiceClient(config);
+  // A plan that could not be read is not a plan without automatic
+  // assignment: the stored mode stands for this run (a passing read error
+  // must not turn routing Manual, forget the chat's wait and tell the visitor
+  // they are in the queue).
+  let planUnreadable = false;
   const [{ data }, planAllows, global] = await Promise.all([
-    sb.from('widget_settings')
-      .select('assignment_mode, last_agent_routing_enabled, last_agent_window_days')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle(),
-    resolveWidgetCapability(config, workspaceId, 'widget_assignment_routing').catch(() => false),
+    // Before migration 278 only the mode is there.
+    readWithColumnFallback(
+      (columns) => sb.from('widget_settings').select(columns).eq('workspace_id', workspaceId).maybeSingle(),
+      'assignment_mode, last_agent_routing_enabled, last_agent_window_days',
+      'assignment_mode',
+      ['last_agent_routing_enabled', 'last_agent_window_days'],
+    ),
+    resolveWidgetCapability(config, workspaceId, 'widget_assignment_routing', () => { planUnreadable = true; })
+      .catch(() => { planUnreadable = true; return false; }),
     loadGlobalAdvancedRouting(config),
   ]);
   const row = data as {
@@ -153,7 +163,7 @@ export async function loadRoutingSettings(
   const raw = row?.assignment_mode;
   const stored: AssignmentMode = raw === 'round_robin' || raw === 'manual' ? raw : 'auto';
   const settings: ChatRoutingSettings = {
-    mode: planAllows ? stored : 'manual',
+    mode: planAllows || planUnreadable ? stored : 'manual',
     lastAgentEnabled: row?.last_agent_routing_enabled !== false && global.last_agent_routing_enabled !== false,
     lastAgentWindowDays: clampInt(row?.last_agent_window_days, 1, 365, 30),
     generalPoolEnabled: global.general_pool_enabled !== false,
@@ -302,7 +312,8 @@ async function claimFromCandidates(
     p_expected_assignee: args.expectedAssignee ?? null,
   });
   if (error) {
-    console.warn('[chat-routing] chat_route_claim failed:', error.message);
+    // Before migration 278 (42883) there is nothing to claim with yet.
+    if (error.code !== '42883') console.warn('[chat-routing] chat_route_claim failed:', error.message);
     return { outcome: 'error', userId: null };
   }
   const row = firstRow<{ outcome?: unknown; picked_user_id?: unknown }>(data);
@@ -611,13 +622,15 @@ export async function readQueueStatus(
  * Routing runs again on every visitor message while a conversation waits, so
  * the handoff's own stamp (`ai_handoff_at`) makes it one notification per
  * handoff: once it has been told (`handoff_push_at` holds the same stamp), a
- * later run does not even look up who to tell. Without a stamp only the run
- * that also sends the visitor notice pushes.
+ * later run does not even look up who to tell. Without a stamp there was no
+ * handoff (the AI is off, or never held the thread): nothing to push — the
+ * visitor's message already reached the phones as a message ("The AI handed
+ * this conversation to your team" would be false).
  */
-export function handoffPushStamp(metadata: Record<string, unknown>, firstRun: boolean): string | null {
+export function handoffPushStamp(metadata: Record<string, unknown>): string | null {
   const stamp = typeof metadata.ai_handoff_at === 'string' ? metadata.ai_handoff_at : null;
-  if (stamp) return metadata.handoff_push_at === stamp ? null : stamp;
-  return firstRun ? new Date().toISOString() : null;
+  if (!stamp) return null;
+  return metadata.handoff_push_at === stamp ? null : stamp;
 }
 
 /**
@@ -630,9 +643,8 @@ function notifyHandoffOnce(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string },
   metadata: Record<string, unknown>,
-  firstRun: boolean,
 ): void {
-  const stamp = handoffPushStamp(metadata, firstRun);
+  const stamp = handoffPushStamp(metadata);
   if (!stamp) return;
   void notifyHandoff(config, {
     workspaceId: args.workspaceId,
@@ -641,11 +653,9 @@ function notifyHandoffOnce(
   });
   // Remembered on the conversation, so the next visitor message's routing
   // run skips straight past this.
-  if (typeof metadata.ai_handoff_at === 'string') {
-    void patchConversationMetadata(
-      config, args.conversationId, { handoff_push_at: stamp }, args.workspaceId,
-    ).catch(() => {});
-  }
+  void patchConversationMetadata(
+    config, args.conversationId, { handoff_push_at: stamp }, args.workspaceId,
+  ).catch(() => {});
 }
 
 /**
@@ -761,6 +771,11 @@ interface PickArgs {
   cache?: RoutingCache;
   /** A first-response timeout: never this member, and only while they still hold it. */
   reassignFrom?: string | null;
+  /**
+   * An operator transferred it to this department: its members only — not
+   * the whole team, not the owner fallback; nobody there = it waits for them.
+   */
+  departmentOnly?: boolean;
 }
 
 interface PickResult {
@@ -838,8 +853,11 @@ async function pickOperator(config: ServerConfig, a: PickArgs): Promise<PickResu
   const order: ClaimOrder = settings.mode === 'round_robin' ? 'round_robin' : 'least_busy';
   const method: AssignmentMethod = settings.mode === 'round_robin' ? 'round_robin' : 'auto';
   const pools: Array<{ key: string; ids: string[] }> = [];
+  // Sent to a department by an operator: that department only (while it
+  // exists and takes chats; otherwise the whole team, as for any chat).
+  const departmentOnly = a.departmentOnly === true && !!pool.department && !!a.departmentId;
   if (pool.department && a.departmentId) pools.push({ key: a.departmentId, ids: pool.department });
-  if (!pool.department || settings.generalPoolEnabled) pools.push({ key: 'team', ids: pool.team });
+  if (!pool.department || (settings.generalPoolEnabled && !departmentOnly)) pools.push({ key: 'team', ids: pool.team });
   for (const p of pools) {
     // TIER 1 = active, TIER 2 = away (idle under 30 minutes). Tier 2 is only
     // entered when no active operator could take it.
@@ -856,7 +874,7 @@ async function pickOperator(config: ServerConfig, a: PickArgs): Promise<PickResu
 
   // c. The owner, under the global owner-fallback policy, when they receive
   // chats and are here (and were not tried above).
-  if (ownerId && !tried.has(ownerId) && !excluded(ownerId) && routingTierOf(presence.get(ownerId), now)) {
+  if (ownerId && !departmentOnly && !tried.has(ownerId) && !excluded(ownerId) && routingTierOf(presence.get(ownerId), now)) {
     const member = await resolveChatRoutingMember(config, a.workspaceId, ownerId);
     if (member && !member.suspended && member.receivesChats) {
       anyOnline = true;
@@ -954,14 +972,28 @@ async function assigneePresent(
   }
 }
 
-async function recordWait(config: ServerConfig, workspaceId: string, conversationId: string, reason: WaitReason | null): Promise<void> {
+/**
+ * The conversation waits for an operator (null: it no longer does). The
+ * ticker's own retry (`fromTicker`) is not activity: it keeps the retry time
+ * and the last activity chat_routing_due() goes by, so a wait nobody else
+ * touches backs off and, after a day, is forgotten (migration 278).
+ */
+async function recordWait(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  reason: WaitReason | null,
+  fromTicker = false,
+): Promise<void> {
   try {
     const { error } = await getServiceClient(config).rpc('chat_routing_wait', {
       p_workspace_id: workspaceId,
       p_conversation_id: conversationId,
       p_reason: reason,
+      p_from_ticker: fromTicker,
     });
-    if (error) console.warn('[chat-routing] chat_routing_wait failed:', error.message);
+    // Before migration 278 (42883) there is no ticker to wait for.
+    if (error && error.code !== '42883') console.warn('[chat-routing] chat_routing_wait failed:', error.message);
   } catch { /* the visitor's next message routes it again */ }
 }
 
@@ -1029,7 +1061,7 @@ export async function routeConversationToOperator(
           'already_assigned', { routing_notice_sent: true },
         );
       }
-      notifyHandoffOnce(config, args, metadata, firstRun);
+      notifyHandoffOnce(config, args, metadata);
       return { outcome: 'already_assigned', assignedTo: row.assigned_to };
     }
     // If routing waited for the pre-chat form (deferRoutingForPrechat), this
@@ -1048,7 +1080,7 @@ export async function routeConversationToOperator(
     if (settings.mode === 'manual') {
       if (opts.fromTicker) await recordWait(config, args.workspaceId, args.conversationId, null);
       // The queue is the team's: everyone following all conversations.
-      notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
+      notifyHandoffOnce(config, args, metadata);
       // The place in the queue (GET /api/widget/queue) counts from when the
       // conversation entered it. Saved before the visitor's queue row is
       // published, so the widget's first read of its place already finds it.
@@ -1083,10 +1115,17 @@ export async function routeConversationToOperator(
       departmentId,
       settings,
       cache: opts.cache,
+      departmentOnly: metadata.routing_department_only === true,
     });
     if (pick.outcome === 'already_assigned') return { outcome: 'already_assigned', assignedTo: pick.userId };
     if (pick.outcome === 'not_routable') return { outcome: 'not_routable', assignedTo: pick.userId };
-    if (pick.outcome === 'error') return { outcome: 'error', assignedTo: null };
+    if (pick.outcome === 'error') {
+      // The claim itself failed (a timeout, a connection blip): the ticker
+      // tries again in 25 seconds. Nothing is told or tagged, and a pre-chat
+      // wait stays flagged until a real outcome clears it.
+      await recordWait(config, args.workspaceId, args.conversationId, 'all_busy', opts.fromTicker === true);
+      return { outcome: 'error', assignedTo: null };
+    }
 
     if (pick.outcome === 'assigned' && pick.userId && pick.method) {
       const outcome = assignedOutcome(pick.method, settings.mode);
@@ -1107,8 +1146,8 @@ export async function routeConversationToOperator(
     // as someone can. The visitor is told which it is, once: nobody of the
     // team is online, or everyone is busy and they are in the queue.
     const outcome: RoutingOutcome = pick.waitReason === 'all_busy' ? 'all_agents_busy' : 'no_eligible_agent';
-    await recordWait(config, args.workspaceId, args.conversationId, pick.waitReason);
-    notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
+    await recordWait(config, args.workspaceId, args.conversationId, pick.waitReason, opts.fromTicker === true);
+    notifyHandoffOnce(config, args, metadata);
     if (!noticeAlreadySent) {
       if (pick.waitReason === 'all_busy') {
         await insertRoutingSystemMessage(
@@ -1144,10 +1183,17 @@ export async function routeConversationToOperator(
         );
       }
     }
-    await tagOutcome(
-      config, args.workspaceId, args.conversationId, metadata, outcome,
-      { ...pending, ...(noticeAlreadySent ? {} : { routing_notice_sent: true }) },
-    );
+    // The ticker trying again with the same answer changes nothing: no
+    // write (the metadata patch would move the conversation's updated_at,
+    // its "last activity", every pass).
+    const unchanged = opts.fromTicker === true && noticeAlreadySent && !('routing_pending' in pending)
+      && metadata.routing_outcome === outcome;
+    if (!unchanged) {
+      await tagOutcome(
+        config, args.workspaceId, args.conversationId, metadata, outcome,
+        { ...pending, ...(noticeAlreadySent ? {} : { routing_notice_sent: true }) },
+      );
+    }
     return { outcome, assignedTo: null };
   } catch (err) {
     console.warn('[chat-routing] routeConversationToOperator failed:', err instanceof Error ? err.message : err);
@@ -1193,6 +1239,7 @@ export async function reassignAfterFirstResponseTimeout(
       settings,
       cache: opts.cache,
       reassignFrom: args.from,
+      departmentOnly: metadata.routing_department_only === true,
     });
     if (pick.outcome === 'none') {
       return await releaseAfterTimeout(config, { ...args, metadata, reason: pick.waitReason });
@@ -1393,7 +1440,22 @@ async function routeHumanBoundConversationNow(
           workspaceId: args.workspaceId, conversationId: args.conversationId, userId: conv.assigned_to, endedAt,
         })
         : await assigneeMayKeep(config, args.workspaceId, conv.assigned_to);
-      if (keep) return null;
+      if (keep) {
+        // A reopened thread its operator keeps is theirs: the resolve reset
+        // the AI's state, and without a takeover the AI would answer over
+        // them and move the chat out of their lists into the AI's.
+        if (reopened && metadata.ai_state !== 'human_active') {
+          const { markHumanTakeover } = await import('./ai-agent/handoffState.js');
+          await markHumanTakeover(config, {
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
+            operatorId: conv.assigned_to,
+            reason: 'assignment',
+            previousAiState: typeof metadata.ai_state === 'string' ? metadata.ai_state : null,
+          }).catch(() => undefined);
+        }
+        return null;
+      }
       const released = await releaseAssignee(config, {
         workspaceId: args.workspaceId,
         conversationId: args.conversationId,
@@ -1402,8 +1464,11 @@ async function routeHumanBoundConversationNow(
       });
       if (!released) return null;
     }
-    // Waiting for the pre-chat form: the form, or the ticker, routes it.
-    if (metadata.routing_pending === true) return null;
+    // Waiting for the pre-chat form: the form, or the ticker, routes it —
+    // while that wait is still on. One with no start (an older release's) or
+    // past the grace is over: this message routes it (the ticker may never
+    // have heard of it).
+    if (metadata.routing_pending === true && !prechatWaitOver(metadata)) return null;
     if (aiAnswers === null) aiAnswers = await aiWillAnswer(config, args.workspaceId, metadata, args.platformAiOff);
     if (aiAnswers) return null;
     if (await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId)) {
@@ -1417,7 +1482,39 @@ async function routeHumanBoundConversationNow(
   }
 }
 
+/**
+ * A message left in the widget's leave-a-message form (POST
+ * /api/widget/offline-messages) is a new conversation a person has to
+ * answer: routing gives it to whoever can take it now, else it waits — in
+ * Auto and Round robin for the ticker, which hands it out as soon as someone
+ * comes online or frees up; in Manual in the queue. The visitor already read
+ * the form's own confirmation, so routing posts no "nobody is online" or
+ * queue notice into it (routing_notice_sent). Never throws.
+ */
+export async function routeOfflineCapture(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string },
+): Promise<RouteResult> {
+  try {
+    await patchConversationMetadata(config, args.conversationId, { routing_notice_sent: true }, args.workspaceId);
+    return await routeConversationToOperator(config, args);
+  } catch (err) {
+    console.warn('[chat-routing] routing an offline message failed:', err instanceof Error ? err.message : err);
+    return { outcome: 'error', assignedTo: null };
+  }
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a pre-chat wait (`routing_pending`) no longer holds routing: it has
+ * no start (`routing_pending_at`, written with the flag since 278) or began
+ * longer ago than PRECHAT_ROUTING_GRACE_MS. Pure; exported for its tests.
+ */
+export function prechatWaitOver(metadata: Record<string, unknown>, now: number = Date.now()): boolean {
+  const at = typeof metadata.routing_pending_at === 'string' ? Date.parse(metadata.routing_pending_at) : NaN;
+  return !Number.isFinite(at) || now - at >= PRECHAT_ROUTING_GRACE_MS;
+}
 
 /**
  * The AI holds the thread but will not answer it: it is the team's now —
@@ -1431,7 +1528,10 @@ async function handOverFromAi(
   conversationId: string,
   metadata: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const patch = { ai_state: null, managed_by_ai: false, ai_managed_by_ai: false };
+  // The AI let go of it: a handoff, stamped (handoffPushStamp), so the team's
+  // phones hear it once — the visitor's message that brought it here was not
+  // pushed while the AI held the thread.
+  const patch = { ai_state: null, managed_by_ai: false, ai_managed_by_ai: false, ai_handoff_at: new Date().toISOString() };
   if (!(await patchConversationMetadata(config, conversationId, patch, workspaceId))) return metadata;
   try {
     await publishOperatorEvent(config, {
@@ -1618,7 +1718,8 @@ export interface RerouteArgs {
   /**
    * An operator sent it to a department: a person is wanted whatever the AI
    * would do, so the AI's settings are not consulted (a thread the AI holds
-   * is handed off first).
+   * is handed off first). Routing then stays inside that department
+   * (`metadata.routing_department_only`, which the transfer sets).
    */
   forPerson?: boolean;
 }

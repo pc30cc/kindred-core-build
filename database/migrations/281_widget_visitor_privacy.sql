@@ -25,24 +25,35 @@
 --    widget_smart_events and widget_ai_nudges (created_at) — rolling, 395
 --    days (13 months), `workspace_overridable` (a workspace's
 --    visitor_data_retention_days replaces the 395 for its own rows), and
---    DISABLED, like every deleting policy 169 seeds: nothing is deleted
---    until a Super Admin turns a policy on in Super Admin → Data retention
---    (which also previews and tunes them). Seeded with ON CONFLICT DO
---    NOTHING: a policy the Super Admin tuned or enabled is never
---    overwritten. The server runs the enabled ones every six hours
---    (server/services/privacy/visitorRetention.ts) through the retention
---    engine (server/services/retention/retentionService.ts), which skips a
---    disabled policy without opening a run. Deleting a session also deletes
---    its page views and presence (ON DELETE CASCADE) and unlinks its
---    analytics events, calls and article votes (SET NULL); conversations
---    keep their messages.
+--    DISABLED, like every deleting policy 169 seeds; a Super Admin turns
+--    one on in Super Admin → Data retention (which also previews and tunes
+--    them), and even then 171's fence keeps its delete from running (4.).
+--    Seeded with ON CONFLICT DO NOTHING: a policy the Super Admin tuned or
+--    enabled is never overwritten. The server runs the enabled ones every
+--    six hours (server/services/privacy/visitorRetention.ts) through the
+--    retention engine (server/services/retention/retentionService.ts),
+--    which skips a disabled policy without opening a run. Once the fence is
+--    lifted, deleting a session also deletes its page views and presence
+--    (ON DELETE CASCADE) and unlinks its analytics events, calls and article
+--    votes (SET NULL); conversations keep their messages.
 -- 4. visitor_data_retention_count_expired(policy) and
 --    visitor_data_retention_delete_batch(policy, batch): 169's count and
 --    bounded delete for a workspace-overridable policy, workspace by
 --    workspace with each one's window (its (workspace_id, time) index
---    serves each probe). Only an enabled, non-permanent, overridable policy
---    whose table has a workspace_id column; SECURITY DEFINER, search_path
---    pinned, executable by service_role only.
+--    serves each probe). Only a non-permanent, overridable policy whose
+--    table has a workspace_id column; SECURITY DEFINER, search_path pinned,
+--    executable by service_role only.
+--    MIGRATION 171's FENCE HOLDS: like data_retention_delete_batch since
+--    171, the delete refuses to run (retention_cleanup_not_ready), enabled
+--    policy or not. The count works, so Super Admin → Data retention can
+--    preview what a policy would delete per workspace; an enabled policy's
+--    run (the backend's six-hourly sweep, or "Run") ends `failed` with that
+--    error and deletes nothing. Destructive retention stays fenced until the
+--    owner lifts the fence in a reviewed migration of its own, which then
+--    replaces this function with the bounded per-workspace delete (for each
+--    workspace, WITH victims AS (SELECT ctid FROM <table> WHERE workspace_id
+--    = $1 AND <time> < now() - <its days> ORDER BY <time> LIMIT <remaining>)
+--    DELETE … USING victims, until _batch_size rows went).
 --
 -- 5. widget_smart_events_ws_created_idx (workspace_id, created_at): what the
 --    Smart Engagement policy's per-workspace count and delete read (the other
@@ -64,9 +75,8 @@
 -- its index builds (unless it was built beforehand as above). The file sets
 -- lock_timeout 5s itself and resets it (RESPOK's migrator runs without
 -- PGOPTIONS); a statement stopped by it is simply run again. Nothing is
--- deleted when it runs, nor afterwards until a Super Admin enables a policy;
--- an enabled policy deletes only rows older than 13 months (or the
--- workspace's own period). Re-runnable. Dry run: the file inside
+-- deleted when it runs, nor afterwards: the policies are seeded disabled,
+-- and an enabled one is still held by 171's fence (4.). Re-runnable. Dry run: the file inside
 -- BEGIN … ROLLBACK. Drops nothing; touches no archive schema or table.
 
 SET lock_timeout = '5s';
@@ -215,37 +225,17 @@ SET search_path = public
 AS $$
 DECLARE
   p public.data_retention_policies%ROWTYPE;
-  w record;
-  n integer;
-  remaining integer := GREATEST(1, LEAST(coalesce(_batch_size, 5000), 50000));
-  total integer := 0;
 BEGIN
   p := public.visitor_data_retention_policy(_policy_key);
   IF NOT p.enabled THEN RAISE EXCEPTION 'retention_policy_disabled: %', _policy_key; END IF;
-  FOR w IN
-    SELECT ws.id AS workspace_id, coalesce(s.visitor_data_retention_days, p.hot_retention_days) AS days
-      FROM public.workspaces ws
-      LEFT JOIN public.widget_settings s ON s.workspace_id = ws.id
-  LOOP
-    -- Bounded: at most `remaining` rows, oldest first, in one statement.
-    EXECUTE format(
-      'WITH victims AS (
-         SELECT ctid FROM public.%I WHERE workspace_id = $1 AND %I < $2 ORDER BY %I ASC LIMIT $3
-       )
-       DELETE FROM public.%I t USING victims v WHERE t.ctid = v.ctid',
-      p.table_name, p.timestamp_column, p.timestamp_column, p.table_name
-    ) USING w.workspace_id, now() - make_interval(days => w.days), remaining;
-    GET DIAGNOSTICS n = ROW_COUNT;
-    total := total + n;
-    remaining := remaining - n;
-    EXIT WHEN remaining <= 0;
-  END LOOP;
-  RETURN total;
+  -- Migration 171's fence on destructive retention: no delete until the
+  -- owner lifts it in a reviewed migration of its own (see 4. in the header).
+  RAISE EXCEPTION 'retention_cleanup_not_ready: destructive execution is fenced pending production audit (migration 171)';
 END;
 $$;
 
 COMMENT ON FUNCTION public.visitor_data_retention_delete_batch(text, integer) IS
-  'Bounded delete for a workspace-overridable retention policy: each workspace''s rows older than its visitor_data_retention_days (else the policy''s hot_retention_days), at most _batch_size in all. Migration 281.';
+  'Bounded delete for a workspace-overridable retention policy (each workspace''s rows older than its visitor_data_retention_days, else the policy''s hot_retention_days). Fenced like data_retention_delete_batch since migration 171: raises retention_cleanup_not_ready until a reviewed migration lifts the fence. Migration 281.';
 
 DO $acl$
 DECLARE

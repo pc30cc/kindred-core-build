@@ -18,7 +18,10 @@
  *       AI intro log; keeps Smart Engagement events for the rules' counts
  *       without their visitor, session or page; another visitor is left
  *       untouched;
- *   E4  a second run changes nothing and says so.
+ *   E4  a second run changes nothing and says so;
+ *   E5  a subject with more sessions (and page views) than one read returns
+ *       (the suite caps a read at two rows, DATABASE_MAX_ROWS) is exported
+ *       and erased whole: the reads page through, never stop at the cap.
  *
  * (A store customer link, commerce_customer_links, needs a plugin
  * installation and a store connection; it goes through the same delete and
@@ -61,6 +64,9 @@ suite('P-02: erasing and exporting a contact\'s visits (real PostgreSQL)', () =>
       SUPABASE_ANON_KEY: 'legacy-anon-key-value',
       SUPABASE_SERVICE_ROLE_KEY: 'legacy-service-role-key-value-at-least-32',
       APP_BASE_URL: 'http://127.0.0.1:5173',
+      // A read returns at most two rows here (production: 1000): the export
+      // and the erasure page through what a subject has, never stop at the cap.
+      DATABASE_MAX_ROWS: '2',
     });
     delete process.env.DATABASE_MODE;
 
@@ -207,5 +213,25 @@ suite('P-02: erasing and exporting a contact\'s visits (real PostgreSQL)', () =>
       visitor_sessions_anonymized: 0, page_views_deleted: 0, analytics_events_deleted: 0, smart_events_anonymized: 0,
       ai_nudges_deleted: 0, visitor_links_deleted: 0, conversations_anonymized: 0,
     });
+  });
+
+  it('E5 more sessions than one read returns: every one is erased', async () => {
+    const lena = randomUUID();
+    await q(`INSERT INTO public.contacts (id, workspace_id, name, email) VALUES ($1, $2, 'Lena', 'lena@example.com')`, [lena, ws]);
+    const ids = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    for (const [i, id] of ids.entries()) {
+      await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id, contact_id, ip_raw, current_page) VALUES ($1, $2, $3, $4, '198.51.100.9', '/p')`,
+        [id, ws, `v-lena-${i}`, lena]);
+      await q(`INSERT INTO public.visitor_page_views (workspace_id, visitor_session_id, url, title) VALUES ($1, $2, '/p', 'Page')`, [ws, id]);
+    }
+    const { resolveSubject } = await import('../../../server/services/privacy/identity.js');
+    const resolved = await resolveSubject(config, ws, 'contact', lena);
+    const { buildExportZip } = await import('../../../server/services/privacy/exporter.js');
+    const lenaJob = { ...job, id: randomUUID(), subject_id: lena, resolved_identity: resolved };
+    expect((await buildExportZip(config, { ...lenaJob, action: 'export' })).manifestSummary).toMatchObject({ visitor_sessions: 5, page_views: 5 });
+    const { runAnonymize } = await import('../../../server/services/privacy/anonymizer.js');
+    await runAnonymize(config, lenaJob);
+    expect(await count(`SELECT count(*) AS n FROM public.visitor_page_views WHERE visitor_session_id = ANY($1::uuid[])`, [ids])).toBe(0);
+    expect(await count(`SELECT count(*) AS n FROM public.visitor_sessions WHERE id = ANY($1::uuid[]) AND (ip_raw IS NOT NULL OR visitor_id LIKE 'v-lena-%')`, [ids])).toBe(0);
   });
 });

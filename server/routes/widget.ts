@@ -169,7 +169,7 @@ import {
   readMessageReactions,
   setMessageReaction,
 } from '../services/messageReactions.js';
-import { readQueueStatus, routeHumanBoundConversation } from '../services/chatRouting.js';
+import { readQueueStatus, routeHumanBoundConversation, routeOfflineCapture } from '../services/chatRouting.js';
 import { publishVisitorRead } from '../services/visitorReadReceipts.js';
 import {
   VISITOR_REACTION_EMOJI,
@@ -411,8 +411,11 @@ async function handleBootstrap(req: Request, res: Response) {
       is_new_visitor: visitor.isNew,
       // The visitor credential (services/widget/visitorIdentity.ts) and
       // whether this request carried the cookie: the loader stores the
-      // credential only while the browser does not keep the cookie.
-      visitor_credential: visitor.credential,
+      // credential only while the browser does not keep the cookie. When the
+      // cookie came it is not handed out at all (empty): a page that got the
+      // browser to send a visitor's cookie must not walk away with a bearer
+      // token it can replay from anywhere for a year.
+      visitor_credential: visitor.fromCookie ? '' : visitor.credential,
       visitor_cookie: visitor.fromCookie,
       availability: availabilityPayload,
       effective_policy,
@@ -2730,7 +2733,11 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             .select('store_raw_ip, tracking_requires_consent, tracking_keep_query')
             .eq('workspace_id', workspaceId)
             .maybeSingle();
-          if (error) ({ data: ws, error } = await supabase.from('widget_settings').select('store_raw_ip').eq('workspace_id', workspaceId).maybeSingle());
+          // Before migration 281 (the columns are missing, and only then):
+          // its defaults, consent not asked, as before it. Any other error is
+          // unreadable settings, not an older database.
+          const before281 = !!error && isMissingColumnError(error, ['tracking_requires_consent', 'tracking_keep_query']);
+          if (before281) ({ data: ws, error } = await supabase.from('widget_settings').select('store_raw_ip').eq('workspace_id', workspaceId).maybeSingle());
           // Unreadable settings: the cautious side (no raw IP, consent asked).
           if (error) return { storeRawIp: false, privacy: { requiresConsent: true, keepQuery: false } };
           const row = (ws ?? {}) as { store_raw_ip?: unknown; tracking_requires_consent?: unknown; tracking_keep_query?: unknown };
@@ -4173,6 +4180,10 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     });
   }
 
+  // A person has to answer it: routing gives it to whoever can take it now,
+  // else it waits for the ticker (or in the manual queue). Fire-and-forget.
+  if (offlineMessage?.id) void routeOfflineCapture(config, { workspaceId: workspace_id, conversationId: conv.id });
+
   // Record the timeline event so operators can see it was offline-captured.
   await recordConversationEvent(config, {
     workspaceId: workspace_id,
@@ -4526,6 +4537,7 @@ widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), asy
 // widget MUST tolerate any failure and continue rendering normally.
 // ═══════════════════════════════════════════════════════════════════
 import { maybeSendIntro } from '../services/ai-agent/intro.js';
+import { isMissingColumnError } from '../lib/missingColumn.js';
 
 widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);

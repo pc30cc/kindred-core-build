@@ -138,6 +138,9 @@ describe('the bootstrap: the credential, and the same visitor without the cookie
     const again = await boot({}, dvsidOf(first));
     expect(again.body.visitor_id).toBe(first.body.visitor_id);
     expect(again.body.visitor_cookie).toBe(true);
+    // Nor is it handed a credential: whoever made the browser send the
+    // cookie gets no token to replay without it.
+    expect(again.body.visitor_credential).toBe('');
   });
 
   it('the cookie wins over a credential of another visitor', async () => {

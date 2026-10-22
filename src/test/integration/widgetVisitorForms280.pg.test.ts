@@ -6,11 +6,12 @@
  *   T1  a pre-chat field is required only while it is asked: rows stored the
  *       old way (asked off, required on) are fixed by the file, and the
  *       trigger keeps every later write so (an older backend's included);
- *   T2  the owners' "new offline message" mail carries {contact_phone}: the
- *       seeded rows of both editions get a Phone row (in fa/en/tr words) and
- *       the phone in the text; a template without the seeded Email row is
- *       left as the Super Admin wrote it;
- *   T3  280 runs twice: nothing changes the second time, one trigger.
+ *   T2  the owners' "new offline message" mail carries {contact_phone}
+ *       (283, applied after the backend that fills it): the seeded rows of
+ *       both editions get a Phone row (in fa/en/tr words) and the phone in
+ *       the text; a template without the seeded Email row is left as the
+ *       Super Admin wrote it; 280 alone no longer touches the template;
+ *   T3  280 and 283 run twice: nothing changes the second time, one trigger.
  *
  * Driven by TEST_DATABASE_URL; skipped without it.
  */
@@ -24,6 +25,7 @@ import { applyMigrationSql } from './pgMigrationChain';
 const DSN = process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
 const FILE = resolve(process.cwd(), 'database/migrations/280_widget_visitor_forms.sql');
+const FILE_283 = resolve(process.cwd(), 'database/migrations/283_offline_message_template_phone.sql');
 
 type Row = Record<string, unknown>;
 
@@ -86,11 +88,14 @@ suite('280 — the widget\'s visitor forms (real PostgreSQL)', () => {
       expect(String(r.text_body)).toContain('({contact_email} {contact_phone})');
     }
 
+    // 280 itself leaves the template to 283 (the placeholder waits for the backend that fills it).
+    expect(readFileSync(FILE, 'utf8')).not.toMatch(/contact_phone|email_templates/);
+
     // A Super Admin's own wording (no seeded Email row) is not touched.
     const own = '<p>From {contact_name}: {message_body}</p>';
     await q(`UPDATE public.email_templates SET html_body = $1, text_body = 'From {contact_name}'
              WHERE workspace_id IS NULL AND slug = 'offline_message_received' AND edition = 'iran' AND locale = 'en'`, [own]);
-    await applyMigrationSql(chain.db, readFileSync(FILE, 'utf8'));
+    await applyMigrationSql(chain.db, readFileSync(FILE_283, 'utf8'));
     expect(await one(`SELECT html_body, text_body FROM public.email_templates
                       WHERE workspace_id IS NULL AND slug = 'offline_message_received' AND edition = 'iran' AND locale = 'en'`))
       .toEqual({ html_body: own, text_body: 'From {contact_name}' });
@@ -100,6 +105,7 @@ suite('280 — the widget\'s visitor forms (real PostgreSQL)', () => {
     const before = await q(`SELECT edition, locale, html_body, text_body FROM public.email_templates
                             WHERE workspace_id IS NULL AND slug = 'offline_message_received' ORDER BY edition, locale`);
     await applyMigrationSql(chain.db, readFileSync(FILE, 'utf8'));
+    await applyMigrationSql(chain.db, readFileSync(FILE_283, 'utf8'));
     const after = await q(`SELECT edition, locale, html_body, text_body FROM public.email_templates
                            WHERE workspace_id IS NULL AND slug = 'offline_message_received' ORDER BY edition, locale`);
     expect(after).toEqual(before);

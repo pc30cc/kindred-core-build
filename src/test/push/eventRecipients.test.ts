@@ -99,7 +99,8 @@ const teamMessage = (to: string): Partial<RecipientContext> => ({
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
   state.eventColumnsMissing = false;
-  db.workspace_members = [OWNER, AGENT, OTHER].map((id) => ({ workspace_id: WS, user_id: id, suspended_at: null }));
+  db.workspace_members = [[OWNER, 'owner'], [AGENT, 'agent'], [OTHER, 'support_agent']]
+    .map(([id, role]) => ({ workspace_id: WS, user_id: id, suspended_at: null, role }));
   db.profiles = [OWNER, AGENT, OTHER].map((id) => ({ id, preferred_locale: 'en' }));
   db.user_notification_prefs = [prefs(OWNER), prefs(AGENT), prefs(OTHER)];
 });
@@ -136,15 +137,15 @@ describe('the AI letting go of a conversation', () => {
     expect(await who({ eventType: 'handoff', assignedTo: AGENT })).toEqual([AGENT]);
   });
 
-  it('with nobody holding it, goes to everyone following all conversations or the unassigned ones', async () => {
-    // "Assigned to me, and unassigned" — the setting's own words; it used to
-    // leave the unassigned out.
+  it('with nobody holding it, goes to everyone following all conversations', async () => {
+    // 'assigned' is "Conversations assigned to me", as the phone and desktop
+    // apps that set it say: a queue handoff is not theirs.
     db.user_notification_prefs = [
       prefs(OWNER),
       prefs(AGENT, { push_scope: 'assigned' }),
       prefs(OTHER, { push_scope: 'mentions' }),
     ];
-    expect(await who({ eventType: 'handoff' })).toEqual([AGENT, OWNER].sort());
+    expect(await who({ eventType: 'handoff' })).toEqual([OWNER]);
   });
 
   it('is silenced by the assignments switch', async () => {
@@ -153,22 +154,45 @@ describe('the AI letting go of a conversation', () => {
   });
 });
 
-describe('"Assigned to me, and unassigned"', () => {
-  it('hears a customer in a conversation nobody holds, and in its own, never in a colleague\'s', async () => {
+describe('"Conversations assigned to me" (push_scope assigned, as the apps that set it say)', () => {
+  it('hears a customer in its own conversation, never in an unassigned one or a colleague\'s', async () => {
     db.user_notification_prefs = [prefs(OWNER), prefs(AGENT, { push_scope: 'assigned' }), prefs(OTHER)];
-    expect(await who({ eventType: 'new_message' })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'new_message' })).toEqual([OTHER, OWNER].sort());
     expect(await who({ eventType: 'new_message', assignedTo: AGENT })).toEqual([AGENT]);
     expect(await who({ eventType: 'new_message', assignedTo: OTHER })).toEqual([OTHER]);
   });
 
-  it('hears an internal note on an unassigned conversation, as "all" does', async () => {
+  it('hears an internal note on its own conversation, not on an unassigned one', async () => {
     db.user_notification_prefs = [prefs(OWNER, { push_scope: 'mentions' }), prefs(AGENT, { push_scope: 'assigned' }), prefs(OTHER)];
-    expect(await who({ eventType: 'internal_note' })).toEqual([AGENT, OTHER].sort());
+    expect(await who({ eventType: 'internal_note' })).toEqual([OTHER]);
+    expect(await who({ eventType: 'internal_note', assignedTo: AGENT })).toEqual([AGENT]);
   });
 
-  it('still leaves the shared email inbox to those following everything', async () => {
+  it('leaves the shared email inbox to those following everything', async () => {
     db.user_notification_prefs = [prefs(OWNER), prefs(AGENT, { push_scope: 'assigned' }), prefs(OTHER)];
     expect(await who({ eventType: 'email_message', conversationId: null })).toEqual([OTHER, OWNER].sort());
+  });
+});
+
+describe('staff without an Inbox (shared/chatRoles.ts)', () => {
+  const STAFF = 'u-staff';
+  beforeEach(() => {
+    db.workspace_members.push({ workspace_id: WS, user_id: STAFF, suspended_at: null, role: 'billing' });
+    db.profiles.push({ id: STAFF, preferred_locale: 'en' });
+    db.user_notification_prefs.push(prefs(STAFF));
+  });
+
+  it('hear no customer message, note, queue handoff, assignment, email or mention in a conversation', async () => {
+    expect(await who({ eventType: 'new_message' })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'internal_note' })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'handoff' })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'email_message', conversationId: null })).toEqual([AGENT, OTHER, OWNER].sort());
+    expect(await who({ eventType: 'assignment', assignedTo: STAFF, userIds: [STAFF] })).toEqual([]);
+    expect(await who({ eventType: 'mention', mentionedUserIds: [STAFF] })).toEqual([]);
+  });
+
+  it('still hear a colleague\'s direct message', async () => {
+    expect(await who(teamMessage(STAFF))).toEqual([STAFF]);
   });
 });
 

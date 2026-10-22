@@ -22,7 +22,11 @@
 --    statement, plus one step before the membership row is deleted — the
 --    member's open and pending conversations are released (1) — and one key
 --    in its result, `released_conversation_ids`. The idempotency ledger's
---    stored projection (092) is an allow-list and does not keep it.
+--    stored projection (092) is an allow-list and does not keep it. It takes
+--    the routing lock first, before it locks the workspace row: a
+--    chat_route_claim() holds that lock while its inserts check their
+--    foreign key on the workspace row (FOR KEY SHARE), so the other order
+--    (the workspace row, then the lock) deadlocks with a claim in flight.
 --
 -- Both new functions are SECURITY INVOKER with a pinned search_path,
 -- executable by service_role only. offboard_workspace_member keeps its
@@ -92,8 +96,9 @@ COMMENT ON FUNCTION public.chat_routing_skip(uuid, uuid, uuid) IS
   'Routing does not offer the conversation to the member again (they handed it back or on); a NULL member clears the list (the thread ended). Server-only. Migration 278b.';
 
 -- ─── 3. Offboarding releases the member's open chats ──────────────────────
--- 251's offboard_workspace_member, unchanged but for the release before the
--- membership row goes and the released ids in the result.
+-- 251's offboard_workspace_member, unchanged but for the routing lock it
+-- takes first, the release before the membership row goes and the released
+-- ids in the result.
 CREATE OR REPLACE FUNCTION public.offboard_workspace_member(
   _workspace_id uuid,
   _user_id uuid,
@@ -122,6 +127,11 @@ DECLARE
   _revoked_ids uuid[] := ARRAY[]::uuid[];
   _released uuid[] := ARRAY[]::uuid[];
 BEGIN
+  -- 278b: the routing lock before the workspace row (the order
+  -- chat_route_claim takes them in); re-entrant, so the release below takes
+  -- it again for nothing.
+  PERFORM pg_advisory_xact_lock(hashtextextended('chat_route_claim:' || _workspace_id::text, 0));
+
   SELECT owner_id INTO _owner_id FROM public.workspaces WHERE id = _workspace_id FOR UPDATE;
   IF _owner_id IS NULL THEN RAISE EXCEPTION 'WORKSPACE_NOT_FOUND'; END IF;
 

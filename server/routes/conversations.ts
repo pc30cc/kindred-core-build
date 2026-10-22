@@ -54,6 +54,7 @@ import {
   compareAndAssign,
   mayReassign,
   publishAssigneeChange,
+  takeOverConversation,
 } from '../services/conversationAssignment.js';
 import { continueConversationThread, endConversationThread } from '../services/conversationLifecycle.js';
 import { patchConversationMetadata } from '../services/conversationMetadata.js';
@@ -238,7 +239,7 @@ async function reopenClosedOnReply(
 async function claimUnassigned(
   config: ServerConfig,
   a: { workspaceId: string; conversationId: string; actorId: string; method: string; source?: string },
-): Promise<void> {
+): Promise<boolean> {
   try {
     const { data } = await getServiceClient(config)
       .from('conversations')
@@ -247,7 +248,7 @@ async function claimUnassigned(
       .eq('workspace_id', a.workspaceId)
       .is('assigned_to', null)
       .select('id, updated_at');
-    if (!Array.isArray(data) || data.length === 0) return;
+    if (!Array.isArray(data) || data.length === 0) return false;
     void recordAuditAndEvent(config, {
       workspaceId: a.workspaceId,
       conversationId: a.conversationId,
@@ -268,8 +269,10 @@ async function claimUnassigned(
       updatedAt: (data[0] as { updated_at?: string }).updated_at,
     });
     void onSupportConversationChanged(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+    return true;
   } catch (err) {
     console.warn('[conversations/send-message] claim on first reply failed:', err?.message || err);
+    return false;
   }
 }
 
@@ -305,51 +308,18 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
   if (!auth) return;
   if (await refuseLockedConversation(res, config, workspaceId, conv)) return;
 
-  // Taking it is atomic (R-10): only while nobody has it — a routing run or
-  // a colleague's claim may have just assigned it, or a colleague holds it
-  // already — else 409 `already_assigned` with the holder, and the AI is
-  // left as it is (it is not this operator's to take over). On the timeline
-  // when it did (method take_over).
-  if (assign_to_me && conv.assigned_to !== auth.userId) {
-    let holder: string | null = conv.assigned_to ?? null;
-    let took = false;
-    if (!holder) {
-      const { data: taken } = await sb.from('conversations')
-        .update({ assigned_to: auth.userId })
-        .eq('id', conversationId)
-        .is('assigned_to', null)
-        .select('id');
-      took = Array.isArray(taken) && taken.length > 0;
-      if (!took) {
-        const { data: now } = await sb.from('conversations').select('assigned_to').eq('id', conversationId).maybeSingle();
-        holder = (now as { assigned_to?: string | null } | null)?.assigned_to ?? null;
-      }
-    }
-    if (holder && holder !== auth.userId) {
-      return res.status(409).json({ error: 'already_assigned', assigned_to: holder });
-    }
-    if (took) {
-      void recordAuditAndEvent(config, {
-        workspaceId,
-        conversationId,
-        actorType: 'agent',
-        actorId: auth.userId,
-        eventType: 'assigned',
-        auditAction: 'conversation.assigned',
-        oldValue: { assigned_to: null },
-        newValue: { assigned_to: auth.userId },
-        payload: { from: null, to: auth.userId, method: 'take_over' },
-      });
-      publishAssigneeChange(config, { workspaceId, conversationId, actorId: auth.userId, from: null, to: auth.userId });
-    }
-  }
-  await markHumanTakeover(config, {
+  // Taking it is atomic (R-10): only while nobody has it, else 409
+  // `already_assigned` with the holder and the AI left as it is
+  // (takeOverConversation).
+  const taken = await takeOverConversation(config, {
     workspaceId,
     conversationId,
-    operatorId: auth.userId,
-    reason: 'manual_takeover',
+    actorId: auth.userId,
+    assignToMe: assign_to_me,
+    assignedTo: conv.assigned_to ?? null,
     previousAiState: conv.ai_state ?? null,
   });
+  if ('heldBy' in taken) return res.status(409).json({ error: 'already_assigned', assigned_to: taken.heldBy });
   return res.json({ ok: true });
 });
 
@@ -837,7 +807,7 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
     // operators click the button multiple times.
     const { data: existing } = await sb
       .from('conversations')
-      .select('id, status, assigned_to')
+      .select('id, status, assigned_to, ai_state')
       .eq('workspace_id', parsed.data.workspace_id)
       .eq('visitor_session_id', parsed.data.visitor_session_id)
       .in('status', ['open', 'pending'])
@@ -851,13 +821,25 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
     const owner = auth.isAdmin ? null : auth.userId;
     if (existing?.id) {
       if (owner && !(existing as { assigned_to?: string | null }).assigned_to) {
-        await claimUnassigned(config, {
+        const claimed = await claimUnassigned(config, {
           workspaceId: parsed.data.workspace_id,
           conversationId: existing.id,
           actorId: owner,
           method: 'manual',
           source: 'visitor_outreach',
         });
+        // A thread the AI held is the operator's now, as POST /:id/claim
+        // makes it: out of the AI's lane, the AI stops.
+        const aiState = (existing as { ai_state?: string | null }).ai_state ?? null;
+        if (claimed && aiState === 'ai_managed') {
+          await markHumanTakeover(config, {
+            workspaceId: parsed.data.workspace_id,
+            conversationId: existing.id,
+            operatorId: owner,
+            reason: 'assignment',
+            previousAiState: aiState,
+          }).catch(() => undefined);
+        }
       }
       return res.json({ ok: true, conversation_id: existing.id, created: false });
     }
@@ -1095,6 +1077,18 @@ conversationsRouter.patch('/:id', async (req, res) => {
         await endConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
       } else if (statusEvType === 'reopened') {
         await continueConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
+        // Its operator continues it: a person has it, so the AI (whose state
+        // the resolve reset) does not answer over them, and it stays in
+        // their lists rather than the AI's.
+        if (after.assigned_to) {
+          await markHumanTakeover(config, {
+            workspaceId: parsed.data.workspace_id,
+            conversationId,
+            operatorId: after.assigned_to,
+            reason: 'assignment',
+            previousAiState: (before as { ai_state?: string | null }).ai_state ?? null,
+          }).catch(() => undefined);
+        }
       }
     }
 
@@ -1302,14 +1296,16 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 //                   atomic, the visitor's transfer line, the new operator's
 //                   phone, the AI letting go);
 //   to a department the conversation leaves its operator (atomically), takes
-//                   the department, and is routed there now — the
-//                   department's available operators first, then the team
-//                   unless the Super Admin turned the general pool off; in
-//                   manual mode it waits in the queue — whatever the AI would
-//                   do (a person was asked for). Whoever held it is not
-//                   offered it again for this chat. The Inbox reads "X
-//                   transferred this conversation to <department>"
-//                   (internal); the visitor hears who joins.
+//                   the department, and is routed inside it now — the
+//                   department's available operators only (never the whole
+//                   team or the owner fallback: nobody there = it waits for
+//                   them, `routing_department_only` until the thread ends or
+//                   someone moves it to a person); in manual mode it waits
+//                   in the queue — whatever the AI would do (a person was
+//                   asked for). Whoever held it is not offered it again for
+//                   this chat. The Inbox reads "X transferred this
+//                   conversation to <department>" (internal); the visitor
+//                   hears who joins.
 // Supervisors move anyone's conversation; everyone else only their own (or
 // takes an unassigned one themselves).
 // ═══════════════════════════════════════════════════════════════════
@@ -1363,6 +1359,11 @@ conversationsRouter.post('/:id/transfer', async (req, res) => {
       const moved = await compareAndAssign(config, { workspaceId, conversationId, from: heldBy, to });
       if ('conflict' in moved) return res.status(409).json({ error: 'assignment_changed', assigned_to: moved.assignedTo });
       if ('error' in moved) return res.status(500).json({ error: moved.error });
+      // A person now, whoever they are: an earlier transfer's "this
+      // department only" no longer holds.
+      if ((before.metadata as Record<string, unknown> | null)?.routing_department_only === true) {
+        await patchConversationMetadata(config, conversationId, { routing_department_only: null }, workspaceId);
+      }
       await announceManualAssignment(config, {
         workspaceId, conversationId, actorId: auth.userId, from: heldBy, to,
         aiState: (before as { ai_state?: string | null }).ai_state ?? null,
@@ -1393,7 +1394,7 @@ conversationsRouter.post('/:id/transfer', async (req, res) => {
     }
     const beforeMeta = (before.metadata || {}) as Record<string, unknown>;
     const fromDepartment = typeof beforeMeta.department_id === 'string' ? beforeMeta.department_id : null;
-    await patchConversationMetadata(config, conversationId, { department_id: department.id }, workspaceId);
+    await patchConversationMetadata(config, conversationId, { department_id: department.id, routing_department_only: true }, workspaceId);
 
     const { data: people } = await sb
       .from('profiles')

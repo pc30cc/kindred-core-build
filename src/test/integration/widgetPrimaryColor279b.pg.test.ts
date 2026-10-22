@@ -4,10 +4,15 @@
  * PostgreSQL built by the chain up to 279:
  *
  *   - before it a new row gets a colour nobody chose (#6D5DFB since 251);
- *   - it moves the seeded #3B82F6 (any case, spaces) and anything the widget
- *     cannot draw ("#12", "red") to NULL, spells "#abc" as "#AABBCC", trims a
+ *   - it moves the seeded #3B82F6 (any case, spaces, with an alpha) and
+ *     anything a browser cannot draw ("#12", "", "currentColor") or draws
+ *     transparent to NULL, converts what the default template did draw (a
+ *     CSS name, rgb(), hsl(), #abc, #RRGGBBAA) to its #RRGGBB, trims a
  *     six-digit colour, and keeps every real colour (and #6D5DFB) as it is,
  *     other columns and updated_at untouched;
+ *   - it keeps a copy of every value it changed (and only those), the
+ *     first one if it runs again, and the header's restore statement puts
+ *     them back where nobody changed the colour since;
  *   - a new row starts on NULL (the brand colour); the PATCH's own UPDATE
  *     still stores a colour and NULL;
  *   - a dry run (BEGIN … ROLLBACK) leaves no trace; a second run changes
@@ -61,16 +66,25 @@ const STORED: Array<[string | null, string | null]> = [
   ['#3B82F6', null],
   ['#3b82f6', null],
   ['  #3B82F6 ', null],
+  ['#3b82f680', null],
   ['#12', null],
-  ['red', null],
   ['', null],
+  ['transparent', null],
+  ['rgba(0, 0, 0, 0)', null],
+  ['currentColor', null],
+  ['red', '#FF0000'],
+  ['RebeccaPurple', '#663399'],
+  ['rgb(16, 185, 129)', '#10B981'],
+  ['rgb(16 185 129 / 50%)', '#10B981'],
+  ['hsl(210, 50%, 40%)', '#336699'],
+  ['#10b98180', '#10B981'],
   ['#abc', '#AABBCC'],
   [' #0EA5E9  ', '#0EA5E9'],
   ['#10b981', '#10b981'],
   ['#6D5DFB', '#6D5DFB'],
   [null, null],
 ];
-const rows: Array<{ ws: string; want: string | null }> = [];
+const rows: Array<{ ws: string; stored: string | null; want: string | null }> = [];
 let wsDefault: string;
 
 suite('279b — widget primary colour: NULL is the brand colour (real PostgreSQL, whole chain)', () => {
@@ -90,7 +104,7 @@ suite('279b — widget primary colour: NULL is the brand colour (real PostgreSQL
       await applyMigrationSql(db, readFileSync(resolve(DIR, file), 'utf8'));
     }
     wsDefault = await workspace();
-    for (const [stored, want] of STORED) rows.push({ ws: await workspace(stored), want });
+    for (const [stored, want] of STORED) rows.push({ ws: await workspace(stored), stored, want });
   }, 600_000);
 
   afterAll(async () => {
@@ -117,9 +131,10 @@ suite('279b — widget primary colour: NULL is the brand colour (real PostgreSQL
     }
     expect(await columnDefault()).toBe(`'#6D5DFB'::text`);
     expect(await q(`SELECT workspace_id, primary_color, updated_at FROM public.widget_settings ORDER BY workspace_id`)).toEqual(before);
+    expect((await q(`SELECT to_regclass('public.widget_primary_color_backup_279b') AS t`))[0].t).toBeNull();
   });
 
-  it('applies: the seed and what is no colour become NULL, real colours stay, nothing else changes', async () => {
+  it('applies: the seed and what is no colour become NULL, what a browser drew becomes its #RRGGBB, real colours stay, nothing else changes', async () => {
     const before = await q(`SELECT * FROM public.widget_settings ORDER BY workspace_id`);
     await applyMigrationSql(db, SQL());
     for (const { ws, want } of rows) expect(await colorOf(ws), ws).toBe(want);
@@ -127,6 +142,20 @@ suite('279b — widget primary colour: NULL is the brand colour (real PostgreSQL
     expect(await colorOf(wsDefault)).toBe('#6D5DFB');
     const after = await q(`SELECT * FROM public.widget_settings ORDER BY workspace_id`);
     expect(after.map(({ primary_color: _c, ...rest }) => rest)).toEqual(before.map(({ primary_color: _c, ...rest }) => rest));
+  });
+
+  it('a copy of every value it changed, and only those; nobody but the server may read it', async () => {
+    const copies = Object.fromEntries((await q(`SELECT workspace_id, primary_color, new_color FROM public.widget_primary_color_backup_279b`))
+      .map((r) => [r.workspace_id, { primary_color: r.primary_color, new_color: r.new_color }]));
+    for (const { ws, stored, want } of rows) {
+      if (stored === null || stored === want) expect(copies[ws], stored ?? 'null').toBeUndefined();
+      else expect(copies[ws], stored).toEqual({ primary_color: stored, new_color: want });
+    }
+    expect(copies[wsDefault]).toBeUndefined();
+    const acl = (await q(`SELECT relrowsecurity AS rls, has_table_privilege('anon', c.oid, 'SELECT') AS anon,
+                                 has_table_privilege('authenticated', c.oid, 'SELECT') AS authed
+                            FROM pg_class c WHERE c.oid = 'public.widget_primary_color_backup_279b'::regclass`))[0];
+    expect(acl).toEqual({ rls: true, anon: false, authed: false });
   });
 
   it('a new row starts on the brand colour (NULL); a colour and NULL are still stored', async () => {
@@ -139,10 +168,27 @@ suite('279b — widget primary colour: NULL is the brand colour (real PostgreSQL
     expect(await colorOf(fresh)).toBeNull();
   });
 
-  it('re-runnable: a second run changes nothing', async () => {
+  it('re-runnable: a second run changes nothing, and the copy keeps the first values', async () => {
     const before = await q(`SELECT workspace_id, primary_color, updated_at FROM public.widget_settings ORDER BY workspace_id`);
+    const copies = await q(`SELECT * FROM public.widget_primary_color_backup_279b ORDER BY workspace_id`);
     await applyMigrationSql(db, SQL());
     expect(await q(`SELECT workspace_id, primary_color, updated_at FROM public.widget_settings ORDER BY workspace_id`)).toEqual(before);
+    expect(await q(`SELECT * FROM public.widget_primary_color_backup_279b ORDER BY workspace_id`)).toEqual(copies);
     expect(await columnDefault()).toBeNull();
+  });
+
+  it('the header\'s restore statement puts the old values back where nobody changed the colour since', async () => {
+    const restore = SQL().match(/--\s+UPDATE public\.widget_settings w\n[\s\S]*?new_color;/)?.[0];
+    expect(restore).toBeTruthy();
+    const red = rows.find((r) => r.stored === 'red')!;
+    const hsl = rows.find((r) => r.stored === 'hsl(210, 50%, 40%)')!;
+    // Saved again since: left alone.
+    await q(`UPDATE public.widget_settings SET primary_color = '#EF4444' WHERE workspace_id = $1`, [hsl.ws]);
+    await q(restore!.replace(/^\s*--\s?/gm, ''));
+    for (const { ws, stored, want } of rows) {
+      if (ws === hsl.ws) expect(await colorOf(ws)).toBe('#EF4444');
+      else if (stored !== null && stored !== want) expect(await colorOf(ws), stored).toBe(stored);
+    }
+    expect(await colorOf(red.ws)).toBe('red');
   });
 });

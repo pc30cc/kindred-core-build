@@ -51,6 +51,7 @@ import { releaseLockedAgentChats } from '../services/billing/locks/release.js';
 import { invalidateDepartmentCache } from '../services/calls/departments.js';
 import { afterMemberReleased, releaseMemberChats, releasedConversationIds } from '../services/chatRouting.js';
 import { canUseInbox } from '../../shared/chatRoles.js';
+import { readWithColumnFallback } from '../lib/missingColumn.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -210,13 +211,20 @@ workspaceMembersRouter.get('/', async (req, res) => {
 
   const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data: members, error: memberErr } = await sb
-    .from('workspace_members')
-    .select('id, role, created_at, user_id, suspended_at, suspend_reason, receives_chats, max_concurrent_chats')
-    .eq('workspace_id', workspaceId);
-  if (memberErr) return res.status(500).json({ error: memberErr.message });
+  // Before migration 278 the routing columns are not there yet: the list
+  // still loads, each member reading as receiving chats at the default
+  // maximum (what routing then does too).
+  const { data: memberRows, error: memberErr, degraded } = await readWithColumnFallback(
+    (columns) => sb.from('workspace_members').select(columns).eq('workspace_id', workspaceId),
+    'id, role, created_at, user_id, suspended_at, suspend_reason, receives_chats, max_concurrent_chats',
+    'id, role, created_at, user_id, suspended_at, suspend_reason',
+    ['receives_chats', 'max_concurrent_chats'],
+  );
+  if (memberErr) return res.status(500).json({ error: (memberErr as { message?: string }).message || 'members_unreadable' });
+  const members = ((memberRows || []) as Array<{ id: string; role: string; created_at: string; user_id: string; [k: string]: unknown }>)
+    .map((m) => (degraded ? { ...m, receives_chats: true, max_concurrent_chats: null } : m));
 
-  const userIds = (members || []).map((m) => m.user_id);
+  const userIds = members.map((m) => m.user_id);
   const [{ data: profiles }, { data: deptMembers }, { data: depts }] = await Promise.all([
     userIds.length
       ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', userIds)
@@ -238,7 +246,7 @@ workspaceMembersRouter.get('/', async (req, res) => {
   }
 
   const lockState = await resolveLockState(config, workspaceId, ['member']);
-  const result = (members || []).map((m) => ({
+  const result = members.map((m) => ({
     ...m,
     profile: (profiles || []).find((p) => p.id === m.user_id) || null,
     department_names: deptsByUser.get(m.user_id) || [],

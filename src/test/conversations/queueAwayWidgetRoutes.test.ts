@@ -32,6 +32,8 @@ const state = vi.hoisted(() => ({
   sent: [] as Array<Record<string, unknown>>,
   pushes: [] as Array<Record<string, unknown>>,
   events: [] as Array<Record<string, unknown>>,
+  /** Conversations the leave-a-message form handed to routing. */
+  routed: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -60,6 +62,10 @@ vi.mock('../../../server/services/billing/conversationLimit.js', async (orig) =>
 vi.mock('../../../server/services/push/index.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/push/index.js')>()),
   notifyInboundMessage: async (_c: unknown, p: Record<string, unknown>) => { state.pushes.push(p); },
+}));
+vi.mock('../../../server/services/chatRouting.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/chatRouting.js')>()),
+  routeOfflineCapture: async (_c: unknown, a: Record<string, unknown>) => { state.routed.push(a); return { outcome: 'no_eligible_agent', assignedTo: null }; },
 }));
 vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordConversationEvent: async (_c: unknown, input: Record<string, unknown>) => { state.events.push(input); return { ok: true }; },
@@ -125,6 +131,7 @@ beforeEach(() => {
   state.sent.length = 0;
   state.pushes.length = 0;
   state.events.length = 0;
+  state.routed.length = 0;
   __resetWidgetRateLimitsForTests();
 });
 afterEach(() => { vi.useRealTimers(); });
@@ -276,6 +283,8 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
     expect(state.pushes).toHaveLength(1);
     expect(state.sent).toHaveLength(1);
     expect(state.events.filter((e) => e.eventType === 'captured_offline')).toHaveLength(1);
+    // A person has to answer it: routing hears of it once.
+    expect(state.routed).toEqual([{ workspaceId: WS, conversationId: conv.id }]);
   });
 
   it('the same id again (a retry) answers the same ids: no second conversation, message, push, event or mail', async () => {

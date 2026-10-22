@@ -65,7 +65,7 @@ import {
   readRoutingPresence,
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
-import { AVAILABILITY_PREFS_COLUMNS } from '../services/widget/customerAvailability.js';
+import { readGlobalAvailabilityPrefs } from '../services/widget/customerAvailability.js';
 import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 import { recordOperatorActivity } from '../services/widget/operatorActivity.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
@@ -191,12 +191,8 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
       return res.json({ ok: true, state: 'skipped', bucket, presence_mode: fallbackPresence ? 'database' : 'realtime' });
     }
 
-    const { data: prefs } = await sb
-      .from('user_availability_prefs')
-      .select(AVAILABILITY_PREFS_COLUMNS)
-      .eq('user_id', auth.userId)
-      .is('workspace_id', null)
-      .maybeSingle();
+    const { data: prefRows } = await readGlobalAvailabilityPrefs(sb, [auth.userId]);
+    const prefs = (prefRows?.[0] ?? null) as Parameters<typeof computeOperatorState>[0];
 
     const { state } = computeOperatorState(prefs, now);
 
@@ -309,11 +305,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', userIds)
         : Promise.resolve({ data: [] }),
       userIds.length
-        ? sb
-            .from('user_availability_prefs')
-            .select(AVAILABILITY_PREFS_COLUMNS)
-            .in('user_id', userIds)
-            .is('workspace_id', null)
+        ? readGlobalAvailabilityPrefs(sb, userIds)
         : Promise.resolve({ data: [] }),
     ]);
 

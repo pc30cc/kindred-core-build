@@ -36,6 +36,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { downloadFile } from '../storage/index.js';
 import { ZipBuilder } from './zip.js';
+import { readAllPages, type PagedRead } from './pagedRead.js';
 import type {
   PrivacyJobRow,
   PrivacyJobScope,
@@ -56,6 +57,11 @@ function relationMissing(error: { code?: string } | null | undefined): boolean {
 function rows<T = Row>(what: string, result: { data: T[] | null; error: { code?: string; message?: string } | null }): T[] {
   if (result.error && !relationMissing(result.error)) throw new Error(`export: reading ${what} failed: ${result.error.message}`);
   return result.data || [];
+}
+
+/** Every row of a read, page by page (pagedRead.ts); its error fails the export. */
+async function readAllRows(what: string, read: PagedRead<Row>): Promise<Row[]> {
+  return rows(what, await readAllPages(read));
 }
 
 /** Id lists in bounded slices (a long `in.(…)` filter stays a short request). */
@@ -169,11 +175,13 @@ export async function buildExportZip(
       if (subject.contact_ids.length > 0) {
         orParts.push(`contact_id.in.(${subject.contact_ids.join(',')})`);
       }
-      visitorSessions = rows('visitor sessions', await sb
+      visitorSessions = await readAllRows('visitor sessions', (from, to) => sb
         .from('visitor_sessions')
         .select('*')
         .eq('workspace_id', wsId)
-        .or(orParts.join(',')));
+        .or(orParts.join(','))
+        .order('id', { ascending: true })
+        .range(from, to));
     }
     writeJson('visitor_sessions.json', visitorSessions);
     summary.visitor_sessions = visitorSessions.length;
@@ -185,37 +193,41 @@ export async function buildExportZip(
     const pageViews: Row[] = [];
     const analyticsEvents: Row[] = [];
     for (const ids of slices(visitSessionIds)) {
-      pageViews.push(...rows('page views', await sb
+      pageViews.push(...await readAllRows('page views', (from, to) => sb
         .from('visitor_page_views')
         .select('id,visitor_session_id,url,title,viewed_at')
         .eq('workspace_id', wsId)
         .in('visitor_session_id', ids)
         .order('viewed_at', { ascending: true })
-        .limit(10000)));
-      analyticsEvents.push(...rows('analytics events', await sb
+        .order('id', { ascending: true })
+        .range(from, to)));
+      analyticsEvents.push(...await readAllRows('analytics events', (from, to) => sb
         .from('web_analytics_events')
         .select('id,visitor_session_id,event_name,properties,page_url,created_at')
         .eq('workspace_id', wsId)
         .in('visitor_session_id', ids)
         .order('created_at', { ascending: true })
-        .limit(10000)));
+        .order('id', { ascending: true })
+        .range(from, to)));
     }
     const smartEvents: Row[] = [];
     const aiNudges: Row[] = [];
     const storeLinks: Row[] = [];
     for (const ids of slices(visitorIds)) {
-      smartEvents.push(...rows('Smart Engagement events', await sb
+      smartEvents.push(...await readAllRows('Smart Engagement events', (from, to) => sb
         .from('widget_smart_events')
         .select('id,rule_id,event_type,page_path,source,created_at')
         .eq('workspace_id', wsId)
         .in('visitor_id', ids)
-        .limit(10000)));
-      aiNudges.push(...rows('AI nudges', await sb
+        .order('id', { ascending: true })
+        .range(from, to)));
+      aiNudges.push(...await readAllRows('AI nudges', (from, to) => sb
         .from('widget_ai_nudges')
         .select('id,topic,message,cta_label,cta_url,page_path,status,shown_at,created_at')
         .eq('workspace_id', wsId)
         .in('visitor_id', ids)
-        .limit(10000)));
+        .order('id', { ascending: true })
+        .range(from, to)));
       const uuids = ids.filter((id) => UUID_RE.test(id));
       if (uuids.length) {
         storeLinks.push(...rows('store links', await sb

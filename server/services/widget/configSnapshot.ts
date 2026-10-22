@@ -90,9 +90,10 @@ import { loadPublishedSmartRules, isSmartRuleUnexpired, type PublicSmartRule } f
 import { resolveEffectiveAiNudgePolicy } from './aiNudge/policy.js';
 import { businessHoursAllowedOf, resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
 import {
-  AVAILABILITY_PREFS_COLUMNS,
   chatReceivingMemberIds,
   listCustomerAvailableOperators,
+  readChatMemberRows,
+  readGlobalAvailabilityPrefs,
   type AvailabilityPrefsRow,
   type ChatMemberRow,
   type WorkspaceAvailabilityPrefs,
@@ -604,7 +605,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       return null;
     }),
     // The chat columns decide who counts for online/offline (CHAT_MEMBER_COLUMNS).
-    sb.from('workspace_members').select('user_id, created_at, role, suspended_at, receives_chats').eq('workspace_id', workspaceId),
+    readChatMemberRows<ChatMemberRow & { created_at?: string | null }>(sb, workspaceId, ['created_at']),
     sb.from('ai_agent_settings')
       .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, metadata')
       .eq('workspace_id', workspaceId)
@@ -672,10 +673,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
     : Promise.resolve(undefined);
   const [prefsResult, chatMemberIds, teamResult, smart, aiProactive, aiAgent, logoUrl, fabImageUrl] = await Promise.all([
     needsPrefs && memberIds.length
-      ? sb.from('user_availability_prefs')
-        .select(AVAILABILITY_PREFS_COLUMNS)
-        .in('user_id', memberIds)
-        .is('workspace_id', null)
+      ? readGlobalAvailabilityPrefs(sb, memberIds)
       : Promise.resolve({ data: [] as AvailabilityPrefsRow[], error: null }),
     chatMemberIdsRead,
     // The team stack is the members who receive chats (shared/widgetTeam.ts),

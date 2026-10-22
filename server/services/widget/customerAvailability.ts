@@ -39,7 +39,8 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
+import { getServiceClient, type ServiceClient } from '../../supabase.js';
+import { readWithColumnFallback } from '../../lib/missingColumn.js';
 import { isRoutableChatRole } from '../../../shared/chatRoles.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
@@ -85,6 +86,30 @@ export interface AvailabilityPrefsRow {
 
 export const AVAILABILITY_PREFS_COLUMNS =
   'user_id, force_offline, available_when_using_app, manual_away, schedule_enabled, timezone, weekly_schedule';
+
+/** The same columns on a database before migration 282 (no manual_away: nobody is "Away from desk"). */
+export const AVAILABILITY_PREFS_COLUMNS_BEFORE_282 =
+  'user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule';
+
+/**
+ * The global availability prefs (workspace_id IS NULL, where Account ›
+ * Availability writes) of these users. Before migration 282 the read falls
+ * back to the columns without manual_away, so it never comes back empty
+ * (which would read everyone as available) while the backend runs ahead of
+ * the migration.
+ */
+export async function readGlobalAvailabilityPrefs(
+  sb: ServiceClient,
+  userIds: string[],
+): Promise<{ data: AvailabilityPrefsRow[] | null; error: unknown }> {
+  const { data, error } = await readWithColumnFallback(
+    (columns) => sb.from('user_availability_prefs').select(columns).in('user_id', userIds).is('workspace_id', null),
+    AVAILABILITY_PREFS_COLUMNS,
+    AVAILABILITY_PREFS_COLUMNS_BEFORE_282,
+    ['manual_away'],
+  );
+  return { data: (data as AvailabilityPrefsRow[] | null) ?? null, error };
+}
 
 /**
  * Formatters per time zone, as in availability.ts: availability is computed
@@ -207,6 +232,30 @@ export interface WorkspaceAvailabilityPrefs {
 /** The workspace_members columns chatReceivingMemberIds reads. */
 export const CHAT_MEMBER_COLUMNS = 'user_id, role, suspended_at, receives_chats';
 
+/** The same before migration 278 (no receives_chats: everyone receives). */
+export const CHAT_MEMBER_COLUMNS_BEFORE_278 = 'user_id, role, suspended_at';
+
+/**
+ * The workspace's members with the chat columns (and `extra` ones). Before
+ * migration 278 the read falls back to the columns without receives_chats,
+ * so the widget counts its members (and calls find their pool) while the
+ * backend runs ahead of the migration.
+ */
+export async function readChatMemberRows<T extends ChatMemberRow = ChatMemberRow>(
+  sb: ServiceClient,
+  workspaceId: string,
+  extra: readonly string[] = [],
+): Promise<{ data: T[] | null; error: unknown }> {
+  const more = extra.length ? `, ${extra.join(', ')}` : '';
+  const { data, error } = await readWithColumnFallback(
+    (columns) => sb.from('workspace_members').select(columns).eq('workspace_id', workspaceId),
+    CHAT_MEMBER_COLUMNS + more,
+    CHAT_MEMBER_COLUMNS_BEFORE_278 + more,
+    ['receives_chats'],
+  );
+  return { data: (data as T[] | null) ?? null, error };
+}
+
 export interface ChatMemberRow {
   user_id: string | null;
   role?: string | null;
@@ -240,11 +289,8 @@ export async function loadWorkspaceAvailabilityPrefs(
   workspaceId: string,
 ): Promise<WorkspaceAvailabilityPrefs> {
   const sb = getServiceClient(config);
-  const { data: members } = await sb
-    .from('workspace_members')
-    .select(CHAT_MEMBER_COLUMNS)
-    .eq('workspace_id', workspaceId);
-  const rows = (members || []) as ChatMemberRow[];
+  const { data: members } = await readChatMemberRows(sb, workspaceId);
+  const rows = members || [];
   const memberIds = rows
     .map((m) => m.user_id)
     .filter((id): id is string => !!id);
@@ -254,12 +300,8 @@ export async function loadWorkspaceAvailabilityPrefs(
 
   // Global prefs (workspace_id IS NULL) — where the Account › Availability
   // page writes. Per-workspace overrides can be layered later.
-  const { data: prefRows } = await sb
-    .from('user_availability_prefs')
-    .select(AVAILABILITY_PREFS_COLUMNS)
-    .in('user_id', memberIds)
-    .is('workspace_id', null);
-  for (const r of (prefRows || []) as AvailabilityPrefsRow[]) {
+  const { data: prefRows } = await readGlobalAvailabilityPrefs(sb, memberIds);
+  for (const r of prefRows || []) {
     if (r.user_id) prefsByUser.set(r.user_id, r);
   }
   return { memberIds, prefsByUser, chatMemberIds };

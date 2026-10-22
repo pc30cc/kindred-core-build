@@ -118,6 +118,8 @@ beforeEach(() => {
     { workspace_id: WS, user_id: SEO, role: 'seo_manager', suspended_at: null, receives_chats: true },
   ];
   state.db.tables.widget_settings = [{ workspace_id: WS, assignment_mode: 'auto', last_agent_routing_enabled: true, last_agent_window_days: 30, default_max_concurrent_chats: 5 }];
+  // No pre-chat form (routing would wait for it: chatRoutingEngine.test.ts).
+  state.db.tables.widget_prechat_settings = [{ workspace_id: WS, ask_name: false, ask_email: false, ask_phone: false, prechat_timing: 'never' }];
   state.db.tables.ai_agent_settings = [];
   state.db.tables.profiles = [{ id: ALI, full_name: 'Ali' }, { id: BAHAR, full_name: 'Bahar' }];
   state.db.rpc = (fn, args) => {

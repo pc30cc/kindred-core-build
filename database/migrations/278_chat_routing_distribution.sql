@@ -44,6 +44,11 @@
 -- 6. Two partial indexes on conversations: the load count
 --    (conversations_open_assignee_idx) and a contact's latest conversations
 --    (conversations_contact_recent_idx, for the returning visitor's operator).
+-- 7. Conversations an older release left waiting for the pre-chat form
+--    (metadata.routing_pending, no deadline anywhere): those still open,
+--    unassigned and active in the last 24 hours get a deadline of now, so
+--    the ticker routes them on its first pass; older ones are routed by
+--    their visitor's next message (chatRouting.ts prechatWaitOver).
 --
 -- Every new table is server-only: RLS on, nothing for PUBLIC, anon or
 -- authenticated, service_role alone through its policy. The functions are
@@ -69,15 +74,16 @@
 -- UPDATE EXCLUSIVE: reads and writes go on). The new tables' foreign keys
 -- take SHARE ROW EXCLUSIVE on workspaces and conversations for an instant;
 -- the two indexes SHARE on conversations (writes wait) while they are built,
--- unless they were built beforehand as above. Re-runnable: every step is
+-- unless they were built beforehand as above. 7. reads conversations once
+-- (no lock beyond ACCESS SHARE) and inserts into the new table. Re-runnable: every step is
 -- guarded or a no-op the second time.
 -- The file sets lock_timeout 5s itself (not one transaction, so for the
 -- session, reset at the end): a runner without PGOPTIONS, such as RESPOK's
 -- migrator, must not leave every chat write queued behind a lock that waits
 -- for an open transaction. A statement stopped by it is simply run again.
 -- Dry run: the file inside BEGIN … ROLLBACK. Changes no existing value (the
--- new columns read their defaults); drops nothing; touches no archive schema
--- or table.
+-- new columns read their defaults; 7. only adds routing rows); drops
+-- nothing; touches no archive schema or table.
 
 SET lock_timeout = '5s';
 
@@ -197,6 +203,7 @@ CREATE TABLE IF NOT EXISTS public.chat_routing_state (
   waiting_since    timestamptz,
   wait_reason      text,
   waiting_retry_at timestamptz,
+  waiting_active_at timestamptz,
   prechat_deadline timestamptz,
   assigned_to      uuid,
   assigned_at      timestamptz,
@@ -209,7 +216,7 @@ CREATE TABLE IF NOT EXISTS public.chat_routing_state (
 );
 
 COMMENT ON TABLE public.chat_routing_state IS
-  'Per conversation, the chat routing ticker''s work: waiting_since (no operator could take it; retried from waiting_retry_at), prechat_deadline (routing waited for the pre-chat form; route anyway from then), the last automatic assignment (assigned_to, assigned_at, assign_method) with its first-response timeout (timeout_due_at), and skip_user_ids (members a timeout passed over). Server-only. Migration 278.';
+  'Per conversation, the chat routing ticker''s work: waiting_since (no operator could take it; retried from waiting_retry_at; waiting_active_at = the last attempt that was not the ticker''s own, a wait idle for a day is forgotten), prechat_deadline (routing waited for the pre-chat form; route anyway from then), the last automatic assignment (assigned_to, assigned_at, assign_method) with its first-response timeout (timeout_due_at), and skip_user_ids (members a timeout passed over). Server-only. Migration 278.';
 
 CREATE INDEX IF NOT EXISTS chat_routing_state_waiting_idx
   ON public.chat_routing_state (waiting_since) WHERE waiting_since IS NOT NULL;
@@ -412,6 +419,7 @@ BEGIN
     waiting_since = NULL,
     wait_reason = NULL,
     waiting_retry_at = NULL,
+    waiting_active_at = NULL,
     prechat_deadline = NULL,
     updated_at = now();
 
@@ -425,8 +433,12 @@ COMMENT ON FUNCTION public.chat_route_claim(uuid, uuid, uuid[], text, text, text
 -- The conversation waits for an operator (routing found nobody): the first
 -- wait's start is kept, the reason follows the latest attempt; a pre-chat
 -- deadline is spent (routing ran). p_reason NULL: it no longer waits for
--- routing (the workspace queues by hand now).
-CREATE OR REPLACE FUNCTION public.chat_routing_wait(p_workspace_id uuid, p_conversation_id uuid, p_reason text)
+-- routing (the workspace queues by hand now). p_from_ticker: the attempt was
+-- the ticker's own retry, which leaves the wait's last activity
+-- (waiting_active_at) and the retry time chat_routing_due() chose as they
+-- are; any other attempt (the visitor wrote, the chat was handed back) is
+-- activity, and the next retry comes in 25 seconds.
+CREATE OR REPLACE FUNCTION public.chat_routing_wait(p_workspace_id uuid, p_conversation_id uuid, p_reason text, p_from_ticker boolean DEFAULT false)
 RETURNS void
 LANGUAGE plpgsql
 VOLATILE
@@ -435,27 +447,36 @@ AS $fn_routing_wait$
 BEGIN
   IF p_reason IS NULL THEN
     UPDATE public.chat_routing_state
-       SET waiting_since = NULL, wait_reason = NULL, waiting_retry_at = NULL, updated_at = now()
+       SET waiting_since = NULL, wait_reason = NULL, waiting_retry_at = NULL, waiting_active_at = NULL, updated_at = now()
      WHERE conversation_id = p_conversation_id
        AND workspace_id = p_workspace_id
        AND waiting_since IS NOT NULL;
     RETURN;
   END IF;
-  INSERT INTO public.chat_routing_state AS s (conversation_id, workspace_id, waiting_since, wait_reason, waiting_retry_at, updated_at)
-  SELECT c.id, c.workspace_id, now(), p_reason, now() + interval '25 seconds', now()
+  INSERT INTO public.chat_routing_state AS s (conversation_id, workspace_id, waiting_since, wait_reason, waiting_retry_at, waiting_active_at, updated_at)
+  SELECT c.id, c.workspace_id, now(), p_reason, now() + interval '25 seconds', now(), now()
     FROM public.conversations c
    WHERE c.id = p_conversation_id AND c.workspace_id = p_workspace_id
   ON CONFLICT (conversation_id) DO UPDATE SET
     waiting_since = coalesce(s.waiting_since, EXCLUDED.waiting_since),
     wait_reason = EXCLUDED.wait_reason,
-    waiting_retry_at = EXCLUDED.waiting_retry_at,
+    waiting_retry_at = CASE
+      WHEN coalesce(p_from_ticker, false) AND s.waiting_since IS NOT NULL
+        THEN greatest(s.waiting_retry_at, EXCLUDED.waiting_retry_at)
+      ELSE EXCLUDED.waiting_retry_at
+    END,
+    waiting_active_at = CASE
+      WHEN coalesce(p_from_ticker, false) AND s.waiting_since IS NOT NULL
+        THEN coalesce(s.waiting_active_at, s.waiting_since)
+      ELSE EXCLUDED.waiting_active_at
+    END,
     prechat_deadline = NULL,
     updated_at = now();
 END;
 $fn_routing_wait$;
 
-COMMENT ON FUNCTION public.chat_routing_wait(uuid, uuid, text) IS
-  'Records that routing found no operator for the conversation (p_reason: nobody_online | all_busy; NULL: no longer waiting); the routing ticker retries it. Server-only. Migration 278.';
+COMMENT ON FUNCTION public.chat_routing_wait(uuid, uuid, text, boolean) IS
+  'Records that routing found no operator for the conversation (p_reason: nobody_online | all_busy; NULL: no longer waiting); the routing ticker retries it. p_from_ticker: the ticker''s own retry, which is not activity. Server-only. Migration 278.';
 
 -- A first-response timeout nobody else could take over: the chat leaves the
 -- member who did not answer (only while they still hold it), who joins its
@@ -482,9 +503,9 @@ BEGIN
     RETURN false;
   END IF;
   INSERT INTO public.chat_routing_state AS s (
-    conversation_id, workspace_id, skip_user_ids, waiting_since, wait_reason, waiting_retry_at, updated_at
+    conversation_id, workspace_id, skip_user_ids, waiting_since, wait_reason, waiting_retry_at, waiting_active_at, updated_at
   ) VALUES (
-    p_conversation_id, p_workspace_id, ARRAY[p_from], now(), p_reason, now() + interval '25 seconds', now()
+    p_conversation_id, p_workspace_id, ARRAY[p_from], now(), p_reason, now() + interval '25 seconds', now(), now()
   )
   ON CONFLICT (conversation_id) DO UPDATE SET
     assigned_to = NULL,
@@ -498,6 +519,7 @@ BEGIN
     waiting_since = coalesce(s.waiting_since, now()),
     wait_reason = p_reason,
     waiting_retry_at = now() + interval '25 seconds',
+    waiting_active_at = now(),
     updated_at = now();
   RETURN true;
 END;
@@ -533,8 +555,18 @@ COMMENT ON FUNCTION public.chat_routing_defer_prechat(uuid, uuid, timestamptz) I
 --   'prechat'  the pre-chat deadline passed and the conversation still waits
 --              for routing (metadata.routing_pending), unassigned and open;
 --   'waiting'  no operator could take it last time; still unassigned, open
---              or pending, not spam, not the AI's (oldest wait first; each
---              row handed out is not handed out again for 25 seconds);
+--              or pending, not spam, not the AI's. The rows whose retry fell
+--              due longest ago go first (each row handed out goes behind the
+--              ones not tried yet, so more than p_limit waiting chats take
+--              turns instead of the oldest p_limit forever), and a pass's
+--              rows come back oldest wait first. A row handed out is due
+--              again in 25 seconds while the wait saw activity (a visitor
+--              message, a hand-back: waiting_active_at) in the last hour,
+--              else in 2 minutes; a wait without activity for 24 hours is
+--              forgotten (the chat stays in Unassigned, and the visitor's
+--              next message routes it again: as released chats,
+--              RELEASE_REROUTE_MAX_AGE_MS, stale threads do not fill the
+--              team's capacity);
 --   'timeout'  routing assigned it and that member (due_assignee) has not
 --              written in it since (handed out again after 2 minutes should
 --              a pass fail; for 24 hours at most).
@@ -573,13 +605,15 @@ BEGIN
      AND c.is_spam = false
      AND (c.metadata->>'routing_pending') = 'true';
 
-  -- Waits that are over (someone has it, or it is no longer open).
+  -- Waits that are over (someone has it, or it is no longer open), and waits
+  -- nothing but the ticker touched for 24 hours.
   UPDATE public.chat_routing_state s
-     SET waiting_since = NULL, wait_reason = NULL, waiting_retry_at = NULL, updated_at = now()
+     SET waiting_since = NULL, wait_reason = NULL, waiting_retry_at = NULL, waiting_active_at = NULL, updated_at = now()
     FROM public.conversations c
    WHERE s.waiting_since IS NOT NULL
      AND c.id = s.conversation_id
-     AND (c.assigned_to IS NOT NULL OR c.status NOT IN ('open', 'pending') OR c.is_spam);
+     AND (c.assigned_to IS NOT NULL OR c.status NOT IN ('open', 'pending') OR c.is_spam
+          OR coalesce(s.waiting_active_at, s.waiting_since) < now() - interval '24 hours');
 
   RETURN QUERY
   WITH due AS (
@@ -592,15 +626,23 @@ BEGIN
        AND c.status IN ('open', 'pending')
        AND c.is_spam = false
        AND (c.metadata->>'ai_state') IS DISTINCT FROM 'ai_managed'
-     ORDER BY s.waiting_since
+     ORDER BY coalesce(s.waiting_retry_at, s.waiting_since), s.waiting_since
      LIMIT v_limit
      FOR UPDATE OF s SKIP LOCKED
+  ), handed AS (
+    UPDATE public.chat_routing_state s
+       SET waiting_retry_at = now() + CASE
+             WHEN coalesce(s.waiting_active_at, s.waiting_since) > now() - interval '1 hour' THEN interval '25 seconds'
+             ELSE interval '2 minutes'
+           END,
+           updated_at = now()
+      FROM due
+     WHERE s.conversation_id = due.conversation_id
+    RETURNING s.conversation_id, s.workspace_id, s.waiting_since
   )
-  UPDATE public.chat_routing_state s
-     SET waiting_retry_at = now() + interval '25 seconds', updated_at = now()
-    FROM due
-   WHERE s.conversation_id = due.conversation_id
-  RETURNING s.conversation_id, s.workspace_id, 'waiting'::text, NULL::uuid;
+  SELECT h.conversation_id, h.workspace_id, 'waiting'::text, NULL::uuid
+    FROM handed h
+   ORDER BY h.waiting_since, h.conversation_id;
 
   -- Timeouts that no longer apply.
   UPDATE public.chat_routing_state s
@@ -669,6 +711,17 @@ BEGIN
   END LOOP;
 END $$;
 
+-- ─── 7. Pre-chat waits an older release left without a deadline ──────────
+INSERT INTO public.chat_routing_state AS s (conversation_id, workspace_id, prechat_deadline, updated_at)
+SELECT c.id, c.workspace_id, now(), now()
+  FROM public.conversations c
+ WHERE (c.metadata->>'routing_pending') = 'true'
+   AND c.assigned_to IS NULL
+   AND c.status IN ('open', 'pending')
+   AND c.is_spam = false
+   AND c.updated_at > now() - interval '24 hours'
+ON CONFLICT (conversation_id) DO NOTHING;
+
 -- ─── Access: the backend (service_role) only ──────────────────────────────
 DO $acl$
 DECLARE
@@ -676,7 +729,7 @@ DECLARE
 BEGIN
   FOREACH f IN ARRAY ARRAY[
     'public.chat_route_claim(uuid, uuid, uuid[], text, text, text, uuid)',
-    'public.chat_routing_wait(uuid, uuid, text)',
+    'public.chat_routing_wait(uuid, uuid, text, boolean)',
     'public.chat_routing_release(uuid, uuid, uuid, text)',
     'public.chat_routing_defer_prechat(uuid, uuid, timestamptz)',
     'public.chat_routing_due(integer)'

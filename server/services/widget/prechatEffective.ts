@@ -57,6 +57,30 @@ export async function loadEffectivePrechat(
   return effectivePrechat(row, inputs.policy, { planAllowsForm: inputs.planAllowsForm });
 }
 
+/** Merges `patch` into the contact's metadata. Best-effort. */
+async function patchContactMetadata(
+  supabase: ServiceClient,
+  workspaceId: string,
+  contactId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from('contacts').select('metadata').eq('id', contactId).eq('workspace_id', workspaceId).maybeSingle();
+    const raw = (data as { metadata?: unknown } | null)?.metadata;
+    const metadata = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    await supabase
+      .from('contacts')
+      .update({ metadata: { ...metadata, ...patch } })
+      .eq('id', contactId)
+      .eq('workspace_id', workspaceId);
+  } catch { /* best-effort */ }
+}
+
+function consentRecord(source: 'prechat' | 'offline_form', policyUrl: string | null): Record<string, unknown> {
+  return { privacy_consent: { at: new Date().toISOString(), source, policy_url: policyUrl } };
+}
+
 /**
  * Keeps the visitor's consent (the box of the form's privacy line, P-01) on
  * their contact, `metadata.privacy_consent`: when, from which form, and the
@@ -71,15 +95,25 @@ export async function recordPrivacyConsent(
   policyUrl: string | null,
 ): Promise<void> {
   if (!contactId) return;
-  try {
-    const { data } = await supabase
-      .from('contacts').select('metadata').eq('id', contactId).eq('workspace_id', workspaceId).maybeSingle();
-    const raw = (data as { metadata?: unknown } | null)?.metadata;
-    const metadata = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-    await supabase
-      .from('contacts')
-      .update({ metadata: { ...metadata, privacy_consent: { at: new Date().toISOString(), source, policy_url: policyUrl } } })
-      .eq('id', contactId)
-      .eq('workspace_id', workspaceId);
-  } catch { /* best-effort */ }
+  await patchContactMetadata(supabase, workspaceId, contactId, consentRecord(source, policyUrl));
+}
+
+/**
+ * The visitor sent the pre-chat form (even with every optional field left
+ * empty): `metadata.prechat_submitted_at` on their contact, so routing never
+ * waits for that form again (chatRoutingPrechat.ts), and, when the form
+ * asked for it, their consent (recordPrivacyConsent) in the same write.
+ * Best-effort.
+ */
+export async function recordPrechatSubmitted(
+  supabase: ServiceClient,
+  workspaceId: string,
+  contactId: string | null | undefined,
+  consent: { policyUrl: string | null } | null,
+): Promise<void> {
+  if (!contactId) return;
+  await patchContactMetadata(supabase, workspaceId, contactId, {
+    prechat_submitted_at: new Date().toISOString(),
+    ...(consent ? consentRecord('prechat', consent.policyUrl) : {}),
+  });
 }

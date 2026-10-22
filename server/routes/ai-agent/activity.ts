@@ -12,7 +12,8 @@ import { getServiceClient } from '../../supabase.js';
 import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
 import { routeParam } from '../../lib/routeParams.js';
 import { listRuns, listRunsPaged, summarize } from '../../services/ai-agent/logs.js';
-import { markHumanTakeover } from '../../services/ai-agent/handoffState.js';
+import { takeOverConversation } from '../../services/conversationAssignment.js';
+import { authorizeInboxAccess } from '../../lib/inboxAccess.js';
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace, redactDeep } from './shared.js';
 
 export const activityRouter: Router = express.Router();
@@ -384,9 +385,12 @@ activityRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Respon
 });
 
 // ─── POST /api/ai-agent/conversations/:conversationId/take-over ─────
-// Manual operator takeover. Removes the conversation from the Automated
-// inbox, marks `ai_state='human_active'`, optionally assigns to caller,
-// and stops further AI auto-replies.
+// Manual operator takeover, kept for older clients (the web and the apps
+// call POST /api/conversations/:id/take-over first): the same door (the
+// Inbox's roles only, else 403 inbox_not_allowed) and the same atomic take
+// (takeOverConversation: 409 already_assigned { assigned_to } when a
+// colleague has it, the AI left alone then; otherwise theirs, on the
+// timeline, and the AI stops).
 const takeOverSchema = z.object({
   workspaceId: z.string().uuid(),
   assign_to_me: z.boolean().optional().default(true),
@@ -404,30 +408,24 @@ activityRouter.post(
     const sb = getServiceClient(config);
     const { data: conv } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to')
+      .select('id, workspace_id, assigned_to, ai_state:metadata->>ai_state')
       .eq('id', conversationId)
       .maybeSingle();
     if (!conv || conv.workspace_id !== workspaceId) {
       return res.status(404).json({ error: 'conversation_not_found' });
     }
-    const auth = await authorizeMember(req, res, config, workspaceId);
+    const auth = await authorizeInboxAccess(req, res, workspaceId);
     if (!auth) return;
 
-    if (assign_to_me && !conv.assigned_to) {
-      // Only while nobody has it: a routing run or a colleague's claim may
-      // have just assigned it (the inbox's own take-over answers 409 then).
-      await sb
-        .from('conversations')
-        .update({ assigned_to: auth.userId })
-        .eq('id', conversationId)
-        .is('assigned_to', null);
-    }
-    await markHumanTakeover(config, {
+    const taken = await takeOverConversation(config, {
       workspaceId,
       conversationId,
-      operatorId: auth.userId,
-      reason: 'manual_takeover',
+      actorId: auth.userId,
+      assignToMe: assign_to_me,
+      assignedTo: (conv as { assigned_to?: string | null }).assigned_to ?? null,
+      previousAiState: (conv as { ai_state?: string | null }).ai_state ?? null,
     });
+    if ('heldBy' in taken) return res.status(409).json({ error: 'already_assigned', assigned_to: taken.heldBy });
     return res.json({ ok: true });
   },
 );

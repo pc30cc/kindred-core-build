@@ -222,8 +222,11 @@ async function runLatestNRuns(
  * migration 281): each workspace's rows older than its own period
  * (widget_settings.visitor_data_retention_days), else the policy's
  * hot_retention_days, counted and deleted workspace by workspace in bounded
- * batches by visitor_data_retention_count_expired / _delete_batch. No
- * archive: one cutoff per workspace is not what the archive adapter takes.
+ * batches by visitor_data_retention_count_expired / _delete_batch. The
+ * delete is held by migration 171's fence (retention_cleanup_not_ready, a
+ * failed run) until a reviewed migration lifts it; the count, and so a
+ * preview, works. No archive: one cutoff per workspace is not what the
+ * archive adapter takes.
  */
 async function runPerWorkspace(
   config: ServerConfig,

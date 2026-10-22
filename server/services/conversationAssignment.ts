@@ -306,3 +306,68 @@ export function publishAssigneeChange(
     updated_at: a.updatedAt,
   }).catch(() => undefined);
 }
+
+/**
+ * Take over a conversation (the Inbox's Take over, and the AI agent's older
+ * take-over route that clients fall back to): atomic (R-10) — only while
+ * nobody has it, since a routing run or a colleague's claim may have just
+ * assigned it, or a colleague holds it already; then `already_assigned` with
+ * the holder, and the AI is left as it is (it is not this operator's to take
+ * over). Otherwise the operator has it (on the timeline, method take_over,
+ * and in the inboxes) and the AI stops (human takeover). `assignToMe` false:
+ * the AI stops, whoever holds it. The caller has checked that the actor may
+ * use the Inbox.
+ */
+export async function takeOverConversation(
+  config: ServerConfig,
+  a: {
+    workspaceId: string;
+    conversationId: string;
+    actorId: string;
+    assignToMe: boolean;
+    assignedTo: string | null;
+    previousAiState: string | null;
+  },
+): Promise<{ ok: true } | { ok: false; heldBy: string }> {
+  const sb = getServiceClient(config);
+  if (a.assignToMe && a.assignedTo !== a.actorId) {
+    let holder: string | null = a.assignedTo;
+    let took = false;
+    if (!holder) {
+      const { data: taken } = await sb.from('conversations')
+        .update({ assigned_to: a.actorId })
+        .eq('id', a.conversationId)
+        .eq('workspace_id', a.workspaceId)
+        .is('assigned_to', null)
+        .select('id');
+      took = Array.isArray(taken) && taken.length > 0;
+      if (!took) {
+        const { data: now } = await sb.from('conversations').select('assigned_to').eq('id', a.conversationId).maybeSingle();
+        holder = (now as { assigned_to?: string | null } | null)?.assigned_to ?? null;
+      }
+    }
+    if (holder && holder !== a.actorId) return { ok: false, heldBy: holder };
+    if (took) {
+      void recordAuditAndEvent(config, {
+        workspaceId: a.workspaceId,
+        conversationId: a.conversationId,
+        actorType: 'agent',
+        actorId: a.actorId,
+        eventType: 'assigned',
+        auditAction: 'conversation.assigned',
+        oldValue: { assigned_to: null },
+        newValue: { assigned_to: a.actorId },
+        payload: { from: null, to: a.actorId, method: 'take_over' },
+      });
+      publishAssigneeChange(config, { workspaceId: a.workspaceId, conversationId: a.conversationId, actorId: a.actorId, from: null, to: a.actorId });
+    }
+  }
+  await markHumanTakeover(config, {
+    workspaceId: a.workspaceId,
+    conversationId: a.conversationId,
+    operatorId: a.actorId,
+    reason: 'manual_takeover',
+    previousAiState: a.previousAiState,
+  });
+  return { ok: true };
+}

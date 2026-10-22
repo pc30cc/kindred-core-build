@@ -176,9 +176,11 @@ export async function resolveWidgetCapability(
   config: ServerConfig,
   workspaceId: string,
   key: (typeof WIDGET_CAPABILITY_KEYS)[number],
+  /** Called when the plan could not be read (the answer is then false, not the plan's). */
+  onUnreadable: () => void = () => {},
 ): Promise<boolean> {
   const overrides = MODULE_KEYS.has(key) ? await loadModuleOverrides(config, workspaceId) : new Map<string, boolean>();
-  return resolveBoolean(config, workspaceId, key, overrides, () => {});
+  return resolveBoolean(config, workspaceId, key, overrides, onUnreadable);
 }
 
 export async function resolveWidgetEntitlements(

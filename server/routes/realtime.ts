@@ -89,6 +89,7 @@ import { realtimeControlRouter } from './realtimeControl.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { recordRealtimeProviderAudit } from '../services/realtime/providerAudit.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
+import { INBOX_NOT_ALLOWED, mayUseInbox } from '../lib/inboxAccess.js';
 
 export const realtimeRouter = Router();
 
@@ -757,9 +758,19 @@ const operatorSubscribeSchema = z.object({
   transport: transportHintSchema,
 });
 
-async function authorizeOperator(req: Request, res: Response, _config: ServerConfig, workspaceId: string) {
+/**
+ * A workspace member's session. `inbox`: a channel that carries
+ * conversations (one conversation's, or the inbox list's, whose `message`
+ * envelopes hold the text): only roles with an Inbox (shared/chatRoles.ts),
+ * else 403 `inbox_not_allowed`, as the Inbox's routes answer.
+ */
+async function authorizeOperator(req: Request, res: Response, _config: ServerConfig, workspaceId: string, opts: { inbox?: boolean } = {}) {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
+  if (opts.inbox && !mayUseInbox(auth)) {
+    res.status(403).json(INBOX_NOT_ALLOWED);
+    return null;
+  }
   return { id: auth.userId };
 }
 
@@ -925,7 +936,7 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
       });
       return res.status(400).json({ error: 'Invalid request' });
     }
-    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id, { inbox: true });
     if (!user) return;
 
     const sb = getServiceClient(config);
@@ -1103,7 +1114,7 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
       });
       return res.status(400).json({ error: 'Invalid request' });
     }
-    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id, { inbox: true });
     if (!user) return;
 
     const channel = buildInboxChannelName(parsed.data.workspace_id);

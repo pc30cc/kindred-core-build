@@ -74,8 +74,17 @@ export interface RuntimePolicyInput {
   operatorForcedReply?: boolean;
 }
 
+/** Switches some settings rows carry beyond AgentSettings (each optional, read with its default). */
+type RuntimeSwitches = AgentSettings & {
+  stop_on_handoff?: boolean | null;
+  max_auto_replies_per_conversation?: number | null;
+  allow_suggestions_after_takeover?: boolean | null;
+  pause_auto_reply_after_human_reply?: boolean | null;
+};
+
 export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
-  const { settings, state, availability, visitorText } = input;
+  const { state, availability, visitorText } = input;
+  const settings = input.settings as RuntimeSwitches;
   const forced = input.operatorForcedReply === true;
   const base = {
     mode: settings.mode,
@@ -118,13 +127,13 @@ export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
   }
 
   // Pending handoff: AI stays quiet until operator picks up & resets.
-  if ((settings as any).stop_on_handoff !== false && state.pendingHandoffRequested) {
+  if (settings.stop_on_handoff !== false && state.pendingHandoffRequested) {
     return { ...base, action: 'skip', reason: 'pending_handoff' };
   }
 
   // Per-conversation reply cap.
   const cap = Number(
-    (settings as any).max_auto_replies_per_conversation ??
+    settings.max_auto_replies_per_conversation ??
       settings.max_replies_per_conversation ?? 3,
   );
   if (cap > 0 && state.aiRepliesCountInConversation >= cap) {
@@ -149,15 +158,18 @@ export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
   }
 
   if (settings.mode === 'auto_reply_until_human_joins') {
-    // Robust takeover detection — any one of these blocks AI auto-reply.
+    // Robust takeover detection — any one of these blocks AI auto-reply. A
+    // conversation an operator holds is theirs even before they write (a
+    // reopened thread its operator kept, whose AI state the resolve reset).
     const humanTookOver =
       state.hasHumanAgentReplied ||
+      state.isAssignedToHuman ||
       state.aiState === 'human_active' ||
       state.managedByAi === false && state.aiState === 'needs_human' ||
       !!state.humanTakeoverAt;
     if (humanTookOver) {
       const allowSuggestionsAfterTakeover =
-        (settings as any).allow_suggestions_after_takeover !== false;
+        settings.allow_suggestions_after_takeover !== false;
       return {
         ...base,
         action: allowSuggestionsAfterTakeover ? 'suggest' : 'skip',
@@ -170,10 +182,10 @@ export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
 
   if (settings.mode === 'auto_reply_always') {
     // Professional default: even in auto_reply_always, pause once a human replies.
-    const pauseAfterHuman = (settings as any).pause_auto_reply_after_human_reply !== false;
-    if (pauseAfterHuman && (state.hasHumanAgentReplied || state.aiState === 'human_active')) {
+    const pauseAfterHuman = settings.pause_auto_reply_after_human_reply !== false;
+    if (pauseAfterHuman && (state.hasHumanAgentReplied || state.isAssignedToHuman || state.aiState === 'human_active')) {
       const allowSuggestionsAfterTakeover =
-        (settings as any).allow_suggestions_after_takeover !== false;
+        settings.allow_suggestions_after_takeover !== false;
       return {
         ...base,
         action: allowSuggestionsAfterTakeover ? 'suggest' : 'skip',

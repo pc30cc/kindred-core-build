@@ -88,6 +88,12 @@ describe('Send & resolve ends the thread', () => {
     // The visitor comes back: a new thread, nobody has replied in it yet.
     conv('c-1').status = 'open';
     state.db.tables.conversation_messages!.push({ id: 'm4', conversation_id: 'c-1', sender_type: 'contact', body: 'یک سؤال دیگر', created_at: new Date(Date.now() + 1000).toISOString() });
+    // Its operator kept it (routing found them here): theirs, the AI does not answer over them.
+    const kept = await getConversationState(config, WS, 'c-1');
+    expect(kept).toMatchObject({ hasHumanAgentReplied: false, aiRepliesCountInConversation: 0, humanTakeoverAt: null, isAssignedToHuman: true });
+    expect(decideRuntime({ settings, state: kept, availability, visitorText: 'یک سؤال دیگر' }).action).not.toBe('auto_reply');
+    // Routing let it go (they could not take it now): the AI may answer the new thread.
+    conv('c-1').assigned_to = null;
     const after = await getConversationState(config, WS, 'c-1');
     expect(after).toMatchObject({ hasHumanAgentReplied: false, aiRepliesCountInConversation: 0, humanTakeoverAt: null });
     expect(decideRuntime({ settings, state: after, availability, visitorText: 'یک سؤال دیگر' }).action).toBe('auto_reply');

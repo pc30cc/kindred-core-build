@@ -170,6 +170,8 @@ suite('who has a conversation, on a real database (278b)', () => {
     const { conversationNotesRouter } = await import('../../../server/routes/conversationNotes.js');
     const { workspaceMembersRouter } = await import('../../../server/routes/workspaceMembers.js');
     const { widgetRouter } = await import('../../../server/routes/widget.js');
+    const { activityRouter } = await import('../../../server/routes/ai-agent/activity.js');
+    const { realtimeRouter } = await import('../../../server/routes/realtime.js');
     const { createSession } = await import('../../../server/services/auth/sessions.js');
     app = express();
     app.use(express.json());
@@ -178,6 +180,8 @@ suite('who has a conversation, on a real database (278b)', () => {
     app.use('/api/conversations', conversationNotesRouter);
     app.use('/api/workspace-members', workspaceMembersRouter);
     app.use('/api/widget', widgetRouter);
+    app.use('/api/ai-agent', activityRouter);
+    app.use('/api/realtime', realtimeRouter);
     for (const id of [owner, a, b, c, lead, admin, seo]) {
       tokens[id] = (await createSession(config as never, { userId: id, email: `p-${id.slice(0, 8)}@test.local` })).token;
     }
@@ -233,6 +237,24 @@ suite('who has a conversation, on a real database (278b)', () => {
 
   // ─── B: taking one is atomic ───────────────────────────────────────────
 
+  it('A3 staff without an Inbox get no conversation channel and no unread digest; the team and admins do', async () => {
+    const cid = await conversation();
+    const inbox = (user: string) => request(app).post('/api/realtime/operator-inbox-subscribe').set(as(user)).send({ workspace_id: ws, transport: 'supabase' });
+    const thread = (user: string) => request(app).post('/api/realtime/operator-subscribe').set(as(user)).send({ workspace_id: ws, conversation_id: cid, transport: 'supabase' });
+    for (const res of [await inbox(seo), await thread(seo)]) expect(res).toMatchObject({ status: 403, body: { error: 'inbox_not_allowed' } });
+    for (const user of [a, admin]) {
+      expect((await inbox(user)).status).not.toBe(403);
+      expect((await thread(user)).status).not.toBe(403);
+    }
+    // Their own channel (a colleague's message) stays theirs.
+    expect((await request(app).post('/api/realtime/operator-user-subscribe').set(as(seo)).send({ workspace_id: ws, transport: 'supabase' })).status).not.toBe(403);
+    const { audienceFor } = await import('../../../server/services/notificationEmail/producers.js');
+    const digest = await audienceFor(config as never, ws, 'unread_messages');
+    expect(digest).not.toContain(seo);
+    expect(digest).toEqual(expect.arrayContaining([owner, a, admin]));
+    expect(await audienceFor(config as never, ws, 'weekly_summary')).toContain(seo);
+  });
+
   it('B1 two take-overs at once: one takes it, the other hears who has it (409 already_assigned)', async () => {
     const cid = await conversation({ meta: { ai_state: 'ai_managed' } });
     const results = await Promise.all([a, b].map((user) => request(app).post(`/api/conversations/${cid}/take-over`).set(as(user)).send({ workspaceId: ws })));
@@ -277,6 +299,22 @@ suite('who has a conversation, on a real database (278b)', () => {
   });
 
   // ─── C: moving one by hand ─────────────────────────────────────────────
+
+  it('B4 the AI agent\'s older take-over route: staff get 403, a colleague\'s chat is 409 with the AI left alone, an unassigned one is taken', async () => {
+    const legacy = (user: string, cid: string) => request(app).post(`/api/ai-agent/conversations/${cid}/take-over`).set(as(user)).send({ workspaceId: ws });
+    const aiHeld = { ai_state: 'ai_managed', managed_by_ai: true };
+    const free = await conversation({ meta: aiHeld });
+    expect(await legacy(seo, free)).toMatchObject({ status: 403, body: { error: 'inbox_not_allowed' } });
+    expect(await assignee(free)).toBeNull();
+    expect(((await conv(free)).metadata as Row).ai_state).toBe('ai_managed');
+    const bahars = await conversation({ assigned: b, meta: aiHeld });
+    expect(await legacy(a, bahars)).toMatchObject({ status: 409, body: { error: 'already_assigned', assigned_to: b } });
+    expect(((await conv(bahars)).metadata as Row).ai_state).toBe('ai_managed');
+    expect((await legacy(a, free)).status).toBe(200);
+    expect(await assignee(free)).toBe(a);
+    expect(((await conv(free)).metadata as Row).ai_state).toBe('human_active');
+    expect(await until(() => events(free, 'assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ to: a, method: 'take_over' })]);
+  });
 
   it('C1 who may move whose: an operator only their own (or takes an unassigned one); a supervisor anyone\'s', async () => {
     const bahars = await conversation({ assigned: b });
@@ -497,10 +535,25 @@ suite('who has a conversation, on a real database (278b)', () => {
     // The AI sees a new thread: nobody has replied in it.
     await q(`UPDATE public.conversations SET status = 'open' WHERE id = $1`, [cid]);
     expect((await getConversationState(config as never, ws, cid)).hasHumanAgentReplied).toBe(false);
-    // Ali is here and has room: he keeps it.
-    expect(await routing.routeHumanBoundConversation(config as never, { workspaceId: ws, conversationId: cid, platformAiOff: true, reopened: true })).toBeNull();
+    // Ali is here and has room: he keeps it — and it is his, so the AI
+    // (on, answering until a person joins) does not answer over him, and the
+    // thread stays in his list instead of moving to the AI's.
+    await q(`INSERT INTO public.ai_agent_settings (workspace_id, enabled, mode) VALUES ($1, true, 'auto_reply_until_human_joins')
+             ON CONFLICT (workspace_id) DO UPDATE SET enabled = true, mode = 'auto_reply_until_human_joins'`, [ws]);
+    try {
+      expect(await routing.routeHumanBoundConversation(config as never, { workspaceId: ws, conversationId: cid, reopened: true })).toBeNull();
+    } finally {
+      await q(`UPDATE public.ai_agent_settings SET enabled = false WHERE workspace_id = $1`, [ws]);
+    }
     expect(await assignee(cid)).toBe(a);
     expect(((await conv(cid)).metadata as Row).routing_thread_ended_at).toBeNull();
+    expect(((await conv(cid)).metadata as Row).ai_state).toBe('human_active');
+    const { decideRuntime } = await import('../../../server/services/ai-agent/runtimePolicy.js');
+    const aiOn = { enabled: true, mode: 'auto_reply_until_human_joins', handoff_on_human_request: false, handoff_keywords: [], max_replies_per_conversation: 3, max_replies_per_hour: 0 } as never;
+    expect(decideRuntime({ settings: aiOn, state: await getConversationState(config as never, ws, cid), availability: { state: 'online' } as never, visitorText: 'سلام' }).action)
+      .not.toBe('auto_reply');
+    const mine = ((await request(app).get(`/api/conversations?workspace_id=${ws}`).set(as(a))).body.conversations as Row[]).map((r) => r.id);
+    expect(mine).toContain(cid);
 
     // Ali is away now: the next reopen goes to Bahar.
     await patch(a, cid, { status: 'resolved' });
@@ -539,6 +592,15 @@ suite('who has a conversation, on a real database (278b)', () => {
     const again = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: session });
     expect(again.body).toMatchObject({ conversation_id: cid, created: false });
     expect(await assignee(cid)).toBe(b);
+    // The visitor's open one is the AI's: taking it is a human takeover (out
+    // of the AI's lane, in Bahar's list), as POST /:id/claim makes it.
+    await q(`UPDATE public.conversations SET assigned_to = NULL, metadata = metadata || '{"ai_state":"ai_managed","managed_by_ai":true}'::jsonb WHERE id = $1`, [cid]);
+    expect((await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: session })).body)
+      .toMatchObject({ conversation_id: cid, created: false });
+    expect(await assignee(cid)).toBe(b);
+    expect(((await conv(cid)).metadata as Row)).toMatchObject({ ai_state: 'human_active', managed_by_ai: false });
+    const listed = ((await request(app).get(`/api/conversations?workspace_id=${ws}`).set(as(b))).body.conversations as Row[]).map((r) => r.id);
+    expect(listed).toContain(cid);
   });
 
   it('E5 the department the visitor chose is kept in manual mode too, and every row names it (R-22)', async () => {

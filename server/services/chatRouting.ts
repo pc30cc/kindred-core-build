@@ -1440,7 +1440,22 @@ async function routeHumanBoundConversationNow(
           workspaceId: args.workspaceId, conversationId: args.conversationId, userId: conv.assigned_to, endedAt,
         })
         : await assigneeMayKeep(config, args.workspaceId, conv.assigned_to);
-      if (keep) return null;
+      if (keep) {
+        // A reopened thread its operator keeps is theirs: the resolve reset
+        // the AI's state, and without a takeover the AI would answer over
+        // them and move the chat out of their lists into the AI's.
+        if (reopened && metadata.ai_state !== 'human_active') {
+          const { markHumanTakeover } = await import('./ai-agent/handoffState.js');
+          await markHumanTakeover(config, {
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
+            operatorId: conv.assigned_to,
+            reason: 'assignment',
+            previousAiState: typeof metadata.ai_state === 'string' ? metadata.ai_state : null,
+          }).catch(() => undefined);
+        }
+        return null;
+      }
       const released = await releaseAssignee(config, {
         workspaceId: args.workspaceId,
         conversationId: args.conversationId,

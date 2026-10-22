@@ -22,7 +22,12 @@ and 280b (`chat_route_claim` and its helpers).
 - Staff (`admin`, `marketing_manager`, `seo_manager`, `analyst`, `developer`,
   `billing`, `viewer`) never receive chats automatically. Of them, only
   `admin` may open the Inbox (`INBOX_ROLES`): the others get 403
-  `inbox_not_allowed` and the panel hides the Inbox.
+  `inbox_not_allowed` and the panel hides the Inbox. Nor do they get what
+  carries its conversations: no phone push for a customer message, a note,
+  a handoff, an assignment, an email or a mention in a conversation (a
+  colleague's direct message still reaches them), no conversation in the
+  app icon's badge, no realtime conversation or inbox channel (403
+  `inbox_not_allowed`), and no unread digest email.
 - Supervisors (`owner`, `admin`, `team_lead`) see "All conversations" and may
   move anyone's chat. Everyone else may take an unassigned chat or transfer
   their own.
@@ -115,7 +120,16 @@ arriving at the same moment spread out instead of all landing on one person.
 - **Reopen** (the visitor writes in a resolved chat): it stays with its
   operator only if they are available, under their maximum and the reopen is
   inside the last-agent window; otherwise it is unassigned and routed.
-  Resolving resets the AI's state, so the AI may answer a later thread.
+  Resolving resets the AI's state, so the AI may answer a later thread that
+  nobody holds; a thread its operator keeps (or reopens by hand) is a human
+  takeover, and the AI, in either auto mode, never answers a conversation an
+  operator holds.
+- **Phones**: a customer message in an unassigned chat reaches those whose
+  push scope is "All conversations"; "Assigned to me" (`push_scope`
+  `assigned`, the wording of the phone and desktop apps) is their own
+  conversations only. "The AI handed this conversation to your team" is sent
+  only for a real handoff (`ai_handoff_at`), never for a chat the AI never
+  had.
 - Every assignment and unassignment is a timeline event with its method
   (`auto`, `round_robin`, `last_agent`, `owner_fallback`, `timeout_reassign`,
   `take_over`, `first_reply`, `manual`, `manual_claim`, and the release

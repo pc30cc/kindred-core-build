@@ -5,8 +5,10 @@
  * to people who handle visitors:
  *
  *   • Section A — Departments (routing groups: Sales, Support, Demo…)
- *   • Section B — Team Members (customer-facing roles only)
- *   • Advanced — Fallback policy + routing diagnostics (collapsed)
+ *   • Section B — Team Members (customer-facing roles only), with who
+ *     receives chats: each member's "Receive chats" switch and maximum of
+ *     open chats (the owner's too), and the rules in plain words
+ *     (components/members/MemberChatRouting.tsx)
  *
  * Internal/non-customer-facing roles (billing, SEO, analytics, developer,
  * marketing, viewer, admin) live on /settings/staff-access. The mental
@@ -45,6 +47,15 @@ import {
 } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
+import { useWidgetSettings } from '@/hooks/useWidgetSettings';
+import { useChatRoutingPolicy } from '@/hooks/useChatRouting';
+import { DEFAULT_CHAT_CAPACITY } from '@/lib/chat-routing-api';
+import {
+  ChatReceiversNote,
+  MemberChatRoutingControls,
+  type MemberChatRoutingRow,
+} from '@/components/members/MemberChatRouting';
+import { isRoutableChatRole } from '../../../../shared/chatRoles';
 import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentMembers, setDepartmentMembers,
@@ -90,6 +101,9 @@ interface WorkspaceMemberRow extends SeatLockable {
   role: string;
   suspended_at?: string | null;
   department_names?: string[] | null;
+  /** Migration 278: "Receive chats automatically" (default on) and their own maximum (null = default). */
+  receives_chats?: boolean | null;
+  max_concurrent_chats?: number | null;
   profile?: { full_name?: string | null; email?: string | null; avatar_url?: string | null } | null;
 }
 
@@ -99,28 +113,12 @@ interface WorkspaceMemberRow extends SeatLockable {
  * "team members" and "departments" — not raw role taxonomy. The base role
  * (`agent`) is assigned silently when inviting from this page.
  *
- * Legacy role values (`team_lead`, `support_agent`, `sales_agent`) are
- * normalized to a single "customer-facing" pool for UI purposes — the owner
- * sees them as plain team members regardless of the historical role string
- * stored in the database.
+ * Who counts is shared/chatRoles.ts (ROUTABLE_CHAT_ROLES): the owner (they
+ * answer chats and calls too) and the team roles, legacy values included
+ * (`team_lead`, `support_agent`, `sales_agent`), shown as plain team
+ * members. The same list decides who chat routing may give a chat.
  */
-const CUSTOMER_FACING_ROLES = [
-  'agent',
-  'team_lead',
-  'support_agent',
-  'sales_agent',
-] as const;
-
-/**
- * UI-only predicate. Owner is always treated as customer-facing because they
- * can answer chats/calls. All legacy customer-facing role values collapse
- * into this one bucket so the UX stays unified.
- */
-function isCustomerFacingRole(role: string | null | undefined): boolean {
-  if (!role) return false;
-  if (role === 'owner') return true;
-  return (CUSTOMER_FACING_ROLES as readonly string[]).includes(role);
-}
+const isCustomerFacingRole = isRoutableChatRole;
 
 export default function TeamDepartmentsPage() {
   const { t } = useTranslation();
@@ -184,6 +182,18 @@ export default function TeamDepartmentsPage() {
   const { data: presenceData } = useTeamPresence(wsId);
   const presenceByUser = presenceMap(presenceData?.presence);
 
+  /* ─── Chat routing: the workspace default maximum, the mode, the platform's rules ─── */
+  const { data: widgetSettings } = useWidgetSettings(wsId);
+  const { data: routingPolicy } = useChatRoutingPolicy(wsId);
+  const defaultMaxChats = widgetSettings?.default_max_concurrent_chats ?? DEFAULT_CHAT_CAPACITY;
+  const onChatRoutingSaved = (row: MemberChatRoutingRow) => {
+    qc.setQueryData<WorkspaceMemberRow[]>(['ws-members', wsId], (rows) =>
+      rows?.map((r) => (r.id === row.id
+        ? { ...r, receives_chats: row.receives_chats, max_concurrent_chats: row.max_concurrent_chats }
+        : r)),
+    );
+  };
+
   const [search, setSearch] = useState('');
   const visibleMembers = customerMembers.filter((m) =>
     !search ||
@@ -216,6 +226,9 @@ export default function TeamDepartmentsPage() {
     ccVideo: has('modules', 'call_center') && has('channels', 'video'),
     ccCallback: has('features', 'call_callbacks') && !!ccCaps?.platform_callback_enabled,
   };
+  // A plan without automatic routing assigns as Manual, whatever is stored.
+  const manualAssignment = (!!ent && !has('features', 'widget_assignment_routing'))
+    || widgetSettings?.assignment_mode === 'manual';
 
   const toggleCallCenter = (enabled: boolean) => {
     updateCc.mutate(
@@ -387,6 +400,13 @@ export default function TeamDepartmentsPage() {
           </div>
         </div>
 
+        <ChatReceiversNote
+          generalPoolEnabled={routingPolicy?.general_pool_enabled !== false}
+          manual={manualAssignment}
+          defaultMax={defaultMaxChats}
+          behaviourPath={wsPath('/widget')}
+        />
+
         <Card className="overflow-hidden border-border/60">
           <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
             <div className="text-xs text-muted-foreground">
@@ -431,8 +451,9 @@ export default function TeamDepartmentsPage() {
                 const presence = presenceByUser.get(m.user_id);
                 const isOnline = presence?.state === 'online';
                 const userDepts = deptsByUser.get(m.user_id) ?? [];
+                const memberName = m.profile?.full_name || m.profile?.email || t('teamDept.memberFallback');
                 return (
-                  <div key={m.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
+                  <div key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 hover:bg-muted/30 transition-colors">
                     <div className="relative shrink-0">
                       <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
                         {m.profile?.avatar_url ? (
@@ -490,6 +511,19 @@ export default function TeamDepartmentsPage() {
                             : `${userDepts[0]} +${userDepts.length - 1}`}
                       </span>
                     </button>
+
+                    {/* Chat routing — everyone here, the owner and you included. */}
+                    <div className="order-last basis-full ps-[3.25rem] md:order-none md:basis-auto md:ps-0">
+                      <MemberChatRoutingControls
+                        workspaceId={wsId!}
+                        memberId={m.id}
+                        name={memberName}
+                        receivesChats={m.receives_chats !== false}
+                        maxConcurrentChats={m.max_concurrent_chats ?? null}
+                        defaultMax={defaultMaxChats}
+                        onSaved={onChatRoutingSaved}
+                      />
+                    </div>
 
                     {!isOwner && !isCurrent && (
                       <DropdownMenu>

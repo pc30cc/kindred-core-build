@@ -1,12 +1,16 @@
 /**
- * Operator Activity — online-time & productivity report for the workspace.
+ * Operator Activity — workload report and who is online now, for the
+ * workspace.
  *
  * Visible to workspace owners/admins only (the API enforces this too).
  * Online minutes are no longer recorded — their table,
- * `operator_activity_samples`, is dropped (database/migrations/223) — so the
- * API reports zero for them; assignments and message counts are still live.
- * Satisfaction (visitors' ratings after a chat) shows only once the window
- * has ratings.
+ * `operator_activity_samples`, is dropped (database/migrations/223) — and the
+ * API says so (`online_time_tracked: false`): the online-time tile and
+ * columns are then left out rather than shown as zeros (R-25). "Online now"
+ * and each operator's badge are live presence (active, away, not connected,
+ * offline), the reading chat routing uses; assignments and message counts are
+ * still live. Satisfaction (visitors' ratings after a chat) shows only once
+ * the window has ratings.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -17,7 +21,11 @@ import {
 import { useI18n, useTranslation } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
-import { fetchOperatorActivity, type OperatorActivityRow } from '@/lib/operator-activity-api';
+import {
+  fetchOperatorActivity,
+  type OperatorActivityRow,
+  type OperatorPresenceState,
+} from '@/lib/operator-activity-api';
 import { exportSummaryCsv, exportDetailedCsv, exportOperatorCsv } from '@/lib/operator-activity-export';
 
 import { Card } from '@/components/ui/card';
@@ -26,6 +34,19 @@ import { Button } from '@/components/ui/button';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 
 const RANGES = [1, 7, 30] as const;
+
+/** An operator's badge: live presence, or (older server) their availability. */
+function badgeState(op: OperatorActivityRow): OperatorPresenceState | 'online' {
+  return op.presence_state ?? (op.current_state === 'online' ? 'online' : 'offline');
+}
+
+const BADGE_TONE: Record<OperatorPresenceState | 'online', string> = {
+  active: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500',
+  online: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500',
+  away: 'border-amber-500/20 bg-amber-500/10 text-amber-600',
+  disconnected: 'border-border bg-secondary text-muted-foreground',
+  offline: 'border-border bg-secondary text-muted-foreground',
+};
 
 function useFormatters(locale: string) {
   return useMemo(() => {
@@ -84,6 +105,8 @@ export default function OperatorActivityPage() {
     );
   }
 
+  // Online minutes are only shown while the server records them.
+  const tracked = data?.online_time_tracked !== false;
   const maxMinutes = Math.max(1, ...(data?.operators || []).map((o) => o.online_minutes));
   const showSatisfaction = (data?.totals.csat_count ?? 0) > 0;
 
@@ -139,7 +162,9 @@ export default function OperatorActivityPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { icon: CircleDot, key: 'onlineNow', value: fmt.num(data?.totals.online_now ?? 0), tone: 'text-emerald-500' },
-          { icon: Clock, key: 'totalOnline', value: duration(data?.totals.online_minutes ?? 0), tone: 'text-primary' },
+          tracked
+            ? { icon: Clock, key: 'totalOnline', value: duration(data?.totals.online_minutes ?? 0), tone: 'text-primary' }
+            : { icon: Clock, key: 'availableNow', value: fmt.num(data?.totals.available_now ?? 0), tone: 'text-primary' },
           { icon: MessageSquare, key: 'replies', value: fmt.num(data?.totals.replies_sent ?? 0), tone: 'text-indigo-500' },
           { icon: Users, key: 'operators', value: fmt.num(data?.totals.operators ?? 0), tone: 'text-amber-500' },
         ].map(({ icon: Icon, key, value, tone }) => (
@@ -204,42 +229,47 @@ export default function OperatorActivityPage() {
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-foreground">{name}</span>
                       <Badge
-                        className={`border px-2 py-0 text-[10px] ${
-                          op.current_state === 'online'
-                            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
-                            : 'border-border bg-secondary text-muted-foreground'
-                        }`}
+                        data-presence={badgeState(op)}
+                        className={`border px-2 py-0 text-[10px] ${BADGE_TONE[badgeState(op)]}`}
                       >
-                        {t(`operatorActivity.state.${op.current_state}` as Parameters<typeof t>[0])}
+                        {t(`operatorActivity.state.${badgeState(op)}` as Parameters<typeof t>[0])}
                       </Badge>
                     </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {t('operatorActivity.lastSeen', { date: fmt.dt(op.last_seen) })}
-                    </p>
+                    {op.last_seen && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t('operatorActivity.lastSeen', { date: fmt.dt(op.last_seen) })}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Online time + bar */}
-                  <div className="w-40">
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{t('operatorActivity.col.online')}</span>
-                      <span className="font-medium text-foreground">{duration(op.online_minutes)}</span>
+                  {/* Online time + bar (only while recorded) */}
+                  {tracked && (
+                    <div className="w-40" data-online-time>
+                      <div className="mb-1 flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{t('operatorActivity.col.online')}</span>
+                        <span className="font-medium text-foreground">{duration(op.online_minutes)}</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${Math.round((op.online_minutes / maxMinutes) * 100)}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all"
-                        style={{ width: `${Math.round((op.online_minutes / maxMinutes) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="hidden text-center md:block">
-                    <div className="text-xs text-muted-foreground">{t('operatorActivity.col.activeDays')}</div>
-                    <div className="text-sm font-medium text-foreground">{fmt.num(op.active_days)}</div>
-                  </div>
-                  <div className="hidden text-center md:block">
-                    <div className="text-xs text-muted-foreground">{t('operatorActivity.col.avgPerDay')}</div>
-                    <div className="text-sm font-medium text-foreground">{duration(op.avg_minutes_per_active_day)}</div>
-                  </div>
+                  {tracked && (
+                    <>
+                      <div className="hidden text-center md:block">
+                        <div className="text-xs text-muted-foreground">{t('operatorActivity.col.activeDays')}</div>
+                        <div className="text-sm font-medium text-foreground">{fmt.num(op.active_days)}</div>
+                      </div>
+                      <div className="hidden text-center md:block">
+                        <div className="text-xs text-muted-foreground">{t('operatorActivity.col.avgPerDay')}</div>
+                        <div className="text-sm font-medium text-foreground">{duration(op.avg_minutes_per_active_day)}</div>
+                      </div>
+                    </>
+                  )}
                   <div className="hidden text-center lg:block">
                     <div className="text-xs text-muted-foreground">{t('operatorActivity.col.replies')}</div>
                     <div className="text-sm font-medium text-foreground">{fmt.num(op.replies_sent)}</div>
@@ -281,7 +311,7 @@ export default function OperatorActivityPage() {
       <Card className="border-border/60 bg-muted/20 p-4">
         <div className="flex items-start gap-3 text-sm text-muted-foreground">
           <TrendingUp className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{t('operatorActivity.methodology')}</span>
+          <span>{t(tracked ? 'operatorActivity.methodology' : 'operatorActivity.methodologyUntracked')}</span>
         </div>
       </Card>
     </div>

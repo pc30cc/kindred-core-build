@@ -12,6 +12,8 @@ export interface GlobalAdvancedRoutingPolicy {
   owner_fallback_for_audio: boolean;
   owner_fallback_for_video: boolean;
   general_pool_enabled: boolean;
+  /** Chat: off = no workspace returns visitors to their previous operator. */
+  last_agent_routing_enabled: boolean;
 }
 
 export async function getGlobalAdvancedRouting(): Promise<GlobalAdvancedRoutingPolicy> {

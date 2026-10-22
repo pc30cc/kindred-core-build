@@ -225,6 +225,13 @@ export interface WidgetSettings {
   smart_engagement_enabled?: boolean;
   store_raw_ip?: boolean;
   assignment_mode?: 'auto' | 'round_robin' | 'manual';
+  // Chat routing (migration 278): returning visitors to their previous
+  // operator, the default maximum of open chats per operator, and the
+  // first-response timeout in minutes (0 = off).
+  last_agent_routing_enabled?: boolean;
+  last_agent_window_days?: number;
+  default_max_concurrent_chats?: number;
+  first_response_timeout_minutes?: number;
   allowed_domains: string[];
   allow_subdomains: boolean;
   chat_enabled: boolean;

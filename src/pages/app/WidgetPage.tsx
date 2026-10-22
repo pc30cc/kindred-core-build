@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import {
   useWidgetSettings,
   useUpdateWidgetSettings,
@@ -20,9 +20,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
+import { ConversationAssignmentSection } from '@/components/app/widget/ConversationAssignmentSection';
 import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
@@ -88,6 +89,7 @@ function WidgetPageContent() {
   const { t, dir, locale } = useTranslation();
   const { isInternational, edition } = useEdition();
   const workspace = useCurrentWorkspace();
+  const wsPath = useWorkspacePath();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
   // The chat widget templates the Super Admin keeps enabled, and this
   // workspace's choice. A backend without the catalog answers 404: no picker.
@@ -428,9 +430,9 @@ function WidgetPageContent() {
   };
 
 
-  // Named `handleToggle` for its main use (a switch), but the assignment-mode
-  // select goes through it too, so the value is not boolean-only.
-  const handleToggle = (field: WidgetField, value: boolean | string) => {
+  // Saves one switch at once (the assignment settings save through
+  // ConversationAssignmentSection).
+  const handleToggle = (field: WidgetField, value: boolean) => {
     updateWidget.mutate({ [field]: value });
   };
 
@@ -991,42 +993,15 @@ function WidgetPageContent() {
                     </div>
                   ))}
 
-                  {/* Chat assignment — how a conversation is handed to an
-                      operator once AI hands off (or AI is off). Replaces
-                      what used to be manual-only assignment with a real,
-                      never-random routing algorithm. */}
-                  <div className="pt-4 mt-2 border-t border-border space-y-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-                        <Users className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <Label className="text-sm">{t('widgetPage.behavior.assignmentMode')}</Label>
-                        <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                          {t('widgetPage.behavior.assignmentModeHint')}
-                        </p>
-                        {!capAllowed('widget_assignment_routing') && (
-                          <p className="text-xs text-primary mt-0.5 mb-2">{t('plan.locked.upgradeHint')}</p>
-                        )}
-                        <Select
-                          disabled={!capAllowed('widget_assignment_routing')}
-                          value={
-                            capAllowed('widget_assignment_routing')
-                              ? (widget?.assignment_mode || 'auto')
-                              : 'manual'
-                          }
-                          onValueChange={(v) => handleToggle('assignment_mode', v as WidgetSettings['assignment_mode'])}
-                        >
-                          <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="auto">{t('widgetPage.behavior.assignmentModeAuto')}</SelectItem>
-                            <SelectItem value="round_robin">{t('widgetPage.behavior.assignmentModeRoundRobin')}</SelectItem>
-                            <SelectItem value="manual">{t('widgetPage.behavior.assignmentModeManual')}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  </div>
+                  {/* Conversation assignment (package A): the mode, returning
+                      visitors, capacity and the first-response timeout. */}
+                  <ConversationAssignmentSection
+                    workspaceId={workspace?.id}
+                    settings={widget}
+                    planAllowsRouting={capAllowed('widget_assignment_routing')}
+                    onSave={(patch) => updateWidget.mutateAsync(patch)}
+                    teamPath={wsPath('/settings/team-departments')}
+                  />
 
                   {/* Privacy: optional raw IP capture (default OFF). */}
                   <div className="pt-4 mt-2 border-t border-border space-y-3">

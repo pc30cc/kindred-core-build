@@ -20,6 +20,10 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
+import {
+  computeCustomerAvailability,
+  type CustomerAvailabilityReason,
+} from '../services/widget/customerAvailability.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import type { Edition } from '../../shared/edition.js';
@@ -46,9 +50,6 @@ async function requireUser(req: Request, res: Response, next: NextFunction) {
 }
 
 availabilityRouter.use(requireUser);
-
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-type DayKey = (typeof DAY_KEYS)[number];
 
 const DEFAULT_WEEKLY = {
   mon: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
@@ -100,74 +101,34 @@ const DEFAULTS = {
   weekly_schedule: DEFAULT_WEEKLY,
 };
 
-function partsInTz(date: Date, tz: string) {
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      weekday: 'short',
-    }).formatToParts(date);
-  } catch {
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'UTC',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      weekday: 'short',
-    }).formatToParts(date);
-  }
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
-  const dowMap: Record<string, DayKey> = {
-    Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
-  };
-  return {
-    h: Number(get('hour') === '24' ? '0' : get('hour')),
-    m: Number(get('minute')),
-    dow: dowMap[get('weekday') as string] ?? 'mon',
-  };
-}
-
-function isWithinIntervals(intervals: Array<{ from: string; to: string }>, h: number, m: number) {
-  const cur = h * 60 + m;
-  for (const it of intervals || []) {
-    const f = /^(\d{1,2}):(\d{2})$/.exec(it.from || '');
-    const t = /^(\d{1,2}):(\d{2})$/.exec(it.to || '');
-    if (!f || !t) continue;
-    const fm = Number(f[1]) * 60 + Number(f[2]);
-    const tm = Number(t[1]) * 60 + Number(t[2]);
-    if (fm <= cur && cur < tm) return true;
-  }
-  return false;
-}
+/** The banner's reason codes (the macOS app reads outside_schedule / day_disabled). */
+const LIVE_STATUS_REASON: Record<CustomerAvailabilityReason, string> = {
+  manual_offline: 'force_offline',
+  manual_invisible: 'unavailable_when_using_app',
+  always_available: 'available_when_using_app',
+  no_prefs: 'available_when_using_app',
+  within_schedule: 'within_schedule',
+  outside_schedule: 'outside_schedule',
+  day_disabled: 'day_disabled',
+};
 
 /**
- * Live status from prefs. Returned as part of GET so the UI shows the
- * "You are currently seen as: …" banner without duplicating logic.
- *   - force_offline    => 'offline'
- *   - schedule disabled, available_when_using_app => 'online'
- *   - schedule enabled => check today's intervals
+ * Live status from prefs, returned with GET and PATCH so the UI shows the
+ * "You are currently seen as: …" banner. It is the customer-facing resolver
+ * itself (computeCustomerAvailability: what the widget and routing read), so
+ * the banner never says something visitors do not see (R-07: it used to
+ * follow the schedule while "Show me as available" was off, which the widget
+ * reads as invisible whatever the schedule says).
  */
-function computeLiveStatus(prefs: typeof DEFAULTS): { state: 'online' | 'offline'; reason: string } {
-  if (prefs.force_offline) return { state: 'offline', reason: 'force_offline' };
-
-  if (!prefs.schedule_enabled) {
-    return prefs.available_when_using_app
-      ? { state: 'online', reason: 'available_when_using_app' }
-      : { state: 'offline', reason: 'unavailable_when_using_app' };
-  }
-
-  const tz = prefs.timezone || 'UTC';
-  const { h, m, dow } = partsInTz(new Date(), tz);
-  const day = (prefs.weekly_schedule as Partial<Record<DayKey, { enabled?: boolean; intervals?: Array<{ from: string; to: string }> }>>)?.[dow];
-  if (!day || day.enabled === false) {
-    return { state: 'offline', reason: 'day_disabled' };
-  }
-  return isWithinIntervals(day.intervals || [], h, m)
-    ? { state: 'online', reason: 'within_schedule' }
-    : { state: 'offline', reason: 'outside_schedule' };
+export function computeLiveStatus(
+  prefs: typeof DEFAULTS,
+  now: Date = new Date(),
+): { state: 'online' | 'offline'; reason: string } {
+  const { availability, reason } = computeCustomerAvailability(prefs, now);
+  return {
+    state: availability === 'available' ? 'online' : 'offline',
+    reason: LIVE_STATUS_REASON[reason] || reason,
+  };
 }
 
 /** A stored `user_availability_prefs` row (or nothing yet). */

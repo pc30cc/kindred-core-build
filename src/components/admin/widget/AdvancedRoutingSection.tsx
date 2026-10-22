@@ -1,9 +1,20 @@
 /**
  * Super Admin → Widget Settings → Advanced Routing.
  *
- * Global owner-fallback / general-pool policy applied to ALL workspaces.
- * No workspace picker, no membership requirement — these are platform-wide
- * defaults sourced from `app_runtime_config.global_advanced_routing`.
+ * Platform-wide routing rules applied to ALL workspaces
+ * (`app_runtime_config.global_advanced_routing`, globalAdvancedRouting.ts).
+ * No workspace picker, no membership requirement. What each switch does,
+ * as the copy says:
+ *
+ *   - owner fallback: chat routing (chatRouting.ts) and call routing give a
+ *     conversation or call nobody else could take to the workspace owner
+ *     (for chats only an owner who receives chats and is online, and only
+ *     when the general pool did not already include them);
+ *   - general pool: chats only — a department with nobody available hands
+ *     its chats to the whole team; off, they wait for the department. Calls
+ *     do not read it;
+ *   - returning visitors: chats only — off, no workspace returns a visitor
+ *     to their previous operator, whatever its own setting.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
@@ -36,7 +47,7 @@ export function AdvancedRoutingSection() {
       updateGlobalAdvancedRouting(patch),
     onSuccess: (next) => {
       qc.setQueryData(QUERY_KEY, next);
-      toast.success(t('admin.widgetSettingsPage.routing.updated' as any));
+      toast.success(t('admin.widgetSettingsPage.routing.updated'));
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -47,13 +58,13 @@ export function AdvancedRoutingSection() {
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" /> {t('admin.widgetSettingsPage.routing.title' as any)}
+              <Activity className="h-4 w-4 text-muted-foreground" /> {t('admin.widgetSettingsPage.routing.title')}
             </CardTitle>
             <span className="text-[10px] uppercase tracking-wider rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-muted-foreground">
-              {t('admin.widgetSettingsPage.routing.global' as any)}
+              {t('admin.widgetSettingsPage.routing.global')}
             </span>
           </div>
-          <CardDescription>{t('admin.widgetSettingsPage.routing.description' as any)}</CardDescription>
+          <CardDescription>{t('admin.widgetSettingsPage.routing.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading || !policy ? (
@@ -62,29 +73,29 @@ export function AdvancedRoutingSection() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
-                  {t('admin.widgetSettingsPage.routing.ownerFallback' as any)}
+                  {t('admin.widgetSettingsPage.routing.ownerFallback')}
                 </p>
               <ToggleRow
-                  label={t('admin.widgetSettingsPage.routing.enableOwner' as any)}
-                  description={t('admin.widgetSettingsPage.routing.enableOwnerHint' as any)}
+                  label={t('admin.widgetSettingsPage.routing.enableOwner')}
+                  description={t('admin.widgetSettingsPage.routing.enableOwnerHint')}
                 checked={policy.owner_fallback_enabled}
                 onChange={(v) => updateMut.mutate({ owner_fallback_enabled: v })}
               />
                 <div className="ms-4 ps-3 border-s border-border/50 space-y-2">
                   <ToggleRow
-                    label={t('admin.widgetSettingsPage.routing.ownerChat' as any)}
+                    label={t('admin.widgetSettingsPage.routing.ownerChat')}
                     checked={policy.owner_fallback_for_chat}
                     disabled={!policy.owner_fallback_enabled}
                     onChange={(v) => updateMut.mutate({ owner_fallback_for_chat: v })}
                   />
                   <ToggleRow
-                    label={t('admin.widgetSettingsPage.routing.ownerAudio' as any)}
+                    label={t('admin.widgetSettingsPage.routing.ownerAudio')}
                     checked={policy.owner_fallback_for_audio}
                     disabled={!policy.owner_fallback_enabled}
                     onChange={(v) => updateMut.mutate({ owner_fallback_for_audio: v })}
                   />
                   <ToggleRow
-                    label={t('admin.widgetSettingsPage.routing.ownerVideo' as any)}
+                    label={t('admin.widgetSettingsPage.routing.ownerVideo')}
                     checked={policy.owner_fallback_for_video}
                     disabled={!policy.owner_fallback_enabled}
                     onChange={(v) => updateMut.mutate({ owner_fallback_for_video: v })}
@@ -93,13 +104,25 @@ export function AdvancedRoutingSection() {
               </div>
               <div className="space-y-2 pt-2 border-t border-border/40">
                 <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
-                  {t('admin.widgetSettingsPage.routing.generalPool' as any)}
+                  {t('admin.widgetSettingsPage.routing.generalPool')}
                 </p>
                 <ToggleRow
-                  label={t('admin.widgetSettingsPage.routing.useGeneralPool' as any)}
-                  description={t('admin.widgetSettingsPage.routing.useGeneralPoolHint' as any)}
+                  label={t('admin.widgetSettingsPage.routing.useGeneralPool')}
+                  description={t('admin.widgetSettingsPage.routing.useGeneralPoolHint')}
                   checked={policy.general_pool_enabled}
                   onChange={(v) => updateMut.mutate({ general_pool_enabled: v })}
+                />
+              </div>
+              <div className="space-y-2 pt-2 border-t border-border/40">
+                <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
+                  {t('admin.widgetSettingsPage.routing.lastAgentGroup')}
+                </p>
+                <ToggleRow
+                  label={t('admin.widgetSettingsPage.routing.lastAgent')}
+                  description={t('admin.widgetSettingsPage.routing.lastAgentHint')}
+                  // Older servers do not send it: on, as they behave.
+                  checked={policy.last_agent_routing_enabled !== false}
+                  onChange={(v) => updateMut.mutate({ last_agent_routing_enabled: v })}
                 />
               </div>
             </div>
@@ -111,9 +134,9 @@ export function AdvancedRoutingSection() {
         <CardContent className="p-4 flex items-start gap-3 text-xs text-muted-foreground">
           <Info className="h-4 w-4 mt-0.5 shrink-0" />
           <div>
-            {t('admin.widgetSettingsPage.routing.storageBefore' as any)}{' '}
+            {t('admin.widgetSettingsPage.routing.storageBefore')}{' '}
             <code className="mx-0.5 px-1 rounded bg-muted text-foreground">app_runtime_config.global_advanced_routing</code>.
-            {t('admin.widgetSettingsPage.routing.storageAfter' as any)}
+            {t('admin.widgetSettingsPage.routing.storageAfter')}
           </div>
         </CardContent>
       </Card>

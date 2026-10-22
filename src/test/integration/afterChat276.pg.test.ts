@@ -31,6 +31,10 @@ const suite = DSN ? describe : describe.skip;
 
 const sent = vi.hoisted(() => [] as Array<{ to: string; subject: string; html: string; text: string }>);
 const published = vi.hoisted(() => [] as Array<{ ws: string; cid: string; envelope: { type: string; payload: Record<string, unknown> } }>);
+// The transcript by email is dormant while visitor email is off
+// (shared/visitorEmail.ts, owner decision 2026-10-21; it then answers 403
+// transcript_disabled): this suite tests the kept code with it on.
+vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 vi.mock('../../../server/services/email/providers/resend.js', () => ({
   sendViaResend: async (_cfg: unknown, to: string, subject: string, html: string, text: string) => {
     sent.push({ to, subject, html, text });

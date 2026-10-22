@@ -51,6 +51,10 @@ const state = vi.hoisted(() => ({
   cookies: [] as string[],
 }));
 
+// The away thread's email step is dormant while visitor email is off
+// (shared/visitorEmail.ts, owner decision 2026-10-21; the route then answers
+// 403 visitor_email_disabled): this suite tests the kept code with it on.
+vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 vi.mock('../../../server/services/widget/security.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/security.js')>()),
   enforceWidgetToken: (_req: unknown, _res: unknown, next: Next) => next(),

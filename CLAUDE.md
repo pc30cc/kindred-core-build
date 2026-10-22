@@ -103,8 +103,10 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
 `main`, GitHub App "CustomerCore"):
 - 24 WebYar Fronted (`app.webyar.ai`), 25 WebYar Express Backend
   (`api.webyar.ai`): auto-deploy on every push to `main`.
-- 26 WooCommerce Worker: auto-deploy off (seen 2026-10-22; its last deploy
-  was 2026-10-08), like the apps below.
+- 26 WooCommerce Worker (`WORKER_KIND=commerce-sync`): auto-deploy off,
+  like the apps below: queue it (and RESPOK's 39) by hand when a change to
+  the commerce sync (`server/services/commerce`, `worker/commerce-sync`)
+  needs it.
 - 15 Centrifugo, 16 LiveKit, 17 Intelligence Worker, 18 Source Sync
   Worker, 19 Plugins Channels (`channels.webyar.ai`), 20 Channels-Worker,
   21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
@@ -120,9 +122,14 @@ The same server also runs:
   "RESPOK App", apps 28-41, `*.respok.app`) with its own database
   `respok-postgres` (`k6pnithcamskd4trrpo6jabv`). Its apps 32 (backend),
   33 (frontend) and 40 (DB Migrator) also auto-deploy on every push to
-  `main`; 39 (WooCommerce) does not (seen 2026-10-22, last deploy
-  2026-10-08). Never point a WebYar app at RESPOK's database or the
-  other way round.
+  `main`; 39 (WooCommerce, `commerce-sync`) does not, like WebYar's 26.
+  Never point a WebYar app at RESPOK's database or the other way round.
+- Commerce test shops: `whmcs.webyar.ai` is the `webyar-whmcs-test` stack
+  here (`/opt/webyar-whmcs-test/`). `p.webyar.ai` (WooCommerce) and
+  `open.webyar.ai` (OpenCart) did not move here: since 2026-10-07 they
+  answer 503 and 523 (seen 2026-10-22), so WebYar's WooCommerce connection
+  to `p.webyar.ai` reads offline (`commerce_invalid_response`). That is the
+  shop, not the sync; bringing them back is the owner's call.
 - The landing pages: app 1 `webyar.ai` (repo `pc30cc/webyarlanding`), app 27
   LimerLanding `limer.tr` (repo `pc30cc/lart`), app 28 RESPOK Landing.
 - The desktop downloads of both brands (since 2026-10-09): container

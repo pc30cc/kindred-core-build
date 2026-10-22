@@ -317,8 +317,62 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   (links, logos) come from the view-model.
 - Interaction is expressed with `data-*` behaviour hooks the core binds;
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
+- Two things every chat template draws for Core: a failed visitor message's
+  `failText` (why it was not sent, in the visitor's language: no connection
+  yet, too many at once, too long, chat not available) in place of the
+  generic `msgFailed`, on a run of its own (`'x' + index` as its group key,
+  so its Retry stays on it); and the composer pill's `data-chars-left`
+  (what is left of the 5,000-character limit, set by Core from 500 on),
+  drawn by the template's stylesheet with `content: attr(data-chars-left)`.
   A hook only a new template needs is a renderer feature (§2): Core's code
   for it goes in `runtime-ext.js`, not in `runtime.js`.
+- What Core puts in a template's own places, so a template draws nothing
+  more for it: the owner's composer text (`config.placeholderText`) as the
+  composer's `placeholder`; the owner's offline message
+  (`availability.offline_message`) as the leave-a-message form's
+  `presence.introLabel`, and, in the offline mode "show only the offline
+  message", as the empty thread's welcome (`config.welcomeMessage` while that
+  thread is drawn, the composer hidden). The availability itself is read
+  again while the panel is open (`GET /api/widget/availability`), so a
+  template drawing it from `config.availability` and the presence store
+  follows it.
+- What else every chat template gets from Core (2026-10, round C3):
+  - a visitor message with `threadStart: true` opened a new conversation
+    under one that had ended (closed): the template draws a "New
+    conversation" divider before it (`wyNewConversation`) and starts a new
+    run there; a template that draws the closed line (`closedNotice`, t2)
+    may leave it out;
+  - the panel's `lang` (the widget's language) and its readable accent:
+    `--gs-primary-aa` (the brand colour, darkened until white on it reaches
+    4.5:1; a light one kept, with dark ink) and `--gs-on-primary` (that
+    ink), set on `.panel` (runtime.js `Util.readableAccent`). `default` and
+    `intl` wear them; t1 and t2 compute their own;
+  - on a phone the open panel is modal (`aria-modal`, Tab kept inside);
+  - the operator's typing in `[data-typing-row]` / `[data-typing-label]`
+    (shown 3.5 s per signal), which `default` draws visibly above its composer;
+  - the department picker's markup (`.dept-picker`, `.dept-option`,
+    `.dept-option__status` for a department nobody answers now,
+    `.dept-option.is-offline`): every template's stylesheet styles it;
+  - every field 16px on phones and touch screens, from each stylesheet
+    (iOS zooms the page into a smaller field);
+  - a list row's `status` is the server's; `closed` reads as over, like
+    `resolved` (never "open", no live dot).
+- What else every chat template gets from Core (2026-10, round C4):
+  - the workspace's privacy line in every visitor form (pre-chat, its
+    one-step-at-a-time form, leave-a-message): Core puts
+    `.prechat-privacy[data-prechat-privacy]` after the form's
+    `.prechat-fields` (or before the leave-a-message button's row): a
+    `.prechat-privacy__text` paragraph with the owner's text (or
+    `prechatPrivacy`) and the policy link, and, when the workspace asks for
+    consent, a `.prechat-privacy__consent` label with its checkbox
+    (`[data-prechat-consent]`) and the refusal line (`[data-err="privacy"]`).
+    Every template's stylesheet styles it; a template that draws its own
+    `[data-prechat-privacy]` keeps it;
+  - the help center lists past its first 50 articles: the plain list (a
+    template without categories, or a help center without them) reads the
+    next page when its scroller nears the end, and the place in the list
+    stays across the repaint; a category (`kbCategories`) shows the server's
+    count and its own articles (`kbStore.catArticles`), read when opened.
 - Call widget: the presentation (the core and the panel module) never calls
   the network or storage; the runtime never touches the DOM
   (`src/test/callWidgetPresentationContract.test.ts`).

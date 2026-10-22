@@ -16,7 +16,7 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { templateDescription, templateDisplayName } from '@/lib/widgetTemplateNames';
+import { templateDescription, templateDisplayName, templateFeatureLine } from '@/lib/widgetTemplateNames';
 import type { WorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 import { TemplateSketch } from './TemplateSketch';
 import { TemplateOptionsFields } from './TemplateOptionsFields';
@@ -130,6 +130,8 @@ export function TemplateChoiceCard({
                         {tpl.isDefault && <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{t('widgetCatalog.workspace.default')}</Badge>}
                       </span>
                       <span className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">{templateDescription(t, tpl.id)}</span>
+                      {/* What visitors get with it (typing, the queue, the end line, a rating…). */}
+                      <span className="mt-1 block text-[11px] leading-snug text-muted-foreground" data-tpl-features>{templateFeatureLine(t, tpl.id)}</span>
                     </span>
                   </span>
                 </RadioGroupPrimitive.Item>

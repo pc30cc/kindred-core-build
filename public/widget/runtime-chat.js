@@ -149,6 +149,8 @@
       // a resend as idempotent instead of inserting a second row.
       var clientMessageId = opts.clientMessageId || null;
       var replyToMessageId = opts.replyToMessageId || null;
+      // { id, version, locale } of the Smart Engagement message answered (first message only).
+      var smartRule = opts.smartRule || null;
       var onReply = opts.onReply;
       var onConversation = opts.onConversation;
       // Phase 7 — receives { conversationId, messageId } once the backend
@@ -222,6 +224,7 @@
           // alias from older deployed runtimes for backward compatibility.
           page_context: pageCtxOut || undefined,
           nudge_context: nudgeCtxOut || undefined,
+          smart_rule: smartRule || undefined,
         }),
       })
         .then(function (r) {
@@ -237,6 +240,13 @@
               // max_conversations means the monthly chat quota is full, and
               // the runtime switches to the leave-a-message form.
               e.feature = (body && typeof body.feature === 'string') ? body.feature : null;
+              // Why it failed, for the bubble (runtime.js sendFailure): a
+              // 429's wait (body, else the Retry-After header), and the
+              // fields a 400 names.
+              var ra = body && Number(body.retry_after);
+              if (!ra) { try { ra = Number(r.headers && r.headers.get && r.headers.get('Retry-After')); } catch (_) { ra = 0; } }
+              e.retryAfter = ra || null;
+              e.fields = (body && body.details && typeof body.details === 'object') ? Object.keys(body.details) : null;
               throw e;
             });
           }
@@ -251,6 +261,8 @@
             onAccepted({
               conversationId: data.conversation_id || null,
               messageId: data.message_id || null,
+              // The rule's line stored before this message (smart_rule).
+              openingMessage: data.opening_message || null,
             });
           }
           if (data.reply && onReply) onReply(data.reply);

@@ -118,7 +118,11 @@ describe('a control character or a Turkish «İ» (every help search), and nothi
 
   it('the same words, phrase and order as before for every query without either, over rows without «İ»', () => {
     for (const q of QUERIES) {
-      expect(kbSearchWords(q), q).toEqual(wordsBefore(q));
+      // As typed (the plain ILIKE of a database before migration 280a): as before.
+      expect(kbSearchWords(q, false), q).toEqual(wordsBefore(q));
+      // Folded (V-30): the same words, the Persian ZWNJ taken out (the only
+      // thing the fold changes in these queries).
+      expect(kbSearchWords(q), q).toEqual(wordsBefore(q).map((w) => w.replace(/\u200c/g, '')));
       expect(kbSearchPhrase(q), q).toBe(phraseBefore(q));
       expect(kbSearchText(q), q).toBe(q);
       expect(rankKbSearchRows(ROWS, kbSearchWords(q), 5).map((r) => r.slug), q).toEqual(rankBefore(ROWS, wordsBefore(q), 5).map((r) => r.slug));
@@ -130,8 +134,10 @@ describe('a control character or a Turkish «İ» (every help search), and nothi
     expect(kbSearchPhrase('İade\u0000politikası')).toBe('%İade politikası%');
     expect(kbSearchText('a\u0000b\u001fc\u007fd\u0085e')).toBe('a b c d e');
     expect(kbSearchPhrase('\u0000\u0000')).toBeNull();
-    // The Persian ZWNJ is a letter-joiner (Cf), not a control character.
-    expect(kbSearchWords('می‌خواهم')).toEqual(['می‌خواهم']);
+    // The Persian ZWNJ is a letter-joiner (Cf), not a control character: it
+    // does not split the word; the fold (V-30) takes it out of it.
+    expect(kbSearchWords('می‌خواهم', false)).toEqual(['می‌خواهم']);
+    expect(kbSearchWords('می‌خواهم')).toEqual(['میخواهم']);
   });
 
   it('«İ» is lower-cased as ILIKE folds it, and ranks and matches its title', () => {

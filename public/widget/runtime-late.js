@@ -107,7 +107,8 @@
     if (threadShown(api) && !(a && a.hasAttribute && a.hasAttribute('data-prechat'))) api.renderBody();
   }
   function focusOn(el) { if (el) { try { el.focus({ preventScroll: true }); } catch (_) {} } }
-  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  // The server's rule (zod's `.email()`), as Core's Util.isValidEmail.
+  var EMAIL_RE = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
 
   // ═══ After a chat (`csat`, `chatMenu`) ═══
   function afterChat(api) {
@@ -725,11 +726,12 @@
         resp = resp || {};
         var f = resp.field || st.keys.filter(function (k) { return resp.details && resp.details[k]; })[0];
         var at = f ? st.keys.indexOf(f) : -1;
-        if (at < 0) st.error = true;
+        // The consent box (Core says it under the box): nothing else to say.
+        if (at < 0) st.error = f !== 'privacy';
         else {
           st.i = at;
           delete st.answers[f];
-          st.log.push({ key: f, value: String(st.drafts[f] || '').trim(), ok: false, why: resp.field ? 'required' : 'invalid' });
+          st.log.push({ key: f, value: String(st.drafts[f] || '').trim(), ok: false, why: /_required$/.test(resp.error || '') ? 'required' : 'invalid' });
           st.focus = true;
         }
         api.renderBody();
@@ -793,6 +795,8 @@
       if (!vm) return;
       inputBar.insertAdjacentHTML('beforebegin', P.prechatStepBoxHtml(vm));
       box = inputBar.previousElementSibling;
+      // The workspace's privacy line (and consent box), under the step.
+      if (box && identity.privacyInto) identity.privacyInto(box, null);
       var input = box && box.querySelector('[data-prechat-step-input]');
       if (input && (had || st.focus)) {
         focusOn(input);
@@ -923,6 +927,10 @@
         if (m.sender !== 'visitor' || !(captured[m.localId] || (m.metadata && m.metadata.source === 'offline_capture'))) continue;
         if (m.status === 'sending' || m.status === 'failed') return null;
         var email = String(contact().email || '');
+        // The email step promises the reply by email: drawn only while
+        // visitor email is switched on (config.visitorEmail,
+        // shared/visitorEmail.ts); else the reply says it comes here.
+        if (config.visitorEmail !== true) return { at: i, email: '', value: '', error: '', skip: true, status: 'skipped' };
         return {
           at: i, email: email, value: card.value, error: card.error, skip: !api.identity.isRequired('email'),
           status: email && card.status !== 'saving' ? 'saved' : card.status === 'saved' ? 'ask' : card.status,

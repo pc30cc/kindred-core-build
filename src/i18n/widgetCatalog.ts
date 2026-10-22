@@ -20,6 +20,14 @@ export const widgetCatalogEn = {
     't2-intl': 'No bottom menu; visitors type their question right on the home screen',
   },
   languages: { fa: 'Persian', en: 'English', tr: 'Turkish' },
+  features: {
+    title: 'Includes',
+    typing: 'Operator typing',
+    queuePlace: 'Place in the queue',
+    closedLine: 'End-of-conversation line',
+    rating: 'Rating after a chat',
+    reactions: 'Message reactions',
+  },
   admin: {
     tab: 'Widget templates',
     title: 'Chat widget templates',
@@ -118,6 +126,14 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
     't2-intl': 'بدون منوی پایین؛ بازدیدکننده سؤالش را همان‌جا روی صفحه خانه می‌نویسد',
   },
   languages: { fa: 'فارسی', en: 'انگلیسی', tr: 'ترکی' },
+  features: {
+    title: 'شامل',
+    typing: 'نمایش «در حال نوشتن» اپراتور',
+    queuePlace: 'جایگاه در صف',
+    closedLine: 'اعلام پایان گفتگو',
+    rating: 'امتیازدهی پس از گفتگو',
+    reactions: 'واکنش به پیام',
+  },
   admin: {
     tab: 'قالب‌های ویجت',
     title: 'قالب‌های ویجت گفتگو',
@@ -216,6 +232,14 @@ export const widgetCatalogTr: typeof widgetCatalogEn = {
     't2-intl': 'Alt menü yok; ziyaretçi sorusunu doğrudan ana sayfaya yazar',
   },
   languages: { fa: 'Farsça', en: 'İngilizce', tr: 'Türkçe' },
+  features: {
+    title: 'İçerir',
+    typing: 'Operatör yazıyor göstergesi',
+    queuePlace: 'Sıradaki yer',
+    closedLine: 'Sohbet bitiş satırı',
+    rating: 'Sohbet sonrası puanlama',
+    reactions: 'Mesaj tepkileri',
+  },
   admin: {
     tab: 'Widget şablonları',
     title: 'Sohbet widget şablonları',

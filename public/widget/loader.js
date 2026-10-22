@@ -199,6 +199,7 @@
     bus.serverProtocol = 0;
     function noteProtocol(data) {
       if (data && data.session_token) bus.serverProtocol = Number(data.protocol) || 0;
+      adoptVisitor(data, cfg.workspaceId);
       return data;
     }
 
@@ -263,7 +264,7 @@
       bootstrapsInWindow += 1;
       // Always the CURRENT browser origin: a token is never migrated from
       // one origin to another, a brand-new origin-bound one is minted.
-      var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin });
+      var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin, visitor_credential: vcNow() || undefined });
       // First CORS-simple (text/plain, no preflight) to /boot; a backend
       // older than this loader has no such route and answers before any
       // bootstrap work, so anything but a current answer is dropped and the
@@ -447,7 +448,7 @@
           method: "POST",
           signal: abort ? abort.signal : undefined,
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
           body: JSON.stringify(body),
         }).then(function (r) {
           clearTimeout(deadline);
@@ -503,7 +504,7 @@
             fetch(_commerceSession.apiBase + "/api/widget/commerce/identity/unlink", {
               method: "POST",
               credentials: "include",
-              headers: { "Content-Type": "application/json", "X-Widget-Token": _commerceSession.token },
+              headers: vh({ "Content-Type": "application/json", "X-Widget-Token": _commerceSession.token }),
               body: JSON.stringify({ workspaceId: ws }),
             }).catch(function () {});
           }
@@ -568,6 +569,8 @@
     "width:100vw;height:var(--gs-vvh,100dvh);}",
     ".shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,",
     ".shell.gs-mobile-open .smart-nudge{display:none!important;}",
+    /* A bubble gives way to the open panel (it holds what the bubble previews). */
+    ".launcher.open~.smart-nudge{display:none!important;}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
@@ -822,6 +825,8 @@
   // while a Smart Engagement silent preload (see preloadRuntimeForSmart)
   // was already in flight. A silent preload alone never sets this.
   var wantRuntimeOpen = false;
+  // That open is nobody's request (a Smart Engagement rule): no focus move.
+  var quietOpen = false;
   var shellEl = null;
   var shadowRoot = null;
   var shellContentEl = null;
@@ -836,6 +841,40 @@
   // start in case bootstrap() is somehow re-entered (defense in depth — the
   // singleton flag at the top of the IIFE already prevents this in practice).
   var trackingStarted = false;
+  // Consent (P-01): tracking (page views, presence, Smart Engagement and its
+  // storage, the AI's page journey) waits for `__gs.push(['consent', true])`
+  // while the workspace asks for it (config.privacy.consent) or the browser
+  // sends Global Privacy Control; `consent` false holds or stops it. Never
+  // stored: the page says it on each load (docs/WIDGET_PUBLIC_API.md).
+  var consent = null;
+  function tracks() {
+    return consent != null ? consent : !(navigator.globalPrivacyControl || (configData.privacy || {}).consent);
+  }
+  function setConsent(v) {
+    consent = v === true || v === "granted";
+    // Taken back: the visitor leaves the live visitors list too.
+    if (!consent) try { window.__gs_visitor_presence.stop(); } catch (_) {}
+    if (configData) beginTracking();
+  }
+  function beginTracking() {
+    var config = configData;
+    if (!tracks()) return;
+    if (config.features && config.features.visitorTracking) {
+      scheduleDeferred(function () {
+        if (trackingStarted || !tracks()) return;
+        trackingStarted = true;
+        startTracking(config._apiBase, WORKSPACE_ID, config._sessionToken);
+      });
+    }
+    // Smart Engagement — proactive rules. Runs entirely in the loader so
+    // a nudge can appear before the heavy runtime bundle is fetched.
+    try {
+      if (config.smart && config.smart.enabled &&
+          config.smart.rules && config.smart.rules.length) {
+        startSmart(config);
+      }
+    } catch (e) { warn("smart init failed", e); }
+  }
   // Smart Engagement — bootstrap-derived facts the evaluator needs.
   var visitorIsNew = null;
   var availabilityOnline = true;
@@ -948,10 +987,12 @@
       configFailed: "Sohbet ayarları yüklenemedi.",
     },
   };
+  /** The widget's language ('fa', 'en', 'tr'), whatever the host page's is. */
+  function widgetLang() {
+    return String((configData && configData.locale) || document.documentElement.lang || navigator.language || "en").toLowerCase().split("-")[0];
+  }
   function lt(key) {
-    var raw = (configData && configData.locale) || document.documentElement.lang || navigator.language || "en";
-    var locale = String(raw).toLowerCase().split("-")[0];
-    var dict = LOADER_STRINGS[locale] || LOADER_STRINGS.en;
+    var dict = LOADER_STRINGS[widgetLang()] || LOADER_STRINGS.en;
     return dict[key] || LOADER_STRINGS.en[key] || key;
   }
 
@@ -1213,6 +1254,9 @@
         config.secondaryColor || config.primaryColor || "#6366F1"
       );
       shellDiv.style.setProperty("--gs-shadow", shadowFromPrimary(accent));
+      // The launcher, its bubbles and the panel speak the widget's language
+      // to a screen reader, not the host page's (WCAG 3.1.2).
+      shellDiv.lang = widgetLang();
     }
 
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
@@ -1379,12 +1423,32 @@
   // the one that answered the bootstrap (a rolling deploy, a rollback): it is
   // sent once more in the header form, and when that goes through, this page
   // keeps the header form from then on.
+  // ─── The visitor credential (server/services/widget/visitorIdentity.ts) ───
+  // For browsers that drop the HttpOnly dvsid cookie (Safari, Brave): the
+  // bootstrap's signed visitor credential, on the token bus (`vc`, which
+  // runtime.js sends too) and, only while the server says the cookie did not
+  // arrive, in this page's own localStorage, so the next page view is still
+  // the same visitor. Sent as X-Widget-Visitor (vh), or as
+  // `visitor_credential` in the CORS-simple bodies (no preflight).
+  function vcKey(ws) { return "gs:vc:" + ws; }
+  function vcNow() { try { return window.__gs_token.vc || ""; } catch (_) { return ""; } }
+  function vh(h) { var v = vcNow(); if (v) h["X-Widget-Visitor"] = v; return h; }
+  function adoptVisitor(data, ws) {
+    if (!data || typeof data.visitor_credential !== "string" || !ws) return;
+    var keep = data.visitor_cookie === true ? "" : data.visitor_credential;
+    try { window.__gs_token.vc = keep; } catch (_) {}
+    try {
+      if (keep) window.localStorage.setItem(vcKey(ws), keep);
+      else window.localStorage.removeItem(vcKey(ws));
+    } catch (_) {}
+  }
+
   function tokenPost(url, payload, token) {
     function headerForm() {
       return fetch(url, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
         body: JSON.stringify(payload),
       });
     }
@@ -1397,6 +1461,7 @@
       if (Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
     }
     body.widget_token = token;
+    if (vcNow()) body.visitor_credential = vcNow();
     return fetch(url, { method: "POST", credentials: "include", body: JSON.stringify(body) })
       .then(function (r) {
         if (r.status !== 401 && r.status !== 400) return r;
@@ -1520,7 +1585,11 @@
         window.sessionStorage.removeItem("gs:view:" + WORKSPACE_ID);
         window.sessionStorage.removeItem(bindingKey(WORKSPACE_ID));
         document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
+        window.localStorage.removeItem(vcKey(WORKSPACE_ID));
       } catch (_) {}
+    } else {
+      try { window.__gs_token.vc = window.localStorage.getItem(vcKey(WORKSPACE_ID)) || ""; } catch (_) {}
+      if (vcNow()) bootstrapPayload.visitor_credential = vcNow();
     }
     requestBootstrap(apiBase, bootstrapPayload)
       .then(function (data) {
@@ -1529,6 +1598,7 @@
           if (shellEl) shellEl.remove();
           return null;
         }
+        adoptVisitor(data, data.workspace_id || WORKSPACE_ID);
         // Phase 8 — hide_widget on NEW loads only. We treat any widget
         // load that has no prior conversation cookie as a "new load".
         // Existing active sessions remain visible because the runtime
@@ -1620,23 +1690,10 @@
 
         applyConfigToShell(config);
         attachLauncherClick({ launcherOnly: false });
-
-        if (config.features && config.features.visitorTracking) {
-          scheduleDeferred(function () {
-            if (trackingStarted) return;
-            trackingStarted = true;
-            startTracking(apiBase, WORKSPACE_ID, sessionToken);
-          });
-        }
-
-        // Smart Engagement — proactive rules. Runs entirely in the loader so
-        // a nudge can appear before the heavy runtime bundle is fetched.
-        try {
-          if (config.smart && config.smart.enabled &&
-              config.smart.rules && config.smart.rules.length) {
-            startSmart(config);
-          }
-        } catch (e) { warn("smart init failed", e); }
+        // A conversation is going on in this browser (the runtime's
+        // `gs_active` hint): the runtime boots silently once the page is
+        // idle, so a reply reaches this page too (badge, preview, title).
+        if (/(^|;\s*)gs_active=1/.test(document.cookie)) scheduleDeferred(preloadRuntimeForSmart);
 
         // Public API placeholder until runtime mounts
         widgetApi = {
@@ -1651,6 +1708,7 @@
           isOpen: function (cb) { callWithPublicState(cb); },
           getState: function (cb) { callWithPublicState(cb); },
           identify: function (data) { setIdentifyData(data); },
+          consent: setConsent,
           onReady: onPublicEvent("ready"),
           onOpen: onPublicEvent("open"),
           onClose: onPublicEvent("close"),
@@ -1660,7 +1718,9 @@
         ready = true;
         readyFired = true;
         emitPublicEvent("ready");
+        // A `consent` the page queued is applied before anything is tracked.
         processQueue();
+        beginTracking();
       })
       .catch(function (err) {
         var msg = (err && err.message) || "unknown";
@@ -1916,16 +1976,17 @@
     }
   }
 
-  function triggerOpen() {
+  // `quiet`: nobody asked (a Smart Engagement rule): the focus stays put.
+  function triggerOpen(quiet) {
     if (!launcherEl) return;
     commerceContextOnOpen();
     var inst = runtimeInstanceRef();
     if (runtimeLoaded && inst) {
-      try { inst.open(); } catch (_) {}
+      try { inst.open(quiet); } catch (_) {}
       syncOpenStateFromRuntime();
       return;
     }
-    onLauncherClick();
+    onLauncherClick(quiet);
   }
   function triggerClose() {
     var inst = runtimeInstanceRef();
@@ -1956,7 +2017,7 @@
   // desync `isOpen` and leave the launcher stuck in the "open" state).
   try { window.__gs_panel_close = triggerClose; } catch (_) {}
 
-  function onLauncherClick() {
+  function onLauncherClick(quiet) {
     if (!configData) return;
     commerceContextOnOpen();
     var inst = runtimeInstanceRef();
@@ -1970,6 +2031,7 @@
     // Upgrade it to "open when ready" instead of starting a second,
     // redundant load.
     wantRuntimeOpen = true;
+    quietOpen = quiet === true;
     if (runtimeLoading) { releaseRuntimeInit(); return; }
     holdRuntimeInit = false;
     loadRuntimeAssets();
@@ -2179,6 +2241,7 @@
             isOpen: function (cb) { callWithPublicState(cb); },
             getState: function (cb) { callWithPublicState(cb); },
             identify: function (data) { setIdentifyData(data); },
+            consent: setConsent,
             onReady: onPublicEvent("ready"),
             onOpen: onPublicEvent("open"),
             onClose: onPublicEvent("close"),
@@ -2190,7 +2253,7 @@
           // something actually asked for it (a real launcher click). A silent
           // Smart Engagement preload leaves the widget mounted but closed.
           if (wantRuntimeOpen) {
-            try { instance.open(); } catch (_) {}
+            try { instance.open(quietOpen); } catch (_) {}
           }
           syncOpenStateFromRuntime();
           processQueue();
@@ -2427,7 +2490,7 @@
       badge.textContent = count > 9 ? "9+" : String(count);
       // The local kit's button: Persian digits in a Persian widget, and one
       // nudge when the first unread message arrives.
-      if (LOCAL_KIT && kitBadge && String((configData && configData.locale) || "").toLowerCase().split("-")[0] === "fa") {
+      if (LOCAL_KIT && kitBadge && widgetLang() === "fa") {
         badge.textContent = persianDigits(badge.textContent);
       }
       if (LOCAL_KIT && kitBadge && !(lastUnreadCount > 0)) {
@@ -2617,7 +2680,7 @@
       } catch (_) { return {}; } // corrupt JSON resets silently
     }
     function writeJson(store, key, value) {
-      try { store.setItem(key, JSON.stringify(value)); } catch (_) {}
+      if (tracks()) try { store.setItem(key, JSON.stringify(value)); } catch (_) {}
     }
     function dayKey() { return new Date().toISOString().slice(0, 10); }
     function weekKey() { return isoWeekKey(new Date()); }
@@ -2792,7 +2855,7 @@
         return fetch(apiBase + "/api/widget/smart/event", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": tok },
+          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": tok }),
           body: JSON.stringify({
             workspace_id: WORKSPACE_ID,
             source: "ai_proactive",
@@ -2838,12 +2901,20 @@
 
     function showAiNudge(data) {
       if (!shellContentEl || activeSurface) return false;
-      var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
-      var el = document.createElement("div");
-      el.className = "smart-nudge " + posClass;
-      el.innerHTML = surfaceHtml({ title: "", body: data.message, cta_label: data.cta && data.cta.label }, true);
-      shellContentEl.appendChild(el);
-      activeSurface = { ruleId: "ai:" + data.nudgeId, el: el };
+      bubble("ai:" + data.nudgeId, { title: "", body: data.message, cta_label: data.cta && data.cta.label }, true, 25,
+        function () {
+          if (data.topic && session.aiFreq.dismissedTopics.indexOf(data.topic) === -1) {
+            session.aiFreq.dismissedTopics.push(data.topic);
+            writeJson(window.sessionStorage, sessionKey, session);
+          }
+          reportAiEvent(data.nudgeId, "dismissed");
+        },
+        function () {
+          session.aiFreq.lastEngaged = true;
+          writeJson(window.sessionStorage, sessionKey, session);
+          reportAiEvent(data.nudgeId, "cta_clicked");
+          runAiNudgeAction(data);
+        });
 
       session.aiFreq.shownInSession = (Number(session.aiFreq.shownInSession) || 0) + 1;
       session.aiFreq.lastShownAt = Date.now();
@@ -2852,31 +2923,6 @@
       writeJson(window.sessionStorage, sessionKey, session);
       lastSurfaceAt = Date.now();
       reportAiEvent(data.nudgeId, "shown");
-
-      var dismissBtn = el.querySelector("[data-smart-dismiss]");
-      if (dismissBtn) {
-        dismissBtn.addEventListener("click", function () {
-          if (data.topic && session.aiFreq.dismissedTopics.indexOf(data.topic) === -1) {
-            session.aiFreq.dismissedTopics.push(data.topic);
-            writeJson(window.sessionStorage, sessionKey, session);
-          }
-          reportAiEvent(data.nudgeId, "dismissed");
-          clearSurface();
-        });
-      }
-      var ctaBtn = el.querySelector("[data-smart-cta]");
-      if (ctaBtn) {
-        ctaBtn.addEventListener("click", function () {
-          session.aiFreq.lastEngaged = true;
-          writeJson(window.sessionStorage, sessionKey, session);
-          reportAiEvent(data.nudgeId, "cta_clicked");
-          clearSurface();
-          runAiNudgeAction(data);
-        });
-      }
-      setTimeout(function () {
-        if (activeSurface && activeSurface.el === el) clearSurface();
-      }, 25000);
       return true;
     }
 
@@ -2890,7 +2936,7 @@
       fetch(apiBase + "/api/widget/nudge/evaluate", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
         body: JSON.stringify({
           workspace_id: WORKSPACE_ID,
           // Visitor identity is resolved server-side from the signed
@@ -2903,7 +2949,8 @@
           session_page_count: journey.sessionPageCount,
           returning: journey.returning,
           previous_nudge: journey.previousNudge,
-          referrer: document.referrer || "",
+          // Without its query string, as every tracked address (P-01).
+          referrer: (document.referrer || "").split(/[?#]/)[0],
           utm: ctx.utm,
           signals: ctx.signals,
           interaction: ctx.interaction,
@@ -3078,7 +3125,7 @@
         fetch(apiBase + "/api/widget/smart/event", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
           body: JSON.stringify({
             workspace_id: WORKSPACE_ID,
             rule_id: rule.id,
@@ -3171,61 +3218,72 @@
       });
     }
 
-    function showNudge(rule, content) {
+    // One bubble beside the launcher: a rule's nudge, an AI nudge, the
+    // preview of a rule meant for the panel. A live region (role=status: a
+    // screen reader hears it once it is filled), in the widget's language
+    // and direction. It goes after `sec` seconds, never while the pointer or
+    // the focus is on it (WCAG 2.2.1). `onDismiss` / `onCta` run before it goes.
+    function bubble(id, content, dismissible, sec, onDismiss, onCta) {
+      var lang = widgetLang();
+      var el = document.createElement("div");
+      el.className = "smart-nudge entering " + (configData.position === "bottom-left" ? "bottom-left" : "bottom-right");
+      el.setAttribute("role", "status");
+      el.lang = lang;
+      el.dir = ["fa", "ar", "he", "ur"].indexOf(lang) >= 0 ? "rtl" : "ltr";
+      shellContentEl.appendChild(el);
+      el.innerHTML = surfaceHtml(content, dismissible);
+      // Drop the intro class once it has played so a late-arriving template
+      // stylesheet cannot restart the entry animation mid-life.
+      var settle = function () { try { el.classList.remove("entering"); } catch (_) {} };
+      try { el.addEventListener("animationend", settle, { once: true }); } catch (_) {}
+      setTimeout(settle, 480);
+      activeSurface = { ruleId: id, el: el };
+      [["[data-smart-dismiss]", onDismiss], ["[data-smart-cta]", onCta]].forEach(function (b) {
+        var btn = el.querySelector(b[0]);
+        if (btn) btn.addEventListener("click", function (e) { e.stopPropagation(); b[1](); clearSurface(); });
+      });
+      // Auto-release: a bubble the visitor never touches must not block
+      // every other rule forever. It goes WITHOUT being marked dismissed, so
+      // the evaluation loop is free to surface the next matching rule (still
+      // behind the global cooldown); frequency state already counted it.
+      var timer = null;
+      var arm = function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () { if (activeSurface && activeSurface.el === el) clearSurface(); }, (sec > 0 ? sec : 25) * 1000);
+      };
+      var hold = function () { clearTimeout(timer); };
+      el.addEventListener("mouseenter", hold);
+      el.addEventListener("focusin", hold);
+      el.addEventListener("mouseleave", arm);
+      el.addEventListener("focusout", arm);
+      arm();
+      return el;
+    }
+
+    // A rule's bubble. With `open`, it is the preview of a surface meant for
+    // the panel (showPanelSurface): a tap on it opens the panel there.
+    function showNudge(rule, content, open) {
       if (!shellContentEl) return false;
       injectPresentationFonts(configData.presentationFontsUrl || "");
       // A template newer than the edition's first one dresses the bubble in
       // its own stylesheet: load the template now, as an open intent does
       // (nothing runs until an open).
       if (configData.templateId && !/^(default|intl)$/.test(configData.templateId)) onOpenIntent();
-      var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
-      var el = document.createElement("div");
-      el.className = "smart-nudge entering " + posClass;
-      // Text direction follows the widget locale so RTL copy (fa/ar/he/ur)
-      // reads right-aligned and the CTA flows to the correct edge.
-      var nudgeLocale = String(
-        (configData && configData.locale) || document.documentElement.lang || navigator.language || "en"
-      ).toLowerCase().split("-")[0];
-      el.setAttribute("dir", ["fa", "ar", "he", "ur"].indexOf(nudgeLocale) >= 0 ? "rtl" : "ltr");
-
-      el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
-      shellContentEl.appendChild(el);
-      // Drop the intro class once it has played so a late-arriving template
-      // stylesheet cannot restart the entry animation mid-life.
-      var settle = function () { try { el.classList.remove("entering"); } catch (_) {} };
-      try { el.addEventListener("animationend", settle, { once: true }); } catch (_) {}
-      setTimeout(settle, 480);
-      activeSurface = { ruleId: rule.id, el: el };
-
-      var dismissBtn = el.querySelector("[data-smart-dismiss]");
-      if (dismissBtn) {
-        dismissBtn.addEventListener("click", function () {
+      var el = bubble(rule.id, content, (rule.presentation_config || {}).dismissible,
+        Number((rule.behavior_config || {}).auto_hide_seconds),
+        function () {
           markRule(rule, "dismissed");
           report(rule, "dismissed");
-          clearSurface();
-        });
-      }
-      var ctaBtn = el.querySelector("[data-smart-cta]");
-      if (ctaBtn) {
-        ctaBtn.addEventListener("click", function () {
+          // The surface waiting in the panel goes with its preview.
+          var inst = open && runtimeInstance();
+          if (inst && inst.hideSmart) inst.hideSmart();
+        },
+        open || function () {
           markRule(rule, "cta");
           report(rule, "cta_clicked");
-          clearSurface();
           runAction(rule);
         });
-      }
-      // Auto-release: a launcher nudge that the visitor never touches must
-      // not block every other rule forever. After its display window we
-      // remove it WITHOUT marking it dismissed, so the evaluation loop is
-      // free to surface the next matching rule (still behind the global
-      // cooldown). Only the visual surface is released — frequency state
-      // already counted this impression.
-      var behavior = rule.behavior_config || {};
-      var autoSec = Number(behavior.auto_hide_seconds);
-      if (!isFinite(autoSec) || autoSec <= 0) autoSec = 25;
-      setTimeout(function () {
-        if (activeSurface && activeSurface.el === el) clearSurface();
-      }, autoSec * 1000);
+      if (open) el.addEventListener("click", function () { clearSurface(); open(); });
       return true;
     }
 
@@ -3237,17 +3295,28 @@
     function showPanelSurface(rule, content, onResult) {
       var pres = rule.presentation_config || {};
       var wasOpen = !!isOpen;
-      triggerOpen();
-      if (!wasOpen) {
-        // widget_opened is only ever reported once the panel actually opens.
-        var tries0 = 0;
-        (function waitOpen() {
-          if (isOpen) { report(rule, "widget_opened"); return; }
-          if (tries0++ > 40) return;
-          setTimeout(waitOpen, 100);
-        })();
+      // Proactive (the panel is closed): the screen and the focus stay the
+      // visitor's (WCAG 3.2). The surface waits in the panel, previewed by
+      // the launcher, until the visitor opens it, from the preview or the
+      // launcher. Only `open_widget` opens by itself, on a computer, with
+      // the focus left where it is: a phone's open panel is the whole screen.
+      var preview = !wasOpen && (pres.mode !== "open_widget" || isPhoneViewport());
+      var tap = function () { triggerOpen(); report(rule, "widget_opened"); };
+      if (!preview) {
+        triggerOpen(true);
+        if (!wasOpen) {
+          // widget_opened is only ever reported once the panel actually opens.
+          var tries0 = 0;
+          (function waitOpen() {
+            if (isOpen) { report(rule, "widget_opened"); return; }
+            if (tries0++ > 40) return;
+            setTimeout(waitOpen, 100);
+          })();
+        }
       }
-      if (pres.mode === "open_widget") { onResult(true); return; }
+      if (pres.mode === "open_widget") { onResult(preview ? showNudge(rule, content, tap) : true); return; }
+      // The surface waits in the runtime, booted silently for a preview.
+      preloadRuntimeForSmart();
       var tries = 0;
       (function waitReady() {
         var inst = runtimeInstance();
@@ -3272,6 +3341,7 @@
             },
           });
           if (delivered) activeSurface = { ruleId: rule.id, el: null };
+          if (delivered && preview) showNudge(rule, content, tap);
           onResult(delivered);
           return;
         }
@@ -3324,7 +3394,7 @@
     var ticking = null;
 
     function tick() {
-      if (!SmartEngineRef || activeSurface) return;
+      if (!SmartEngineRef || activeSurface || !tracks()) return;
       measureScroll();
       var ctx = buildContext();
       var now = new Date();
@@ -3574,6 +3644,10 @@
           if (frame && frame.error) {
             setOwns(false);
           }
+          // A publication on this visitor's channel: an operator wrote to
+          // them (services/widget/visitorWake.ts). It carries nothing; the
+          // runtime, booted silently, reads the reply and shows it.
+          if (frame && frame.push && frame.push.pub) preloadRuntimeForSmart();
         }
       };
       ws.onclose = function (ev) {
@@ -3742,10 +3816,12 @@
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
     if (!apiBase || !workspaceId) return;
-    // Use path + search so query-string-driven views (e.g. ?article=42) get
-    // their own row. Hash is excluded — most apps treat it as in-page state.
+    // The path; its query string only when the workspace keeps it
+    // (config.privacy.keepQuery: `?email=…` or `?token=…` is not tracked by
+    // default, P-01). Hash is excluded — most apps treat it as in-page state.
+    var keepQuery = (configData.privacy || {}).keepQuery;
     function currentPage() {
-      try { return window.location.pathname + (window.location.search || ''); }
+      try { return window.location.pathname + (keepQuery && window.location.search || ''); }
       catch (_) { return window.location.pathname; }
     }
     // Capture the document title for richer page-history entries. Falls back
@@ -3802,7 +3878,7 @@
       window.gsAnalytics = window.gsAnalytics || {};
       window.gsAnalytics.track = function (eventName, properties) {
         try {
-          if (!eventName || typeof eventName !== "string") return;
+          if (!eventName || typeof eventName !== "string" || !tracks()) return;
           fetch(apiBase + "/api/widget/event", {
             method: "POST",
             credentials: "include",
@@ -3813,6 +3889,7 @@
               event_name: eventName,
               properties: properties || {},
               page_url: currentPage(),
+              consent: consent,
             }),
           }).catch(function () {});
         } catch (_) {}
@@ -3826,7 +3903,9 @@
       event: "page_view",
       current_page: currentPage(),
       page_title: currentTitle(),
-      referrer: document.referrer || null,
+      referrer: document.referrer.split(/[?#]/)[0] || null,
+      // Given (the server tracks nothing without it while consent is asked).
+      consent: consent,
       browser: detectBrowser(),
       device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
       os: detectOS(),
@@ -3855,7 +3934,7 @@
         });
         try { window.__gs_visitor_presence = presence; } catch (_) {}
         function doPing(tokenToUse, isRetry, force) {
-          if (STOPPED) return;
+          if (STOPPED || !tracks()) return;
           // Liveness is suppressed only while we hold a VALID lease — an open
           // socket whose lease lapsed must resume heartbeating, otherwise the
           // visitor would silently age out of the operator's list.
@@ -3867,7 +3946,7 @@
           fetch(apiBase + "/api/widget/action", {
             method: "PUT",
             credentials: "include",
-            headers: { "Content-Type": "application/json", "X-Widget-Token": tokenToUse },
+            headers: vh({ "Content-Type": "application/json", "X-Widget-Token": tokenToUse }),
             body: JSON.stringify({
               workspace_id: workspaceId,
               action: "heartbeat",

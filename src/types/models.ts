@@ -225,6 +225,10 @@ export interface WidgetSettings {
   emoji_enabled?: boolean;
   smart_engagement_enabled?: boolean;
   store_raw_ip?: boolean;
+  // Visitor privacy (migration 281; absent before it).
+  tracking_requires_consent?: boolean;
+  tracking_keep_query?: boolean;
+  visitor_data_retention_days?: number | null;
   assignment_mode?: 'auto' | 'round_robin' | 'manual';
   // Chat routing (migration 278): returning visitors to their previous
   // operator, the default maximum of open chats per operator, and the

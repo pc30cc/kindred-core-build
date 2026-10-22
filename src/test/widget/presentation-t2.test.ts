@@ -106,7 +106,7 @@ function withExtras(r: Renderer): Renderer {
 /** A `conversation_closed` row as Core keeps it. */
 const closedRow = (id: string, agentName: string | null, over: Vm = {}): Vm => msg({
   __id: id, sender: 'operator', senderType: 'system', senderName: agentName, body: `${agentName} closed the conversation`,
-  metadata: { kind: 'conversation_closed', by: 'agent', agent_name: agentName, operator_name: agentName, status: 'resolved' }, ...over,
+  metadata: { kind: 'conversation_closed', by: 'agent', agent_name: agentName, operator_name: agentName, status: 'closed' }, ...over,
 });
 /** The rating card's view-model (runtime-late.js `view.csat`). */
 const CSAT = (closedId: string, over: Vm = {}): Vm => ({
@@ -308,7 +308,7 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
       expect(parse(r().emptyHtml({ qna: { questions: [] } })).querySelector('[data-topic="زمان ارسال"]')).not.toBeNull();
     },
     visitorName: () => {
-      expect(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, visitorName: 'علی' })).toContain('سلام علی، خوش برگشتی');
+      expect(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, visitorName: 'علی' })).toContain('سلام علی، خوش آمدید');
     },
     conversationOperator: () => {
       const row = parse(r().conversationRowHtml({ id: 'c', status: 'open', preview: 'ممنون', operatorName: 'سارا', operatorOnline: true, lastFromVisitor: true }, false));
@@ -787,7 +787,7 @@ describe('t2: the chat bar names the workspace, the operator answering small und
     expect(words({ operator: SARA, online: false })).toEqual(['سارا']);
     expect(words({ operator: SARA }, { config: { workspaceName: '' } })).toEqual(['آنلاین']);
     expect(words({ operator: null })).toEqual([FA.homeReplyFast]);
-    expect(words({ operator: null, online: false })).toEqual(['آفلاین؛ پاسخ با ایمیل']);
+    expect(words({ operator: null, online: false })).toEqual(['آفلاین؛ پاسخ همین‌جا']);
     // Typing: the name first, then the three dots.
     const typ = bar({ operator: SARA, typing: true }).h.querySelector('.st.typ')!;
     expect(Array.from(typ.children).map((c) => c.tagName)).toEqual(['B', 'I', 'I', 'I']);
@@ -937,11 +937,21 @@ describe('t2: review fixes', () => {
     expect(parse(make().chatHeaderHtml({ online: true })).querySelector('[data-presence]')!.getAttribute('aria-live')).toBe('polite');
   });
 
-  it('heads an away thread with the return time, never the online reply promise', () => {
-    const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(9, 0, 0, 0);
-    const away = parse(make({ config: { replyTimeText: 'معمولاً در ۲ دقیقه پاسخ می‌دهیم', availability: { state: 'offline', next_open_at: at.toISOString() } } })
-      .messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.away small')!.textContent!;
-    expect(away).toMatch(/^از .*۹.* پاسخ می‌دهیم$/);
+  it('heads an away thread with the return time and, past today, its day (Tehran time in Persian, as the day dividers), never the online reply promise', () => {
+    // Sunday 18 October 2026, 05:30 in Tehran.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 18, 2, 0)));
+    try {
+      const tehran9 = (day: number) => new Date(Date.UTC(2026, 9, day, 5, 30)).toISOString();
+      const away = (iso: string, locale = 'fa') => parse(make({ locale, config: { replyTimeText: 'معمولاً در ۲ دقیقه پاسخ می‌دهیم', availability: { state: 'offline', next_open_at: iso } } })
+        .messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.away small')!.textContent!;
+      expect(away(tehran9(18))).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
+      expect(away(tehran9(19))).toBe('از فردا ساعت ۹ صبح پاسخ می‌دهیم');
+      expect(away(tehran9(24))).toBe('از شنبه ساعت ۹ صبح پاسخ می‌دهیم');
+      expect(away(new Date(Date.UTC(2026, 9, 18, 6, 30)).toISOString())).toBe('از ساعت ۱۰ صبح پاسخ می‌دهیم');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('an away pre-contact form makes no reply-time promise, and a phone-only contact gets no e-mail promise', () => {
@@ -949,10 +959,12 @@ describe('t2: review fixes', () => {
     const status = (availability?: Vm) => parse(make({ config: { replyTimeText: promise, availability } })
       .prechatFormHtml(IDENTITY(['name', 'phone']), {}, 'fa')).querySelector('.st')!.textContent;
     expect(status()).toBe(promise);
-    expect(status({ state: 'offline' })).toBe('آفلاین؛ پاسخ با ایمیل');
-    // Chat replies are never sent by SMS: the card's copy is for an e-mail.
-    expect(make().prechatSummaryHtml({ phone: '09123456789' })).toBe('');
+    expect(status({ state: 'offline' })).toBe('آفلاین؛ پاسخ همین‌جا');
+    // The card says what was saved, never that a reply is mailed or texted.
+    expect(parse(make().prechatSummaryHtml({ phone: '09123456789' })).querySelector('.fcard.done')!.textContent).toBe('ثبت شد: 09123456789');
     expect(make().prechatSummaryHtml({ phone: '09123456789', email: 'ali@example.com' })).toContain('ali@example.com');
+    expect(make().prechatSummaryHtml({ email: 'ali@example.com' })).not.toMatch(/می‌فرستیم|ایمیلتان/);
+    expect(make().prechatSummaryHtml({})).toBe('');
   });
 
   it('says one article or conversation in English, never "1 articles" (fa and tr do not inflect)', () => {
@@ -1081,6 +1093,17 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
     expect(line(null)).toBe('فروشگاه نیلوفر گفتگو را بست');
     expect(line('Sara', 'en')).toBe('Sara closed the conversation');
     expect(line('Sara', 'tr')).toBe('Sara sohbeti kapattı');
+  });
+
+  // V-12: a resolve is not a close (the visitor's next message continues
+  // the conversation), and the line says so.
+  it('a resolve reads as resolved, not closed; in fa, en and tr', () => {
+    const line = (locale: string) => thread(withExtras(make({ locale })), [closedRow('c1', 'Sara', {
+      metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Sara', status: 'resolved' },
+    })]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
+    expect(line('fa')).toBe('Sara گفتگو را حل‌شده اعلام کرد');
+    expect(line('en')).toBe('Sara marked the conversation as resolved');
+    expect(line('tr')).toBe('Sara sohbeti çözüldü olarak işaretledi');
   });
 
   it('before the extras: no line, no card, and taking them asks Core for one repaint', () => {
@@ -1366,7 +1389,7 @@ describe('t2: the message left while the team is away (extras, feature `awayThre
   it('asks where to send the reply: the details card\'s look, the contact-fallback hooks, "no thanks" when not required', () => {
     const row = reply({ status: 'ask', value: '', skip: true });
     expect(Array.from(row.querySelectorAll('.msg.operator')).map((b) => b.textContent))
-      .toEqual(['پیامتان ثبت شد.', 'اگر از سایت رفتید، پاسخ را کجا بفرستیم؟']);
+      .toEqual(['پیامتان ثبت شد.', 'چطور با شما در تماس باشیم؟']);
     const form = row.querySelector('form.fcard')!;
     expect(form.hasAttribute('novalidate')).toBe(true);
     expect(form.querySelector('label[for="fb-email"]')!.textContent).toBe('ایمیل');
@@ -1380,15 +1403,15 @@ describe('t2: the message left while the team is away (extras, feature `awayThre
     expect(reply({ status: 'ask', skip: false }).querySelector('[data-fb-skip]')).toBeNull();
   });
 
-  it('saved: «پاسخ را به {email} می‌فرستیم.» (04·11); skipped: the recorded line alone', () => {
+  it('saved: «ثبت شد: {email}» (04·11), never a promise to mail the reply; skipped: the reply comes here', () => {
     const saved = reply({ status: 'saved', email: 'ali@example.com' });
     expect(saved.querySelector('form')).toBeNull();
     const done = saved.querySelector('.fcard.done[role="status"]')!;
-    expect(done.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(done.textContent).toBe('ثبت شد: ali@example.com');
     expect(done.querySelector('b[dir="ltr"]')!.textContent).toBe('ali@example.com');
     expect(done.querySelector('.ck svg')).not.toBeNull();
     const skipped = reply({ status: 'skipped' });
-    expect(Array.from(skipped.querySelectorAll('.msg.operator')).map((b) => b.textContent)).toEqual(['پیامتان ثبت شد.']);
+    expect(Array.from(skipped.querySelectorAll('.msg.operator')).map((b) => b.textContent)).toEqual(['پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.']);
     expect(skipped.querySelector('form, .fcard')).toBeNull();
   });
 

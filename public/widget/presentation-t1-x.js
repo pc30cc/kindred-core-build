@@ -52,11 +52,11 @@
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (as the renderer's own; the menu's keys are the names of
   // docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'cats emojiSearch emojiNoResults moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo'.split(' ');
+  var COPY_KEYS = 'cats emojiSearch emojiNoResults moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo awayHere'.split(' ');
   var DICT = {
-    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|جستجوی شکلک|شکلکی پیدا نشد|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، اسم‌تون چیه؟|ممنون {name} جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.|ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.|اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|برای پیامک پیگیری|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.|ایمیل برای دریافت پاسخ|ایمیل برای پاسخ|ثبت ایمیل|پیام خودکار|پیامتون ثبت شد.|پاسخ را به {email} می‌فرستیم.',
-    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Search emoji|No emoji found|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email, so we can send you our replies?|What’s your email, so we can send you our replies?|If you like, add your phone number and we’ll text you updates.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|For text updates|Submit|{n} in line · about {min} min|{n} in line|Got your message! Leave your email and we’ll send you the reply.|Email for the reply|Email for the reply|Save email|Automated message|Got your message!|We’ll send the reply to {email}.',
-    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Emoji ara|Emoji bulunamadı|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|İsterseniz telefon numaranızı da ekleyin, size SMS ile haber verelim.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|SMS bildirimleri için|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! Yanıtı gönderebilmemiz için e-postanızı bırakın.|Yanıt için e-posta|Yanıt için e-posta|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Yanıtı {email} adresine göndereceğiz.',
+    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|جستجوی شکلک|شکلکی پیدا نشد|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، نامتان را بنویسید.|ممنون {name}. ایمیلتان را هم بنویسید.|ایمیلتان را بنویسید.|اگر مایلید، شماره موبایلتان را هم بنویسید.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|شمارهٔ موبایل|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتان ثبت شد. اگر مایلید، ایمیلتان را هم بگذارید.|ایمیل شما|ایمیل شما|ثبت ایمیل|پیام خودکار|پیامتان ثبت شد.|ثبت شد: {email}|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.',
+    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Search emoji|No emoji found|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email?|What’s your email?|If you like, add your phone number too.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|Mobile number|Submit|{n} in line · about {min} min|{n} in line|Got your message! If you like, leave your email too.|Your email|Your email|Save email|Automated message|Got your message!|Saved: {email}|Got your message! The reply will appear here, in this chat.',
+    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Emoji ara|Emoji bulunamadı|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. E-postanız nedir?|E-postanız nedir?|İsterseniz telefon numaranızı da ekleyin.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|Cep telefonu numarası|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! İsterseniz e-postanızı da bırakın.|E-postanız|E-postanız|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Kaydedildi: {email}|Mesajınızı aldık! Yanıt burada, bu sohbette görünecek.',
   };
 
   // Grouped emoji for the picker, one group per name in `cats`.
@@ -162,7 +162,7 @@
         // A refusal is read out when it is the newest answer.
         var meta = e.ok ? (i === lastOk ? '<span class="st-ok">' + svg(H.D.tick, 13, 2.2) + esc(XL('prechatStepSaved')) + '</span>' : '')
           : '<span class="st-err"' + (i === log.length - 1 ? ' role="alert"' : '') + '><b>' +
-            esc(e.why === 'required' ? t('required') : e.key === 'phone' ? t('invalidPhone') : XL('prechatStepEmailInvalid')) + '</b>' +
+            esc(e.why === 'required' ? t('fieldRequired') : e.key === 'phone' ? t('invalidPhone') : XL('prechatStepEmailInvalid')) + '</b>' +
             (e.why !== 'required' && e.key === 'email' ? ' · ' + esc(XL('prechatStepEmailExample')) : '') + '</span>';
         html += '<div class="msg-row visitor is-first is-last"><div class="msg-col"><div class="msg-line"><div class="msg visitor' + (e.ok ? '' : ' fail') +
           '" dir="' + (e.key === 'name' ? 'auto' : 'ltr') + '">' + esc(e.value) + '</div></div>' +
@@ -208,10 +208,12 @@
     function awayReplyHtml(r) {
       var busy = r.status === 'saving';
       var saved = r.status === 'saved';
+      // No email step (skipped, or visitor email switched off): the reply comes here.
+      var here = r.status === 'skipped';
       var parts = XL('awayReplyTo').split('{email}');
       return '<div class="msg-row operator is-first is-last away-reply">' + H.avatarHtml(null, 's28 msg-avatar') + '<div class="msg-col">' +
-        '<div class="msg-line"><div class="msg operator joined">' + esc(XL(saved ? 'awayRecorded' : 'awayAutoReply')) + '</div></div>' +
-        '<div class="msg-line">' + (saved
+        '<div class="msg-line"><div class="msg operator joined">' + esc(XL(here ? 'awayHere' : saved ? 'awayRecorded' : 'awayAutoReply')) + '</div></div>' +
+        (here ? '' : '<div class="msg-line">' + (saved
           ? '<div class="fcard ec done" role="status">' + svg(H.D.okc, 18, 2) + '<span>' + esc(parts[0]) + '<b dir="ltr">' + esc(r.email) + '</b>' + esc(parts[1] || '') + '</span></div>'
           : '<form class="fcard ec" novalidate aria-label="' + esc(XL('fallbackEmailFormLabel')) + '">' +
               '<label for="fb-email">' + esc(XL('fallbackEmailLabel')) + '</label><div class="rw">' +
@@ -219,7 +221,7 @@
                 ' aria-describedby="fb-status" aria-invalid="' + !!r.error + '" value="' + esc(r.value || '') + '"' + (busy ? ' readonly' : '') + '>' +
               '<button type="submit" class="go" data-fb-submit aria-label="' + esc(XL('saveEmail')) + '"' + (busy ? ' disabled' : '') + '>' + svg(H.D.tick, 18, 2.2) + '</button></div>' +
               '<div class="fallback-status" id="fb-status" data-fb-status role="status" aria-live="polite">' + (r.error ? esc(t(r.error)) : '') + '</div>' +
-            '</form>') + '</div>' +
+            '</form>') + '</div>') +
         '<div class="msg-footline"><div class="msg-meta"><span class="msg-time">' + esc(XL('msgAutomated')) + '</span></div></div>' +
       '</div></div>';
     }

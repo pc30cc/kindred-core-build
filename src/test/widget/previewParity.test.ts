@@ -131,7 +131,8 @@ describe('silent preload lifecycle', () => {
   });
 
   it('loader opens the panel only when something asked for it', () => {
-    expect(loader).toMatch(/if \(wantRuntimeOpen\) \{\s*try \{ instance\.open\(\); \} catch/);
+    // `quietOpen`: an open a Smart Engagement rule asked for keeps the focus where it is (V-27).
+    expect(loader).toMatch(/if \(wantRuntimeOpen\) \{\s*try \{ instance\.open\(quietOpen\); \} catch/);
   });
 });
 

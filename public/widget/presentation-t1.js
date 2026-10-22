@@ -32,11 +32,11 @@
 
   // Copy this template adds (Core's own keys are read through `t`): one
   // '|'-separated string per language, in the order of COPY_KEYS.
-  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
+  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk at'.split(' ');
   var DICT = {
-    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
-    en: 'Messages|Help|Widget sections|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply by email|Our team is offline right now|Type your question…|Articles: {n}|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
-    tr: 'Mesajlar|Yardım|Widget bölümleri|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
+    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را همین‌جا در گفتگو می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|تا تیم ما بداند با چه کسی گفتگو می‌کند.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ همین‌جا|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید|{d} ساعت {time}',
+    en: 'Messages|Help|Widget sections|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; you will see the reply here, in this chat.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Connect to support|Before we start, introduce yourself|So our team knows who they are talking to.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply here|Our team is offline right now|Type your question…|Articles: {n}|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team|{time} {d}',
+    tr: 'Mesajlar|Yardım|Widget bölümleri|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı burada, bu sohbette göreceksiniz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Ekibimiz kiminle konuştuğunu bilsin diye.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · yanıt burada|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun|{d} {time}',
   };
 
 
@@ -326,13 +326,20 @@
       try {
         var date = (d instanceof Date) ? d : new Date(d);
         if (!date || isNaN(date.getTime())) return '';
-        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
+        // Persian in the day dividers' zone, so a time and its day agree.
+        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit', timeZone: fa ? TZ : undefined });
       } catch (_) { return ''; }
     }
-    /** When the team is back ("from 9 in the morning", «از ساعت ۹ صبح»; minutes only when not :00). */
+    /**
+     * When the team is back ("from 9 in the morning", «از ساعت ۹ صبح»;
+     * minutes only when not :00), with its day past today (tomorrow, else the
+     * weekday: «از فردا ساعت ۹ صبح»).
+     */
     function awayLine(iso) {
       var time = iso ? fmtDate(iso, { hour: 'numeric', minute: '2-digit', hour12: true, dayPeriod: 'short' }).replace(/:(00|۰۰)/, '') : '';
-      return time ? fill(L('backAt'), { time: time }) : tf('homeReplySlow', L('away'));
+      var k = time && dayKeyOf(iso);
+      var day = !k || k === dayKeyOf(Date.now()) ? '' : k === dayKeyOf(Date.now() + 864e5) ? rel(1, 'day') : fmtDate(iso, { weekday: 'long' });
+      return time ? fill(L('backAt'), { time: fill(L('at'), { d: day, time: time }).trim() }) : tf('homeReplySlow', L('away'));
     }
     /** The "team is away" banner with when it is back. */
     function banHtml(cls, sub) {
@@ -706,11 +713,14 @@
       // «back at …», then the reply-time note the workspace wrote (07·09), never our own.
       var html = '<div class="messages">' + banHtml(' ban-row', [awayLine((config.availability || {}).next_open_at), replyText(' ')]
         .filter(function (s) { return s.trim(); }).join(' · '));
-      // A run = consecutive messages of one author on one day; system rows break runs.
+      // A run = consecutive messages of one author on one day (and one
+      // conversation: Core's `threadStart`); system rows break runs.
+      var th = 0;
       var keys = msgs.map(function (m, i) {
         if (isSystemRow(m)) return 's' + i;
-        return (m.sender === 'visitor' ? 'v' : 'o:' + (m.senderName || '') + '|' + (m.senderAvatar || '') + '|' + (m.senderType === 'ai' ? 1 : 0)) +
-          '@' + dayKeyOf(m.time);
+        // A failed message is a run of its own: its label and Retry stay on it.
+        return (m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : 'o:' + (m.senderName || '') + '|' + (m.senderAvatar || '') + '|' + (m.senderType === 'ai' ? 1 : 0)) +
+          '@' + dayKeyOf(m.time) + (m.threadStart ? ++th : th);
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
@@ -719,6 +729,8 @@
       msgs.forEach(function (m, idx) {
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
+        // A new conversation opened under an ended one.
+        if (m.threadStart) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
         if (isSystemRow(m)) {
           var kind = m.metadata.kind;
           // The queued row Core gives the visitor's place (`view.queue`, by the extras).
@@ -741,7 +753,7 @@
         var statusHtml = '';
         if (visitor && isLast && failed) {
           // Shown whatever the receipts setting: an error the visitor can act on.
-          statusHtml = '<span class="msg-ticks is-failed">' + svg(D.err, 14, 2.2) + '<b>' + esc(t('msgFailed')) + '</b></span>' +
+          statusHtml = '<span class="msg-ticks is-failed">' + svg(D.err, 14, 2.2) + '<b>' + esc(m.failText || t('msgFailed')) + '</b></span>' +
             '<span aria-hidden="true">·</span><button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
               '">' + esc(L('retry')) + '</button>';
         } else if (visitor && isLast && receiptsEnabled && m.status) {
@@ -1118,7 +1130,8 @@
     /** One conversation (the compact flag of older callers draws the same row). */
     function conversationRowHtml(c) {
       c = c || {};
-      var resolved = String(c.status || '') === 'resolved';
+      // Closed is over for the visitor as resolved is (no live dot).
+      var resolved = /^(resolved|closed)$/.test(c.status);
       return '<button type="button" class="li conv-row" data-conversation-open="' + esc(c.id) + '">' + convAvatar(c, 's44') +
         '<span class="lx"><span class="l1"><span class="nm">' + esc(convName(c)) + '</span>' +
           (c.timeLabel ? '<span class="tm-s">' + esc(c.timeLabel) + '</span>' : '') + '</span>' + previewHtml(c) +

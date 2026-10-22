@@ -22,7 +22,7 @@
  * Geometry against the design's PNGs is checked with the screenshot harness
  * (e2e/harness/templateScreens.ts --template t1), not here.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -564,7 +564,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(h.querySelector('.away')).toBeNull();
       // Away: the email line, and the marker the thread's away banner keys on.
       const away = parse(r().chatHeaderHtml({ online: false, operator: null, isNew: false }));
-      expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ از طریق ایمیل');
+      expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ همین‌جا');
       expect(away.querySelector('.away[hidden]')).not.toBeNull();
       expect(away.querySelector('.who .av.c4')!.textContent).toBe('ف');
       expect(parse(r().chatHeaderHtml({ online: true, isNew: true })).querySelector('.hn')!.textContent).toBe('گفتگوی جدید');
@@ -588,7 +588,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(pre.querySelector('.who .av .pr:not(.off)')).not.toBeNull();
       const preAway = parse(r().chatHeaderHtml({ online: false, prechat: true, isNew: true }));
       expect(preAway.querySelector('.who .av.c4')!.textContent).toBe('ف');
-      expect(preAway.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ از طریق ایمیل');
+      expect(preAway.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ همین‌جا');
       // An assigned operator is the header's still: the store, the operator small under it.
       const op = parse(r().chatHeaderHtml({ online: true, prechat: true, operator: { name: 'مهدی', online: true } }));
       expect(op.querySelector('.hn')!.textContent).toBe('فروشگاه نیلوفر');
@@ -1087,16 +1087,26 @@ describe('t1: direction, people, the workspace', () => {
     expect(T1_CSS).toContain(".wy-view-chat:has(.away) .msg-ticks[role='img']:not(.is-seen)::before { content: '· ' attr(aria-label); }");
   });
 
-  it('says when the team is back as the design does: the hour and the part of the day, minutes only when not :00', () => {
-    const tehran = (hh: number, mm: number) => new Date(Date.UTC(2026, 9, 18, hh, mm) - 210 * 60_000).toISOString();
+  it('says when the team is back as the design does: the hour and the part of the day, minutes only when not :00; its day past today', () => {
+    // Sunday 18 October 2026, 05:30 in Tehran (and early that day for the visitor's own clock).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 18, 2, 0)));
+    const tehran = (hh: number, mm: number, day = 18) => new Date(Date.UTC(2026, 9, day, hh, mm) - 210 * 60_000).toISOString();
     const status = (iso: string, locale = 'fa') => parse(make({ locale, config: { availability: { state: 'offline', next_open_at: iso } } })
       .homeHtml({ rtl: locale === 'fa', isOnline: false, chatEnabled: true })).querySelector('.team .cs')!.textContent;
     expect(status(tehran(9, 0))).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
     expect(status(tehran(9, 30))).toBe('از ساعت ۹:۳۰ صبح پاسخ می‌دهیم');
+    // Tomorrow, and further away its weekday (a Thursday evening's «from Saturday»).
+    expect(status(tehran(9, 0, 19))).toBe('از فردا ساعت ۹ صبح پاسخ می‌دهیم');
+    expect(status(tehran(9, 0, 24))).toBe('از شنبه ساعت ۹ صبح پاسخ می‌دهیم');
     // Other languages read the visitor's own clock.
+    vi.setSystemTime(new Date(2026, 9, 18, 1, 0));
     expect(status(new Date(2026, 9, 18, 9, 0).toISOString(), 'en')).toBe('We reply from 9 in the morning');
+    expect(status(new Date(2026, 9, 19, 9, 0).toISOString(), 'en')).toBe('We reply from 9 in the morning tomorrow');
   });
 });
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe('t1: the workspace\'s reply-time note', () => {
   const lines = (replyTimeText: unknown) => {
@@ -1111,6 +1121,8 @@ describe('t1: the workspace\'s reply-time note', () => {
   };
 
   it('the empty thread carries both status lines; the chat header\'s live presence picks one (Core repaints only the header)', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 18, 2, 0)));
     const next = new Date(Date.UTC(2026, 9, 18, 5, 30)).toISOString();
     const wel = parse(make({ config: { availability: { state: 'online', next_open_at: next } } }).emptyHtml({})).querySelector('.wel')!;
     expect(wel.querySelector('p.on .live:not(.off)')).not.toBeNull();
@@ -1132,6 +1144,8 @@ describe('t1: the workspace\'s reply-time note', () => {
   });
 
   it('the thread\'s away banner adds the note the workspace wrote after when the team is back (07·09), never the template\'s own', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 18, 2, 0)));
     const nine = new Date(Date.UTC(2026, 9, 18, 9, 0) - 210 * 60_000).toISOString();
     const ban = (replyTimeText: unknown, next: string | null = nine) => parse(make({ config: { replyTimeText, availability: { state: 'offline', next_open_at: next } } })
       .messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.ban-row small')!.textContent;
@@ -1155,7 +1169,7 @@ describe('t1: the leave-a-message form', () => {
   it('says the team is away only when it is (Core also opens it when the monthly chat quota is full)', () => {
     const r = make({ config: { availability: { state: 'offline', next_open_at: next } } });
     const away = parse(r.contactFallbackHtml(ID, {}, 'fa', { status: 'offline', liveChatEnabled: true }));
-    expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ از طریق ایمیل');
+    expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ همین‌جا');
     expect(away.querySelector('.ban b')!.textContent).toBe('تیم ما الان آفلاین است');
     expect(away.querySelector('.who .pr.off')).not.toBeNull();
     // Quota full while the team is online: Core's quota wording, no offline claim.
@@ -1324,7 +1338,7 @@ describe('t1: its own copy', () => {
       'prechatAskName', 'prechatAskEmail', 'prechatAskEmailNoName', 'prechatAskPhone', 'prechatStep', 'prechatStepSaved',
       'prechatStepEmailInvalid', 'prechatStepEmailExample', 'prechatPhonePhLocal', 'prechatPhoneHint', 'prechatStepSubmit',
       'routingInQueue', 'routingInQueuePosition', 'awayAutoReply', 'fallbackEmailLabel', 'fallbackEmailFormLabel', 'saveEmail',
-      'msgAutomated', 'awayRecorded', 'awayReplyTo',
+      'msgAutomated', 'awayRecorded', 'awayReplyTo', 'awayHere',
     ]);
     for (const lang of ['fa', 'en', 'tr']) {
       const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T1_X_SRC) || [])[1]!.split('|');
@@ -1514,12 +1528,12 @@ describe('t1: the pre-chat one question at a time (extras, feature `prechatSteps
     const html = r().prechatStepsHtml({ key: 'phone', log: LOG, firstName: 'علی' });
     const list = rows(html);
     expect(list.map((x) => (x.classList.contains('visitor') ? 'v:' : 'q:') + x.querySelector('.msg')!.textContent)).toEqual([
-      'q:سلام! برای شروع، اسم‌تون چیه؟',
+      'q:سلام! برای شروع، نامتان را بنویسید.',
       'v:علی رضایی',
-      'q:ممنون علی جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.',
+      'q:ممنون علی. ایمیلتان را هم بنویسید.',
       'v:ali@example',
       'v:ali@example.com',
-      'q:اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.',
+      'q:اگر مایلید، شماره موبایلتان را هم بنویسید.',
     ]);
     const root = parse(html);
     // The questions are named for the step's field (aria-describedby).
@@ -1542,13 +1556,13 @@ describe('t1: the pre-chat one question at a time (extras, feature `prechatSteps
     const phone = parse(r().prechatStepsHtml({ key: 'phone', log: [{ key: 'phone', value: '12', ok: false, why: 'invalid' }] }));
     expect(phone.querySelector('.st-err[role="alert"]')!.textContent).toBe('invalidPhone');
     const req = parse(r().prechatStepsHtml({ key: 'email', log: [{ key: 'email', value: '', ok: false, why: 'required' }] }));
-    expect(req.querySelector('.st-err[role="alert"]')!.textContent).toBe('required');
+    expect(req.querySelector('.st-err[role="alert"]')!.textContent).toBe('fieldRequired');
   });
 
   it('asks for the email without a name when there is none, and skips no question for a skipped step', () => {
     const html = r().prechatStepsHtml({ key: 'email', log: [{ key: 'name', skip: true }], firstName: '' });
     expect(rows(html).map((x) => x.querySelector('.msg')!.textContent)).toEqual([
-      'سلام! برای شروع، اسم‌تون چیه؟', 'ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.',
+      'سلام! برای شروع، نامتان را بنویسید.', 'ایمیلتان را بنویسید.',
     ]);
   });
 
@@ -1582,7 +1596,7 @@ describe('t1: the pre-chat one question at a time (extras, feature `prechatSteps
     expect(input.getAttribute('placeholder')).toBe('۹۱۲ ۳۴۵ ۶۷۸۹');
     expect(input.getAttribute('aria-describedby')).toBe('pq-phone');
     expect(input.getAttribute('aria-label')).toBe('شماره موبایل');
-    expect(root.querySelector('.tools .hint')!.textContent).toBe('برای پیامک پیگیری');
+    expect(root.querySelector('.tools .hint')!.textContent).toBe('شمارهٔ موبایل');
     const send = root.querySelector('[data-prechat-step-submit]') as HTMLButtonElement;
     expect(send.disabled).toBe(true);
     expect(send.getAttribute('aria-label')).toBe('ثبت');
@@ -1619,7 +1633,7 @@ describe('t1: the pre-chat one question at a time (extras, feature `prechatSteps
     expect(en.querySelector('.prog > span')!.textContent).toBe('Step 2 of 3 · اختیاری');
     expect(en.querySelector('input')!.getAttribute('placeholder')).toBe('name@example.com');
     expect(parse(r('en').prechatStepsHtml({ key: 'email', log: [], firstName: 'Ali' })).querySelector('#pq-email')!.textContent)
-      .toBe('Thanks, Ali. What’s your email, so we can send you our replies?');
+      .toBe('Thanks, Ali. What’s your email?');
     expect(parse(r('en').prechatStepBoxHtml({ key: 'phone', n: 3, total: 3, prefix: '+98' })).querySelector('.pre')!.textContent).toBe('+98');
     expect(parse(r('tr').prechatStepBoxHtml({ key: 'name', n: 1, total: 2 })).querySelector('.prog > span')!.textContent).toBe('Adım 1/2');
   });
@@ -1676,12 +1690,12 @@ describe('t1: the message left while the team is away (extras, feature `awayThre
     const list = Array.from(parse(html).querySelectorAll('.messages > .msg-row'));
     expect(list.map((x) => x.className.includes('away-reply'))).toEqual([false, true, false]);
     const row = list[1];
-    expect(row.querySelector('.msg.operator.joined')!.textContent).toBe('پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.');
+    expect(row.querySelector('.msg.operator.joined')!.textContent).toBe('پیامتان ثبت شد. اگر مایلید، ایمیلتان را هم بگذارید.');
     expect(row.querySelector('.av')!.textContent).toBe('ف');
     const form = row.querySelector('form.fcard.ec')!;
-    expect(form.getAttribute('aria-label')).toBe('ایمیل برای پاسخ');
+    expect(form.getAttribute('aria-label')).toBe('ایمیل شما');
     expect(form.hasAttribute('novalidate')).toBe(true);
-    expect(form.querySelector('label[for="fb-email"]')!.textContent).toBe('ایمیل برای دریافت پاسخ');
+    expect(form.querySelector('label[for="fb-email"]')!.textContent).toBe('ایمیل شما');
     const input = form.querySelector('#fb-email[data-fb="email"]') as HTMLInputElement;
     expect([input.type, input.getAttribute('dir'), input.getAttribute('autocomplete'), input.getAttribute('aria-describedby')]).toEqual(['email', 'ltr', 'email', 'fb-status']);
     const go = form.querySelector('button[type="submit"][data-fb-submit]')!;
@@ -1704,12 +1718,12 @@ describe('t1: the message left while the team is away (extras, feature `awayThre
   it('saved: where the reply goes, the address an isolated left-to-right run', () => {
     const saved = reply({ status: 'saved', email: 'ali@example.com' });
     expect(saved.querySelector('form, [data-fb]')).toBeNull();
-    expect(saved.querySelector('.msg.operator')!.textContent).toBe('پیامتون ثبت شد.');
+    expect(saved.querySelector('.msg.operator')!.textContent).toBe('پیامتان ثبت شد.');
     const done = saved.querySelector('.ec.done[role="status"]')!;
-    expect(done.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(done.textContent).toBe('ثبت شد: ali@example.com');
     expect(done.querySelector('b[dir="ltr"]')!.textContent).toBe('ali@example.com');
     expect(reply({ status: 'saved', email: '<b>x</b>' }).querySelector('.ec.done b b')).toBeNull();
-    expect(reply({ status: 'saved', email: 'a@b.io' }, 'en').querySelector('.ec.done')!.textContent).toBe('We’ll send the reply to a@b.io.');
+    expect(reply({ status: 'saved', email: 'a@b.io' }, 'en').querySelector('.ec.done')!.textContent).toBe('Saved: a@b.io');
   });
 
   it('draws nothing without Core\'s view-model (the template\'s own away banner is the stylesheet\'s)', () => {

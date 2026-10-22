@@ -54,7 +54,9 @@ function start(opts: BootOptions & { route?: Route; renderer?: 't1' | 't2'; prel
   return boot({
     ...opts,
     renderer,
-    config: { availability: opts.availability || AWAY, attachments: { enabled: true, allowedMimes: ['image/png'] }, ...(opts.config || {}) },
+    // The away email step as it comes back once visitor email is switched
+    // on (config.visitorEmail, shared/visitorEmail.ts); off: 'no email step' below.
+    config: { availability: opts.availability || AWAY, attachments: { enabled: true, allowedMimes: ['image/png'] }, visitorEmail: true, ...(opts.config || {}) },
     api: (url, init) => {
       let body: Record<string, unknown> | null = null;
       try { body = init && init.body ? JSON.parse(String(init.body)) : null; } catch { body = null; }
@@ -195,7 +197,7 @@ describe('t1: the thread, away', () => {
     field().form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await flush(20);
     expect(emailPosts(h).map((p) => p.body)).toEqual([{ workspace_id: 'ws-test', conversation_id: 'c-away', email: 'ali@example.com' }]);
-    expect(h.q('.away-reply .ec.done')!.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(h.q('.away-reply .ec.done')!.textContent).toBe('ثبت شد: ali@example.com');
     expect(h.q('.away-reply [data-fb]')).toBeNull();
   });
 
@@ -231,6 +233,29 @@ describe('t1: the thread, away', () => {
   });
 });
 
+describe('no email step while visitor email is switched off (config.visitorEmail absent, shared/visitorEmail.ts)', () => {
+  for (const renderer of ['t1', 't2'] as const) {
+    it(`${renderer}: the message is taken, the reply says it comes here, and no address is asked or sent`, async () => {
+      const sent: string[] = [];
+      const h = start({
+        renderer,
+        config: { visitorEmail: undefined },
+        route: (u, b) => { sent.push(u); return OK(u, b); },
+      });
+      await toChat(h);
+      await send(h, 'سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟');
+      const r = reply(h)!;
+      expect(r).not.toBeNull();
+      expect(r.querySelector('[data-fb="email"]')).toBeNull();
+      expect(r.querySelector('[data-fb-skip]')).toBeNull();
+      expect(r.textContent).toContain('پاسخ همین‌جا در گفتگو نمایش داده می‌شود');
+      expect(r.textContent).not.toMatch(/ایمیل/);
+      expect(sent.filter((u) => u.endsWith('/api/widget/offline-messages'))).toHaveLength(1);
+      expect(sent.filter((u) => u.includes('/identity/offline-email'))).toEqual([]);
+    });
+  }
+});
+
 describe('t2: the thread, away', () => {
   it('asks with "no thanks" when the email is not required; skipping keeps the recorded line; the composer invites more', async () => {
     const h = start({ renderer: 't2' });
@@ -241,12 +266,13 @@ describe('t2: the thread, away', () => {
     expect(composer(h).getAttribute('placeholder')).toBe('اگر چیزی اضافه دارید بنویسید…');
     click(h.q('.away-reply [data-fb-skip]'));
     await flush(10);
-    expect(Array.from(reply(h)!.querySelectorAll('.msg.operator')).map((b) => b.textContent)).toEqual(['پیامتان ثبت شد.']);
+    // Declined: the reply comes here, and the line says so.
+    expect(Array.from(reply(h)!.querySelectorAll('.msg.operator')).map((b) => b.textContent)).toEqual(['پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.']);
     expect(h.shadow.activeElement).toBe(composer(h));
     expect(ph).not.toBe('اگر چیزی اضافه دارید بنویسید…');
   });
 
-  it('a required email offers no "no thanks"; saved, it says where the reply goes (04·11)', async () => {
+  it('a required email offers no "no thanks"; saved, it says what was saved (04·11), never that the reply is mailed', async () => {
     const h = start({ renderer: 't2', identity: { identity_state: 'anonymous', contact: null, prechat: { ask_email: true, require_email: true, timing: 'never' } } });
     await toChat(h);
     await send(h, 'سلام');
@@ -254,7 +280,7 @@ describe('t2: the thread, away', () => {
     typeInto(h.q<HTMLInputElement>('.away-reply [data-fb="email"]')!, 'ali@example.com');
     click(h.q('.away-reply [data-fb-submit]'));
     await flush(20);
-    expect(h.q('.away-reply .fcard.done')!.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(h.q('.away-reply .fcard.done')!.textContent).toBe('ثبت شد: ali@example.com');
   });
 
   it('a new conversation: the composer\'s own placeholder returns', async () => {

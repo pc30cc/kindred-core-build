@@ -86,6 +86,8 @@ type MessageAttachment = {
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
+import { publishVisitorSeen } from '../services/widget/visitorSeen.js';
+import { wakeVisitorWidget } from '../services/widget/visitorWake.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
@@ -697,6 +699,9 @@ conversationsRouter.post('/send-message', async (req, res) => {
             sender_avatar: senderProfile?.avatar ?? null,
           }),
         );
+    // A visitor whose widget is not listening yet (another page, or never
+    // opened: Visitors → Start chat) hears of it through the loader.
+    if (!duplicate) void wakeVisitorWidget(config, parsed.data.workspace_id, parsed.data.conversation_id);
 
 
     // Platform support: when this conversation is an operator's support
@@ -2404,14 +2409,17 @@ conversationsRouter.post('/:id/seen', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
 
+    const seenAt = new Date().toISOString();
     const { data, error } = await sb
       .from('conversation_messages')
-      .update({ seen_at: new Date().toISOString() })
+      .update({ seen_at: seenAt })
       .eq('conversation_id', conversationId)
       .eq('sender_type', 'contact')
       .is('seen_at', null)
       .select('id');
     if (error) return res.status(500).json({ error: error.message });
+    // The visitor's ticks turn "seen" live (services/widget/visitorSeen.ts).
+    void publishVisitorSeen(config, conv.workspace_id, conversationId, (data || []).map((r) => r.id as string), seenAt);
     return res.json({ ok: true, count: (data || []).length });
   } catch (err) {
     console.error('[conversations seen] error:', err);

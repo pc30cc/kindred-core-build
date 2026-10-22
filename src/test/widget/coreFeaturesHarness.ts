@@ -66,6 +66,8 @@ interface DriverHooks {
   onMessage?: (e: { messages: unknown[] }) => void;
   onConnectionState?: (state: string) => void;
   onReaction?: (p: unknown) => void;
+  onSeen?: (p: unknown) => void;
+  onReconnect?: () => void;
 }
 /**
  * A test's own answer for a request: `status` (default 200) and its JSON
@@ -155,6 +157,10 @@ export interface Harness {
   emitReaction: (payload: Dict) => void;
   /** A realtime frame with these messages (`realtime: true`). */
   emitMessages: (messages: Array<Record<string, unknown>>) => void;
+  /** A `seen` envelope's payload, as the drivers hand it to the runtime (`realtime: true`). */
+  emitSeen: (payload: Dict) => void;
+  /** The driver's reconnect signal (`realtime: true`). */
+  emitReconnect: () => void;
   /** A /poll answer with these messages (without `realtime`: the polling transport). */
   emitPoll: (messages: Array<Record<string, unknown>>) => void;
   /** Every count Core gave the launcher's badge (shell.setUnread). */
@@ -218,6 +224,8 @@ export function boot(opts: BootOptions = {}): Harness {
   let typingHook: ((e: unknown) => void) | null = null;
   let messageHook: ((e: { messages: unknown[] }) => void) | null = null;
   let reactionHook: ((p: unknown) => void) | null = null;
+  let seenHook: ((p: unknown) => void) | null = null;
+  let reconnectHook: (() => void) | null = null;
   let pollHook: ((msgs: unknown[]) => void) | null = null;
   const unread: number[] = [];
   const events: Array<{ name: string; payload: unknown }> = [];
@@ -249,6 +257,8 @@ export function boot(opts: BootOptions = {}): Harness {
         typingHook = hooks.onTyping;
         messageHook = hooks.onMessage || null;
         reactionHook = hooks.onReaction || null;
+        seenHook = hooks.onSeen || null;
+        reconnectHook = hooks.onReconnect || null;
         return {
           connect() { if (hooks.onConnectionState) hooks.onConnectionState('connected'); },
           disconnect() {},
@@ -486,6 +496,8 @@ export function boot(opts: BootOptions = {}): Harness {
     emitTyping: (payload?: Dict) => { if (typingHook) typingHook({ payload: payload || { actor: 'agent' } }); },
     emitReaction: (payload: Dict) => { if (reactionHook) reactionHook(payload); },
     emitMessages: (messages) => { if (messageHook) messageHook({ messages }); },
+    emitSeen: (payload: Dict) => { if (seenHook) seenHook(payload); },
+    emitReconnect: () => { if (reconnectHook) reconnectHook(); },
     emitPoll: (messages) => { if (pollHook) pollHook(messages); },
     unread,
     events,

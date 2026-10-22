@@ -77,6 +77,7 @@ Static read of the shipped widget source (nothing was executed). Purpose: let an
   - **Launcher-only mode.** No API base or no workspace id. The launcher is neutral grey `#6B7280`, and a click shows the toast `notConfigured` (LD:1192-1201, 1386-1397).
   - **Widget disabled.** If `data.disabled` is set, the shell is removed (LD:1232-1236).
   - **Hidden while offline.** The shell is removed when `availability.offline_mode === 'hide_widget'`, the state is offline, and there is no `gs_active` cookie (LD:1243-1256).
+  - **`gs_active`** (first-party, one day) is set by the runtime while the visitor has an open or pending thread (the thread list's statuses) and cleared when none is left; with it the loader boots the runtime silently on the next page view, so a reply shows on the launcher (badge, preview, title). A publication on the visitor's presence channel (`services/widget/visitorWake.ts`, an operator's message) does the same on the page the visitor is on.
   - **Not enabled.** If `config.enabled` is falsy, nothing more happens (LD:1314).
 - Public API: `window.__gs.push([cmd, …])` with these commands:
   - `open`, `close`, `toggle`, `setUnread`, `show`, `hide`;

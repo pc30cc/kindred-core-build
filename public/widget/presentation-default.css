@@ -27,11 +27,15 @@
   --wy-border-strong: #c1c2c5;
   --wy-text: #1c2024;
   --wy-muted: #60646c;
-  --wy-faint: #8b8d98;
+  /* The small print (times, ticks, the privacy line): 4.5:1 on white (WCAG 1.4.3). */
+  --wy-faint: #6f727c;
   --wy-hover: #f7f8f9;
   --wy-hover-2: #f0f0f3;
   --wy-online: #30c46e;
-  --wy-accent: var(--gs-primary, #1f93ff);
+  /* Core's readable accent (runtime.js Util.readableAccent: its ink reaches
+     4.5:1 on it), else the raw colour; its ink in --wy-on-accent. */
+  --wy-accent: var(--gs-primary-aa, var(--gs-primary, #1f93ff));
+  --wy-on-accent: var(--gs-on-primary, #fff);
   --wy-radius-sm: 0.5rem;
   --wy-radius-md: 0.75rem;
   --wy-radius-lg: 1rem;
@@ -152,7 +156,7 @@
   height: var(--gs-fab-size, 56px);
   border-radius: 9999px;
   background: var(--wy-accent);
-  color: #fff;
+  color: var(--wy-on-accent);
   border: 0;
   display: flex;
   align-items: center;
@@ -261,6 +265,11 @@
 .wy-head-title { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; }
 .wy-head-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-sub { font-size: 13px; color: var(--wy-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The chat header's reply-time line follows Core's live presence (its
+   sr-only `.presence.status-*`): the away line in the online one's place. */
+.wy-sub-off,
+.wy-head-chat:has(.status-offline, .status-unavailable) .wy-head-sub:not(.wy-sub-off) { display: none; }
+.wy-head-chat:has(.status-offline, .status-unavailable) .wy-sub-off { display: block; }
 .wy-online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wy-online); flex: none; }
 
 
@@ -284,7 +293,7 @@
 
 .wy-avatar {
   width: 2.75rem; height: 2.75rem; border-radius: 9999px; flex: none;
-  background: var(--wy-accent); color: #fff; font-size: 17px; font-weight: 600;
+  background: var(--wy-accent); color: var(--wy-on-accent); font-size: 17px; font-weight: 600;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 .wy-avatar-sm { width: 2.25rem; height: 2.25rem; font-size: 14px; }
@@ -303,7 +312,7 @@
 
 
 .wy-fab {
-  width: 32px; height: 32px; border-radius: 9999px; background: var(--wy-accent); color: #fff;
+  width: 32px; height: 32px; border-radius: 9999px; background: var(--wy-accent); color: var(--wy-on-accent);
   display: flex; align-items: center; justify-content: center; flex: none;
   transition: transform 0.18s var(--wy-ease), filter 0.18s;
 }
@@ -321,7 +330,7 @@
   transition: background-color 0.16s, color 0.16s, filter 0.16s, transform 0.16s var(--wy-ease), box-shadow 0.16s;
 }
 .wy-btn:active { transform: scale(0.975); }
-.wy-btn-primary { background: var(--wy-accent); color: #fff; border: none; }
+.wy-btn-primary { background: var(--wy-accent); color: var(--wy-on-accent); border: none; }
 .wy-btn-primary:hover { filter: brightness(1.07); box-shadow: 0 6px 16px rgba(31, 147, 255, 0.25); }
 .wy-btn-outline { background: transparent; border: 1px solid var(--wy-accent); color: var(--wy-accent); }
 .wy-btn-outline:hover { background: rgba(31, 147, 255, 0.07); }
@@ -562,7 +571,7 @@ a.wy-powered:hover { color: var(--wy-text); }
   min-width: 20px; height: 20px; padding: 0 6px;
   font-size: 11px; line-height: 1; font-weight: 700;
   font-variant-numeric: tabular-nums; letter-spacing: 0;
-  color: #fff; border-radius: 9999px; background: var(--wy-accent);
+  color: var(--wy-on-accent); border-radius: 9999px; background: var(--wy-accent);
   box-shadow: 0 1px 3px rgba(31, 147, 255, 0.35);
   flex: none;
 }
@@ -636,7 +645,7 @@ a.wy-powered:hover { color: var(--wy-text); }
    notification rather than a navigation control. */
 .wy-jump.has-new {
   background: var(--wy-accent);
-  color: #fff;
+  color: var(--wy-on-accent);
   box-shadow: 0 6px 18px -8px var(--wy-accent);
 }
 .wy-jump.has-new:hover { background: var(--wy-accent); filter: brightness(1.05); }
@@ -668,7 +677,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 
 .msg-avatar {
   width: 2rem; height: 2rem; border-radius: 50%; flex: none; overflow: hidden;
-  background: var(--wy-accent); color: #fff; font-size: 13px; font-weight: 600;
+  background: var(--wy-accent); color: var(--wy-on-accent); font-size: 13px; font-weight: 600;
   display: flex; align-items: center; justify-content: center;
 }
 .msg-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -695,7 +704,7 @@ a.wy-powered:hover { color: var(--wy-text); }
   gap: 4px;
 }
 .msg.operator { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-text); }
-.msg.visitor { background: var(--wy-accent); color: #fff; }
+.msg.visitor { background: var(--wy-accent); color: var(--wy-on-accent); }
 /* Tail on the LAST bubble of a run, pointing toward the avatar side. */
 .msg.operator.has-tail, .welcome-bubble { border-bottom-left-radius: 0.25rem; }
 .msg.visitor.has-tail { border-bottom-right-radius: 0.25rem; }
@@ -752,8 +761,10 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 .msg.visitor .msg-link {
   border-color: rgba(255, 255, 255, 0.55);
+  border-color: color-mix(in srgb, var(--wy-on-accent) 55%, transparent);
   background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  background: color-mix(in srgb, var(--wy-on-accent) 16%, transparent);
+  color: var(--wy-on-accent);
 }
 .msg.visitor .msg-link:hover,
 .msg.visitor .msg-link:focus-visible {
@@ -786,6 +797,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-ticks svg { display: block; }
 .msg-ticks.is-seen { color: var(--wy-accent); }
 .msg-ticks.is-failed { color: #e5484d; font-weight: 700; }
+.msg-fail-text { color: #c62a30; font-size: 10.5px; line-height: 1.3; }
 .msg-retry-btn {
   border: none; background: none; padding: 0; margin-inline-start: 2px;
   font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1;
@@ -871,6 +883,9 @@ a.wy-powered:hover { color: var(--wy-text); }
   50% { transform: scale(1.3); opacity: 0.7; box-shadow: 0 0 0 4px rgba(31, 147, 255, 0); }
 }
 .typing-row { display: flex; align-items: center; gap: 6px; padding: 2px 16px 6px; font-size: 11.5px; color: var(--wy-muted); }
+/* The operator's typing above the composer (Core's [data-typing-row]). */
+.wy-typing { display: flex; align-items: center; gap: 6px; padding: 0 6px 6px; font-size: 11.5px; color: var(--wy-muted); }
+.wy-typing[hidden] { display: none; }
 
 /* Attachments in messages */
 .msg-att-image .msg-att-img-btn {
@@ -1116,7 +1131,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .ci-actions { display: flex; gap: 8px; }
 .ci-btn { padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 500; transition: filter 0.15s, background-color 0.15s, transform 0.15s var(--wy-ease); }
 .ci-btn:active { transform: scale(0.97); }
-.ci-btn-primary { background: var(--wy-accent); color: #fff; }
+.ci-btn-primary { background: var(--wy-accent); color: var(--wy-on-accent); }
 .ci-btn-primary:hover { filter: brightness(1.07); }
 .ci-btn-ghost { background: var(--wy-hover-2); color: var(--wy-muted); }
 .ci-btn-ghost:hover { background: var(--wy-border); }
@@ -1411,6 +1426,13 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 /* No focus state — the composer keeps its resting border when typing. */
 
+/* What is left of the message limit, drawn by Core from 500 characters on
+   (runtime.js syncCharsLeft sets `data-chars-left` on the pill). */
+[data-chars-left]::after {
+  content: attr(data-chars-left); align-self: flex-end; padding: 0 6px 4px;
+  font-size: 11px; line-height: 14px; color: var(--wy-muted); font-variant-numeric: tabular-nums;
+}
+
 .input-row {
   position: relative; display: flex; flex-direction: row; align-items: center;
   min-width: 0;
@@ -1492,7 +1514,8 @@ a.wy-powered:hover { color: var(--wy-text); }
   flex: 1; min-width: 0;
   align-items: center;
   gap: 8px;
-  /* Same 46px as `.input`, so switching modes cannot resize the pill. */
+  /* Same 46px as `.input`, so switching modes cannot resize the pill
+     (50px in the chat view, as its `.input` there). */
   height: 46px;
 }
 .input-bar.is-recording .rec-bar { display: flex; }
@@ -1573,7 +1596,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .vn-play {
   display: flex; align-items: center; justify-content: center; flex: none;
   width: 32px; height: 32px; border-radius: 50%;
-  background: var(--wy-accent); color: #fff;
+  background: var(--wy-accent); color: var(--wy-on-accent);
   transition: filter 0.15s, transform 0.15s var(--wy-ease);
 }
 .vn-play:hover { filter: brightness(1.06); }
@@ -1731,8 +1754,14 @@ a.wy-powered:hover { color: var(--wy-text); }
 .prechat-textarea { height: auto; padding: 10px 12px; resize: vertical; }
 .prechat-error { font-size: 11.5px; color: #e5484d; min-height: 0; }
 .prechat-error:empty { display: none; }
-.prechat-privacy { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11.5px; color: var(--wy-faint); }
-.prechat-privacy-icon svg { width: 13px; height: 13px; }
+/* The workspace's privacy line above a visitor form's button, made by Core
+   (runtime.js identity.privacyInto, WIDGET_TEMPLATE_RULES.md §4). */
+.prechat-privacy { margin: 10px 0 4px; font-size: 12px; line-height: 1.55; color: var(--wy-muted); }
+.prechat-privacy__text { margin: 0; }
+.prechat-privacy a { color: var(--wy-accent); text-decoration: underline; text-underline-offset: 2px; }
+.prechat-privacy__consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; color: var(--wy-text); cursor: pointer; }
+.prechat-privacy__consent input { flex: none; inline-size: 16px; block-size: 16px; margin: 2px 0 0; accent-color: var(--wy-accent); }
+.prechat-privacy .prechat-error { margin-top: 4px; }
 .fallback-status { margin-top: 10px; font-size: 12.5px; color: var(--wy-muted); }
 .wy-view-fallback .wy-scroll { padding: 16px 10px; }
 .wy-view-fallback .prechat-submit { margin-top: 16px; }
@@ -1865,6 +1894,9 @@ a.wy-powered:hover { color: var(--wy-text); }
   font-size: 14px;
 }
 .wy-view-chat .input::placeholder { color: var(--wy-faint); opacity: 1; }
+/* The recorder and the voice note keep the chat view's 50px pill. */
+.wy-view-chat .rec-bar,
+.wy-view-chat .vn-bar { height: 50px; }
 .wy-view-chat .composer-actions { padding-inline-start: 4px; }
 .wy-view-chat .composer-actions-start { gap: 2px; }
 .wy-view-chat .mic-btn,
@@ -1901,7 +1933,7 @@ a.wy-powered:hover { color: var(--wy-text); }
   background: var(--wy-hover-2);
 }
 .wy-view-chat .input-bar.has-draft .send-btn {
-  color: #fff;
+  color: var(--wy-on-accent);
   background: var(--wy-accent);
   box-shadow: 0 2px 6px rgba(16, 24, 40, 0.14);
 }
@@ -1929,6 +1961,33 @@ a.wy-powered:hover { color: var(--wy-text); }
   .wy-view-chat .send-btn,
   .wy-view-chat .attach-btn,
   .wy-view-chat .emoji-btn { transition: none; }
+}
+
+/* ─── Department picker (Core's, before a chat or a call) ───────────── */
+.dept-picker { display: flex; flex-direction: column; gap: 10px; padding: 20px; }
+.dept-picker__title { margin: 0; font-size: 17px; font-weight: 600; color: var(--wy-text); }
+.dept-picker__subtitle { margin: 0 0 4px; font-size: 13px; line-height: 1.7; color: var(--wy-muted); }
+.dept-picker__list { display: flex; flex-direction: column; gap: 8px; }
+.dept-option {
+  display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box;
+  padding: 12px 14px; border-radius: var(--wy-radius-md); border: 1px solid var(--wy-border);
+  background: var(--wy-card); color: var(--wy-text); font: inherit; font-size: 14px; text-align: start;
+  cursor: pointer; transition: border-color 0.16s, background-color 0.16s;
+}
+.dept-option:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); }
+.dept-option:focus-visible { outline: 2px solid var(--wy-accent); outline-offset: 2px; }
+.dept-option__name { flex: 1; min-width: 0; font-weight: 500; }
+.dept-option__status { font-size: 11.5px; color: var(--wy-muted); }
+.dept-option__caps { display: inline-flex; gap: 6px; color: var(--wy-muted); }
+.dept-option__cap svg { display: block; width: 15px; height: 15px; }
+.dept-option.is-offline .dept-option__name { color: var(--wy-muted); }
+
+/* A field under 16px makes iOS Safari zoom the page on focus: on phones and
+   touch screens every field the visitor types in is 16px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .panel input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .panel textarea,
+  .panel select { font-size: 16px !important; }
 }
 
 /* ─── Message layout polish (the default look) ──────────────────────────

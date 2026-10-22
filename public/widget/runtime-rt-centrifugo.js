@@ -158,11 +158,18 @@
     }
 
     // ── Backend token endpoints ─────────────────────────────────────────
+    // The visitor credential rides along when the loader holds one (a
+    // browser that drops the dvsid cookie: server visitorIdentity.ts).
+    function authHeaders() {
+      var h = { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() };
+      try { if (window.__gs_token.vc) h['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
+      return h;
+    }
     function fetchSubToken(cid) {
       return fetch(ctx.apiBase + '/api/realtime/subscribe', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
+        headers: authHeaders(),
         body: JSON.stringify({ workspace_id: ctx.workspaceId, conversation_id: cid }),
       })
         .then(function (r) { return r.json(); })
@@ -184,7 +191,7 @@
       return fetch(ctx.apiBase + '/api/realtime/connect', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
+        headers: authHeaders(),
         body: JSON.stringify({ workspace_id: ctx.workspaceId, intent: intent || 'initial' }),
       })
         .then(function (r) {
@@ -224,7 +231,7 @@
       fetch(ctx.apiBase + '/api/realtime/reconnect-signal', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
+        headers: authHeaders(),
         body: JSON.stringify({ workspace_id: ctx.workspaceId }),
       }).catch(function () {});
     }
@@ -335,6 +342,10 @@
             hooks.onMessage({ channel: ch, messages: [data.payload] });
           } else if (data && data.type === 'typing' && hooks.onTyping) {
             hooks.onTyping({ channel: ch, payload: data.payload });
+          } else if (data && data.type === 'seen' && hooks.onSeen) {
+            // An operator read the visitor's messages: their ids and when
+            // (server/services/widget/visitorSeen.ts). The runtime marks them.
+            hooks.onSeen(data.payload);
           } else if (data && data.type === 'call:incoming') {
             // Forward-safe: legacy publishers may emit the call envelope at
             // the top level instead of nested under `event`. Same dispatch.

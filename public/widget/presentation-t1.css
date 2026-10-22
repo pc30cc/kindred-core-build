@@ -689,6 +689,13 @@ button.cd:hover {
   background: #fff; box-shadow: 0 0 0 1px var(--line-2), 0 6px 16px -12px rgba(15, 18, 23, .25); transition: box-shadow .2s;
 }
 .cbox:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx), 0 0 0 5px var(--a-3); }
+
+/* What is left of the message limit, drawn by Core from 500 characters on
+   (runtime.js syncCharsLeft sets `data-chars-left` on the pill). */
+[data-chars-left]::after {
+  content: attr(data-chars-left); align-self: flex-end; padding: 0 8px 2px;
+  font-size: 11px; line-height: 14px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
 .input-row {
   display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: 't t t t' 'e a . s';
   align-items: center; gap: 2px;
@@ -840,6 +847,15 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .fcard .prechat-control { border-radius: 12px; }
 .err { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--bad); }
 .err:empty { display: none; }
+/* The workspace's privacy line above a visitor form's button, made by Core
+   (runtime.js identity.privacyInto, WIDGET_TEMPLATE_RULES.md §4). */
+.prechat-privacy { margin: 10px 0 4px; font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+.steps .prechat-privacy { margin: 0; padding: 0 8px 6px; }
+.prechat-privacy__text { margin: 0; }
+.prechat-privacy a { color: var(--a-tx); text-decoration: underline; text-underline-offset: 2px; }
+.prechat-privacy__consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; color: var(--ink-2); cursor: pointer; }
+.prechat-privacy__consent input { flex: none; inline-size: 16px; block-size: 16px; margin: 2px 0 0; accent-color: var(--a); }
+.prechat-privacy .err { margin-top: 4px; }
 .err::before {
   content: '!'; display: grid; place-items: center; flex: none; width: 13px; height: 13px; border: 2px solid; border-radius: 50%;
   font-size: 9px; font-weight: 700; line-height: 1;
@@ -904,6 +920,11 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .dept-picker__title { font-size: 17px; font-weight: 700; }
 .dept-picker__subtitle { font-size: 13px; color: #666D7A; }
 .dept-option { display: flex; flex-direction: column; padding: 12px 14px; border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px #D4D8DE; text-align: start; }
+.dept-picker__list { display: flex; flex-direction: column; gap: 8px; }
+.dept-option__status { font-size: 11.5px; color: var(--ink-3); }
+.dept-option__caps { display: inline-flex; gap: 6px; margin-top: 4px; color: var(--ink-3); }
+.dept-option__cap svg { display: block; width: 14px; height: 14px; }
+.dept-option.is-offline .dept-option__name { color: var(--ink-3); }
 
 /* ─── Messages (all conversations) ─────────────────────────────────── */
 .wy-list-scroll { flex: 1; min-height: 0; padding: 0 16px; }
@@ -1227,4 +1248,12 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
   .panel, .panel *, .panel *::before, .panel *::after { animation: none !important; transition: opacity .15s ease !important; }
   .epk[hidden] { transition: none !important; }
   .launcher.open, .launcher:not(.open):not(:hover) { transition: none; }
+}
+
+/* A field under 16px makes iOS Safari zoom the page on focus: on phones and
+   touch screens every field the visitor types in is 16px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .panel input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .panel textarea,
+  .panel select { font-size: 16px !important; }
 }

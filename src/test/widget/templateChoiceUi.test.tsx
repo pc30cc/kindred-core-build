@@ -26,6 +26,7 @@ import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider } from '@/i18n';
 import { TemplateChoiceCard } from '@/components/app/widget/TemplateChoiceCard';
+import { templateVisitorFeatures } from '@/lib/widgetTemplateNames';
 import { WidgetLivePreview } from '@/components/app/widget/WidgetLivePreview';
 import { effectiveWorkspaceTemplate, templateCardVisible, templatePickerVisible, type WorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 
@@ -56,7 +57,7 @@ describe('effectiveWorkspaceTemplate', () => {
 
   it('the drafted choice while enabled, with the merged options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none', junk: 1 }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: true } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: false } });
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', null, {}, true).id).toBe('default');
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't2', {}, true).id).toBe('default');
   });
@@ -64,7 +65,7 @@ describe('effectiveWorkspaceTemplate', () => {
   it('a plan without widget_appearance previews the default with no workspace options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none' }, false)).toEqual({ id: 'default', options: {} });
     expect(effectiveWorkspaceTemplate({ ...VIEW, defaultId: 't1', planAllowsChoice: false }, 'iran', 'default', { navMode: 'none' }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: false } });
   });
 
   it('the card shows only with two or more templates enabled and 275 applied', () => {
@@ -121,6 +122,20 @@ describe('TemplateChoiceCard', () => {
     expect(radios[0].textContent).toContain('Default');
     expect(radios[1].textContent).toContain('Sea');
     expect(radios[0].getAttribute('aria-checked')).toBe('true');
+  });
+
+  // V-36: what visitors get differs by template; each one says so.
+  it('each template lists what its visitors get', async () => {
+    await card();
+    const [def, t1] = screen.getAllByRole('radio').map((r) => r.querySelector('[data-tpl-features]')!.textContent || '');
+    expect(def).toContain('Operator typing');
+    expect(def).not.toContain('Place in the queue');
+    expect(t1).toContain('Place in the queue');
+    expect(t1).not.toContain('Rating after a chat');
+    expect(templateVisitorFeatures('t2')).toEqual(['typing', 'closedLine', 'rating', 'reactions']);
+    expect(templateVisitorFeatures('t2-intl')).toEqual(templateVisitorFeatures('t2'));
+    expect(templateVisitorFeatures('intl')).toEqual(['typing']);
+    expect(templateVisitorFeatures('nope')).toEqual([]);
   });
 
   it('a pick calls back with the id', async () => {

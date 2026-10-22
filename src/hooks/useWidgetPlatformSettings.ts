@@ -126,10 +126,11 @@ export function useWidgetPlatformSettings() {
 
 /**
  * Non-admin projection of the platform singleton (embed URLs, embed header /
- * footer comments and the platform "Powered by" wording). Workspace owners are
- * not platform admins, so they must NOT call `/platform/config` — that route is
- * admin-only and returns 403, which previously left their Install snippet
- * without the platform-authored comments.
+ * footer comments, the platform "Powered by" wording and the pre-chat field
+ * policy). Workspace owners are not platform admins, so they must NOT call
+ * `/platform/config` — that route is admin-only and returns 403, which
+ * previously left their Install snippet without the platform-authored
+ * comments and their pre-chat form without the Super Admin's locks.
  */
 export type PublicWidgetPlatformSettings = Pick<
   WidgetPlatformSettings,
@@ -144,6 +145,9 @@ export type PublicWidgetPlatformSettings = Pick<
   | 'powered_by_text'
   | 'powered_by_brand_text'
   | 'powered_by_url'
+  | 'prechat_name_policy'
+  | 'prechat_email_policy'
+  | 'prechat_phone_policy'
 >;
 
 export function useWidgetPlatformPublicSettings() {

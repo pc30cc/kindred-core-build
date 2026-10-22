@@ -51,7 +51,7 @@ describe('runtime.js — unusable credentials trigger a fresh origin-bound boots
 
 describe('loader.js — the shared token bus mints from the CURRENT origin only', () => {
   it('bootstrap always sends the live browser origin', () => {
-    expect(loader).toContain("JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin })");
+    expect(loader).toContain("JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin, visitor_credential: vcNow() || undefined })");
   });
 
   it('exposes discard(), and hard recovery discards before bootstrapping', () => {

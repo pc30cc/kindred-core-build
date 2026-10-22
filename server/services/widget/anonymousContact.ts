@@ -25,6 +25,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from './visitorCode.js';
+import { toAsciiDigits } from '../phoneVerification/phone.js';
 import {
   findContactByProvenIdentifiers,
   isContactIdentityConflict,
@@ -139,7 +140,8 @@ export async function ensureVisitorContact(
   const { workspaceId } = input;
   const visitorId = input.visitorId || null;
   const email = (input.email || '').trim().toLowerCase() || null;
-  const phone = (input.phone || '').trim().replace(/[^\d+]/g, '') || null;
+  // Persian and Arabic-Indic digits as ASCII first (what a Persian keyboard types).
+  const phone = toAsciiDigits(input.phone || '').trim().replace(/[^\d+]/g, '') || null;
   const verified = input.identityVerified === true;
 
   try {

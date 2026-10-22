@@ -44,6 +44,25 @@ export class WidgetSettingsSaveError extends Error {
  */
 const KEEPALIVE_MAX_BYTES = 48 * 1024;
 
+/** The platform's period for visitor tracking data (migration 281), from GET /api/widget-settings/:id. */
+export interface VisitorRetentionDefault {
+  default_days: number | null;
+  enabled: boolean;
+}
+
+export function useWidgetVisitorRetention(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['widget-settings', workspaceId, 'visitor-retention'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/widget-settings/${workspaceId}`, { credentials: 'include' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Load failed: ${res.status}`);
+      return (json.visitor_retention ?? null) as VisitorRetentionDefault | null;
+    },
+    enabled: !!workspaceId,
+  });
+}
+
 export function useUpdateWidgetSettings(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

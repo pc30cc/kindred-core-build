@@ -171,8 +171,10 @@ describe('without a style, the launcher is the starting commit\'s, byte for byte
     // The kit's 18px square is one rule more in its stylesheet; the phone
     // shell's rules left their `max-width: 640px` block (a phone turned to
     // landscape keeps the full-screen panel, mobileRotation.test.ts): the
-    // launcher's own rules are untouched.
+    // launcher's own rules are untouched; and a bubble beside it gives way
+    // to the open panel (V-27), a rule about the bubble, not the launcher.
     expect(after.styles.map((s) => s!.replace('.launcher.lk-kit.square{border-radius:18px;}', '')
+      .replace('.launcher.open~.smart-nudge{display:none!important;}', '')
       .replace(PHONE_SHELL, `@media(max-width:640px){${PHONE_SHELL}}`))).toEqual(before.styles);
     expect(after.links).toBe(0);
   }, 20_000);

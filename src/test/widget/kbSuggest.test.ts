@@ -161,9 +161,13 @@ describe('the words of a draft', () => {
     expect(suggest.kbSnippet(`${'x '.repeat(80)}İade politikası`, ['iade'], 40)).toBe('…x x x x x x x x x x x x x x İade…');
   });
 
-  it('control characters split words (a NUL never reaches the database); the ZWNJ of a Persian word stays', () => {
+  it('control characters split words (a NUL never reaches the database); the ZWNJ of a Persian word is folded out', () => {
     expect(suggest.kbSuggestWords('کفش\u0000مرجوعی\u0007shoes\u001b')).toEqual(['کفش', 'مرجوعی', 'shoes']);
-    expect(suggest.kbSuggestWords('پیش‌نویس')).toEqual(['پیش‌نویس']);
+    // V-30: «پیش‌نویس» and «پیشنویس» are one word (the database folds the
+    // titles the same way, migration 280a); as typed, for the plain ILIKE
+    // of a database without it, the ZWNJ stays.
+    expect(suggest.kbSuggestWords('پیش‌نویس')).toEqual(['پیشنویس']);
+    expect(suggest.kbSuggestWords('پیش‌نویس', false)).toEqual(['پیش‌نویس']);
   });
 
   it('the filter is valid PostgREST logic whatever was typed, title and summary only', () => {

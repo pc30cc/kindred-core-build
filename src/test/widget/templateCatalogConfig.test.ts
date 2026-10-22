@@ -124,8 +124,11 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     const b = await body();
     expect(b.templateId).toBe('t1');
     expect(b.templateOptions).toEqual({
-      navStyle: 'vc', navMode: 'both', topics: [{ label: 'ارسال', icon: 'truck' }], prechatMode: 'card', transcriptEmail: true,
+      navStyle: 'vc', navMode: 'both', topics: [{ label: 'ارسال', icon: 'truck' }], prechatMode: 'card', transcriptEmail: false,
     });
+    // No email to visitors while the switch is off (shared/visitorEmail.ts): the
+    // away email step's flag is not sent.
+    expect(b).not.toHaveProperty('visitorEmail');
     expect(String(b.presentationUrl)).toContain('presentation-t1');
     expect(String(b.presentationStyleUrl)).toContain('presentation-t1');
     expect(String(b.presentationFontsUrl ?? '')).not.toContain('t1');
@@ -188,7 +191,7 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     });
     const b = await body();
     expect(b.templateId).toBe('t2');
-    expect(b.templateOptions).toEqual({ topics: [], askExamples: [], csat: true, transcriptEmail: true });
+    expect(b.templateOptions).toEqual({ topics: [], askExamples: [], csat: true, transcriptEmail: false });
   });
 
   it('a plan without widget_appearance wears the default with the Super Admin options only', async () => {
@@ -200,7 +203,7 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     }, { deny: ['widget_appearance'] });
     const b = await body();
     expect(b.templateId).toBe('t1');
-    expect(b.templateOptions).toEqual({ navStyle: 'vd', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true });
+    expect(b.templateOptions).toEqual({ navStyle: 'vd', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: false });
   });
 
   it('the International edition ignores an Iranian catalog and wears intl', async () => {
@@ -296,7 +299,7 @@ describe('workspaceChatTemplate: the server\'s view of the template a workspace 
     const b = await body();
     expect(tpl.id).toBe(b.templateId);
     expect(tpl.options).toEqual(b.templateOptions);
-    expect(tpl.options).toMatchObject({ csat: false, transcriptEmail: true });
+    expect(tpl.options).toMatchObject({ csat: false, transcriptEmail: false });
     expect(tpl.descriptor?.closedNotice).toBe(true);
     await fresh((t) => { withCatalog()(t); choose('t1')(t); });
     expect((await effective()).descriptor?.closedNotice).toBe(false);

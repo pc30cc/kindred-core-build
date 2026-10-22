@@ -49,21 +49,20 @@
   // fa / en / tr; anything missing falls back to en.
   var DICT = {
     fa: {
-      hiBack: 'سلام {name}، خوش برگشتی 👋',
+      hiBack: 'سلام {name}، خوش آمدید 👋',
       q: 'چطور می‌توانیم\nکمکتان کنیم؟',
       qAway: 'پیامتان را\nبگذارید',
       on: 'آنلاین هستیم',
       off: 'آفلاین هستیم',
       sep: '، ',
       semi: '؛ ',
-      backAt: 'از ساعت {t} پاسخ می‌دهیم',
+      backAt: 'از {t} پاسخ می‌دهیم',
       awaySub: 'از {t} پاسخ می‌دهیم',
-      am: ' صبح',
+      at: '{d} ساعت {t}',
       ask: 'سؤالتان را بنویسید…',
       askAway: 'پیامتان را بنویسید…',
       eg: 'مثلاً: ',
-      noteAm: 'پاسخ را صبح به ایمیلتان می‌فرستیم',
-      note: 'پاسخ را به ایمیلتان می‌فرستیم',
+      note: 'پاسخ را همین‌جا در گفتگو می‌بینید',
       helpSub: '{n} مقاله درباره {c}',
       helpAway: 'بیشتر پاسخ‌ها همین‌جاست، همیشه در دسترس',
       and: ' و ',
@@ -74,7 +73,7 @@
       convsN: '{n} گفتگو',
       online: 'آنلاین',
       typing: 'در حال نوشتن',
-      away: 'آفلاین؛ پاسخ با ایمیل',
+      away: 'آفلاین؛ پاسخ همین‌جا',
       awayT: 'الان آفلاین هستیم',
       team: 'تیم پشتیبانی {w}',
       retry: 'تلاش دوباره',
@@ -92,10 +91,10 @@
       still: 'هنوز سؤال دارید؟',
       chatTeam: 'با تیم گفتگو کنید',
       read: '{n} دقیقه مطالعه',
-      askEmail: 'اگر از سایت رفتید، پاسخ را کجا بفرستیم؟',
+      askEmail: 'چطور با شما در تماس باشیم؟',
       saveEmail: 'ثبت ایمیل',
       skip: 'نه ممنون، همین‌جا منتظر می‌مانم',
-      replyTo: 'پاسخ را به {email} می‌فرستیم.',
+      replyTo: 'ثبت شد: {email}',
       track: 'پیگیری سفارش',
       trackSub: 'وضعیت سفارشتان را همین‌جا بپرسید',
       trackMsg: 'پیگیری سفارشم',
@@ -110,12 +109,11 @@
       semi: '; ',
       backAt: 'we reply from {t}',
       awaySub: 'We reply from {t}',
-      am: '',
+      at: '{t} {d}',
       ask: 'Write your question…',
       askAway: 'Write your message…',
       eg: 'e.g. ',
-      noteAm: "We'll email you the reply in the morning",
-      note: "We'll email you the reply",
+      note: "You'll see the reply here, in this chat",
       helpSub: '{n} article{s} about {c}',
       helpAway: 'Most answers are right here, always available',
       and: ' and ',
@@ -126,7 +124,7 @@
       convsN: '{n} conversation{s}',
       online: 'Online',
       typing: 'Typing',
-      away: "Offline; we'll reply by email",
+      away: "Offline; we'll reply here",
       awayT: "We're offline right now",
       team: '{w} support team',
       retry: 'Try again',
@@ -144,27 +142,27 @@
       still: 'Still have a question?',
       chatTeam: 'Chat with the team',
       read: '{n} min read',
-      askEmail: 'If you leave the site, where should we send the reply?',
+      askEmail: 'How can we reach you?',
       saveEmail: 'Save email',
       skip: "No thanks, I'll wait here",
-      replyTo: "We'll send the reply to {email}.",
+      replyTo: 'Saved: {email}',
       track: 'Track an order',
       trackSub: 'Ask about your order here',
       trackMsg: 'Track my order',
     },
     tr: {
-      hiBack: 'Merhaba {name}, tekrar hoş geldin 👋',
+      hiBack: 'Merhaba {name}, tekrar hoş geldiniz 👋',
       q: 'Size nasıl\nyardımcı olabiliriz?',
       qAway: 'Bize bir\nmesaj bırakın',
       on: 'Çevrimiçiyiz',
       off: 'Çevrimdışıyız',
       backAt: '{t} itibarıyla yanıtlıyoruz',
       awaySub: '{t} itibarıyla yanıtlıyoruz',
+      at: '{d} {t}',
       ask: 'Sorunuzu yazın…',
       askAway: 'Mesajınızı yazın…',
       eg: 'Örn. ',
-      noteAm: 'Yanıtı sabah e-postanıza göndeririz',
-      note: 'Yanıtı e-postanıza göndeririz',
+      note: 'Yanıtı burada, bu sohbette göreceksiniz',
       helpSub: '{c} hakkında {n} makale',
       helpAway: 'Çoğu yanıt burada, her zaman erişilebilir',
       and: ' ve ',
@@ -175,7 +173,7 @@
       convsN: '{n} sohbet',
       online: 'Çevrimiçi',
       typing: 'Yazıyor',
-      away: 'Çevrimdışı; e-postayla yanıtlarız',
+      away: 'Çevrimdışı; burada yanıtlarız',
       awayT: 'Şu anda çevrimdışıyız',
       team: '{w} destek ekibi',
       retry: 'Tekrar dene',
@@ -191,10 +189,10 @@
       still: 'Hâlâ sorunuz mu var?',
       chatTeam: 'Ekiple sohbet edin',
       read: '{n} dk okuma',
-      askEmail: 'Siteden ayrılırsanız yanıtı nereye gönderelim?',
+      askEmail: 'Size nasıl ulaşabiliriz?',
       saveEmail: 'E-postayı kaydet',
       skip: 'Hayır teşekkürler, burada beklerim',
-      replyTo: 'Yanıtı {email} adresine göndereceğiz.',
+      replyTo: 'Kaydedildi: {email}',
       track: 'Sipariş takibi',
       trackSub: 'Siparişinizi buradan sorun',
       trackMsg: 'Siparişimi takip et',
@@ -510,13 +508,23 @@
       var d = iso ? new Date(iso) : null;
       return d && !isNaN(d.getTime()) ? d : null;
     }
-    /** "9 am"-style time the team is back, in the visitor's clock. */
+    /**
+     * When the team is back: its time ("9 AM", «۹ صبح») and, past today, its
+     * day (tomorrow, else the weekday), in the zone of the day dividers.
+     */
     function backAtTime(d) {
       try {
         var tag = lang === 'fa' ? 'fa-IR' : lang === 'tr' ? 'tr-TR' : 'en-US';
-        var opts = lang === 'tr' ? { hour: '2-digit', minute: '2-digit' } : { hour: 'numeric' };
-        if (lang !== 'tr' && d.getMinutes()) opts.minute = '2-digit';
-        return new Intl.DateTimeFormat(tag, opts).format(d) + (d.getHours() < 12 ? L('am') : '');
+        var tz = lang === 'fa' ? persianTimeZone() : undefined;
+        var opts = { hour: lang === 'tr' ? '2-digit' : 'numeric', minute: '2-digit', timeZone: tz };
+        if (lang === 'fa') { opts.hour12 = true; opts.dayPeriod = 'short'; }
+        var k = dayKeyOf(d);
+        var now = Date.now();
+        var day = k === dayKeyOf(now) ? '' : k === dayKeyOf(now + 864e5)
+          ? new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }).format(1, 'day')
+          : new Intl.DateTimeFormat(tag, { weekday: 'long', timeZone: tz }).format(d);
+        var time = new Intl.DateTimeFormat(tag, opts).format(d);
+        return L('at', { d: day, t: lang === 'tr' ? time : time.replace(/:(00|۰۰)/, '') }).trim();
       } catch (_) { return ''; }
     }
     /**
@@ -810,7 +818,8 @@
       try {
         var date = (d instanceof Date) ? d : new Date(d);
         if (!date || isNaN(date.getTime())) return '';
-        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
+        // Persian in the day dividers' zone, so a time and its day agree.
+        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit', timeZone: lang === 'fa' ? persianTimeZone() : undefined });
       } catch (_) { return ''; }
     }
 
@@ -978,7 +987,7 @@
           // Error feedback, shown whatever the read-receipt setting, with a
           // retry the visitor can act on.
           statusHtml = ico('err', 14, 2.2, 'msg-err-ico') +
-            '<span class="msg-ticks is-failed">' + esc(tf('msgFailed', 'Not sent')) + '</span>' +
+            '<span class="msg-ticks is-failed">' + esc(m.failText || t('msgFailed')) + '</span>' +
             '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') + '">' + esc(L('retry')) + '</button>';
         } else if (visitor && isLast && receiptsEnabled && m.status) {
           if (m.status === 'sending') {
@@ -1119,9 +1128,8 @@
     /** The details just saved, on the team's side (feature `prechatSummary`). */
     function prechatSummaryHtml(contact) {
       contact = contact || {};
-      // The copy promises an e-mail reply; chat replies never go by SMS,
-      // so a phone-only contact gets no card.
-      var to = String(contact.email || '').trim();
+      // The address (or the number) just saved.
+      var to = String(contact.email || contact.phone || '').trim();
       if (!to) return '';
       var parts = L('replyTo').split('{email}');
       return '<div class="msg-row operator is-last">' + storeAvatarHtml(28, '', 'msg-avatar') +
@@ -1486,7 +1494,6 @@
             return chipHtml('data-home-article', a.slug || '', 'book', a.title || '');
           }).join('');
         }
-        var d = nextOpen();
         ask = '<div class="ask cas" style="--i:4">' +
           '<div class="field' + (ph.length < 2 ? ' static' : ph.length < 3 ? ' two' : '') + '">' +
             '<textarea class="ask-in" rows="1" data-home-ask placeholder=" " aria-label="' + esc(ph[0].replace(/…$/, '')) + '"></textarea>' +
@@ -1495,7 +1502,7 @@
           '</div>' +
           (online
             ? (chips ? '<div class="chips">' + chips + '</div>' : '')
-            : '<p class="note">' + ico('mail', 16, 1.8) + esc(L(d && d.getHours() < 12 ? 'noteAm' : 'note')) + '</p>') +
+            : '<p class="note">' + ico('chat', 16, 1.8) + esc(L('note')) + '</p>') +
         '</div>';
       }
 

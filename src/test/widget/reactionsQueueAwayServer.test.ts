@@ -67,6 +67,9 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
+// The away email step as it comes back once visitor email is switched on
+// (shared/visitorEmail.ts, config.visitorEmail; off since 2026-10-21: awayThread.test.ts).
+vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 // The visitor's signed cookie (the widget's own browser).
 vi.mock('../../../server/services/widget/visitorIdentity.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/visitorIdentity.js')>()),
@@ -667,7 +670,7 @@ describe('the message left while the team is away: offline-messages, offline-ema
     const h = boot({
       renderer: 't1',
       realtime: true,
-      config: { workspaceId: WS, availability: AWAY },
+      config: { workspaceId: WS, availability: AWAY, visitorEmail: true },
       identity: { identity_state: 'anonymous', contact: null },
       api,
       ...opts,
@@ -728,7 +731,7 @@ describe('the message left while the team is away: offline-messages, offline-ema
     const rows = await history(conv.id as string);
     expect(rows[0]).toMatchObject({ id: row.id, sender_type: 'contact', metadata: { source: 'offline_capture' } });
     resetWindow();
-    const again = await widget(conv.id as string, { renderer: 't1', messages: rows, config: { workspaceId: WS, availability: AWAY } });
+    const again = await widget(conv.id as string, { renderer: 't1', messages: rows, config: { workspaceId: WS, availability: AWAY, visitorEmail: true } });
     await until(() => reply(again));
     expect(reply(again)!.previousElementSibling!.classList.contains('visitor')).toBe(true);
     expect(reply(again)!.querySelector('[data-fb="email"]')).toBeNull();
@@ -774,7 +777,14 @@ describe('the message left while the team is away: offline-messages, offline-ema
     await send(h, 'سلام');
     await until(() => h.q('.away-reply [data-fb="email"]'));
     const field = () => h.q<HTMLInputElement>('.away-reply [data-fb="email"]')!;
+    // The widget's rule is the server's (V-14): refused in place, nothing sent.
     typeInto(field(), 'علی@example.com');
+    field().closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await until(() => h.q('.away-reply [data-fb-status]')?.textContent);
+    expect(h.q('.away-reply [data-fb-status]')!.textContent).toBe(t(h)('invalidEmail'));
+    expect(sentTo(/\/identity\/offline-email$/)).toEqual([]);
+    // One only the server refuses (longer than its 254): said as invalid too.
+    typeInto(field(), 'a'.repeat(250) + '@example.com');
     field().closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await until(() => sentTo(/\/identity\/offline-email$/).length === 1 && h.q('.away-reply [data-fb-status]')?.textContent);
     expect(h.q('.away-reply [data-fb-status]')!.textContent).toBe(t(h)('invalidEmail'));
@@ -790,7 +800,7 @@ describe('the message left while the team is away: offline-messages, offline-ema
   it('the card for a conversation the server did not capture away: 409 not_offline_capture, said as a failure, nothing merged', async () => {
     const cid = conversation();
     message(cid, 'contact', 'سلام', { metadata: { source: 'offline_capture', visitor_id: 'visitor-1' } });
-    const h = await widget(cid, { renderer: 't1', identity: { identity_state: 'anonymous', contact: null }, config: { workspaceId: WS, availability: AWAY } });
+    const h = await widget(cid, { renderer: 't1', identity: { identity_state: 'anonymous', contact: null }, config: { workspaceId: WS, availability: AWAY, visitorEmail: true } });
     await until(() => h.q('.away-reply [data-fb="email"]'));
     const field = h.q<HTMLInputElement>('.away-reply [data-fb="email"]')!;
     typeInto(field, 'ali.r@example.com');
@@ -853,11 +863,18 @@ describe('the pre-chat one question at a time: /identity/me\'s flags and ONE POS
     settings();
     const h = await steps();
     await answer(h, 'علی');
+    // The widget's rule is the server's (V-14): a Persian-letter address is
+    // refused in place, before anything is sent.
     await answer(h, 'علی@example.com');
+    expect(step(h)).toBe('email');
+    expect(prechatPosts()).toEqual([]);
+    // One the widget takes but the server does not (longer than its 254).
+    const long = 'a'.repeat(250) + '@example.com';
+    await answer(h, long);
     // The phone is optional, as /identity/me said: skipped.
     click(h.q('[data-prechat-step-skip]'));
     await until(() => prechatPosts().length === 1 && step(h) === 'email');
-    expect(prechatPosts()[0].body).toMatchObject({ email: 'علی@example.com', phone: null });
+    expect(prechatPosts()[0].body).toMatchObject({ email: long, phone: null });
     // The owner makes the phone required meanwhile; the fixed address (the
     // skipped phone stands) goes at once.
     settings({ require_phone: true });
@@ -868,9 +885,10 @@ describe('the pre-chat one question at a time: /identity/me\'s flags and ONE POS
     await until(() => prechatPosts().length === 3 && !h.q('[data-prechat-step]'));
     expect(prechatPosts()[2].body).toEqual({ workspace_id: WS, name: 'علی', email: 'ali.r@example.com', phone: '+989121234567' });
     expect(state.merges).toHaveLength(1);
-    // The refusals as the server gave them: zod's `details`, then the required field.
+    // The refusals as the server gave them: the address refused (naming its
+    // field, zod's `details` too), then the required field.
     expect(answered('POST', /\/identity\/prechat$/).map((a) => [a.status, a.body.error, a.body.field ?? Object.keys((a.body.details as Row) || {})])).toEqual([
-      [400, 'Invalid input', ['email']], [400, 'phone_required', 'phone'], [200, undefined, []],
+      [400, 'email_invalid', 'email'], [400, 'phone_required', 'phone'], [200, undefined, []],
     ]);
   });
 });

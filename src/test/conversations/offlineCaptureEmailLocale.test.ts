@@ -179,3 +179,27 @@ describe('the test send', () => {
     expect(mails()[0].locale).toBe('tr');
   });
 });
+
+describe('P-01: the leave-a-message form\'s consent box', () => {
+  const leaveWith = (extra: Record<string, unknown>) => post('/api/widget/offline-messages', {
+    workspace_id: WS, message: 'Hello, the price?', locale: 'en', honeypot: '', email: 'ali@example.com', ...extra,
+  });
+  const conversations = () => (state.db.tables.conversations as Row[] | undefined)?.length ?? 0;
+
+  it('while the workspace asks for it: refused without it (nothing captured), taken with it', async () => {
+    state.db.tables.widget_prechat_settings = [{ workspace_id: WS, privacy_notice_enabled: true, privacy_consent_required: true }];
+    expect(await leaveWith({})).toBe(400);
+    expect(await leaveWith({ privacy_consent: 'yes' })).toBe(400);
+    expect(conversations()).toBe(0);
+    expect(mails()).toEqual([]);
+    expect(await leaveWith({ privacy_consent: true })).toBe(200);
+    expect(conversations()).toBe(1);
+  });
+
+  it('a privacy line without the box (or none) asks nothing of the visitor', async () => {
+    state.db.tables.widget_prechat_settings = [{ workspace_id: WS, privacy_notice_enabled: true, privacy_consent_required: false }];
+    expect(await leaveWith({})).toBe(200);
+    state.db.tables.widget_prechat_settings = [{ workspace_id: WS, privacy_notice_enabled: false, privacy_consent_required: true }];
+    expect(await leaveWith({})).toBe(200);
+  });
+});

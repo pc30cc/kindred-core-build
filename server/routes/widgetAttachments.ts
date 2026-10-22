@@ -28,6 +28,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { widgetPlanDenied, WIDGET_PLAN_ATTACHMENTS, WIDGET_PLAN_CHAT, WIDGET_PLAN_VOICE_NOTES } from '../services/widget/planGate.js';
 import {
   enforceWidgetToken,
   enforceOrigin,
@@ -112,16 +113,21 @@ function buildStoragePath(workspaceId: string, fileName: string, mime: string): 
 
 async function loadWorkspaceAttachmentSettings(config: ServerConfig, workspaceId: string) {
   const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('widget_settings')
-    .select('attachments_enabled, attachments_max_size_mb, attachments_allowed_mimes, voice_notes_enabled, enabled, chat_enabled')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  // The workspace's own switches, and what its plan allows (the raw columns
+  // survive a downgrade; /config hides the controls, this refuses them).
+  const [{ data }, denied] = await Promise.all([
+    sb
+      .from('widget_settings')
+      .select('attachments_enabled, attachments_max_size_mb, attachments_allowed_mimes, voice_notes_enabled, enabled, chat_enabled')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle(),
+    widgetPlanDenied(config, workspaceId, [WIDGET_PLAN_CHAT, WIDGET_PLAN_ATTACHMENTS, WIDGET_PLAN_VOICE_NOTES]),
+  ]);
   return {
     widgetEnabled: data?.enabled !== false,
-    chatEnabled: data?.chat_enabled !== false,
-    enabled: !!data?.attachments_enabled,
-    voiceEnabled: !!data?.voice_notes_enabled,
+    chatEnabled: data?.chat_enabled !== false && !denied.has(WIDGET_PLAN_CHAT),
+    enabled: !!data?.attachments_enabled && !denied.has(WIDGET_PLAN_ATTACHMENTS),
+    voiceEnabled: !!data?.voice_notes_enabled && !denied.has(WIDGET_PLAN_VOICE_NOTES),
     maxBytes: Math.min(((data?.attachments_max_size_mb ?? 10) * 1024 * 1024), HARD_MAX_BYTES),
     allowedMimes: new Set<string>(
       (data?.attachments_allowed_mimes && Array.isArray(data.attachments_allowed_mimes)

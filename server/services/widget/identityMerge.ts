@@ -10,6 +10,7 @@ import type { ServerConfig } from '../../config.js';
 import { resolveVisitorGeo } from '../geo/index.js';
 import { countryNameFromCode, flagEmojiFromCountryCode, precisionRank } from '../geo/countryNames.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from './visitorCode.js';
+import { toAsciiDigits } from '../phoneVerification/phone.js';
 import {
   findContactByProvenIdentifiers,
   isContactIdentityConflict,
@@ -61,8 +62,9 @@ function normalizeEmail(v?: string | null): string | null {
 
 function normalizePhone(v?: string | null): string | null {
   if (!v) return null;
-  // Keep + and digits only
-  const s = v.trim().replace(/[^\d+]/g, '');
+  // Persian and Arabic-Indic digits as ASCII (a Persian keyboard types
+  // them), then keep + and digits only.
+  const s = toAsciiDigits(v).trim().replace(/[^\d+]/g, '');
   return s.length >= 4 ? s : null;
 }
 

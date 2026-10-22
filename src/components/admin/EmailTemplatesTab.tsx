@@ -81,7 +81,7 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   task_assigned: ['{name}', '{brand}', '{task}', '{assigner}', '{action_url}'],
   account_expiry: ['{name}', '{brand}', '{days_left}', '{plan}', '{action_url}'],
   system_alert: ['{brand}', '{title}', '{message}', '{severity}'],
-  offline_message_received: ['{brand}', '{contact_name}', '{contact_email}', '{message_body}', '{conversation_id}', '{action_url}'],
+  offline_message_received: ['{brand}', '{contact_name}', '{contact_email}', '{contact_phone}', '{message_body}', '{conversation_id}', '{action_url}'],
   // {workspace} is HTML-escaped for the body, {workspace_name} plain for the
   // subject and the text; {transcript} is the table rows, {transcript_text}
   // the same as plain text.

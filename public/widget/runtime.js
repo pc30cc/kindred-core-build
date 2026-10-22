@@ -80,6 +80,18 @@
   // and time: they get the widget's own word for it, in the visitor's
   // language, where 'AI Assistant' stood. A renderer with features ends a
   // run at a system line and draws the badge alone.
+  /** The longest message POST /api/widget/message (and /offline-messages) takes. */
+  var MAX_MESSAGE_CHARS = 5000;
+
+  /**
+   * The owner's offline message (Availability, in the visitor's language:
+   * availability.offline_message, kept fresh by createPresence), or ''.
+   */
+  function offlineMessageOf(config) {
+    var av = (config && config.availability) || {};
+    return typeof av.offline_message === 'string' ? av.offline_message.trim() : '';
+  }
+
   function aiFallbackName(t, senderType) {
     if (senderType !== 'ai' || (Presentation && Presentation.features)) return null;
     return t('wyAiAssistant') || null;
@@ -282,14 +294,53 @@
       }
       return out + Util.escapeHtml(src.slice(cursor));
     },
+    // The server's rule (zod's `.email()`, as POST /identity/prechat and
+    // /offline-messages check it): an address the widget lets through is one
+    // the server keeps, so no form is refused with nothing said.
     isValidEmail: function (v) {
       if (!v) return false;
-      return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v).trim());
+      return /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i.test(String(v).trim());
+    },
+    /** Persian and Arabic-Indic digits as ASCII (what a Persian keyboard types). */
+    asciiDigits: function (v) {
+      return String(v == null ? '' : v).replace(/[۰-۹٠-٩]/g, function (c) { return String(c.charCodeAt(0) & 15); });
     },
     isValidPhone: function (v) {
       if (!v) return false;
-      var s = String(v).trim().replace(/[\s\-().]/g, '');
+      var s = Util.asciiDigits(v).trim().replace(/[\s\-().]/g, '');
       return /^\+?\d{6,20}$/.test(s);
+    },
+    /**
+     * The loader's first-party hint `gs_active`: this browser has an open or
+     * pending conversation here. The loader then boots the runtime silently
+     * on the next page view (its unread badge, its live replies) and keeps a
+     * `hide_widget` launcher. No identity in it; one day at most.
+     */
+    activeHint: function (on) {
+      try {
+        document.cookie = on ? 'gs_active=1; path=/; max-age=86400; SameSite=Lax' : 'gs_active=; path=/; max-age=0; SameSite=Lax';
+      } catch (_) { /* a sandboxed page */ }
+    },
+    /**
+     * The brand colour as a readable accent (WCAG 1.4.3, 4.5:1 for text on
+     * it): on a light colour (luminance over 0.3) dark ink, as it is; on any
+     * other, white ink, the colour darkened (each channel ×0.97) until
+     * white reaches 4.5:1. null for a value that is no #rgb / #rrggbb.
+     * Core puts it on the panel as `--gs-primary-aa` / `--gs-on-primary`
+     * (template-agnostic; `default` and `intl` wear them).
+     */
+    readableAccent: function (hex) {
+      var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+      if (!m) return null;
+      var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+      var rgb = [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); });
+      function lum(c) {
+        var v = c.map(function (x) { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+      }
+      if (lum(rgb) > 0.3) return { bg: '#' + h.toLowerCase(), ink: '#1c2024' };
+      while (lum(rgb) > 0.175) rgb = rgb.map(function (x) { return Math.floor(x * 0.97); });
+      return { bg: '#' + rgb.map(function (x) { return (x < 16 ? '0' : '') + x.toString(16); }).join(''), ink: '#ffffff' };
     },
     debug: false,
     log: function () {
@@ -569,6 +620,9 @@
         if (src.forEach) src.forEach(function (v, k) { headers[k] = v; });
         else for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) headers[k] = src[k];
         if (t) headers['X-Widget-Token'] = t;
+        // The visitor credential the loader holds when this browser drops
+        // the dvsid cookie (loader.js vh; server visitorIdentity.ts).
+        try { if (window.__gs_token.vc) headers['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
         var next = {};
         for (var k2 in init) if (Object.prototype.hasOwnProperty.call(init, k2)) next[k2] = init[k2];
         next.headers = headers;
@@ -986,7 +1040,7 @@
         homeStartChat: 'Start a conversation',
         homeLeaveMessage: 'Leave a message',
         homeReplyFast: 'Typically replies in a few minutes',
-        homeReplySlow: "We'll reply by email as soon as we're back",
+        homeReplySlow: "We'll reply here as soon as we're back",
         homeHelpTitle: 'Find an answer',
         homeSeeAll: 'See all',
         voiceCall: 'Voice', videoCall: 'Video',
@@ -997,8 +1051,12 @@
         continue: 'Continue', back: 'Back',
         prechatIntro: 'Before we start, please share a few details so we can stay in touch.',
         required: 'required',
+        fieldRequired: 'Please fill in this field.',
         invalidEmail: 'Please enter a valid email address.',
         invalidPhone: 'Please enter a valid phone number.',
+        formError: "Couldn't save your details. Please try again.",
+        formRate: 'Too many attempts. Please wait a moment and try again.',
+        formOffline: 'No connection. Check your internet and try again.',
         prechatTitle: 'Welcome 👋',
         prechatSubtitle: "Tell us a bit about you so we can help faster.",
         handoffPrechatSubtitle: 'So our team can help you faster, please complete your info below.',
@@ -1007,6 +1065,9 @@
         prechatEmailPh: 'name@example.com',
         prechatPhonePh: '+1 555 123 4567',
         prechatPrivacy: 'We only use your details to reply to this conversation.',
+        privacyPolicyLink: 'Privacy policy',
+        privacyConsentLabel: 'I agree to my details being used for this conversation.',
+        privacyConsentRequired: 'Please tick the box to continue.',
         searchKb: 'Search articles...',
         noArticles: 'No articles yet',
         loading: 'Loading…',
@@ -1021,7 +1082,10 @@
         reconnecting: 'Reconnecting…',
         connecting: 'Connecting…',
         connLimited: 'Connection is limited. Messaging still works.',
-        offlineComposerTip: 'Disabled while offline',
+        // The composer while the connection is being made (writing stays
+        // open), and when the chat itself is not available.
+        connectingComposerTip: 'Connecting… You can write: your message is sent once connected.',
+        chatUnavailableTip: 'Chat is not available right now',
         // Phase 5 — availability
         availOnline: "We're online",
         availAway: 'Replies may be slower',
@@ -1032,9 +1096,11 @@
         quotaFullIntro: "We can't start a new chat right now. Share your details and a short message — we'll get back to you.",
         fallbackMessageLabel: 'Message',
         fallbackSubmit: 'Send message',
-        fallbackSent: "Thanks — we've got your message and will reply shortly.",
-        fallbackSentTransitioning: "Thanks — we've got your message. We may be back online sooner than expected and will reply right away.",
+        fallbackSent: "Thanks — we've got your message. The reply will appear here, in this chat.",
+        fallbackSentTransitioning: "Thanks — we've got your message. We may be back sooner than expected; the reply will appear here, in this chat.",
         fallbackError: "Couldn't send right now. Please try again.",
+        fallbackContactNeeded: 'Enter an email or a phone number.',
+        offlineNotice: "We're offline right now. Please come back during our working hours.",
         qnaTitle: 'You might also want to ask',
         qnaMore: 'More questions',
         // Phase 6a — attachments
@@ -1044,8 +1110,13 @@
         uploadFailed: 'Upload failed',
         typeNotAllowed: 'File type not allowed',
         tooLarge: 'File is too large',
+        tooLargeMax: 'File is too large (up to {size})',
+        typeNotAllowedList: 'This file type is not allowed. Allowed: {types}',
+        sizeB: 'B',
+        sizeKB: 'KB',
+        sizeMB: 'MB',
         selected: 'Selected',
-        // Voice notes + emoji + escalate
+        // Voice notes + emoji
         recordVoice: 'Record voice message',
         recording: 'Recording…',
         stopRecording: 'Stop recording',
@@ -1055,8 +1126,6 @@
         voiceNote: 'Voice message',
         emojiPicker: 'Emoji',
         talkToHuman: 'Talk to a human',
-        escalateRequested: "We've let our team know — someone will join shortly.",
-        escalateFailed: 'Could not reach an operator right now.',
         chatUnavailable: 'Chat is currently unavailable',
         attachmentsDisabled: 'File attachments are not enabled',
         voiceNotesDisabled: 'Voice messages are not enabled',
@@ -1083,7 +1152,12 @@
         msgSent: 'Sent',
         msgSeen: 'Seen',
         msgFailed: 'Not delivered',
-        typingOperator: 'Support is typing…',
+        // Why a message was not sent (runtime chatUI sendFailure).
+        msgFailOffline: 'Not sent yet: it goes once you are connected',
+        msgFailRate: 'Too many messages at once: sending again in a moment',
+        msgFailLong: 'Too long: at most 5,000 characters',
+        msgFailClosed: 'Chat is not available right now',
+        typingOperator: 'An operator is typing…',
         aiThinking: 'Thinking…',
         routingAgentJoined: '{name} joined the conversation',
         routingAgentJoinedSuffix: 'joined the conversation',
@@ -1122,7 +1196,7 @@
         ciWaitOneMinute: 'The operator will wait up to one minute for you to join.',
         // Pass A — call-ended summary message
         csEndedByOperator: 'Call ended by operator · Duration {duration}',
-        csEndedByVisitor: 'Call ended by visitor · Duration {duration}',
+        csEndedByVisitor: 'You ended the call · Duration {duration}',
         csEndedBySystem: 'Call ended · Duration {duration}',
         csEndedNotConnected: 'Call did not connect',
         // Pass 2 — In-panel call surface
@@ -1167,6 +1241,13 @@
         support: 'Support',
         operator: 'Operator',
         team: 'Team',
+        // The department picker (several departments answer chats or calls).
+        deptTitle: 'How can we help?',
+        deptChat: 'Choose the department you would like to chat with',
+        deptAudio: 'Choose the department you would like to call',
+        deptVideo: 'Choose the department you would like to video call',
+        deptGroup: 'Departments',
+        deptOffline: 'Offline now',
         anonymous: 'Anonymous',
         poweredBy: 'Powered by',
         welcomeFallback: 'Hi there 👋\nHow can we help you today?',
@@ -1222,19 +1303,23 @@
         homeStartChat: 'شروع گفتگو',
         homeLeaveMessage: 'پیغام بگذارید',
         homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
-        homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
+        homeReplySlow: 'به‌محض بازگشت، همین‌جا در گفتگو پاسخ می‌دهیم',
         homeHelpTitle: 'پاسخ خود را پیدا کنید',
         homeSeeAll: 'مشاهده همه',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         typeMsg: 'پیام خود را بنویسید...',
-        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'AI',
+        reply: 'نقل‌قول', copy: 'کپی', you: 'شما', wyAiAssistant: 'دستیار هوش مصنوعی', wyAiShort: 'هوش مصنوعی',
         intro: 'سوالی دارید؟ اینجا بنویسید.',
         name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
         continue: 'ادامه', back: 'بازگشت',
         prechatIntro: 'قبل از شروع، لطفاً اطلاعات تماس را وارد کنید تا بتوانیم در ارتباط باشیم.',
         required: 'الزامی',
+        fieldRequired: 'لطفاً این فیلد را پر کنید.',
         invalidEmail: 'لطفاً یک ایمیل معتبر وارد کنید.',
         invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
+        formError: 'ذخیرهٔ اطلاعات انجام نشد. لطفاً دوباره تلاش کنید.',
+        formRate: 'تعداد تلاش‌ها زیاد بود. لطفاً کمی صبر کنید و دوباره تلاش کنید.',
+        formOffline: 'اتصال برقرار نیست. اینترنت خود را بررسی کنید و دوباره تلاش کنید.',
         prechatTitle: 'خوش آمدید 👋',
         prechatSubtitle: 'برای پاسخ‌گویی سریع‌تر، چند نکته کوتاه دربارهٔ خودتان بگویید.',
         handoffPrechatSubtitle: 'برای اینکه اپراتورهای ما بتوانند بهتر به شما پاسخگو باشند لطفا اطلاعات خودتان را تکمیل کنید.',
@@ -1243,6 +1328,9 @@
         prechatEmailPh: 'name@example.com',
         prechatPhonePh: '۰۹۱۲ ۳۴۵ ۶۷۸۹',
         prechatPrivacy: 'اطلاعات شما فقط برای پاسخ به همین گفتگو استفاده می‌شود.',
+        privacyPolicyLink: 'سیاست حفظ حریم خصوصی',
+        privacyConsentLabel: 'با استفاده از اطلاعاتم برای این گفتگو موافقم.',
+        privacyConsentRequired: 'برای ادامه، لطفاً گزینهٔ موافقت را علامت بزنید.',
         searchKb: 'جستجو در مقالات...',
         noArticles: 'مقاله‌ای یافت نشد',
         loading: 'در حال بارگذاری…',
@@ -1257,7 +1345,8 @@
         reconnecting: 'در حال اتصال مجدد…',
         connecting: 'در حال اتصال…',
         connLimited: 'اتصال محدود است. ارسال پیام همچنان کار می‌کند.',
-        offlineComposerTip: 'در حالت آفلاین غیرفعال است',
+        connectingComposerTip: 'در حال اتصال… می‌توانید بنویسید؛ پیام پس از برقراری اتصال ارسال می‌شود.',
+        chatUnavailableTip: 'گفتگو در حال حاضر در دسترس نیست',
         availOnline: 'ما آنلاین هستیم',
         availAway: 'پاسخ‌گویی ممکن است کندتر باشد',
         availOffline: 'در حال حاضر آفلاین هستیم',
@@ -1267,11 +1356,13 @@
         quotaFullIntro: 'الان امکان شروع گفتگوی تازه نیست. اطلاعات تماس و یک پیام کوتاه بنویسید تا با شما تماس بگیریم.',
         fallbackMessageLabel: 'پیام',
         fallbackSubmit: 'ارسال پیام',
-        fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
-        fallbackSentTransitioning: 'پیام شما دریافت شد. ممکن است زودتر از انتظار آنلاین شویم و فوراً پاسخ دهیم.',
+        fallbackSent: 'پیام شما دریافت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.',
+        fallbackSentTransitioning: 'پیام شما دریافت شد. ممکن است زودتر از انتظار برگردیم؛ پاسخ همین‌جا در گفتگو نمایش داده می‌شود.',
         fallbackError: 'ارسال انجام نشد. لطفاً دوباره تلاش کنید.',
-        qnaTitle: 'شاید این سوال‌ها رو هم بخوای بپرسی',
-        qnaMore: 'سوال‌های بیشتر',
+        fallbackContactNeeded: 'ایمیل یا شماره تلفن را وارد کنید.',
+        offlineNotice: 'در حال حاضر آفلاین هستیم. لطفاً در ساعات کاری دوباره سر بزنید.',
+        qnaTitle: 'شاید این پرسش‌ها هم برایتان مفید باشد',
+        qnaMore: 'پرسش‌های بیشتر',
         // Phase 6a — attachments
         attachFile: 'پیوست فایل',
         uploading: 'در حال بارگذاری…',
@@ -1279,6 +1370,11 @@
         uploadFailed: 'بارگذاری ناموفق بود',
         typeNotAllowed: 'این نوع فایل مجاز نیست',
         tooLarge: 'حجم فایل بیش از حد مجاز است',
+        tooLargeMax: 'حجم فایل بیش از حد مجاز است (حداکثر {size})',
+        typeNotAllowedList: 'این نوع فایل مجاز نیست. نوع‌های مجاز: {types}',
+        sizeB: 'بایت',
+        sizeKB: 'کیلوبایت',
+        sizeMB: 'مگابایت',
         selected: 'انتخاب شده',
         // پیام صوتی + شکلک + ارجاع به اپراتور
         recordVoice: 'ضبط پیام صوتی',
@@ -1290,9 +1386,7 @@
         voiceNote: 'پیام صوتی',
         emojiPicker: 'شکلک',
         talkToHuman: 'صحبت با اپراتور',
-        escalateRequested: 'به تیم پشتیبانی اطلاع داده شد؛ به‌زودی یک اپراتور به گفتگو ملحق می‌شود.',
-        escalateFailed: 'در حال حاضر امکان اتصال به اپراتور وجود ندارد.',
-        chatUnavailable: 'چت در حال حاضر در دسترس نیست',
+        chatUnavailable: 'گفتگو در حال حاضر در دسترس نیست',
         attachmentsDisabled: 'ارسال فایل فعال نیست',
         voiceNotesDisabled: 'ارسال پیام صوتی فعال نیست',
         receivingFile: 'در حال دریافت…',
@@ -1315,7 +1409,11 @@
         msgSent: 'ارسال شد',
         msgSeen: 'دیده شد',
         msgFailed: 'ارسال نشد',
-        typingOperator: 'پشتیبانی در حال نوشتن…',
+        msgFailOffline: 'هنوز ارسال نشده؛ پس از برقراری اتصال ارسال می‌شود',
+        msgFailRate: 'پیام‌ها پشت سر هم زیاد شد؛ چند لحظهٔ دیگر دوباره ارسال می‌شود',
+        msgFailLong: 'پیام طولانی است؛ حداکثر ۵٬۰۰۰ نویسه',
+        msgFailClosed: 'گفتگو در حال حاضر در دسترس نیست',
+        typingOperator: 'اپراتور در حال نوشتن است…',
         aiThinking: 'در حال فکر…',
         routingAgentJoined: '{name} به گفتگو پیوست',
         routingAgentJoinedSuffix: 'به گفتگو پیوست',
@@ -1351,13 +1449,13 @@
         ciBodyVideo: 'یک اپراتور شما را به تماس تصویری دعوت می‌کند.',
         ciWaitMinutes: 'اپراتور حداکثر {m} دقیقه منتظر پیوستن شما می‌ماند.',
         ciWaitOneMinute: 'اپراتور حداکثر یک دقیقه منتظر پیوستن شما می‌ماند.',
-        csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}',
-        csEndedByVisitor: 'تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}',
-        csEndedBySystem: 'تماس پایان یافت · مدت مکالمه {duration}',
+        csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت تماس {duration}',
+        csEndedByVisitor: 'شما تماس را پایان دادید · مدت تماس {duration}',
+        csEndedBySystem: 'تماس پایان یافت · مدت تماس {duration}',
         csEndedNotConnected: 'تماس برقرار نشد',
         csConnecting: 'در حال اتصال به تماس…',
         csReconnecting: 'در حال اتصال مجدد…',
-        csInCall: 'در حال مکالمه',
+        csInCall: 'در حال تماس',
         csEnded: 'تماس پایان یافت',
         csMicMute: 'بی‌صدا کردن میکروفون',
         csMicUnmute: 'فعال کردن میکروفون',
@@ -1393,8 +1491,14 @@
         support: 'پشتیبانی',
         operator: 'اپراتور',
         team: 'تیم',
+        deptTitle: 'چطور می‌توانیم کمکتان کنیم؟',
+        deptChat: 'دپارتمانی را که می‌خواهید با آن گفتگو کنید انتخاب کنید',
+        deptAudio: 'دپارتمانی را که می‌خواهید با آن تماس بگیرید انتخاب کنید',
+        deptVideo: 'دپارتمانی را که می‌خواهید با آن تماس تصویری بگیرید انتخاب کنید',
+        deptGroup: 'دپارتمان‌ها',
+        deptOffline: 'اکنون آفلاین',
         anonymous: 'ناشناس',
-        poweredBy: 'قدرت گرفته از',
+        poweredBy: 'با فناوری',
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
@@ -1415,7 +1519,7 @@
         wyReceivedFile: 'یک فایل دریافت کردید',
         wyLoading: 'در حال بارگذاری…',
         wyStatusOpen: 'باز',
-        wyStatusResolved: 'حل شده',
+        wyStatusResolved: 'حل‌شده',
         wyContinueLast: 'ادامه آخرین گفتگو',
         wyStartNew: 'گفتگوی جدید',
         wyArticles: 'مقالات',
@@ -1445,7 +1549,7 @@
         homeStartChat: 'Sohbeti başlat',
         homeLeaveMessage: 'Mesaj bırakın',
         homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
-        homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
+        homeReplySlow: 'Döner dönmez burada yanıtlayacağız',
         homeHelpTitle: 'Yanıtınızı bulun',
         homeSeeAll: 'Tümünü gör',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
@@ -1456,8 +1560,12 @@
         continue: 'Devam', back: 'Geri',
         prechatIntro: 'Başlamadan önce iletişim bilgilerinizi girin.',
         required: 'zorunlu',
+        fieldRequired: 'Lütfen bu alanı doldurun.',
         invalidEmail: 'Lütfen geçerli bir e-posta girin.',
         invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
+        formError: 'Bilgileriniz kaydedilemedi. Lütfen tekrar deneyin.',
+        formRate: 'Çok fazla deneme. Lütfen biraz bekleyip tekrar deneyin.',
+        formOffline: 'Bağlantı yok. İnternetinizi kontrol edip tekrar deneyin.',
         prechatTitle: 'Hoş geldiniz 👋',
         prechatSubtitle: 'Size daha hızlı yardımcı olabilmemiz için kendinizden kısaca bahsedin.',
         handoffPrechatSubtitle: 'Ekibimizin size daha iyi yardımcı olabilmesi için lütfen bilgilerinizi tamamlayın.',
@@ -1466,6 +1574,9 @@
         prechatEmailPh: 'ad@ornek.com',
         prechatPhonePh: '+90 555 123 45 67',
         prechatPrivacy: 'Bilgileriniz yalnızca bu sohbete yanıt vermek için kullanılır.',
+        privacyPolicyLink: 'Gizlilik politikası',
+        privacyConsentLabel: 'Bilgilerimin bu sohbet için kullanılmasını kabul ediyorum.',
+        privacyConsentRequired: 'Devam etmek için lütfen kutuyu işaretleyin.',
         searchKb: 'Makalelerde ara...',
         noArticles: 'Henüz makale yok',
         loading: 'Yükleniyor…',
@@ -1480,7 +1591,8 @@
         reconnecting: 'Yeniden bağlanılıyor…',
         connecting: 'Bağlanıyor…',
         connLimited: 'Bağlantı sınırlı. Mesajlaşma çalışmaya devam ediyor.',
-        offlineComposerTip: 'Çevrimdışıyken devre dışı',
+        connectingComposerTip: 'Bağlanıyor… Yazabilirsiniz: mesajınız bağlanınca gönderilir.',
+        chatUnavailableTip: 'Sohbet şu anda kullanılamıyor',
         availOnline: 'Çevrimiçiyiz',
         availAway: 'Yanıtlar gecikebilir',
         availOffline: 'Şu an çevrimdışıyız',
@@ -1490,9 +1602,11 @@
         quotaFullIntro: 'Şu an yeni bir sohbet başlatılamıyor. Bilgilerinizi ve kısa bir mesaj bırakın, size geri döneceğiz.',
         fallbackMessageLabel: 'Mesaj',
         fallbackSubmit: 'Mesaj gönder',
-        fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
-        fallbackSentTransitioning: 'Mesajınızı aldık. Beklenenden önce çevrimiçi olabiliriz ve hemen yanıt verebiliriz.',
+        fallbackSent: 'Mesajınızı aldık. Yanıt burada, bu sohbette görünecek.',
+        fallbackSentTransitioning: 'Mesajınızı aldık. Beklenenden önce dönebiliriz; yanıt burada, bu sohbette görünecek.',
         fallbackError: 'Şu an gönderilemedi. Lütfen tekrar deneyin.',
+        fallbackContactNeeded: 'Bir e-posta veya telefon numarası girin.',
+        offlineNotice: 'Şu anda çevrimdışıyız. Lütfen çalışma saatlerimizde tekrar gelin.',
         qnaTitle: 'Şunları da sorabilirsiniz',
         qnaMore: 'Daha fazla soru',
         // Phase 6a — attachments
@@ -1502,6 +1616,11 @@
         uploadFailed: 'Yükleme başarısız',
         typeNotAllowed: 'Bu dosya türü desteklenmiyor',
         tooLarge: 'Dosya çok büyük',
+        tooLargeMax: 'Dosya çok büyük (en fazla {size})',
+        typeNotAllowedList: 'Bu dosya türüne izin verilmiyor. İzin verilenler: {types}',
+        sizeB: 'B',
+        sizeKB: 'KB',
+        sizeMB: 'MB',
         selected: 'Seçildi',
         // Sesli mesaj + emoji + temsilciye yönlendirme
         recordVoice: 'Sesli mesaj kaydet',
@@ -1513,8 +1632,6 @@
         voiceNote: 'Sesli mesaj',
         emojiPicker: 'Emoji',
         talkToHuman: 'Bir temsilciyle konuşun',
-        escalateRequested: 'Ekibimize bildirdik — kısa süre içinde biri katılacak.',
-        escalateFailed: 'Şu anda bir temsilciye ulaşılamadı.',
         chatUnavailable: 'Sohbet şu anda kullanılamıyor',
         attachmentsDisabled: 'Dosya paylaşımı etkin değil',
         voiceNotesDisabled: 'Sesli mesajlar etkin değil',
@@ -1538,7 +1655,11 @@
         msgSent: 'Gönderildi',
         msgSeen: 'Görüldü',
         msgFailed: 'İletilemedi',
-        typingOperator: 'Destek yazıyor…',
+        msgFailOffline: 'Henüz gönderilmedi: bağlanınca gönderilecek',
+        msgFailRate: 'Aynı anda çok fazla mesaj: birazdan yeniden gönderilecek',
+        msgFailLong: 'Çok uzun: en fazla 5.000 karakter',
+        msgFailClosed: 'Sohbet şu anda kullanılamıyor',
+        typingOperator: 'Operatör yazıyor…',
         aiThinking: 'Düşünüyor…',
         routingAgentJoined: '{name} görüşmeye katıldı',
         routingAgentJoinedSuffix: 'görüşmeye katıldı',
@@ -1575,7 +1696,7 @@
         ciWaitMinutes: 'Operatör katılmanız için en fazla {m} dakika bekleyecek.',
         ciWaitOneMinute: 'Operatör katılmanız için en fazla bir dakika bekleyecek.',
         csEndedByOperator: 'Görüşme operatör tarafından sonlandırıldı · Süre {duration}',
-        csEndedByVisitor: 'Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}',
+        csEndedByVisitor: 'Aramayı siz sonlandırdınız · Süre {duration}',
         csEndedBySystem: 'Görüşme sona erdi · Süre {duration}',
         csEndedNotConnected: 'Görüşme bağlanamadı',
         csConnecting: 'Aramaya bağlanılıyor…',
@@ -1616,6 +1737,12 @@
         support: 'Destek',
         operator: 'Operatör',
         team: 'Ekip',
+        deptTitle: 'Size nasıl yardımcı olabiliriz?',
+        deptChat: 'Sohbet etmek istediğiniz departmanı seçin',
+        deptAudio: 'Aramak istediğiniz departmanı seçin',
+        deptVideo: 'Görüntülü aramak istediğiniz departmanı seçin',
+        deptGroup: 'Departmanlar',
+        deptOffline: 'Şu an çevrimdışı',
         anonymous: 'Anonim',
         poweredBy: 'Sağlayan',
         welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
@@ -1690,7 +1817,7 @@
   // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
   function createTransport(ctx, transportStore, fsm, isPanelOpen) {
-    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [] };
+    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [], seen: [] };
     function on(event, fn) {
       if (!subs[event]) return function () {};
       subs[event].push(fn);
@@ -1975,6 +2102,13 @@
           forceNewConversation: !!payload.forceNewConversation,
           // Phase 6b — attachment id flows through to the message endpoint.
           attachmentId: payload.attachmentId || null,
+          // The send's idempotency key (stable across its retries), the
+          // message it answers and the department the visitor chose: the
+          // chat module sends all three (runtime-chat.js).
+          clientMessageId: payload.clientMessageId || null,
+          replyToMessageId: payload.replyToMessageId || null,
+          departmentId: payload.departmentId || null,
+          smartRule: payload.smartRule || null,
 
           text: payload.text,
           onConversation: function (cid) {
@@ -2230,6 +2364,8 @@
                   onPresence: function (e) { emit('presence', e); },
                   // A message's reactions changed (runtime-late.js; nothing without it).
                   onReaction: function (p) { ext('reaction', p); },
+                  // An operator read the visitor's messages (server visitorSeen.ts).
+                  onSeen: function (p) { emit('seen', p); },
                   onReconnect: function () { emit('reconnect', {}); },
                   // Subscribe-ack from the driver — proves the per-conversation
                   // channel is live and the visitor is sendable. This is the
@@ -2402,16 +2538,22 @@
   // ════════════════════════════════════════════════════════════════════
   // Identity layer — server-driven, cookie-backed (UNCHANGED security model)
   // ════════════════════════════════════════════════════════════════════
-  function createIdentity(ctx, identityStore) {
+  function createIdentity(ctx, identityStore, t) {
+    // The platform policy (config.preChat, configSnapshot.ts buildPreChatConfig)
+    // when /identity/me cannot be read: a field forced on is asked and
+    // required, one forced off never asked; the defaults ask name and email
+    // (required) and the phone (optional), as a workspace without its own
+    // form is asked.
     function configFallback() {
       var pc = ctx.config.preChat || {};
       function on(key) {
         var f = pc[key] || {};
-        return !!f.enabled && !f.locked;
+        return !!f.enabled;
       }
+      function forced(key) { return (pc[key] || {}).mode === 'force_on'; }
       return {
         ask_name: on('name'), ask_email: on('email'), ask_phone: on('phone'),
-        require_name: on('name'), require_email: on('email'), require_phone: on('phone'),
+        require_name: on('name'), require_email: on('email'), require_phone: forced('phone'),
         verify_email: false, verify_phone: false,
         // Offline fallback keeps the historical (safest) timing.
         timing: 'after_handoff',
@@ -2474,7 +2616,97 @@
         });
     }
 
+    // ── The privacy line of the visitor's forms (P-01) ──
+    // `prechat.privacy` from /identity/me: { text, url, consent } while the
+    // workspace shows one (Widget → Pre-chat form), else absent. Core draws
+    // it above the button of every pre-chat and leave-a-message form, in
+    // every template (WIDGET_TEMPLATE_RULES.md §4): the owner's sentence (or
+    // the widget's own, prechatPrivacy), the policy link, and with `consent`
+    // a box the visitor ticks before sending (the server refuses the form
+    // without it).
+    var privacyAccepted = false;
+    var privacyBox = null; // the line drawn last (the form on screen)
+    var consentRefused = false; // a send stopped for the box: a repaint says so again
+    function privacy() {
+      var p = identityStore.get().prechat;
+      return (p && p.privacy) || null;
+    }
+    function consentMissing() {
+      var p = privacy();
+      return !!(p && p.consent && !privacyAccepted);
+    }
+    /**
+     * Puts the privacy line into `scope` (a form), before `before` (its
+     * button row) or at its end. A template that draws [data-prechat-privacy]
+     * itself keeps its own; a repaint keeps the tick.
+     */
+    function privacyInto(scope, before) {
+      var p = privacy();
+      if (!p || !scope || scope.querySelector('[data-prechat-privacy]')) return null;
+      var box = document.createElement('div');
+      box.className = 'prechat-privacy';
+      box.setAttribute('data-prechat-privacy', '');
+      var line = document.createElement('p');
+      line.className = 'prechat-privacy__text';
+      line.textContent = String(p.text || t('prechatPrivacy'));
+      if (p.url && /^https:\/\//i.test(String(p.url))) {
+        var a = document.createElement('a');
+        a.href = String(p.url);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = t('privacyPolicyLink');
+        line.appendChild(document.createTextNode(' '));
+        line.appendChild(a);
+      }
+      box.appendChild(line);
+      if (p.consent) {
+        var label = document.createElement('label');
+        label.className = 'prechat-privacy__consent';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.setAttribute('data-prechat-consent', '');
+        cb.checked = privacyAccepted;
+        cb.addEventListener('change', function () {
+          privacyAccepted = !!cb.checked;
+          if (privacyAccepted) consentError(box, '');
+        });
+        var span = document.createElement('span');
+        span.textContent = t('privacyConsentLabel');
+        label.appendChild(cb);
+        label.appendChild(span);
+        box.appendChild(label);
+      }
+      if (before && before.parentNode === scope) scope.insertBefore(box, before);
+      else scope.appendChild(box);
+      privacyBox = box;
+      if (consentRefused && !privacyAccepted) consentError(box, t('privacyConsentRequired'), true);
+      return box;
+    }
+    /** Says (or clears) "tick the box to continue" in the privacy line `box`. */
+    function consentError(box, msg, keepFocus) {
+      consentRefused = !!msg;
+      if (!box) return;
+      var cb = box.querySelector('[data-prechat-consent]');
+      if (cb) cb.setAttribute('aria-invalid', msg ? 'true' : 'false');
+      var el = box.querySelector('[data-err="privacy"]');
+      if (!el && msg) {
+        el = document.createElement('div');
+        el.className = 'prechat-error err visible';
+        el.setAttribute('data-err', 'privacy');
+        el.setAttribute('role', 'alert');
+        box.appendChild(el);
+      }
+      if (el) el.textContent = msg || '';
+      if (msg && cb && !keepFocus) try { cb.focus(); } catch (_) {}
+    }
+
     function submitPrechat(payload, cb) {
+      // The consent box is ticked first (the server would refuse the form).
+      if (consentMissing()) {
+        consentError(privacyBox && privacyBox.isConnected ? privacyBox : null, t('privacyConsentRequired'));
+        if (cb) cb(false, { error: 'privacy_consent_required', field: 'privacy' });
+        return;
+      }
       ctx.fetchWith(ctx.apiBase + '/api/widget/identity/prechat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2482,12 +2714,14 @@
           workspace_id: ctx.workspaceId,
           name: payload.name || null,
           email: payload.email || null,
-          phone: payload.phone || null,
+          phone: payload.phone ? Util.asciiDigits(payload.phone) : null,
+          privacy_consent: privacyAccepted || undefined,
         }),
       })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
         .then(function (res) {
-          if (!res.ok) { if (cb) cb(false, res.body); return; }
+          // The refusal with its status, so the form can say why (429, 5xx).
+          if (!res.ok) { if (cb) cb(false, Object.assign({ status: res.status }, res.body || {})); return; }
           var prev = identityStore.get().contact || {};
           identityStore.set({
             identityState: 'identified',
@@ -2507,9 +2741,11 @@
       var p = identityStore.get().prechat;
       return !!(p && p['ask_' + field]);
     }
+    // A field is required only while it is asked: one the form does not draw
+    // can never block the visitor (the server reads it the same way).
     function isRequired(field) {
       var p = identityStore.get().prechat;
-      return !!(p && p['require_' + field]);
+      return !!(p && p['ask_' + field] && p['require_' + field]);
     }
     // Owner-configured timing: 'always' | 'after_handoff' | 'never'.
     // Unknown/absent values fall back to the historical behaviour so an old
@@ -2560,7 +2796,11 @@
       shouldRequirePrechat: shouldRequirePrechat,
       needsPrechat: needsPrechat,
       prechatTiming: prechatTiming,
-
+      privacy: privacy,
+      privacyInto: privacyInto,
+      consentMissing: consentMissing,
+      consentError: consentError,
+      privacyAccepted: function () { return privacyAccepted; },
     };
   }
 
@@ -2762,6 +3002,11 @@
         }
       });
       shellDiv.appendChild(toastEl);
+      // It stays while the pointer is on it (WCAG 2.2.1), 5 s more after.
+      toastEl.addEventListener('mouseenter', function () { if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; } });
+      toastEl.addEventListener('mouseleave', function () {
+        if (toastEl && toastEl.classList.contains('visible')) toastTimer = setTimeout(hideToast, 5000);
+      });
       // Keep toast position in sync if widget position ever changes at runtime.
       uiPrefsStore.subscribe(function () {
         if (!toastEl) return;
@@ -2905,25 +3150,67 @@
   // for it and never assume online. Polling fallback always produces a
   // valid availability state from the snapshot + business hours.
   // ════════════════════════════════════════════════════════════════════
-  function createPresence(ctx, presenceStore, transport, transportStore, t) {
+  function createPresence(ctx, presenceStore, transport, transportStore, t, watching) {
     var availability = (ctx.config && ctx.config.availability) || {};
     var liveChatEnabled = availability.liveChatEnabled !== false;
     // Phase 8 — three-mode shape from server resolver. Legacy two-mode
     // ('contact_fallback'/'accept_messages') still honored for older
     // backends until /config catches up.
-    var offlineMode = (function () {
-      var m = availability.offlineMode || availability.offline_mode;
+    function modeOf(av) {
+      var m = av.offlineMode || av.offline_mode;
       if (m === 'hide_widget' || m === 'show_offline_message' || m === 'capture_message') return m;
-      if (m === 'contact_fallback') return 'capture_message';
       return 'capture_message';
-    })();
-    var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
-    var customLabels = availability.labels || {};
+    }
     // Phase 8 — server-authoritative state. When present, runtime trusts it
     // and skips client-side hours math. Legacy clients without it fall back
     // to local hours below.
-    var serverState = (availability.state === 'online' || availability.state === 'offline')
-      ? availability.state : null;
+    function stateOf(av) {
+      return (av.state === 'online' || av.state === 'offline') ? av.state : null;
+    }
+    var offlineMode = modeOf(availability);
+    var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
+    var customLabels = availability.labels || {};
+    var serverState = stateOf(availability);
+
+    // The state is the server's at page load; it is read again
+    // (GET /api/widget/availability) when the panel opens (at most once a
+    // minute), every few minutes while it is open and seen, and when the
+    // team is due back (next_open_at, with a few seconds' spread), so a
+    // visitor who opened the page before the hours began (or before they
+    // ended) sees the team as it is now.
+    var REFRESH_OPEN_MS = 60000;
+    var REFRESH_WATCH_MS = 180000;
+    var lastFetch = Date.now();
+    var fetching = false;
+    var dueTimer = null;
+    function refresh(minAge) {
+      if (fetching || !ctx.workspaceId || !ctx.fetchWith) return;
+      if (Date.now() - lastFetch < (minAge == null ? REFRESH_OPEN_MS : minAge)) return;
+      fetching = true;
+      lastFetch = Date.now();
+      ctx.fetchWith(ctx.apiBase + '/api/widget/availability?workspace_id=' + encodeURIComponent(ctx.workspaceId) +
+        '&locale=' + encodeURIComponent(ctx.locale || 'en'), {})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { fetching = false; if (j && j.availability) apply(j.availability); })
+        .catch(function () { fetching = false; });
+    }
+    /** A fresh answer: the state, the offline mode, the labels and the offline message as the server has them now. */
+    function apply(next) {
+      if (!next || typeof next !== 'object') return;
+      availability = Object.assign({}, ctx.config.availability || {}, next);
+      ctx.config.availability = availability;
+      offlineMode = modeOf(availability);
+      customLabels = availability.labels || {};
+      serverState = stateOf(availability);
+      publish();
+      scheduleDue();
+    }
+    function scheduleDue() {
+      if (dueTimer) { clearTimeout(dueTimer); dueTimer = null; }
+      var wait = Date.parse(availability.next_open_at || '') - Date.now();
+      if (!isFinite(wait) || wait > 864e5) return;
+      dueTimer = setTimeout(function () { refresh(0); }, Math.max(0, wait) + 5000 + Math.floor(Math.random() * 25000));
+    }
 
     // Snapshot from /config (best-effort hint, refreshed on reconnect via REST is OUT OF SCOPE here).
     var snapshotOnlineOps = (typeof ctx.config.onlineOperators === 'number')
@@ -2993,14 +3280,20 @@
 
     // The store starts 'offline' with no label: a start the server reports
     // as away publishes once too (the workspace's offline mode, the label).
+    // A refresh publishes only what changed.
     function publish() {
       var status = resolveStatus();
       var cur = presenceStore.get();
-      if (cur.status === status && (serverState !== 'offline' || cur.label)) return;
+      var label = labelFor(status);
+      var message = typeof availability.offline_message === 'string' ? availability.offline_message.trim() : '';
+      if (cur.status === status && (cur.lastChange
+        ? cur.offlineMode === offlineMode && (cur.offlineMessage || '') === message && cur.label === label
+        : serverState !== 'offline' || cur.label)) return;
       presenceStore.set({
         status: status,
-        label: labelFor(status),
+        label: label,
         offlineMode: offlineMode,
+        offlineMessage: message,
         liveChatEnabled: liveChatEnabled,
         lastChange: Date.now(),
       });
@@ -3028,15 +3321,23 @@
       // We just re-evaluate from current inputs; rtPresence is left as-is.
       transport.on('reconnect', function () { publish(); });
       // Re-evaluate periodically so business-hours transitions take effect
-      // without requiring a new transport event. Lightweight (60s tick).
-      setInterval(publish, 60_000);
+      // without requiring a new transport event. Lightweight (60s tick);
+      // the server is asked again only while the visitor has the panel open
+      // and on screen.
+      setInterval(function () {
+        publish();
+        if (typeof watching === 'function' && watching()) refresh(REFRESH_WATCH_MS);
+      }, 60_000);
       // Initial publish
       publish();
+      scheduleDue();
     }
 
     return {
       wire: wire,
       publish: publish,
+      /** Read the state again (the panel opened); at most once a minute. */
+      refresh: function () { refresh(REFRESH_OPEN_MS); },
       isLiveChatEnabled: function () { return liveChatEnabled; },
       getOfflineMode: function () { return offlineMode; },
     };
@@ -3229,7 +3530,7 @@
 
     function tickTypewriter() {
       if (!typewriter) return;
-      var step = typewriter.tokens.length > 90 ? 2 : 1;
+      var step = typewriter.step || 1;
       typewriter.revealedCount = Math.min(typewriter.tokens.length, typewriter.revealedCount + step);
       var done = typewriter.revealedCount >= typewriter.tokens.length;
       var body = lastRenderedBody;
@@ -3259,17 +3560,42 @@
     // exactly (including newlines) once fully revealed. Generic: id just
     // has to match a `data-typing-id` attribute buildMessagesHtml() (or any
     // other renderer) puts on the element to reveal into.
+    //
+    // It never moves for a visitor who asked for less motion (the text is
+    // there at once), and never runs longer than TYPEWRITER_MAX_MS: a long
+    // reply reveals more words per tick (WCAG 2.2.2 asks a way to stop
+    // anything moving for over 5 s; this one simply ends sooner).
+    var TYPEWRITER_TICK_MS = 85;
+    var TYPEWRITER_MAX_MS = 4000;
+    function prefersReducedMotion() {
+      try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+      catch (_) { return false; }
+    }
     function startTypewriterFor(id, text) {
       if (!id) return;
       var str = (text || '').toString();
       if (!str.trim()) return;
       if (typewriter && typewriter.id === id) return; // already animating this one
       stopTypewriter(true);
+      if (prefersReducedMotion()) {
+        // Whole at once. A message bubble is painted whole with no reveal
+        // running; a node already painted empty for the reveal (the
+        // hand-off card's subtitle) gets its text now.
+        var body = lastRenderedBody;
+        var el = body && body.querySelector ? body.querySelector('[data-typing-id="' + id + '"]') : null;
+        if (el) {
+          revealFinalText(el, str);
+          var host = el.closest('[data-typing-host]');
+          if (host) host.removeAttribute('data-typing-active');
+        }
+        return;
+      }
       var tokens = str.match(/\S+\s*/g) || [str];
+      var step = Math.max(tokens.length > 90 ? 2 : 1, Math.ceil(tokens.length / Math.floor(TYPEWRITER_MAX_MS / TYPEWRITER_TICK_MS)));
       // Start with the first token already revealed so the bubble never
       // paints empty for a frame (or forever, if the reveal node is missing).
-      typewriter = { id: id, tokens: tokens, revealedCount: 1, timer: null, misses: 0 };
-      typewriter.timer = setInterval(tickTypewriter, 85);
+      typewriter = { id: id, tokens: tokens, revealedCount: 1, step: step, timer: null, misses: 0 };
+      typewriter.timer = setInterval(tickTypewriter, TYPEWRITER_TICK_MS);
     }
 
     function startTypewriter(msg) {
@@ -3568,10 +3894,12 @@
       if (!c.apiBase || !c.workspaceId || !c.token) {
         return Promise.reject(new Error('widget context not ready'));
       }
+      var h = { 'Content-Type': 'application/json', 'X-Widget-Token': c.token };
+      try { if (window.__gs_token.vc) h['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
       return fetch(c.apiBase + '/api/widget/call-invitations/' + encodeURIComponent(invitationId) + '/' + action, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': c.token },
+        headers: h,
         body: JSON.stringify({
           workspace_id: c.workspaceId,
           visitor_id: c.visitorId || undefined,
@@ -3832,6 +4160,37 @@
         if (!f) return;
         if (valid) f.classList.add('is-valid'); else f.classList.remove('is-valid');
       }
+      // What is not a field's (the server's own error, too many attempts, no
+      // connection) is said under the fields, never not at all.
+      function formError(msg) {
+        var el = body.querySelector('[data-err="form"]');
+        if (!el && msg) {
+          var anchor = body.querySelector('.prechat-fields') || body.querySelector('[data-prechat-submit]');
+          if (!anchor || !anchor.parentNode) return;
+          el = document.createElement('div');
+          el.className = 'prechat-error err visible';
+          el.setAttribute('data-err', 'form');
+          el.setAttribute('role', 'alert');
+          anchor.parentNode.insertBefore(el, anchor.nextSibling);
+        }
+        if (el) el.textContent = msg || '';
+      }
+      /** The server's refusal, under its field when it names one. */
+      function showRefusal(resp) {
+        resp = resp || {};
+        if (resp.error === 'privacy_consent_required') {
+          identity.consentError(body.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+          return;
+        }
+        var details = resp.details || {};
+        var f = resp.field || ['name', 'email', 'phone'].filter(function (k) { return details[k]; })[0];
+        if (f && getInput(f)) {
+          showError(f, t(/_required$/.test(resp.error || '') ? 'fieldRequired'
+            : f === 'email' ? 'invalidEmail' : f === 'phone' ? 'invalidPhone' : 'fieldRequired'));
+          return;
+        }
+        formError(t(resp.status === 429 ? 'formRate' : resp.error === 'network' ? 'formOffline' : 'formError'));
+      }
       function liveValidate(k, val) {
         var v = (val || '').trim();
         if (!v) { markValid(k, false); return; }
@@ -3859,6 +4218,9 @@
           }
         });
       });
+      // The workspace's privacy line, under the fields (identity.privacyInto).
+      var fieldsEl = body.querySelector('.prechat-fields');
+      if (fieldsEl && fieldsEl.parentNode) identity.privacyInto(fieldsEl.parentNode, fieldsEl.nextSibling);
       if (opts.autofocus !== false && !prechatSubmitting) {
         var firstInput = body.querySelector('.prechat-input');
         if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
@@ -3874,19 +4236,24 @@
         }
         submitBtn.addEventListener('click', function () {
           if (prechatSubmitting) return;
+          formError('');
           var payload = {
             name: getInput('name') ? getInput('name').value.trim() : '',
             email: getInput('email') ? getInput('email').value.trim() : '',
             phone: getInput('phone') ? getInput('phone').value.trim() : '',
           };
           var ok = true;
-          if (identity.isRequired('name') && !payload.name) { showError('name', t('required')); ok = false; }
+          if (identity.isRequired('name') && !payload.name) { showError('name', t('fieldRequired')); ok = false; }
           if (identity.isAsked('email') && payload.email) {
             if (!Util.isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
-          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('required')); ok = false; }
+          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('fieldRequired')); ok = false; }
           if (identity.isAsked('phone') && payload.phone) {
             if (!Util.isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
-          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
+          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('fieldRequired')); ok = false; }
+          if (identity.consentMissing()) {
+            identity.consentError(body.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+            ok = false;
+          }
           if (!ok) return;
 
           prechatDraft = { name: payload.name, email: payload.email, phone: payload.phone };
@@ -3903,8 +4270,7 @@
               submitBtn.classList.remove('is-loading');
             } catch (_) {}
             if (!success) {
-              var f = resp && resp.field;
-              if (f) showError(f, t('required'));
+              showRefusal(resp);
               return;
             }
             prechatDraft = { name: '', email: '', phone: '' };
@@ -4204,10 +4570,15 @@
     // never wipe the fields.
     function prechatValues() {
       var c = (identityStore.get().contact) || {};
+      // What the site passed with identify() (loader.js) fills what the
+      // contact does not have yet; an email that is not one is left out.
+      var idf = {};
+      try { idf = window.__gs_identify_data || {}; } catch (_) {}
+      var idEmail = idf.email && Util.isValidEmail(idf.email) ? idf.email : '';
       return {
-        name: prechatDraft.name || c.name || '',
-        email: prechatDraft.email || c.email || '',
-        phone: prechatDraft.phone || c.phone || '',
+        name: prechatDraft.name || c.name || idf.name || '',
+        email: prechatDraft.email || c.email || idEmail,
+        phone: prechatDraft.phone || c.phone || idf.phone || '',
       };
     }
 
@@ -4253,6 +4624,37 @@
       }
     }
 
+    /** The visitor's message that opened a new conversation under an ended one (see onConversation). */
+    function markThreadStart(localId) {
+      var arr = chatStore.get().messages.map(function (m) {
+        return m.localId === localId ? Object.assign({}, m, { threadStart: true }) : m;
+      });
+      chatStore.set({ messages: arr });
+    }
+
+    /**
+     * The Smart Engagement "Message inside the chat" the server stored as
+     * this conversation's first line (POST /message `opening_message`): it
+     * takes the place of the one drawn locally, above the visitor's answer.
+     */
+    function adoptOpeningMessage(localId, row) {
+      if (!row || !row.id) return;
+      mergeIncoming([row]);
+      var arr = chatStore.get().messages.slice();
+      var at = -1, mine = -1;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].__id === row.id) at = i;
+        if (arr[i].localId === localId) mine = i;
+      }
+      if (at > mine && mine >= 0) {
+        var moved = arr.splice(at, 1)[0];
+        moved.time = arr[mine].time;
+        arr.splice(mine, 0, moved);
+        chatStore.set({ messages: arr });
+      }
+      if (typeof ctx.smartOpened === 'function') ctx.smartOpened();
+    }
+
     /**
      * Fires the actual network send for an already-pushed optimistic bubble.
      * Shared by sendMessage() (fresh bubble) and resendMessage() (retry) so
@@ -4262,7 +4664,7 @@
      * is idempotent rather than creating a second message (see the
      * client_message_id contract in server/routes/widget.ts).
      */
-    function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange) {
+    function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange, done) {
       var s = chatStore.get();
       var req = {
         text: text,
@@ -4274,6 +4676,9 @@
         clientMessageId: localId,
         replyToMessageId: replyToMessageId || null,
         departmentId: departmentId,
+        // The "Message inside the chat" this first message answers, if it
+        // is on screen: the server stores the rule's text before it.
+        smartRule: !s.conversationId && ctx.smartChatRule ? ctx.smartChatRule : null,
       };
       var cbs = {
         onConversation: function (cid) {
@@ -4281,20 +4686,32 @@
           // a follow-up message can never spawn a second thread, and so
           // history/polling may resume adopting this (now current) id.
           chatStore.set({ freshIntent: false });
-          if (cid && cid !== chatStore.get().conversationId) {
+          var prevCid = chatStore.get().conversationId;
+          if (cid && cid !== prevCid) {
+            // The thread on screen had ended (an operator closed it): this
+            // message opened a new conversation under its lines. A renderer
+            // draws `threadStart` as a "New conversation" divider (t2 has the
+            // closed line instead), so the two do not read as one.
+            if (prevCid) markThreadStart(localId);
             chatStore.set({ conversationId: cid });
             transport.subscribeConversation(cid);
           }
+          Util.activeHint(true);
         },
 
 
         onAccepted: function (info) {
           // Bind canonical message id and flip to 'sent'. The next merge
           // (poll/history) will reconcile by __id and may promote to 'seen'.
+          clearAutoResend(localId);
           updateMessageByLocalId(localId, {
             status: 'sent',
             __id: info && info.messageId ? info.messageId : undefined,
+            failReason: null,
+            failText: null,
           }, onChange);
+          if (info && info.openingMessage) { adoptOpeningMessage(localId, info.openingMessage); if (onChange) onChange(); }
+          if (done) done();
         },
         onReply: function (reply) {
           var ns = chatStore.get();
@@ -4309,9 +4726,10 @@
           // gets the leave-a-message form instead of a failed bubble —
           // only when the server accepts captures over the quota
           // (availability.quota_full present) and no thread exists yet.
-          if (switchToQuotaForm(err, localId, text, onChange)) return;
+          if (switchToQuotaForm(err, localId, text, onChange)) { if (done) done(); return; }
           Util.warn('Send failed');
-          updateMessageByLocalId(localId, { status: 'failed' }, onChange);
+          markSendFailed(localId, sendFailure(err), onChange);
+          if (done) done();
         },
       };
       // A renderer feature may deliver it another way (the message left
@@ -4338,6 +4756,111 @@
       chatStore.set({ messages: rest });
       if (typeof onChange === 'function') onChange();
       return true;
+    }
+
+    // ─── A failed send: why, and sending it again by itself ───
+    // The bubble says why it failed (`failText`, drawn by every renderer in
+    // place of "not delivered"), and a failure that passes is sent again
+    // without the visitor doing anything, with the SAME localId (the
+    // server's idempotency key, so a retry never posts it twice):
+    //   offline  no connection (composed while connecting, or the request
+    //            never reached the server): when the connection is back, in
+    //            order, else after a backoff while the connection looks up;
+    //   rate     too many messages at once (429): after the wait the server
+    //            names (`retry_after`);
+    //   server   a 5xx: once or twice more after a short wait.
+    // One that cannot pass (too long, chat not available) keeps its Retry.
+    var MAX_AUTO_RESENDS = 5;
+    var autoResendTimers = {};
+    function sendFailure(err) {
+      var status = err && typeof err === 'object' ? err.status : null;
+      if (!status) return { reason: typeof err === 'string' ? 'error' : 'offline' };
+      if (status === 429) return { reason: 'rate', wait: Math.min(60, Math.max(1, Number(err.retryAfter) || 5)) };
+      if (status === 413 || (status === 400 && err.fields && (err.fields.indexOf('message') !== -1 || err.fields.indexOf('body') !== -1))) {
+        return { reason: 'long' };
+      }
+      if (status === 403) return { reason: 'closed' };
+      if (status >= 500) return { reason: 'server', wait: 5 };
+      return { reason: 'error' };
+    }
+    var FAIL_TEXT_KEYS = { offline: 'msgFailOffline', rate: 'msgFailRate', long: 'msgFailLong', closed: 'msgFailClosed' };
+    function markSendFailed(localId, failure, onChange) {
+      var msg = findByLocalId(localId);
+      var tries = (msg && msg.autoTries) || 0;
+      var key = FAIL_TEXT_KEYS[failure.reason];
+      updateMessageByLocalId(localId, {
+        status: 'failed',
+        failReason: failure.reason,
+        failText: key ? t(key) : null,
+      }, onChange);
+      if (tries >= (failure.reason === 'server' ? 2 : MAX_AUTO_RESENDS)) return;
+      var wait = failure.wait;
+      if (failure.reason === 'offline') {
+        // Without a usable connection the resend waits for it (flushQueued);
+        // a request that failed while the connection looks up backs off.
+        if (!canSendNow()) return;
+        wait = Math.min(30, 3 * Math.pow(2, tries));
+      }
+      if (!wait) return;
+      scheduleAutoResend(localId, wait * 1000, onChange);
+    }
+    function scheduleAutoResend(localId, ms, onChange) {
+      clearAutoResend(localId);
+      autoResendTimers[localId] = setTimeout(function () {
+        delete autoResendTimers[localId];
+        autoResend(localId, onChange);
+      }, ms);
+    }
+    function clearAutoResend(localId) {
+      if (autoResendTimers[localId]) { clearTimeout(autoResendTimers[localId]); delete autoResendTimers[localId]; }
+    }
+    function findByLocalId(localId) {
+      var arr = chatStore.get().messages;
+      for (var i = 0; i < arr.length; i++) if (arr[i].localId === localId) return arr[i];
+      return null;
+    }
+    function autoResend(localId, onChange, done) {
+      var msg = findByLocalId(localId);
+      if (!msg || msg.status !== 'failed' || !canSendNow()) { if (done) done(); return; }
+      updateMessageByLocalId(localId, { status: 'sending', autoTries: (msg.autoTries || 0) + 1 }, onChange);
+      attemptSend(localId, msg.body, msg.attachmentId, msg.departmentId, msg.replyToMessageId, onChange, done);
+    }
+    /**
+     * The connection is back: send what waited for it, one at a time and in
+     * the order it was written (the first may create the conversation the
+     * next one belongs to).
+     */
+    var flushing = 0;
+    function flushQueued(onChange) {
+      // One at a time; a request that never answers holds the queue 30 s at most.
+      if ((flushing && Date.now() - flushing < 30000) || !canSendNow()) return;
+      var arr = chatStore.get().messages;
+      var next = null;
+      for (var i = 0; i < arr.length; i++) {
+        var m = arr[i];
+        if (m.sender === 'visitor' && m.status === 'failed' && m.failReason === 'offline' && m.localId
+            && (m.autoTries || 0) < MAX_AUTO_RESENDS) { next = m; break; }
+      }
+      if (!next) return;
+      flushing = Date.now();
+      clearAutoResend(next.localId);
+      autoResend(next.localId, onChange, function () {
+        flushing = 0;
+        var sent = findByLocalId(next.localId);
+        if (sent && sent.status !== 'failed') flushQueued(onChange);
+      });
+    }
+    /**
+     * Whether a send may go to the network now. Online, yes. While the
+     * connection is being made (first connect, reconnecting) it waits for it
+     * (flushQueued). Realtime switched off or given up ('offline') says
+     * nothing about the plain HTTP send, which is tried unless the browser
+     * itself reports no network.
+     */
+    function canSendNow() {
+      var c = transportStore.get().connectionState;
+      if (c === 'online') return true;
+      return c === 'offline' && !(typeof navigator !== 'undefined' && navigator.onLine === false);
     }
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment, replyToMessageId) {
@@ -4368,7 +4891,11 @@
         // feedback and a retry action, rather than the message silently
         // vanishing — but never attempt the network call while there is no
         // usable connection.
-        status: transportStore.get().connectionState === 'online' ? 'sending' : 'failed',
+        // Without a usable connection it waits, said in words, and goes by
+        // itself once connected (flushQueued).
+        status: canSendNow() ? 'sending' : 'failed',
+        failReason: canSendNow() ? null : 'offline',
+        failText: canSendNow() ? null : t('msgFailOffline'),
         localId: localId,
         // The composer's own department selector can change before a retry;
         // pin the value the visitor actually had at compose time so a
@@ -4378,7 +4905,7 @@
       chatStore.set({ messages: messages });
       onChange();
 
-      if (transportStore.get().connectionState !== 'online') return;
+      if (!canSendNow()) return;
       attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange);
     }
 
@@ -4396,9 +4923,32 @@
         if (cs.messages[i].localId === localId) { msg = cs.messages[i]; break; }
       }
       if (!msg || msg.status !== 'failed') return;
-      if (transportStore.get().connectionState !== 'online') return;
-      updateMessageByLocalId(localId, { status: 'sending' }, onChange);
+      if (!canSendNow()) return;
+      clearAutoResend(localId);
+      // The visitor's own retry starts the automatic ones over.
+      updateMessageByLocalId(localId, { status: 'sending', autoTries: 0 }, onChange);
       attemptSend(localId, msg.body, msg.attachmentId, msg.departmentId, msg.replyToMessageId, onChange);
+    }
+
+    /**
+     * An operator read the visitor's messages (the `seen` envelope, server
+     * visitorSeen.ts): exactly those bubbles of the open thread turn "seen".
+     * Returns whether anything changed.
+     */
+    function applySeen(p) {
+      if (!p || !p.message_ids || !p.message_ids.length) return false;
+      var s = chatStore.get();
+      if (!s.conversationId || String(p.conversation_id) !== String(s.conversationId)) return false;
+      var ids = {};
+      for (var i = 0; i < p.message_ids.length; i++) ids[p.message_ids[i]] = 1;
+      var changed = false;
+      var arr = s.messages.map(function (m) {
+        if (m.sender !== 'visitor' || !m.__id || !ids[m.__id] || m.status === 'seen' || m.status === 'failed') return m;
+        changed = true;
+        return Object.assign({}, m, { status: 'seen', seenAt: p.seen_at || null });
+      });
+      if (changed) chatStore.set({ messages: arr });
+      return changed;
     }
 
     function bootstrapHistory(onChange) {
@@ -4413,8 +4963,8 @@
           // another thread) while the request was in flight.
           if (!ConvEpoch.valid(startEpoch) || forcingNew() || result.stale) return;
           if (result.conversationId) {
+            // (`gs_active` follows the thread list's statuses: syncUnreadFromList.)
             chatStore.set({ conversationId: result.conversationId });
-            try { document.cookie = 'gs_active=1; path=/; max-age=86400; SameSite=Lax'; } catch (_) {}
             transport.subscribeConversation(result.conversationId);
           }
           if (mergeIncoming(result.messages || [])) onChange();
@@ -4433,17 +4983,23 @@
       // instead of "the team is offline", and keep what the visitor typed.
       var quotaDriven = ctx.__quotaFull === true
         || !!(ctx.config && ctx.config.availability && ctx.config.availability.quota_full === true);
+      // Away, the owner's offline message (Availability → offline message,
+      // in the visitor's language) is the form's intro in every template;
+      // without one, the template's own words.
+      var offlineText = offlineMessageOf(ctx.config);
       var formPresence = quotaDriven
         ? Object.assign({}, presence || {}, { introLabel: t('quotaFullIntro') })
-        : presence;
+        : offlineText ? Object.assign({}, presence || {}, { introLabel: offlineText }) : presence;
       body.innerHTML = Presentation.contactFallbackHtml(
         identity,
         (identityStore.get().contact) || {},
         locale,
         formPresence,
       );
+      var draftEl = body.querySelector('[data-fb="message"]');
+      // As long as a chat message may be (POST /message and /offline-messages).
+      if (draftEl) draftEl.maxLength = MAX_MESSAGE_CHARS;
       if (ctx.__quotaDraft) {
-        var draftEl = body.querySelector('[data-fb="message"]');
         if (draftEl) draftEl.value = ctx.__quotaDraft;
         ctx.__quotaDraft = '';
       }
@@ -4469,6 +5025,15 @@
       });
 
       if (!submitBtn) return;
+      // The workspace's privacy line, above the button (identity.privacyInto):
+      // the form's last field row's end, wherever the template put the button.
+      var fbRow = submitBtn.parentNode && submitBtn.parentNode !== body && !submitBtn.parentNode.querySelector('[data-fb]')
+        ? submitBtn.parentNode : submitBtn;
+      identity.privacyInto(fbRow.parentNode, fbRow);
+      // The click handler's own `body` is the request's.
+      var formRoot = body;
+      // Whether the form asks the phone (then either way of reaching the visitor will do).
+      var phoneField = !!body.querySelector('[data-fb="phone"]');
       submitBtn.addEventListener('click', function () {
         var payload = {
           name: get('name'),
@@ -4477,11 +5042,17 @@
           message: get('message'),
         };
         var ok = true;
-        if (identity.isRequired('name') && !payload.name) { showErr('name', t('required')); ok = false; }
+        if (identity.isRequired('name') && !payload.name) { showErr('name', t('fieldRequired')); ok = false; }
         if (payload.email && !Util.isValidEmail(payload.email)) { showErr('email', t('invalidEmail')); ok = false; }
         if (payload.phone && !Util.isValidPhone(payload.phone)) { showErr('phone', t('invalidPhone')); ok = false; }
-        if (!payload.email && !payload.phone) { showErr('email', t('required')); ok = false; }
-        if (!payload.message) { showErr('message', t('required')); ok = false; }
+        // A way to reach the visitor: the email, or the phone where the form asks it.
+        if (!payload.email && !payload.phone) { showErr('email', t(phoneField ? 'fallbackContactNeeded' : 'fieldRequired')); ok = false; }
+        if (!payload.message) { showErr('message', t('fieldRequired')); ok = false; }
+        else if (payload.message.length > MAX_MESSAGE_CHARS) { showErr('message', t('msgFailLong')); ok = false; }
+        if (identity.consentMissing()) {
+          identity.consentError(formRoot.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+          ok = false;
+        }
         if (!ok) return;
 
         submitBtn.disabled = true; submitBtn.style.opacity = '0.6';
@@ -4501,7 +5072,8 @@
         };
         if (payload.name) body.name = payload.name;
         if (payload.email) body.email = payload.email;
-        if (payload.phone) body.phone = payload.phone;
+        if (payload.phone) body.phone = Util.asciiDigits(payload.phone);
+        if (identity.privacyAccepted()) body.privacy_consent = true;
 
         ctx.fetchWith(ctx.apiBase + '/api/widget/offline-messages', {
           method: 'POST',
@@ -4509,8 +5081,13 @@
           body: JSON.stringify(body),
         })
           .then(function (r) {
-            if (!r.ok) throw new Error('http_' + r.status);
-            return r.json();
+            if (r.ok) return r.json();
+            return r.json().catch(function () { return {}; }).then(function (j) {
+              var e = new Error('http_' + r.status);
+              e.status = r.status;
+              e.body = j || {};
+              throw e;
+            });
           })
           .then(function (data) {
             // captured: false only happens for the honeypot path; treat
@@ -4518,31 +5095,59 @@
             if (data && data.conversation_id) {
               chatStore.set({ conversationId: data.conversation_id });
             }
-            // Echo the visitor message locally so they see what they sent.
+            // Echo the visitor message locally so they see what they sent,
+            // with the confirmation under it: it stays in the thread (the
+            // form's own status line goes with the form).
+            var msgKey = (data && data.transitioning) ? 'fallbackSentTransitioning' : 'fallbackSent';
             var s = chatStore.get();
             var messages = s.messages.slice();
-            messages.push({ body: payload.message, sender: 'visitor', time: new Date() });
+            var now = new Date();
+            messages.push({ body: payload.message, sender: 'visitor', time: now });
+            messages.push({
+              localId: 'offline-received-' + now.getTime(),
+              sender: 'system', senderType: 'system', text: t(msgKey), body: t(msgKey), time: now,
+              metadata: { kind: 'offline_received_local' },
+            });
             chatStore.set({ messages: messages });
 
-            // Persist contact details locally so subsequent prechat checks
-            // don't re-prompt this visitor for the same info on this device.
+            // The details just given are the visitor's (the server keeps them
+            // on their contact): no pre-chat asks for them again.
             if (payload.name || payload.email || payload.phone) {
+              var prevContact = identityStore.get().contact || {};
               identityStore.set({
-                contact: Object.assign({}, identityStore.get().contact || {}, {
-                  name: payload.name || (identityStore.get().contact || {}).name || '',
-                  email: payload.email || (identityStore.get().contact || {}).email || '',
-                  phone: payload.phone || (identityStore.get().contact || {}).phone || '',
+                identityState: 'identified',
+                contact: Object.assign({}, prevContact, {
+                  name: payload.name || prevContact.name || '',
+                  email: payload.email || prevContact.email || '',
+                  phone: (payload.phone && Util.asciiDigits(payload.phone)) || prevContact.phone || '',
                 }),
               });
             }
 
-            var msgKey = (data && data.transitioning) ? 'fallbackSentTransitioning' : 'fallbackSent';
             if (statusEl) { statusEl.textContent = t(msgKey); statusEl.className = 'fallback-status ok'; }
             if (typeof onSent === 'function') onSent();
           })
-          .catch(function () {
+          .catch(function (err) {
             submitBtn.disabled = false; submitBtn.style.opacity = '1';
-            if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+            // Said where it belongs: a field the server refused under it;
+            // otherwise why (too many at once, no connection) on the status line.
+            var st = err && err.status;
+            if (err && err.body && err.body.error === 'privacy_consent_required') {
+              identity.consentError(formRoot.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+              return;
+            }
+            var fe = (err && err.body && err.body.details && err.body.details.fieldErrors) || {};
+            var fields = ['email', 'phone', 'name', 'message'].filter(function (k) { return fe[k]; });
+            if (st === 400 && fields.length) {
+              fields.forEach(function (k) {
+                showErr(k, t(k === 'email' ? 'invalidEmail' : k === 'phone' ? 'invalidPhone' : k === 'message' ? 'msgFailLong' : 'fieldRequired'));
+              });
+              return;
+            }
+            if (statusEl) {
+              statusEl.textContent = t(st === 429 ? 'formRate' : !st ? 'formOffline' : 'fallbackError');
+              statusEl.className = 'fallback-status error';
+            }
           });
       });
     }
@@ -4554,6 +5159,8 @@
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       resendMessage: resendMessage,
+      flushQueued: flushQueued,
+      applySeen: applySeen,
       bootstrapHistory: bootstrapHistory,
       // P0-C / P0-3 — explicit thread selection. Loads exactly `cid`, never
       // lets the server pick a different conversation, and drops its own
@@ -4627,6 +5234,7 @@
     var t = deps.t;
     var kbStore = deps.kbStore;
     var onSwitchToChat = deps.onSwitchToChat || function () {};
+    var helpShown = deps.helpShown || function () { return true; };
 
     // Per-instance ephemeral state (not persisted).
     var rootEl = null;          // current tab body element
@@ -4686,7 +5294,12 @@
               var arts = r.articles || [];
               var cats = r.categories || [];
               Util.log('[Widget KB] loaded articles', { count: arts.length, categories: cats.length, locale: ctx.locale });
-              kbStore.set({ loaded: true, loadedAt: Date.now(), categories: cats, articles: arts });
+              // `total` (every published article; older servers send none)
+              // and the categories' own lists start over with each load.
+              kbStore.set({
+                loaded: true, loadedAt: Date.now(), categories: cats, articles: arts,
+                total: typeof r.total === 'number' ? r.total : arts.length, catArticles: {},
+              });
               resolveAll();
             },
           });
@@ -4702,8 +5315,106 @@
       if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
     }
 
+    // ── Past the first page (V-29) ──
+    // /categories lists the first 50 articles and how many there are
+    // (`total`). The plain list (default, and t1/t2 without categories)
+    // reads the next page when the visitor scrolls near its end; a category
+    // (runtime-ext.js `kbCategories`) reads its own articles when opened
+    // (loadCategory), up to KB_CAT_MAX, so its count and its list agree.
+    var KB_PAGE = 50;
+    var KB_CAT_PAGE = 100;
+    var KB_CAT_MAX = 500;
+    var morePending = false;
+    var catPending = {};
+    function readPage(params, done) {
+      ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
+        var mod = ModuleLoader.modules.kb;
+        if (!mod || !mod.loadArticles) { done({ ok: false }); return; }
+        mod.loadArticles({
+          apiBase: ctx.apiBase, workspaceId: ctx.workspaceId, sessionToken: ctx.sessionToken, locale: ctx.locale,
+          categoryId: params.categoryId, offset: params.offset, limit: params.limit, onResult: done,
+        });
+      });
+    }
+    // `list` followed by the articles of `more` it does not hold yet.
+    function bySlug(list, more) {
+      var known = {};
+      var out = (list || []).slice();
+      out.forEach(function (a) { if (a && a.slug) known[a.slug] = 1; });
+      (more || []).forEach(function (a) {
+        if (a && a.slug && !known[a.slug]) { known[a.slug] = 1; out.push(a); }
+      });
+      return out;
+    }
+    // The list on screen is the plain one: with categories to browse, t1
+    // and t2 show only the first few articles, so nothing more is read.
+    function pagedList() {
+      var s = kbStore.get();
+      var feats = (Presentation && Presentation.features) || {};
+      return view === 'list' && !currentArticle && !articleLoading && helpShown() &&
+        !(feats.kbCategories && (s.categories || []).length);
+    }
+    function loadMore() {
+      var s = kbStore.get();
+      if (morePending || !pagedList() || !((s.articles || []).length < s.total)) return;
+      morePending = true;
+      var at = (s.articles || []).length;
+      readPage({ offset: at, limit: KB_PAGE }, function (r) {
+        morePending = false;
+        if (!r || !r.ok) return; // the next scroll asks again
+        var cur = kbStore.get();
+        var list = bySlug(cur.articles, r.articles);
+        // The last page settles the count (an article removed meanwhile).
+        kbStore.set({ articles: list, total: r.nextOffset == null ? list.length : Math.max(cur.total, list.length) });
+        if (pagedList()) paint();
+      });
+    }
+    /**
+     * Reads category `id`'s own articles (when it holds more than the first
+     * page brought) into kbStore.catArticles[id], then calls `done(true)`;
+     * `done(false)` when nothing was read.
+     */
+    function loadCategory(id, done) {
+      var s = kbStore.get();
+      var cat = (s.categories || []).filter(function (c) { return String(c.id) === String(id); })[0];
+      var have = (s.articles || []).filter(function (a) { return a && String(a.category_id) === String(id); }).length;
+      if (!cat || catPending[id] || (s.catArticles || {})[id] || !(Number(cat.article_count) > have)) { done && done(false); return; }
+      catPending[id] = true;
+      var got = [];
+      (function next(offset) {
+        readPage({ categoryId: id, offset: offset, limit: KB_CAT_PAGE }, function (r) {
+          if (r && r.ok) got = bySlug(got, r.articles);
+          if (r && r.ok && r.nextOffset != null && got.length < KB_CAT_MAX) { next(r.nextOffset); return; }
+          catPending[id] = false;
+          if (!got.length) { done && done(false); return; }
+          var map = Object.assign({}, kbStore.get().catArticles || {});
+          map[id] = got;
+          kbStore.set({ catArticles: map });
+          done && done(true);
+        });
+      })(0);
+    }
+    // Scrolling the plain list near its end reads the next page. A scroll
+    // does not bubble: a capturing listener on the view host sees the list's
+    // scroller (whichever element the template scrolls).
+    function bindPaging() {
+      if (!rootEl || rootEl.__gsKbPaging) return;
+      rootEl.__gsKbPaging = true;
+      rootEl.addEventListener('scroll', function (ev) {
+        var el = ev && ev.target;
+        if (!el || el.nodeType !== 1 || !pagedList()) return;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 240) loadMore();
+      }, { capture: true, passive: true });
+    }
+    // A repaint replaces the view's scroller: the place in a long list stays.
+    function keptScroll() {
+      var el = rootEl && rootEl.querySelector('.wy-scroll, .kb-scroll, .wy-kb-scroll');
+      return el && el.scrollTop ? { cls: el.className, top: el.scrollTop } : null;
+    }
+
     function paint() {
       if (!rootEl) return;
+      var keep = view === 'list' ? keptScroll() : null;
       if (articleLoading) {
         var skel = '';
         try {
@@ -4713,7 +5424,12 @@
         if (skel) { rootEl.innerHTML = skel; return; }
       }
       rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(buildVm()) : '';
+      if (keep && view === 'list') {
+        var el = rootEl.querySelector('.wy-scroll, .kb-scroll, .wy-kb-scroll');
+        if (el && el.className === keep.cls) el.scrollTop = keep.top;
+      }
       bindEvents();
+      bindPaging();
       ext('kbPaint');
     }
 
@@ -5034,7 +5750,7 @@
         get query() { return currentQuery; }, set query(v) { currentQuery = v; },
         get article() { return currentArticle; }, set article(v) { currentArticle = v; },
         get loading() { return articleLoading; },
-        paint: paint, vm: buildVm, bind: bindEvents,
+        paint: paint, vm: buildVm, bind: bindEvents, loadCategory: loadCategory,
       },
     };
 
@@ -6131,10 +6847,10 @@
     // Returns a Promise<Resolution> where Resolution is:
     //   { mode: 'general'|'single'|'multi', visible_departments: [...],
     //     default_department_id: string|null, channel: 'chat'|'audio'|'video' }
-    function resolveDepartmentMode(channel) {
+    function resolveDepartmentMode(channel, fresh) {
       var ch = channel === 'audio' || channel === 'video' ? channel : 'chat';
       var s = departmentStore.get();
-      if (s.modes && s.modes[ch]) return Promise.resolve(s.modes[ch]);
+      if (s.modes && s.modes[ch] && !fresh) return Promise.resolve(s.modes[ch]);
       if (s._inflight && s._inflight[ch]) return s._inflight[ch];
       if (!ctx.apiBase || !ctx.workspaceId) {
         // No API base available — degrade to general mode silently.
@@ -6155,6 +6871,8 @@
             visible_departments: (j && j.visible_departments) || [],
             default_department_id: (j && j.default_department_id) || null,
             channel: ch,
+            // When it was read: who is online changes (the picker reads it again).
+            at: Date.now(),
           };
           var ns = departmentStore.get();
           var modes = Object.assign({}, ns.modes); modes[ch] = resolution;
@@ -6358,6 +7076,12 @@
     chatStore.subscribe(__persistViewHint);
 
     var DRAFT_PENDING_KEY = '__pending__';
+    // The longest message POST /api/widget/message takes (its schema's
+    // max): the composer stops there, and shows what is left from
+    // CHARS_LEFT_SHOW on (`data-chars-left` on the pill, which every
+    // template's stylesheet draws).
+    var MESSAGE_MAX_CHARS = MAX_MESSAGE_CHARS;
+    var CHARS_LEFT_SHOW = 500;
 
     // ─── Smart Engagement interaction bridge state ──────────────────────
     var smartInteractionListeners = [];
@@ -6437,6 +7161,10 @@
       loadedAt: 0,
       categories: [],
       articles: [],
+      // Every published article (the first page lists 50) and a category's
+      // own list once read (createKbUI loadCategory).
+      total: 0,
+      catArticles: {},
       searchResults: [],
     });
     // notifyStore — Phase 4
@@ -6481,7 +7209,7 @@
     // earlier) can call transport.reconnect() when the tab returns from
     // background. ctx is captured by closure inside the wake handler.
     ctx.transport = transport;
-    var identity = createIdentity(ctx, identityStore);
+    var identity = createIdentity(ctx, identityStore, t);
     // Phase 6b — lightbox lives in the panel's Shadow DOM. We expose a
     // function to chatUI so renderChat can open it without reaching into shell.
     var lightboxOpener = function (id) { /* set after panel mount */ };
@@ -6518,6 +7246,7 @@
       ctx: ctx,
       t: t,
       kbStore: kbStore,
+      helpShown: function () { return shellStore.get().activeTab === 'help'; },
       onSwitchToChat: function () {
         if (!chatEnabled) return;
         shellStore.set({ activeTab: 'chat' });
@@ -6543,7 +7272,14 @@
       },
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
-    var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
+    var presence = createPresence(ctx, presenceStore, transport, transportStore, t, function () {
+      return !!shellStore.get().isOpen && !(typeof document !== 'undefined' && document.hidden);
+    });
+    var presenceSawOpen = false;
+    shellStore.subscribe(function (s) {
+      if (s.isOpen && !presenceSawOpen) presence.refresh();
+      presenceSawOpen = !!s.isOpen;
+    });
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
@@ -6584,10 +7320,22 @@
     } else {
       panel.setAttribute('dir', 'ltr');
     }
-    // Dialog semantics. `aria-modal` stays OFF on purpose: on desktop the
-    // panel is a corner popover and the host page behind it remains fully
-    // usable, so claiming modality would lie to assistive tech. The label
-    // is the workspace identity, falling back to the generic "Chat".
+    // The widget's language, whatever the host page's is (WCAG 3.1.2): a
+    // Persian widget on an English-themed site is read with a Persian voice.
+    panel.setAttribute('lang', String(ctx.locale || 'en').split('-')[0]);
+    // The brand colour as a readable accent with its ink (Util.readableAccent),
+    // for a template's stylesheet to wear (`default`, `intl`).
+    var __aa = Util.readableAccent(ctx.primaryColor);
+    if (__aa) {
+      panel.style.setProperty('--gs-primary-aa', __aa.bg);
+      panel.style.setProperty('--gs-on-primary', __aa.ink);
+    }
+    // Dialog semantics. On desktop the panel is a corner popover and the
+    // host page behind it remains fully usable, so it is not modal there. On
+    // a phone the open panel covers the whole screen (the loader's
+    // full-screen shell): there it is modal, `aria-modal` and Tab kept
+    // inside (syncPanelModal). The label is the workspace identity,
+    // falling back to the generic "Chat".
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', brandName || t('chat'));
     // Focusable as a container (never in the tab order) so open() can park
@@ -6717,7 +7465,17 @@
       srAnnouncer.textContent = (senderName ? senderName + ': ' : '') + text;
     }
     var msgInput = chatQ('[data-msg-input]');
-    if (msgInput) { msgInput.addEventListener('input', markVisitorTyping); }
+    if (msgInput) {
+      msgInput.addEventListener('input', markVisitorTyping);
+      msgInput.maxLength = MESSAGE_MAX_CHARS;
+      // The owner's own composer text (Appearance → composer placeholder,
+      // plan-gated server-side), in every template; else the template's.
+      var ownPlaceholder = typeof config.placeholderText === 'string' ? config.placeholderText.trim() : '';
+      if (ownPlaceholder) {
+        msgInput.setAttribute('placeholder', ownPlaceholder);
+        if (msgInput.hasAttribute('aria-label')) msgInput.setAttribute('aria-label', ownPlaceholder);
+      }
+    }
     var sendBtn = chatQ('[data-send-btn]');
     var inputBar = chatQ('[data-input-bar]');
     var attachBtn = chatQ('[data-attach-btn]');
@@ -6725,7 +7483,6 @@
     var micBtn = chatQ('[data-mic-btn]');
     var emojiBtn = chatQ('[data-emoji-btn]');
     var emojiPickerEl = chatQ('[data-emoji-picker]');
-    var escalateBtn = chatQ('[data-escalate-btn]');
 
     // ─── Quote (forward) + copy affordances ────────────────────────────
     // The presentation renders the buttons on each bubble's bottom line and
@@ -6939,6 +7696,7 @@
 
     function clearSmartSurface() {
       smartSurface = null;
+      ctx.smartChatRule = null;
       renderSmartDock();
       renderSmartAnnounce();
       if (shellStore.get().activeTab === 'home') renderBody();
@@ -7059,11 +7817,31 @@
       });
     }
     // Phase 6b — small helper used by both the chip & in-message file cards.
+    // In the visitor's digits and words (۲۴۰ کیلوبایت).
     function humanSizeShell(bytes) {
       var n = Number(bytes) || 0;
-      if (n < 1024) return n + ' B';
-      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
-      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+      var u = n < 1024 ? 0 : n < 1048576 ? 1 : 2;
+      var v = n / Math.pow(1024, u);
+      return localNumber(u && v < 10 ? Math.round(v * 10) / 10 : Math.round(v)) + ' ' + t(['sizeB', 'sizeKB', 'sizeMB'][u]);
+    }
+    function localNumber(n) {
+      try {
+        var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+        return new Intl.NumberFormat(l === 'fa' ? 'fa-IR' : l === 'tr' ? 'tr-TR' : 'en-US', { maximumFractionDigits: 1 }).format(n);
+      } catch (_) { return String(n); }
+    }
+    // What a refused file may be: the size limit, and the kinds allowed.
+    function tooLargeText(maxBytes) {
+      return String(t('tooLargeMax')).split('{size}').join(humanSizeShell(maxBytes));
+    }
+    function typesAllowedText(mimes) {
+      var names = [];
+      (mimes || []).forEach(function (m) {
+        var sub = String(m || '').split('/')[1] || '';
+        var name = sub === 'jpeg' ? 'JPG' : sub === 'plain' ? 'TXT' : sub.replace(/^x-|^vnd\./, '').split(/[.+]/)[0].toUpperCase();
+        if (name && names.indexOf(name) < 0) names.push(name);
+      });
+      return names.length ? String(t('typeNotAllowedList')).split('{types}').join(names.join(/^fa/i.test(ctx.locale || '') ? '، ' : ', ')) : t('typeNotAllowed');
     }
     attachmentStore.subscribe(renderAttachmentPreview);
     renderAttachmentPreview();
@@ -7163,6 +7941,36 @@
     if (lightboxEl) lightboxEl.addEventListener('click', function (e) {
       if (e.target === lightboxEl) closeLightbox();
     });
+    // ── A full-screen panel is modal ──
+    // The loader's phone test (loader.js PHONE_MQ): there the open panel is
+    // the whole screen, and what is behind it can be neither seen nor used.
+    var PHONE_MQ = '(max-width:640px),(max-height:500px) and (pointer:coarse)';
+    function panelIsFullScreen() {
+      try { return !!shellStore.get().isOpen && window.matchMedia(PHONE_MQ).matches; } catch (_) { return false; }
+    }
+    function syncPanelModal() {
+      if (panelIsFullScreen()) panel.setAttribute('aria-modal', 'true');
+      else panel.removeAttribute('aria-modal');
+    }
+    try { window.addEventListener('resize', syncPanelModal); } catch (_) { /* no window */ }
+    // Tab and Shift+Tab go round the panel's own controls.
+    panel.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab' || !panelIsFullScreen()) return;
+      if (lightboxEl && !lightboxEl.hidden) return; // the lightbox keeps its own
+      var all = panel.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      var list = [];
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].offsetParent !== null || all[i].getClientRects().length) list.push(all[i]);
+      }
+      if (!list.length) { e.preventDefault(); return; }
+      var active = shadowRoot && shadowRoot.activeElement;
+      var first = list[0], last = list[list.length - 1];
+      if (e.shiftKey && (active === first || !panel.contains(active))) { e.preventDefault(); try { last.focus(); } catch (_) {} }
+      else if (!e.shiftKey && (active === last || !panel.contains(active))) { e.preventDefault(); try { first.focus(); } catch (_) {} }
+    });
+
     // ── Escape ──
     // Bound on the PANEL, not the document: a widget must never swallow the
     // host page's own Escape (closing their modal, cancelling their form)
@@ -7196,12 +8004,13 @@
     // lookup table can safely map each one to the visitor's locale instead
     // of leaking English into a Persian/Turkish chat.
     function localizeUploadError(serverMsg) {
+      var attachCfg = (ctx.config && ctx.config.attachments) || {};
       var map = {
         'Widget chat not enabled': t('chatUnavailable') || 'Chat is currently unavailable',
         'Attachments not enabled for this workspace': t('attachmentsDisabled') || 'File attachments are not enabled',
         'Voice notes not enabled for this workspace': t('voiceNotesDisabled') || 'Voice messages are not enabled',
-        'File type not allowed': t('typeNotAllowed'),
-        'File too large': t('tooLarge'),
+        'File type not allowed': typesAllowedText(attachCfg.allowedMimes),
+        'File too large': tooLargeText((attachCfg.maxSizeMb || 10) * 1024 * 1024),
       };
       return (serverMsg && map[serverMsg]) || (t('uploadFailed') || 'Upload failed');
     }
@@ -7221,11 +8030,11 @@
       // against attachCfg.allowedMimes, which only ever lists file types.
       var isVoiceNote = Object.prototype.hasOwnProperty.call(AUDIO_EXT_BY_MIME, file.type);
       if (!isVoiceNote && allowed.indexOf(file.type) < 0) {
-        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('typeNotAllowed') || 'File type not allowed', attachmentId: null });
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: typesAllowedText(allowed), attachmentId: null });
         return;
       }
       if (file.size > maxBytes) {
-        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('tooLarge') || 'File too large', attachmentId: null });
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: tooLargeText(maxBytes), attachmentId: null });
         return;
       }
       attachmentStore.set({ file: file, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'uploading', progress: 10, error: '', attachmentId: null });
@@ -7638,50 +8447,6 @@
     }
     renderVoicePreview();
 
-    // ─── Escalate to a human operator ───────────────────────────────────
-    // Invokes the existing AI-handoff state machine server-side (same
-    // transition keyword-detection already triggers), reachable from an
-    // explicit button instead of requiring the visitor to type the right
-    // words. Only shown once a conversation exists (needs a conversation_id
-    // to escalate).
-    function syncEscalateButton() {
-      if (!escalateBtn) return;
-      escalateBtn.hidden = !chatStore.get().conversationId;
-    }
-    chatStore.subscribe(syncEscalateButton);
-    syncEscalateButton();
-    if (escalateBtn) {
-      escalateBtn.addEventListener('click', function () {
-        if (escalateBtn.disabled) return;
-        var cid = chatStore.get().conversationId;
-        if (!cid) return;
-        escalateBtn.disabled = true;
-        ctx.fetchWith(ctx.apiBase + '/api/widget/escalate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            conversation_id: cid,
-            visitor_id: identityStore.get().visitorId || undefined,
-            session_id: identityStore.get().sessionId || undefined,
-          }),
-        }).then(function (r) { return r.json().catch(function () { return {}; }); })
-          .then(function (resp) {
-            if (resp && resp.ok) {
-              escalateBtn.classList.add('sent');
-              try { ctx.__handoffRequested = true; } catch (_) {}
-              escalateBtn.title = t('escalateRequested') || "We've let our team know.";
-            } else {
-              escalateBtn.disabled = false;
-              escalateBtn.title = t('escalateFailed') || 'Could not reach an operator right now.';
-            }
-          })
-          .catch(function () {
-            escalateBtn.disabled = false;
-            escalateBtn.title = t('escalateFailed') || 'Could not reach an operator right now.';
-          });
-      });
-    }
-
     function syncAttachButton() {
       if (!attachBtn) return;
       var conn = transportStore.get().connectionState;
@@ -7753,25 +8518,30 @@
       //   - away with offline_mode capture_message, the leave-a-message form
       //     owns a new human thread (renderBody hides the composer); an
       //     existing thread and an AI chat keep theirs
+      // The connection never closes it: while it is being made the visitor
+      // writes and sends, and the message waits, said in words on its
+      // bubble, and goes by itself once connected (chatUI.flushQueued).
       var pState = presenceStore.get();
       var availOk = pState.liveChatEnabled !== false;
-      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
+      var canSend = shellStore.get().activeTab === 'chat' && availOk;
       // A locked composer is styled by its renderer (`.input-bar.is-locked`).
       var locked = ext('locked');
       if (locked) canSend = false;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
-      if (canSend || locked) {
-        msgInput.removeAttribute('title');
-        sendBtn.style.opacity = '';
-        msgInput.style.opacity = '';
-      } else {
-        var tip = t('offlineComposerTip');
+      var waits = conn === 'connecting' || conn === 'reconnecting' ||
+        (conn === 'offline' && typeof navigator !== 'undefined' && navigator.onLine === false);
+      var tip = locked ? '' : !canSend ? t('chatUnavailableTip') : waits ? t('connectingComposerTip') : '';
+      if (tip) {
         msgInput.setAttribute('title', tip);
         sendBtn.setAttribute('title', tip);
-        sendBtn.style.opacity = '0.5';
-        msgInput.style.opacity = '0.7';
+      } else {
+        msgInput.removeAttribute('title');
+        sendBtn.removeAttribute('title');
       }
+      // Dimmed only when it cannot be used, never for the connection.
+      sendBtn.style.opacity = canSend || locked ? '' : '0.5';
+      msgInput.style.opacity = canSend || locked ? '' : '0.7';
     }
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
@@ -7858,6 +8628,32 @@
       var has = !!String(msgInput.value || '').trim()
         || (att.status === 'ready' && !!att.attachmentId);
       inputBar.classList.toggle('has-draft', has);
+      syncCharsLeft();
+    }
+    // What is left of the limit, in the locale's digits, once it is near;
+    // reaching it is said to a screen reader once.
+    var charsLeftNf = null;
+    try {
+      var nfBase = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+      charsLeftNf = new Intl.NumberFormat(nfBase === 'fa' ? 'fa-IR' : nfBase === 'tr' ? 'tr-TR' : 'en-US');
+    } catch (_) { charsLeftNf = null; }
+    var inputWrapEl = chatQ('[data-input-wrap]');
+    var charsLimitSaid = false;
+    function syncCharsLeft() {
+      if (!msgInput || !inputWrapEl) return;
+      var left = MESSAGE_MAX_CHARS - String(msgInput.value || '').length;
+      if (left > CHARS_LEFT_SHOW) {
+        inputWrapEl.removeAttribute('data-chars-left');
+        charsLimitSaid = false;
+        return;
+      }
+      var label = Math.max(0, left);
+      try { if (charsLeftNf) label = charsLeftNf.format(label); } catch (_) {}
+      inputWrapEl.setAttribute('data-chars-left', String(label));
+      if (left <= 0 && !charsLimitSaid) {
+        charsLimitSaid = true;
+        srAnnouncer.textContent = t('msgFailLong');
+      }
     }
     attachmentStore.subscribe(function () {
       try { syncComposerDraftState(); } catch (_) {}
@@ -7919,7 +8715,8 @@
       if (!text && !hasReadyAttach) return;
       if (att.status === 'uploading') return; // wait for upload to finish
       if (!identityStore.get().loaded) return;
-      if (transportStore.get().connectionState !== 'online') return;
+      // No connection check: without one the message waits on its bubble
+      // and goes by itself once connected (chatUI.sendMessage, flushQueued).
       // Contextual pre-chat gate (spec §4) — must match renderBody()'s own
       // decision exactly, not the raw field-presence identity.needsPrechat().
       // Using the raw check here meant every send silently no-op'd (just
@@ -7964,7 +8761,12 @@
       if (pendingQuote && pendingQuote.text) {
         var qLine = String(pendingQuote.text).replace(/\s*\n+\s*/g, ' ').trim();
         if (pendingQuote.author) qLine = pendingQuote.author + ': ' + qLine;
-        outText = '> ' + qLine + '\n\n' + text;
+        // The quote never pushes the message past the server's limit: it is
+        // shortened to the room the visitor's own text leaves (and left out
+        // when there is none; the reply link still travels).
+        var room = MESSAGE_MAX_CHARS - text.length - 4;
+        if (qLine.length > room) qLine = room > 1 ? qLine.slice(0, room - 1) + '…' : '';
+        if (qLine) outText = '> ' + qLine + '\n\n' + text;
         replyToId = pendingQuote.id || null;
         setPendingQuote(null);
       }
@@ -8098,9 +8900,14 @@
       if (resolution.mode === 'general') return false;
       // Single mode → resolver auto-binds selectedId. No UI step needed.
       if (resolution.mode === 'single') return false;
-      // Multi mode — show selector unless visitor already picked one.
+      // Multi mode — show selector unless visitor already picked one, or
+      // the chat already has a thread (a new tab of an open conversation:
+      // its department was given with its first message).
       if (s.selectedId) return false;
+      if (ch === 'chat' && (chatStore.get().conversationId || (chatStore.get().messages || []).length)) return false;
       renderDepartmentPicker(channel, resolution);
+      // Who is online now, at most a minute old (the store's change repaints).
+      if (Date.now() - (resolution.at || 0) > 60000 && !(s._inflight && s._inflight[ch])) resolveDepartmentMode(ch, true);
       return true;
     }
 
@@ -8112,25 +8919,28 @@
     function renderDepartmentPicker(channel, resolution) {
       if (!body) return;
       var depts = (resolution && resolution.visible_departments) || [];
-      var subtitleKey = channel === 'audio'
-        ? 'Choose who you would like to call'
-        : channel === 'video'
-          ? 'Choose who you would like to video call'
-          : 'Choose a team to chat with';
-      var html = '<div class="dept-picker" role="group" aria-label="Department selector">' +
-        '<h3 class="dept-picker__title">How can we help?</h3>' +
-        '<p class="dept-picker__subtitle">' + Util.escapeHtml(subtitleKey) + '</p>' +
+      // Every word in the visitor's language (Core's dictionary), and each
+      // department nobody answers right now marked (`online` from the
+      // server: chat only; a call department is listed only when someone
+      // can take the call).
+      var subtitle = t(channel === 'audio' ? 'deptAudio' : channel === 'video' ? 'deptVideo' : 'deptChat');
+      var html = '<div class="dept-picker" role="group" aria-label="' + Util.escapeHtml(t('deptGroup')) + '">' +
+        '<h3 class="dept-picker__title">' + Util.escapeHtml(t('deptTitle')) + '</h3>' +
+        '<p class="dept-picker__subtitle">' + Util.escapeHtml(subtitle) + '</p>' +
         '<div class="dept-picker__list">';
+      var capNames = { chat: t('chat'), audio: t('voiceCall'), video: t('videoCall') };
       for (var i = 0; i < depts.length; i++) {
         var d = depts[i];
         if (!d || !d.id) continue;
         var caps = d.capabilities || {};
         var capHtml = '';
-        if (caps.chat) capHtml += '<span class="dept-option__cap" title="Chat" aria-label="Chat">' + __DEPT_ICONS.chat + '</span>';
-        if (caps.audio) capHtml += '<span class="dept-option__cap" title="Voice" aria-label="Voice">' + __DEPT_ICONS.audio + '</span>';
-        if (caps.video) capHtml += '<span class="dept-option__cap" title="Video" aria-label="Video">' + __DEPT_ICONS.video + '</span>';
-        html += '<button type="button" class="dept-option" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
+        ['chat', 'audio', 'video'].forEach(function (c) {
+          if (caps[c]) capHtml += '<span class="dept-option__cap" title="' + Util.escapeHtml(capNames[c]) + '">' + __DEPT_ICONS[c] + '</span>';
+        });
+        var away = d.online === false;
+        html += '<button type="button" class="dept-option' + (away ? ' is-offline' : '') + '" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
           '<span class="dept-option__name">' + Util.escapeHtml(d.name || t('team')) + '</span>' +
+          (away ? '<span class="dept-option__status">' + Util.escapeHtml(t('deptOffline')) + '</span>' : '') +
           '<span class="dept-option__caps" aria-hidden="true">' + capHtml + '</span>' +
         '</button>';
       }
@@ -8350,7 +9160,7 @@
     }
 
     // Mount/unmount the single chat view. Mounting never rebuilds the frame,
-    // so composer/attachment/voice/reply/emoji/escalate bindings stay live.
+    // so composer/attachment/voice/reply/emoji bindings stay live.
     function mountChatFrame() {
       if (!body || !chatFrame) return null;
       if (chatFrame.parentNode !== body) {
@@ -8576,6 +9386,7 @@
         if (!(conversationsStore.get() || {}).loaded) {
           conversationsStore.set({ loaded: true, loading: false, error: false, items: [] });
         }
+        Util.activeHint(false);
         if (onDone) onDone();
         return;
       }
@@ -8611,12 +9422,14 @@
             document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
             conversationsVisibilityHandler = null;
           }
+          var rows = data && data.conversations ? data.conversations : [];
           conversationsStore.set({
             loaded: true,
             loading: false,
             error: false,
-            items: (data && data.conversations ? data.conversations : []).map(mapConversationVm),
+            items: rows.map(mapConversationVm),
           });
+          syncUnreadFromList(rows);
           if (onDone) onDone();
         })
         .catch(function (err) {
@@ -8678,8 +9491,11 @@
         ConvEpoch.bump('start_new_conversation_fallback', { fresh: true });
         chatStore.set({ freshIntent: true, conversationId: null, messages: [], seenIds: {}, aiThinking: false });
       }
-      // Per-conversation escalation state must not leak into the new thread.
-      try { ctx.__handoffRequested = false; } catch (_) {}
+      // With several departments, a new conversation is a new choice of one.
+      var deptState = departmentStore.get();
+      if (deptState.modes && deptState.modes.chat && deptState.modes.chat.mode === 'multi' && deptState.selectedId) {
+        departmentStore.set({ selectedId: null, selectedFromCh: null });
+      }
       switchTab('chat');
       // renderBody() fires requestAiAgentIntro('chat_open') for the AI_CHAT
       // entry flow; because the intro guard is keyed by the conversation
@@ -8870,13 +9686,14 @@
       bindViewHooks(body);
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (ctaBtn) {
         ctaBtn.addEventListener('click', function () {
-          // When an unresolved thread exists the template labels this CTA
-          // "Start new", so it must genuinely force a new conversation.
-          // Otherwise it is just "Start chat" → resume normal resolution.
-          var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
-            return c.status !== 'resolved' && c.status !== 'closed';
-          });
-          if (hasUnresolved) { startNewConversation(); return; }
+          // The CTA does what it says. Beside any earlier thread every
+          // template labels it as a new one ("New conversation", "Send a
+          // new message", "Start chat" under a finished thread): it starts
+          // one, never reopening an old thread's history (a live thread has
+          // its own "continue" control). With no thread at all it simply
+          // opens the chat.
+          var hasThread = ((conversationsStore.get() || {}).items || []).length > 0;
+          if (hasThread) { startNewConversation(); return; }
           chatStore.set({ conversationId: chatStore.get().conversationId });
           switchTab('chat');
         });
@@ -8911,6 +9728,9 @@
       PRECHAT_FOR_HUMAN: 'PRECHAT_FOR_HUMAN',
       HANDOFF_PRECHAT: 'HANDOFF_PRECHAT',
       OFFLINE_CONTACT: 'OFFLINE_CONTACT',
+      // Away with the offline mode "show only the offline message": the
+      // owner's message alone, no form and no composer.
+      OFFLINE_NOTICE: 'OFFLINE_NOTICE',
       // CONNECTING_TO_AGENT / WAITING_UNASSIGNED / HUMAN_CONNECTED /
       // OFFLINE_SUBMITTED collapse to this: the widget has no
       // assignment/routing-outcome signal in /config or the message
@@ -8946,13 +9766,13 @@
       // handoff-transition message — e.g. the visitor just typed "connect
       // me to a human" and the AI replied "sure, connecting you now").
       // That last case has NO human-sender message yet (no operator has
-      // joined) and no escalate-button click either, so it was previously
+      // joined), so it was previously
       // invisible to this check — the server already tags exactly this
       // moment via conversation_messages.metadata.handoff === true on the
       // AI's own transitional message (see engine.ts's three handoff
       // insertAiMessage call sites, all pass handoff: true) — reuse that
       // signal instead of guessing from sender type alone.
-      var handedOff = !!ctx.__handoffRequested || msgs.some(function (m) {
+      var handedOff = msgs.some(function (m) {
         var s = m && (m.senderType || m.sender || m.role || '');
         if (s === 'agent' || s === 'operator' || s === 'human') return true;
         return !!(m && m.metadata && m.metadata.handoff === true);
@@ -8968,6 +9788,13 @@
         || !!(ctx.config && ctx.config.availability && ctx.config.availability.quota_full === true);
       if (quotaFull && !hasMsgs && !chatStore.get().conversationId) {
         return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
+      }
+      // Nobody (human or AI) answers, and the owner chose to show only the
+      // offline message: a new thread is that message, before any form.
+      var pNow = presenceStore.get();
+      if ((pNow.status === 'offline' || pNow.status === 'unavailable') && pNow.offlineMode === 'show_offline_message'
+          && !hasMsgs && !aiActiveNow && !chatStore.get().conversationId) {
+        return { name: ENTRY_FLOW_STATE.OFFLINE_NOTICE, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
 
       if (identity.shouldRequirePrechat(flow) && !ext('skip')) {
@@ -9187,6 +10014,16 @@
           return;
         }
 
+        if (state.name === ENTRY_FLOW_STATE.OFFLINE_NOTICE) {
+          // The owner's offline message alone, as the empty thread's welcome
+          // bubble (which every template draws), with no composer.
+          if (inputBar) inputBar.style.display = 'none';
+          var ownWelcome = config.welcomeMessage;
+          config.welcomeMessage = offlineMessageOf(config) || t('offlineNotice');
+          try { chatUI.renderChat(mountChatFrame() || body); } finally { config.welcomeMessage = ownWelcome; }
+          return;
+        }
+
         if (state.name === ENTRY_FLOW_STATE.OFFLINE_CONTACT) {
           // Contact-fallback form owns the input area — hide the chat composer.
           if (inputBar) inputBar.style.display = 'none';
@@ -9256,8 +10093,11 @@
     });
 
     // Re-render body when presence flips so fallback/normal swap takes effect.
+    // Never under a visitor typing into the leave-a-message form: it stays
+    // (the server takes the message whatever the team's state by then).
     presenceStore.subscribe(function () {
       var at = shellStore.get().activeTab;
+      if (at === 'chat' && body && Array.prototype.some.call(body.querySelectorAll('[data-fb]'), function (el) { return el.value !== (el.defaultValue || ''); })) return;
       if (at === 'chat' || at === 'home') renderBody();
     });
 
@@ -9301,9 +10141,15 @@
       var activeCid = chatStore.get().conversationId;
       var panelOpen = shellStore.get().isOpen;
       var activeTab = shellStore.get().activeTab;
+      // A tab in the background is not looking at the chat, open or not:
+      // the reply counts as unread there (title, badge, chime).
+      var pageHidden = typeof document !== 'undefined' && document.hidden === true;
 
       var newCount = 0;
       var lastIncoming = null;
+      // A new reply in the thread the visitor has open and in view: no
+      // unread, but a screen reader still hears it (WCAG 4.1.3).
+      var lastVisible = null;
 
       for (var i = 0; i < allIncoming.length; i++) {
         var m = allIncoming[i] || {};
@@ -9320,8 +10166,10 @@
         // Resolve cid for this message; fall back to active.
         var cid = m.conversation_id || m.conversationId || activeCid || '__default__';
         // Active conversation visible to the user → no unread bump.
-        var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid;
-        if (isActiveVisible) continue;
+        var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid && !pageHidden;
+        if (isActiveVisible) { lastVisible = m; continue; }
+        // Read on the visitor's return to the page (the visibilitychange below).
+        if (pageHidden && panelOpen && activeTab === 'chat' && cid === activeCid) unreadWhileHiddenCid = cid;
         per[cid] = (per[cid] || 0) + 1;
         newCount += 1;
         lastIncoming = m;
@@ -9358,6 +10206,18 @@
           }
         }
       } catch (_) { /* never break on audio */ }
+
+      if (!(newCount > 0 && lastIncoming) && lastVisible) {
+        // The open thread's reply: the typing row gives way to it, and it is
+        // announced like any other (the bubble itself is in view).
+        hideThinkingIndicator();
+        var visMeta = lastVisible.metadata || (lastVisible.message && lastVisible.message.metadata) || null;
+        var visIsSystem = !!((lastVisible.role === 'system' || lastVisible.sender_type === 'system') && visMeta && visMeta.kind);
+        announceIncoming(
+          aiOwnName(lastVisible.sender_type, lastVisible.sender_name) || lastVisible.from_name || (ctx.config.brandName || ''),
+          visIsSystem ? systemRowText(t, ctx.locale, visMeta.kind, visMeta) : (lastVisible.text || lastVisible.body || ''),
+        );
+      }
 
       if (newCount > 0 && lastIncoming) {
         // What it reads as outside the thread: a system row (the queue
@@ -9439,13 +10299,27 @@
       Util.log('transport reconnect — refreshing history');
       // Capability-gated: only call history load if the driver supports it.
       if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
-        chatUI.bootstrapHistory(function () {
+        var repaint = function () {
           if (shellStore.get().activeTab === 'chat') renderBody();
-        });
+        };
+        // The thread on screen is reloaded, never swapped: the server's own
+        // pick (its latest continuable thread) is only for a visitor with
+        // none open, else another thread's messages would merge into this
+        // one and the next message would go there.
+        var activeCid = chatStore.get().conversationId;
+        if (activeCid) chatUI.loadConversationHistory(activeCid, repaint);
+        else chatUI.bootstrapHistory(repaint);
       }
     });
     transport.on('connectionstate', function (e) {
       Util.log('connection state →', e.state);
+    });
+    // What was written while the connection was being made goes as soon as
+    // a send can (whichever path moved the connection state).
+    transportStore.subscribe(function () { chatUI.flushQueued(renderBody); });
+    // An operator read the visitor's messages: their ticks turn "seen".
+    transport.on('seen', function (p) {
+      if (chatUI.applySeen(p) && shellStore.get().activeTab === 'chat') renderBody();
     });
     // Presence/typing inbound hooks — only wire if driver advertises support.
     // Under the polling driver these are no-ops; future WS/SSE drivers can
@@ -9474,7 +10348,7 @@
       ext('typing', 1, p);
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
-      typingLabel.textContent = t('typingOperator') || 'Support is typing…';
+      typingLabel.textContent = t('typingOperator') || 'An operator is typing…';
       typingRow.hidden = false;
       if (typingHideTimer) clearTimeout(typingHideTimer);
       typingHideTimer = setTimeout(function () {
@@ -9482,16 +10356,13 @@
       }, 3500);
     }
     // A driver's capabilities are only known once the realtime negotiation
-    // answers, after this line runs: a renderer with features (here still
-    // waiting for them: it may draw typing) listens regardless; only a
-    // driver that supports typing emits.
-    if ((transport.hasCapability && transport.hasCapability('supportsTyping')) || extWait) {
-      transport.on('typing', function (e) {
-        var actor = e && e.payload && e.payload.actor;
-        if (actor === 'visitor') return; // ignore self-echo
-        showOperatorTyping(e && e.payload);
-      });
-    }
+    // answers, after this line runs, so every template listens (`default`
+    // draws it above its composer too); only a driver that supports typing emits.
+    transport.on('typing', function (e) {
+      var actor = e && e.payload && e.payload.actor;
+      if (actor === 'visitor') return; // ignore self-echo
+      showOperatorTyping(e && e.payload);
+    });
 
     // ─── AI "thinking…" indicator ───
     // The AI has no realtime typing signal (it's request/response, not a
@@ -9674,11 +10545,55 @@
       __resume.identityDone = true;
       __runBootHistory();
       if (!contextualNeedsPrechat()) {
+        // Only into an open panel: a runtime booted silently (a reply on the
+        // way, a Smart Engagement rule) never takes the host page's focus.
         if (msgInput) setTimeout(function () {
-          if (transportStore.get().connectionState === 'online' && !ext('autofocus', coreFocused)) msgInput.focus();
+          if (shellStore.get().isOpen && transportStore.get().connectionState === 'online' && !ext('autofocus', coreFocused)) msgInput.focus();
         }, 200);
       }
     });
+
+    // ─── The visitor's unread replies, as the server counts them ───
+    // The live count starts at this page view, so a reply that came while
+    // the visitor was on another page, or an operator's first message
+    // (Visitors → Start chat), was never counted: the thread list carries
+    // each thread's unread replies (after the visitor's own read marker).
+    // They go on the launcher (badge, page title) and, once per reply, as
+    // the preview beside it; the thread the visitor has open in view counts
+    // none, and a live count already higher is kept. The list also keeps the
+    // loader's `gs_active` hint: set while a thread is open or pending, so
+    // the next page view boots this runtime silently (loader.js).
+    var __previewedKey = 'gs:previewed:' + (ctx.workspaceId || '');
+    function syncUnreadFromList(rows) {
+      Util.activeHint(rows.some(function (c) { return c && (c.status === 'open' || c.status === 'pending'); }));
+      var sh = shellStore.get();
+      // The thread on screen, or the one this page is reopening (the view hint).
+      var activeCid = chatStore.get().conversationId || __resumeConversationId;
+      var viewing = sh.isOpen && sh.activeTab === 'chat' && !(typeof document !== 'undefined' && document.hidden);
+      var ns = notifyStore.get();
+      var per = {};
+      for (var k in ns.perConversation) {
+        if (Object.prototype.hasOwnProperty.call(ns.perConversation, k)) per[k] = ns.perConversation[k];
+      }
+      var newest = null;
+      rows.forEach(function (c) {
+        var n = c && c.id && !(viewing && c.id === activeCid) ? (Number(c.unreadCount) || 0) : 0;
+        if (n <= 0) return;
+        per[c.id] = Math.max(n, per[c.id] || 0);
+        if (!c.outbound && (!newest || String(c.lastMessageAt || '') > String(newest.lastMessageAt || ''))) newest = c;
+      });
+      var total = 0;
+      for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
+      if (total !== ns.totalUnread) notifyStore.set({ perConversation: per, totalUnread: total });
+      if (!newest || sh.isOpen) return;
+      // One preview per reply, whatever page the visitor goes on to.
+      var mark = newest.id + '|' + (newest.lastMessageAt || '');
+      var seen = '';
+      try { seen = sessionStorage.getItem(__previewedKey) || ''; } catch (_) { seen = ''; }
+      if (seen === mark) return;
+      try { sessionStorage.setItem(__previewedKey, mark); } catch (_) { /* private mode: it may show again */ }
+      notify.showToast(newest.operatorName || null, mapConversationVm(newest).preview);
+    }
 
     // ─── Helper: clear unread for the currently-active conversation ───
     // Only the visible conversation is cleared; other conversations keep
@@ -9708,6 +10623,21 @@
     shellStore.subscribe(function (s) {
       if (s.isOpen && s.activeTab === 'chat') { clearUnreadForActive(); flushPendingRead(); }
     });
+    // Replies that came while the page was in the background counted as
+    // unread (transport.on('message')): the visitor coming back to the open
+    // thread has now seen them.
+    var unreadWhileHiddenCid = null;
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) return;
+        var sh = shellStore.get();
+        if (!sh.isOpen || sh.activeTab !== 'chat') return;
+        var cid = chatStore.get().conversationId;
+        clearUnreadForActive();
+        if (cid && unreadWhileHiddenCid === cid) markConversationRead(cid);
+        unreadWhileHiddenCid = null;
+      });
+    }
 
     // ─── Renderer features (runtime-ext.js) ───
     // Requested now, alongside the visitor's identity and threads, which a
@@ -9781,11 +10711,15 @@
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },
 
-      open: function () {
+      // `quiet`: an open nobody asked for (a Smart Engagement rule set to
+      // open the widget): the panel shows, the focus stays where the visitor
+      // has it (a checkout form being filled keeps its keystrokes).
+      open: function (quiet) {
         if (shellStore.get().isOpen) return true;
         shellStore.set({ isOpen: true });
         panel.removeAttribute('inert');
         panel.setAttribute('aria-hidden', 'false');
+        syncPanelModal();
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
         transport.pollNow();
@@ -9796,6 +10730,7 @@
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
         coreFocused = shadowRoot && shadowRoot.activeElement;
+        if (quiet === true) return true;
         // Focus has to LAND somewhere inside the panel, otherwise a keyboard
         // visitor is still on the launcher (or worse, on the host page) with
         // no way to reach the widget, and Escape has nothing to close.
@@ -9833,6 +10768,7 @@
         } catch (_) {}
         panel.setAttribute('aria-hidden', 'true');
         panel.setAttribute('inert', '');
+        panel.removeAttribute('aria-modal');
         return false;
       },
       toggle: function () {
@@ -9876,6 +10812,11 @@
         if (surface.mode === 'home_card') {
           switchTab('home');
         } else if (surface.mode === 'chat_message') {
+          // A first message answering it names it: the server stores the
+          // rule's own text as the conversation's first line (V-28), and
+          // the locally drawn one goes (smartOpened).
+          ctx.smartChatRule = surface.id ? { id: String(surface.id), locale: ctx.locale || null } : null;
+          ctx.smartOpened = clearSmartSurface;
           switchTab('chat');
           renderSmartDock();
         } else if (surface.mode === 'announcement') {

@@ -35,6 +35,7 @@ interface QueryBuilder {
   is(col: string, val: unknown): QueryBuilder;
   in(col: string, vals: unknown[]): QueryBuilder;
   or(clauses: string): QueryBuilder;
+  filter(path: string, op: string, val: unknown): QueryBuilder;
   order(...args: unknown[]): QueryBuilder;
   limit(...args: unknown[]): QueryBuilder;
   insert(payload: Row | Row[]): { select(): { single(): Promise<Result> }; then(resolve: Resolve): unknown };
@@ -98,6 +99,12 @@ function fakeClient() {
         is(col: string, val: unknown) { filters.push((r) => (val === null ? (r[col] === null || r[col] === undefined) : r[col] === val)); return builder; },
         in(col: string, vals: unknown[]) { inFilter = { col, vals }; return builder; },
         or(clauseStr: string) { orGroups.push(clauseStr.split(',')); return builder; },
+        // `metadata->>key eq value` (send-message's idempotency lookup).
+        filter(path: string, _op: string, val: unknown) {
+          const m = /^metadata->>(\w+)$/.exec(path);
+          if (m) filters.push((r) => ((r.metadata || {}) as Row)[m[1]] === val);
+          return builder;
+        },
         order: () => builder,
         limit: () => builder,
         insert(payload: Row | Row[]) {
@@ -185,13 +192,21 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
   },
   verifyOriginForMutation: () => true,
 }));
+const conversationPublishes = vi.hoisted(() => [] as Array<{ conversationId: string; event: { type: string; payload: Record<string, unknown> } }>);
 vi.mock('../../../server/services/realtime/publish.js', () => ({
-  publishConversationEvent: async () => ({ ok: false, reason: 'not_configured' }),
+  publishConversationEvent: async (_c: unknown, _w: string, conversationId: string, event: { type: string; payload: Record<string, unknown> }) => {
+    conversationPublishes.push({ conversationId, event });
+    return { ok: false, reason: 'not_configured' };
+  },
   publishOperatorEvent: async () => ({ ok: false }),
   buildMessageEnvelope: (m: unknown) => ({ type: 'message', payload: m }),
 }));
 vi.mock('../../../server/services/billing/conversationLimit.js', () => ({
   enforceMaxConversationsLimit: async () => true,
+}));
+const wakes = vi.hoisted(() => [] as Array<{ workspaceId: string; conversationId: string }>);
+vi.mock('../../../server/services/widget/visitorWake.js', () => ({
+  wakeVisitorWidget: async (_c: unknown, workspaceId: string, conversationId: string) => { wakes.push({ workspaceId, conversationId }); },
 }));
 
 const { conversationsRouter } = await import('../../../server/routes/conversations.js');
@@ -392,15 +407,49 @@ describe('POST /api/conversations/:id/seen', () => {
   it('marks unseen visitor messages as seen and is workspace-scoped by the conversation itself', async () => {
     const msgId = crypto.randomUUID();
     db.conversation_messages.push({ id: msgId, conversation_id: convOpen, sender_type: 'contact', body: 'hi', seen_at: null, created_at: '2026-01-01T00:00:00Z' });
+    conversationPublishes.length = 0;
     const res = await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
     expect(res.status).toBe(200);
     expect(res.json.count).toBe(1);
     expect(db.conversation_messages.find((m) => m.id === msgId)?.seen_at).not.toBeNull();
+    // The visitor's widget hears it live: exactly that message, when (I-03).
+    await vi.waitFor(() => expect(conversationPublishes.some((p) => p.event.type === 'seen')).toBe(true));
+    const seen = conversationPublishes.find((p) => p.event.type === 'seen')!;
+    expect(seen.conversationId).toBe(convOpen);
+    expect(seen.event.payload).toEqual({
+      conversation_id: convOpen,
+      seen_at: db.conversation_messages.find((m) => m.id === msgId)?.seen_at,
+      message_ids: [msgId],
+    });
+    // Nothing newly read → nothing published.
+    conversationPublishes.length = 0;
+    await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(conversationPublishes.filter((p) => p.event.type === 'seen')).toHaveLength(0);
   });
 
   it('rejects marking a foreign-workspace conversation as seen', async () => {
     const res = await call('POST', `/api/conversations/${convForeign}/seen`, { token: 'member-token' });
     expect(res.status).toBe(403);
+  });
+});
+
+describe('POST /api/conversations/send-message — the visitor hears of it (V-07)', () => {
+  it('an operator\'s message wakes the visitor\'s widget, once per message', async () => {
+    wakes.length = 0;
+    const res = await call('POST', '/api/conversations/send-message', {
+      token: 'member-token',
+      body: { workspace_id: WS, conversation_id: convOpen, body: 'موجود است', client_message_id: 'cmid-wake-1' },
+    });
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(wakes).toEqual([{ workspaceId: WS, conversationId: convOpen }]));
+    // A replay of the same message wakes nobody again.
+    await call('POST', '/api/conversations/send-message', {
+      token: 'member-token',
+      body: { workspace_id: WS, conversation_id: convOpen, body: 'موجود است', client_message_id: 'cmid-wake-1' },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(wakes).toHaveLength(1);
   });
 });
 

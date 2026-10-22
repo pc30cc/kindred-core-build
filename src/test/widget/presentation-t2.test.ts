@@ -1086,13 +1086,22 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
   const card = (over: Vm = {}, opts: { locale?: string } = {}) =>
     thread(withExtras(make(opts)), [closedRow('c1', 'سارا')], { csat: CSAT('c1', over) }).querySelector('.msg-row.system > .csat[data-csat]')!;
 
-  it('the line names who closed it, else the workspace; in fa, en and tr', () => {
+  it('the line names who closed it; without a name it names nobody (never the workspace as a person); in fa, en and tr', () => {
     const line = (name: string | null, locale = 'fa') =>
       thread(withExtras(make({ locale })), [closedRow('c1', name)]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
     expect(line('سارا')).toBe('سارا گفتگو را بست');
-    expect(line(null)).toBe('فروشگاه نیلوفر گفتگو را بست');
+    expect(line(null)).toBe('گفتگو بسته شد');
     expect(line('Sara', 'en')).toBe('Sara closed the conversation');
+    expect(line(null, 'en')).toBe('The conversation was closed');
     expect(line('Sara', 'tr')).toBe('Sara sohbeti kapattı');
+    expect(line(null, 'tr')).toBe('Sohbet kapatıldı');
+    // A resolve by nobody named, too.
+    const resolved = (locale: string) => thread(withExtras(make({ locale })), [closedRow('c1', null, {
+      metadata: { kind: 'conversation_closed', by: 'system', status: 'resolved' },
+    })]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
+    expect(resolved('fa')).toBe('گفتگو حل‌شده اعلام شد');
+    expect(resolved('en')).toBe('The conversation was marked as resolved');
+    expect(resolved('tr')).toBe('Sohbet çözüldü olarak işaretlendi');
   });
 
   // V-12: a resolve is not a close (the visitor's next message continues
@@ -1231,10 +1240,14 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
     expect(c.querySelector('h3')!.textContent).toBe('گفتگو با <b>سارا</b> چطور بود؟');
     expect(c.querySelector('img')).toBeNull();
     expect(card({ avatar: 'https://cdn.test/s.png' }).querySelector('.av img')!.getAttribute('src')).toBe('https://cdn.test/s.png');
-    // No operator name: the workspace asks.
+    // No operator name: the card asks of the chat, under the store's mark
+    // (the workspace never stands in for a person, I-10).
     const ws = card({ name: '' });
-    expect(ws.querySelector('h3')!.textContent).toBe('گفتگو با فروشگاه نیلوفر چطور بود؟');
+    expect(ws.querySelector('h3')!.textContent).toBe('گفتگوی شما چطور بود؟');
+    expect(ws.getAttribute('aria-label')).toBe('گفتگوی شما چطور بود؟');
     expect(ws.querySelector('.av.c4')).not.toBeNull();
+    expect(card({ name: '' }, { locale: 'en' }).querySelector('h3')!.textContent).toBe('How was your chat?');
+    expect(card({ name: '' }, { locale: 'tr' }).querySelector('h3')!.textContent).toBe('Sohbetiniz nasıldı?');
   });
 
   it('speaks en and tr', () => {

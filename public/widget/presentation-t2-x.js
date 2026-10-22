@@ -21,8 +21,9 @@
  *   whenever a surface's arguments or H change.
  *
  *   closedHtml(m, csat)   a `conversation_closed` row: the line «{name} closed
- *                         the conversation» (`metadata.agent_name`, else the
- *                         workspace), and under it the rating card when Core
+ *                         the conversation» (`metadata.agent_name`; without
+ *                         one «The conversation was closed»), and under it
+ *                         the rating card when Core
  *                         passes one for this row (`csat.closedId === m.__id`):
  *                           csat = { closedId, name, avatar, rating (1..5 | 0),
  *                                    comment, state, transcript }
@@ -70,11 +71,11 @@
 
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (the names of docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore orderTitle orderStepPlaced orderStepPreparing orderStepShipped orderStepDelivered orderArrives orderTrackPackage orderStatusPending orderStatusOnHold orderStatusProcessing orderStatusShipped orderStatusCompleted orderStatusCancelled orderStatusRefunded orderStatusFailed simpleInstantAnswers simpleAwayHere convResolvedBy'.split(' ');
+  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore orderTitle orderStepPlaced orderStepPreparing orderStepShipped orderStepDelivered orderArrives orderTrackPackage orderStatusPending orderStatusOnHold orderStatusProcessing orderStatusShipped orderStatusCompleted orderStatusCancelled orderStatusRefunded orderStatusFailed simpleInstantAnswers simpleAwayHere convResolvedBy convClosed convResolved csatTitleAny'.split(' ');
   var DICT = {
-    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…|سفارش {number}|ثبت|آماده‌سازی|ارسال|تحویل|تحویل: {day}|پیگیری مرسوله|در انتظار پرداخت|در انتظار بررسی|در حال آماده‌سازی|ارسال شد|تکمیل شد|لغو شد|مسترد شد|ناموفق|پاسخ‌های آماده از مرکز راهنما|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.|{name} گفتگو را حل‌شده اعلام کرد',
-    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…|Order {number}|Placed|Packed|Shipped|Delivered|Arrives {day}|Track package|Awaiting payment|On hold|Processing|Shipped|Completed|Cancelled|Refunded|Failed|Answers from the help center|Your message is saved. The reply will appear here, in this chat.|{name} marked the conversation as resolved',
-    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…|Sipariş {number}|Alındı|Hazırlanıyor|Kargoda|Teslim edildi|Teslimat: {day}|Kargoyu takip et|Ödeme bekleniyor|Beklemede|Hazırlanıyor|Kargoya verildi|Tamamlandı|İptal edildi|İade edildi|Başarısız|Yardım merkezinden yanıtlar|Mesajınız kaydedildi. Yanıt burada, bu sohbette görünecek.|{name} sohbeti çözüldü olarak işaretledi',
+    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…|سفارش {number}|ثبت|آماده‌سازی|ارسال|تحویل|تحویل: {day}|پیگیری مرسوله|در انتظار پرداخت|در انتظار بررسی|در حال آماده‌سازی|ارسال شد|تکمیل شد|لغو شد|مسترد شد|ناموفق|پاسخ‌های آماده از مرکز راهنما|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.|{name} گفتگو را حل‌شده اعلام کرد|گفتگو بسته شد|گفتگو حل‌شده اعلام شد|گفتگوی شما چطور بود؟',
+    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…|Order {number}|Placed|Packed|Shipped|Delivered|Arrives {day}|Track package|Awaiting payment|On hold|Processing|Shipped|Completed|Cancelled|Refunded|Failed|Answers from the help center|Your message is saved. The reply will appear here, in this chat.|{name} marked the conversation as resolved|The conversation was closed|The conversation was marked as resolved|How was your chat?',
+    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…|Sipariş {number}|Alındı|Hazırlanıyor|Kargoda|Teslim edildi|Teslimat: {day}|Kargoyu takip et|Ödeme bekleniyor|Beklemede|Hazırlanıyor|Kargoya verildi|Tamamlandı|İptal edildi|İade edildi|Başarısız|Yardım merkezinden yanıtlar|Mesajınız kaydedildi. Yanıt burada, bu sohbette görünecek.|{name} sohbeti çözüldü olarak işaretledi|Sohbet kapatıldı|Sohbet çözüldü olarak işaretlendi|Sohbetiniz nasıldı?',
   };
 
   // Icons this file adds (24px grid, as the renderer's ico()).
@@ -113,7 +114,6 @@
     // A string or English: a locale 'constructor' must not reach Object.prototype.
     var COPY = (typeof DICT[H.lang] == 'string' ? DICT[H.lang] : DICT.en).split('|');
     var COPY_EN = DICT.en.split('|');
-    var workspaceName = String(H.config.workspaceName || H.config.brandName || '');
     /** This file's own copy (fa / en / tr; English otherwise), `{name}` placeholders filled with plain text. */
     function XL(key, vars) {
       var i = COPY_KEYS.indexOf(key);
@@ -150,7 +150,9 @@
 
     function csatHtml(c) {
       var name = String(c.name || '');
-      var title = XL('csatTitle', { name: name || workspaceName });
+      // No operator's name: the question asks of the chat itself (never the
+      // workspace standing in for a person, I-10); the store's mark stays.
+      var title = name ? XL('csatTitle', { name: name }) : XL('csatTitleAny');
       var r = Math.round(+c.rating) || 0;
       if (r < 1 || r > 5) r = 0;
       var open = '<div class="msg-row system"><div class="csat' + (c.state === 'done' ? ' done' : '') +
@@ -182,7 +184,11 @@
       var md = (m && m.metadata) || {};
       // A resolve is not a close: the visitor's next message continues this
       // conversation (a closed one starts a new one), so the line says which.
-      return H.systemPillHtml('', XL(md.status === 'resolved' ? 'convResolvedBy' : 'convClosedBy', { name: String(md.agent_name || '') || workspaceName })) +
+      // Without an operator's name (the system's close, or a profile with
+      // none) the sentence names nobody, as the join's generic one does.
+      var name = String(md.agent_name || '');
+      var resolved = md.status === 'resolved';
+      return H.systemPillHtml('', name ? XL(resolved ? 'convResolvedBy' : 'convClosedBy', { name: name }) : XL(resolved ? 'convResolved' : 'convClosed')) +
         (csat && csat.closedId === m.__id ? csatHtml(csat) : '');
     }
 

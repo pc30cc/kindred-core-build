@@ -39,8 +39,9 @@ storage in renderers, only hashed file names without `?v=`, the size budgets
 in `src/test/widget/templateRules.test.ts`, which checks every template in
 `shared/widgetTemplates.ts`. Never raise a budget without the owner's say.
 
-WebYar's chat widget has three templates: `default` (the original look, keep
-it byte-identical), `t1` and `t2` (the 2026-10 designs, see
+WebYar's chat widget has three templates: `default` (the original look; it
+may change since 2026-10-21 (owner), but keeps its look and the budgets),
+`t1` and `t2` (the 2026-10 designs, see
 `docs/chat-widget-handoff/IMPLEMENTATION_NOTES.md`). Ids are neutral; the
 names people see live in the Super Admin's catalog (migration 275), and a
 template is worn only once the Super Admin enables it. Persian text in the
@@ -65,6 +66,19 @@ user id or an e-mail in a LiveKit identity, name or metadata (the visitor
 sees them). The desktop apps' side of that is
 `docs/call-widget-handoff/desktop-transfer-handover.patch`, for their next
 release.
+
+## Chat routing
+
+Who may receive and answer chats is `shared/chatRoles.ts` only: the owner and
+the team roles receive chats (each with a "Receive chats" switch, on by
+default), staff never do, an admin may open the Inbox and supervise. A new
+chat goes to the visitor's previous operator when they can take it
+(last-agent routing), else to the chosen department's available operators,
+else the whole team, by the workspace's mode (Auto: least busy; Round robin;
+Manual: the queue), never past a member's maximum of open chats. The routing
+ticker (`server/services/chatRoutingTicker.ts`, every 30 s, leased) hands out
+waiting chats and the first-response timeouts. How it works, every setting
+and the rollout: `docs/operations/CHAT_ROUTING.md`.
 
 ## The iOS app in Xcode on the Mac
 
@@ -237,6 +251,16 @@ reserved blocks, so a full disk stops Postgres too.
     `277_call_widget_design.sql` (2026-10-20 05:24; a dump of
     `call_center_settings` and its schema taken just before it:
     `/root/webyar-migrate-277/`).
+  - PENDING on WebYar (not applied yet): `278_chat_routing_distribution.sql`,
+    `278b_chat_routing_member_release.sql`, `279_widget_offline_mode_values.sql`,
+    `279b_widget_primary_color_brand.sql`, `280_widget_visitor_forms.sql`,
+    `280a_widget_kb_search_fold.sql`, `280b_widget_queue_per_department.sql`,
+    `281_widget_visitor_privacy.sql` (and any 282 that joins them). Apply them
+    by hand, in that order, before merging the code that needs them: the
+    CONCURRENTLY indexes of the 278 and 281 headers first, then the
+    procedure above (`docs/operations/CHAT_ROUTING.md`, "Rollout
+    checklist"); then move each into this ledger with its time. 281 seeds its
+    visitor retention policies disabled.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

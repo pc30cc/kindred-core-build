@@ -5,7 +5,9 @@
  *   V-07  a page view counts the replies that came while the visitor was
  *         elsewhere (the thread list's unread counts): the launcher badge,
  *         one preview beside it per reply, and the loader's `gs_active`
- *         hint while a thread is open or pending;
+ *         hint while a thread is open or pending; replies the visitor saw
+ *         where they landed move the read marker, so they never come back
+ *         as unread;
  *   V-12  a closed conversation reads as over in the lists (never "open",
  *         no live dot), and a message that opens a new conversation under
  *         an ended one is set apart by a "New conversation" divider;
@@ -119,6 +121,89 @@ describe('V-07: replies that came while the visitor was on another page', () => 
     await flush(40);
     await new Promise((r) => setTimeout(r, 260));
     expect(document.activeElement).toBe(field);
+  });
+});
+
+describe('V-07: what the visitor read where it landed is read for the server too', () => {
+  // The server counts a thread's replies after the visitor's read marker as
+  // unread on the next page view (badge, title, preview), so the marker
+  // follows what is seen, not only a thread opened from the list.
+  const reads = (h: Harness, cid = 'c1') => h.fetches.filter((u) => u.includes(`/api/widget/conversations/${cid}/read`)).length;
+  const reply = (id: string, cid = 'c1') => ({ id, conversation_id: cid, role: 'agent', sender_type: 'agent', sender_name: 'سارا', text: 'پاسخ ' + id, time: iso() });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('a reply that lands in the thread open in view moves the marker, once for a burst', async () => {
+    const h = boot({ realtime: true, hint: { tab: 'chat', conversationId: 'c1' }, conversations: [{ id: 'c1', status: 'open' }], history: { c1: [] } });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    const before = reads(h);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    h.emitMessages([reply('op-1')]);
+    h.emitMessages([reply('op-2')]);
+    await vi.advanceTimersByTimeAsync(500);
+    // Not one request per reply.
+    expect(reads(h)).toBe(before);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads(h)).toBe(before + 1);
+    // Nothing new: nothing more.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reads(h)).toBe(before + 1);
+    expect(h.unread.every((n) => n === 0)).toBe(true);
+  });
+
+  it('replies that came while the panel was closed are read when it opens again', async () => {
+    // The visitor has written in it (a thread without a visitor line opens by itself on a reply).
+    const history = { c1: [{ id: 'v-1', role: 'visitor', sender_type: 'visitor', text: 'سلام', time: iso(60_000) }] };
+    const h = boot({ realtime: true, hint: { tab: 'chat', conversationId: 'c1' }, conversations: [{ id: 'c1', status: 'open' }], history });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    h.runtime.close();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const before = reads(h);
+    h.emitMessages([reply('op-3')]);
+    await vi.advanceTimersByTimeAsync(6000);
+    // Closed: unread, and not read for the server.
+    expect(h.unread[h.unread.length - 1]).toBe(1);
+    expect(reads(h)).toBe(before);
+    h.runtime.open();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(h.unread[h.unread.length - 1]).toBe(0);
+    expect(reads(h)).toBe(before + 1);
+  });
+
+  it('a reply in the background is not read for the server until the visitor is back', async () => {
+    const h = boot({ realtime: true, hint: { tab: 'chat', conversationId: 'c1' }, conversations: [{ id: 'c1', status: 'open' }], history: { c1: [] } });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    const before = reads(h);
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    h.emitMessages([reply('op-4')]);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(reads(h)).toBe(before);
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads(h)).toBe(before + 1);
+  });
+
+  it('the conversation a first message opens is read with the lines already on screen', async () => {
+    const h = boot({ conversations: [] });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    h.runtime.setTab('chat');
+    await flush(10);
+    write(h, 'سلام');
+    await flush(5);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const send = sends(h)[0];
+    send.onConversation('c-new');
+    send.onAccepted({ conversationId: 'c-new', messageId: 'srv-1' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads(h, 'c-new')).toBe(1);
   });
 });
 

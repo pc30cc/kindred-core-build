@@ -328,7 +328,7 @@
      * it): on a light colour (luminance over 0.3) dark ink, as it is; on any
      * other, white ink, the colour darkened (each channel ×0.97) until
      * white reaches 4.5:1. null for a value that is no #rgb / #rrggbb.
-     * Core puts it on the panel as `--gs-primary-aa` / `--gs-on-primary`
+     * Core puts it on the shell as `--gs-primary-aa` / `--gs-on-primary`
      * (template-agnostic; `default` and `intl` wear them).
      */
     readableAccent: function (hex) {
@@ -7336,12 +7336,19 @@
     // The widget's language, whatever the host page's is (WCAG 3.1.2): a
     // Persian widget on an English-themed site is read with a Persian voice.
     panel.setAttribute('lang', String(ctx.locale || 'en').split('-')[0]);
-    // The brand colour as a readable accent with its ink (Util.readableAccent),
-    // for a template's stylesheet to wear (`default`, `intl`).
-    var __aa = Util.readableAccent(ctx.primaryColor);
+    // The accent the shell wears (the loader puts the workspace's colour
+    // there, or its kit's in place of the uncustomised one: loader.js
+    // applyConfigToShell) as a readable accent with its ink
+    // (Util.readableAccent), for a template's stylesheet to wear (`default`,
+    // `intl`). On the shell, where those stylesheets resolve --wy-accent: a
+    // custom property inherits its value, so tokens set on the panel would
+    // change nothing below it.
+    var __shellAccent = '';
+    try { __shellAccent = shellDiv.style.getPropertyValue('--gs-primary') || getComputedStyle(shellDiv).getPropertyValue('--gs-primary'); } catch (_) {}
+    var __aa = Util.readableAccent(String(__shellAccent || '').trim() || ctx.primaryColor);
     if (__aa) {
-      panel.style.setProperty('--gs-primary-aa', __aa.bg);
-      panel.style.setProperty('--gs-on-primary', __aa.ink);
+      shellDiv.style.setProperty('--gs-primary-aa', __aa.bg);
+      shellDiv.style.setProperty('--gs-on-primary', __aa.ink);
     }
     // Dialog semantics. On desktop the panel is a corner popover and the
     // host page behind it remains fully usable, so it is not modal there. On

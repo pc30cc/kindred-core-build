@@ -324,15 +324,33 @@ describe('V-22 / V-24 / V-26: the panel itself', () => {
     expect(tr.panel.getAttribute('lang')).toBe('tr');
   });
 
+  // On the shell, where the template's stylesheet resolves --wy-accent
+  // (e2e/widgetAccentContrast.spec.ts checks the colours a browser draws).
+  const shellOf = (h: Harness) => h.shadow.querySelector<HTMLElement>('.shell')!;
   for (const color of ['#3B82F6', '#F59E0B', '#1F93FF', '#FFEB3B', '#6D5DFB']) {
     it(`a readable accent for ${color}: its ink reaches 4.5:1`, () => {
       const h = boot({ config: { primaryColor: color } });
-      const bg = h.panel.style.getPropertyValue('--gs-primary-aa');
-      const ink = h.panel.style.getPropertyValue('--gs-on-primary');
+      const bg = shellOf(h).style.getPropertyValue('--gs-primary-aa');
+      const ink = shellOf(h).style.getPropertyValue('--gs-on-primary');
       expect(bg).toMatch(/^#[0-9a-f]{6}$/);
       expect(ratio(bg, ink)).toBeGreaterThanOrEqual(4.5);
+      expect(h.panel.style.getPropertyValue('--gs-primary-aa')).toBe('');
     });
   }
+
+  it('the readable accent is made from the colour the shell wears (a kit\'s, in place of the uncustomised one)', () => {
+    // The loader put the Iran kit's turquoise on the shell for the seeded #3B82F6.
+    const h = boot({ config: { primaryColor: '#3B82F6' }, shellAccent: '#0B7D6C' });
+    const bg = shellOf(h).style.getPropertyValue('--gs-primary-aa');
+    expect(bg).toBe('#0b7d6c');
+    expect(ratio(bg, shellOf(h).style.getPropertyValue('--gs-on-primary'))).toBeGreaterThanOrEqual(4.5);
+    // A light workspace colour keeps its own hue with dark ink.
+    resetWindow();
+    vi.restoreAllMocks();
+    const light = boot({ config: { primaryColor: '#F5C518' }, shellAccent: '#F5C518' });
+    expect(shellOf(light).style.getPropertyValue('--gs-primary-aa')).toBe('#f5c518');
+    expect(shellOf(light).style.getPropertyValue('--gs-on-primary')).toBe('#1c2024');
+  });
 
   it('on a phone the open panel is modal and keeps Tab inside; closed or on a computer it is not', async () => {
     (window as unknown as Dict).matchMedia = (q: string) => ({ matches: /max-width:640px/.test(q), media: q });

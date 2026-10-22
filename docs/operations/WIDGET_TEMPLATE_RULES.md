@@ -343,10 +343,14 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
     run there; a template that draws the closed line (`closedNotice`, t2)
     may leave it out;
   - the panel's `lang` (the widget's language) and its readable accent:
-    `--gs-primary-aa` (the brand colour, darkened until white on it reaches
+    `--gs-primary-aa` (the colour the loader put on the shell, the kit's in
+    place of the uncustomised one, darkened until white on it reaches
     4.5:1; a light one kept, with dark ink) and `--gs-on-primary` (that
-    ink), set on `.panel` (runtime.js `Util.readableAccent`). `default` and
-    `intl` wear them; t1 and t2 compute their own;
+    ink), set on `.shell` (runtime.js `Util.readableAccent`), where a
+    stylesheet resolves its `--wy-accent` (a custom property inherits its
+    value: a token on `.panel` changes nothing below it). `default` and
+    `intl` wear them (`e2e/widgetAccentContrast.spec.ts`); t1 and t2
+    compute their own;
   - on a phone the open panel is modal (`aria-modal`, Tab kept inside);
   - the operator's typing in `[data-typing-row]` / `[data-typing-label]`
     (shown 3.5 s per signal), which `default` draws visibly above its composer;

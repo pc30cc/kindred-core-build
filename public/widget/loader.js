@@ -4044,21 +4044,28 @@
     return out;
   }
 
+  // On iOS every browser is WebKit and says "Safari"; Chrome, Firefox and
+  // Edge there add CriOS, FxiOS and EdgiOS.
   function detectBrowser() {
     var ua = navigator.userAgent;
-    if (ua.indexOf("Chrome") > -1 && ua.indexOf("Edg") === -1) return "Chrome";
-    if (ua.indexOf("Firefox") > -1) return "Firefox";
-    if (ua.indexOf("Safari") > -1 && ua.indexOf("Chrome") === -1) return "Safari";
-    if (ua.indexOf("Edg") > -1) return "Edge";
+    if (/EdgiOS|Edg\//.test(ua)) return "Edge";
+    if (/CriOS/.test(ua)) return "Chrome";
+    if (/FxiOS|Firefox/.test(ua)) return "Firefox";
+    if (ua.indexOf("Chrome") > -1) return "Chrome";
+    if (ua.indexOf("Safari") > -1) return "Safari";
     return "Other";
   }
+  // Phones before computers: an iPhone says "like Mac OS X" and Android
+  // says "Linux", so the old Mac/Linux-first order filed every iPhone under
+  // macOS and every Android phone under Linux. An iPad asks for the desktop
+  // site as a Mac; only its touch screen tells it apart.
   function detectOS() {
     var ua = navigator.userAgent;
-    if (ua.indexOf("Win") > -1) return "Windows";
-    if (ua.indexOf("Mac") > -1) return "macOS";
-    if (ua.indexOf("Linux") > -1) return "Linux";
+    if (/iPhone|iPad|iPod/.test(ua)) return "iOS";
     if (/Android/i.test(ua)) return "Android";
-    if (/iPhone|iPad/i.test(ua)) return "iOS";
+    if (ua.indexOf("Win") > -1) return "Windows";
+    if (ua.indexOf("Mac") > -1) return navigator.maxTouchPoints > 1 ? "iOS" : "macOS";
+    if (ua.indexOf("Linux") > -1) return "Linux";
     return "Other";
   }
 

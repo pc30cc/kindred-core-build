@@ -317,6 +317,13 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   (links, logos) come from the view-model.
 - Interaction is expressed with `data-*` behaviour hooks the core binds;
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
+- A stylesheet's `:has()` selector stands in a rule of its own, never in a
+  selector list with others: a browser without `:has()` (Chrome/WebView
+  < 105, Safari < 15.4, Firefox < 121) drops the whole rule, so the other
+  selectors lose it too (`default`'s chat header once showed both
+  reply-time lines there). The state a browser without it keeps must read
+  right (`templateRules.test.ts` checks every template stylesheet,
+  `e2e/widgetHasFallback.spec.ts` the chat header).
 - Two things every chat template draws for Core: a failed visitor message's
   `failText` (why it was not sent, in the visitor's language: no connection
   yet, too many at once, too long, chat not available) in place of the

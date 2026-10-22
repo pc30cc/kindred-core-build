@@ -260,7 +260,9 @@ reserved blocks, so a full disk stops Postgres too.
     CONCURRENTLY indexes of the 278 and 281 headers first, then the
     procedure above (`docs/operations/CHAT_ROUTING.md`, "Rollout
     checklist"); then move each into this ledger with its time. 281 seeds its
-    visitor retention policies disabled.
+    visitor retention policies disabled, and its delete keeps migration
+    171's fence (`retention_cleanup_not_ready`) until the owner lifts it in
+    a reviewed migration of its own.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

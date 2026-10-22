@@ -16,11 +16,11 @@
  *   T3  while the policies are as seeded, a sweep (visitorRetention.ts)
  *       deletes nothing and opens no run, however old the rows; once a
  *       Super Admin enables them (the engine's updatePolicy, what Data
- *       retention's switch calls), a sweep deletes each workspace's rows
- *       older than its own period, else 13 months, and nothing newer: a
- *       preview counts without deleting; a deleted session takes its page
- *       views and presence along, unlinks its analytics events, and its
- *       conversation keeps its messages; every run is recorded;
+ *       retention's switch calls), a preview counts each workspace's rows
+ *       older than its own period, else 13 months, and nothing newer, but
+ *       the delete is still held by migration 171's fence: the sweep's runs
+ *       fail with retention_cleanup_not_ready, are recorded, and delete
+ *       nothing;
  *   T4  a disabled policy deletes nothing, and the functions refuse a
  *       policy that is not a workspace-overridable rolling one.
  *
@@ -111,7 +111,7 @@ suite('281 — visitor privacy: consent, the forms\' line, retention (real Postg
     expect(await n(`SELECT count(*) AS n FROM pg_index WHERE indexrelid = 'public.widget_smart_events_ws_created_idx'::regclass AND indisvalid`)).toBe(1);
   });
 
-  it('T3 a sweep keeps each workspace\'s period: older rows go, newer ones stay', async () => {
+  it('T3 a sweep counts each workspace\'s own period, and migration 171\'s fence still holds the delete', async () => {
     // wsShort keeps 30 days; wsDefault the platform's 395.
     await q(`INSERT INTO public.widget_settings (workspace_id, visitor_data_retention_days) VALUES ($1, 30)
              ON CONFLICT (workspace_id) DO UPDATE SET visitor_data_retention_days = 30`, [wsShort]);
@@ -151,25 +151,26 @@ suite('281 — visitor privacy: consent, the forms\' line, retention (real Postg
 
     const preview = await runPolicy(config, 'visitor_sessions', { dryRun: true, triggeredBy: 'test' });
     expect(preview).toMatchObject({ status: 'completed', rowsMatched: 2, rowsDeleted: 0 });
-    expect(await n(`SELECT count(*) AS n FROM public.visitor_sessions`)).toBe(4);
+    // Each workspace's own period: the 400-day row of the default workspace
+    // and the 40-day row of the 30-day one, not the recent ones.
+    for (const k of ['visitor_page_views', 'web_analytics_events', 'widget_ai_nudges']) {
+      expect(await n(`SELECT public.visitor_data_retention_count_expired($1) AS n`, [k])).toBe(2);
+    }
 
+    // Migration 171's fence still holds the delete: nothing goes, every run says why.
     const out = await sweepVisitorDataRetention(config);
-    expect(out).toEqual(Object.fromEntries(KEYS.map((k) => [k, 'completed'])));
-
-    const left = (await q(`SELECT visitor_id FROM public.visitor_sessions ORDER BY visitor_id`)).map((r) => r.visitor_id);
-    expect(left).toEqual(['v-default-recent', 'v-short-recent']);
-    expect(await n(`SELECT count(*) AS n FROM public.visitor_page_views`)).toBe(2);
-    expect(await n(`SELECT count(*) AS n FROM public.visitor_presence`)).toBe(2);
-    expect(await n(`SELECT count(*) AS n FROM public.web_analytics_events`)).toBe(2);
-    expect((await q(`SELECT visitor_id FROM public.widget_ai_nudges ORDER BY visitor_id`)).map((r) => r.visitor_id)).toEqual(['v-default-recent', 'v-short-recent']);
+    expect(out).toEqual(Object.fromEntries(KEYS.map((k) => [k, k === 'widget_smart_events' ? 'completed' : 'failed'])));
+    expect(await counts()).toEqual(before);
+    expect(await n(`SELECT count(*) AS n FROM public.visitor_presence`)).toBe(4);
     expect(await n(`SELECT count(*) AS n FROM public.conversation_messages WHERE conversation_id = $1`, [conversation])).toBe(1);
+    await expect(q(`SELECT public.visitor_data_retention_delete_batch('visitor_sessions', 100)`)).rejects.toThrow(/retention_cleanup_not_ready/);
 
-    const runs = await q(`SELECT policy_key, status, rows_deleted, triggered_by FROM public.data_retention_runs WHERE triggered_by = 'visitor_retention' ORDER BY policy_key`);
-    expect(runs.map((r) => [r.policy_key, r.status])).toEqual(KEYS.map((k) => [k, 'completed']));
-    expect(Number(runs.find((r) => r.policy_key === 'visitor_sessions')!.rows_deleted)).toBe(2);
-    // A second sweep finds nothing more.
-    const again = await runPolicy(config, 'visitor_sessions', { triggeredBy: 'test' });
-    expect(again).toMatchObject({ status: 'completed', rowsMatched: 0, rowsDeleted: 0 });
+    const runs = await q(`SELECT policy_key, status, rows_deleted, error FROM public.data_retention_runs WHERE triggered_by = 'visitor_retention' ORDER BY policy_key`);
+    expect(runs.map((r) => [r.policy_key, r.status])).toEqual(KEYS.map((k) => [k, k === 'widget_smart_events' ? 'completed' : 'failed']));
+    for (const r of runs.filter((x) => x.status === 'failed')) {
+      expect(String(r.error)).toMatch(/retention_cleanup_not_ready/);
+      expect(Number(r.rows_deleted)).toBe(0);
+    }
   });
 
   it('T4 a disabled policy deletes nothing; the functions refuse any other kind of policy', async () => {

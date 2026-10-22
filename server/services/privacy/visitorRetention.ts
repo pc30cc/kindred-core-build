@@ -12,7 +12,10 @@
  * enabled policy's period holds without anyone pressing "Run"; a disabled
  * one is skipped by the engine (runPolicy) without opening a run or
  * touching a row. Page views go before their sessions, whose delete would
- * take them along anyway (ON DELETE CASCADE).
+ * take them along anyway (ON DELETE CASCADE). Migration 171's fence still
+ * holds the delete itself: an enabled policy's run fails with
+ * retention_cleanup_not_ready and deletes nothing until a reviewed
+ * migration lifts the fence (281's header).
  *
  * Best-effort, in-process, never throws. Before migration 281 the policies
  * do not exist: that is logged once and the sweep keeps trying.

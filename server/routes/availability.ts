@@ -27,6 +27,7 @@ import {
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import type { Edition } from '../../shared/edition.js';
+import { isMissingColumnError } from '../lib/missingColumn.js';
 
 export const availabilityRouter = Router();
 
@@ -251,25 +252,17 @@ availabilityRouter.patch('/', async (req, res) => {
       patch.weekly_schedule = { ...current, ...parsed.data.weekly_schedule };
     }
 
-    let row;
-    if (existing?.id) {
-      const { data, error } = await sb
-        .from('user_availability_prefs')
-        .update(patch)
-        .eq('id', existing.id)
-        .select('*')
-        .maybeSingle();
-      if (error) return res.status(500).json({ error: error.message });
-      row = data;
-    } else {
-      const { data, error } = await sb
-        .from('user_availability_prefs')
-        .insert({ user_id: user.id, workspace_id: null, ...patch })
-        .select('*')
-        .maybeSingle();
-      if (error) return res.status(500).json({ error: error.message });
-      row = data;
+    const write = (values: Record<string, unknown>) => (existing?.id
+      ? sb.from('user_availability_prefs').update(values).eq('id', existing.id).select('*').maybeSingle()
+      : sb.from('user_availability_prefs').insert({ user_id: user.id, workspace_id: null, ...values }).select('*').maybeSingle());
+    let { data: row, error } = await write(patch);
+    // Before migration 282 there is no manual_away: the rest of the change is
+    // saved (Online / Appear offline), and the row returned says what is.
+    if (error && 'manual_away' in patch && isMissingColumnError(error, ['manual_away'])) {
+      const { manual_away: _away, ...rest } = patch;
+      ({ data: row, error } = await write(rest));
     }
+    if (error) return res.status(500).json({ error: error.message });
 
     // Every workspace whose widget shows this operator.
     publishCacheInvalidation([`user:${user.id}`]);

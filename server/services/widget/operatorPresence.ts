@@ -31,8 +31,8 @@ import { getServiceClient } from '../../supabase.js';
 import { createStorageUrlResolver, userAvatarUrlMap } from '../storage/urlResolver.js';
 import { getConnectedOperators, PRESENCE_LIVENESS_MS } from './operatorPresenceSource.js';
 import {
-  AVAILABILITY_PREFS_COLUMNS,
   computeCustomerAvailability,
+  readGlobalAvailabilityPrefs,
   type AvailabilityPrefsRow,
   type CustomerAvailability,
   type ManualAvailability,
@@ -280,11 +280,7 @@ export async function readRoutingPresence(
   if (ids.length === 0) return out;
   const byUser = new Map<string, RawPrefs>();
   try {
-    const { data: prefRows } = await getServiceClient(config)
-      .from('user_availability_prefs')
-      .select(AVAILABILITY_PREFS_COLUMNS)
-      .in('user_id', ids)
-      .is('workspace_id', null);
+    const { data: prefRows } = await readGlobalAvailabilityPrefs(getServiceClient(config), ids);
     for (const r of (prefRows || []) as RawPrefs[]) byUser.set(r.user_id, r);
   } catch { /* no prefs: everyone reads as available, as in the matrix */ }
   let connected = new Set<string>();
@@ -323,13 +319,9 @@ export async function listWorkspacePresence(
   const ids = (members || []).map((m) => m.user_id).filter(Boolean);
   if (ids.length === 0) return [];
 
-  const { data: prefRows } = await sb
-    .from('user_availability_prefs')
-    .select(AVAILABILITY_PREFS_COLUMNS)
-    .in('user_id', ids)
-    .is('workspace_id', null);
+  const { data: prefRows } = await readGlobalAvailabilityPrefs(sb, ids);
   const byUser = new Map<string, RawPrefs>();
-  for (const r of (prefRows || [])) byUser.set(r.user_id, r);
+  for (const r of (prefRows || []) as RawPrefs[]) byUser.set(r.user_id, r);
 
   // Identity for UI rendering (name + avatar). Never fails the presence call.
   const profileById = new Map<string, { full_name: string | null; email: string | null; avatar_url: string | null }>();

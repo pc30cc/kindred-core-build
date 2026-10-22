@@ -20,6 +20,7 @@ import { listWorkspaceAvailability, isEligible } from './availability.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { isRoutableChatRole } from '../../../shared/chatRoles.js';
+import { readWithColumnFallback } from '../../lib/missingColumn.js';
 
 export type DepartmentChannel = 'chat' | 'audio' | 'video';
 
@@ -118,10 +119,15 @@ export async function resolveDepartmentMembers(
 async function resolveMemberRows(config: ServerConfig, workspaceId: string): Promise<MemberRow[]> {
   const hit = memberRowsCache.get(workspaceId);
   if (fresh(hit)) return hit.value;
-  const { data } = await getServiceClient(config)
-    .from('workspace_members')
-    .select('user_id, suspended_at, role, receives_chats')
-    .eq('workspace_id', workspaceId);
+  // Before migration 278 there is no receives_chats: everyone receives
+  // (calls never needed it), rather than a pool read as empty.
+  const sb = getServiceClient(config);
+  const { data, error } = await readWithColumnFallback(
+    (columns) => sb.from('workspace_members').select(columns).eq('workspace_id', workspaceId),
+    'user_id, suspended_at, role, receives_chats',
+    'user_id, suspended_at, role',
+    ['receives_chats'],
+  );
   const value = ((data ?? []) as Array<{
     user_id?: string | null;
     suspended_at?: string | null;
@@ -135,7 +141,8 @@ async function resolveMemberRows(config: ServerConfig, workspaceId: string): Pro
       role: r.role ?? null,
       receives_chats: r.receives_chats !== false,
     }));
-  memberRowsCache.set(workspaceId, { value, ts: Date.now() });
+  // An unreadable list is not cached: the next lookup reads it again.
+  if (!error) memberRowsCache.set(workspaceId, { value, ts: Date.now() });
   return value;
 }
 
@@ -412,10 +419,12 @@ export async function resolveWidgetVisibleDepartments(
   if (departments.length === 0) return [];
 
   const sb = getServiceClient(config);
-  const { data: members } = await sb
-    .from('workspace_members')
-    .select('user_id, role, suspended_at, receives_chats')
-    .eq('workspace_id', workspaceId);
+  const { data: members } = await readWithColumnFallback(
+    (columns) => sb.from('workspace_members').select(columns).eq('workspace_id', workspaceId),
+    'user_id, role, suspended_at, receives_chats',
+    'user_id, role, suspended_at',
+    ['receives_chats'],
+  );
   // A suspended member, or one whose seat the plan paused, never answers:
   // a department only they could serve is not offered to visitors.
   const memberRows = (members ?? []) as Array<{

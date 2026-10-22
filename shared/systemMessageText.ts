@@ -247,7 +247,7 @@ export function attachmentPreviewText(
   // An unidentified visitor still gets a subject — "sent a photo" with no
   // subject reads like a fragment in every language this ships in.
   const name = String(sender.name || '').trim()
-    || line(t, 'inbox.previewSomeone', 'A user');
+    || line(t, 'inbox.previewSomeone', 'A visitor');
   return line(t, `inbox.previewSentBy${suffix}`, `{name} sent ${noun}`)
     .replace('{name}', name);
 }

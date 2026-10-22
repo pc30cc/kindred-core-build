@@ -1463,13 +1463,13 @@ object Str {
     fun sysTransferredGeneric(l: Language): String = when (l) {
         Language.EN -> "This conversation was transferred"
         Language.FA -> "این گفتگو منتقل شد"
-        Language.TR -> "Bu görüşme aktarıldı"
+        Language.TR -> "Bu sohbet aktarıldı"
     }
 
     fun sysUnassignedGeneric(l: Language): String = when (l) {
         Language.EN -> "This conversation was unassigned"
         Language.FA -> "این گفتگو از حالت واگذارشده خارج شد"
-        Language.TR -> "Bu görüşmenin ataması kaldırıldı"
+        Language.TR -> "Bu sohbetin ataması kaldırıldı"
     }
 
     fun sysAgentJoinedGeneric(l: Language): String = when (l) {
@@ -1497,7 +1497,7 @@ object Str {
     /** Read by the operator: the visitor is the one waiting. */
     fun sysInQueue(l: Language): String = when (l) {
         Language.EN -> "The visitor is waiting in the support queue"
-        Language.FA -> "کاربر در صف پشتیبانی منتظر است"
+        Language.FA -> "بازدیدکننده در صف پشتیبانی منتظر است"
         Language.TR -> "Ziyaretçi destek kuyruğunda bekliyor"
     }
 
@@ -1513,13 +1513,13 @@ object Str {
 
     fun sysCallInviteAudio(l: Language): String = when (l) {
         Language.EN -> "Visitor invited to an audio call"
-        Language.FA -> "کاربر به تماس صوتی دعوت شد"
+        Language.FA -> "بازدیدکننده به تماس صوتی دعوت شد"
         Language.TR -> "Ziyaretçi sesli aramaya davet edildi"
     }
 
     fun sysCallInviteVideo(l: Language): String = when (l) {
         Language.EN -> "Visitor invited to a video call"
-        Language.FA -> "کاربر به تماس تصویری دعوت شد"
+        Language.FA -> "بازدیدکننده به تماس تصویری دعوت شد"
         Language.TR -> "Ziyaretçi görüntülü aramaya davet edildi"
     }
 
@@ -1560,9 +1560,9 @@ object Str {
     }
 
     fun previewSomeone(l: Language): String = when (l) {
-        Language.EN -> "A user"
-        Language.FA -> "کاربر"
-        Language.TR -> "Bir kullanıcı"
+        Language.EN -> "A visitor"
+        Language.FA -> "بازدیدکننده"
+        Language.TR -> "Bir ziyaretçi"
     }
 
     fun previewYouSentImage(l: Language): String = when (l) {

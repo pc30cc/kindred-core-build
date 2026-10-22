@@ -87,11 +87,11 @@ describe('the sentence names who sent what, in every locale', () => {
     // like "sent a photo".
     for (const blank of [null, undefined, '', '   ']) {
       const text = attachmentPreviewText('image', { isMe: false, name: blank }, T.fa);
-      expect(text, String(blank)).toContain('کاربر');
+      expect(text, String(blank)).toContain('بازدیدکننده');
       expect(text, String(blank)).not.toMatch(/^\s/);
     }
     expect(attachmentPreviewText('image', { isMe: false, name: null }, T.en))
-      .toBe('A user sent a photo');
+      .toBe('A visitor sent a photo');
   });
 
   it('distinguishes the four kinds rather than calling everything a file', () => {

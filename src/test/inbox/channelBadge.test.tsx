@@ -62,7 +62,7 @@ describe('channelLabel', () => {
   it('has an English label without a translator, and never shows a raw key', () => {
     expect(channelLabel('platform_support')).toBe('Site user');
     expect(channelLabel('platform_support', (key) => key)).toBe('Site user');
-    expect(channelLabel('widget', T.fa)).toBe('ویجت چت');
+    expect(channelLabel('widget', T.fa)).toBe('ویجت گفتگو');
     expect(channelLabel('telegram', T.fa)).toBe('Telegram');
   });
 });

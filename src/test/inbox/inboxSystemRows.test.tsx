@@ -35,7 +35,7 @@ describe('a system row is a notice', () => {
   it('draws the queue row in the operator\'s language, not the stored English body', () => {
     const fa_ = row('fa', 'Your message is in the support queue.', { kind: 'routing_in_queue' });
     expect(fa_.querySelector('[data-inbox="system-notice"]')).not.toBeNull();
-    expect(fa_.textContent).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(fa_.textContent).toBe('بازدیدکننده در صف پشتیبانی منتظر است');
     expect(fa_.textContent).not.toContain('support queue');
     expect(fa_.querySelector('[data-inbox="bubble"]')).toBeNull();
 
@@ -61,7 +61,7 @@ describe('a system row is a notice', () => {
       [{ kind: 'conversation_transferred', actor_name: 'Ali', to_name: 'Sara' }, 'Ali این گفتگو را به Sara منتقل کرد'],
       [{ kind: 'routing_agent_joined', agent_name: 'a colleague' }, 'یکی از همکاران به گفتگو پیوست'],
       [{ kind: 'conversation_closed', agent_name: 'Sara' }, 'Sara گفتگو را بست'],
-      [{ kind: 'call_ended', ended_by: 'operator', duration_seconds: 72 }, 'تماس از طرف اپراتور پایان یافت · مدت مکالمه 01:12'],
+      [{ kind: 'call_ended', ended_by: 'operator', duration_seconds: 72 }, 'تماس از طرف اپراتور پایان یافت · مدت تماس 01:12'],
       [{ kind: 'support_rating', score: 4 }, 'به این گفتگو 4 از ۵ امتیاز داد'],
     ];
     for (const [meta, text] of cases) {

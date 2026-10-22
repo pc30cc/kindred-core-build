@@ -73,7 +73,7 @@ describe('native localizers know every system kind', () => {
     for (const [app, { strings }] of Object.entries(LOCALIZERS)) {
       const copy = strings.map(read).join('\n');
       expect(copy, app).toContain('The visitor is waiting in the support queue');
-      expect(copy, app).toContain('کاربر در صف پشتیبانی منتظر است');
+      expect(copy, app).toContain('بازدیدکننده در صف پشتیبانی منتظر است');
       expect(copy, app).toContain('Ziyaretçi destek kuyruğunda bekliyor');
       expect(copy, app).not.toContain('You are in the queue');
     }
@@ -99,8 +99,8 @@ describe('native localizers know every system kind', () => {
       '{name} closed the conversation', 'The conversation was closed', 'Rated the conversation {score}/5',
       'این گفتگو به {to} منتقل شد', 'این گفتگو منتقل شد', 'این گفتگو از حالت واگذارشده خارج شد',
       '{name} گفتگو را بست', 'گفتگو بسته شد', 'به این گفتگو {score} از ۵ امتیاز داد',
-      'Bu görüşme {to} kişisine aktarıldı', 'Bu görüşme aktarıldı', 'Bu görüşmenin ataması kaldırıldı',
-      '{name} sohbeti kapattı', 'Sohbet kapatıldı', 'Görüşmeye 5 üzerinden {score} puan verdi',
+      'Bu sohbet {to} kişisine aktarıldı', 'Bu sohbet aktarıldı', 'Bu sohbetin ataması kaldırıldı',
+      '{name} sohbeti kapattı', 'Sohbet kapatıldı', 'Sohbete 5 üzerinden {score} puan verdi',
     ];
     for (const [app, { strings }] of Object.entries(LOCALIZERS)) {
       const copy = strings.map(read).join('\n');

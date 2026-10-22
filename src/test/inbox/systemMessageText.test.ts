@@ -107,12 +107,13 @@ describe('the sentences say the right thing', () => {
     expect(generic).not.toContain('undefined');
   });
 
-  it('calls the person on the other end "user", not "visitor", in Persian', () => {
+  it('calls the person on the other end «بازدیدکننده» in Persian, never «کاربر» or «ویزیتور»', () => {
     const text = systemMessageText(
       { kind: 'call_invitation', channel: 'video', operator_name: 'مجتبی داودی', status: 'pending' },
       T.fa,
     )!;
-    expect(text).toContain('کاربر');
+    expect(text).toContain('بازدیدکننده');
+    expect(text).not.toContain('کاربر');
     expect(text).not.toContain('ویزیتور');
   });
 
@@ -147,7 +148,7 @@ describe('the sentences say the right thing', () => {
     const rated = { kind: 'support_rating', internal: true, score: 4, comment: 'great help' };
     expect(systemMessageText(rated, T.en)).toBe('Rated the conversation 4/5 — “great help”');
     expect(systemMessageText(rated, T.fa)).toBe('به این گفتگو 4 از ۵ امتیاز داد — «great help»');
-    expect(systemMessageText(rated, T.tr)).toBe('Görüşmeye 5 üzerinden 4 puan verdi — “great help”');
+    expect(systemMessageText(rated, T.tr)).toBe('Sohbete 5 üzerinden 4 puan verdi — “great help”');
 
     for (const comment of [null, undefined, '', '   ']) {
       expect(systemMessageText({ kind: 'support_rating', score: 5, comment }, T.en)).toBe('Rated the conversation 5/5');
@@ -182,7 +183,7 @@ describe('the sentences say the right thing', () => {
 
   it('reads the queue line from the operator\'s side: the visitor waits, not "you"', () => {
     expect(systemMessageText({ kind: 'routing_in_queue' }, T.en)).toBe('The visitor is waiting in the support queue');
-    expect(systemMessageText({ kind: 'routing_in_queue' }, T.fa)).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(systemMessageText({ kind: 'routing_in_queue' }, T.fa)).toBe('بازدیدکننده در صف پشتیبانی منتظر است');
     expect(systemMessageText({ kind: 'routing_in_queue' }, T.tr)).toBe('Ziyaretçi destek kuyruğunda bekliyor');
     for (const t of Object.values(T)) {
       expect(systemMessageText({ kind: 'routing_in_queue' }, t)).not.toMatch(/You are|هستید|Sıradasınız/);
@@ -197,7 +198,7 @@ describe('the sentences say the right thing', () => {
     expect(systemMessageText({ kind: 'conversation_transferred', actor_name: 'Ali' }, T.en))
       .toBe('This conversation was transferred');
     expect(systemMessageText({ kind: 'conversation_unassigned' }, T.tr))
-      .toBe('Bu görüşmenin ataması kaldırıldı');
+      .toBe('Bu sohbetin ataması kaldırıldı');
     expect(systemMessageText({ kind: 'conversation_unassigned', actor_name: '  ' }, T.en))
       .toBe('This conversation was unassigned');
     for (const meta of [

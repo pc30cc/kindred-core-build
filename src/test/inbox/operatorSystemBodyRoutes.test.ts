@@ -140,7 +140,7 @@ describe('GET /api/conversations/:id/messages', () => {
     const rows = res.body.messages as Json[];
     expect(rows.map((m) => m.body)).toEqual([
       'سلام',
-      'کاربر در صف پشتیبانی منتظر است',
+      'بازدیدکننده در صف پشتیبانی منتظر است',
       'Sara گفتگو را بست',
       'به این گفتگو 4 از ۵ امتیاز داد — «خوب بود»',
     ]);
@@ -195,7 +195,7 @@ describe('GET /api/conversations/:id/messages', () => {
     const delta = await get(`/api/conversations/${cid}/messages?since=${encodeURIComponent(cursor)}`);
     expect((delta.body.sync as Json).mode).toBe('delta');
     const rows = delta.body.messages as Json[];
-    expect(rows.find((m) => (m.metadata as Json)?.kind === 'routing_in_queue')?.body).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(rows.find((m) => (m.metadata as Json)?.kind === 'routing_in_queue')?.body).toBe('بازدیدکننده در صف پشتیبانی منتظر است');
   });
 });
 
@@ -232,7 +232,7 @@ describe('GET /api/contacts/:id/conversations', () => {
     const res = await get(`/api/contacts/${CONTACT}/conversations`);
     expect(res.status).toBe(200);
     const row = (res.body.conversations as Json[]).find((c) => c.id === cid)!;
-    expect(row.last_message_body).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(row.last_message_body).toBe('بازدیدکننده در صف پشتیبانی منتظر است');
     expect(row.last_message_meta).toEqual(QUEUE);
   });
 });

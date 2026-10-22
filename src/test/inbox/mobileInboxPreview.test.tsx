@@ -67,7 +67,7 @@ describe('the mobile inbox list preview', () => {
       }),
     ];
     const [queue, closed] = previews();
-    expect(queue).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(queue).toBe('بازدیدکننده در صف پشتیبانی منتظر است');
     expect(closed).toBe('Sara گفتگو را بست');
   });
 

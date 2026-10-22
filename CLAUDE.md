@@ -251,22 +251,25 @@ reserved blocks, so a full disk stops Postgres too.
     `277_call_widget_design.sql` (2026-10-20 05:24; a dump of
     `call_center_settings` and its schema taken just before it:
     `/root/webyar-migrate-277/`).
-  - PENDING on WebYar (not applied yet): `278_chat_routing_distribution.sql`,
+    Chat routing and widget fixes (PR #351), all applied 2026-10-22 10:18 UTC
+    in one run, after their header indexes were built CONCURRENTLY
+    (`conversations_open_assignee_idx`, `conversations_contact_recent_idx`,
+    `widget_smart_events_ws_created_idx`) and a dry run of the ten files
+    inside one `BEGIN … ROLLBACK`: `278_chat_routing_distribution.sql`,
     `278b_chat_routing_member_release.sql`, `279_widget_offline_mode_values.sql`,
     `279b_widget_primary_color_brand.sql`, `280_widget_visitor_forms.sql`,
     `280a_widget_kb_search_fold.sql`, `280b_widget_queue_per_department.sql`,
     `281_widget_visitor_privacy.sql`, `282_operator_manual_away.sql`,
-    `282b_operator_presence_sources.sql`. Apply them by hand, in that order,
-    before merging the code that needs them: the CONCURRENTLY indexes of
-    the 278 and 281 headers first, then the procedure above
-    (`docs/operations/CHAT_ROUTING.md`, "Rollout checklist"); then move each
-    into this ledger with its time. Then, only AFTER the backend of that
-    merge is deployed, `283_offline_message_template_phone.sql` (it adds a
-    placeholder to the owners' offline-message mail that only the new
-    backend fills; checklist step 8). 281 seeds its
-    visitor retention policies disabled, and its delete keeps migration
-    171's fence (`retention_cleanup_not_ready`) until the owner lifts it in
-    a reviewed migration of its own.
+    `282b_operator_presence_sources.sql`. A dump of the tables they touch
+    and a schema dump taken just before: `/root/webyar-migrate-278/`. 281
+    seeds its visitor retention policies disabled, and its delete keeps
+    migration 171's fence (`retention_cleanup_not_ready`) until the owner
+    lifts it in a reviewed migration of its own.
+  - PENDING on WebYar: `283_offline_message_template_phone.sql`, only AFTER
+    the backend of PR #351 is deployed (it adds a placeholder to the owners'
+    offline-message mail that only the new backend fills;
+    `docs/operations/CHAT_ROUTING.md`, checklist step 8). Its folder is
+    ready on the server: `/root/webyar-migrate-283/`. Then ledger it here.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

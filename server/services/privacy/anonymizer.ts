@@ -26,6 +26,7 @@ import { deleteFile, deleteForOwner } from '../storage/index.js';
 import { scrubPii } from './scrub.js';
 import type { PrivacyJobRow, ResolvedSubject } from './types.js';
 import { publishCacheInvalidation } from '../../lib/cacheBus.js';
+import { readAllPages } from './pagedRead.js';
 
 // public.sender_type enum = { agent, contact, system, bot, ai }. 'visitor' is
 // NOT a member; including it made both message queries below fail with 22P02,
@@ -343,13 +344,17 @@ export async function runAnonymize(
     const orParts: string[] = [];
     if (subject.visitor_ids.length > 0) orParts.push(`visitor_id.in.(${subject.visitor_ids.map((v) => `"${v}"`).join(',')})`);
     if (subject.contact_ids.length > 0) orParts.push(`contact_id.in.(${subject.contact_ids.join(',')})`);
-    const { data, error } = await sb
+    // Every session, page by page: a read is capped at DATABASE_MAX_ROWS,
+    // and the steps below erase by these ids.
+    const { data, error } = await readAllPages<{ id: string }>((from, to) => sb
       .from('visitor_sessions')
       .select('id')
       .eq('workspace_id', wsId)
-      .or(orParts.join(','));
+      .or(orParts.join(','))
+      .order('id', { ascending: true })
+      .range(from, to));
     check('reading visitor sessions', error);
-    sessionIds = (data || []).map((r: { id: string }) => r.id);
+    sessionIds = data.map((r) => r.id);
   }
 
   let conversationIds: string[] = [];
@@ -357,13 +362,15 @@ export async function runAnonymize(
     const orParts: string[] = [];
     if (subject.contact_ids.length > 0) orParts.push(`contact_id.in.(${subject.contact_ids.join(',')})`);
     if (sessionIds.length > 0) orParts.push(`visitor_session_id.in.(${sessionIds.join(',')})`);
-    const { data, error } = await sb
+    const { data, error } = await readAllPages<{ id: string }>((from, to) => sb
       .from('conversations')
       .select('id')
       .eq('workspace_id', wsId)
-      .or(orParts.join(','));
+      .or(orParts.join(','))
+      .order('id', { ascending: true })
+      .range(from, to));
     check('reading conversations', error);
-    conversationIds = (data || []).map((r: { id: string }) => r.id);
+    conversationIds = data.map((r) => r.id);
   }
 
   // ─── 1. Redact contact-authored messages (idempotent) ──────────
@@ -478,22 +485,31 @@ export async function runAnonymize(
   // ─── 5b. The visitor's tracking data (before their ids change) ──
   // Every visitor id the subject had: resolved, and each session's own.
   const visitorIds = new Set<string>(subject.visitor_ids);
-  if (sessionIds.length > 0) {
-    const { data: rows, error } = await sb.from('visitor_sessions').select('visitor_id').in('id', sessionIds);
+  // Page by page, a slice of ids at a time: one read is capped at
+  // DATABASE_MAX_ROWS.
+  for (const ids of slices(sessionIds)) {
+    const { data: rows, error } = await readAllPages<{ id: string; visitor_id: string | null }>((from, to) => sb
+      .from('visitor_sessions').select('id,visitor_id').in('id', ids).order('id', { ascending: true }).range(from, to));
     check('reading session visitor ids', error);
-    for (const r of rows || []) if (r.visitor_id && !String(r.visitor_id).startsWith(ANON_VISITOR_PREFIX)) visitorIds.add(String(r.visitor_id));
+    for (const r of rows) if (r.visitor_id && !String(r.visitor_id).startsWith(ANON_VISITOR_PREFIX)) visitorIds.add(String(r.visitor_id));
   }
   await anonymizeVisitorTracking(sb, wsId, sessionIds, [...visitorIds], summary);
 
   if (sessionIds.length > 0) {
     // A new visitor id and nothing that singles the visitor out
     // (anonymizedSessionPatch), on each session row.
-    const { data: sessions, error: sessionsErr } = await sb
-      .from('visitor_sessions')
-      .select('id,visitor_id,ip_raw,current_page')
-      .in('id', sessionIds);
-    check('reading visitor sessions', sessionsErr);
-    for (const s of sessions || []) {
+    const sessions: Array<{ id: string; visitor_id: string | null; ip_raw: string | null; current_page: string | null }> = [];
+    for (const ids of slices(sessionIds)) {
+      const { data, error: sessionsErr } = await readAllPages<(typeof sessions)[number]>((from, to) => sb
+        .from('visitor_sessions')
+        .select('id,visitor_id,ip_raw,current_page')
+        .in('id', ids)
+        .order('id', { ascending: true })
+        .range(from, to));
+      check('reading visitor sessions', sessionsErr);
+      sessions.push(...data);
+    }
+    for (const s of sessions) {
       const rotated = (s.visitor_id || '').startsWith(ANON_VISITOR_PREFIX);
       // Done before (a re-run): nothing left to clear.
       if (rotated && s.ip_raw == null && s.current_page == null) continue;

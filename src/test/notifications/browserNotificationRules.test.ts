@@ -8,13 +8,14 @@
  * as inside quiet hours, which conversations a scope lets through, and what
  * a preview may say.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import {
   assigneeFromCache,
   isWithinQuietHours,
   passesScope,
   previewText,
+  resolveAssignee,
 } from '../../features/notifications/operatorBrowserNotification';
 
 const at = (hh: number, mm = 0) => new Date(2026, 8, 21, hh, mm, 0);
@@ -54,9 +55,19 @@ describe('quiet hours', () => {
 describe('scope', () => {
   const ME = 'me';
 
-  it('lets everything through on "all"', () => {
+  // A colleague's conversation used to let every message through on "all"
+  // (and the chime ignored the scope altogether), so the whole floor heard
+  // every visitor of every operator. It is theirs now, as on the phone.
+  it('on "all": mine and the unassigned, not a colleague\'s', () => {
+    expect(passesScope('all', ME, ME)).toBe(true);
     expect(passesScope('all', null, ME)).toBe(true);
-    expect(passesScope('all', 'somebody-else', ME)).toBe(true);
+    expect(passesScope('all', 'somebody-else', ME)).toBe(false);
+  });
+
+  it('except for a supervisor watching every conversation', () => {
+    expect(passesScope('all', 'somebody-else', ME, true)).toBe(true);
+    // "Assigned to me, and unassigned" still means it.
+    expect(passesScope('assigned', 'somebody-else', ME, true)).toBe(false);
   });
 
   it('means it on "none"', () => {
@@ -69,16 +80,49 @@ describe('scope', () => {
     expect(passesScope('mentions', ME, ME)).toBe(false);
   });
 
-  it('on "assigned", mine and nobody else\'s', () => {
+  it('on "assigned": mine, and the unassigned — what the setting says', () => {
     expect(passesScope('assigned', ME, ME)).toBe(true);
+    expect(passesScope('assigned', null, ME)).toBe(true);
     expect(passesScope('assigned', 'somebody-else', ME)).toBe(false);
-    expect(passesScope('assigned', null, ME)).toBe(false);
   });
 
-  it('but a conversation it has never seen is not silently dropped', () => {
-    // `undefined` is "not in the cache", which is not the same as unassigned
-    // — and one banner too many costs nothing beside a missed customer.
+  it('but a conversation whose owner cannot be read is not silently dropped', () => {
+    // `undefined` is "could not find out", which is not the same as
+    // unassigned — and one banner too many costs nothing beside a missed
+    // customer.
     expect(passesScope('assigned', undefined, ME)).toBe(true);
+  });
+});
+
+describe('the assignee, off the Inbox page', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('is read once from the server when no list holds the conversation, then remembered', async () => {
+    const fetchMock = vi.fn(async (_url: string) => new Response(
+      JSON.stringify({ conversation: { id: 'c-9', assigned_to: 'colleague' } }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const qc = new QueryClient();
+    expect(await resolveAssignee(qc, 'ws-1', 'c-9')).toBe('colleague');
+    expect(await resolveAssignee(qc, 'ws-1', 'c-9')).toBe('colleague');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/conversations/c-9?workspace_id=ws-1');
+  });
+
+  it('prefers what a list already holds', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const qc = new QueryClient();
+    qc.setQueryData(['conversations', 'ws-1', 'main'], [{ id: 'c-1', assigned_to: null }]);
+    expect(await resolveAssignee(qc, 'ws-1', 'c-1')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('says it does not know when the server cannot tell', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    expect(await resolveAssignee(qc, 'ws-1', 'c-2')).toBeUndefined();
   });
 });
 
@@ -148,14 +192,15 @@ describe('which surface the shared bundle speaks for', () => {
     // their phone that the thing sending to their phone never read.
     const { notificationPlatform } = await import('../../lib/notifications-api');
 
-    const original = (globalThis as any).window?.Capacitor;
+    const g = globalThis as unknown as { window?: { Capacitor?: unknown } };
+    const original = g.window?.Capacitor;
     try {
       expect(notificationPlatform()).toBe('web');
-      (globalThis as any).window = (globalThis as any).window ?? {};
-      (globalThis as any).window.Capacitor = { isNativePlatform: () => true };
+      g.window = g.window ?? {};
+      g.window.Capacitor = { isNativePlatform: () => true };
       expect(notificationPlatform()).toBe('mobile');
     } finally {
-      if ((globalThis as any).window) (globalThis as any).window.Capacitor = original;
+      if (g.window) g.window.Capacitor = original;
     }
   });
 });

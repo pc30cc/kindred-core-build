@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Bell, EyeOff, Check, Clock, UserCog, Building2,
+  Bell, Check, Clock, UserCog, Building2,
   UserPlus, HelpCircle, Sparkles, LogOut, ChevronDown, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -15,7 +15,18 @@ import { useWorkspacePath, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
+import { useTeamPresence } from '@/hooks/useTeamPresence';
+import {
+  MY_STATUS_DOT_CLASS, manualChoiceOf, myOperatorStatus, myStatusKeys, prefsForChoice,
+} from '@/lib/myOperatorStatus';
+import { isRoutableChatRole } from '../../../shared/chatRoles';
 import { toast } from '@/hooks/use-toast';
+
+/** A translation, or '' when the key is missing (the translator answers with the key). */
+function word(t: (key: string) => string, key: string): string {
+  const text = t(key);
+  return text && text !== key ? text : '';
+}
 
 /** Account menu shown in the top bar — full profile actions in a dropdown. */
 export function UserMenu() {
@@ -36,18 +47,35 @@ export function UserMenu() {
     queryFn: () => fetchAvailability(),
     staleTime: 30_000,
   });
-  const invisible = !!(availability as any)?.prefs?.force_offline;
-  const toggleInvisible = useMutation({
-    mutationFn: () => updateAvailability({ force_offline: !invisible }),
-    onSuccess: (res) => {
+  // R-26: the dot says what is true — offline by hand, outside their own
+  // schedule, idle ("away"), not connected, or online — for the members who
+  // receive chats (the owner and the chat team). Staff are never given
+  // chats, so they have no status here.
+  const hasChatStatus = isRoutableChatRole(wsRole);
+  const { data: teamPresence } = useTeamPresence(hasChatStatus ? currentWorkspace?.id : undefined);
+  const myPresence = teamPresence?.presence?.find((p) => p.user_id === user?.id) ?? null;
+  const status = myOperatorStatus(availability, myPresence);
+  const statusKeys = myStatusKeys(status);
+  const statusLabel = statusKeys ? word(t, statusKeys.label) : '';
+  const statusHint = statusKeys ? word(t, statusKeys.hint) : '';
+  const manualChoice = manualChoiceOf(availability);
+  const setStatus = useMutation({
+    mutationFn: (choice: 'online' | 'offline') => updateAvailability(prefsForChoice(choice)),
+    onSuccess: (res, choice) => {
       queryClient.setQueryData(['availability', 'me'], res);
+      queryClient.invalidateQueries({ queryKey: ['team-presence'] });
+      // Online by hand, but the schedule keeps them offline right now: say so.
+      const scheduleClosed = choice === 'online' && res.status?.state === 'offline';
       toast({
-        title: !invisible
-          ? (t('nav.invisibleMode') as string)
-          : (t('nav.availability') as string),
+        title: word(t, choice === 'online' ? 'nav.statusNowOnline' : 'nav.statusNowOffline'),
+        description: word(t, scheduleClosed ? 'nav.statusOutsideScheduleHint' : choice === 'online' ? 'nav.statusOnlineHint' : 'nav.statusOfflineHint'),
       });
     },
-    onError: () => toast({ title: 'Error', variant: 'destructive' }),
+    onError: (err: unknown) => toast({
+      title: word(t, 'nav.statusChangeFailed'),
+      description: err instanceof Error ? err.message : undefined,
+      variant: 'destructive',
+    }),
   });
 
   useEffect(() => {
@@ -58,13 +86,14 @@ export function UserMenu() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  const metaName = user?.metadata?.full_name;
   const fullName =
-    ((profile as any)?.full_name as string | null | undefined)?.trim() ||
-    ((user as any)?.metadata?.full_name as string | undefined)?.trim() ||
+    profile?.full_name?.trim() ||
+    (typeof metaName === 'string' ? metaName.trim() : '') ||
     '';
-  const userEmail = (user?.email as string | undefined) || '';
+  const userEmail = user?.email || '';
   const userName = fullName || userEmail.split('@')[0] || '';
-  const userAvatarUrl = ((profile as any)?.avatar_url as string | null | undefined) || '';
+  const userAvatarUrl = profile?.avatar_url || '';
 
   const itemCls =
     'flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors';
@@ -80,7 +109,15 @@ export function UserMenu() {
             {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
             <OperatorAvatarFallback />
           </Avatar>
-          <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-success" />
+          {hasChatStatus && status !== 'unknown' && (
+            <span
+              data-my-status={status}
+              className={cn('absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background', MY_STATUS_DOT_CLASS[status])}
+              title={statusLabel}
+              aria-label={statusLabel}
+              role="img"
+            />
+          )}
         </div>
         <div className="hidden min-w-0 text-start leading-tight lg:block">
           <p className="max-w-[150px] truncate text-sm font-bold text-foreground">
@@ -111,15 +148,36 @@ export function UserMenu() {
             <Bell className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.viewAlerts') || 'View alerts'}</span>
           </RouterLink>
-          <button
-            onClick={() => toggleInvisible.mutate()}
-            disabled={toggleInvisible.isPending || !availability}
-            className={cn(itemCls, 'disabled:cursor-not-allowed disabled:opacity-60')}
-          >
-            <EyeOff className={cn('h-5 w-5', invisible ? 'text-primary' : 'text-muted-foreground')} />
-            <span className="flex-1 text-start">{t('nav.invisibleMode') || 'Invisible mode'}</span>
-            {invisible && <Check className="h-4 w-4 shrink-0 text-primary" />}
-          </button>
+          {hasChatStatus && (
+            <div data-my-status-menu role="group" aria-label={word(t, 'nav.statusHeading')} className="border-y border-border py-1">
+              <div className="flex items-start gap-3 px-4 py-2">
+                <span className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full', MY_STATUS_DOT_CLASS[status])} aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">{word(t, 'nav.statusHeading')}</p>
+                  <p className="text-sm font-semibold text-foreground">{statusLabel || '…'}</p>
+                  {statusHint && <p className="text-[11px] leading-snug text-muted-foreground">{statusHint}</p>}
+                </div>
+              </div>
+              {(['online', 'offline'] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={manualChoice === choice}
+                  data-status-choice={choice}
+                  onClick={() => { if (manualChoice !== choice) setStatus.mutate(choice); }}
+                  disabled={setStatus.isPending || !availability}
+                  className={cn(itemCls, 'disabled:cursor-not-allowed disabled:opacity-60')}
+                >
+                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', choice === 'online' ? 'bg-success' : 'bg-muted-foreground/60')} aria-hidden />
+                  <span className="flex-1 text-start">
+                    {word(t, choice === 'online' ? 'nav.statusOnline' : 'nav.statusOffline')}
+                  </span>
+                  {manualChoice === choice && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                </button>
+              ))}
+            </div>
+          )}
           <RouterLink to={wsPath('/settings/availability')} onClick={() => setOpen(false)} className={itemCls}>
             <Clock className="h-5 w-5 text-muted-foreground" />
             <span>{t('nav.availability') || 'Availability settings'}</span>

@@ -10,7 +10,9 @@
  *     out instead of showing zeros as accurate, shows how many are available
  *     to visitors instead, and says why; the CSV exports leave those columns
  *     out too and carry the presence;
- *   - an older server (no flag): the online-time report as before.
+ *   - a server that records online time (online_time_tracked: true): the
+ *     online-time report. A server that does not say records none either
+ *     (migration 223), so it reads as not recorded (presenceDashboards.test.tsx).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -20,7 +22,10 @@ const state = vi.hoisted(() => ({ stats: null as unknown }));
 
 vi.mock('@/hooks/useWorkspace', () => ({ useActiveWorkspace: () => ({ workspace: { id: 'ws-1' } }) }));
 vi.mock('@/hooks/useWorkspaceRole', () => ({ useWorkspaceRole: () => ({ data: 'owner' }), isWorkspaceAdmin: () => true }));
-vi.mock('@/lib/operator-activity-api', () => ({ fetchOperatorActivity: async () => state.stats }));
+vi.mock('@/lib/operator-activity-api', async (orig) => ({
+  ...(await orig<typeof import('@/lib/operator-activity-api')>()),
+  fetchOperatorActivity: async () => state.stats,
+}));
 
 const { default: OperatorActivityPage } = await import('@/pages/app/settings/OperatorActivityPage');
 const { exportSummaryCsv, exportDetailedCsv } = await import('@/lib/operator-activity-export');
@@ -87,26 +92,27 @@ describe('Operator Activity page — live presence, no fake online time', () => 
     state.stats = untracked();
     await mount();
     expect(screen.queryByText('Total online time')).toBeNull();
-    expect(screen.getByText('Available to visitors')).toBeTruthy();
+    expect(screen.getByText('Available now')).toBeTruthy();
     expect(document.querySelectorAll('[data-online-time]')).toHaveLength(0);
     expect(screen.queryByText('Active days')).toBeNull();
     expect(screen.queryByText(/Last activity/)).toBeNull();
     const badges = [...document.querySelectorAll('[data-presence]')].map((b) => [b.getAttribute('data-presence'), b.textContent]);
-    expect(badges).toEqual([['active', 'Active'], ['away', 'Away'], ['disconnected', 'Not connected']]);
-    expect(screen.getByText(/Online time is not recorded at the moment/)).toBeTruthy();
+    expect(badges).toEqual([['active', 'Active'], ['away', 'Away'], ['disconnected', 'Not in the panel']]);
+    expect(screen.getByText(/Online time is not recorded\./)).toBeTruthy();
   });
 
-  it('an older server (no flag, no presence): the online-time report and availability badges, as before', async () => {
+  it('online time recorded: the online-time tile, bar and last activity come back', async () => {
     state.stats = {
       ...untracked(),
-      online_time_tracked: undefined,
+      online_time_tracked: true,
       totals: { operators: 1, online_minutes: 90, replies_sent: 5, conversations_assigned: 3, online_now: 1 },
       operators: [row('sara', 'Sara', { online_minutes: 90, last_seen: '2026-10-21T09:00:00Z' })],
     };
     await mount();
     expect(screen.getByText('Total online time')).toBeTruthy();
     expect(document.querySelectorAll('[data-online-time]')).toHaveLength(1);
-    expect(document.querySelector('[data-presence]')!.textContent).toBe('Online');
+    // No live presence from the server: available by settings, nothing open.
+    expect(document.querySelector('[data-presence]')!.textContent).toBe('Not in the panel');
     expect(screen.getByText(/Last activity/)).toBeTruthy();
   });
 

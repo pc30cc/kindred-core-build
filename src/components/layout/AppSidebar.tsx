@@ -29,9 +29,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
-import { toast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
 import { useBranding } from '@/hooks/useBranding';
 import { useInboxCounts } from '@/hooks/useConversations';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
@@ -114,12 +112,12 @@ export function AppSidebar({
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
   // Every plan / role / platform rule for what this member sees:
   // src/lib/planAccess.ts via useWorkspaceSections. Until the plan snapshot
   // has resolved, plan-gated entries are NOT rendered — showing them first
   // and removing them a moment later is worse than waiting.
   const sections = useWorkspaceSections();
+  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
   const { plan } = sections;
   const entsReady = sections.ready;
   // The queues inside the inbox follow the same rules as the inbox's own tabs.
@@ -211,36 +209,6 @@ export function AppSidebar({
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
-
-  // Availability — used for the "invisible mode" quick toggle in the user menu
-  const queryClient = useQueryClient();
-  const { data: availability } = useQuery({
-    queryKey: ['availability', 'me'],
-    queryFn: () => fetchAvailability(),
-    enabled: !!user,
-    staleTime: 30_000,
-  });
-  const invisible = !!availability?.prefs?.force_offline;
-  const toggleInvisible = useMutation({
-    mutationFn: () => updateAvailability({ force_offline: !invisible }),
-    onSuccess: (res) => {
-      queryClient.setQueryData(['availability', 'me'], res);
-      queryClient.invalidateQueries({ queryKey: ['team-presence'] });
-      toast({
-        title: res.prefs.force_offline ? 'Invisible mode enabled' : 'Invisible mode disabled',
-        description: res.prefs.force_offline
-          ? 'You now appear offline to visitors.'
-          : 'You are visible based on your availability schedule.',
-      });
-    },
-    onError: (err: unknown) => {
-      toast({
-        title: 'Failed to update status',
-        description: (err instanceof Error && err.message) || 'Please try again.',
-        variant: 'destructive',
-      });
-    },
-  });
 
   // Close menus on outside click
   useEffect(() => {
@@ -520,7 +488,8 @@ export function AppSidebar({
         </NavTip>
       </div>
 
-      {/* Inbox section */}
+      {/* Inbox section — the owner, admins and the chat team only (shared/chatRoles.ts). */}
+      {sections.visible('inbox') && (
       <div className="px-3 mt-2">
         <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
@@ -660,6 +629,7 @@ export function AppSidebar({
         })()}
 
       </div>
+      )}
 
       {/* Main navigation */}
       <nav className="flex-1 overflow-y-auto pt-3 px-3 space-y-0.5">

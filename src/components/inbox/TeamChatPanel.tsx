@@ -407,7 +407,7 @@ export default function TeamChatPanel() {
                               </div>
                             )}
                             {!!m.body && (
-                              <p className="whitespace-pre-wrap break-words" dir="auto">{m.body}</p>
+                              <p className="whitespace-pre-wrap break-words" dir="auto" data-latin-digits="">{m.body}</p>
                             )}
                             <div className={cn('mt-1 text-[10px] tabular-nums', mine ? 'text-primary-foreground/70 text-end' : 'text-muted-foreground')}>
                               {formatTime(m.created_at)}

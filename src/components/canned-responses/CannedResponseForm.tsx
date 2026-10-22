@@ -92,6 +92,15 @@ export function CannedResponseForm({
   const isValid = Object.keys(errors).length === 0;
 
   const preview = useMemo(() => interpolate(body, SAMPLE_CONTEXT), [body]);
+  // Most visitors are anonymous: what this reply reads like without their
+  // name or email (a variable without a value is left out, or takes its
+  // default) — shown only when the reply uses one (I-08).
+  const usesContact = /\{\{\s*contact\./i.test(body);
+  const anonymousPreview = useMemo(
+    () => (usesContact ? interpolate(body, { ...SAMPLE_CONTEXT, contact: { name: null, email: null } }) : ''),
+    [body, usesContact],
+  );
+  const defaultExample = `{{contact.name|default:"${t('canned.form.defaultExample')}"}}`;
 
   const insertVariable = (v: string) => {
     setBody((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}{{${v}}}`);
@@ -168,6 +177,10 @@ export function CannedResponseForm({
           <p className="text-xs text-destructive">{errors.body}</p>
         )}
         <p className="text-[11px] text-muted-foreground pt-1">{t('canned.form.variablesHint')}</p>
+        <p className="text-[11px] text-muted-foreground">
+          {t('canned.form.defaultHint')}{' '}
+          <code dir="ltr" data-latin-digits="" className="font-mono text-[11px] text-foreground">{defaultExample}</code>
+        </p>
         <div className="flex flex-wrap gap-1.5 pt-1">
           {CANNED_VARIABLES.map((v) => (
             <button
@@ -192,6 +205,21 @@ export function CannedResponseForm({
         >
           {preview || <span className="text-muted-foreground italic">{t('canned.form.previewEmpty')}</span>}
         </div>
+        {anonymousPreview && (
+          <>
+            <Label className="text-xs text-muted-foreground">{t('canned.form.previewAnonymous')}</Label>
+            <div
+              data-canned="preview-anonymous"
+              className={cn(
+                'rounded-md border border-dashed border-border/60 bg-muted/20 p-3 text-sm whitespace-pre-wrap',
+                locale === 'fa' && 'text-end',
+              )}
+              dir={locale === 'fa' ? 'rtl' : 'ltr'}
+            >
+              {anonymousPreview}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex items-center justify-between pt-2 border-t border-border/40">

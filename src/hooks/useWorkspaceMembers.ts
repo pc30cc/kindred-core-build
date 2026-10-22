@@ -24,6 +24,12 @@ export interface WorkspaceMember {
   avatar_url: string | null;
   /** When they joined the workspace (the widget's team is its first four to join, shared/widgetTeam.ts). */
   created_at: string | null;
+  /** Suspended by the owner: keeps history, takes no chats. */
+  suspended_at?: string | null;
+  /** The plan paused this seat (billing locks): cannot open a chat. */
+  seat_locked?: boolean;
+  /** The departments they are in, by name. */
+  department_names?: string[];
 }
 
 /** A row of GET /api/workspace-members, as far as this hook reads it. */
@@ -31,6 +37,9 @@ interface MemberRow {
   user_id: string;
   role: string;
   created_at?: string | null;
+  suspended_at?: string | null;
+  seat_locked?: boolean | null;
+  department_names?: string[] | null;
   profile?: { full_name?: string | null; email?: string | null; avatar_url?: string | null } | null;
 }
 
@@ -51,6 +60,9 @@ export function useWorkspaceMembers(workspaceId: string | undefined) {
         email: m.profile?.email ?? null,
         avatar_url: m.profile?.avatar_url ?? null,
         created_at: m.created_at ?? null,
+        suspended_at: m.suspended_at ?? null,
+        seat_locked: m.seat_locked === true,
+        department_names: Array.isArray(m.department_names) ? m.department_names : [],
       }));
     },
     enabled: !!workspaceId,

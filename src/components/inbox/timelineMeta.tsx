@@ -181,8 +181,12 @@ export function describeEvent(
     }
     case 'unassigned':
       return { primary: L('unassigned', 'Unassigned') };
+    // The PATCH files a move to `closed` as a `resolved` event too; its
+    // payload says which (finding I-01: it used to read "Marked as resolved").
     case 'resolved':
-      return { primary: L('resolved', 'Marked as resolved'), secondary: reason };
+      return p?.to === 'closed'
+        ? { primary: L('closed', 'Closed'), secondary: reason }
+        : { primary: L('resolved', 'Marked as resolved'), secondary: reason };
     case 'reopened':
       return { primary: L('reopened', 'Reopened'), secondary: reason };
     case 'status_changed':

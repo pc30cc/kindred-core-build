@@ -4,11 +4,13 @@
  * Lives in the Inbox sidebar (Info tab). Lets workspace members edit:
  *   • status      — open | pending | resolved | closed
  *   • priority    — low  | normal  | high     | urgent
- *   • assignee    — any workspace member, or unassigned
+ *   • assignee    — the transfer picker (ConversationAssignee): an operator
+ *                   of the chat team, a department, or back to the queue
  *   • tags        — free-form add/remove (server normalizes)
  *
- * All edits go through useUpdateConversation → PATCH /api/conversations/:id.
- * That route is workspace-membership gated and writes both
+ * Status, priority and tags go through useUpdateConversation → PATCH
+ * /api/conversations/:id; the assignee through the transfer and claim
+ * routes. They are workspace-membership gated and write both
  * conversation_events (UI timeline) and audit_logs (compliance) per change.
  *
  * Optimistic update behavior is owned by useUpdateConversation; this
@@ -16,8 +18,7 @@
  * controls are disabled to avoid stacking edits on stale state.
  */
 
-import { useState, useMemo } from 'react';
-import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,6 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Hash, X, Plus, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ConversationAssignee } from '@/components/inbox/ConversationAssignee';
 
 type Status = 'open' | 'pending' | 'resolved' | 'closed';
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
@@ -35,16 +37,22 @@ interface Props {
   status: Status | string;
   priority: Priority | string;
   assignedTo: string | null;
+  /** The conversation's department (package A's payload; null when none or not sent). */
+  departmentId?: string | null;
+  departmentName?: string | null;
+  /** Who is looking, for what the transfer picker offers them. */
+  viewerId?: string | null;
+  viewerRole?: string | null;
   tags: string[];
   onMutate: (vars: {
     status?: Status;
     priority?: Priority;
-    assigned_to?: string | null;
     tags?: string[];
   }) => void;
   isPending: boolean;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, string>) => string;
   dir: 'ltr' | 'rtl';
+  locale?: string;
 }
 
 const STATUSES: Status[] = ['open', 'pending', 'resolved', 'closed'];
@@ -58,17 +66,10 @@ const priorityColor: Record<string, string> = {
 };
 
 export function ConversationActionPanel({
-  workspaceId, status, priority, assignedTo, tags,
-  onMutate, isPending, t, dir,
+  conversationId, workspaceId, status, priority, assignedTo, departmentId, departmentName,
+  viewerId, viewerRole, tags, onMutate, isPending, t, dir, locale,
 }: Props) {
-  const { data: members = [], isLoading: membersLoading } = useWorkspaceMembers(workspaceId);
   const [tagInput, setTagInput] = useState('');
-
-  const assigneeName = useMemo(() => {
-    if (!assignedTo) return null;
-    const m = members.find((x) => x.user_id === assignedTo);
-    return m?.full_name || m?.email || assignedTo.slice(0, 8);
-  }, [assignedTo, members]);
 
   const addTag = () => {
     const v = tagInput.trim().toLowerCase();
@@ -131,31 +132,19 @@ export function ConversationActionPanel({
           </Select>
         </div>
 
-        {/* Assignee */}
-        <div className="px-3 py-2 space-y-1">
-          <span className="text-[10px] text-muted-foreground">{t('inbox.assignee') || 'Assignee'}</span>
-          <Select
-            value={assignedTo ?? '__none__'}
-            onValueChange={(v) => onMutate({ assigned_to: v === '__none__' ? null : v })}
-            disabled={isPending || membersLoading}
-          >
-            <SelectTrigger className="h-7 text-[11px]">
-              <SelectValue>
-                {assigneeName || (t('inbox.unassigned') || 'Unassigned')}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__" className="text-[11px]">
-                {t('inbox.unassigned') || 'Unassigned'}
-              </SelectItem>
-              {members.map((m) => (
-                <SelectItem key={m.user_id} value={m.user_id} className="text-[11px]">
-                  {m.full_name || m.email || m.user_id.slice(0, 8)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Assignee — who has it, and the transfer picker */}
+        <ConversationAssignee
+          workspaceId={workspaceId}
+          conversationId={conversationId}
+          assignedTo={assignedTo}
+          departmentId={departmentId ?? null}
+          departmentName={departmentName ?? null}
+          viewerId={viewerId}
+          viewerRole={viewerRole}
+          t={t}
+          dir={dir}
+          locale={locale}
+        />
 
         {/* Tags */}
         <div className="px-3 py-2 space-y-1.5">

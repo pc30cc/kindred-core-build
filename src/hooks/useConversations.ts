@@ -390,6 +390,8 @@ export function useUpdateConversation() {
       status?: 'open' | 'pending' | 'resolved' | 'closed';
       priority?: 'low' | 'normal' | 'high' | 'urgent';
       assigned_to?: string | null;
+      /** With `assigned_to`: the assignee the panel showed (409 when it changed since). */
+      expected_assigned_to?: string | null;
       tags?: string[];
     }) => {
       const result = await conversationsApi.patchConversation({
@@ -398,6 +400,9 @@ export function useUpdateConversation() {
         status: vars.status,
         priority: vars.priority,
         assigned_to: vars.assigned_to,
+        ...(vars.assigned_to !== undefined && vars.expected_assigned_to !== undefined
+          ? { expected_assigned_to: vars.expected_assigned_to }
+          : {}),
         tags: vars.tags,
       });
       return result.conversation;

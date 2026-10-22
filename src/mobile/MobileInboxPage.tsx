@@ -28,6 +28,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { formatRelative } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { operatorDisplayName } from '@/lib/operatorName';
 import { MobileScreen, MobileNavButton } from './MobileScreen';
 import { SwipeRow } from './ios/SwipeRow';
 import { MobileSearchField } from './MobileSearchField';
@@ -152,7 +153,7 @@ export default function MobileInboxPage() {
                 {
                   isMe: last.sender_type === 'agent' && !!last.sender_id && last.sender_id === user?.id,
                   name: last.sender_type === 'agent'
-                    ? last.sender_name
+                    ? operatorDisplayName({ name: last.sender_name }, t)
                     : (last.sender_type === 'ai' || last.sender_type === 'bot')
                       ? (t('inbox.previewAi') || 'AI')
                       : (c.contacts?.name || null),
@@ -170,13 +171,14 @@ export default function MobileInboxPage() {
                     filter === 'resolved'
                       ? {
                           key: 'reopen',
-                          label: t('inbox.open'),
+                          // Actions are verbs; «باز» / "Open" is the status (I-02).
+                          label: t('inbox.reopen'),
                           icon: RotateCcw,
                           onAction: () => setStatus(c.id, 'open'),
                         }
                       : {
                           key: 'resolve',
-                          label: t('inbox.resolved'),
+                          label: t('inbox.resolve'),
                           icon: Check,
                           onAction: () => setStatus(c.id, 'resolved'),
                         },

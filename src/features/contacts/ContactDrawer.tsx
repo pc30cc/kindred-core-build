@@ -28,6 +28,7 @@ import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { formatDateTime } from '@/lib/date';
+import { CONVERSATION_STATUS_BADGE, conversationStatusLabel, normalizeConversationStatus } from '@/lib/conversationStatus';
 import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 
 interface Props {
@@ -150,7 +151,7 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                 <div className="flex-1 min-w-0">
                   <SheetTitle className="text-base text-start">{displayName}</SheetTitle>
                   {contact.email && (
-                    <p className="text-xs text-muted-foreground truncate text-start">{contact.email}</p>
+                    <p className="text-xs text-muted-foreground truncate text-start" data-latin-digits="">{contact.email}</p>
                   )}
                   <div className="flex flex-wrap gap-1 mt-2">
                     {resolveChannelKey(contactMetadata) !== 'widget' && (
@@ -239,9 +240,9 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <InfoRow icon={Mail} label={t('contacts.email')} value={contact.email} />
-                      <InfoRow icon={Phone} label={t('contacts.phone')} value={contact.phone} />
-                      <InfoRow icon={Building2} label={t('contacts.company')} value={company} />
+                      <InfoRow icon={Mail} label={t('contacts.email')} value={contact.email} latin />
+                      <InfoRow icon={Phone} label={t('contacts.phone')} value={contact.phone} latin />
+                      <InfoRow icon={Building2} label={t('contacts.company')} value={company} latin />
                       <InfoRow icon={MapPin} label={t('contacts.location')} value={location.label} />
                       <InfoRow icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at, undefined, locale) : null} />
                       <InfoRow icon={Calendar} label={t('contacts.updatedAt')} value={contact.updated_at ? timeAgo(contact.updated_at) : null} />
@@ -317,15 +318,11 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           </span>
                         </div>
                         <div className="flex items-center gap-2 mt-1.5">
-                          <span className={cn(
+                          <span data-status={normalizeConversationStatus(conv.status)} className={cn(
                             'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                            conv.status === 'open' ? 'bg-success/15 text-success' :
-                            conv.status === 'pending' ? 'bg-warning/15 text-warning' :
-                            'bg-muted text-muted-foreground'
+                            CONVERSATION_STATUS_BADGE[normalizeConversationStatus(conv.status)],
                           )}>
-                            {conv.status === 'open' ? t('contacts.statusOpen')
-                              : conv.status === 'pending' ? t('contacts.statusPending')
-                              : t('contacts.statusClosed')}
+                            {conversationStatusLabel(t, conv.status)}
                           </span>
                         </div>
                       </div>
@@ -350,7 +347,8 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
   );
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
+/** `latin`: the value is the contact's own data (email, phone, company), shown as written — no Persian digits (I-04). */
+function InfoRow({ icon: Icon, label, value, latin }: { icon: React.ElementType; label: string; value?: string | null; latin?: boolean }) {
   return (
     <div className="flex items-start gap-3 py-1.5 text-start">
       <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0">
@@ -358,7 +356,7 @@ function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label:
       </div>
       <div className="flex-1 min-w-0 text-start">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
-        <p className="text-sm text-foreground truncate" dir="auto">{value || '—'}</p>
+        <p className="text-sm text-foreground truncate" dir="auto" data-latin-digits={latin && value ? '' : undefined}>{value || '—'}</p>
       </div>
     </div>
   );

@@ -48,6 +48,8 @@ import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 interface DashboardConversation {
   id: string;
   status?: string | null;
+  /** The visitor waits for our answer (server-derived, server/services/needsReply.ts). */
+  needs_reply?: boolean | null;
   created_at?: string | null;
   last_message_at?: string | null;
   updated_at?: string | null;
@@ -85,11 +87,13 @@ export default function OverviewPage() {
   const { user } = useAuth();
   const wsPath = useWorkspacePath();
 
-  const { data: conversations, isPending: conversationsPending } = useConversations(workspace?.id);
   // Visitors and Contacts are plan sections: their numbers, cards and links
   // appear only when the plan includes them (the sidebar's rule), and their
-  // data is not even fetched otherwise.
+  // data is not even fetched otherwise. Conversations are the Inbox's, which
+  // staff without one (shared/chatRoles.ts) are not shown either.
   const sections = useWorkspaceSections();
+  const inboxOk = sections.visible('inbox');
+  const { data: conversations, isPending: conversationsPending } = useConversations(inboxOk ? workspace?.id : undefined);
   const visitorsInPlan = sections.visible('visitors');
   const contactsInPlan = sections.visible('contacts');
   const { data: visitors } = useOnlineVisitors(visitorsInPlan ? workspace?.id : undefined);
@@ -144,7 +148,11 @@ export default function OverviewPage() {
   const fmt = (v: number) => v.toLocaleString(numberLocale);
 
   const list = (conversations ?? []) as unknown as DashboardConversation[];
+  // Waiting for an answer from us: the server's needs-reply (an open thread
+  // whose newest turn is the visitor's), not every open conversation — an
+  // answered one is open too (finding I-01).
   const openConvos = list.filter((c) => c.status === 'open').length;
+  const needsReplyConvos = list.filter((c) => c.status === 'open' && c.needs_reply === true).length;
   const resolved = list.filter((c) => c.status === 'resolved' || c.status === 'closed').length;
   // Truly online right now: presence status online AND seen in the last 5 minutes
   const onlineVisitors = ((visitors ?? []) as Array<{ status?: string; updated_at?: string | null; last_seen_at?: string | null }>).filter((v) => {
@@ -248,7 +256,9 @@ export default function OverviewPage() {
 
 
   const stats: { label: string; value: number; icon: React.ElementType; accent: AiAccent; path: string }[] = [
-    { label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo', path: '/inbox' },
+    ...(inboxOk
+      ? [{ label: tr('dashboard.statOpenConversations'), value: openConvos, icon: Inbox, accent: 'indigo' as AiAccent, path: '/inbox' }]
+      : []),
     ...(visitorsInPlan
       ? [
           { label: tr('dashboard.statOnlineVisitors'), value: onlineVisitors, icon: Radio, accent: 'emerald' as AiAccent, path: '/visitors' },
@@ -317,11 +327,11 @@ export default function OverviewPage() {
         {/* quick actions */}
         <div data-hero-actions className="relative mt-5 flex flex-wrap gap-2">
           {[
-            { label: tr('dashboard.openInbox'), icon: Inbox, path: '/inbox', accent: 'emerald' as AiAccent },
+            { label: tr('dashboard.openInbox'), icon: Inbox, path: '/inbox', accent: 'emerald' as AiAccent, hidden: !inboxOk },
             { label: tr('dashboard.manageContacts'), icon: Users, path: '/contacts', accent: 'amber' as AiAccent },
             { label: tr('dashboard.manageKb'), icon: BookOpen, path: '/knowledge-base', accent: 'cyan' as AiAccent },
             { label: tr('dashboard.aiAgent'), icon: Bot, path: '/ai-agent', accent: 'violet' as AiAccent },
-          ].map((a) => (
+          ].filter((a) => !a.hidden).map((a) => (
             <Link
               key={a.label}
               to={wsPath(a.path)}
@@ -373,6 +383,7 @@ export default function OverviewPage() {
       {/* ── Main grid ────────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Chart */}
+        {inboxOk && (
         <div data-panel="chart" className="relative overflow-hidden magic-card spotlight p-5 xl:col-span-2">
           <div className="pointer-events-none absolute -top-16 -start-10 h-40 w-40 rounded-full bg-indigo-500/15 blur-3xl" />
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -392,7 +403,7 @@ export default function OverviewPage() {
               </span>
               <span data-panel-stat className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
                 <Clock className="h-3.5 w-3.5" />
-                {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(openConvos)}</b>
+                {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(needsReplyConvos)}</b>
               </span>
             </div>
           </div>
@@ -442,6 +453,7 @@ export default function OverviewPage() {
             )}
           </div>
         </div>
+        )}
 
         {/* Plan & usage — admins/owners only */}
         {canSeeBilling && (
@@ -548,6 +560,7 @@ export default function OverviewPage() {
       {/* ── Recent + team ────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Recent conversations */}
+        {inboxOk && (
         <div data-panel="list" className="magic-card spotlight xl:col-span-2">
           <div data-panel-header className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
@@ -623,6 +636,7 @@ export default function OverviewPage() {
             </ul>
           )}
         </div>
+        )}
 
         {/* Team presence */}
         <div data-panel="list" className="magic-card spotlight">

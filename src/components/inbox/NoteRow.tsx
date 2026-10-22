@@ -83,7 +83,7 @@ export function NoteRow({ note, canEdit, isDeleting, isUpdating, onUpdate, onDel
               </div>
             </div>
           ) : (
-            <p className="text-xs text-foreground mt-1 whitespace-pre-wrap break-words">{note.body}</p>
+            <p data-latin-digits="" className="text-xs text-foreground mt-1 whitespace-pre-wrap break-words">{note.body}</p>
           )}
         </div>
 

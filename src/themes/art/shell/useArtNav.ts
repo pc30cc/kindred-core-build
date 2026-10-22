@@ -57,7 +57,8 @@ const TEAM_PAGE = /^\/settings\/(team-departments|team|departments)(\/|$)/;
 // Top-level destinations by priority; a plan-gated one carries its section.
 const PRIMARY: Entry[] = [
   { key: 'dashboard', path: '', icon: LayoutDashboard },
-  { key: 'inbox', path: '/inbox', icon: Inbox },
+  // Role-gated: the owner, admins and the chat team (shared/chatRoles.ts).
+  { key: 'inbox', path: '/inbox', icon: Inbox, section: 'inbox' },
   { key: 'contacts', path: '/contacts', icon: Users, section: 'contacts' },
   { key: 'visitors', path: '/visitors', icon: Eye, section: 'visitors' },
   { key: 'aiAgent', path: '/ai-agent', icon: Sparkles, section: 'aiAgent' },
@@ -82,8 +83,8 @@ export function useArtNav() {
   const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
   const { data: isGlobalAdmin } = useIsGlobalAdmin();
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
   const sections = useWorkspaceSections();
+  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
   const { plan } = sections;
 
   // Same query (and cache entry) as the sidebar's channel inboxes.

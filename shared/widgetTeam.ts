@@ -22,6 +22,7 @@
  * same person), else the workspace's name (launcherInitial).
  */
 import { launcherInitial } from './launcherStyles.js';
+import { visitorDisplayName } from './systemMessages.js';
 
 /** How many members the widget shows (and the agent face picks from). */
 export const WIDGET_TEAM_SIZE = 4;
@@ -56,7 +57,9 @@ export function widgetTeamMembers<T extends WidgetTeamMemberRow>(rows: readonly 
 
 /** A member's name in the team stack, in a widget speaking `locale` (fa, en, tr; a region tag reads as its language). */
 export function widgetTeamName(fullName: string | null | undefined, locale: string | null | undefined): string {
-  if (fullName && launcherInitial([fullName])) return fullName;
+  // A profile name that is an email address is no name here either (I-10).
+  const own = visitorDisplayName(fullName);
+  if (own && launcherInitial([own])) return own;
   const lang = String(locale || '').toLowerCase().split('-')[0];
   return Object.prototype.hasOwnProperty.call(WIDGET_TEAM_NAME_FALLBACK, lang)
     ? WIDGET_TEAM_NAME_FALLBACK[lang]

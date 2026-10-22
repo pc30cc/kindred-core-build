@@ -54,6 +54,44 @@ export function newClientMessageId(): string {
 /** Split Send actions available in the operator composer. */
 export type PostSendAction = 'none' | 'wait_for_customer' | 'resolve';
 
+/**
+ * A refused assignment change, with the server's code: `invalid_target`
+ * (400), `not_allowed` (403), `assignment_changed` / `already_assigned` /
+ * `already_claimed` (409, someone else has it now: `assignedTo`).
+ */
+export class AssignmentError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly assignedTo: string | null;
+  constructor(code: string, status: number, assignedTo: string | null = null) {
+    super(code);
+    this.name = 'AssignmentError';
+    this.code = code;
+    this.status = status;
+    this.assignedTo = assignedTo;
+  }
+  /** Someone else changed who has it since this panel read it. */
+  get conflict(): boolean {
+    return this.status === 409;
+  }
+}
+
+async function assignmentRequest(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const code = typeof json.error === 'string' ? json.error : `http_${res.status}`;
+    const assignedTo = typeof json.assigned_to === 'string' ? json.assigned_to : null;
+    throw new AssignmentError(code, res.status, assignedTo);
+  }
+  return json;
+}
+
 export interface OperatorAttachmentInit {
   attachment_id: string;
   file_name: string;
@@ -244,6 +282,11 @@ export const conversationsApi = {
     status?: 'open' | 'pending' | 'resolved' | 'closed';
     priority?: 'low' | 'normal' | 'high' | 'urgent';
     assigned_to?: string | null;
+    /**
+     * With `assigned_to`: who the panel showed as the assignee, so the server
+     * can answer 409 when somebody else changed it meanwhile.
+     */
+    expected_assigned_to?: string | null;
     tags?: string[];
   }): Promise<{
     ok: boolean;
@@ -267,8 +310,51 @@ export const conversationsApi = {
       },
     );
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+    if (!res.ok) {
+      if (res.status === 409 || res.status === 403) {
+        throw new AssignmentError(String(json.error || `http_${res.status}`), res.status, json.assigned_to ?? null);
+      }
+      throw new Error(json.error || `Update failed: ${res.status}`);
+    }
     return json;
+  },
+
+  /**
+   * Hand a conversation to an operator or to a department (exactly one).
+   * A department unassigns it and routes it among that department's
+   * available operators. Supervisors move anyone's conversation; everyone
+   * else only an unassigned one or their own (shared/chatRoles.ts).
+   * Throws AssignmentError.
+   */
+  async transfer(payload: {
+    workspace_id: string;
+    conversation_id: string;
+    user_id?: string;
+    department_id?: string;
+  }): Promise<{ conversation?: Record<string, unknown> } & Record<string, unknown>> {
+    const { conversation_id, ...body } = payload;
+    return assignmentRequest(`/api/conversations/${encodeURIComponent(conversation_id)}/transfer`, body);
+  },
+
+  /**
+   * Take an unassigned conversation, atomically: 409 (AssignmentError,
+   * `assignedTo`) when somebody else has it already.
+   */
+  async claim(payload: { workspace_id: string; conversation_id: string }): Promise<{ assigned_to?: string }> {
+    const { conversation_id, workspace_id } = payload;
+    return assignmentRequest(`/api/conversations/${encodeURIComponent(conversation_id)}/claim`, { workspace_id }) as Promise<{ assigned_to?: string }>;
+  },
+
+  /** One conversation, in the list's shape (GET /api/conversations/:id). */
+  async getConversation(workspaceId: string, conversationId: string): Promise<{ conversation: Record<string, unknown> | null }> {
+    const q = new URLSearchParams({ workspace_id: workspaceId });
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}?${q}`, {
+      credentials: 'include',
+      headers: JSON_HEADERS,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((json as { error?: string }).error || `Conversation failed: ${res.status}`);
+    return json as { conversation: Record<string, unknown> | null };
   },
 
   /**

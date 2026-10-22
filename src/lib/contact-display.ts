@@ -1,4 +1,5 @@
 import { isolateBidi } from './bidi';
+import { emailLocalPart, realContactName } from '../../shared/contactName';
 import { normalizeLocaleTag } from './geo/countryLocalization';
 import { localizedIranProvince } from './geo/iranProvinceLocalization';
 import { turkishAblativeForm } from './geo/turkishGrammar';
@@ -56,11 +57,13 @@ import { turkishAblativeForm } from './geo/turkishGrammar';
  * exactly as before — this is an Iran-specific identity rule, not a
  * general city→region swap.
  *
- * Email/phone are CONTACT METADATA, not a display-name fallback — a contact
- * known only by email still renders as "Visitor from {city} · {code}" here.
- * Callers show the email/phone separately (Contacts row/detail already do;
- * Inbox shows it in the contact header) — this function is only ever asked
- * "what is this contact called", not "what contact info do we have".
+ * A contact known only by email is called by the part of their email before
+ * the @ (finding I-07): the rule every operator surface shares
+ * (shared/contactName.ts) — the phone apps' lists and the push notifications
+ * always did, so the name on an operator's lock screen («ali.r») is the name
+ * of the row in this Inbox too. A phone number is never a name. Callers
+ * still show the email/phone themselves (Contacts row/detail, the Inbox
+ * contact header).
  *
  * The anonymous label is a PRESENTATION string only — never persist it into
  * `name`/`display_name`. The real identity stays `name: null` (or the
@@ -163,8 +166,11 @@ export function contactDisplayName(
   geo?: string | null | DisplayGeoInfo,
   locale?: string,
 ): string {
-  const name = (contact?.name ?? '').trim();
-  if (name && name.toLowerCase() !== PLACEHOLDER) return name;
+  const name = realContactName(contact?.name);
+  if (name) return name.trim();
+  // A Latin local part inside a Persian sentence keeps its own order.
+  const local = emailLocalPart(contact?.email);
+  if (local) return isolateBidi(local);
   const code = resolveVisitorCode(contact, fallbackId);
   const isolatedCode = isolateBidi(code);
   let geoInfo: DisplayGeoInfo;

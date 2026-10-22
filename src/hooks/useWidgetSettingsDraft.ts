@@ -38,6 +38,10 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   last_agent_window_days: 'widgetPage.behavior.assignment.lastAgent',
   default_max_concurrent_chats: 'widgetPage.behavior.assignment.capacity',
   first_response_timeout_minutes: 'widgetPage.behavior.assignment.timeout',
+  // Settings → Privacy requests → Visitor privacy (VisitorPrivacyCard).
+  tracking_requires_consent: 'privacy.visitor.consentTitle',
+  tracking_keep_query: 'privacy.visitor.keepQueryTitle',
+  visitor_data_retention_days: 'privacy.visitor.retentionTitle',
 };
 
 /** Why a save did not go through, in the dashboard's language. */

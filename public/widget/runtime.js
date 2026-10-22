@@ -6888,7 +6888,7 @@
           (s.title ? '<div class="smart-title">' + Util.escapeHtml(s.title) + '</div>' : '') +
           '<div class="smart-body">' + Util.escapeHtml(s.body || '') + '</div>' +
           (s.ctaLabel
-            ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + ctx.primaryColor + '">' +
+            ? '<button type="button" class="smart-cta" data-smart-cta style="background:var(--gs-primary)">' +
                 Util.escapeHtml(s.ctaLabel) + '</button>'
             : '') +
           (s.dismissible === false
@@ -9911,6 +9911,10 @@
     var inst = __gs_runtime._instance;
     return inst && inst.onSmartInteractionChange ? inst.onSmartInteractionChange(listener) : function () {};
   };
+
+  // The widget's own words, for the dashboard's live preview
+  // (WidgetLivePreview.tsx), which paints with them instead of a copy.
+  __gs_runtime.t = I18n.t;
 
   window.__gs_runtime = __gs_runtime;
 })();

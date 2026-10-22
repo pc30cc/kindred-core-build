@@ -1198,13 +1198,21 @@
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");
     if (shellDiv) {
-      shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
+      // The panel's accent: the workspace's colour; without one, the colour
+      // of the kit's button (the Iran kit's deep turquoise, RESPOK's Ink), so
+      // the panel and the button agree (shared/widgetColor.ts).
+      var accent = config.primaryColor || "#3B82F6";
+      if (kitBrandColor(config)) {
+        if (LOCAL_KIT && localKitOn(config)) accent = "#0B7D6C";
+        else if (INTL_KIT && respokKitOn(config)) accent = "#16142B";
+      }
+      shellDiv.style.setProperty("--gs-primary", accent);
       // Second gradient stop for the full-panel gradient canvas.
       shellDiv.style.setProperty(
         "--gs-secondary",
         config.secondaryColor || config.primaryColor || "#6366F1"
       );
-      shellDiv.style.setProperty("--gs-shadow", shadowFromPrimary(config.primaryColor));
+      shellDiv.style.setProperty("--gs-shadow", shadowFromPrimary(accent));
     }
 
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";

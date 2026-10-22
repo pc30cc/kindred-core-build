@@ -198,9 +198,37 @@ describe('workspace origin rules', () => {
   it('supports one workspace embedded on multiple allowed domains', async () => {
     addDomain(WS_A, 'shop-one.com');
     addDomain(WS_A, 'shop-two.com');
-    setSettings(WS_A, []);
+    setSettings(WS_A, ['shop-one.com']);
     const rules = await getWorkspaceOriginRules(config, WS_A);
     expect(rules.domains.sort()).toEqual(['shop-one.com', 'shop-two.com']);
+  });
+
+  // W-03: the signup site is a verified domain. It joins the list Widget →
+  // Domains shows only while that list names a site; emptied ("leave empty
+  // to allow all"), the widget loads on any site, as the tab says.
+  it('verified domains never restrict an empty allow-list: any site may show the widget', async () => {
+    addDomain(WS_A, 'shop.com');
+    setSettings(WS_A, []);
+    const rules = await getWorkspaceOriginRules(config, WS_A);
+    expect(rules.domains).toEqual([]);
+    const { isWorkspaceOriginAllowed } = await import('../../../server/services/widget/public.js');
+    expect(await isWorkspaceOriginAllowed(config, WS_A, 'https://shop2.com')).toBe(true);
+    expect(await isWorkspaceOriginAllowed(config, WS_A, 'https://blog.shop.com')).toBe(true);
+  });
+
+  it('with a list, the verified domains are allowed too, and any other site is refused', async () => {
+    addDomain(WS_A, 'shop.com');
+    setSettings(WS_A, ['shop2.com']);
+    const { isWorkspaceOriginAllowed } = await import('../../../server/services/widget/public.js');
+    expect(await isWorkspaceOriginAllowed(config, WS_A, 'https://shop2.com')).toBe(true);
+    expect(await isWorkspaceOriginAllowed(config, WS_A, 'https://shop.com')).toBe(true);
+    expect(await isWorkspaceOriginAllowed(config, WS_A, 'https://other.com')).toBe(false);
+  });
+
+  it('an unverified domain (added in Settings → Domains) is never part of the list', async () => {
+    addDomain(WS_A, 'pending.com', false);
+    setSettings(WS_A, ['shop2.com']);
+    expect((await getWorkspaceOriginRules(config, WS_A)).domains).toEqual(['shop2.com']);
   });
 });
 
@@ -299,8 +327,9 @@ describe('workspace-aware widget CORS', () => {
   });
 
   it('echoes an allowed customer origin for its own workspace', async () => {
+    // The verified domain is allowed beside the list Widget → Domains shows.
     addDomain(WS_A, 'site-a.com');
-    setSettings(WS_A, []);
+    setSettings(WS_A, ['other-a.com']);
     const { res } = await runCors({ headers: { origin: 'https://site-a.com' }, body: { workspace_id: WS_A } });
     expect(res.headers['Access-Control-Allow-Origin']).toBe('https://site-a.com');
     expect(res.headers['Access-Control-Allow-Credentials']).toBe('true');
@@ -324,11 +353,11 @@ describe('workspace-aware widget CORS', () => {
 
   it('allows a permitted subdomain and refuses it when the policy is off', async () => {
     addDomain(WS_A, 'example.com');
-    setSettings(WS_A, [], true);
+    setSettings(WS_A, ['example.com'], true);
     const allowed = await runCors({ headers: { origin: 'https://shop.example.com' }, body: { workspace_id: WS_A } });
     expect(allowed.res.headers['Access-Control-Allow-Origin']).toBe('https://shop.example.com');
 
-    setSettings(WS_A, [], false);
+    setSettings(WS_A, ['example.com'], false);
     invalidateWorkspaceOriginCache(WS_A);
     const denied = await runCors({ headers: { origin: 'https://shop.example.com' }, body: { workspace_id: WS_A } });
     expect(denied.res.headers['Access-Control-Allow-Origin']).toBeUndefined();
@@ -336,7 +365,7 @@ describe('workspace-aware widget CORS', () => {
 
   it('covers visitor-presence and reconnect-signal with the same policy', async () => {
     addDomain(WS_A, 'site-a.com');
-    setSettings(WS_A, []);
+    setSettings(WS_A, ['site-a.com']);
     for (const path of ['/api/realtime/visitor-presence', '/api/realtime/reconnect-signal']) {
       const { res } = await runCors({ path, originalUrl: path, headers: { origin: 'https://site-a.com' }, body: { workspace_id: WS_A } });
       expect(res.headers['Access-Control-Allow-Origin']).toBe('https://site-a.com');
@@ -407,8 +436,8 @@ describe('ambiguous domain ownership', () => {
   it('the explicit workspace_id + origin flow still works on an ambiguous domain', async () => {
     addDomain(WS_A, 'shared.com');
     addDomain(WS_B, 'shared.com');
-    setSettings(WS_A, []);
-    setSettings(WS_B, []);
+    setSettings(WS_A, ['shared.com']);
+    setSettings(WS_B, ['shared.com']);
     const { res } = await runCors({ headers: { origin: 'https://shared.com' }, body: { workspace_id: WS_A } });
     expect(res.headers['Access-Control-Allow-Origin']).toBe('https://shared.com');
   });

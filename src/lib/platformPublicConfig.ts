@@ -48,10 +48,7 @@ export interface PlatformPublicLocalized {
   social_share_title: string | null;
   social_share_description: string | null;
   footer_company_text: string | null;
-  support_label: string | null;
   legal_company_display_name: string | null;
-  knowledge_base_title: string | null;
-  widget_display_name: string | null;
 }
 
 export interface PlatformPublicConfig {

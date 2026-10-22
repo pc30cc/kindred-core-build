@@ -664,7 +664,6 @@
           html += renderRoutingOutcomeRow(m); return;
         }
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        var bg = m.sender === 'visitor' ? 'style="background:' + esc(ctx.primaryColor) + '"' : '';
         var isAi = m.senderType === 'ai';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
@@ -774,7 +773,7 @@
           '<div class="msg-col">' +
             '<div class="msg-line">' +
               '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
-                (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
+                (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + '>' +
                 quoted + textHtml + attHtml +
               '</div>' +
               actionsHtml +
@@ -901,7 +900,7 @@
         (s.title ? '<div class="smart-title">' + esc(s.title) + '</div>' : '') +
         '<div class="smart-body">' + esc(s.body || '') + '</div>' +
         (s.ctaLabel
-          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + esc(env.primaryColor) + '">' +
+          ? '<button type="button" class="smart-cta" data-smart-cta style="background:var(--wy-accent)">' +
               esc(s.ctaLabel) + '</button>'
           : '');
     }

@@ -160,7 +160,7 @@ describe('the strings', () => {
     'launcherStyle', 'launcherStyleKit', 'launcherStyleKitSub', 'launcherStyleOpen', 'launcherStyleOpenSub', 'launcherStyleThread',
     'launcherStyleThreadSub', 'launcherStyleSquare', 'launcherStyleSquareSub', 'launcherStyleBubble', 'launcherStyleBubbleSub',
     'launcherStyleDuo', 'launcherStyleDuoSub', 'launcherStyleHeadset', 'launcherStyleHeadsetSub', 'launcherStyleAvatar',
-    'launcherStyleAvatarSub', 'launcherStylePill', 'launcherStylePillSub', 'launcherStylePillLocked', 'launcherPillDefault',
+    'launcherStyleAvatarSub', 'launcherStylePill', 'launcherStylePillSub', 'launcherStylePillLocked',
     'launcherPillHint', 'launcherOtherIcons',
   ] as const;
   it.each([['en', en], ['fa', fa], ['tr', tr]] as const)('%s has every one; a brand is named only through {{brand}}', (_l, dict) => {

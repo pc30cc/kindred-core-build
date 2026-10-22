@@ -343,12 +343,14 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?:
   { key: 'social_share_description' },
   { key: 'browser_title_format', hasDescription: true },
   { key: 'public_site_title' },
-  { key: 'widget_display_name', hasDescription: true },
-  { key: 'knowledge_base_title' },
   { key: 'legal_company_display_name', hasDescription: true },
   { key: 'footer_company_text', hasDescription: true },
-  { key: 'support_label', hasDescription: true },
 ];
+// Not here, though their columns stay: "Widget display name", "Knowledge
+// base title" and "Support label" (widget_display_name, knowledge_base_title,
+// support_label). Nothing drew them: the chat widget's header shows the
+// workspace's own name (Widget → Appearance), the knowledge base its own
+// title. The save no longer accepts them (server/routes/adminManagement.ts).
 
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
@@ -798,7 +800,7 @@ function SettingsSection() {
 
 // ── Domain URLs Section ──
 // NOTE: Widget URLs (loader/asset/public/api) have been moved to
-// Super Admin → Widget Settings → Deployment & URLs. They are intentionally
+// Super Admin → Widget settings → URLs. They are intentionally
 // NOT editable here anymore — widget_platform_settings is the single source of truth.
 const DOMAIN_FIELDS: { key: keyof PlatformDomains; placeholder: string }[] = [
   { key: 'primary_domain', placeholder: 'example.com' },

@@ -76,6 +76,8 @@ import { resolveLauncherStyle } from '../../../shared/launcherStyles.js';
 import { agentFaceInitial, onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
+import { isAuthoredWidgetText, resolveWelcomeMessage, widgetTextDefault } from '../../../shared/widgetTextDefaults.js';
+import { widgetWireColor } from '../../../shared/widgetColor.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from './poweredBy.js';
 import {
   resolveWidgetEntitlements,
@@ -84,7 +86,7 @@ import {
 } from './entitlements.js';
 import { loadPublishedSmartRules, isSmartRuleUnexpired, type PublicSmartRule } from './smartEngagement.js';
 import { resolveEffectiveAiNudgePolicy } from './aiNudge/policy.js';
-import { resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
+import { businessHoursAllowedOf, resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
 import {
   AVAILABILITY_PREFS_COLUMNS,
   chatReceivingMemberIds,
@@ -115,38 +117,28 @@ import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 // Defaults and pre-chat policy (moved from server/routes/widget.ts)
 // ═══════════════════════════════════════════════════════════════════════
 
-// Seeded English defaults. When the widget locale is not English these are
-// treated as "unset" so the visitor sees a localized string instead of the
-// leftover English seed value.
-const SEED_LAUNCHER_TEXTS = ['chat with us', 'support', 'hello!'];
-const SEED_WELCOME_TEXTS = ['hello! how can we help you?', 'how can we help you?'];
-const LOCALIZED_WIDGET_DEFAULTS: Record<string, { launcher: string; welcome: string }> = {
-  fa: { launcher: 'با ما گفتگو کنید', welcome: 'سلام! چطور می‌توانیم کمکتان کنیم؟' },
-  tr: { launcher: 'Bizimle sohbet edin', welcome: 'Merhaba! Size nasıl yardımcı olabiliriz?' },
-  en: { launcher: 'Chat with us', welcome: 'Hello! How can we help you?' },
-};
-
+// The launcher text's English seeds count as unset in a non-English widget
+// (shared/widgetTextDefaults.ts holds the seeds and the localized texts).
 export function resolveLocalizedDefault(
   value: unknown,
   kind: 'launcher' | 'welcome',
   locale: string | null | undefined,
 ): string {
   const lang = String(locale || 'en').toLowerCase().split('-')[0];
-  const defaults = LOCALIZED_WIDGET_DEFAULTS[lang] || LOCALIZED_WIDGET_DEFAULTS.en;
   const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) return lang === 'en' ? '' : defaults[kind];
+  if (!raw) return lang === 'en' ? '' : widgetTextDefault(kind, lang);
   if (lang === 'en') return raw;
-  const seeds = kind === 'launcher' ? SEED_LAUNCHER_TEXTS : SEED_WELCOME_TEXTS;
-  if (seeds.includes(raw.toLowerCase())) return defaults[kind];
-  return raw;
+  return isAuthoredWidgetText(raw, kind) ? raw : widgetTextDefault(kind, lang);
 }
 
 export const DEFAULT_WIDGET_SETTINGS = {
   enabled: true,
-  primary_color: '#3B82F6',
+  // NULL = no colour of its own: the brand's (shared/widgetColor.ts).
+  primary_color: null as string | null,
   secondary_color: '#6366f1',
   greeting_message: '',
-  welcome_message: 'Hello! How can we help you?',
+  // NULL = the platform's or the built-in welcome (shared/widgetTextDefaults.ts).
+  welcome_message: null as string | null,
   // NULL (not '') = "never authored" → the UI/widget uses its default text.
   // An explicit '' is an authored "hide this line" signal.
   reply_time_text: null as string | null,
@@ -178,7 +170,7 @@ export const DEFAULT_WIDGET_SETTINGS = {
   locale: 'en',
   // Phase 5 — Availability
   live_chat_enabled: true,
-  offline_mode: 'accept_messages',
+  offline_mode: 'capture_message',
   business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
   availability_labels: {},
   // Phase 6a — Attachments (off by default)
@@ -1282,7 +1274,9 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     timeZone: dateHints.timeZone,
 
 
-    primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
+    // The widget's own colour, else the workspace branding's, else the seeded
+    // #3B82F6, which the widget reads as "the brand's" (shared/widgetColor.ts).
+    primaryColor: widgetWireColor(ws.primary_color, branding?.primary_color),
     secondaryColor: ws.secondary_color || '#6366f1',
     // `widget_settings.logo_url` (an operator-typed external link) or the
     // workspace's own logo derived from its storage key — snapshot.
@@ -1292,17 +1286,11 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       'launcher',
       effectiveLocale,
     ),
-    // Three-tier resolution: workspace override → platform default → hardcoded fallback.
-    // Stored in `widget_settings.welcome_message` (per-workspace) or
-    // `widget_platform_settings.default_welcome_message` (platform-wide).
-    welcomeMessage:
-      resolveLocalizedDefault(
-        ws.welcome_message,
-        'welcome',
-        effectiveLocale,
-      )
-      || platformWidget?.default_welcome_message
-      || '',
+    // The workspace's own welcome, else the Super Admin's platform default,
+    // else the built-in one in the widget's language: one rule with the
+    // panel's placeholder (shared/widgetTextDefaults.ts). An English seed
+    // left in a row counts as unset in every language.
+    welcomeMessage: resolveWelcomeMessage(ws.welcome_message, platformWidget?.default_welcome_message, effectiveLocale),
     // Workspace-authored reply-time note for the widget header. An explicit
     // empty string means "hide it"; NULL (never configured) falls back to
     // the locale default in the presentation layer.
@@ -1349,10 +1337,14 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     },
     preChat,
     // Phase 8 — Server-authoritative availability. Computed via resolver
-    // so runtime never has to interpret weekly schedules. Locked rules:
-    //  - business_hours.enabled === false  =>  state = 'online' always.
+    // so runtime never has to interpret weekly schedules. Locked rules
+    // (availability.ts):
+    //  - business_hours.enabled === false  =>  no schedule: online while an
+    //    operator is customer-available, offline (offline_mode) otherwise.
     //  - offline_message comes from offline_message_localized (per-locale)
     //    with legacy offline_message as fallback. No translation pipeline.
+    //  - a plan without widget_business_hours wears no schedule and the
+    //    default offline behaviour, whatever the row stores.
     // `quota_full` (phase 4) only while billing locks are on: the monthly
     // chat quota is full, so a new conversation goes to the
     // leave-a-message form (see resolveConversationQuotaFull).
@@ -1360,8 +1352,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       await resolveAvailability(config, {
         workspaceId,
         locale: effectiveLocale,
-        // The raw row (not the entitlement-applied `ws`), as its own read was.
+        // The raw row (not the entitlement-applied `ws`, whose other columns
+        // the resolver does not read), with the plan's business-hours answer.
         settingsRow: widget,
+        businessHoursAllowed: businessHoursAllowedOf(snap.entitlements),
         availabilityPrefs: snap.availabilityPrefs,
         now,
       }),
@@ -1515,7 +1509,7 @@ export async function resolveWidgetConfigBody(
 
 /**
  * Phase 8 — the bootstrap's server-authoritative availability, from the
- * snapshot (the raw row and the prefs) at `now`; no I/O.
+ * snapshot (the raw row, the plan and the prefs) at `now`; no I/O.
  */
 export async function bootstrapAvailability(
   config: ServerConfig,
@@ -1529,6 +1523,7 @@ export async function bootstrapAvailability(
     workspaceId,
     locale: localeHint,
     settingsRow: snap.widgetRow,
+    businessHoursAllowed: businessHoursAllowedOf(snap.entitlements),
     availabilityPrefs: snap.availabilityPrefs,
     now,
   });

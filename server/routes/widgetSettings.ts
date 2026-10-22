@@ -12,6 +12,8 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { FAB_ICON_IDS, FAB_SHAPES } from '../../shared/launcherStyles.js';
+import { WIDGET_COLOR_PATTERN, widgetOwnColor } from '../../shared/widgetColor.js';
+import { resolveWelcomeMessage } from '../../shared/widgetTextDefaults.js';
 import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
@@ -22,14 +24,19 @@ import { invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import {
   resolveWidgetEntitlements,
   guardWidgetSettingsPatch,
+  widgetBusinessHoursAllowed,
 } from '../services/widget/entitlements.js';
+import { resolveAvailability } from '../services/widget/availability.js';
+import { listCustomerAvailableOperators, loadWorkspaceAvailabilityPrefs } from '../services/widget/customerAvailability.js';
+import { DAY_KEYS, MAX_INTERVALS_PER_DAY, isValidTimeZone, parseHHMM } from '../../shared/callbackSlots.js';
 import { uploadForOwner, deleteForOwner } from '../services/storage/index.js';
 import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
-import { getChatTemplateCatalog } from '../services/widget/configSnapshot.js';
-import { isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
+import { PLATFORM_TUNING_RANGES } from '../../shared/platformTuning.js';
+import { getChatTemplateCatalog, getWidgetPlatformSnapshot, getWorkspaceWidgetSnapshot } from '../services/widget/configSnapshot.js';
+import { isChosenTemplateUnavailable, isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
 import {
   CHAT_TEMPLATE_LOCALES,
   canonicalChatTemplateId,
@@ -123,7 +130,6 @@ widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
   const selectedId = typeof row.widget_template_id === 'string' ? row.widget_template_id : null;
   const selectedOptions = readTemplateOptions(row.widget_template_options);
   const effectiveId = resolveWorkspaceChatTemplate(catalog, selectedId, planAllowsChoice);
-  const selected = canonicalChatTemplateId(catalog.edition, selectedId);
   return res.json({
     edition: catalog.edition,
     ready: ready && columnReady,
@@ -136,12 +142,83 @@ widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
     })),
     selectedId,
     selectedOptions,
-    selectedUnavailable: selectedId !== null && !(selected && enabled.includes(selected)),
+    selectedUnavailable: isChosenTemplateUnavailable(catalog, selectedId),
     effectiveId,
     effectiveOptions: resolveChatTemplateOptions(catalog, effectiveId, planAllowsChoice ? selectedOptions : {}),
     planAllowsChoice,
     canChoose: ready && columnReady && enabled.length >= 2 && planAllowsChoice,
   });
+});
+
+// ── what visitors see right now (Widget → Availability's "Now" card) ──
+//
+// The panel's own guess used to say "always online" whenever business hours
+// were off, while visitors were offline as soon as no operator was available.
+// This answers with the resolver the widget itself uses (business hours, the
+// operators' own status and personal hours, the plan), for the saved
+// settings, plus how many operators visitors may consider reachable.
+widgetSettingsRouter.get('/:workspaceId/availability', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const asked = String(req.query.locale || '').toLowerCase();
+  const locale = ['en', 'fa', 'tr'].includes(asked) ? asked : 'en';
+  try {
+    const now = new Date();
+    // One entitlement (the card refreshes every minute), null when unreadable.
+    const [businessHoursAllowed, prefs] = await Promise.all([
+      widgetBusinessHoursAllowed(config, workspaceId),
+      loadWorkspaceAvailabilityPrefs(config, workspaceId),
+    ]);
+    const [snapshot, operators] = await Promise.all([
+      resolveAvailability(config, { workspaceId, locale, now, businessHoursAllowed, availabilityPrefs: prefs }),
+      listCustomerAvailableOperators(config, workspaceId, now, prefs),
+    ]);
+    return res.json({
+      state: snapshot.state,
+      reason: snapshot.reason,
+      next_open_at: snapshot.next_open_at,
+      timezone: snapshot.timezone,
+      offline_mode: snapshot.offline_mode,
+      business_hours_allowed: businessHoursAllowed !== false,
+      operators: { members: operators.memberCount, available: operators.available.length },
+      checked_at: now.toISOString(),
+    });
+  } catch (err) {
+    console.error('[widget-settings] availability failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'availability_unavailable' });
+  }
+});
+
+/**
+ * Widget → Appearance's welcome field: what visitors read while the field is
+ * empty (`default_text`: the Super Admin's platform default, else the
+ * built-in one in `?locale=`, shared/widgetTextDefaults.ts, the rule GET
+ * /config uses), and whether the AI agent's own greeting replaces the
+ * message (`ai_greeting`: every template then draws no welcome; /config's
+ * aiAgent.suppressGreeting, from the same cached snapshots).
+ */
+widgetSettingsRouter.get('/:workspaceId/welcome', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const asked = String(req.query.locale || '').toLowerCase();
+  const locale = ['en', 'fa', 'tr'].includes(asked) ? asked : 'en';
+  try {
+    const [platform, snapshot] = await Promise.all([
+      getWidgetPlatformSnapshot(config),
+      getWorkspaceWidgetSnapshot(config, workspaceId),
+    ]);
+    return res.json({
+      default_text: resolveWelcomeMessage(null, platform.widget?.default_welcome_message, locale),
+      ai_greeting: snapshot.aiAgent?.suppressGreeting === true,
+    });
+  } catch (err) {
+    console.error('[widget-settings] welcome failed:', err instanceof Error ? err.message : err);
+    return res.status(500).json({ error: 'welcome_unavailable' });
+  }
 });
 
 /**
@@ -197,15 +274,69 @@ async function withDerivedFabImageUrl(
  * `widget_platform_settings`, a different table this router already keeps
  * separate).
  */
+/**
+ * widget_settings.business_hours as a save may store it (the chat's
+ * BusinessHoursConfig; read by server/services/widget/availability.ts). While
+ * the hours are on, every time is HH:mm and each interval ends after it
+ * starts (one that does not never matches, so the day would silently be
+ * closed), and the time zone is one this server knows; hours that are off
+ * apply to nothing, so turning them off is never refused for what they
+ * hold. At most MAX_INTERVALS_PER_DAY a day, dated overrides. Keys the
+ * resolver does not read are dropped.
+ */
+const hoursInterval = z.object({ from: z.string().max(8), to: z.string().max(8) });
+const hoursDay = z.array(hoursInterval).max(MAX_INTERVALS_PER_DAY);
+const businessHoursSchema = z.object({
+  enabled: z.boolean().optional(),
+  timezone: z.string().max(64).optional(),
+  weekly: z.object(
+    Object.fromEntries(DAY_KEYS.map((day) => [day, hoursDay.optional()])) as Record<(typeof DAY_KEYS)[number], z.ZodOptional<typeof hoursDay>>,
+  ).optional(),
+  overrides: z.array(z.object({
+    date: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/),
+    closed: z.boolean().optional(),
+    intervals: hoursDay.optional(),
+    label: z.string().max(120).optional(),
+  })).max(366).optional(),
+}).superRefine((hours, ctx) => {
+  if (hours.enabled !== true) return;
+  if (hours.timezone !== undefined && !isValidTimeZone(hours.timezone)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['timezone'], message: 'invalid_timezone' });
+  }
+  const check = (list: Array<{ from?: string; to?: string }> | undefined, path: Array<string | number>) => {
+    (list || []).forEach((it, i) => {
+      const f = parseHHMM(it.from);
+      const t = parseHHMM(it.to);
+      if (!f || !t) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, i], message: 'invalid_time' });
+      } else if (f.h * 60 + f.m >= t.h * 60 + t.m) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, i], message: 'interval_end_before_start' });
+      }
+    });
+  };
+  for (const day of DAY_KEYS) check(hours.weekly?.[day], ['weekly', day]);
+  (hours.overrides || []).forEach((ov, i) => { if (ov.closed !== true) check(ov.intervals, ['overrides', i, 'intervals']); });
+});
+
 const widgetSettingsPatchSchema = z.object({
-  // Appearance
-  primary_color: z.string().max(32).optional(),
+  // Appearance. The colour is `#RRGGBB` or null ("Brand colour"); the
+  // seeded #3B82F6 is the brand colour on the wire, so it is stored as null
+  // (shared/widgetColor.ts).
+  primary_color: z.string().trim().regex(WIDGET_COLOR_PATTERN, 'invalid_color').nullable()
+    .transform((v) => (v === null ? null : widgetOwnColor(v))).optional(),
   brand_name: z.string().max(200).nullable().optional(),
   reply_time_text: z.string().max(500).nullable().optional(),
   welcome_message: z.string().max(2000).nullable().optional(),
   placeholder_text: z.string().max(500).nullable().optional(),
   position: z.enum(['bottom-right', 'bottom-left']).optional(),
   locale: z.string().max(16).optional(),
+  // The widget's language: 'auto' (the visitor's browser, among the
+  // platform's languages, else `locale`) or one language, which /config
+  // clamps to the platform's.
+  widget_language: z.string().trim().toLowerCase().regex(/^(auto|[a-z]{2})$/).optional(),
+  // The legacy logo link (no field writes it any more) can only be cleared:
+  // the widget then shows the logo uploaded in Settings → General.
+  logo_url: z.null().optional(),
   show_logo: z.boolean().optional(),
   show_team_avatars: z.boolean().optional(),
   show_powered_by: z.boolean().optional(),
@@ -251,9 +382,11 @@ const widgetSettingsPatchSchema = z.object({
   default_max_concurrent_chats: z.number().int().min(1).max(50).optional(),
   first_response_timeout_minutes: z.number().int().min(0).max(60).optional(),
   offline_mode: z.enum(['hide_widget', 'show_offline_message', 'capture_message']).optional(),
-  offline_message_localized: z.record(z.string(), z.string()).nullable().optional(),
-  availability_labels: z.record(z.string(), z.record(z.string(), z.string())).nullable().optional(),
-  business_hours: z.record(z.string(), z.unknown()).nullable().optional(),
+  // The panel's fields carry the same caps (maxLength), so a save is never
+  // refused for a length the field allowed.
+  offline_message_localized: z.record(z.string(), z.string().max(2000)).nullable().optional(),
+  availability_labels: z.record(z.string(), z.record(z.string(), z.string().max(100))).nullable().optional(),
+  business_hours: businessHoursSchema.optional(),
 }).strict();
 
 widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
@@ -381,6 +514,14 @@ widgetSettingsRouter.post('/:workspaceId/fab-image', async (req, res) => {
   }
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
+  // The launcher image is a launcher style, under the capability of the
+  // icon choice (a plan without it wears the chat circle; /config then
+  // serves no image either: WIDGET_CUSTOMIZATION_CAPABILITY). Removing one
+  // stays possible on any plan.
+  const fabEntitlements = await resolveWidgetEntitlements(config, workspaceId);
+  if (fabEntitlements.features.widget_launcher_icon === false) {
+    return res.status(403).json({ error: 'plan_upgrade_required', denied: ['widget_launcher_icon'] });
+  }
 
   const ext = FAB_IMAGE_MIMES[parsed.data.contentType.toLowerCase()];
   if (!ext) return res.status(415).json({ error: 'unsupported_image_type' });
@@ -735,20 +876,32 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
  * writable field that changes a value with no runtime effect is worse
  * than an unwritable one, since it implies a capability that does not
  * exist.
+ *
+ * For the same reason none of these is writable any more, though their
+ * columns stay: `force_chat_enabled`, `force_kb_enabled`,
+ * `force_visitor_tracking` (the plans' chat / knowledge_base /
+ * visitor_tracking capabilities and each workspace's own switches decide
+ * those), `default_allow_subdomains`, `enforce_domain_validation`,
+ * `max_allowed_domains_per_workspace` (the widget's origin rules are the
+ * workspace's Widget → Domains list under the plan's widget_domain_allowlist
+ * and max_widget_domains), `max_message_length` and
+ * `rate_limit_messages_per_minute` (a visitor message is at most 5000
+ * characters and 15 a minute, fixed in the widget routes), and
+ * `realtime_stale_resubscribe_guard_enabled` / `realtime_idle_disposal_ms`
+ * (the guard is always on in the realtime client; no socket reads an idle
+ * timeout). Nothing read any of them; a save answered 200 and changed
+ * nothing.
+ *
+ * The tuning values are bounded here to the ranges their readers use
+ * (services/widget/platformSettings.ts, the realtime client), the ranges the
+ * page offers, so a value outside them is refused instead of stored and then
+ * quietly clamped.
  */
 const widgetPlatformConfigPatchSchema = z.object({
   id: z.string().uuid(),
   prechat_name_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
   prechat_email_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
   prechat_phone_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
-  default_allow_subdomains: z.boolean().optional(),
-  max_allowed_domains_per_workspace: z.number().int().min(1).max(1000).optional(),
-  enforce_domain_validation: z.boolean().optional(),
-  force_chat_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
-  force_kb_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
-  force_visitor_tracking: z.enum(['allow', 'force_on', 'force_off']).optional(),
-  max_message_length: z.number().int().min(1).max(50000).optional(),
-  rate_limit_messages_per_minute: z.number().int().min(1).max(1000).optional(),
   admin_notes: z.string().max(10000).nullable().optional(),
   default_welcome_message: z.string().max(2000).optional(),
   widget_loader_base_url: z.string().max(2000).nullable().optional(),
@@ -758,15 +911,13 @@ const widgetPlatformConfigPatchSchema = z.object({
   embed_header_comment: z.string().max(5000).nullable().optional(),
   embed_footer_comment: z.string().max(5000).nullable().optional(),
   typing_rate_limit_enabled: z.boolean().optional(),
-  typing_rate_limit_window_ms: z.number().int().min(0).optional(),
-  typing_rate_limit_max_events: z.number().int().min(0).optional(),
-  realtime_stale_resubscribe_guard_enabled: z.boolean().optional(),
-  realtime_reconnect_jitter_pct: z.number().int().min(0).max(100).optional(),
-  realtime_token_ttl_seconds: z.number().int().min(0).optional(),
-  realtime_idle_disposal_ms: z.number().int().min(0).optional(),
-  realtime_pending_max: z.number().int().min(0).optional(),
+  typing_rate_limit_window_ms: z.number().int().min(PLATFORM_TUNING_RANGES.typing_rate_limit_window_ms.min).max(PLATFORM_TUNING_RANGES.typing_rate_limit_window_ms.max).optional(),
+  typing_rate_limit_max_events: z.number().int().min(PLATFORM_TUNING_RANGES.typing_rate_limit_max_events.min).max(PLATFORM_TUNING_RANGES.typing_rate_limit_max_events.max).optional(),
+  realtime_reconnect_jitter_pct: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_reconnect_jitter_pct.min).max(PLATFORM_TUNING_RANGES.realtime_reconnect_jitter_pct.max).optional(),
+  realtime_token_ttl_seconds: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_token_ttl_seconds.min).max(PLATFORM_TUNING_RANGES.realtime_token_ttl_seconds.max).optional(),
+  realtime_pending_max: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_pending_max.min).max(PLATFORM_TUNING_RANGES.realtime_pending_max.max).optional(),
   realtime_message_dedupe_enabled: z.boolean().optional(),
-  realtime_message_dedupe_window: z.number().int().min(0).optional(),
+  realtime_message_dedupe_window: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_message_dedupe_window.min).max(PLATFORM_TUNING_RANGES.realtime_message_dedupe_window.max).optional(),
   observability_metrics_enabled: z.boolean().optional(),
   observability_structured_logs_enabled: z.boolean().optional(),
   observability_log_level: z.string().max(20).optional(),

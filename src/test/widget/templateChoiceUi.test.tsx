@@ -82,6 +82,9 @@ describe('effectiveWorkspaceTemplate', () => {
     expect(templateCardVisible(VIEW, 'default')).toBe(true);
     expect(templateCardVisible(onlyT1, 't1')).toBe(true);
     expect(templateCardVisible(onlyDefault, 'default')).toBe(false);
+    // A stored choice that is no longer enabled keeps the card, for its
+    // warning, even when the default is all that is left.
+    expect(templateCardVisible({ ...onlyDefault, selectedId: 't2', selectedUnavailable: true }, 'default')).toBe(true);
     expect(templateCardVisible({ ...onlyT1, ready: false }, 't1')).toBe(false);
     expect(templateCardVisible(undefined, 't1')).toBe(false);
   });
@@ -144,15 +147,18 @@ describe('TemplateChoiceCard', () => {
     expect(screen.queryByText('Bottom menu style')).toBeNull();
   });
 
-  it('says so when the stored choice is unavailable', async () => {
+  it('says so when the stored choice is unavailable, naming it and the default', async () => {
     await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
-    expect(screen.getByText(/not available right now/).textContent).toContain('“Familiar”');
+    const warning = screen.getByText(/not available right now/).textContent;
+    expect(warning).toContain('“Breeze”');
+    expect(warning).toContain('“Familiar”');
+    expect(warning).toContain('Your choice is kept');
   });
 
-  it('picking the catalog\'s default entry follows the default (null), not its id', async () => {
+  it('picking the catalog\'s default entry stores its id, so a later move of the default does not move it', async () => {
     const { onChoose } = await card({ effectiveId: 't1', draftId: 't1' });
     fireEvent.click(screen.getAllByRole('radio')[0]);
-    expect(onChoose).toHaveBeenCalledWith(null);
+    expect(onChoose).toHaveBeenCalledWith('default');
     cleanup();
     // The Super Admin's default may be another template: the same rule.
     const moved: WorkspaceWidgetCatalog = {
@@ -162,16 +168,27 @@ describe('TemplateChoiceCard', () => {
     };
     const second = await card({ view: moved, effectiveId: 'default', draftId: 'default' });
     fireEvent.click(screen.getAllByRole('radio')[1]);
-    expect(second.onChoose).toHaveBeenCalledWith(null);
+    expect(second.onChoose).toHaveBeenCalledWith('t1');
   });
 
-  it('a stored choice that is unavailable: a click on the (checked) default entry clears it', async () => {
-    const { onChoose } = await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
+  it('no pick at all: the default is checked, the card says it follows the platform\'s default, and a click on it keeps it', async () => {
+    const { onChoose } = await card({ effectiveId: 'default', draftId: null });
+    expect(screen.getByText(/You have not picked a template/).textContent).toContain('“Familiar”');
     const radios = screen.getAllByRole('radio');
     expect(radios[0].getAttribute('aria-checked')).toBe('true');
     fireEvent.click(radios[0]);
     expect(onChoose).toHaveBeenCalledTimes(1);
-    expect(onChoose).toHaveBeenCalledWith(null);
+    expect(onChoose).toHaveBeenCalledWith('default');
+  });
+
+  it('a stored choice that is unavailable: a click on the (checked) default entry picks the default', async () => {
+    const { onChoose } = await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
+    const radios = screen.getAllByRole('radio');
+    expect(radios[0].getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByText(/You have not picked a template/)).toBeNull();
+    fireEvent.click(radios[0]);
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith('default');
   });
 
   it('a click on the checked entry otherwise changes nothing', async () => {
@@ -245,7 +262,7 @@ describe('WidgetLivePreview — the effective template', () => {
     expect(doc).toContain("panel.setAttribute('data-view', GS_PREVIEW.shellVm.activeTab)");
   });
 
-  it('the Messages view speaks as production: every list string equals Core\'s, per language', () => {
+  it('the Messages view speaks as production: every list string is Core\'s own, per language', () => {
     // Core's dictionaries (public/widget/runtime.js) come in the order en, fa, tr.
     const core = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
     // (Markup values, such as the `back` icon, are not dictionary entries.)
@@ -254,11 +271,22 @@ describe('WidgetLivePreview — the effective template', () => {
       .filter((v) => !v.startsWith('<'));
     const keys = ['wyConversations', 'wyNoConversations', 'wyNewConversation', 'wyStatusOpen', 'wyStatusResolved', 'wyUnread', 'back'];
     for (const [index, language] of (['en', 'fa', 'tr'] as const).entries()) {
-      const p = payload(srcdoc({ settings: { widget_language: language }, view: 'list', templateId: 'default' }));
+      // The frame paints with the runtime's own dictionary, which it loads.
+      const page = new JSDOM(srcdoc({ settings: { widget_language: language }, view: 'list', templateId: 'default' }), { runScripts: 'outside-only' });
+      const w = page.window as unknown as { eval: (s: string) => void; gsRenderPreview: (mod: unknown) => void };
+      w.eval(core);
+      w.eval(Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((x) => x.textContent).join('\n'));
+      let words: ((key: string) => string) | null = null;
+      w.gsRenderPreview({
+        create: (env: { t: (key: string) => string }) => {
+          words = env.t;
+          return { shellHtml: () => '<div data-body></div>', conversationListHtml: () => '' };
+        },
+      });
       for (const key of keys) {
         const values = coreValues(key);
         expect(values, key).toHaveLength(3);
-        expect(p.dict[key], `${language} ${key}`).toBe(values[index]);
+        expect(words!(key), `${language} ${key}`).toBe(values[index]);
       }
       cleanup();
     }
@@ -435,18 +463,30 @@ describe('WidgetLivePreview — the late surfaces, with the real renderers and e
     expect(card.querySelector('[data-prechat="name"]')).not.toBeNull();
   });
 
-  it('away: the visitor\'s message and the automated reply asking for an e-mail (t1, t2)', () => {
+  it('away, capturing a message: the visitor\'s message and the automated reply, which asks for no e-mail (t1, t2)', () => {
+    // Visitor e-mail is off (shared/visitorEmail.ts): the reply says the
+    // answer comes here, in the chat, as runtime-late.js tells the renderer.
     const t1 = paintReal('t1', { view: 'offline' });
-    expect(t1.querySelector('.away-reply [data-fb="email"]')).not.toBeNull();
+    expect(t1.querySelector('.away-reply')).not.toBeNull();
     const t2 = paintReal('t2', { view: 'offline' });
-    expect(t2.querySelector('.away-reply [data-fb="email"]')).not.toBeNull();
-    expect(t2.querySelector('.away-reply [data-fb-skip]')).not.toBeNull();
-    // An offline mode that takes no message keeps the offline line.
-    for (const mode of ['show_offline_message', 'hide_widget']) {
-      const line = paintReal('t1', { view: 'offline', settings: { widget_language: 'en', offline_mode: mode, offline_message: 'Back soon' } });
-      expect(line.querySelector('.away-reply'), mode).toBeNull();
-      expect(line.querySelector('[data-chat-messages]')!.textContent, mode).toContain('Back soon');
+    expect(t2.querySelector('.away-reply')).not.toBeNull();
+    expect(t2.querySelector('.away-reply [data-fb="email"]')).toBeNull();
+    expect(t2.querySelector('.away-reply [data-fb-skip]')).toBeNull();
+  });
+
+  it('away, "show only the offline message": that message alone, no form and no composer', () => {
+    for (const id of ['t1', 't2'] as const) {
+      const doc = paintReal(id, { view: 'offline', settings: { widget_language: 'en', offline_mode: 'show_offline_message', offline_message: 'Back soon' } });
+      expect(doc.querySelector('.away-reply'), id).toBeNull();
+      expect(doc.querySelector('[data-chat-messages]')!.textContent, id).toContain('Back soon');
+      expect((doc.querySelector('[data-input-bar]') as HTMLElement).style.display, id).toBe('none');
     }
+  });
+
+  it('away, "hide the widget": no launcher and no panel, a note says so', () => {
+    const doc = paintReal('t1', { view: 'offline', hiddenNote: 'Hidden while you are offline', settings: { widget_language: 'en', offline_mode: 'hide_widget' } });
+    expect(doc.querySelector('.shell')!.hasAttribute('hidden')).toBe(true);
+    expect(doc.querySelector('.gs-hidden-note')!.textContent).toBe('Hidden while you are offline');
   });
 });
 

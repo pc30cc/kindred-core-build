@@ -8,6 +8,13 @@
  * started) and the call center's callback hours (Call Center → Settings →
  * Availability, the 2026-10 call widget design). It renders its three blocks
  * as siblings, so the parent's spacing lays them out.
+ *
+ * An interval that does not end after it starts (an overnight 22:00–02:00
+ * included) never matches on the server, so it is flagged where it is, and
+ * hoursProblem() (businessHoursProblems.ts) lets the parent keep such hours
+ * out of a save. A dated
+ * override that is not closed carries its own intervals (special hours),
+ * starting from that weekday's.
  */
 import { Plus, Trash2, Copy, Globe2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
@@ -19,6 +26,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import type { BusinessHoursConfig } from '@/types/models';
+import { DAY_KEYS as SUNDAY_FIRST, isValidTimeZone } from '../../../../shared/callbackSlots';
+import { intervalsProblem } from './businessHoursProblems';
 
 type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 type Interval = { from: string; to: string };
@@ -69,19 +78,11 @@ function tzOffset(tz: string): string {
   }
 }
 
-function intervalsValid(list: Interval[] | undefined): { ok: boolean; reason?: 'invalidTime' | 'endAfterStart' } {
-  if (!list || list.length === 0) return { ok: true };
-  for (const it of list) {
-    if (!/^\d{1,2}:\d{2}$/.test(it.from) || !/^\d{1,2}:\d{2}$/.test(it.to)) {
-      return { ok: false, reason: 'invalidTime' as const };
-    }
-    const [fh, fm] = it.from.split(':').map(Number);
-    const [th, tm] = it.to.split(':').map(Number);
-    const f = fh * 60 + fm;
-    const t = th * 60 + tm;
-    if (!(t > f)) return { ok: false, reason: 'endAfterStart' as const };
-  }
-  return { ok: true };
+/** The weekday of a YYYY-MM-DD date, or null. */
+function weekdayOf(date: string): DayKey | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
+  if (!m) return null;
+  return SUNDAY_FIRST[new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()] ?? null;
 }
 
 export interface WeeklyHoursEditorProps {
@@ -116,16 +117,6 @@ export function WeeklyHoursEditor({ hours, onChange, disabled = false, firstDay 
     list.push({ from: '09:00', to: '17:00' });
     setDayIntervals(day, list);
   };
-  const removeInterval = (day: DayKey, idx: number) => {
-    const list = (hours.weekly[day] || []).slice();
-    list.splice(idx, 1);
-    setDayIntervals(day, list);
-  };
-  const updateInterval = (day: DayKey, idx: number, patch: Partial<Interval>) => {
-    const list = (hours.weekly[day] || []).slice();
-    list[idx] = { ...list[idx], ...patch };
-    setDayIntervals(day, list);
-  };
 
   const copyWeek = () => {
     const src = hours.weekly[copyFrom] || [];
@@ -145,6 +136,20 @@ export function WeeklyHoursEditor({ hours, onChange, disabled = false, firstDay 
     list[idx] = { ...list[idx], ...patch };
     onChange({ ...hours, overrides: list });
   };
+  // Open on the day: its own intervals, starting from that weekday's (else 09:00–17:00).
+  const setOverrideClosed = (idx: number, closed: boolean) => {
+    const ov = (hours.overrides || [])[idx];
+    if (closed) {
+      updateOverride(idx, { closed: true, intervals: undefined });
+      return;
+    }
+    const day = weekdayOf(ov?.date);
+    const regular = day ? hours.weekly[day] || [] : [];
+    const intervals = ov?.intervals?.length ? ov.intervals : regular.length ? regular.map((it) => ({ ...it })) : [{ from: '09:00', to: '17:00' }];
+    updateOverride(idx, { closed: false, intervals });
+  };
+  const setOverrideIntervals = (idx: number, intervals: Interval[]) => updateOverride(idx, { intervals });
+  const timezoneProblem = !!hours.timezone && !isValidTimeZone(hours.timezone);
   const removeOverride = (idx: number) => {
     const list = (hours.overrides || []).slice();
     list.splice(idx, 1);
@@ -173,6 +178,7 @@ export function WeeklyHoursEditor({ hours, onChange, disabled = false, firstDay 
             ))}
           </SelectContent>
         </Select>
+        {timezoneProblem && <p className="text-xs text-destructive">{t('widgetPage.availability.invalidTimezone')}</p>}
       </div>
 
       {/* Weekly schedule */}
@@ -193,7 +199,7 @@ export function WeeklyHoursEditor({ hours, onChange, disabled = false, firstDay 
         <div className="space-y-2">
           {days.map((day) => {
             const list = hours.weekly[day] || [];
-            const valid = intervalsValid(list);
+            const problem = intervalsProblem(list);
             return (
               <div
                 key={day}
@@ -217,37 +223,13 @@ export function WeeklyHoursEditor({ hours, onChange, disabled = false, firstDay 
                     <Plus className="h-3 w-3 me-1" /> {t('widgetPage.availability.addInterval')}
                   </Button>
                 </div>
-                {list.map((it, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <Input
-                      type="time"
-                      value={it.from}
-                      onChange={(e) => updateInterval(day, idx, { from: e.target.value })}
-                      disabled={disabled}
-                      className="w-32"
-                    />
-                    <span className="text-xs text-muted-foreground">{t('widgetPage.availability.to')}</span>
-                    <Input
-                      type="time"
-                      value={it.to}
-                      onChange={(e) => updateInterval(day, idx, { to: e.target.value })}
-                      disabled={disabled}
-                      className="w-32"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeInterval(day, idx)}
-                      disabled={disabled}
-                      aria-label={t('widgetPage.availability.removeInterval')}
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
-                {!valid.ok && valid.reason && (
-                  <p className="text-xs text-destructive">{t(`widgetPage.availability.${valid.reason}`)}</p>
+                <IntervalRows
+                  list={list}
+                  disabled={disabled}
+                  onChange={(next) => setDayIntervals(day, next)}
+                />
+                {problem && (
+                  <p className="text-xs text-destructive" role="alert">{t(`widgetPage.availability.${problem}`)}</p>
                 )}
               </div>
             );
@@ -270,53 +252,134 @@ export function WeeklyHoursEditor({ hours, onChange, disabled = false, firstDay 
           </Button>
         </div>
         <div className="space-y-2">
-          {(hours.overrides || []).map((ov, idx) => (
-            <div
-              key={idx}
-              className="rounded-lg border border-border p-3 space-y-2 bg-muted/20"
-            >
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={ov.date}
-                  onChange={(e) => updateOverride(idx, { date: e.target.value })}
-                  disabled={disabled}
-                  className="w-44"
-                />
-                <Input
-                  placeholder={t('widgetPage.availability.overrideLabel')}
-                  maxLength={limits?.labelLength}
-                  value={ov.label || ''}
-                  onChange={(e) => updateOverride(idx, { label: e.target.value })}
-                  disabled={disabled}
-                  className="flex-1"
-                />
+          {(hours.overrides || []).map((ov, idx) => {
+            const problem = ov.closed ? null : intervalsProblem(ov.intervals);
+            return (
+              <div
+                key={idx}
+                data-hours-override={idx}
+                className="rounded-lg border border-border p-3 space-y-2 bg-muted/20"
+              >
                 <div className="flex items-center gap-2">
-                  <Label className="text-xs">{t('widgetPage.availability.overrideClosed')}</Label>
-                  <Switch
-                    checked={!!ov.closed}
-                    onCheckedChange={(v) => updateOverride(idx, { closed: v, intervals: v ? undefined : (ov.intervals || []) })}
+                  <Input
+                    type="date"
+                    value={ov.date}
+                    onChange={(e) => updateOverride(idx, { date: e.target.value })}
                     disabled={disabled}
+                    className="w-44"
                   />
+                  <Input
+                    placeholder={t('widgetPage.availability.overrideLabel')}
+                    maxLength={limits?.labelLength}
+                    value={ov.label || ''}
+                    onChange={(e) => updateOverride(idx, { label: e.target.value })}
+                    disabled={disabled}
+                    className="flex-1"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">{t('widgetPage.availability.overrideClosed')}</Label>
+                    <Switch
+                      checked={!!ov.closed}
+                      onCheckedChange={(v) => setOverrideClosed(idx, v)}
+                      disabled={disabled}
+                      aria-label={t('widgetPage.availability.overrideClosed')}
+                    />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeOverride(idx)}
+                    disabled={disabled}
+                    aria-label={t('widgetPage.availability.removeOverride')}
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeOverride(idx)}
-                  disabled={disabled}
-                  aria-label={t('widgetPage.availability.removeOverride')}
-                  className="h-8 w-8 text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {!ov.closed && (
+                  <div className="space-y-2 ps-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        {(ov.intervals || []).length ? t('widgetPage.availability.overrideHours') : t('widgetPage.availability.overrideNoHours')}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOverrideIntervals(idx, [...(ov.intervals || []), { from: '09:00', to: '17:00' }])}
+                        disabled={disabled || (limits?.intervalsPerDay !== undefined && (ov.intervals || []).length >= limits.intervalsPerDay)}
+                        className="h-7 text-xs"
+                      >
+                        <Plus className="h-3 w-3 me-1" /> {t('widgetPage.availability.addInterval')}
+                      </Button>
+                    </div>
+                    <IntervalRows
+                      list={ov.intervals || []}
+                      disabled={disabled}
+                      onChange={(next) => setOverrideIntervals(idx, next)}
+                    />
+                    {problem && (
+                      <p className="text-xs text-destructive" role="alert">{t(`widgetPage.availability.${problem}`)}</p>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
           {(hours.overrides || []).length === 0 && (
             <p className="text-xs text-muted-foreground">{t('widgetPage.availability.noOverrides')}</p>
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+/** One day's intervals as time fields, each with its remove button; every change writes the whole list. */
+function IntervalRows({ list, disabled, onChange }: { list: Interval[]; disabled: boolean; onChange: (next: Interval[]) => void }) {
+  const { t } = useTranslation();
+  const update = (idx: number, patch: Partial<Interval>) => {
+    const next = list.slice();
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+  const remove = (idx: number) => {
+    const next = list.slice();
+    next.splice(idx, 1);
+    onChange(next);
+  };
+  return (
+    <>
+      {list.map((it, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <Input
+            type="time"
+            value={it.from}
+            onChange={(e) => update(idx, { from: e.target.value })}
+            disabled={disabled}
+            aria-invalid={intervalsProblem([it]) ? true : undefined}
+            className="w-32"
+          />
+          <span className="text-xs text-muted-foreground">{t('widgetPage.availability.to')}</span>
+          <Input
+            type="time"
+            value={it.to}
+            onChange={(e) => update(idx, { to: e.target.value })}
+            disabled={disabled}
+            aria-invalid={intervalsProblem([it]) ? true : undefined}
+            className="w-32"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => remove(idx)}
+            disabled={disabled}
+            aria-label={t('widgetPage.availability.removeInterval')}
+            className="h-8 w-8 text-destructive hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
     </>
   );
 }

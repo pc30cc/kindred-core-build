@@ -118,7 +118,6 @@ const SettingsCommercePage = lazyPage(() => import("@/pages/app/settings/Commerc
 const CommerceAuthorizePage = lazyPage(() => import("@/pages/CommerceAuthorizePage"), { fallback: "blank" });
 const SettingsDomainsPage = lazyPage(() => import("@/pages/app/settings/DomainsPage"));
 const SettingsProvidersPage = lazyPage(() => import("@/pages/app/settings/ProvidersPage"));
-const SettingsTranslationsPage = lazyPage(() => import("@/pages/app/settings/TranslationsPage"));
 const SettingsProfilePage = lazyPage(() => import("@/pages/app/settings/ProfilePage"));
 const SettingsNotificationsPage = lazyPage(() => import("@/pages/app/settings/NotificationsPage"));
 const SettingsAvailabilityPage = lazyPage(() => import("@/pages/app/settings/AvailabilityPage"));
@@ -261,7 +260,6 @@ const SETTINGS_PAGES: Record<string, Preloadable> = {
   commerce: SettingsCommercePage,
   domains: SettingsDomainsPage,
   providers: SettingsProvidersPage,
-  translations: SettingsTranslationsPage,
   profile: SettingsProfilePage,
   notifications: SettingsNotificationsPage,
   availability: SettingsAvailabilityPage,
@@ -643,7 +641,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="branding" element={<Navigate to="../general" replace />} />
                   <Route path="domains" element={<RequireWorkspaceAdmin><SettingsDomainsPage /></RequireWorkspaceAdmin>} />
                   <Route path="providers" element={<RequireWorkspaceAdmin><SettingsProvidersPage /></RequireWorkspaceAdmin>} />
-                  <Route path="translations" element={<RequireWorkspaceAdmin><SettingsTranslationsPage /></RequireWorkspaceAdmin>} />
+                  {/* Article translations live in the Knowledge Base (each
+                      article per language); this page had nothing of its own. */}
+                  <Route path="translations" element={<Navigate to="../../knowledge-base" replace />} />
                   <Route path="profile" element={<SettingsProfilePage />} />
                   <Route path="notifications" element={<SettingsNotificationsPage />} />
                   <Route path="availability" element={<SettingsAvailabilityPage />} />

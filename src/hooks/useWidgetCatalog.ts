@@ -149,13 +149,16 @@ export function templatePickerVisible(view: WorkspaceWidgetCatalog | undefined):
 
 /**
  * Whether Widget → Appearance shows the template card at all: for the picker
- * (templatePickerVisible), or, with a single template enabled, for that
+ * (templatePickerVisible); with a single template enabled, for that
  * template's own options (its topics, its bottom menu…), which the owner
- * still sets although there is nothing to choose.
+ * still sets although there is nothing to choose; and whenever the stored
+ * choice is unavailable, so the owner is told visitors see the default even
+ * when the default is all that is left.
  */
 export function templateCardVisible(view: WorkspaceWidgetCatalog | undefined, effectiveId: string): view is WorkspaceWidgetCatalog {
   if (!view || !view.ready) return false;
   return view.templates.length >= 2
+    || view.selectedUnavailable
     || (view.templates.some((tpl) => tpl.id === effectiveId) && chatTemplateOptionKeys(effectiveId).length > 0);
 }
 

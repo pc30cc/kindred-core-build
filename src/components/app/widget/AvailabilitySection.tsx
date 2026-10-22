@@ -1,6 +1,27 @@
+/**
+ * Widget → Availability: business hours, the offline behaviour and the
+ * status copy, and a "Now" card that says what visitors see right now.
+ *
+ * The card asks the server (GET /api/widget-settings/:id/availability, the
+ * resolver the widget itself uses), because availability has two inputs:
+ * the schedule, and whether any operator is available by their own status
+ * and personal hours. With business hours off there is no schedule, so the
+ * operators alone decide; the widget is offline (and the offline behaviour
+ * applies) whenever nobody is available.
+ *
+ * Every edit goes through `onChange`, which drafts it at once and saves it
+ * after `delay` (WidgetPage's useWidgetSettingsDraft), so typing is never
+ * lost to a save in flight. Hours with an interval that would never match
+ * stay a draft (`draftOnly`) until fixed: the server keeps the last valid
+ * schedule.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useEdition } from '@/hooks/useEdition';
+import { useWidgetAvailabilityNow, type WidgetAvailabilityNow } from '@/hooks/useWidgetSettings';
+import { defaultCallbackHours } from '@/lib/call-center-api';
+import { intlLocaleFor } from '@/lib/region';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -14,9 +35,16 @@ import type { WidgetSettings, BusinessHoursConfig } from '@/types/models';
 import { toast } from '@/hooks/use-toast';
 import { API_BASE } from '@/lib/apiBase';
 import { WeeklyHoursEditor } from './WeeklyHoursEditor';
+import { hoursProblem } from './businessHoursProblems';
+import { MAX_INTERVALS_PER_DAY } from '../../../../shared/callbackSlots';
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-type DayKey = (typeof DAY_KEYS)[number];
+
+/** The chat's hours as the server accepts them (server/routes/widgetSettings.ts businessHoursSchema). */
+const CHAT_HOURS_LIMITS = { intervalsPerDay: MAX_INTERVALS_PER_DAY, overrides: 366, labelLength: 120 };
+/** The server's caps on the status labels and the offline message. */
+const LABEL_MAX = 100;
+const MESSAGE_MAX = 2000;
 
 const LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof LOCALES)[number];
@@ -45,6 +73,7 @@ function LocaleFields({
           <Label className="text-xs">{t('widgetPage.availability.onlineLabel')}</Label>
           <Input
             dir={dir}
+            maxLength={LABEL_MAX}
             value={labels[loc]?.online || ''}
             placeholder={t('widgetPage.availability.onlinePlaceholder')}
             onChange={(e) => setLabel(loc, 'online', e.target.value)}
@@ -54,6 +83,7 @@ function LocaleFields({
           <Label className="text-xs">{t('widgetPage.availability.offlineLabel')}</Label>
           <Input
             dir={dir}
+            maxLength={LABEL_MAX}
             value={labels[loc]?.offline || ''}
             placeholder={t('widgetPage.availability.offlinePlaceholder')}
             onChange={(e) => setLabel(loc, 'offline', e.target.value)}
@@ -65,6 +95,7 @@ function LocaleFields({
         <Textarea
           dir={dir}
           rows={4}
+          maxLength={MESSAGE_MAX}
           value={localizedMsg[loc] || ''}
           placeholder={t('widgetPage.availability.offlineMessagePlaceholder')}
           onChange={(e) => setLocalizedMessage(loc, e.target.value)}
@@ -83,110 +114,107 @@ interface Interval {
 }
 
 type ReasonKey =
-  | 'reasonDisabled' | 'reasonChatDisabled' | 'reasonInvalidTz' | 'reasonOverrideClosed'
-  | 'reasonNoIntervals' | 'reasonClosedToday' | 'reasonWithin' | 'reasonOutside';
+  | 'reasonDisabled' | 'reasonNoOperators' | 'reasonChatDisabled' | 'reasonOverrideClosed'
+  | 'reasonNoIntervals' | 'reasonWithin' | 'reasonOutside';
 
-const DEFAULT_HOURS: BusinessHoursConfig = {
-  enabled: false,
-  timezone: 'UTC',
-  weekly: {
-    mon: [{ from: '09:00', to: '18:00' }],
-    tue: [{ from: '09:00', to: '18:00' }],
-    wed: [{ from: '09:00', to: '18:00' }],
-    thu: [{ from: '09:00', to: '18:00' }],
-    fri: [{ from: '09:00', to: '18:00' }],
-    sat: [],
-    sun: [],
-  },
-  overrides: [],
-};
+function anyInterval(hours: BusinessHoursConfig): boolean {
+  return DAY_KEYS.some((k) => (hours.weekly[k] || []).length > 0)
+    || (hours.overrides || []).some((o) => !o.closed && (o.intervals || []).length > 0);
+}
 
-function normalizeHours(input: WidgetSettings['business_hours']): BusinessHoursConfig {
+const isInterval = (it: unknown): it is Interval =>
+  !!it && typeof (it as Interval).from === 'string' && typeof (it as Interval).to === 'string';
+
+/**
+ * The stored hours as the editor shows them: every day present, the dated
+ * overrides with the fields the server keeps. The zone is the one the server
+ * uses (UTC when none is stored) once the hours are on or name an interval;
+ * before that, `startZone`, which turning them on writes.
+ */
+function normalizeHours(input: WidgetSettings['business_hours'] | undefined, startZone: string): BusinessHoursConfig {
   const raw = (input || {}) as Partial<BusinessHoursConfig>;
   const weekly: BusinessHoursConfig['weekly'] = {};
   for (const d of DAY_KEYS) {
     const list: unknown = raw.weekly && (raw.weekly as Record<string, unknown>)[d];
-    weekly[d] = Array.isArray(list)
-      ? list.filter((it): it is Interval => !!it && typeof it.from === 'string' && typeof it.to === 'string')
-      : [];
+    weekly[d] = Array.isArray(list) ? list.filter(isInterval).map(({ from, to }) => ({ from, to })) : [];
   }
-  return {
-    enabled: !!raw.enabled,
-    timezone: typeof raw.timezone === 'string' && raw.timezone ? raw.timezone : 'UTC',
-    weekly,
-    overrides: Array.isArray(raw.overrides) ? raw.overrides : [],
-  };
+  const overrides = (Array.isArray(raw.overrides) ? raw.overrides : [])
+    .filter((o): o is NonNullable<BusinessHoursConfig['overrides']>[number] => !!o && typeof o.date === 'string')
+    .map((o) => ({
+      date: o.date,
+      ...(o.closed !== undefined ? { closed: !!o.closed } : {}),
+      ...(Array.isArray(o.intervals) ? { intervals: o.intervals.filter(isInterval).map(({ from, to }) => ({ from, to })) } : {}),
+      ...(typeof o.label === 'string' && o.label ? { label: o.label } : {}),
+    }));
+  const stored = typeof raw.timezone === 'string' && raw.timezone ? raw.timezone : null;
+  const hours: BusinessHoursConfig = { enabled: !!raw.enabled, timezone: 'UTC', weekly, overrides };
+  const configured = hours.enabled || anyInterval(hours);
+  hours.timezone = configured ? (stored || 'UTC') : (stored && stored !== 'UTC' ? stored : startZone);
+  return hours;
 }
 
-function previewState(hours: BusinessHoursConfig, liveChatEnabled: boolean, now: Date = new Date()): {
-  state: 'online' | 'offline';
-  reason: ReasonKey;
-} {
-  if (!hours.enabled) return { state: 'online', reason: 'reasonDisabled' };
-  if (!liveChatEnabled) return { state: 'offline', reason: 'reasonChatDisabled' };
-  // Use Intl to read the current weekday + minutes in tz
-  let parts: Intl.DateTimeFormatPart[] = [];
+/** The browser's own zone (an International workspace's hours start in it). */
+function browserTimeZone(): string | null {
   try {
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: hours.timezone || 'UTC',
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(now);
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
   } catch {
-    return { state: 'offline', reason: 'reasonInvalidTz' };
+    return null;
   }
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
-  const dowMap: Record<string, DayKey> = { Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat', Sun: 'sun' };
-  const dow = dowMap[get('weekday')];
-  const date = `${get('year')}-${get('month')}-${get('day')}`;
-  const ov = hours.overrides?.find((o) => o.date === date);
-  let intervals: Interval[] = [];
-  if (ov) {
-    if (ov.closed) return { state: 'offline', reason: 'reasonOverrideClosed' };
-    intervals = ov.intervals || [];
-  } else {
-    intervals = (dow && hours.weekly[dow]) || [];
+}
+
+/** The server's reason, in the panel's words (always_offline has two causes the settings tell apart). */
+function nowReason(now: WidgetAvailabilityNow, hours: BusinessHoursConfig, liveChatEnabled: boolean): ReasonKey {
+  switch (now.reason) {
+    case 'disabled': return 'reasonDisabled';
+    case 'no_operators_online': return 'reasonNoOperators';
+    case 'within_hours': return 'reasonWithin';
+    case 'outside_hours': return 'reasonOutside';
+    case 'override_closed': return 'reasonOverrideClosed';
+    default: return hours.enabled && !liveChatEnabled ? 'reasonChatDisabled' : 'reasonNoIntervals';
   }
-  const anyDefined =
-    DAY_KEYS.some((k) => (hours.weekly[k] || []).length > 0) ||
-    (hours.overrides || []).some((o) => (o.intervals || []).length > 0);
-  if (!anyDefined) return { state: 'offline', reason: 'reasonNoIntervals' };
-  if (!intervals.length) return { state: 'offline', reason: 'reasonClosedToday' };
-  const h = Number(get('hour') === '24' ? '0' : get('hour'));
-  const m = Number(get('minute'));
-  const cur = h * 60 + m;
-  for (const it of intervals) {
-    const [fh, fm] = it.from.split(':').map(Number);
-    const [th, tm] = it.to.split(':').map(Number);
-    if (fh * 60 + fm <= cur && cur < th * 60 + tm) return { state: 'online', reason: 'reasonWithin' };
+}
+
+function formatNextOpen(iso: string, timeZone: string, locale: string): string {
+  try {
+    return new Intl.DateTimeFormat(intlLocaleFor(locale as 'en' | 'fa' | 'tr'), {
+      timeZone, weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(iso));
+  } catch {
+    return iso;
   }
-  return { state: 'offline', reason: 'reasonOutside' };
 }
 
 export function AvailabilitySection({
   workspaceId,
   settings,
-  onSave,
+  onChange,
   saving,
 }: {
   workspaceId: string | undefined;
-  settings: WidgetSettings;
-  onSave: (patch: Partial<WidgetSettings>) => void;
+  /** The settings with the page's draft over them. */
+  settings: Partial<WidgetSettings>;
+  /** Draft `patch` and save it `delay` ms later; `draftOnly` keeps it unsaved. */
+  onChange: (patch: Partial<WidgetSettings>, opts?: { delay?: number; draftOnly?: boolean }) => void;
   saving: boolean;
 }) {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
+  const { edition } = useEdition();
+  // The edition's working week (Iran: Saturday to Wednesday, Tehran time;
+  // International: Monday to Friday, the admin's zone), as the call center's
+  // callback hours start from.
+  const startHours = useMemo(() => defaultCallbackHours(edition, browserTimeZone()), [edition]);
+  const firstDay = edition === 'international' ? 'mon' : 'sat';
+  const now = useWidgetAvailabilityNow(workspaceId, locale);
   // The platform's active region/language mode decides which languages are
   // editable here — a single-language platform (e.g. Persian-only) must not
   // show a language picker or fields for languages it never speaks.
   const { allowedLocales } = usePlatformRegion();
   const activeLocales = (allowedLocales.length ? allowedLocales : LOCALES) as Locale[];
-  const hours = useMemo(() => normalizeHours(settings.business_hours), [settings.business_hours]);
-  const offlineMode = (settings.offline_mode || 'capture_message') as WidgetSettings['offline_mode'];
+  const hours = useMemo(() => normalizeHours(settings.business_hours, startHours.timezone), [settings.business_hours, startHours.timezone]);
+  // An old stored value (accept_messages / contact_fallback, before 279)
+  // means the form, as the server reads it.
+  const offlineMode: WidgetSettings['offline_mode'] =
+    settings.offline_mode === 'hide_widget' || settings.offline_mode === 'show_offline_message' ? settings.offline_mode : 'capture_message';
   const liveChatEnabled = settings.live_chat_enabled !== false;
   const labels = (settings.availability_labels || {}) as Record<string, { online?: string; offline?: string }>;
   const localizedMsg = (settings.offline_message_localized || {}) as Record<string, string>;
@@ -200,19 +228,30 @@ export function AvailabilitySection({
   const [testEmail, setTestEmail] = useState('');
   const [testing, setTesting] = useState(false);
 
-  const updateHours = (next: BusinessHoursConfig) => onSave({ business_hours: next });
+  // Hours on with an interval that would never match are kept as a draft
+  // only (the server refuses them); hours off apply to nothing and save.
+  const updateHours = (next: BusinessHoursConfig, delay = 500) =>
+    onChange({ business_hours: next }, { delay, draftOnly: next.enabled && hoursProblem(next) !== null });
 
-  const setLabel = (locale: Locale, kind: 'online' | 'offline', value: string) => {
-    const next = { ...labels, [locale]: { ...(labels[locale] || {}), [kind]: value } };
-    onSave({ availability_labels: next });
+  // Turning the hours on with no interval anywhere starts the edition's
+  // working week, instead of an empty schedule that is offline for everyone.
+  const setHoursEnabled = (on: boolean) => {
+    if (on && !anyInterval(hours)) {
+      updateHours({ ...hours, enabled: true, weekly: startHours.weekly }, 0);
+    } else {
+      updateHours({ ...hours, enabled: on }, 0);
+    }
   };
 
-  const setLocalizedMessage = (locale: Locale, value: string) => {
-    const next = { ...localizedMsg, [locale]: value };
-    onSave({ offline_message_localized: next });
+  const setLabel = (loc: Locale, kind: 'online' | 'offline', value: string) => {
+    const next = { ...labels, [loc]: { ...(labels[loc] || {}), [kind]: value } };
+    onChange({ availability_labels: next });
   };
 
-  const preview = previewState(hours, liveChatEnabled);
+  const setLocalizedMessage = (loc: Locale, value: string) => {
+    const next = { ...localizedMsg, [loc]: value };
+    onChange({ offline_message_localized: next });
+  };
 
   const sendTestEmail = async () => {
     if (!testEmail || !workspaceId) return;
@@ -234,34 +273,48 @@ export function AvailabilitySection({
     }
   };
 
-  const anyIntervalDefined =
-    DAY_KEYS.some((k) => (hours.weekly[k] || []).length > 0) ||
-    (hours.overrides || []).some((o) => (o.intervals || []).length > 0);
+  const anyIntervalDefined = anyInterval(hours);
+  const nowData = now.data;
 
   return (
     <div className="space-y-4" dir={dir}>
-      {/* Live preview */}
-      <Card className="card-elevated">
-        <CardContent className="p-4 flex items-center gap-3">
-          {preview.state === 'online' ? (
-            <CheckCircle2 className="h-5 w-5 text-success" />
+      {/* What visitors see right now (the widget's own resolver) */}
+      <Card className="card-elevated" data-availability-now={nowData?.state ?? (now.isError ? 'error' : 'loading')}>
+        <CardContent className="p-4 flex items-start gap-3">
+          {nowData?.state === 'online' ? (
+            <CheckCircle2 className="h-5 w-5 mt-0.5 text-success" aria-hidden="true" />
           ) : (
-            <AlertCircle className="h-5 w-5 text-warning" />
+            <AlertCircle className="h-5 w-5 mt-0.5 text-warning" aria-hidden="true" />
           )}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0" aria-live="polite">
             <div className="text-sm font-medium">
               {t('widgetPage.availability.now')}:{' '}
-              <Badge variant={preview.state === 'online' ? 'default' : 'secondary'} className="ms-1">
-                {preview.state === 'online' ? t('widgetPage.availability.online') : t('widgetPage.availability.offline')}
-              </Badge>
+              {nowData ? (
+                <Badge variant={nowData.state === 'online' ? 'default' : 'secondary'} className="ms-1">
+                  {nowData.state === 'online' ? t('widgetPage.availability.online') : t('widgetPage.availability.offline')}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">
+                  {now.isError ? t('widgetPage.availability.nowUnavailable') : t('widgetPage.availability.nowChecking')}
+                </span>
+              )}
             </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {t(`widgetPage.availability.${preview.reason}`)} · {t('widgetPage.availability.timezoneLabel', { tz: hours.timezone })}
-            </div>
+            {nowData && (
+              <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                <p>
+                  {t(`widgetPage.availability.${nowReason(nowData, hours, liveChatEnabled)}`)}
+                  {nowData.next_open_at && (
+                    <> {t('widgetPage.availability.nextOpen', { time: formatNextOpen(nowData.next_open_at, nowData.timezone, locale) })}</>
+                  )}
+                </p>
+                <p>
+                  {t('widgetPage.availability.operatorsNow', { available: nowData.operators.available, members: nowData.operators.members })}
+                  {hours.enabled && <> · {t('widgetPage.availability.timezoneLabel', { tz: nowData.timezone })}</>}
+                </p>
+                {!nowData.business_hours_allowed && <p>{t('widgetPage.availability.planNotApplied')}</p>}
+              </div>
+            )}
           </div>
-          {!hours.enabled && (
-            <Badge variant="outline" className="text-xs">{t('widgetPage.availability.forcedOnline')}</Badge>
-          )}
         </CardContent>
       </Card>
 
@@ -285,24 +338,35 @@ export function AvailabilitySection({
             </div>
             <Switch
               checked={hours.enabled}
-              onCheckedChange={(v) => updateHours({ ...hours, enabled: v })}
+              aria-label={t('widgetPage.availability.enableHours')}
+              onCheckedChange={setHoursEnabled}
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+          {/* Only with a schedule: off shows the offline behaviour all day,
+              inside the hours too (the resolver's always_offline). */}
+          <div className={`flex items-center justify-between rounded-lg border border-border p-3 ${!hours.enabled ? 'opacity-60' : ''}`}>
             <div>
               <Label className="text-sm font-medium">{t('widgetPage.availability.liveChatEnabled')}</Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {t('widgetPage.availability.liveChatHint')}
+                {t(hours.enabled ? 'widgetPage.availability.liveChatHint' : 'widgetPage.availability.liveChatHintHoursOff')}
               </p>
             </div>
             <Switch
               checked={liveChatEnabled}
-              onCheckedChange={(v) => onSave({ live_chat_enabled: v })}
+              disabled={!hours.enabled}
+              aria-label={t('widgetPage.availability.liveChatEnabled')}
+              onCheckedChange={(v) => onChange({ live_chat_enabled: v }, { delay: 0 })}
             />
           </div>
 
-          <WeeklyHoursEditor hours={hours} onChange={updateHours} disabled={!hours.enabled} />
+          <WeeklyHoursEditor
+            hours={hours}
+            onChange={(next) => updateHours(next)}
+            disabled={!hours.enabled}
+            firstDay={firstDay}
+            limits={CHAT_HOURS_LIMITS}
+          />
 
           {hours.enabled && !anyIntervalDefined && (
             <div className="flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/30 p-3 text-xs">
@@ -345,15 +409,16 @@ export function AvailabilitySection({
               key={opt.v}
               className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
                 offlineMode === opt.v ? 'border-primary bg-primary/5' : 'border-border'
-              } ${!hours.enabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              }`}
             >
+              {/* Applies with or without business hours: the widget is
+                  offline whenever no operator is available too. */}
               <input
                 type="radio"
                 name="offline_mode"
                 value={opt.v}
                 checked={offlineMode === opt.v}
-                onChange={() => onSave({ offline_mode: opt.v })}
-                disabled={!hours.enabled}
+                onChange={() => onChange({ offline_mode: opt.v }, { delay: 0 })}
                 className="mt-1"
               />
               <div>

@@ -13,7 +13,12 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient, type ServiceClient } from '../../supabase.js';
 import type { Edition } from '../../../shared/edition.js';
-import type { StoredChatTemplates } from '../../../shared/chatTemplateCatalog.js';
+import {
+  canonicalChatTemplateId,
+  enabledChatTemplateIds,
+  type ChatTemplateCatalog,
+  type StoredChatTemplates,
+} from '../../../shared/chatTemplateCatalog.js';
 import { isRelationMissing } from '../billing/entitlementParse.js';
 
 type DbError = { code?: string; message?: string; details?: string } | null | undefined;
@@ -136,4 +141,16 @@ export async function countTemplateUsage(config: ServerConfig, ids: readonly str
   const chosenBy: Record<string, number> = {};
   ids.forEach((id, i) => { chosenBy[id] = counts[i + 1].count as number; });
   return { chosenBy, followingDefault: counts[0].count as number };
+}
+
+/**
+ * Whether a workspace's stored choice (widget_settings.widget_template_id) is
+ * a template the edition's catalog does not offer enabled now, so its
+ * visitors wear the default: the Widget page's warning and the owner's alert
+ * (routes/workspaceAlerts.ts). No choice is never unavailable.
+ */
+export function isChosenTemplateUnavailable(catalog: ChatTemplateCatalog, selectedId: string | null | undefined): boolean {
+  if (typeof selectedId !== 'string' || !selectedId) return false;
+  const id = canonicalChatTemplateId(catalog.edition, selectedId);
+  return !(id && enabledChatTemplateIds(catalog).includes(id));
 }

@@ -56,7 +56,7 @@ function resetFakeDb() {
     updated_at: '2020-01-01T00:00:00.000Z',
   };
   prechatRow = null;
-  platformRow = { id: PLATFORM_ID, max_message_length: 5000 };
+  platformRow = { id: PLATFORM_ID, default_welcome_message: 'Hi', realtime_token_ttl_seconds: 1800 };
   auditLogs = [];
   isPlatformAdmin = false;
   entitlementsOverride = null;
@@ -458,16 +458,67 @@ describe('PUT /api/widget-settings/:workspaceId/prechat — fail-closed allowlis
 describe('PATCH /api/widget-settings/platform/config — dedicated strict schema, platform-admin-only', () => {
   it('a legitimate platform setting saves', async () => {
     isPlatformAdmin = true;
-    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, max_message_length: 8000 });
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, realtime_token_ttl_seconds: 3600 });
     expect(res.status).toBe(200);
-    expect(platformRow.max_message_length).toBe(8000);
+    expect(platformRow.realtime_token_ttl_seconds).toBe(3600);
   });
 
   it('id cannot be overwritten by the update payload (still used only to select the row)', async () => {
     isPlatformAdmin = true;
-    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, max_message_length: 100 });
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, default_welcome_message: 'Hello' });
     expect(res.status).toBe(200);
     expect(platformRow.id).toBe(PLATFORM_ID);
+  });
+
+  // Settings nothing ever read (feature locks, domain policy, message
+  // limits, the stale-socket guard, idle disposal): the Super Admin page no
+  // longer offers them and the API refuses them instead of storing a value
+  // that changes nothing.
+  it.each([
+    ['force_chat_enabled', 'force_off'],
+    ['force_kb_enabled', 'force_on'],
+    ['force_visitor_tracking', 'allow'],
+    ['default_allow_subdomains', true],
+    ['enforce_domain_validation', true],
+    ['max_allowed_domains_per_workspace', 10],
+    ['max_message_length', 8000],
+    ['rate_limit_messages_per_minute', 20],
+    ['realtime_stale_resubscribe_guard_enabled', false],
+    ['realtime_idle_disposal_ms', 60000],
+  ])('%s is refused and nothing is written', async (field, value) => {
+    isPlatformAdmin = true;
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, [field]: value });
+    expect(res.status).toBe(400);
+    expect(platformRow[field]).toBeUndefined();
+  });
+
+  // The tuning values are refused outside the ranges their readers keep to
+  // (shared/platformTuning.ts), instead of being stored and quietly clamped.
+  it.each([
+    ['realtime_reconnect_jitter_pct', 51],
+    ['realtime_token_ttl_seconds', 299],
+    ['realtime_pending_max', 5000],
+    ['realtime_message_dedupe_window', 8],
+    ['typing_rate_limit_window_ms', 100],
+    ['typing_rate_limit_max_events', 0],
+  ])('%s = %s (out of range) is refused', async (field, value) => {
+    isPlatformAdmin = true;
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, [field]: value });
+    expect(res.status).toBe(400);
+    expect((res.body.issues as unknown as Array<{ path: string }> | undefined)?.[0]?.path).toBe(field);
+    expect(platformRow[field]).not.toBe(value);
+  });
+
+  it.each([
+    ['realtime_reconnect_jitter_pct', 50],
+    ['realtime_pending_max', 32],
+    ['typing_rate_limit_window_ms', 60000],
+    ['typing_rate_limit_max_events', 1],
+  ])('%s = %s (a range edge) saves', async (field, value) => {
+    isPlatformAdmin = true;
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, [field]: value });
+    expect(res.status).toBe(200);
+    expect(platformRow[field]).toBe(value);
   });
 
   it('an unknown field is rejected', async () => {
@@ -498,7 +549,7 @@ describe('PATCH /api/widget-settings/platform/config — dedicated strict schema
 
   it('a non-platform-admin is denied before validation even matters', async () => {
     isPlatformAdmin = false;
-    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, max_message_length: 1 });
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, default_welcome_message: 'x' });
     expect(res.status).toBe(403);
   });
 });

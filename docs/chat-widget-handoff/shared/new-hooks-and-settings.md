@@ -546,8 +546,10 @@ operator has it, it is closed, routing never queued it; and before 276); 403 `CO
 in assignment mode `manual` (`server/services/chatRouting.ts`) writes `metadata.queued_at` when the conversation
 enters the queue (kept while it waits and when an operator hands it back; one older than 24 hours is a new entry)
 and `metadata.queue_entry_position`; `chat_queue_status()` (276) counts the place on the partial index (only the rows
-that wait: unassigned, open or pending, not spam) and gives the wait only from 3 measured claims and up to 180
-minutes. A **hand-back** (an operator unassigns a queued conversation, or a paused seat is released): 276's trigger
+that wait: unassigned, open or pending, not spam), since 280b in the conversation's own department's queue (the same
+`metadata.department_id`, the one the visitor picked; none counts among none, R-22), and gives the wait only from 3
+measured claims and up to 180 minutes. `POST /message` keeps a picked `department_id` only when it is one of the
+workspace's enabled chat departments. A **hand-back** (an operator unassigns a queued conversation, or a paused seat is released): 276's trigger
 `trg_conversations_queue_return` keeps `queued_at` (the place) and writes `metadata.queue_reentered_at` (when it came
 back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
 the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per

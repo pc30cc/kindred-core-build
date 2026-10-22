@@ -122,6 +122,7 @@ import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages, visitorReplyPreview, type ReplyToPreview } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
+import { departmentSupportsChannel, resolveDepartments } from '../services/calls/departments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import {
@@ -1800,6 +1801,28 @@ async function resolveCookieVisitorSessionId(
   return (data?.id as string | undefined) ?? null;
 }
 
+/**
+ * The department a visitor picked (the widget's picker, GET
+ * /departments/visible), as /message stores it on the message: one of this
+ * workspace's enabled chat departments, else none. Routing reads it from
+ * there (chatRouting.ts resolveConversationDepartment) and keeps it on the
+ * conversation, where the Inbox shows it and the queue counts per
+ * department (280b), so an id from elsewhere is dropped here like the
+ * other lenient fields. An unreadable department list keeps the choice:
+ * routing then checks it again against the same list.
+ */
+async function widgetChatDepartmentId(config: ServerConfig, workspaceId: string, id: string | null | undefined): Promise<string | null> {
+  if (!id) return null;
+  try {
+    const wanted = id.toLowerCase();
+    const dept = (await resolveDepartments(config, workspaceId))
+      .find((d) => String(d.id).toLowerCase() === wanted && departmentSupportsChannel(d, 'chat'));
+    return dept ? String(dept.id) : null;
+  } catch {
+    return id;
+  }
+}
+
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const parsed = messageSchema.safeParse(req.body);
@@ -2271,7 +2294,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       visitor_id: body.visitor_id,
       session_id: body.session_id,
       attachment_id: data.attachment_id || undefined,
-      department_id: data.department_id || undefined,
+      department_id: (await widgetChatDepartmentId(config, workspaceId, data.department_id)) || undefined,
       page_context: pageContext || undefined,
       nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
     };

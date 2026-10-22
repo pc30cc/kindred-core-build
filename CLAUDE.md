@@ -255,11 +255,15 @@ reserved blocks, so a full disk stops Postgres too.
     `278b_chat_routing_member_release.sql`, `279_widget_offline_mode_values.sql`,
     `279b_widget_primary_color_brand.sql`, `280_widget_visitor_forms.sql`,
     `280a_widget_kb_search_fold.sql`, `280b_widget_queue_per_department.sql`,
-    `281_widget_visitor_privacy.sql` (and any 282 that joins them). Apply them
-    by hand, in that order, before merging the code that needs them: the
-    CONCURRENTLY indexes of the 278 and 281 headers first, then the
-    procedure above (`docs/operations/CHAT_ROUTING.md`, "Rollout
-    checklist"); then move each into this ledger with its time. 281 seeds its
+    `281_widget_visitor_privacy.sql`, `282_operator_manual_away.sql`,
+    `282b_operator_presence_sources.sql`. Apply them by hand, in that order,
+    before merging the code that needs them: the CONCURRENTLY indexes of
+    the 278 and 281 headers first, then the procedure above
+    (`docs/operations/CHAT_ROUTING.md`, "Rollout checklist"); then move each
+    into this ledger with its time. Then, only AFTER the backend of that
+    merge is deployed, `283_offline_message_template_phone.sql` (it adds a
+    placeholder to the owners' offline-message mail that only the new
+    backend fills; checklist step 8). 281 seeds its
     visitor retention policies disabled, and its delete keeps migration
     171's fence (`retention_cleanup_not_ready`) until the owner lifts it in
     a reviewed migration of its own.

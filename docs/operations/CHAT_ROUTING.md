@@ -224,7 +224,7 @@ before merging the code.
    ```
    An interrupted build leaves an invalid index: `DROP INDEX CONCURRENTLY` it
    and build it again (the files stop with a message if they find one).
-3. **Dry-run** the files of step 4, in that order, inside one
+3. **Dry-run** the files of step 4 (and 283 of step 8), in that order, inside one
    `BEGIN … ROLLBACK` (each later file needs the earlier ones: 278b uses
    278's tables, 280b replaces 276's queue functions).
 4. **Apply in this order** (the order `migrate-database.sh` uses, `LC_ALL=C`):
@@ -232,12 +232,14 @@ before merging the code.
    `279_widget_offline_mode_values.sql`, `279b_widget_primary_color_brand.sql`,
    `280_widget_visitor_forms.sql`, `280a_widget_kb_search_fold.sql`,
    `280b_widget_queue_per_department.sql`, `281_widget_visitor_privacy.sql`,
-   `282_operator_manual_away.sql`, `282b_operator_presence_sources.sql`
-   (and any later file of this series), with the CLAUDE.md procedure: the
-   folder with `scripts/` and `database/migrations/`, `docker cp` into the
-   database container, `migrate-database.sh` as `postgres` with
+   `282_operator_manual_away.sql`, `282b_operator_presence_sources.sql`,
+   with the CLAUDE.md procedure: the folder with `scripts/` and
+   `database/migrations/`, `docker cp` into the database container,
+   `migrate-database.sh` as `postgres` with
    `PGOPTIONS='-c lock_timeout=5s'`. Each file also sets `lock_timeout` itself;
-   a statement stopped by it is simply run again.
+   a statement stopped by it is simply run again. **Leave
+   `283_offline_message_template_phone.sql` out of this folder**: it is
+   step 8.
 5. **Check**: a second run applies nothing; `chat_route_claim`,
    `chat_routing_due` and `chat_routing_release_member` exist and are
    executable by `service_role` only (`\df+` or `has_function_privilege`);
@@ -251,6 +253,14 @@ before merging the code.
    CLAUDE.md, and take it off the pending list there.
 7. Merge. After the backend deploys, a new chat with the AI off is assigned
    at its first message and the visitor reads "X joined".
+8. **After the backend of this release is live**, apply
+   `283_offline_message_template_phone.sql` the same way (a folder with it
+   alone; `migrate-database.sh` skips what the ledger has). It adds
+   `{contact_phone}` to the owners' "new offline message" mail, which only
+   the new backend fills: applied earlier, the old backend's mails would read
+   "Phone: {contact_phone}". Ledger it in CLAUDE.md as the others. (RESPOK's
+   migrator applies it on push with the rest: a few minutes of the raw
+   placeholder at worst, in an internal mail.)
 
 On RESPOK the migrator builds the same indexes without CONCURRENTLY (its
 tables are small) and applies the files on push; run the pre-checks there

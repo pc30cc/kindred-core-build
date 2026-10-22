@@ -5,7 +5,10 @@
  *     used to send only `ask_<field>`, leaving the hidden field required);
  *   - S-02: the Super Admin's locks come from the public platform projection
  *     (an owner is not a platform admin: /platform/config answered 403 and no
- *     lock ever showed), drawn as locked switches with their badge.
+ *     lock ever showed), drawn as locked switches with their badge;
+ *   - P-01: the forms' privacy line (shown once the database has its
+ *     columns): its switch, its text and link saved when the field is left
+ *     (a link that is not https is said, never sent), its consent box.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
@@ -82,5 +85,45 @@ describe('PrechatSection', () => {
     expect(askSwitch('Name').disabled).toBe(false);
     expect(requests.some((r) => r.url.endsWith('/platform/public'))).toBe(true);
     expect(requests.some((r) => r.url.endsWith('/platform/config'))).toBe(false);
+  });
+});
+
+describe('PrechatSection: the privacy notice in the form (P-01)', () => {
+  const privacyStored = { privacy_notice_enabled: false, privacy_notice_text: null, privacy_policy_url: null, privacy_consent_required: false };
+  const puts = () => requests.filter((r) => r.method === 'PUT').map((r) => r.body);
+
+  it('a database before 281 (no such columns): the card is not shown', async () => {
+    await mount();
+    expect(document.getElementById('prechat-privacy-enabled')).toBeNull();
+  });
+
+  it('the switch, then the text and link saved when left, an http link said and not sent, the consent box', async () => {
+    stored = { ...stored, ...privacyStored };
+    await mount();
+    const enable = document.getElementById('prechat-privacy-enabled') as HTMLButtonElement;
+    expect(document.getElementById('prechat-privacy-text')).toBeNull();
+    fireEvent.click(enable);
+    await waitFor(() => expect(puts()).toEqual([{ privacy_notice_enabled: true }]));
+    await waitFor(() => expect(document.getElementById('prechat-privacy-text')).not.toBeNull());
+
+    const text = document.getElementById('prechat-privacy-text') as HTMLInputElement;
+    fireEvent.change(text, { target: { value: '  We use   your details to reply. ' } });
+    fireEvent.blur(text);
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(puts()[1]).toEqual({ privacy_notice_text: 'We use your details to reply.' });
+
+    const url = document.getElementById('prechat-privacy-url') as HTMLInputElement;
+    fireEvent.change(url, { target: { value: 'http://shop.example/privacy' } });
+    fireEvent.blur(url);
+    expect(url.getAttribute('aria-invalid')).toBe('true');
+    expect(document.body.textContent).toContain('Enter an address that starts with https://');
+    fireEvent.change(url, { target: { value: 'https://shop.example/privacy' } });
+    fireEvent.blur(url);
+    await waitFor(() => expect(puts()).toHaveLength(3));
+    expect(puts()[2]).toEqual({ privacy_policy_url: 'https://shop.example/privacy' });
+
+    fireEvent.click(document.getElementById('prechat-privacy-consent') as HTMLButtonElement);
+    await waitFor(() => expect(puts()).toHaveLength(4));
+    expect(puts()[3]).toEqual({ privacy_consent_required: true });
   });
 });

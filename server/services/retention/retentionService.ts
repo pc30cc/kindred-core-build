@@ -217,6 +217,50 @@ async function runLatestNRuns(
   outcome.metadata = { crawlsMatched: Number(row?.crawls_matched || 0), keepLastN: policy.keep_last_n ?? 5 };
 }
 
+/**
+ * A `workspace_overridable` rolling policy (the visitor tracking tables,
+ * migration 281): each workspace's rows older than its own period
+ * (widget_settings.visitor_data_retention_days), else the policy's
+ * hot_retention_days, counted and deleted workspace by workspace in bounded
+ * batches by visitor_data_retention_count_expired / _delete_batch. No
+ * archive: one cutoff per workspace is not what the archive adapter takes.
+ */
+async function runPerWorkspace(
+  config: ServerConfig,
+  policy: RetentionPolicy,
+  dryRun: boolean,
+  opts: RunOptions,
+  outcome: RunOutcome,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  if (!policy.hot_retention_days || policy.hot_retention_days <= 0) throw new RetentionError('invalid_retention_window');
+  outcome.metadata = { mode: policy.retention_mode, table: policy.table_name, perWorkspace: true, defaultDays: policy.hot_retention_days };
+  if (policy.archive_enabled) {
+    outcome.status = 'partial';
+    outcome.error = 'archive_unsupported_per_workspace';
+    return;
+  }
+  const { data: matched, error: countError } = await sb.rpc('visitor_data_retention_count_expired', { _policy_key: policy.policy_key });
+  if (countError) throw new RetentionError('count_failed', countError.message);
+  outcome.rowsMatched = Number(matched || 0);
+  if (dryRun || outcome.rowsMatched === 0) return;
+
+  const maxBatches = Math.min(opts.maxBatches ?? MAX_BATCHES_PER_RUN, MAX_BATCHES_PER_RUN);
+  for (let i = 0; i < maxBatches; i++) {
+    const { data: deleted, error } = await sb.rpc('visitor_data_retention_delete_batch', {
+      _policy_key: policy.policy_key,
+      _batch_size: policy.batch_size,
+    });
+    if (error) throw new RetentionError('delete_batch_failed', error.message);
+    const n = Number(deleted || 0);
+    outcome.rowsDeleted += n;
+    outcome.batches += 1;
+    if (n === 0) return;
+    if (BATCH_PAUSE_MS > 0) await sleep(BATCH_PAUSE_MS);
+  }
+  outcome.status = 'partial';
+}
+
 async function runTimeBased(
   config: ServerConfig,
   policy: RetentionPolicy,
@@ -224,6 +268,10 @@ async function runTimeBased(
   opts: RunOptions,
   outcome: RunOutcome,
 ): Promise<void> {
+  if (policy.workspace_overridable && policy.retention_mode === 'rolling') {
+    await runPerWorkspace(config, policy, dryRun, opts, outcome);
+    return;
+  }
   const sb = getServiceClient(config);
   const days =
     policy.retention_mode === 'archive_then_delete'

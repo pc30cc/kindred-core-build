@@ -172,6 +172,9 @@ export const DEFAULT_WIDGET_SETTINGS = {
   chat_enabled: true,
   kb_enabled: true,
   visitor_tracking_enabled: true,
+  // P-01 (migration 281, services/widget/trackingPrivacy.ts).
+  tracking_requires_consent: false,
+  tracking_keep_query: false,
   support_mode: 'human_first',
   widget_language: 'auto',
   mobile_behavior: 'bottom_sheet',
@@ -1356,6 +1359,12 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       knowledgeBase: ws.kb_enabled ?? true,
       visitorTracking: ws.visitor_tracking_enabled ?? true,
     },
+    // P-01: the loader waits for the page's `consent` before tracking, and
+    // keeps a tracked page's query string (services/widget/trackingPrivacy.ts).
+    // Only while one is on, so other payloads are unchanged.
+    ...(ws.tracking_requires_consent === true || ws.tracking_keep_query === true
+      ? { privacy: { consent: ws.tracking_requires_consent === true, keepQuery: ws.tracking_keep_query === true } }
+      : {}),
     preChat,
     // Phase 8 — Server-authoritative availability. Computed via resolver
     // so runtime never has to interpret weekly schedules. Locked rules:

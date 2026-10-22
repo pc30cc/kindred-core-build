@@ -1065,6 +1065,9 @@
         prechatEmailPh: 'name@example.com',
         prechatPhonePh: '+1 555 123 4567',
         prechatPrivacy: 'We only use your details to reply to this conversation.',
+        privacyPolicyLink: 'Privacy policy',
+        privacyConsentLabel: 'I agree to my details being used for this conversation.',
+        privacyConsentRequired: 'Please tick the box to continue.',
         searchKb: 'Search articles...',
         noArticles: 'No articles yet',
         loading: 'Loading…',
@@ -1325,6 +1328,9 @@
         prechatEmailPh: 'name@example.com',
         prechatPhonePh: '۰۹۱۲ ۳۴۵ ۶۷۸۹',
         prechatPrivacy: 'اطلاعات شما فقط برای پاسخ به همین گفتگو استفاده می‌شود.',
+        privacyPolicyLink: 'سیاست حفظ حریم خصوصی',
+        privacyConsentLabel: 'با استفاده از اطلاعاتم برای این گفتگو موافقم.',
+        privacyConsentRequired: 'برای ادامه، لطفاً گزینهٔ موافقت را علامت بزنید.',
         searchKb: 'جستجو در مقالات...',
         noArticles: 'مقاله‌ای یافت نشد',
         loading: 'در حال بارگذاری…',
@@ -1568,6 +1574,9 @@
         prechatEmailPh: 'ad@ornek.com',
         prechatPhonePh: '+90 555 123 45 67',
         prechatPrivacy: 'Bilgileriniz yalnızca bu sohbete yanıt vermek için kullanılır.',
+        privacyPolicyLink: 'Gizlilik politikası',
+        privacyConsentLabel: 'Bilgilerimin bu sohbet için kullanılmasını kabul ediyorum.',
+        privacyConsentRequired: 'Devam etmek için lütfen kutuyu işaretleyin.',
         searchKb: 'Makalelerde ara...',
         noArticles: 'Henüz makale yok',
         loading: 'Yükleniyor…',
@@ -2529,7 +2538,7 @@
   // ════════════════════════════════════════════════════════════════════
   // Identity layer — server-driven, cookie-backed (UNCHANGED security model)
   // ════════════════════════════════════════════════════════════════════
-  function createIdentity(ctx, identityStore) {
+  function createIdentity(ctx, identityStore, t) {
     // The platform policy (config.preChat, configSnapshot.ts buildPreChatConfig)
     // when /identity/me cannot be read: a field forced on is asked and
     // required, one forced off never asked; the defaults ask name and email
@@ -2607,7 +2616,97 @@
         });
     }
 
+    // ── The privacy line of the visitor's forms (P-01) ──
+    // `prechat.privacy` from /identity/me: { text, url, consent } while the
+    // workspace shows one (Widget → Pre-chat form), else absent. Core draws
+    // it above the button of every pre-chat and leave-a-message form, in
+    // every template (WIDGET_TEMPLATE_RULES.md §4): the owner's sentence (or
+    // the widget's own, prechatPrivacy), the policy link, and with `consent`
+    // a box the visitor ticks before sending (the server refuses the form
+    // without it).
+    var privacyAccepted = false;
+    var privacyBox = null; // the line drawn last (the form on screen)
+    var consentRefused = false; // a send stopped for the box: a repaint says so again
+    function privacy() {
+      var p = identityStore.get().prechat;
+      return (p && p.privacy) || null;
+    }
+    function consentMissing() {
+      var p = privacy();
+      return !!(p && p.consent && !privacyAccepted);
+    }
+    /**
+     * Puts the privacy line into `scope` (a form), before `before` (its
+     * button row) or at its end. A template that draws [data-prechat-privacy]
+     * itself keeps its own; a repaint keeps the tick.
+     */
+    function privacyInto(scope, before) {
+      var p = privacy();
+      if (!p || !scope || scope.querySelector('[data-prechat-privacy]')) return null;
+      var box = document.createElement('div');
+      box.className = 'prechat-privacy';
+      box.setAttribute('data-prechat-privacy', '');
+      var line = document.createElement('p');
+      line.className = 'prechat-privacy__text';
+      line.textContent = String(p.text || t('prechatPrivacy'));
+      if (p.url && /^https:\/\//i.test(String(p.url))) {
+        var a = document.createElement('a');
+        a.href = String(p.url);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = t('privacyPolicyLink');
+        line.appendChild(document.createTextNode(' '));
+        line.appendChild(a);
+      }
+      box.appendChild(line);
+      if (p.consent) {
+        var label = document.createElement('label');
+        label.className = 'prechat-privacy__consent';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.setAttribute('data-prechat-consent', '');
+        cb.checked = privacyAccepted;
+        cb.addEventListener('change', function () {
+          privacyAccepted = !!cb.checked;
+          if (privacyAccepted) consentError(box, '');
+        });
+        var span = document.createElement('span');
+        span.textContent = t('privacyConsentLabel');
+        label.appendChild(cb);
+        label.appendChild(span);
+        box.appendChild(label);
+      }
+      if (before && before.parentNode === scope) scope.insertBefore(box, before);
+      else scope.appendChild(box);
+      privacyBox = box;
+      if (consentRefused && !privacyAccepted) consentError(box, t('privacyConsentRequired'), true);
+      return box;
+    }
+    /** Says (or clears) "tick the box to continue" in the privacy line `box`. */
+    function consentError(box, msg, keepFocus) {
+      consentRefused = !!msg;
+      if (!box) return;
+      var cb = box.querySelector('[data-prechat-consent]');
+      if (cb) cb.setAttribute('aria-invalid', msg ? 'true' : 'false');
+      var el = box.querySelector('[data-err="privacy"]');
+      if (!el && msg) {
+        el = document.createElement('div');
+        el.className = 'prechat-error err visible';
+        el.setAttribute('data-err', 'privacy');
+        el.setAttribute('role', 'alert');
+        box.appendChild(el);
+      }
+      if (el) el.textContent = msg || '';
+      if (msg && cb && !keepFocus) try { cb.focus(); } catch (_) {}
+    }
+
     function submitPrechat(payload, cb) {
+      // The consent box is ticked first (the server would refuse the form).
+      if (consentMissing()) {
+        consentError(privacyBox && privacyBox.isConnected ? privacyBox : null, t('privacyConsentRequired'));
+        if (cb) cb(false, { error: 'privacy_consent_required', field: 'privacy' });
+        return;
+      }
       ctx.fetchWith(ctx.apiBase + '/api/widget/identity/prechat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2616,6 +2715,7 @@
           name: payload.name || null,
           email: payload.email || null,
           phone: payload.phone ? Util.asciiDigits(payload.phone) : null,
+          privacy_consent: privacyAccepted || undefined,
         }),
       })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
@@ -2696,7 +2796,11 @@
       shouldRequirePrechat: shouldRequirePrechat,
       needsPrechat: needsPrechat,
       prechatTiming: prechatTiming,
-
+      privacy: privacy,
+      privacyInto: privacyInto,
+      consentMissing: consentMissing,
+      consentError: consentError,
+      privacyAccepted: function () { return privacyAccepted; },
     };
   }
 
@@ -4074,6 +4178,10 @@
       /** The server's refusal, under its field when it names one. */
       function showRefusal(resp) {
         resp = resp || {};
+        if (resp.error === 'privacy_consent_required') {
+          identity.consentError(body.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+          return;
+        }
         var details = resp.details || {};
         var f = resp.field || ['name', 'email', 'phone'].filter(function (k) { return details[k]; })[0];
         if (f && getInput(f)) {
@@ -4110,6 +4218,9 @@
           }
         });
       });
+      // The workspace's privacy line, under the fields (identity.privacyInto).
+      var fieldsEl = body.querySelector('.prechat-fields');
+      if (fieldsEl && fieldsEl.parentNode) identity.privacyInto(fieldsEl.parentNode, fieldsEl.nextSibling);
       if (opts.autofocus !== false && !prechatSubmitting) {
         var firstInput = body.querySelector('.prechat-input');
         if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
@@ -4139,6 +4250,10 @@
           if (identity.isAsked('phone') && payload.phone) {
             if (!Util.isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
           } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('fieldRequired')); ok = false; }
+          if (identity.consentMissing()) {
+            identity.consentError(body.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+            ok = false;
+          }
           if (!ok) return;
 
           prechatDraft = { name: payload.name, email: payload.email, phone: payload.phone };
@@ -4910,6 +5025,13 @@
       });
 
       if (!submitBtn) return;
+      // The workspace's privacy line, above the button (identity.privacyInto):
+      // the form's last field row's end, wherever the template put the button.
+      var fbRow = submitBtn.parentNode && submitBtn.parentNode !== body && !submitBtn.parentNode.querySelector('[data-fb]')
+        ? submitBtn.parentNode : submitBtn;
+      identity.privacyInto(fbRow.parentNode, fbRow);
+      // The click handler's own `body` is the request's.
+      var formRoot = body;
       // Whether the form asks the phone (then either way of reaching the visitor will do).
       var phoneField = !!body.querySelector('[data-fb="phone"]');
       submitBtn.addEventListener('click', function () {
@@ -4927,6 +5049,10 @@
         if (!payload.email && !payload.phone) { showErr('email', t(phoneField ? 'fallbackContactNeeded' : 'fieldRequired')); ok = false; }
         if (!payload.message) { showErr('message', t('fieldRequired')); ok = false; }
         else if (payload.message.length > MAX_MESSAGE_CHARS) { showErr('message', t('msgFailLong')); ok = false; }
+        if (identity.consentMissing()) {
+          identity.consentError(formRoot.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+          ok = false;
+        }
         if (!ok) return;
 
         submitBtn.disabled = true; submitBtn.style.opacity = '0.6';
@@ -4947,6 +5073,7 @@
         if (payload.name) body.name = payload.name;
         if (payload.email) body.email = payload.email;
         if (payload.phone) body.phone = Util.asciiDigits(payload.phone);
+        if (identity.privacyAccepted()) body.privacy_consent = true;
 
         ctx.fetchWith(ctx.apiBase + '/api/widget/offline-messages', {
           method: 'POST',
@@ -5005,6 +5132,10 @@
             // Said where it belongs: a field the server refused under it;
             // otherwise why (too many at once, no connection) on the status line.
             var st = err && err.status;
+            if (err && err.body && err.body.error === 'privacy_consent_required') {
+              identity.consentError(formRoot.querySelector('[data-prechat-privacy]'), t('privacyConsentRequired'));
+              return;
+            }
             var fe = (err && err.body && err.body.details && err.body.details.fieldErrors) || {};
             var fields = ['email', 'phone', 'name', 'message'].filter(function (k) { return fe[k]; });
             if (st === 400 && fields.length) {
@@ -5103,6 +5234,7 @@
     var t = deps.t;
     var kbStore = deps.kbStore;
     var onSwitchToChat = deps.onSwitchToChat || function () {};
+    var helpShown = deps.helpShown || function () { return true; };
 
     // Per-instance ephemeral state (not persisted).
     var rootEl = null;          // current tab body element
@@ -5162,7 +5294,12 @@
               var arts = r.articles || [];
               var cats = r.categories || [];
               Util.log('[Widget KB] loaded articles', { count: arts.length, categories: cats.length, locale: ctx.locale });
-              kbStore.set({ loaded: true, loadedAt: Date.now(), categories: cats, articles: arts });
+              // `total` (every published article; older servers send none)
+              // and the categories' own lists start over with each load.
+              kbStore.set({
+                loaded: true, loadedAt: Date.now(), categories: cats, articles: arts,
+                total: typeof r.total === 'number' ? r.total : arts.length, catArticles: {},
+              });
               resolveAll();
             },
           });
@@ -5178,8 +5315,106 @@
       if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
     }
 
+    // ── Past the first page (V-29) ──
+    // /categories lists the first 50 articles and how many there are
+    // (`total`). The plain list (default, and t1/t2 without categories)
+    // reads the next page when the visitor scrolls near its end; a category
+    // (runtime-ext.js `kbCategories`) reads its own articles when opened
+    // (loadCategory), up to KB_CAT_MAX, so its count and its list agree.
+    var KB_PAGE = 50;
+    var KB_CAT_PAGE = 100;
+    var KB_CAT_MAX = 500;
+    var morePending = false;
+    var catPending = {};
+    function readPage(params, done) {
+      ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
+        var mod = ModuleLoader.modules.kb;
+        if (!mod || !mod.loadArticles) { done({ ok: false }); return; }
+        mod.loadArticles({
+          apiBase: ctx.apiBase, workspaceId: ctx.workspaceId, sessionToken: ctx.sessionToken, locale: ctx.locale,
+          categoryId: params.categoryId, offset: params.offset, limit: params.limit, onResult: done,
+        });
+      });
+    }
+    // `list` followed by the articles of `more` it does not hold yet.
+    function bySlug(list, more) {
+      var known = {};
+      var out = (list || []).slice();
+      out.forEach(function (a) { if (a && a.slug) known[a.slug] = 1; });
+      (more || []).forEach(function (a) {
+        if (a && a.slug && !known[a.slug]) { known[a.slug] = 1; out.push(a); }
+      });
+      return out;
+    }
+    // The list on screen is the plain one: with categories to browse, t1
+    // and t2 show only the first few articles, so nothing more is read.
+    function pagedList() {
+      var s = kbStore.get();
+      var feats = (Presentation && Presentation.features) || {};
+      return view === 'list' && !currentArticle && !articleLoading && helpShown() &&
+        !(feats.kbCategories && (s.categories || []).length);
+    }
+    function loadMore() {
+      var s = kbStore.get();
+      if (morePending || !pagedList() || !((s.articles || []).length < s.total)) return;
+      morePending = true;
+      var at = (s.articles || []).length;
+      readPage({ offset: at, limit: KB_PAGE }, function (r) {
+        morePending = false;
+        if (!r || !r.ok) return; // the next scroll asks again
+        var cur = kbStore.get();
+        var list = bySlug(cur.articles, r.articles);
+        // The last page settles the count (an article removed meanwhile).
+        kbStore.set({ articles: list, total: r.nextOffset == null ? list.length : Math.max(cur.total, list.length) });
+        if (pagedList()) paint();
+      });
+    }
+    /**
+     * Reads category `id`'s own articles (when it holds more than the first
+     * page brought) into kbStore.catArticles[id], then calls `done(true)`;
+     * `done(false)` when nothing was read.
+     */
+    function loadCategory(id, done) {
+      var s = kbStore.get();
+      var cat = (s.categories || []).filter(function (c) { return String(c.id) === String(id); })[0];
+      var have = (s.articles || []).filter(function (a) { return a && String(a.category_id) === String(id); }).length;
+      if (!cat || catPending[id] || (s.catArticles || {})[id] || !(Number(cat.article_count) > have)) { done && done(false); return; }
+      catPending[id] = true;
+      var got = [];
+      (function next(offset) {
+        readPage({ categoryId: id, offset: offset, limit: KB_CAT_PAGE }, function (r) {
+          if (r && r.ok) got = bySlug(got, r.articles);
+          if (r && r.ok && r.nextOffset != null && got.length < KB_CAT_MAX) { next(r.nextOffset); return; }
+          catPending[id] = false;
+          if (!got.length) { done && done(false); return; }
+          var map = Object.assign({}, kbStore.get().catArticles || {});
+          map[id] = got;
+          kbStore.set({ catArticles: map });
+          done && done(true);
+        });
+      })(0);
+    }
+    // Scrolling the plain list near its end reads the next page. A scroll
+    // does not bubble: a capturing listener on the view host sees the list's
+    // scroller (whichever element the template scrolls).
+    function bindPaging() {
+      if (!rootEl || rootEl.__gsKbPaging) return;
+      rootEl.__gsKbPaging = true;
+      rootEl.addEventListener('scroll', function (ev) {
+        var el = ev && ev.target;
+        if (!el || el.nodeType !== 1 || !pagedList()) return;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 240) loadMore();
+      }, { capture: true, passive: true });
+    }
+    // A repaint replaces the view's scroller: the place in a long list stays.
+    function keptScroll() {
+      var el = rootEl && rootEl.querySelector('.wy-scroll, .kb-scroll, .wy-kb-scroll');
+      return el && el.scrollTop ? { cls: el.className, top: el.scrollTop } : null;
+    }
+
     function paint() {
       if (!rootEl) return;
+      var keep = view === 'list' ? keptScroll() : null;
       if (articleLoading) {
         var skel = '';
         try {
@@ -5189,7 +5424,12 @@
         if (skel) { rootEl.innerHTML = skel; return; }
       }
       rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(buildVm()) : '';
+      if (keep && view === 'list') {
+        var el = rootEl.querySelector('.wy-scroll, .kb-scroll, .wy-kb-scroll');
+        if (el && el.className === keep.cls) el.scrollTop = keep.top;
+      }
       bindEvents();
+      bindPaging();
       ext('kbPaint');
     }
 
@@ -5510,7 +5750,7 @@
         get query() { return currentQuery; }, set query(v) { currentQuery = v; },
         get article() { return currentArticle; }, set article(v) { currentArticle = v; },
         get loading() { return articleLoading; },
-        paint: paint, vm: buildVm, bind: bindEvents,
+        paint: paint, vm: buildVm, bind: bindEvents, loadCategory: loadCategory,
       },
     };
 
@@ -6921,6 +7161,10 @@
       loadedAt: 0,
       categories: [],
       articles: [],
+      // Every published article (the first page lists 50) and a category's
+      // own list once read (createKbUI loadCategory).
+      total: 0,
+      catArticles: {},
       searchResults: [],
     });
     // notifyStore — Phase 4
@@ -6965,7 +7209,7 @@
     // earlier) can call transport.reconnect() when the tab returns from
     // background. ctx is captured by closure inside the wake handler.
     ctx.transport = transport;
-    var identity = createIdentity(ctx, identityStore);
+    var identity = createIdentity(ctx, identityStore, t);
     // Phase 6b — lightbox lives in the panel's Shadow DOM. We expose a
     // function to chatUI so renderChat can open it without reaching into shell.
     var lightboxOpener = function (id) { /* set after panel mount */ };
@@ -7002,6 +7246,7 @@
       ctx: ctx,
       t: t,
       kbStore: kbStore,
+      helpShown: function () { return shellStore.get().activeTab === 'help'; },
       onSwitchToChat: function () {
         if (!chatEnabled) return;
         shellStore.set({ activeTab: 'chat' });

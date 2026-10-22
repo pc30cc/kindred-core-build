@@ -150,6 +150,9 @@ import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { workspaceChatTemplate } from '../services/widget/configSnapshot.js';
 import { widgetPlanDenied, WIDGET_PLAN_CHAT } from '../services/widget/planGate.js';
 import { smartRuleOpening } from '../services/widget/smartOpening.js';
+import { trackedPage, trackedReferrer, trackingAllowed, trackingPrivacyOf } from '../services/widget/trackingPrivacy.js';
+import { readPrechatRow, recordPrivacyConsent } from '../services/widget/prechatEffective.js';
+import { prechatPrivacyOf } from '../../shared/prechatPolicy.js';
 import {
   csatEnabledFor,
   csatState,
@@ -777,7 +780,8 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
       masterEnabled: true,
       mode: 'production',
       page: { url: journey.current.path, path: journey.current.path, hostname: '', title: journey.current.title },
-      referrer: d.referrer || undefined,
+      // Never its query string (P-01).
+      referrer: trackedReferrer(d.referrer) || undefined,
       utm: d.utm || undefined,
       device: d.device,
       locale: d.locale,
@@ -1856,7 +1860,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         try {
           const u = new URL(raw);
           u.hash = '';
-          for (const k of ['token','access_token','refresh_token','code','password','session','auth','key','secret','api_key','sig','signature']) {
+          // Credentials, and the contact details a link may carry (P-01).
+          for (const k of ['token','access_token','refresh_token','id_token','code','otp','password','session','auth','key','secret','api_key','sig','signature','email','phone','mobile']) {
             u.searchParams.delete(k);
           }
           const s = u.toString();
@@ -2637,7 +2642,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
     page_url,
     current_page,
     page_title,
-    referrer,
+    referrer: rawReferrer,
     browser,
     device,
     os,
@@ -2651,7 +2656,6 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
   try {
     const normalizedEvent = event_type || event;
-    const normalizedPageUrl = page_url || current_page || null;
     let activeSessionId: string | null = session_id || null;
 
     if (normalizedEvent === 'page_view' || normalizedEvent === 'heartbeat') {
@@ -2673,15 +2677,28 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       // lookup and identityMerge's location enrichment had nothing to read.
       // Read from the database on every request (not the config snapshot),
       // so the toggle holds from the very next request, on every node.
-      const storeRawIpRead = (async () => {
+      // The same read brings the workspace's tracking privacy (P-01,
+      // services/widget/trackingPrivacy.ts; a database before migration 281
+      // has no such columns: read again without them, the defaults apply).
+      const settingsRead = (async () => {
         try {
-          const { data: ws } = await supabase
+          let { data: ws, error } = await supabase
             .from('widget_settings')
-            .select('store_raw_ip')
+            .select('store_raw_ip, tracking_requires_consent, tracking_keep_query')
             .eq('workspace_id', workspaceId)
             .maybeSingle();
-          return ws?.store_raw_ip === true;
-        } catch { return false; /* default to not storing on lookup failure */ }
+          if (error) ({ data: ws, error } = await supabase.from('widget_settings').select('store_raw_ip').eq('workspace_id', workspaceId).maybeSingle());
+          // Unreadable settings: the cautious side (no raw IP, consent asked).
+          if (error) return { storeRawIp: false, privacy: { requiresConsent: true, keepQuery: false } };
+          const row = (ws ?? {}) as { store_raw_ip?: unknown; tracking_requires_consent?: unknown; tracking_keep_query?: unknown };
+          return {
+            storeRawIp: row.store_raw_ip === true,
+            privacy: { requiresConsent: row.tracking_requires_consent === true, keepQuery: row.tracking_keep_query === true },
+          };
+        } catch {
+          // Default to not storing the raw IP, and to asking for consent, on lookup failure.
+          return { storeRawIp: false, privacy: { requiresConsent: true, keepQuery: false } };
+        }
       })();
 
       // Check for existing recent session
@@ -2697,7 +2714,14 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
-      const [storeRawIp, { data: existing }] = await Promise.all([storeRawIpRead, sessionRead]);
+      const [{ storeRawIp, privacy }, { data: existing }] = await Promise.all([settingsRead, sessionRead]);
+      // P-01: nothing at all while consent is asked for (the workspace's
+      // setting, or the browser's Global Privacy Control) and was not given;
+      // the path, its query string only when the workspace keeps it, and the
+      // referrer without its own.
+      if (!trackingAllowed(req, privacy, req.body?.consent)) return res.json({ ok: true, tracked: false });
+      const normalizedPageUrl = trackedPage(page_url || current_page, privacy.keepQuery);
+      const referrer = trackedReferrer(rawReferrer);
       const ipRawForStorage = storeRawIp ? clientIp : null;
 
       let previousIpHash: string | null = null;
@@ -2918,12 +2942,18 @@ widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res
   }
 
   try {
+    // P-01: nothing while consent is asked for (the workspace, or the
+    // browser's Global Privacy Control) and was not given, as /track; the
+    // page as the workspace tracks it (no query string unless kept).
+    const privacy = await trackingPrivacyOf(config, workspaceId);
+    if (!trackingAllowed(req, privacy, req.body?.consent)) return res.json({ ok: true, tracked: false });
+    const { keepQuery } = privacy;
     const result = await trackEvent(config, {
       workspaceId,
       sessionId: typeof session_id === 'string' ? session_id : null,
       eventName: event_name,
       properties,
-      pageUrl: typeof page_url === 'string' ? page_url : null,
+      pageUrl: trackedPage(page_url, keepQuery),
     });
     res.json(result);
   } catch (err) {
@@ -2983,6 +3013,8 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       }
 
       if (session_id) {
+        // The page as the workspace tracks it (P-01: no query string unless kept).
+        const page = trackedPage(current_page, (await trackingPrivacyOf(config, workspaceId)).keepQuery);
         // Liveness is coalesced server-side: the RPC only writes when the
         // visitor navigated or the row aged past the refresh interval, so a
         // 60 s heartbeat no longer costs a write per tick. Page-view history
@@ -2995,7 +3027,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           workspaceId,
           sessionId: session_id,
           visitorId: visitor_id || null,
-          currentPage: current_page || null,
+          currentPage: page,
           minIntervalMs: realtimePresence ? VISITOR_LIVENESS_NAVIGATION_ONLY_MS : undefined,
         });
         recordVisitorLivenessWrite(
@@ -3012,11 +3044,11 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           return res.json({ ok: true, matched: false });
         }
 
-        if (touch.pageChanged && current_page) {
+        if (touch.pageChanged && page) {
           await recordVisitorPageView(config, supabase, {
             workspaceId,
             sessionId: session_id,
-            url: current_page,
+            url: page,
             title: page_title,
             context: 'widget-action',
           });
@@ -3905,6 +3937,14 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
 
   const supabase = getServiceClient(config);
 
+  // The leave-a-message form's consent box, when the workspace's privacy
+  // line asks for it (P-01; the away thread's typed message is a chat
+  // message, as POST /message).
+  const formPrivacy = away ? null : prechatPrivacyOf(await readPrechatRow(supabase, workspace_id));
+  if (formPrivacy?.consent && (req.body as Record<string, unknown>)?.privacy_consent !== true) {
+    return res.status(400).json({ error: 'privacy_consent_required', field: 'privacy' });
+  }
+
   // A retry of an away message that was captured: the same answer, nothing new.
   if (threadKey && clientMessageId) {
     const prior = await priorOfflineCapture(supabase, workspace_id, threadKey, clientMessageId, readVisitorCookie(req, workspace_id)?.v || null);
@@ -4017,6 +4057,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       contactId = createErr ? null : created?.id || null;
     }
   }
+  if (formPrivacy?.consent) void recordPrivacyConsent(supabase, workspace_id, contactId, 'offline_form', formPrivacy.url);
 
   // Create conversation tagged 'offline'.
   // Phase 5 — offline capture is always a new conversation row, so

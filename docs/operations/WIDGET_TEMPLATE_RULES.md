@@ -356,6 +356,22 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
     (iOS zooms the page into a smaller field);
   - a list row's `status` is the server's; `closed` reads as over, like
     `resolved` (never "open", no live dot).
+- What else every chat template gets from Core (2026-10, round C4):
+  - the workspace's privacy line in every visitor form (pre-chat, its
+    one-step-at-a-time form, leave-a-message): Core puts
+    `.prechat-privacy[data-prechat-privacy]` after the form's
+    `.prechat-fields` (or before the leave-a-message button's row): a
+    `.prechat-privacy__text` paragraph with the owner's text (or
+    `prechatPrivacy`) and the policy link, and, when the workspace asks for
+    consent, a `.prechat-privacy__consent` label with its checkbox
+    (`[data-prechat-consent]`) and the refusal line (`[data-err="privacy"]`).
+    Every template's stylesheet styles it; a template that draws its own
+    `[data-prechat-privacy]` keeps it;
+  - the help center lists past its first 50 articles: the plain list (a
+    template without categories, or a help center without them) reads the
+    next page when its scroller nears the end, and the place in the list
+    stays across the repaint; a category (`kbCategories`) shows the server's
+    count and its own articles (`kbStore.catArticles`), read when opened.
 - Call widget: the presentation (the core and the panel module) never calls
   the network or storage; the runtime never touches the DOM
   (`src/test/callWidgetPresentationContract.test.ts`).

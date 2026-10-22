@@ -33,6 +33,9 @@ import { prechatPolicyInputs } from '../services/widget/prechatEffective.js';
 import {
   PRECHAT_FIELDS,
   defaultPrechatRow,
+  PRIVACY_NOTICE_MAX,
+  PRIVACY_URL_MAX,
+  privacyPolicyUrl,
   isPrechatFieldLocked,
   normalizePreChatPolicy,
   normalizePrechatTiming,
@@ -90,13 +93,27 @@ widgetSettingsRouter.get('/:workspaceId', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('widget_settings')
-    .select('*')
-    .eq('workspace_id', req.params.workspaceId)
-    .single();
+  const [{ data, error }, retention] = await Promise.all([
+    sb
+      .from('widget_settings')
+      .select('*')
+      .eq('workspace_id', req.params.workspaceId)
+      .single(),
+    // The platform's period for visitor tracking data (migration 281), which
+    // a workspace's visitor_data_retention_days replaces: what Settings →
+    // Privacy requests offers as "the default". Null when unreadable.
+    sb
+      .from('data_retention_policies')
+      .select('hot_retention_days, enabled')
+      .eq('policy_key', 'visitor_page_views')
+      .maybeSingle(),
+  ]);
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ settings: await withDerivedFabImageUrl(config, req.params.workspaceId, data) });
+  const policy = retention.error ? null : (retention.data as { hot_retention_days?: number | null; enabled?: boolean } | null);
+  return res.json({
+    settings: await withDerivedFabImageUrl(config, req.params.workspaceId, data),
+    visitor_retention: policy ? { default_days: policy.hot_retention_days ?? null, enabled: policy.enabled === true } : null,
+  });
 });
 
 // ── chat widget templates (per workspace) ─────────────────────────
@@ -249,6 +266,13 @@ const widgetSettingsPatchSchema = z.object({
   live_chat_enabled: z.boolean().optional(),
   smart_engagement_enabled: z.boolean().optional(),
   store_raw_ip: z.boolean().optional(),
+  // Visitor privacy (P-01, migration 281; Settings → Privacy requests):
+  // wait for the visitor's consent before tracking, keep tracked pages'
+  // query strings, and how long visitor tracking data is kept (null: the
+  // platform's default, data_retention_policies).
+  tracking_requires_consent: z.boolean().optional(),
+  tracking_keep_query: z.boolean().optional(),
+  visitor_data_retention_days: z.number().int().min(30).max(1095).nullable().optional(),
   // Domains
   allowed_domains: z.array(z.string().max(255)).max(1000).optional(),
   allow_subdomains: z.boolean().optional(),
@@ -606,7 +630,16 @@ const widgetPrechatPatchSchema = z.object({
   verify_phone: z.boolean().optional(),
   prechat_timing: z.enum(['always', 'after_handoff', 'never']).optional(),
   history_continue_window_hours: z.number().int().min(0).max(8760).optional(),
+  // The privacy line of the visitor's forms (P-01, migration 281). Not plan
+  // gated: a form that collects details may always say how they are used.
+  privacy_notice_enabled: z.boolean().optional(),
+  privacy_notice_text: z.string().max(PRIVACY_NOTICE_MAX).nullable().optional(),
+  privacy_policy_url: z.string().trim().max(PRIVACY_URL_MAX).nullable().optional()
+    .refine((v) => v == null || v === '' || privacyPolicyUrl(v) !== null, { message: 'https_url_required' }),
+  privacy_consent_required: z.boolean().optional(),
 }).strict();
+
+const PRECHAT_PRIVACY_KEYS = ['privacy_notice_enabled', 'privacy_notice_text', 'privacy_policy_url', 'privacy_consent_required'] as const;
 
 widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   const config = serverConfigOf(req);
@@ -621,9 +654,11 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
 
-  // Plan enforcement — the pre-chat form is a plan-gated tab.
+  // Plan enforcement — the pre-chat form is a plan-gated tab (its privacy
+  // line is not: a change of that alone is always taken).
+  const formKeys = Object.keys(parsed.data).filter((k) => !(PRECHAT_PRIVACY_KEYS as readonly string[]).includes(k));
   const prechatEnt = await resolveWidgetEntitlements(config, workspaceId);
-  if (prechatEnt.features.widget_prechat_form === false) {
+  if (formKeys.length && prechatEnt.features.widget_prechat_form === false) {
     return res.status(403).json({ error: 'plan_upgrade_required', denied: ['widget_prechat_form'] });
   }
 
@@ -660,6 +695,14 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   if (parsed.data.history_continue_window_hours !== undefined) {
     row.history_continue_window_hours = parsed.data.history_continue_window_hours;
   }
+  // The privacy line, only as sent (a database before migration 281 has no
+  // such columns, and a save that does not touch them still works there).
+  if (parsed.data.privacy_notice_enabled !== undefined) row.privacy_notice_enabled = parsed.data.privacy_notice_enabled;
+  if (parsed.data.privacy_consent_required !== undefined) row.privacy_consent_required = parsed.data.privacy_consent_required;
+  if (parsed.data.privacy_notice_text !== undefined) {
+    row.privacy_notice_text = (parsed.data.privacy_notice_text ?? '').replace(/\s+/g, ' ').trim() || null;
+  }
+  if (parsed.data.privacy_policy_url !== undefined) row.privacy_policy_url = privacyPolicyUrl(parsed.data.privacy_policy_url);
   // workspace_id comes from the URL param (the authorized workspace), never
   // from the request body — parsed.data cannot carry it (the schema above
   // has no such field, and .strict() would reject it if the client tried).

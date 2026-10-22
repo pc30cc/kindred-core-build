@@ -847,6 +847,15 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .fcard .prechat-control { border-radius: 12px; }
 .err { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--bad); }
 .err:empty { display: none; }
+/* The workspace's privacy line above a visitor form's button, made by Core
+   (runtime.js identity.privacyInto, WIDGET_TEMPLATE_RULES.md §4). */
+.prechat-privacy { margin: 10px 0 4px; font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+.steps .prechat-privacy { margin: 0; padding: 0 8px 6px; }
+.prechat-privacy__text { margin: 0; }
+.prechat-privacy a { color: var(--a-tx); text-decoration: underline; text-underline-offset: 2px; }
+.prechat-privacy__consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; color: var(--ink-2); cursor: pointer; }
+.prechat-privacy__consent input { flex: none; inline-size: 16px; block-size: 16px; margin: 2px 0 0; accent-color: var(--a); }
+.prechat-privacy .err { margin-top: 4px; }
 .err::before {
   content: '!'; display: grid; place-items: center; flex: none; width: 13px; height: 13px; border: 2px solid; border-radius: 50%;
   font-size: 9px; font-weight: 700; line-height: 1;

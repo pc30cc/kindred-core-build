@@ -726,7 +726,8 @@
         resp = resp || {};
         var f = resp.field || st.keys.filter(function (k) { return resp.details && resp.details[k]; })[0];
         var at = f ? st.keys.indexOf(f) : -1;
-        if (at < 0) st.error = true;
+        // The consent box (Core says it under the box): nothing else to say.
+        if (at < 0) st.error = f !== 'privacy';
         else {
           st.i = at;
           delete st.answers[f];
@@ -794,6 +795,8 @@
       if (!vm) return;
       inputBar.insertAdjacentHTML('beforebegin', P.prechatStepBoxHtml(vm));
       box = inputBar.previousElementSibling;
+      // The workspace's privacy line (and consent box), under the step.
+      if (box && identity.privacyInto) identity.privacyInto(box, null);
       var input = box && box.querySelector('[data-prechat-step-input]');
       if (input && (had || st.focus)) {
         focusOn(input);

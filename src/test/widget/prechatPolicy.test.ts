@@ -207,3 +207,38 @@ describe('the identity routes serve and enforce the same form', () => {
     expect(state.merges).toEqual([]);
   });
 });
+
+describe('P-01: the forms\' privacy line', () => {
+  it('is served while the workspace shows it, whatever the plan; absent otherwise', async () => {
+    row({});
+    expect(await me()).not.toHaveProperty('privacy');
+    row({ privacy_notice_enabled: false, privacy_notice_text: 'x', privacy_consent_required: true });
+    expect(await me()).not.toHaveProperty('privacy');
+    row({ privacy_notice_enabled: true, privacy_notice_text: '  We use   it to reply. ', privacy_policy_url: 'https://shop.example/p', privacy_consent_required: false });
+    expect((await me()).privacy).toEqual({ text: 'We use it to reply.', url: 'https://shop.example/p', consent: false });
+    state.entitlements = PLAN_DENIES;
+    expect((await me()).privacy).toEqual({ text: 'We use it to reply.', url: 'https://shop.example/p', consent: false });
+    // A stored link that is not https is never served.
+    row({ privacy_notice_enabled: true, privacy_policy_url: 'http://shop.example/p' });
+    expect((await me()).privacy).toEqual({ text: null, url: null, consent: false });
+  });
+
+  it('with the consent box: the form is refused without it (named "privacy"), taken with it, and the consent kept on the contact', async () => {
+    row({ privacy_notice_enabled: true, privacy_policy_url: 'https://shop.example/p', privacy_consent_required: true });
+    state.db.tables.contacts = [{ id: 'contact-1', workspace_id: WS, metadata: { source: 'widget' } }];
+    expect(await submit({ name: 'علی', email: 'ali@example.com' })).toMatchObject({ status: 400, body: { error: 'privacy_consent_required', field: 'privacy' } });
+    expect(await submit({ name: 'علی', email: 'ali@example.com', privacy_consent: false })).toMatchObject({ status: 400 });
+    expect(state.merges).toEqual([]);
+    expect((await submit({ name: 'علی', email: 'ali@example.com', privacy_consent: true })).status).toBe(200);
+    expect(state.merges).toHaveLength(1);
+    await new Promise((r) => setTimeout(r, 20));
+    const contact = (state.db.tables.contacts as Row[]).find((c) => c.id === 'contact-1')!;
+    expect(contact.metadata).toMatchObject({ source: 'widget', privacy_consent: { source: 'prechat', policy_url: 'https://shop.example/p' } });
+    expect(typeof (contact.metadata as Body).privacy_consent.at).toBe('string');
+  });
+
+  it('without the box nothing is asked of the visitor', async () => {
+    row({ privacy_notice_enabled: true, privacy_consent_required: false });
+    expect((await submit({ name: 'علی', email: 'ali@example.com' })).status).toBe(200);
+  });
+});

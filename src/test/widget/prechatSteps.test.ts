@@ -139,6 +139,31 @@ describe('a first chat asks one question at a time', () => {
     expect(h.calls.some((c) => c.surface === 'prechatSummaryHtml')).toBe(true);
   });
 
+  it('P-01: the workspace\'s privacy line under the step; with its box, nothing sent until it is ticked', async () => {
+    const h = start({ identity: ASK({ ask_phone: false, privacy: { text: null, url: 'https://shop.test/privacy', consent: true } }) });
+    await toChat(h);
+    const line = () => h.q('[data-composer-zone] [data-prechat-step] [data-prechat-privacy]');
+    expect(line()).not.toBeNull();
+    expect(line()!.querySelector('a')!.getAttribute('href')).toBe('https://shop.test/privacy');
+    await answer(h, 'علی رضایی');
+    expect(line()).not.toBeNull();
+    await answer(h, 'ali@example.com');
+    await flush(20);
+    // The last answer, the box not ticked: nothing sent, said under the box, the step stays.
+    expect(prechatPosts(h)).toEqual([]);
+    expect(box(h)!.getAttribute('data-prechat-step')).toBe('email');
+    expect(line()!.querySelector('[data-err="privacy"]')!.textContent).toBe('برای ادامه، لطفاً گزینهٔ موافقت را علامت بزنید.');
+    const tick = line()!.querySelector<HTMLInputElement>('[data-prechat-consent]')!;
+    tick.checked = true;
+    tick.dispatchEvent(new Event('change'));
+    await answer(h, 'ali@example.com');
+    await flush(20);
+    expect(prechatPosts(h).map((p) => p.body)).toEqual([
+      { workspace_id: 'ws-test', name: 'علی رضایی', email: 'ali@example.com', phone: null, privacy_consent: true },
+    ]);
+    expect(box(h)).toBeNull();
+  });
+
   it('an optional step is skipped (no bubble, no value); a required one offers no skip', async () => {
     const h = start();
     await toChat(h);

@@ -660,6 +660,10 @@
       kb.article = null;
       kb.view = 'category';
       kb.paint();
+      // Its own articles, when it holds more than the first page brought.
+      if (kb.loadCategory) kb.loadCategory(cat.id, function (got) {
+        if (got && kb.view === 'category' && currentCategory && currentCategory.id === cat.id) kb.paint();
+      });
     }
     // One step back inside the help view: an article returns to the list it
     // was opened from (a category, search results or the list), a category
@@ -1121,7 +1125,8 @@
         var s = kbStore.get();
         var withCategories = feat('kbCategories');
         var allArticles = s.articles || [];
-        // Articles per category, counted from the list the widget already has.
+        // Articles per category: the server's count of all of them
+        // (`article_count`), else counted from the list the widget has.
         var countByCat = {};
         if (withCategories) {
           allArticles.forEach(function (a) {
@@ -1131,12 +1136,13 @@
             var row = vm.categories[i];
             row.id = c.id;
             row.icon = c.icon || null;
-            row.count = countByCat[c.id] || 0;
+            row.count = countByCat[c.id] = c.article_count != null ? +c.article_count || 0 : countByCat[c.id] || 0;
           });
         }
         var inCategory = withCategories && kb.view === 'category' && currentCategory;
         if (inCategory) {
-          vm.articles = allArticles.filter(function (a) { return a.category_id === currentCategory.id; })
+          // The category's own list once read (Core's loadCategory).
+          vm.articles = ((s.catArticles || {})[currentCategory.id] || allArticles.filter(function (a) { return a.category_id === currentCategory.id; }))
             .map(function (a) { return { slug: a.slug, title: a.title, excerpt: a.excerpt }; });
           vm.category = Object.assign({ count: countByCat[currentCategory.id] || 0 }, currentCategory);
         }

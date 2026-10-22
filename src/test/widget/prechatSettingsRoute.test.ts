@@ -133,6 +133,44 @@ describe('PUT /api/widget-settings/:workspaceId/prechat', () => {
   });
 });
 
+describe('PUT …/prechat: the forms\' privacy line (P-01)', () => {
+  it('is stored as sent: the text tidied, an https link, the consent box', async () => {
+    state.prechat = { workspace_id: WS, ask_name: true, require_name: false, ask_email: true, require_email: true, ask_phone: false, require_phone: false };
+    const res = await put({
+      privacy_notice_enabled: true, privacy_notice_text: '  We use your   details\nonly to reply. ',
+      privacy_policy_url: ' https://shop.example/privacy ', privacy_consent_required: true,
+    });
+    expect(res.status).toBe(200);
+    expect(state.prechat).toMatchObject({
+      privacy_notice_enabled: true, privacy_notice_text: 'We use your details only to reply.',
+      privacy_policy_url: 'https://shop.example/privacy', privacy_consent_required: true,
+      // The form itself is unchanged.
+      ask_name: true, ask_email: true, require_email: true,
+    });
+    await put({ privacy_notice_text: '   ', privacy_policy_url: '' });
+    expect(state.prechat).toMatchObject({ privacy_notice_text: null, privacy_policy_url: null });
+  });
+
+  it('a link that is not https is refused (400), nothing stored', async () => {
+    for (const url of ['http://shop.example/privacy', 'javascript:alert(1)', 'shop.example/privacy']) {
+      expect((await put({ privacy_policy_url: url })).status, url).toBe(400);
+    }
+    expect(state.upserts).toEqual([]);
+  });
+
+  it('a save that does not touch it leaves it out (a database before 281 has no such columns)', async () => {
+    await put({ ask_name: false });
+    expect(Object.keys(state.upserts[0]).filter((k) => k.startsWith('privacy_'))).toEqual([]);
+  });
+
+  it('is not plan gated: a plan without the pre-chat form still saves the line, never the form', async () => {
+    state.planAllowsForm = false;
+    expect((await put({ privacy_notice_enabled: true, privacy_consent_required: true })).status).toBe(200);
+    expect(state.prechat).toMatchObject({ privacy_notice_enabled: true, privacy_consent_required: true });
+    expect(await put({ privacy_notice_enabled: true, ask_name: false })).toMatchObject({ status: 403, body: { error: 'plan_upgrade_required' } });
+  });
+});
+
 describe('GET /api/widget-settings/platform/public', () => {
   it('carries the three pre-chat policies', async () => {
     const res = await request('GET', '/api/widget-settings/platform/public');

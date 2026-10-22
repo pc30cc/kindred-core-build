@@ -103,6 +103,7 @@ import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startDispatchLogJanitor } from './services/push/logRetention.js';
 import { startRecordingRetentionJanitor } from './services/recordings/retentionJanitor.js';
+import { startVisitorDataRetention } from './services/privacy/visitorRetention.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startInvitationWorker } from './services/invitations/worker.js';
 import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
@@ -733,6 +734,9 @@ const httpServer = app.listen(config.port, () => {
   // retention. See server/services/recordings/retentionJanitor.ts and
   // docs/CALL_RECORDING_RETENTION.md.
   startRecordingRetentionJanitor(config);
+  // Visitor tracking data retention (migration 281): 13 months, or the
+  // workspace's own period. See server/services/privacy/visitorRetention.ts.
+  startVisitorDataRetention(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
   // Invitation outbox. Self-hosted single-container deployments have no

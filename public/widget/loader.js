@@ -841,6 +841,40 @@
   // start in case bootstrap() is somehow re-entered (defense in depth — the
   // singleton flag at the top of the IIFE already prevents this in practice).
   var trackingStarted = false;
+  // Consent (P-01): tracking (page views, presence, Smart Engagement and its
+  // storage, the AI's page journey) waits for `__gs.push(['consent', true])`
+  // while the workspace asks for it (config.privacy.consent) or the browser
+  // sends Global Privacy Control; `consent` false holds or stops it. Never
+  // stored: the page says it on each load (docs/WIDGET_PUBLIC_API.md).
+  var consent = null;
+  function tracks() {
+    return consent != null ? consent : !(navigator.globalPrivacyControl || (configData.privacy || {}).consent);
+  }
+  function setConsent(v) {
+    consent = v === true || v === "granted";
+    // Taken back: the visitor leaves the live visitors list too.
+    if (!consent) try { window.__gs_visitor_presence.stop(); } catch (_) {}
+    if (configData) beginTracking();
+  }
+  function beginTracking() {
+    var config = configData;
+    if (!tracks()) return;
+    if (config.features && config.features.visitorTracking) {
+      scheduleDeferred(function () {
+        if (trackingStarted || !tracks()) return;
+        trackingStarted = true;
+        startTracking(config._apiBase, WORKSPACE_ID, config._sessionToken);
+      });
+    }
+    // Smart Engagement — proactive rules. Runs entirely in the loader so
+    // a nudge can appear before the heavy runtime bundle is fetched.
+    try {
+      if (config.smart && config.smart.enabled &&
+          config.smart.rules && config.smart.rules.length) {
+        startSmart(config);
+      }
+    } catch (e) { warn("smart init failed", e); }
+  }
   // Smart Engagement — bootstrap-derived facts the evaluator needs.
   var visitorIsNew = null;
   var availabilityOnline = true;
@@ -1653,23 +1687,6 @@
         // idle, so a reply reaches this page too (badge, preview, title).
         if (/(^|;\s*)gs_active=1/.test(document.cookie)) scheduleDeferred(preloadRuntimeForSmart);
 
-        if (config.features && config.features.visitorTracking) {
-          scheduleDeferred(function () {
-            if (trackingStarted) return;
-            trackingStarted = true;
-            startTracking(apiBase, WORKSPACE_ID, sessionToken);
-          });
-        }
-
-        // Smart Engagement — proactive rules. Runs entirely in the loader so
-        // a nudge can appear before the heavy runtime bundle is fetched.
-        try {
-          if (config.smart && config.smart.enabled &&
-              config.smart.rules && config.smart.rules.length) {
-            startSmart(config);
-          }
-        } catch (e) { warn("smart init failed", e); }
-
         // Public API placeholder until runtime mounts
         widgetApi = {
           open: function () { triggerOpen(); },
@@ -1683,6 +1700,7 @@
           isOpen: function (cb) { callWithPublicState(cb); },
           getState: function (cb) { callWithPublicState(cb); },
           identify: function (data) { setIdentifyData(data); },
+          consent: setConsent,
           onReady: onPublicEvent("ready"),
           onOpen: onPublicEvent("open"),
           onClose: onPublicEvent("close"),
@@ -1692,7 +1710,9 @@
         ready = true;
         readyFired = true;
         emitPublicEvent("ready");
+        // A `consent` the page queued is applied before anything is tracked.
         processQueue();
+        beginTracking();
       })
       .catch(function (err) {
         var msg = (err && err.message) || "unknown";
@@ -2213,6 +2233,7 @@
             isOpen: function (cb) { callWithPublicState(cb); },
             getState: function (cb) { callWithPublicState(cb); },
             identify: function (data) { setIdentifyData(data); },
+            consent: setConsent,
             onReady: onPublicEvent("ready"),
             onOpen: onPublicEvent("open"),
             onClose: onPublicEvent("close"),
@@ -2651,7 +2672,7 @@
       } catch (_) { return {}; } // corrupt JSON resets silently
     }
     function writeJson(store, key, value) {
-      try { store.setItem(key, JSON.stringify(value)); } catch (_) {}
+      if (tracks()) try { store.setItem(key, JSON.stringify(value)); } catch (_) {}
     }
     function dayKey() { return new Date().toISOString().slice(0, 10); }
     function weekKey() { return isoWeekKey(new Date()); }
@@ -2920,7 +2941,8 @@
           session_page_count: journey.sessionPageCount,
           returning: journey.returning,
           previous_nudge: journey.previousNudge,
-          referrer: document.referrer || "",
+          // Without its query string, as every tracked address (P-01).
+          referrer: (document.referrer || "").split(/[?#]/)[0],
           utm: ctx.utm,
           signals: ctx.signals,
           interaction: ctx.interaction,
@@ -3364,7 +3386,7 @@
     var ticking = null;
 
     function tick() {
-      if (!SmartEngineRef || activeSurface) return;
+      if (!SmartEngineRef || activeSurface || !tracks()) return;
       measureScroll();
       var ctx = buildContext();
       var now = new Date();
@@ -3786,10 +3808,12 @@
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
     if (!apiBase || !workspaceId) return;
-    // Use path + search so query-string-driven views (e.g. ?article=42) get
-    // their own row. Hash is excluded — most apps treat it as in-page state.
+    // The path; its query string only when the workspace keeps it
+    // (config.privacy.keepQuery: `?email=…` or `?token=…` is not tracked by
+    // default, P-01). Hash is excluded — most apps treat it as in-page state.
+    var keepQuery = (configData.privacy || {}).keepQuery;
     function currentPage() {
-      try { return window.location.pathname + (window.location.search || ''); }
+      try { return window.location.pathname + (keepQuery && window.location.search || ''); }
       catch (_) { return window.location.pathname; }
     }
     // Capture the document title for richer page-history entries. Falls back
@@ -3846,7 +3870,7 @@
       window.gsAnalytics = window.gsAnalytics || {};
       window.gsAnalytics.track = function (eventName, properties) {
         try {
-          if (!eventName || typeof eventName !== "string") return;
+          if (!eventName || typeof eventName !== "string" || !tracks()) return;
           fetch(apiBase + "/api/widget/event", {
             method: "POST",
             credentials: "include",
@@ -3857,6 +3881,7 @@
               event_name: eventName,
               properties: properties || {},
               page_url: currentPage(),
+              consent: consent,
             }),
           }).catch(function () {});
         } catch (_) {}
@@ -3870,7 +3895,9 @@
       event: "page_view",
       current_page: currentPage(),
       page_title: currentTitle(),
-      referrer: document.referrer || null,
+      referrer: document.referrer.split(/[?#]/)[0] || null,
+      // Given (the server tracks nothing without it while consent is asked).
+      consent: consent,
       browser: detectBrowser(),
       device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
       os: detectOS(),
@@ -3899,7 +3926,7 @@
         });
         try { window.__gs_visitor_presence = presence; } catch (_) {}
         function doPing(tokenToUse, isRetry, force) {
-          if (STOPPED) return;
+          if (STOPPED || !tracks()) return;
           // Liveness is suppressed only while we hold a VALID lease — an open
           // socket whose lease lapsed must resume heartbeating, otherwise the
           // visitor would silently age out of the operator's list.

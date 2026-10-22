@@ -18,6 +18,9 @@
  * A field is required only when it is asked (V-01): a hidden field can never
  * block the visitor. Migration 280 also keeps that true in the table.
  *
+ * The same row carries the privacy line of the visitor's forms (P-01,
+ * migration 281: prechatPrivacyOf), served whatever the plan.
+ *
  * Pure: no I/O.
  */
 
@@ -48,6 +51,22 @@ export interface EffectivePrechat {
   verify_email: boolean;
   verify_phone: boolean;
   timing: PrechatTiming;
+  /**
+   * The privacy line of the visitor's forms (P-01), only while the workspace
+   * shows one; whatever the plan (a form that collects details says how
+   * they are used).
+   */
+  privacy?: PrechatPrivacy;
+}
+
+/** The privacy line the widget draws above a pre-chat / leave-a-message form's button. */
+export interface PrechatPrivacy {
+  /** The owner's sentence; null = the widget's own (prechatPrivacy) in the visitor's language. */
+  text: string | null;
+  /** The privacy policy it links to (https); null = no link. */
+  url: string | null;
+  /** The visitor ticks a consent box before sending; the server refuses the form without it. */
+  consent: boolean;
 }
 
 /** The stored row's fields this module reads (widget_prechat_settings). */
@@ -61,6 +80,31 @@ export interface PrechatSettingsRow {
   verify_email?: boolean | null;
   verify_phone?: boolean | null;
   prechat_timing?: string | null;
+}
+
+/** The privacy line's columns of the same row (migration 281, P-01). */
+export interface PrechatPrivacyRow {
+  privacy_notice_enabled?: boolean | null;
+  privacy_notice_text?: string | null;
+  privacy_policy_url?: string | null;
+  privacy_consent_required?: boolean | null;
+}
+
+/** The longest privacy line and policy link the table takes (migration 281). */
+export const PRIVACY_NOTICE_MAX = 300;
+export const PRIVACY_URL_MAX = 500;
+
+/** An https link the widget may draw, or null. */
+export function privacyPolicyUrl(value: unknown): string | null {
+  const url = typeof value === 'string' ? value.trim() : '';
+  return url.length <= PRIVACY_URL_MAX && /^https:\/\/\S+$/i.test(url) ? url : null;
+}
+
+/** The workspace's privacy line (`privacy_notice_enabled`), or null. */
+export function prechatPrivacyOf(row: PrechatPrivacyRow | null | undefined): PrechatPrivacy | null {
+  if (!row || row.privacy_notice_enabled !== true) return null;
+  const text = typeof row.privacy_notice_text === 'string' ? row.privacy_notice_text.replace(/\s+/g, ' ').trim().slice(0, PRIVACY_NOTICE_MAX) : '';
+  return { text: text || null, url: privacyPolicyUrl(row.privacy_policy_url), consent: row.privacy_consent_required === true };
 }
 
 /** Never trust a stored/legacy value: fall back to the historical behaviour. */
@@ -120,13 +164,19 @@ export function requireOnlyAsked<T extends PrechatSettingsRow>(row: T): T {
   return out;
 }
 
+/** `{ privacy }` while the row shows a privacy line, else nothing (the payload is unchanged). */
+function withPrivacy(row: PrechatPrivacyRow | null | undefined): { privacy?: PrechatPrivacy } {
+  const privacy = prechatPrivacyOf(row);
+  return privacy ? { privacy } : {};
+}
+
 /**
  * The form the visitor gets: the workspace's row (or the policy's defaults
  * without one) when the plan allows a pre-chat form, clamped by the policy,
- * a field required only when asked.
+ * a field required only when asked; its privacy line whatever the plan.
  */
 export function effectivePrechat(
-  row: PrechatSettingsRow | null | undefined,
+  row: (PrechatSettingsRow & PrechatPrivacyRow) | null | undefined,
   policyValue: unknown,
   opts: { planAllowsForm?: boolean } = {},
 ): EffectivePrechat {
@@ -165,5 +215,6 @@ export function effectivePrechat(
     verify_email: ask.email && !!base?.verify_email,
     verify_phone: ask.phone && !!base?.verify_phone,
     timing,
+    ...withPrivacy(row),
   };
 }

@@ -1754,8 +1754,14 @@ a.wy-powered:hover { color: var(--wy-text); }
 .prechat-textarea { height: auto; padding: 10px 12px; resize: vertical; }
 .prechat-error { font-size: 11.5px; color: #e5484d; min-height: 0; }
 .prechat-error:empty { display: none; }
-.prechat-privacy { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11.5px; color: var(--wy-faint); }
-.prechat-privacy-icon svg { width: 13px; height: 13px; }
+/* The workspace's privacy line above a visitor form's button, made by Core
+   (runtime.js identity.privacyInto, WIDGET_TEMPLATE_RULES.md §4). */
+.prechat-privacy { margin: 10px 0 4px; font-size: 12px; line-height: 1.55; color: var(--wy-muted); }
+.prechat-privacy__text { margin: 0; }
+.prechat-privacy a { color: var(--wy-accent); text-decoration: underline; text-underline-offset: 2px; }
+.prechat-privacy__consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; color: var(--wy-text); cursor: pointer; }
+.prechat-privacy__consent input { flex: none; inline-size: 16px; block-size: 16px; margin: 2px 0 0; accent-color: var(--wy-accent); }
+.prechat-privacy .prechat-error { margin-top: 4px; }
 .fallback-status { margin-top: 10px; font-size: 12.5px; color: var(--wy-muted); }
 .wy-view-fallback .wy-scroll { padding: 16px 10px; }
 .wy-view-fallback .prechat-submit { margin-top: 16px; }

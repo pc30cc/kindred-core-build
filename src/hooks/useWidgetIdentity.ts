@@ -24,6 +24,11 @@ export interface WidgetPrechatSettings {
   verify_phone: boolean;
   prechat_timing: PrechatTiming;
   history_continue_window_hours: number;
+  // The privacy line of the visitor's forms (migration 281); absent before it.
+  privacy_notice_enabled?: boolean;
+  privacy_notice_text?: string | null;
+  privacy_policy_url?: string | null;
+  privacy_consent_required?: boolean;
 }
 
 

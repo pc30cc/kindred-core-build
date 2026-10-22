@@ -1048,6 +1048,13 @@ a.wy-powered:hover { color: var(--ink-2); }
 .prechat-status { display: none; }
 .prechat-error { margin: 4px 4px 0; font-size: 12px; color: var(--bad); }
 .prechat-error:empty { display: none; }
+/* The workspace's privacy line above a visitor form's button, made by Core
+   (runtime.js identity.privacyInto, WIDGET_TEMPLATE_RULES.md §4). */
+.prechat-privacy { margin: 10px 4px 4px; font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+.prechat-privacy__text { margin: 0; }
+.prechat-privacy a { color: var(--a-ink); text-decoration: underline; text-underline-offset: 2px; }
+.prechat-privacy__consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; color: var(--ink-2); cursor: pointer; }
+.prechat-privacy__consent input { flex: none; inline-size: 16px; block-size: 16px; margin: 2px 0 0; accent-color: var(--a); }
 .hc-submit { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 11px; background: var(--a); color: var(--on-a); }
 .skip { display: block; margin: 10px 4px 0; padding: 0; font-size: 12.5px; font-weight: 600; color: var(--ink-3); text-align: start; }
 .skip:hover { color: var(--ink-2); }

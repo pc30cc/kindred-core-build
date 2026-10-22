@@ -60,7 +60,7 @@ import { getClientCountry } from '../utils/clientIp.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../services/storage/urlResolver.js';
 import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
-import { loadEffectivePrechat } from '../services/widget/prechatEffective.js';
+import { loadEffectivePrechat, recordPrivacyConsent } from '../services/widget/prechatEffective.js';
 import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../shared/visitorEmail.js';
 
 /**
@@ -238,6 +238,8 @@ const prechatSchema = z.object({
   name: z.string().trim().min(1).max(120).optional().nullable(),
   email: z.string().trim().email().max(254).optional().nullable(),
   phone: z.string().trim().min(4).max(30).optional().nullable(),
+  // The consent box of the form's privacy line (P-01), when it shows one.
+  privacy_consent: z.boolean().optional().nullable(),
 });
 
 widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Request, res: Response) => {
@@ -266,6 +268,10 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
   if (prechat.require_name && !parsed.data.name) return res.status(400).json({ error: 'name_required', field: 'name' });
   if (prechat.require_email && !parsed.data.email) return res.status(400).json({ error: 'email_required', field: 'email' });
   if (prechat.require_phone && !parsed.data.phone) return res.status(400).json({ error: 'phone_required', field: 'phone' });
+  // The form's consent box, when the workspace asks for it (P-01).
+  if (prechat.privacy?.consent && parsed.data.privacy_consent !== true) {
+    return res.status(400).json({ error: 'privacy_consent_required', field: 'privacy' });
+  }
 
   // Resolve / create visitor cookie
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
@@ -294,6 +300,7 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       cfCountry: getClientCountry(req),
     });
 
+    if (prechat.privacy?.consent) void recordPrivacyConsent(supabase, workspaceId, merge.contactId, 'prechat', prechat.privacy.url);
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
     void triggerDeferredRoutingForContact(config, supabase, workspaceId, merge.contactId);
     // Hand the call widget a continuity cookie for the same contact so its

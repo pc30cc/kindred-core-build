@@ -5,6 +5,7 @@
  *
  * 1. Widget JSON endpoints (mounted under /api/widget/kb):
  *    - GET  /api/widget/kb/categories?workspace_id&locale
+ *    - GET  /api/widget/kb/articles?workspace_id&category_id&offset&limit
  *    - GET  /api/widget/kb/article?workspace_id&locale&slug
  *    - GET  /api/widget/kb/search?workspace_id&locale&q&limit
  *    These reuse the existing widget CORS + rate-limit stack at the mount
@@ -36,7 +37,8 @@ import type { ServerConfig } from '../config.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
-import { resolveKbLock } from '../services/knowledge-base/locks.js';
+import { kbFoldedSearch } from '../services/knowledge-base/foldedSearch.js';
+import { resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
 import { publicArticles } from '../services/knowledge-base/publicArticles.js';
 import {
   kbSearchOrFilter,
@@ -167,6 +169,47 @@ const categoriesSchema = z.object({
   locale: z.string().min(2).max(10).optional(),
 });
 
+/** The articles of a help center listed with its categories (the rest: GET /articles, page by page). */
+const KB_FIRST_PAGE = 50;
+/** Articles counted per category (a help center is far smaller; past it, counts stop growing). */
+const KB_COUNT_CAP = 10_000;
+/** Rows a read returns at most (the data layer's max rows). */
+const KB_COUNT_PAGE = 1_000;
+const KB_LIST_COLUMNS = 'id, title, slug, excerpt, category_id, sort_order, locale';
+
+/**
+ * The category of every published article a visitor may read (pages of
+ * KB_COUNT_PAGE, at most KB_COUNT_CAP). Null when a read fails.
+ */
+async function publishedCategoryIds(config: ServerConfig, workspaceId: string, kbLock: KbLock): Promise<Array<string | null> | null> {
+  const out: Array<string | null> = [];
+  try {
+    for (let from = 0; from < KB_COUNT_CAP; from += KB_COUNT_PAGE) {
+      const { data, error } = await publicArticles(config, workspaceId, 'id, category_id', kbLock)
+        .order('id', { ascending: true })
+        .range(from, from + KB_COUNT_PAGE - 1);
+      if (error || !data) return null;
+      for (const row of data as KbArticleRow[]) out.push(row.category_id ?? null);
+      if (data.length < KB_COUNT_PAGE) break;
+    }
+  } catch {
+    return null;
+  }
+  return out;
+}
+
+/**
+ * Every listing of a help center's articles in one order (sort order, the
+ * newest first, then id), so a page read later continues the first one
+ * exactly.
+ */
+function listOrder<Q extends { order(column: string, opts: { ascending: boolean }): Q }>(query: Q): Q {
+  return query
+    .order('sort_order', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('id', { ascending: true });
+}
+
 widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   const config = configOf(req);
   const parsed = categoriesSchema.safeParse(req.query);
@@ -179,19 +222,73 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   const kbLock = await resolveKbLock(config, workspace_id);
   // Articles are NOT split by language: every published article of the
   // workspace is returned regardless of its locale.
-  const [{ data: cats }, { data: articles }] = await Promise.all([
+  const [{ data: cats }, { data: articles }, categoryIds] = await Promise.all([
     supabase
       .from('knowledge_base_categories')
       .select('id, name, slug, description, icon, sort_order')
       .eq('workspace_id', workspace_id)
       .order('sort_order', { ascending: true }),
-    publicArticles(config, workspace_id, 'id, title, slug, excerpt, category_id, sort_order, locale', kbLock)
-      .order('sort_order', { ascending: true })
-      .order('updated_at', { ascending: false })
-      .limit(50),
+    listOrder(publicArticles(config, workspace_id, KB_LIST_COLUMNS, kbLock)).limit(KB_FIRST_PAGE),
+    // What each category holds (V-29): every published article's category,
+    // not only the first page's, which left a category past it at 0 (t1
+    // hid it) or empty (t2).
+    publishedCategoryIds(config, workspace_id, kbLock),
   ]);
 
-  return res.json({ locale, categories: cats || [], articles: articles || [] });
+  const list = (articles || []) as KbArticleRow[];
+  // An unreadable count leaves the categories as they were: the widget then
+  // counts the articles it has.
+  if (!categoryIds) {
+    return res.json({ locale, categories: cats || [], articles: list, article_total: list.length });
+  }
+  const perCategory = new Map<string, number>();
+  for (const id of categoryIds) if (id) perCategory.set(id, (perCategory.get(id) ?? 0) + 1);
+  return res.json({
+    locale,
+    categories: ((cats || []) as KbCategoryRow[]).map((c) => ({ ...c, article_count: perCategory.get(String(c.id)) ?? 0 })),
+    articles: list,
+    // All of them: more than `articles` → the widget reads the next pages.
+    article_total: Math.max(categoryIds.length, list.length),
+  });
+});
+
+const articlesPageSchema = z.object({
+  workspace_id: z.string().uuid(),
+  locale: z.string().min(2).max(10).optional(),
+  category_id: z.string().uuid().optional(),
+  offset: z.coerce.number().int().min(0).max(KB_COUNT_CAP).optional().default(0),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(KB_FIRST_PAGE),
+});
+
+/**
+ * GET /api/widget/kb/articles?workspace_id&category_id?&offset&limit — a
+ * page of the help center's published articles (one category's, with
+ * `category_id`), in the order of /categories, so the widget lists past its
+ * first 50 and opens a category with all of its articles (V-29).
+ * 200 { articles, next_offset } (next_offset null on the last page).
+ */
+widgetKbRouter.get('/articles', async (req: Request, res: Response) => {
+  const config = configOf(req);
+  const parsed = articlesPageSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspace_id, category_id, offset, limit } = parsed.data;
+  const kbLock = await resolveKbLock(config, workspace_id);
+  let query = publicArticles(config, workspace_id, KB_LIST_COLUMNS, kbLock);
+  if (category_id) query = query.eq('category_id', category_id);
+  // One row past the page says whether another one follows.
+  let data: unknown[] | null = null;
+  let error: { message: string } | null = null;
+  try {
+    ({ data, error } = await listOrder(query).range(offset, offset + limit));
+  } catch (err) {
+    error = { message: err instanceof Error ? err.message : String(err) };
+  }
+  if (error) {
+    console.error('[kb-articles] failed:', error.message);
+    return res.status(503).json({ error: 'unavailable' });
+  }
+  const rows = (data || []) as KbArticleRow[];
+  return res.json({ articles: rows.slice(0, limit), next_offset: rows.length > limit ? offset + limit : null });
 });
 
 
@@ -325,11 +422,17 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   if (byWord ? !words.length : !like) return res.json({ locale, q, results: [] });
 
   const kbLock = await resolveKbLock(config, workspace_id);
-  // Search spans every language of the workspace.
-  const articles = publicArticles(config, workspace_id, 'id, title, slug, excerpt, locale', kbLock);
-  const { data: rows, error } = byWord
-    ? await articles.or(kbSearchOrFilter(words)).order('updated_at', { ascending: false }).limit(kbSearchWindow(limit))
-    : await articles.or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`).limit(limit);
+  // Search spans every language of the workspace, folded on both sides
+  // («پيگيري» finds «پیگیری», «میخواهم» «می‌خواهم»: foldedSearch.ts, V-30).
+  // A database before migration 280a runs the plain ILIKE, each word also
+  // as typed.
+  const columns = 'id, title, slug, excerpt, locale';
+  const readLimit = byWord ? kbSearchWindow(limit) : limit;
+  const folded = await kbFoldedSearch(config, workspace_id, columns, kbLock, byWord ? words : [kbSearchText(q)], { content: true }, readLimit);
+  const articles = publicArticles(config, workspace_id, columns, kbLock);
+  const { data: rows, error } = folded ?? (byWord
+    ? await articles.or(kbSearchOrFilter([...new Set([...words, ...kbSearchWords(q, false)])])).order('updated_at', { ascending: false }).limit(readLimit)
+    : await articles.or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`).limit(limit));
 
   if (error) {
     console.error('[kb-search] failed:', error.message);
@@ -775,7 +878,10 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
   const like = kbSearchPhrase(q);
   if (q.length >= 2 && like) {
     const kbLock = await resolveKbLock(config, workspaceId);
-    const { data } = await publicArticles(config, workspaceId, 'id, title, slug, excerpt, locale', kbLock)
+    const columns = 'id, title, slug, excerpt, locale';
+    // Folded on both sides (V-30), as the widget searches.
+    const folded = await kbFoldedSearch<KbArticleRow>(config, workspaceId, columns, kbLock, [q], { content: true }, 20);
+    const { data } = folded ?? await publicArticles(config, workspaceId, columns, kbLock)
       .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
       .limit(20);
     results = (data as KbArticleRow[] | null) || [];

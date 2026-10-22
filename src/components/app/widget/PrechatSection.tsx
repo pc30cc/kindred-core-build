@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWidgetPrechatSettings, useUpdateWidgetPrechatSettings, type WidgetPrechatSettings, type PrechatTiming } from '@/hooks/useWidgetIdentity';
 import { useWidgetPlatformPublicSettings, type PreChatPolicy } from '@/hooks/useWidgetPlatformSettings';
@@ -5,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { User, Mail, Phone, ShieldCheck, Lock, Info, Clock, Sparkles, UserCheck, EyeOff } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { User, Mail, Phone, ShieldCheck, Lock, Info, Clock, Sparkles, UserCheck, EyeOff, FileLock2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { defaultPrechatRow } from '../../../../shared/prechatPolicy';
+import { defaultPrechatRow, privacyPolicyUrl, PRIVACY_NOTICE_MAX, PRIVACY_URL_MAX } from '../../../../shared/prechatPolicy';
 
 
 interface Props {
@@ -186,6 +188,13 @@ export function PrechatSection({ workspaceId }: Props) {
         </CardContent>
       </Card>
 
+      {/* The privacy line of the pre-chat and leave-a-message forms (P-01,
+          migration 281): shown only once the database has its columns (or
+          before the first save, when there is no row to tell). */}
+      {(!settings || 'privacy_notice_enabled' in settings) && (
+        <PrivacyNoticeCard settings={s} busy={updateMut.isPending} onChange={update} />
+      )}
+
       {/* Conversation-continuity window removed: an identified visitor with a
           valid cookie always resumes (platform-fixed 30-day history window). */}
 
@@ -197,5 +206,99 @@ export function PrechatSection({ workspaceId }: Props) {
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * The privacy line the widget draws above the pre-chat and leave-a-message
+ * forms' button in every template (runtime.js identity.privacyInto): the
+ * owner's text (or the widget's own sentence), the policy link and an
+ * optional consent box. Texts are saved when the field is left.
+ */
+function PrivacyNoticeCard({ settings, busy, onChange }: {
+  settings: WidgetPrechatSettings;
+  busy: boolean;
+  onChange: (patch: Partial<WidgetPrechatSettings>) => void;
+}) {
+  const { t } = useTranslation();
+  const enabled = settings.privacy_notice_enabled === true;
+  const [text, setText] = useState(settings.privacy_notice_text ?? '');
+  const [url, setUrl] = useState(settings.privacy_policy_url ?? '');
+  useEffect(() => { setText(settings.privacy_notice_text ?? ''); }, [settings.privacy_notice_text]);
+  useEffect(() => { setUrl(settings.privacy_policy_url ?? ''); }, [settings.privacy_policy_url]);
+  const urlInvalid = url.trim() !== '' && privacyPolicyUrl(url) === null;
+
+  return (
+    <Card className="card-elevated">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileLock2 className="h-4 w-4" /> {t('widgetPage.prechat.privacyTitle')}
+        </CardTitle>
+        <CardDescription>{t('widgetPage.prechat.privacyDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="prechat-privacy-enabled" className="text-sm font-medium">{t('widgetPage.prechat.privacyEnable')}</Label>
+          <Switch
+            id="prechat-privacy-enabled"
+            checked={enabled}
+            disabled={busy}
+            onCheckedChange={(v) => onChange({ privacy_notice_enabled: v })}
+          />
+        </div>
+        {enabled && (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="prechat-privacy-text" className="text-xs">{t('widgetPage.prechat.privacyText')}</Label>
+              <Input
+                id="prechat-privacy-text"
+                value={text}
+                maxLength={PRIVACY_NOTICE_MAX}
+                onChange={(e) => setText(e.target.value)}
+                onBlur={() => {
+                  const next = text.replace(/\s+/g, ' ').trim();
+                  if (next !== (settings.privacy_notice_text ?? '')) onChange({ privacy_notice_text: next || null });
+                }}
+              />
+              <p className="text-xs text-muted-foreground">{t('widgetPage.prechat.privacyTextHint')}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prechat-privacy-url" className="text-xs">{t('widgetPage.prechat.privacyUrl')}</Label>
+              <Input
+                id="prechat-privacy-url"
+                dir="ltr"
+                type="url"
+                inputMode="url"
+                placeholder="https://"
+                value={url}
+                maxLength={PRIVACY_URL_MAX}
+                aria-invalid={urlInvalid}
+                onChange={(e) => setUrl(e.target.value)}
+                onBlur={() => {
+                  const next = url.trim();
+                  if (urlInvalid || next === (settings.privacy_policy_url ?? '')) return;
+                  onChange({ privacy_policy_url: next || null });
+                }}
+              />
+              <p className={`text-xs ${urlInvalid ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {urlInvalid ? t('widgetPage.prechat.privacyUrlInvalid') : t('widgetPage.prechat.privacyUrlHint')}
+              </p>
+            </div>
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="prechat-privacy-consent" className="text-sm">{t('widgetPage.prechat.privacyConsent')}</Label>
+                <p className="text-xs text-muted-foreground">{t('widgetPage.prechat.privacyConsentHint')}</p>
+              </div>
+              <Switch
+                id="prechat-privacy-consent"
+                checked={settings.privacy_consent_required === true}
+                disabled={busy}
+                onCheckedChange={(v) => onChange({ privacy_consent_required: v })}
+              />
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -213,6 +213,27 @@ describe('unchanged answers', () => {
     expect(boot.body).toEqual({ disabled: true, fallback: true, protocol: 3 });
   });
 
+  it('disabled widget, no allow-list (any site): a third-party page can read the answer, so the loader removes its launcher', async () => {
+    await scenario({ edition: 'iran', ai: true, smart: true }, (t) => {
+      t.widget_settings[0].enabled = false;
+      t.widget_settings[0].allowed_domains = [];
+    });
+    for (const path of ['/api/widget/boot', '/api/widget/bootstrap']) {
+      const boot = await bootstrapTextPlain({ workspace_id: WS, include_config: true }, 'https://any-site.example', path);
+      expect(boot.body).toEqual({ disabled: true, fallback: true, protocol: 3 });
+      expect(boot.headers['access-control-allow-origin']).toBe('https://any-site.example');
+      expect(boot.headers['access-control-allow-credentials']).toBe('true');
+      expect(boot.headers['set-cookie']).toBeUndefined();
+    }
+  });
+
+  it('disabled widget: an origin outside its allow-list still gets no CORS grant', async () => {
+    await scenario({ edition: 'iran', ai: true, smart: true }, (t) => { t.widget_settings[0].enabled = false; });
+    const boot = await bootstrapTextPlain({ workspace_id: WS, include_config: true }, 'https://evil.example');
+    expect(boot.body).toEqual({ disabled: true, fallback: true, protocol: 3 });
+    expect(boot.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
   it('unknown workspace: 404 {disabled, error} as before', async () => {
     await scenario({ edition: 'iran', ai: true, smart: true });
     const boot = await bootstrapTextPlain({ workspace_id: '99999999-9999-4999-8999-999999999999', include_config: true });

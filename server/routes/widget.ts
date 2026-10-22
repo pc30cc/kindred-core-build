@@ -46,6 +46,7 @@ import {
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { kbSuggestGlobalCeiling } from '../middleware/security.js';
+import { applyWidgetCorsHeaders } from '../middleware/widgetCors.js';
 import { handleKbSuggest } from './widgetKbSuggest.js';
 import { getWidgetAssetName, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
@@ -287,6 +288,17 @@ async function handleBootstrap(req: Request, res: Response) {
     const widgetSettings = snap.widgetRow;
 
     if (widgetSettings?.enabled === false) {
+      // The page still embedding a switched-off widget must be able to read
+      // this answer: unreadable (no CORS), the loader takes it for a network
+      // error and leaves a grey launcher that says "chat unavailable" instead
+      // of removing itself. The origins its allow-list accepts may read it
+      // (with no list, any site); it carries no token, cookie or visitor
+      // data. A lookup error grants nothing.
+      const pageOrigin = req.headers.origin;
+      if (pageOrigin) {
+        const readable = await isWorkspaceOriginAllowed(config, resolvedWorkspaceId, pageOrigin).catch(() => false);
+        if (readable) applyWidgetCorsHeaders(res, pageOrigin);
+      }
       return res.json({ disabled: true, fallback: true, protocol: BOOTSTRAP_PROTOCOL });
     }
 

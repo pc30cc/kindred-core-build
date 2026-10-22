@@ -123,6 +123,12 @@ vi.mock('../../../server/services/widget/availability.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/availability.js')>()),
   resolveAvailability: async () => ({ state: 'offline', reason: 'outside_hours', next_open_at: null }),
 }));
+// The operator who claims a queued chat is here: routing says "X joined" only then.
+vi.mock('../../../server/services/widget/operatorPresence.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/widget/operatorPresence.js')>()),
+  readRoutingPresence: async (_c: unknown, _ws: string, ids: string[]) =>
+    new Map(ids.map((id) => [id, { state: 'active', lastActivityAt: Date.now() }])),
+}));
 vi.mock('../../../server/services/billing/locks/state.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/billing/locks/state.js')>()),
   locksEnabled: async () => false,
@@ -606,6 +612,9 @@ describe('the place in the queue: routing, GET /queue and the pill agree', () =>
     // stops asking.
     conv.assigned_to = MEHDI;
     conv.metadata = { ...(conv.metadata as Row), routing_notice_sent: false };
+    // A member of the team, here (routing announces only an operator who can answer).
+    state.db.tables.workspace_members = [...(state.db.tables.workspace_members || []), { workspace_id: WS, user_id: MEHDI, role: 'agent' }];
+    (await import('../../../server/services/calls/departments.js')).invalidateDepartmentCache(WS);
     expect(await routeConversationToOperator(CONFIG, { workspaceId: WS, conversationId: cid })).toMatchObject({ outcome: 'already_assigned' });
     const joined = onConversationChannel(cid, 'message')[1];
     expect(joined).toMatchObject({ metadata: { kind: 'routing_agent_joined', agent_name: 'مهدی' } });

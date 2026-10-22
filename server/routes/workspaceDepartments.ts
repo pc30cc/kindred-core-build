@@ -19,6 +19,7 @@ import {
   loadFallbackPolicy,
   saveFallbackPolicy,
 } from '../services/calls/departments.js';
+import { loadGlobalAdvancedRouting, ownerFallbackAllowedGlobal } from '../services/calls/globalAdvancedRouting.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 
@@ -270,6 +271,27 @@ workspaceDepartmentsRouter.put('/:workspaceId/fallback', async (req, res) => {
   } catch (err: unknown) {
     res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });
   }
+});
+
+// GET /api/workspace-departments/:workspaceId/routing-policy
+// The Super Admin's platform rules as they apply to this workspace's chats
+// (globalAdvancedRouting.ts), read only, so the panel says what routing
+// really does: whether a department's chats fall back to the whole team,
+// whether returning visitors may go back to their operator at all, and
+// whether the owner is the last resort. (The per-workspace /fallback record
+// above is legacy: chat routing does not read it.)
+workspaceDepartmentsRouter.get('/:workspaceId/routing-policy', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await requireWorkspaceAdmin(req, res, workspaceId);
+  if (!auth) return;
+  const global = await loadGlobalAdvancedRouting(serverConfigOf(req));
+  res.json({
+    policy: {
+      general_pool_enabled: global.general_pool_enabled,
+      last_agent_routing_enabled: global.last_agent_routing_enabled,
+      owner_fallback_for_chat: ownerFallbackAllowedGlobal(global, 'chat'),
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------

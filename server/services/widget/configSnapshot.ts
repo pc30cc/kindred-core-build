@@ -87,8 +87,10 @@ import { resolveEffectiveAiNudgePolicy } from './aiNudge/policy.js';
 import { resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
 import {
   AVAILABILITY_PREFS_COLUMNS,
+  chatReceivingMemberIds,
   listCustomerAvailableOperators,
   type AvailabilityPrefsRow,
+  type ChatMemberRow,
   type WorkspaceAvailabilityPrefs,
 } from './customerAvailability.js';
 import { createStorageUrlResolver, hydrateUserAvatars, type StorageUrlResolver } from '../storage/urlResolver.js';
@@ -613,7 +615,8 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       console.error('[widget/config] entitlement resolution failed', err);
       return null;
     }),
-    sb.from('workspace_members').select('user_id, created_at').eq('workspace_id', workspaceId),
+    // The chat columns decide who counts for online/offline (CHAT_MEMBER_COLUMNS).
+    sb.from('workspace_members').select('user_id, created_at, role, suspended_at, receives_chats').eq('workspace_id', workspaceId),
     sb.from('ai_agent_settings')
       .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, metadata')
       .eq('workspace_id', workspaceId)
@@ -656,7 +659,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       ? applyWidgetEntitlementsToSettings({ ...DEFAULT_WIDGET_SETTINGS, ...widgetRow }, entitlements)
       : { ...DEFAULT_WIDGET_SETTINGS, ...widgetRow })
     : null;
-  const memberRows = (membersResult.data || []) as Array<{ user_id: string | null; created_at?: string | null }>;
+  const memberRows = (membersResult.data || []) as Array<ChatMemberRow & { created_at?: string | null }>;
   const memberIds = memberRows
     .map((m) => m.user_id)
     .filter((id): id is string => !!id);
@@ -676,13 +679,16 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
   const resolver = createStorageUrlResolver(config);
 
   // ── Wave 3 ──
-  const [prefsResult, teamResult, smart, aiProactive, aiAgent, logoUrl, fabImageUrl] = await Promise.all([
+  const [prefsResult, chatMemberIds, teamResult, smart, aiProactive, aiAgent, logoUrl, fabImageUrl] = await Promise.all([
     needsPrefs && memberIds.length
       ? sb.from('user_availability_prefs')
         .select(AVAILABILITY_PREFS_COLUMNS)
         .in('user_id', memberIds)
         .is('workspace_id', null)
       : Promise.resolve({ data: [] as AvailabilityPrefsRow[], error: null }),
+    needsPrefs && memberIds.length
+      ? chatReceivingMemberIds(config, workspaceId, memberRows)
+      : Promise.resolve(undefined),
     forConfig ? loadTeam(sb, resolver, widgetTeamMembers(memberRows).map((m) => m.user_id as string)) : Promise.resolve({ team: null, error: false }),
     // Smart Engagement rules (active + published only). Failure here must
     // never take down /config — the helper already degrades to an empty list.
@@ -749,7 +755,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
     smart: { enabled: smart.enabled, rules: smart.rules },
     aiProactive,
     aiAgent,
-    availabilityPrefs: { memberIds, prefsByUser },
+    availabilityPrefs: { memberIds, prefsByUser, chatMemberIds },
     memberIds: new Set(memberIds.map((id) => id.toLowerCase())),
     team: teamResult.team,
     logoUrl,

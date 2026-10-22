@@ -128,6 +128,92 @@ export async function recordOperatorPresenceBeat(
   return !error;
 }
 
+/**
+ * The internal decision matrix (header) for one operator: customer
+ * availability first, then the live connection, then the 5-minute activity
+ * threshold. Shared by listWorkspacePresence and readRoutingPresence.
+ */
+function classifyPresence(
+  customer: ReturnType<typeof computeCustomerAvailability>,
+  isConnected: boolean,
+  lastActivity: number | null,
+  ts: number,
+): { presence_state: OperatorPresenceState; reason: OperatorPresence['reason'] } {
+  const isActive = lastActivity !== null && ts - lastActivity < OPERATOR_ACTIVITY_ACTIVE_MS;
+  if (customer.availability === 'unavailable') {
+    return {
+      presence_state: 'offline',
+      reason:
+        customer.reason === 'manual_offline' ? 'force_offline'
+        : customer.reason === 'manual_invisible' ? 'unavailable_when_using_app'
+        : customer.reason === 'day_disabled' ? 'day_disabled'
+        : 'outside_schedule',
+    };
+  }
+  if (!isConnected) return { presence_state: 'disconnected', reason: 'not_connected' };
+  if (!isActive) return { presence_state: 'away', reason: 'inactive' };
+  return {
+    presence_state: 'active',
+    reason:
+      customer.reason === 'within_schedule' ? 'within_schedule'
+      : customer.reason === 'no_prefs' ? 'no_prefs'
+      : 'available_when_using_app',
+  };
+}
+
+/** One operator's presence as chat routing reads it. */
+export interface RoutingPresence {
+  state: OperatorPresenceState;
+  /** Last known interaction (epoch ms); null = none seen (e.g. since a restart). */
+  lastActivityAt: number | null;
+}
+
+/**
+ * The presence of the given members only, for chat routing: the same matrix
+ * as listWorkspacePresence, without the member list, names or avatars (the
+ * caller already knows whom it may route to). Never throws: a failed
+ * connection or activity lookup reads as "not connected" / "no activity".
+ */
+export async function readRoutingPresence(
+  config: ServerConfig,
+  workspaceId: string,
+  userIds: string[],
+  now: Date = new Date(),
+): Promise<Map<string, RoutingPresence>> {
+  const out = new Map<string, RoutingPresence>();
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (ids.length === 0) return out;
+  const byUser = new Map<string, RawPrefs>();
+  try {
+    const { data: prefRows } = await getServiceClient(config)
+      .from('user_availability_prefs')
+      .select(AVAILABILITY_PREFS_COLUMNS)
+      .in('user_id', ids)
+      .is('workspace_id', null);
+    for (const r of (prefRows || []) as RawPrefs[]) byUser.set(r.user_id, r);
+  } catch { /* no prefs: everyone reads as available, as in the matrix */ }
+  let connected = new Set<string>();
+  try {
+    connected = (await getConnectedOperators(config, workspaceId, ids, now)).connected;
+  } catch (err) {
+    console.warn('[presence] routing connection lookup failed:', err instanceof Error ? err.message : err);
+  }
+  let activityById = new Map<string, number>();
+  try {
+    activityById = await getOperatorLastActivity(config, workspaceId, ids, now);
+  } catch { /* internal detail only */ }
+  const ts = now.getTime();
+  for (const id of ids) {
+    const customer = computeCustomerAvailability(byUser.get(id) || null, now);
+    const lastActivity = activityById.get(id) ?? null;
+    out.set(id, {
+      state: classifyPresence(customer, connected.has(id), lastActivity, ts).presence_state,
+      lastActivityAt: lastActivity,
+    });
+  }
+  return out;
+}
+
 export async function listWorkspacePresence(
   config: ServerConfig,
   workspaceId: string,
@@ -183,30 +269,7 @@ export async function listWorkspacePresence(
     const customer = computeCustomerAvailability(byUser.get(id) || null, now);
     const isConnected = connected.has(id);
     const lastActivity = activityById.get(id) ?? null;
-    const isActive = lastActivity !== null && ts - lastActivity < OPERATOR_ACTIVITY_ACTIVE_MS;
-
-    let presence_state: OperatorPresenceState;
-    let reason: OperatorPresence['reason'];
-    if (customer.availability === 'unavailable') {
-      presence_state = 'offline';
-      reason =
-        customer.reason === 'manual_offline' ? 'force_offline'
-        : customer.reason === 'manual_invisible' ? 'unavailable_when_using_app'
-        : customer.reason === 'day_disabled' ? 'day_disabled'
-        : 'outside_schedule';
-    } else if (!isConnected) {
-      presence_state = 'disconnected';
-      reason = 'not_connected';
-    } else if (!isActive) {
-      presence_state = 'away';
-      reason = 'inactive';
-    } else {
-      presence_state = 'active';
-      reason =
-        customer.reason === 'within_schedule' ? 'within_schedule'
-        : customer.reason === 'no_prefs' ? 'no_prefs'
-        : 'available_when_using_app';
-    }
+    const { presence_state, reason } = classifyPresence(customer, isConnected, lastActivity, ts);
 
     const prof = profileById.get(id);
     return {

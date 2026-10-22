@@ -22,9 +22,18 @@ export interface OperatorActivityRow {
   /** Visitors' average rating (1–5, one decimal) in the window; null without ratings. */
   csat_avg?: number | null;
   csat_count?: number;
+  /** Available to visitors by their own status and schedule. */
   current_state: 'online' | 'offline';
   current_reason: string;
+  /**
+   * Live presence, as chat routing reads it: active / away (panel or app
+   * open), disconnected (available but nothing open), offline. Absent from
+   * an older server.
+   */
+  presence_state?: OperatorPresenceState;
 }
+
+export type OperatorPresenceState = 'active' | 'away' | 'disconnected' | 'offline';
 
 export interface OperatorActivityStats {
   days: number;
@@ -34,11 +43,20 @@ export interface OperatorActivityStats {
     online_minutes: number;
     replies_sent: number;
     conversations_assigned: number;
+    /** Connected right now (active or away). */
     online_now: number;
+    /** Available to visitors by their own status and schedule. */
+    available_now?: number;
     csat_avg?: number | null;
     csat_count?: number;
   };
   operators: OperatorActivityRow[];
+  /**
+   * false: online minutes are not recorded (their table is gone), so
+   * online_minutes, present_minutes, daily and last_seen are empty, not
+   * measured zeros. Absent from an older server: tracked.
+   */
+  online_time_tracked?: boolean;
 }
 
 export async function fetchOperatorActivity(workspaceId: string, days: number): Promise<OperatorActivityStats> {

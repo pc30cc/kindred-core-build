@@ -1,19 +1,46 @@
 /**
  * Chat conversation routing/assignment.
  *
- * Chat conversations previously had NO automatic assignment at all — the
- * only write path to `conversations.assigned_to` was a manual operator
- * PATCH (plain read-then-write, not atomic). This adds a real routing
- * engine with three explicit, owner-selectable modes and an atomic claim
- * so two operators (or an auto-pick racing a manual claim) can never both
- * end up owning the same conversation.
+ * Every conversation a person has to answer gets one (owner decisions of
+ * 2026-10-21, DECISIONS §3–§4):
  *
- * Reuses existing primitives rather than rebuilding them:
- *   - resolveRoutingCandidates / resolveGeneralPool / loadFallbackPolicy /
- *     ownerFallbackAllowed / resolveWorkspaceOwnerId (server/services/calls/departments.ts)
- *   - listWorkspacePresence (server/services/widget/operatorPresence.ts)
- *   - the atomic public.claim_conversation() Postgres function
- *     (supabase/migrations/20260807132846_chat_routing_assignment.sql)
+ *   - when it needs a human: at the visitor's first message when no AI will
+ *     answer it (routeHumanBoundConversation, called by the widget's
+ *     /message and by channel inbound), or on an AI handoff
+ *     (handoffState.ts) — after the pre-chat form, or 2 minutes without it;
+ *   - to whom, in this order:
+ *       a. the operator of the contact's previous conversation (last N days,
+ *          or the operator already writing in this one) when they can take
+ *          it right now (`last_agent`);
+ *       b. the chosen department's members, then the whole team (unless the
+ *          Super Admin turned the general pool off); no department → the
+ *          whole team. Mode `auto` = least busy by current load, `round_robin`
+ *          = one rotation per pool, `manual` = the Unassigned queue (as
+ *          before; a plan without `widget_assignment_routing` is manual);
+ *       c. the workspace owner, under the Super Admin's global owner-fallback
+ *          policy (the same one calls use);
+ *     each step only among members who may receive chats
+ *     (shared/chatRoles.ts: the owner and team roles, never staff), are not
+ *     suspended or seat-paused, have "Receive chats automatically" on, are
+ *     present (active first; away only when idle under 30 minutes and no
+ *     active one can take it) and are under their capacity (max concurrent
+ *     chats);
+ *   - nobody → the chat waits unassigned with an honest notice ("nobody is
+ *     online" vs "everyone is busy, you are in the queue"), and the routing
+ *     ticker (chatRoutingTicker.ts) gives it out as soon as someone can take
+ *     it; an assignee who has not written within the first-response timeout
+ *     loses it to the next operator;
+ *   - a conversation that loses its operator (handed back, its operator
+ *     removed, suspended or without an Inbox any more, a reopened thread
+ *     whose operator cannot take it now) is routed again
+ *     (rerouteConversation, afterMemberReleased).
+ *
+ * The pick and the assignment are one SQL call, chat_route_claim()
+ * (migration 278): under a per-workspace advisory lock it counts the
+ * candidates' load against their capacity, orders them per mode and claims
+ * the conversation only while nobody has it, so simultaneous chats spread
+ * out instead of piling on one operator. Every assignment writes an
+ * `assigned` conversation event with its method.
  *
  * Seats the plan has paused (simple billing phase 4, design §5): those
  * members are never candidates (departments.ts), and a conversation still
@@ -23,15 +50,17 @@
 import { isBotProvider } from '../../shared/channels/botProviders.js';
 import type { ServerConfig } from '../config.js';
 import { patchConversationMetadata } from './conversationMetadata.js';
+import { recordConversationEvent } from './conversationEvents.js';
 import { coalesce } from '../lib/inflight.js';
 import { getServiceClient } from '../supabase.js';
 import {
-  resolveRoutingCandidates,
-  loadFallbackPolicy,
-  ownerFallbackAllowed,
+  resolveChatRoutingPool,
+  resolveChatRoutingMember,
   resolveWorkspaceOwnerId,
 } from './calls/departments.js';
-import { listWorkspacePresence } from './widget/operatorPresence.js';
+import { loadGlobalAdvancedRouting, ownerFallbackAllowedGlobal } from './calls/globalAdvancedRouting.js';
+import { readRoutingPresence, type RoutingPresence } from './widget/operatorPresence.js';
+import { resolveWidgetCapability } from './widget/entitlements.js';
 import { publishOperatorEvent, publishConversationEvent, buildMessageEnvelope } from './realtime/publish.js';
 import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
@@ -39,62 +68,241 @@ import { notifyAssignment, notifyHandoff } from './push/index.js';
 import { onSupportConversationChanged } from './platformSupport/changes.js';
 import { resolveLockState } from './billing/locks/state.js';
 import { isMemberLocked } from './billing/locks/predicates.js';
+import { deferRoutingForPrechat, shouldDeferRoutingForPrechat } from './chatRoutingPrechat.js';
+import { canUseInbox, isRoutableChatRole } from '../../shared/chatRoles.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
 export type RoutingOutcome =
   | 'assigned_auto'
   | 'assigned_round_robin'
+  | 'assigned_last_agent'
   | 'assigned_owner_fallback'
   | 'manual_queue'
+  /** Nobody who may receive chats is online: the chat waits. */
   | 'no_eligible_agent'
+  /** Someone is online but everyone is at capacity: the chat waits in the queue. */
+  | 'all_agents_busy'
+  /** Waiting for the visitor's pre-chat form (routed anyway after 2 minutes). */
+  | 'routing_deferred'
   | 'already_assigned'
+  /** Resolved, closed or spam: never routed. */
+  | 'not_routable'
   | 'error';
+
+/** How a conversation got its operator: the `assigned` event's `method`. */
+export type AssignmentMethod = 'auto' | 'round_robin' | 'last_agent' | 'owner_fallback' | 'timeout_reassign';
 
 export interface RouteResult {
   outcome: RoutingOutcome;
   assignedTo: string | null;
 }
 
-/**
- * Auto-mode candidate order: least active load first, alphabetical id as a
- * stable tie-break. Pure and exported so the "never random" requirement is
- * directly unit-testable without a database.
- */
-export function rankAutoCandidates(candidates: string[], load: Map<string, number>): string[] {
-  return candidates.slice().sort((a, b) => {
-    const diff = (load.get(a) || 0) - (load.get(b) || 0);
-    return diff !== 0 ? diff : a.localeCompare(b);
-  });
+/** An away operator (connected, idle ≥5 min) gets a chat only while idle less than this. */
+export const AWAY_ROUTING_MAX_IDLE_MS = 30 * 60_000;
+
+/** Why a chat waits: chat_routing_state.wait_reason. */
+export type WaitReason = 'nobody_online' | 'all_busy';
+
+// ─── Routing settings ─────────────────────────────────────────────────────
+
+export interface ChatRoutingSettings {
+  /** The plan-gated mode: a plan without `widget_assignment_routing` is manual. */
+  mode: AssignmentMode;
+  /** The workspace's switch AND the Super Admin's platform switch. */
+  lastAgentEnabled: boolean;
+  lastAgentWindowDays: number;
+  /** Super Admin → Advanced routing: a department with nobody available falls back to the whole team. */
+  generalPoolEnabled: boolean;
+  /** Super Admin → Advanced routing: owner fallback for chats. */
+  ownerFallback: boolean;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
 /**
- * Round-robin candidate order: alphabetical for determinism, rotated to
- * start right after the stored cursor so the same operator isn't picked
- * twice in a row. Pure and exported for the same reason as above.
+ * The workspace's routing settings (widget_settings, migration 278), the
+ * plan's `widget_assignment_routing` (the panel shows a plan without it as
+ * locked to Manual, and so does routing), and the Super Admin's global
+ * advanced-routing policy.
  */
-export function rotateFromCursor(candidates: string[], cursor: string | null): string[] {
-  const ordered = candidates.slice().sort();
-  if (!cursor) return ordered;
-  const idx = ordered.indexOf(cursor);
-  if (idx < 0) return ordered;
-  return [...ordered.slice(idx + 1), ...ordered.slice(0, idx + 1)];
-}
-
-async function loadAssignmentConfig(
+export async function loadRoutingSettings(
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ mode: AssignmentMode; cursor: string | null }> {
+  cache?: RoutingCache,
+): Promise<ChatRoutingSettings> {
+  const hit = cache?.settings.get(workspaceId);
+  if (hit) return hit;
   const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('widget_settings')
-    .select('assignment_mode, round_robin_cursor_user_id')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  const row = data as { assignment_mode?: string | null; round_robin_cursor_user_id?: string | null } | null;
+  const [{ data }, planAllows, global] = await Promise.all([
+    sb.from('widget_settings')
+      .select('assignment_mode, last_agent_routing_enabled, last_agent_window_days')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle(),
+    resolveWidgetCapability(config, workspaceId, 'widget_assignment_routing').catch(() => false),
+    loadGlobalAdvancedRouting(config),
+  ]);
+  const row = data as {
+    assignment_mode?: string | null;
+    last_agent_routing_enabled?: boolean | null;
+    last_agent_window_days?: number | null;
+  } | null;
   const raw = row?.assignment_mode;
-  const mode: AssignmentMode = raw === 'round_robin' || raw === 'manual' ? raw : 'auto';
-  return { mode, cursor: row?.round_robin_cursor_user_id || null };
+  const stored: AssignmentMode = raw === 'round_robin' || raw === 'manual' ? raw : 'auto';
+  const settings: ChatRoutingSettings = {
+    mode: planAllows ? stored : 'manual',
+    lastAgentEnabled: row?.last_agent_routing_enabled !== false && global.last_agent_routing_enabled !== false,
+    lastAgentWindowDays: clampInt(row?.last_agent_window_days, 1, 365, 30),
+    generalPoolEnabled: global.general_pool_enabled !== false,
+    ownerFallback: ownerFallbackAllowedGlobal(global, 'chat'),
+  };
+  cache?.settings.set(workspaceId, settings);
+  return settings;
+}
+
+/**
+ * Lookups shared by the routing runs of one ticker pass (settings, pools,
+ * presence per workspace). A request routes one conversation and passes
+ * none.
+ */
+export interface RoutingCache {
+  settings: Map<string, ChatRoutingSettings>;
+  presence: Map<string, Map<string, RoutingPresence>>;
+  pools: Map<string, { team: string[]; department: string[] | null }>;
+}
+
+export function createRoutingCache(): RoutingCache {
+  return { settings: new Map(), presence: new Map(), pools: new Map() };
+}
+
+async function chatPool(
+  config: ServerConfig,
+  workspaceId: string,
+  departmentId: string | null,
+  cache?: RoutingCache,
+): Promise<{ team: string[]; department: string[] | null }> {
+  const key = `${workspaceId}:${departmentId || ''}`;
+  const hit = cache?.pools.get(key);
+  if (hit) return hit;
+  const pool = await resolveChatRoutingPool(config, workspaceId, departmentId);
+  cache?.pools.set(key, pool);
+  return pool;
+}
+
+async function presenceOf(
+  config: ServerConfig,
+  workspaceId: string,
+  userIds: string[],
+  cache?: RoutingCache,
+): Promise<Map<string, RoutingPresence>> {
+  const known = cache?.presence.get(workspaceId);
+  const missing = userIds.filter((id) => !known?.has(id));
+  if (!missing.length && known) return known;
+  const read = await readRoutingPresence(config, workspaceId, missing);
+  const merged = new Map([...(known || new Map()), ...read]);
+  cache?.presence.set(workspaceId, merged);
+  return merged;
+}
+
+// ─── Presence tiers ───────────────────────────────────────────────────────
+
+/**
+ * ROUTING ELIGIBILITY — deliberately NOT the same thing as customer-facing
+ * availability:
+ *
+ *   active (connected, interacted <5m)        → eligible, highest priority
+ *   away   (connected, idle 5–30m, or no
+ *           interaction seen since a restart) → eligible, reduced priority
+ *   away   (idle ≥30m)                         → NOT auto-assigned
+ *   disconnected (customer-available but
+ *     no live connection)                     → NOT auto-assigned
+ *   offline (manual off/invisible or
+ *     schedule closed)                        → ineligible
+ *
+ * "Messenger online" therefore never implies "assign a live chat to this
+ * operator right now".
+ */
+export interface RoutingTiers {
+  /** Tier 1 — always exhausted before tier 2 is considered. */
+  active: string[];
+  /** Tier 2 — only reached when no active operator could claim. */
+  away: string[];
+}
+
+/** The tier an operator is in for routing right now, or null (not routable now). Pure. */
+export function routingTierOf(p: RoutingPresence | undefined, now: number = Date.now()): 'active' | 'away' | null {
+  if (!p) return null;
+  if (p.state === 'active') return 'active';
+  if (p.state !== 'away') return null;
+  if (p.lastActivityAt === null) return 'away';
+  return now - p.lastActivityAt < AWAY_ROUTING_MAX_IDLE_MS ? 'away' : null;
+}
+
+/**
+ * Pure tier split — exported so the "active always before away" and the
+ * 30-minute away cap are unit-testable without a database. Order is kept.
+ */
+export function splitPresenceTiers(
+  userIds: string[],
+  presenceById: Map<string, RoutingPresence>,
+  now: number = Date.now(),
+): RoutingTiers {
+  const active: string[] = [];
+  const away: string[] = [];
+  for (const id of userIds) {
+    const tier = routingTierOf(presenceById.get(id), now);
+    if (tier === 'active') active.push(id);
+    else if (tier === 'away') away.push(id);
+  }
+  return { active, away };
+}
+
+// ─── The atomic pick (migration 278) ──────────────────────────────────────
+
+type ClaimOrder = 'least_busy' | 'round_robin' | 'given';
+
+interface ClaimResult {
+  outcome: 'assigned' | 'already_assigned' | 'assignment_changed' | 'all_busy' | 'none' | 'not_routable' | 'not_found' | 'error';
+  userId: string | null;
+}
+
+/** One row of a set-returning RPC (an array, or one object). */
+function firstRow<T>(data: unknown): T | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  return row && typeof row === 'object' ? row as T : null;
+}
+
+async function claimFromCandidates(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    conversationId: string;
+    candidates: string[];
+    order: ClaimOrder;
+    poolKey: string;
+    method: AssignmentMethod;
+    expectedAssignee?: string | null;
+  },
+): Promise<ClaimResult> {
+  const { data, error } = await getServiceClient(config).rpc('chat_route_claim', {
+    p_workspace_id: args.workspaceId,
+    p_conversation_id: args.conversationId,
+    p_candidates: args.candidates,
+    p_order: args.order,
+    p_pool_key: args.poolKey,
+    p_method: args.method,
+    p_expected_assignee: args.expectedAssignee ?? null,
+  });
+  if (error) {
+    console.warn('[chat-routing] chat_route_claim failed:', error.message);
+    return { outcome: 'error', userId: null };
+  }
+  const row = firstRow<{ outcome?: unknown; picked_user_id?: unknown }>(data);
+  const outcome = typeof row?.outcome === 'string' ? row.outcome as ClaimResult['outcome'] : 'error';
+  return { outcome, userId: typeof row?.picked_user_id === 'string' ? row.picked_user_id : null };
 }
 
 /** Department the visitor picked, if any — read from conversation metadata,
@@ -128,96 +336,6 @@ async function resolveConversationDepartment(
   await patchConversationMetadata(config, conversationId, { department_id: deptId }, workspaceId);
   return deptId;
 }
-
-/** Active (non-closed) assigned-conversation counts for a set of candidates. */
-async function loadActiveLoad(
-  config: ServerConfig,
-  workspaceId: string,
-  userIds: string[],
-): Promise<Map<string, number>> {
-  const load = new Map<string, number>(userIds.map((id) => [id, 0]));
-  if (!userIds.length) return load;
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('conversations')
-    .select('assigned_to')
-    .eq('workspace_id', workspaceId)
-    .in('assigned_to', userIds)
-    .neq('status', 'closed');
-  for (const row of (data || []) as Array<{ assigned_to: string }>) {
-    load.set(row.assigned_to, (load.get(row.assigned_to) || 0) + 1);
-  }
-  return load;
-}
-
-/**
- * ROUTING ELIGIBILITY — deliberately NOT the same thing as customer-facing
- * availability:
- *
- *   active (connected, interacted <5m)   → eligible, highest priority
- *   away   (connected, idle ≥5m)         → eligible, reduced priority
- *   disconnected (customer-available but
- *     no live connection)                → NOT auto-assigned
- *   offline (manual off/invisible or
- *     schedule closed)                   → ineligible
- *
- * "Messenger online" therefore never implies "assign a live chat to this
- * operator right now".
- */
-export interface RoutingTiers {
-  /** Tier 1 — always exhausted before tier 2 is considered. */
-  active: string[];
-  /** Tier 2 — only reached when no active operator could claim. */
-  away: string[];
-}
-
-/**
- * Pure tier split — exported so the "active always before away" guarantee is
- * unit-testable without a database.
- */
-export function splitPresenceTiers(
-  userIds: string[],
-  stateById: Map<string, string | undefined>,
-): RoutingTiers {
-  const active: string[] = [];
-  const away: string[] = [];
-  for (const id of userIds) {
-    const s = stateById.get(id);
-    if (s === 'active') active.push(id);
-    else if (s === 'away') away.push(id);
-  }
-  return { active, away };
-}
-
-/** Pure per-tier ordering. Ranking/rotation NEVER crosses tier boundaries. */
-export function orderTierCandidates(
-  tier: string[],
-  mode: AssignmentMode,
-  cursor: string | null,
-  load: Map<string, number>,
-): string[] {
-  return mode === 'round_robin' ? rotateFromCursor(tier, cursor) : rankAutoCandidates(tier, load);
-}
-
-async function onlineEligibleCandidates(
-  config: ServerConfig,
-  workspaceId: string,
-  departmentId: string | null,
-): Promise<RoutingTiers> {
-  const { user_ids } = await resolveRoutingCandidates(config, workspaceId, 'chat', departmentId);
-  if (!user_ids.length) return { active: [], away: [] };
-  const presence = await listWorkspacePresence(config, workspaceId);
-  const stateById = new Map<string, string | undefined>(
-    presence.map((p) => [p.user_id, p.presence_state as string | undefined]),
-  );
-  // Two REAL tiers: never merged, so downstream load-ranking or round-robin
-  // rotation can no longer reorder an away operator ahead of an active one.
-  return splitPresenceTiers(user_ids, stateById);
-}
-
-
-
-
 
 async function tryClaim(
   config: ServerConfig,
@@ -283,7 +401,10 @@ function agentJoinedBody(name: string | null): string {
 }
 
 /**
- * The stored (inbox-only) body of the "nobody available" notice. A bot
+ * The stored (inbox-only) body of the "nobody is online" notice — the
+ * English fallback; every reader writes the sentence from `metadata.kind`.
+ * It says what happened (nobody of the team is online) and where the answer
+ * will come (here), never "busy": a busy team is the queue notice. A bot
  * conversation's is the offline text its user was sent, in the same
  * language (offlineDelivery.ts conversationReplyLocale: the user's when the
  * platform offers it, else the primary one).
@@ -294,7 +415,7 @@ async function resolveNoAgentVisitorBody(
   conversationId: string,
   conversationMetadata: Record<string, unknown>,
 ): Promise<string> {
-  const fallback = "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
+  const fallback = "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.";
   const provider = String(conversationMetadata.channel || '');
   if (!isBotProvider(provider)) return fallback;
   try {
@@ -390,7 +511,7 @@ async function insertRoutingSystemMessage(
 // measures this wait, not the time an operator held it; and the next routing
 // run posts a new `routing_in_queue` row (once per return,
 // `queue_return_notice_at`), so the visitor's queue pill comes back. The
-// inbox's unassign runs that routing at once (routeQueueReturn).
+// inbox's unassign runs that routing at once (rerouteConversation).
 
 /**
  * How long an earlier `queued_at` stays the conversation's entry into the
@@ -576,49 +697,327 @@ async function releaseIfSeatLocked(
   }
 }
 
+// ─── Who gets it ──────────────────────────────────────────────────────────
+
 /**
- * Route a conversation that just entered `needs_human` to an operator.
- * Idempotent — a conversation that's already assigned is left untouched.
- * Never throws; the handoff must always succeed even if routing fails.
+ * "The same operator as before" (last-agent routing): the operator already
+ * writing in this conversation (the last one who replied in it), else the
+ * assignee of the contact's most recent other conversation active within
+ * the window, else the last operator who replied in that one. Null when
+ * there is none. Uses conversations_contact_recent_idx and the messages'
+ * (conversation, sender type, time) index.
+ */
+export async function findPreviousOperator(
+  config: ServerConfig,
+  workspaceId: string,
+  conversation: { id: string; contact_id?: string | null },
+  windowDays: number,
+  now: number = Date.now(),
+): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const lastReplier = async (conversationId: string): Promise<string | null> => {
+    const { data } = await sb
+      .from('conversation_messages')
+      .select('sender_id')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'agent')
+      .not('sender_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const id = (data as { sender_id?: unknown } | null)?.sender_id;
+    return typeof id === 'string' && id ? id : null;
+  };
+  const own = await lastReplier(conversation.id);
+  if (own) return own;
+  if (!conversation.contact_id) return null;
+  const since = new Date(now - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const { data: prev } = await sb
+    .from('conversations')
+    .select('id, assigned_to')
+    .eq('workspace_id', workspaceId)
+    .eq('contact_id', conversation.contact_id)
+    .neq('id', conversation.id)
+    .gte('updated_at', since)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const row = prev as { id?: string; assigned_to?: string | null } | null;
+  if (!row?.id) return null;
+  return row.assigned_to || await lastReplier(row.id);
+}
+
+interface PickArgs {
+  workspaceId: string;
+  conversationId: string;
+  contactId: string | null;
+  departmentId: string | null;
+  settings: ChatRoutingSettings;
+  cache?: RoutingCache;
+  /** A first-response timeout: never this member, and only while they still hold it. */
+  reassignFrom?: string | null;
+}
+
+interface PickResult {
+  outcome: 'assigned' | 'already_assigned' | 'not_routable' | 'none' | 'error';
+  userId: string | null;
+  method: AssignmentMethod | null;
+  waitReason: WaitReason;
+}
+
+/**
+ * Who takes the conversation (DECISIONS §4 a–e, h), each step one atomic
+ * chat_route_claim(): the previous operator (active, in the pool), then the
+ * department's members and the whole team (active tier, then away), then
+ * the owner. Never in manual mode (the caller queues instead).
+ */
+async function pickOperator(config: ServerConfig, a: PickArgs): Promise<PickResult> {
+  const { settings } = a;
+  const pool = await chatPool(config, a.workspaceId, a.departmentId, a.cache);
+  const ownerId = settings.ownerFallback ? await resolveWorkspaceOwnerId(config, a.workspaceId) : null;
+  const presence = await presenceOf(config, a.workspaceId, ownerId ? [...pool.team, ownerId] : pool.team, a.cache);
+  const now = Date.now();
+  const excluded = (id: string) => id === a.reassignFrom;
+  const timeout = !!a.reassignFrom;
+  const tried = new Set<string>();
+  let anyOnline = false;
+
+  const attempt = async (candidates: string[], order: ClaimOrder, poolKey: string, method: AssignmentMethod) => {
+    for (const id of candidates) tried.add(id);
+    const r = await claimFromCandidates(config, {
+      workspaceId: a.workspaceId,
+      conversationId: a.conversationId,
+      candidates,
+      order,
+      poolKey,
+      method: timeout ? 'timeout_reassign' : method,
+      expectedAssignee: a.reassignFrom ?? null,
+    });
+    return r;
+  };
+  /** A claim answer that ends the search (someone has it now, or it cannot be routed). */
+  const final = (r: ClaimResult): PickResult | null => {
+    if (r.outcome === 'assigned') return null;
+    if (r.outcome === 'already_assigned' || r.outcome === 'assignment_changed') {
+      return { outcome: 'already_assigned', userId: r.userId, method: null, waitReason: 'all_busy' };
+    }
+    if (r.outcome === 'not_routable' || r.outcome === 'not_found') {
+      return { outcome: 'not_routable', userId: r.userId, method: null, waitReason: 'all_busy' };
+    }
+    if (r.outcome === 'error') return { outcome: 'error', userId: null, method: null, waitReason: 'nobody_online' };
+    return null;
+  };
+
+  // a. The previous operator, when they can take it right now: active (not
+  // away), in the pool (and the chosen department), under capacity. No
+  // waiting for them: otherwise straight on.
+  const lastAgentPool = pool.department ?? pool.team;
+  if (settings.lastAgentEnabled && lastAgentPool.some((id) => routingTierOf(presence.get(id), now) === 'active')) {
+    const prev = await findPreviousOperator(config, a.workspaceId, { id: a.conversationId, contact_id: a.contactId }, settings.lastAgentWindowDays)
+      .catch((err) => {
+        console.warn('[chat-routing] previous operator lookup failed:', err instanceof Error ? err.message : err);
+        return null;
+      });
+    const inPool = !!prev && lastAgentPool.includes(prev);
+    if (prev && inPool && !excluded(prev) && routingTierOf(presence.get(prev), now) === 'active') {
+      anyOnline = true;
+      const r = await attempt([prev], 'given', 'last_agent', 'last_agent');
+      if (r.outcome === 'assigned' && r.userId) return { outcome: 'assigned', userId: r.userId, method: timeout ? 'timeout_reassign' : 'last_agent', waitReason: 'all_busy' };
+      const end = final(r);
+      if (end) return end;
+    }
+  }
+
+  // b. The department's members, then the whole team (unless the Super
+  // Admin turned the general pool off); no department: the whole team.
+  const order: ClaimOrder = settings.mode === 'round_robin' ? 'round_robin' : 'least_busy';
+  const method: AssignmentMethod = settings.mode === 'round_robin' ? 'round_robin' : 'auto';
+  const pools: Array<{ key: string; ids: string[] }> = [];
+  if (pool.department && a.departmentId) pools.push({ key: a.departmentId, ids: pool.department });
+  if (!pool.department || settings.generalPoolEnabled) pools.push({ key: 'team', ids: pool.team });
+  for (const p of pools) {
+    // TIER 1 = active, TIER 2 = away (idle under 30 minutes). Tier 2 is only
+    // entered when no active operator could take it.
+    const tiers = splitPresenceTiers(p.ids.filter((id) => !excluded(id)), presence, now);
+    for (const tier of [tiers.active, tiers.away]) {
+      if (!tier.length) continue;
+      anyOnline = true;
+      const r = await attempt(tier, order, p.key, method);
+      if (r.outcome === 'assigned' && r.userId) return { outcome: 'assigned', userId: r.userId, method: timeout ? 'timeout_reassign' : method, waitReason: 'all_busy' };
+      const end = final(r);
+      if (end) return end;
+    }
+  }
+
+  // c. The owner, under the global owner-fallback policy, when they receive
+  // chats and are here (and were not tried above).
+  if (ownerId && !tried.has(ownerId) && !excluded(ownerId) && routingTierOf(presence.get(ownerId), now)) {
+    const member = await resolveChatRoutingMember(config, a.workspaceId, ownerId);
+    if (member && !member.suspended && member.receivesChats) {
+      anyOnline = true;
+      const r = await attempt([ownerId], 'given', 'owner', 'owner_fallback');
+      if (r.outcome === 'assigned' && r.userId) return { outcome: 'assigned', userId: r.userId, method: timeout ? 'timeout_reassign' : 'owner_fallback', waitReason: 'all_busy' };
+      const end = final(r);
+      if (end) return end;
+    }
+  }
+
+  return { outcome: 'none', userId: null, method: null, waitReason: anyOnline ? 'all_busy' : 'nobody_online' };
+}
+
+function assignedOutcome(method: AssignmentMethod, mode: AssignmentMode): RoutingOutcome {
+  if (method === 'last_agent') return 'assigned_last_agent';
+  if (method === 'owner_fallback') return 'assigned_owner_fallback';
+  return mode === 'round_robin' ? 'assigned_round_robin' : 'assigned_auto';
+}
+
+/**
+ * Tell everyone a routing assignment happened: the routing keys (and, for a
+ * thread the AI held, that a person has it now — an assigned chat must not
+ * stay hidden in the AI's queue), the visitor's "X joined", the inboxes, the
+ * assignee's phone and the conversation's timeline (method: auto,
+ * round_robin, last_agent, owner_fallback, timeout_reassign).
+ */
+async function announceAssignment(
+  config: ServerConfig,
+  a: {
+    workspaceId: string;
+    conversationId: string;
+    metadata: Record<string, unknown>;
+    userId: string;
+    method: AssignmentMethod;
+    outcome: RoutingOutcome;
+    from: string | null;
+    extraPatch?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const aiHeld = a.metadata.ai_state === 'ai_managed';
+  await tagOutcome(config, a.workspaceId, a.conversationId, a.metadata, a.outcome, {
+    routing_notice_sent: true,
+    ...(aiHeld ? { ai_state: 'human_assigned', managed_by_ai: false, ai_managed_by_ai: false } : {}),
+    ...(a.extraPatch || {}),
+  });
+  const agentName = await resolveAgentDisplayName(config, a.userId);
+  await insertRoutingSystemMessage(
+    config, a.workspaceId, a.conversationId,
+    agentJoinedBody(agentName),
+    { kind: 'routing_agent_joined', agent_name: agentName, agent_id: a.userId },
+  );
+  try {
+    await publishOperatorEvent(config, {
+      kind: 'conversation_updated',
+      conversation_id: a.conversationId,
+      workspace_id: a.workspaceId,
+      actor_id: null,
+      changes: { assigned_to: { from: a.from, to: a.userId } },
+      reason: a.method === 'timeout_reassign' ? 'timeout_reassigned' : 'auto_assigned',
+    });
+  } catch { /* best-effort */ }
+  // The customer message that brought the conversation here was pushed
+  // before anybody owned it; the operator routing just picked hears now.
+  void notifyAssignment(config, {
+    workspaceId: a.workspaceId,
+    conversationId: a.conversationId,
+    assigneeId: a.userId,
+    actorId: null,
+    stamp: new Date().toISOString(),
+  });
+  void recordConversationEvent(config, {
+    workspaceId: a.workspaceId,
+    conversationId: a.conversationId,
+    eventType: 'assigned',
+    actorType: 'system',
+    actorId: null,
+    payload: { from: a.from, to: a.userId, method: a.method },
+  });
+}
+
+/** Whether the assignee can answer right now: a member, not suspended, here (routing tiers). */
+async function assigneePresent(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  cache?: RoutingCache,
+): Promise<boolean> {
+  try {
+    const member = await resolveChatRoutingMember(config, workspaceId, userId);
+    if (!member || member.suspended) return false;
+    const presence = await presenceOf(config, workspaceId, [userId], cache);
+    return routingTierOf(presence.get(userId)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function recordWait(config: ServerConfig, workspaceId: string, conversationId: string, reason: WaitReason | null): Promise<void> {
+  try {
+    const { error } = await getServiceClient(config).rpc('chat_routing_wait', {
+      p_workspace_id: workspaceId,
+      p_conversation_id: conversationId,
+      p_reason: reason,
+    });
+    if (error) console.warn('[chat-routing] chat_routing_wait failed:', error.message);
+  } catch { /* the visitor's next message routes it again */ }
+}
+
+export interface RouteOptions {
+  /** Lookups shared by one ticker pass. */
+  cache?: RoutingCache;
+  /** The ticker retrying a waiting chat: a manual-mode workspace stops the retries. */
+  fromTicker?: boolean;
+}
+
+/**
+ * Route an unassigned conversation that needs a person (an AI handoff, the
+ * visitor's first message with no AI answering, the pre-chat form, the
+ * ticker). Idempotent — a conversation that's already assigned is left
+ * untouched. Never throws; the handoff must always succeed even if routing
+ * fails.
  */
 export async function routeConversationToOperator(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string },
+  opts: RouteOptions = {},
 ): Promise<RouteResult> {
   try {
     const sb = getServiceClient(config);
     const { data: conv } = await sb
       .from('conversations')
-      .select('id, assigned_to, metadata')
+      .select('id, assigned_to, status, is_spam, contact_id, metadata')
       .eq('id', args.conversationId)
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
     if (!conv) return { outcome: 'error', assignedTo: null };
+    const row = conv as { assigned_to?: string | null; status?: string | null; is_spam?: boolean | null; contact_id?: string | null };
     let metadata = ((conv as { metadata?: Record<string, unknown> | null }).metadata || {}) as Record<string, unknown>;
+    if (row.is_spam === true || row.status === 'resolved' || row.status === 'closed') {
+      return { outcome: 'not_routable', assignedTo: row.assigned_to ?? null };
+    }
 
     // Held by a member whose seat the plan paused: back to the queue, and
     // routed below like any unassigned conversation (from the metadata the
     // release left, which holds a queued conversation's return stamp).
-    const released = conv.assigned_to
-      ? await releaseIfSeatLocked(config, args.workspaceId, args.conversationId, conv.assigned_to as string)
+    const released = row.assigned_to
+      ? await releaseIfSeatLocked(config, args.workspaceId, args.conversationId, row.assigned_to)
       : null;
     if (released) {
-      (conv as { assigned_to: string | null }).assigned_to = null;
+      row.assigned_to = null;
       metadata = { ...metadata, ...released };
     }
 
-    if (conv.assigned_to) {
+    if (row.assigned_to) {
       // Already assigned, so nobody is being routed — but the visitor has
       // just been handed over from the AI and still needs to be told who
-      // they are now talking to. The `routing_notice_sent` flag makes this
-      // once per conversation, so a second handoff does not repeat it.
+      // they are now talking to, once per conversation (a second handoff
+      // does not repeat it) and only while that operator is actually here:
+      // "X joined" about someone who left hours ago would be a promise.
       const firstRun = metadata.routing_notice_sent !== true;
-      if (firstRun) {
-        const assignedName = await resolveAgentDisplayName(config, conv.assigned_to as string);
+      if (firstRun && await assigneePresent(config, args.workspaceId, row.assigned_to, opts.cache)) {
+        const assignedName = await resolveAgentDisplayName(config, row.assigned_to);
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
           agentJoinedBody(assignedName),
-          { kind: 'routing_agent_joined', agent_name: assignedName, agent_id: conv.assigned_to },
+          { kind: 'routing_agent_joined', agent_name: assignedName, agent_id: row.assigned_to },
         );
         await tagOutcome(
           config, args.workspaceId, args.conversationId, metadata,
@@ -626,22 +1025,23 @@ export async function routeConversationToOperator(
         );
       }
       notifyHandoffOnce(config, args, metadata, firstRun);
-      return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
+      return { outcome: 'already_assigned', assignedTo: row.assigned_to };
     }
-    // If routing was deferred until pre-chat identification (see
-    // handoffState.ts's markNeedsHuman → shouldDeferRoutingForPrechat),
-    // this call is that deferred trigger actually firing — clear the flag
-    // so it doesn't linger. Every branch below spreads this same `metadata`
-    // object into its update, so mutating it once here covers all of them.
-    if (metadata.routing_pending) metadata.routing_pending = false;
+    // If routing waited for the pre-chat form (deferRoutingForPrechat), this
+    // run is that wait ending: the flag is cleared with the outcome.
+    const pending = metadata.routing_pending === true ? { routing_pending: false } : {};
     // A visitor may send several messages while still unassigned (manual
-    // queue, or genuinely nobody eligible) — markNeedsHuman's choke point
-    // can re-invoke routing on each one. Without this guard the "queue"/
-    // "no one available" notice would repeat itself on every message.
+    // queue, or genuinely nobody eligible) — routing runs again on each one.
+    // Without this guard the "queue"/"no one available" notice would repeat
+    // itself on every message.
     const noticeAlreadySent = metadata.routing_notice_sent === true;
-    const { mode, cursor } = await loadAssignmentConfig(config, args.workspaceId);
+    const settings = await loadRoutingSettings(config, args.workspaceId, opts.cache);
+    const departmentId = await resolveConversationDepartment(
+      config, args.workspaceId, args.conversationId, metadata,
+    );
 
-    if (mode === 'manual') {
+    if (settings.mode === 'manual') {
+      if (opts.fromTicker) await recordWait(config, args.workspaceId, args.conversationId, null);
       // The queue is the team's: everyone following all conversations.
       notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
       // The place in the queue (GET /api/widget/queue) counts from when the
@@ -654,6 +1054,7 @@ export async function routeConversationToOperator(
       await tagOutcome(
         config, args.workspaceId, args.conversationId, metadata, 'manual_queue',
         {
+          ...pending,
           ...(noticeAlreadySent ? {} : { routing_notice_sent: true }),
           ...(queuedAt ? { queued_at: queuedAt } : {}),
           ...(returned ? { queue_return_notice_at: returned } : {}),
@@ -670,87 +1071,47 @@ export async function routeConversationToOperator(
       return { outcome: 'manual_queue', assignedTo: null };
     }
 
-    const departmentId = await resolveConversationDepartment(
-      config, args.workspaceId, args.conversationId, metadata,
-    );
-    const tiers = await onlineEligibleCandidates(config, args.workspaceId, departmentId);
+    const pick = await pickOperator(config, {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      contactId: row.contact_id ?? null,
+      departmentId,
+      settings,
+      cache: opts.cache,
+    });
+    if (pick.outcome === 'already_assigned') return { outcome: 'already_assigned', assignedTo: pick.userId };
+    if (pick.outcome === 'not_routable') return { outcome: 'not_routable', assignedTo: pick.userId };
+    if (pick.outcome === 'error') return { outcome: 'error', assignedTo: null };
 
-    let picked: string | null = null;
-    let outcome: RoutingOutcome = 'no_eligible_agent';
-
-    // TIER 1 = active, TIER 2 = away. Tier 2 is only entered when no active
-    // operator could be claimed — an idle operator can never win over a busy
-    // but genuinely present one.
-    for (const tier of [tiers.active, tiers.away]) {
-      if (picked || !tier.length) continue;
-      const load = mode === 'round_robin'
-        ? new Map<string, number>()
-        : await loadActiveLoad(config, args.workspaceId, tier);
-      const ordered = orderTierCandidates(tier, mode, cursor, load);
-      for (const candidate of ordered) {
-        if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
-          picked = candidate;
-          outcome = mode === 'round_robin' ? 'assigned_round_robin' : 'assigned_auto';
-          break;
-        }
-      }
-      if (picked && mode === 'round_robin') {
-        await sb.from('widget_settings')
-          .update({ round_robin_cursor_user_id: picked })
-          .eq('workspace_id', args.workspaceId);
-      }
-    }
-
-
-
-    // No eligible online agent (department empty, general pool empty, or
-    // everyone offline) — try the owner-fallback safety net before giving up.
-    if (!picked) {
-      const policy = await loadFallbackPolicy(config, args.workspaceId);
-      if (ownerFallbackAllowed(policy, 'chat')) {
-        const ownerId = await resolveWorkspaceOwnerId(config, args.workspaceId);
-        if (ownerId) {
-          const presence = await listWorkspacePresence(config, args.workspaceId);
-          const ownerOnline = presence.find((p) => p.user_id === ownerId)?.state !== 'offline';
-          if (ownerOnline && await tryClaim(config, args.workspaceId, args.conversationId, ownerId)) {
-            picked = ownerId;
-            outcome = 'assigned_owner_fallback';
-          }
-        }
-      }
-    }
-
-    if (picked) {
-      await tagOutcome(config, args.workspaceId, args.conversationId, metadata, outcome, { routing_notice_sent: true });
-      const agentName = await resolveAgentDisplayName(config, picked);
-      await insertRoutingSystemMessage(
-        config, args.workspaceId, args.conversationId,
-        agentJoinedBody(agentName),
-        { kind: 'routing_agent_joined', agent_name: agentName, agent_id: picked },
-      );
-      try {
-        await publishOperatorEvent(config, {
-          kind: 'conversation_updated',
-          conversation_id: args.conversationId,
-          workspace_id: args.workspaceId,
-          actor_id: null,
-          reason: 'auto_assigned',
-        });
-      } catch { /* best-effort */ }
-      // The customer message that brought the conversation here was pushed
-      // before anybody owned it; the operator routing just picked hears now.
-      void notifyAssignment(config, {
+    if (pick.outcome === 'assigned' && pick.userId && pick.method) {
+      const outcome = assignedOutcome(pick.method, settings.mode);
+      await announceAssignment(config, {
         workspaceId: args.workspaceId,
         conversationId: args.conversationId,
-        assigneeId: picked,
-        actorId: null,
-        stamp: new Date().toISOString(),
+        metadata,
+        userId: pick.userId,
+        method: pick.method,
+        outcome,
+        from: null,
+        extraPatch: pending,
       });
-    } else {
-      notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
-      // Team looked online but nobody was actually eligible/available —
-      // never leave the visitor in a silent "connecting…" limbo (spec §16).
-      if (!noticeAlreadySent) {
+      return { outcome, assignedTo: pick.userId };
+    }
+
+    // Nobody can take it now: it waits, and the ticker gives it out as soon
+    // as someone can. The visitor is told which it is, once: nobody of the
+    // team is online, or everyone is busy and they are in the queue.
+    const outcome: RoutingOutcome = pick.waitReason === 'all_busy' ? 'all_agents_busy' : 'no_eligible_agent';
+    await recordWait(config, args.workspaceId, args.conversationId, pick.waitReason);
+    notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
+    if (!noticeAlreadySent) {
+      if (pick.waitReason === 'all_busy') {
+        await insertRoutingSystemMessage(
+          config, args.workspaceId, args.conversationId,
+          "Everyone on our team is busy right now. You're in the queue and we'll reply here as soon as someone is free.",
+          { kind: 'routing_in_queue', reason: 'all_busy' },
+        );
+      } else {
         const visitorBody = await resolveNoAgentVisitorBody(config, args.workspaceId, args.conversationId, metadata);
         const telegramScreenQueued = isBotProvider(String(metadata.channel || ''))
           ? await maybeQueueTelegramOfflineScreen(config, {
@@ -764,6 +1125,7 @@ export async function routeConversationToOperator(
           visitorBody,
           {
             kind: 'routing_no_agent_available',
+            reason: 'nobody_online',
             ...(isBotProvider(String(metadata.channel || ''))
               ? { channel_delivery_skip: 'true', telegram_offline_screen_queued: telegramScreenQueued }
               : {}),
@@ -776,13 +1138,12 @@ export async function routeConversationToOperator(
           !isBotProvider(String(metadata.channel || '')),
         );
       }
-      await tagOutcome(
-        config, args.workspaceId, args.conversationId, metadata, outcome,
-        noticeAlreadySent ? undefined : { routing_notice_sent: true },
-      );
     }
-
-    return { outcome, assignedTo: picked };
+    await tagOutcome(
+      config, args.workspaceId, args.conversationId, metadata, outcome,
+      { ...pending, ...(noticeAlreadySent ? {} : { routing_notice_sent: true }) },
+    );
+    return { outcome, assignedTo: null };
   } catch (err) {
     console.warn('[chat-routing] routeConversationToOperator failed:', err instanceof Error ? err.message : err);
     return { outcome: 'error', assignedTo: null };
@@ -790,30 +1151,478 @@ export async function routeConversationToOperator(
 }
 
 /**
- * The inbox handed a queued conversation back (PATCH assigned_to → NULL):
- * route it now, so the visitor's new queue row (276's trigger stamped the
- * return in that UPDATE) arrives at once instead of with their next message.
- * Only for a conversation waiting in the manual queue again (nobody has it,
- * open or pending, not spam, a return not announced yet, not the AI's again:
- * the AI answers its next message, and a handoff routes it) of a workspace
- * still in manual mode; anything else stays as the inbox left it. Routing
- * announces each return once (`queue_return_notice_at`), so the visitor's
- * next message posts nothing more. Two unassigns at once (a double click:
- * both PATCHes read the holder before either writes, so both get here) share
- * one run, which announces the return once. Never throws; null when it did
- * not route.
+ * A first-response timeout (the ticker): the operator routing gave this
+ * conversation to has not written in it within the workspace's timeout. It
+ * goes to the next operator who can take it (never back to them: they join
+ * the conversation's skip list), atomically and only while they still hold
+ * it. Nobody else can: it leaves them all the same and waits, unassigned —
+ * in every teammate's Unassigned list and the ticker's queue — for the next
+ * operator; the visitor is told they wait. Never throws.
  */
-export function routeQueueReturn(
+export async function reassignAfterFirstResponseTimeout(
   config: ServerConfig,
-  args: { workspaceId: string; conversationId: string },
-): Promise<RouteResult | null> {
-  return coalesce(`queue-return:${args.workspaceId}:${args.conversationId}`, () => routeQueueReturnNow(config, args));
+  args: { workspaceId: string; conversationId: string; from: string },
+  opts: RouteOptions = {},
+): Promise<RouteResult> {
+  try {
+    const { data: conv } = await getServiceClient(config)
+      .from('conversations')
+      .select('id, assigned_to, status, is_spam, contact_id, metadata')
+      .eq('id', args.conversationId)
+      .eq('workspace_id', args.workspaceId)
+      .maybeSingle();
+    const row = conv as { assigned_to?: string | null; status?: string | null; is_spam?: boolean | null; contact_id?: string | null; metadata?: Record<string, unknown> | null } | null;
+    if (!row) return { outcome: 'error', assignedTo: null };
+    if (row.assigned_to !== args.from || row.is_spam === true || (row.status !== 'open' && row.status !== 'pending')) {
+      return { outcome: 'not_routable', assignedTo: row.assigned_to ?? null };
+    }
+    const settings = await loadRoutingSettings(config, args.workspaceId, opts.cache);
+    if (settings.mode === 'manual') return { outcome: 'already_assigned', assignedTo: args.from };
+    const metadata = row.metadata || {};
+    const departmentId = typeof metadata.department_id === 'string' && metadata.department_id ? metadata.department_id : null;
+    const pick = await pickOperator(config, {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      contactId: row.contact_id ?? null,
+      departmentId,
+      settings,
+      cache: opts.cache,
+      reassignFrom: args.from,
+    });
+    if (pick.outcome === 'none') {
+      return await releaseAfterTimeout(config, { ...args, metadata, reason: pick.waitReason });
+    }
+    if (pick.outcome !== 'assigned' || !pick.userId) {
+      return { outcome: pick.outcome === 'error' ? 'error' : 'already_assigned', assignedTo: pick.userId };
+    }
+    const outcome = assignedOutcome('auto', settings.mode);
+    await announceAssignment(config, {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      metadata,
+      userId: pick.userId,
+      method: 'timeout_reassign',
+      outcome,
+      from: args.from,
+    });
+    return { outcome, assignedTo: pick.userId };
+  } catch (err) {
+    console.warn('[chat-routing] first-response reassignment failed:', err instanceof Error ? err.message : err);
+    return { outcome: 'error', assignedTo: null };
+  }
 }
 
-async function routeQueueReturnNow(
+/**
+ * The timeout's other end: nobody can take the chat over, so it leaves the
+ * member who did not answer (chat_routing_release: only while they still
+ * hold it; they join its skip list) and waits for the next operator. The
+ * inboxes hear it, the timeline records it (`unassigned`, method
+ * timeout_release), and the visitor is told they wait — nobody online, or in
+ * the queue.
+ */
+async function releaseAfterTimeout(
   config: ServerConfig,
-  args: { workspaceId: string; conversationId: string },
+  a: { workspaceId: string; conversationId: string; from: string; metadata: Record<string, unknown>; reason: WaitReason },
+): Promise<RouteResult> {
+  const { data, error } = await getServiceClient(config).rpc('chat_routing_release', {
+    p_workspace_id: a.workspaceId,
+    p_conversation_id: a.conversationId,
+    p_from: a.from,
+    p_reason: a.reason,
+  });
+  if (error) {
+    console.warn('[chat-routing] chat_routing_release failed:', error.message);
+    return { outcome: 'error', assignedTo: null };
+  }
+  if (data !== true && firstRow<{ chat_routing_release?: unknown }>(data)?.chat_routing_release !== true) {
+    // Someone else has it by now (or it closed): nothing to release.
+    return { outcome: 'already_assigned', assignedTo: null };
+  }
+  try {
+    await publishOperatorEvent(config, {
+      kind: 'conversation_updated',
+      conversation_id: a.conversationId,
+      workspace_id: a.workspaceId,
+      actor_id: null,
+      changes: { assigned_to: { from: a.from, to: null } },
+      reason: 'timeout_released',
+    });
+  } catch { /* best-effort */ }
+  void recordConversationEvent(config, {
+    workspaceId: a.workspaceId,
+    conversationId: a.conversationId,
+    eventType: 'unassigned',
+    actorType: 'system',
+    actorId: null,
+    payload: { from: a.from, to: null, method: 'timeout_release' },
+  });
+  if (a.reason === 'all_busy') {
+    await insertRoutingSystemMessage(
+      config, a.workspaceId, a.conversationId,
+      "Everyone on our team is busy right now. You're in the queue and we'll reply here as soon as someone is free.",
+      { kind: 'routing_in_queue', reason: 'all_busy' },
+    );
+  } else {
+    await insertRoutingSystemMessage(
+      config, a.workspaceId, a.conversationId,
+      await resolveNoAgentVisitorBody(config, a.workspaceId, a.conversationId, a.metadata),
+      {
+        kind: 'routing_no_agent_available',
+        reason: 'nobody_online',
+        ...(isBotProvider(String(a.metadata.channel || '')) ? { channel_delivery_skip: 'true' } : {}),
+      },
+      !isBotProvider(String(a.metadata.channel || '')),
+    );
+  }
+  await tagOutcome(
+    config, a.workspaceId, a.conversationId, a.metadata,
+    a.reason === 'all_busy' ? 'all_agents_busy' : 'no_eligible_agent',
+  );
+  return { outcome: a.reason === 'all_busy' ? 'all_agents_busy' : 'no_eligible_agent', assignedTo: null };
+}
+
+// ─── New human-bound conversations ────────────────────────────────────────
+
+/**
+ * Whether an AI will answer the visitor's next message, so the conversation
+ * is left to the AI (its handoff routes it): the platform gate, the
+ * workspace's AI switch and mode, and for "auto-reply when operators are
+ * offline" the same availability the AI engine reads. A thread a person
+ * already took, or one handed off, is never the AI's. An unreadable setting
+ * leaves it to the AI, as before.
+ */
+export async function aiWillAnswer(
+  config: ServerConfig,
+  workspaceId: string,
+  metadata: Record<string, unknown>,
+  platformAiOff?: boolean,
+): Promise<boolean> {
+  if (platformAiOff === true) return false;
+  const state = typeof metadata.ai_state === 'string' ? metadata.ai_state : null;
+  if (state === 'needs_human' || state === 'human_assigned' || state === 'human_active') return false;
+  try {
+    if (platformAiOff === undefined) {
+      const { isAutoAnswerAllowedForWorkspace } = await import('./ai-agent/platformGuards.js');
+      if ((await isAutoAnswerAllowedForWorkspace(config, workspaceId)).allowed !== true) return false;
+    }
+    const { data, error } = await getServiceClient(config)
+      .from('ai_agent_settings')
+      .select('enabled, mode')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (error) return true;
+    const settings = data as { enabled?: boolean | null; mode?: string | null } | null;
+    if (!settings || settings.enabled !== true) return false;
+    if (settings.mode === 'auto_reply_always' || settings.mode === 'auto_reply_until_human_joins') return true;
+    if (settings.mode === 'auto_reply_when_offline') {
+      const { getOperatorAvailability } = await import('./ai-agent/availability.js');
+      return (await getOperatorAvailability(config, workspaceId)).state === 'offline';
+    }
+    // off, suggest_only: the AI never answers the visitor.
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * A visitor message landed (widget /message, channel inbound): route the
+ * conversation now when nobody has it and no AI will answer it — AI off
+ * (the default), suggest-only, or auto-reply-when-offline while the team is
+ * online. While the AI answers, its handoff routes it as before. When the
+ * workspace's pre-chat asks for details the visitor has not given yet,
+ * routing waits for the form, and routes anyway two minutes later (the
+ * ticker). Runs once at a time per conversation; never throws; null when it
+ * did not route.
+ *
+ * Before that, what this message changes about who has the conversation:
+ *   - a thread the AI holds but will not answer leaves the AI's queue for
+ *     the team's (R-02: it sat in the AI tab, out of the Inbox, with no
+ *     notification, while the AI only drafted suggestions);
+ *   - a resolved thread the visitor started again (the lifecycle reopened it
+ *     — `reopened` — or the widget's reopen did before this message: the
+ *     stamp endConversationThread left) may be told its routing notices
+ *     again, and keeps its operator only when they could take it as a new
+ *     chat right now (R-17, keepsReopenedConversation);
+ *   - an operator who left the workspace, was suspended, lost the Inbox or
+ *     whose seat the plan paused no longer holds it (R-03).
+ * A conversation that loses its operator so is routed like any other.
+ */
+export function routeHumanBoundConversation(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean },
 ): Promise<RouteResult | null> {
+  return coalesce(`route-human:${args.workspaceId}:${args.conversationId}`, () => routeHumanBoundConversationNow(config, args));
+}
+
+async function routeHumanBoundConversationNow(
+  config: ServerConfig,
+  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean },
+): Promise<RouteResult | null> {
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .select('assigned_to, status, is_spam, metadata')
+      .eq('id', args.conversationId)
+      .eq('workspace_id', args.workspaceId)
+      .maybeSingle();
+    const conv = data as { assigned_to?: string | null; status?: string | null; is_spam?: boolean | null; metadata?: Record<string, unknown> | null } | null;
+    if (!conv || conv.is_spam === true) return null;
+    if (conv.status !== 'open' && conv.status !== 'pending') return null;
+    let metadata = conv.metadata || {};
+    const endedAt = typeof metadata.routing_thread_ended_at === 'string' ? metadata.routing_thread_ended_at : null;
+    const reopened = args.reopened === true || !!endedAt;
+    if (reopened && (metadata.routing_notice_sent === true || endedAt)) {
+      const reset = { routing_notice_sent: false, routing_thread_ended_at: null };
+      await patchConversationMetadata(config, args.conversationId, reset, args.workspaceId);
+      metadata = { ...metadata, ...reset };
+    }
+    let aiAnswers: boolean | null = null;
+    if (metadata.ai_state === 'ai_managed') {
+      aiAnswers = await aiWillAnswer(config, args.workspaceId, metadata, args.platformAiOff);
+      if (!aiAnswers) metadata = await handOverFromAi(config, args.workspaceId, args.conversationId, metadata);
+    }
+    if (conv.assigned_to) {
+      const keep = reopened
+        ? await keepsReopenedConversation(config, {
+          workspaceId: args.workspaceId, conversationId: args.conversationId, userId: conv.assigned_to, endedAt,
+        })
+        : await assigneeMayKeep(config, args.workspaceId, conv.assigned_to);
+      if (keep) return null;
+      const released = await releaseAssignee(config, {
+        workspaceId: args.workspaceId,
+        conversationId: args.conversationId,
+        from: conv.assigned_to,
+        method: reopened ? 'reopen_release' : 'assignee_unavailable',
+      });
+      if (!released) return null;
+    }
+    // Waiting for the pre-chat form: the form, or the ticker, routes it.
+    if (metadata.routing_pending === true) return null;
+    if (aiAnswers === null) aiAnswers = await aiWillAnswer(config, args.workspaceId, metadata, args.platformAiOff);
+    if (aiAnswers) return null;
+    if (await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId)) {
+      await deferRoutingForPrechat(config, args.workspaceId, args.conversationId);
+      return { outcome: 'routing_deferred', assignedTo: null };
+    }
+    return await routeConversationToOperator(config, { workspaceId: args.workspaceId, conversationId: args.conversationId });
+  } catch (err) {
+    console.warn('[chat-routing] routeHumanBoundConversation failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The AI holds the thread but will not answer it: it is the team's now —
+ * out of the AI's queue (the Inbox hides `ai_managed` threads, and the
+ * phones are not told about them), as a plain human conversation. Returns
+ * the metadata as patched.
+ */
+async function handOverFromAi(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  metadata: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const patch = { ai_state: null, managed_by_ai: false, ai_managed_by_ai: false };
+  if (!(await patchConversationMetadata(config, conversationId, patch, workspaceId))) return metadata;
+  try {
+    await publishOperatorEvent(config, {
+      kind: 'conversation_updated',
+      conversation_id: conversationId,
+      workspace_id: workspaceId,
+      actor_id: null,
+      reason: 'ai_not_answering',
+    });
+  } catch { /* best-effort */ }
+  return { ...metadata, ...patch };
+}
+
+/** Whether the plan has paused this member's seat (the shared 60 s lock state; unreadable = no). */
+async function seatPaused(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
+  try {
+    return isMemberLocked(await resolveLockState(config, workspaceId, ['member']), userId);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the operator holding a conversation still may: a member of the
+ * workspace, not suspended, in a role with an Inbox, seat not paused. An
+ * unreadable answer keeps them (nothing changes on a hiccup).
+ */
+async function assigneeMayKeep(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
+  try {
+    const member = await resolveChatRoutingMember(config, workspaceId, userId);
+    if (!member || member.suspended || !canUseInbox(member.role)) return false;
+    return !(await seatPaused(config, workspaceId, userId));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Whether the member holds fewer open and pending (non-spam) conversations
+ * than their capacity, this one aside — the count chat_route_claim makes.
+ * Unknown: true.
+ */
+async function underCapacity(config: ServerConfig, workspaceId: string, userId: string, conversationId: string): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const [{ data: member }, { data: ws }, load] = await Promise.all([
+    sb.from('workspace_members').select('max_concurrent_chats').eq('workspace_id', workspaceId).eq('user_id', userId).maybeSingle(),
+    sb.from('widget_settings').select('default_max_concurrent_chats').eq('workspace_id', workspaceId).maybeSingle(),
+    sb.from('conversations').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+      .eq('assigned_to', userId)
+      .in('status', ['open', 'pending'])
+      .eq('is_spam', false)
+      .neq('id', conversationId),
+  ]);
+  if (load.error || typeof load.count !== 'number') return true;
+  const own = (member as { max_concurrent_chats?: unknown } | null)?.max_concurrent_chats;
+  const fallback = clampInt((ws as { default_max_concurrent_chats?: unknown } | null)?.default_max_concurrent_chats, 1, 50, 5);
+  const cap = own === null || own === undefined ? fallback : clampInt(own, 1, 50, fallback);
+  return load.count < cap;
+}
+
+/**
+ * A resolved conversation the visitor wrote into again keeps its operator
+ * only when they could take it as a new chat right now (DECISIONS §4
+ * "Reopened conversation", the same test as returning a visitor to their
+ * previous operator): "Return returning visitors to the same operator" on
+ * (the workspace's and the Super Admin's switches), the thread ended within
+ * that window (`endedAt`; unknown: within), a member who receives chats in a
+ * role that does, not suspended, seat not paused, active right now (not
+ * away), and under capacity. Otherwise the conversation is routed afresh.
+ */
+async function keepsReopenedConversation(
+  config: ServerConfig,
+  a: { workspaceId: string; conversationId: string; userId: string; endedAt: string | null },
+): Promise<boolean> {
+  try {
+    const settings = await loadRoutingSettings(config, a.workspaceId);
+    if (!settings.lastAgentEnabled) return false;
+    const ended = a.endedAt ? Date.parse(a.endedAt) : NaN;
+    if (Number.isFinite(ended) && Date.now() - ended > settings.lastAgentWindowDays * DAY_MS) return false;
+    const member = await resolveChatRoutingMember(config, a.workspaceId, a.userId);
+    if (!member || member.suspended || !member.receivesChats || !isRoutableChatRole(member.role)) return false;
+    if (await seatPaused(config, a.workspaceId, a.userId)) return false;
+    const presence = await readRoutingPresence(config, a.workspaceId, [a.userId]);
+    if (routingTierOf(presence.get(a.userId)) !== 'active') return false;
+    return await underCapacity(config, a.workspaceId, a.userId, a.conversationId);
+  } catch {
+    return true;
+  }
+}
+
+/** Why a conversation lost its operator without anyone handing it on: the `unassigned` event's `method`. */
+export type ReleaseMethod =
+  | 'reopen_release'
+  | 'assignee_unavailable'
+  | 'member_removed'
+  | 'member_suspended'
+  | 'member_role_changed';
+
+/**
+ * Takes the conversation from `from` — only while they still hold it — and
+ * says so: the inboxes (realtime) and the timeline (`unassigned`, actor
+ * system, with the method). Returns whether it was taken. Never throws.
+ */
+async function releaseAssignee(
+  config: ServerConfig,
+  a: { workspaceId: string; conversationId: string; from: string; method: ReleaseMethod },
+): Promise<boolean> {
+  try {
+    const { data, error } = await getServiceClient(config)
+      .from('conversations')
+      .update({ assigned_to: null })
+      .eq('id', a.conversationId)
+      .eq('workspace_id', a.workspaceId)
+      .eq('assigned_to', a.from)
+      .select('id');
+    if (error || !Array.isArray(data) || data.length === 0) return false;
+    announceRelease(config, { ...a, conversationIds: [a.conversationId] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The inboxes and the timeline hear that these conversations no longer have `from`. */
+function announceRelease(
+  config: ServerConfig,
+  a: { workspaceId: string; conversationIds: string[]; from: string; method: ReleaseMethod },
+): void {
+  for (const conversationId of a.conversationIds) {
+    void publishOperatorEvent(config, {
+      kind: 'conversation_updated',
+      conversation_id: conversationId,
+      workspace_id: a.workspaceId,
+      actor_id: null,
+      changes: { assigned_to: { from: a.from, to: null } },
+      reason: a.method,
+    }).catch(() => undefined);
+    void recordConversationEvent(config, {
+      workspaceId: a.workspaceId,
+      conversationId,
+      eventType: 'unassigned',
+      actorType: 'system',
+      actorId: null,
+      payload: { from: a.from, to: null, method: a.method },
+    });
+  }
+}
+
+/** Routing does not offer this conversation to `userId` again (null: forget the list). Best-effort. */
+export async function skipForConversation(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  userId: string | null,
+): Promise<void> {
+  try {
+    const { error } = await getServiceClient(config).rpc('chat_routing_skip', {
+      p_workspace_id: workspaceId,
+      p_conversation_id: conversationId,
+      p_user_id: userId,
+    });
+    // Before 278b (42883): routing may offer it to them again, as before.
+    if (error && error.code !== '42883') console.warn('[chat-routing] chat_routing_skip failed:', error.message);
+  } catch { /* best-effort */ }
+}
+
+/**
+ * A conversation nobody has any more — handed back by an operator, its
+ * operator removed or suspended, sent to a department — goes to the next
+ * operator now, in every mode (R-20: an unassign in auto or round robin used
+ * to leave it with nobody, the visitor still reading "X joined"): auto and
+ * round robin give it out, manual puts it back in the queue (once per
+ * return, 276's stamp). `skipUserId`: whoever let it go is not offered it
+ * again for this chat. The visitor is told what happens next once more ("Y
+ * joined", or that they wait). Left alone: assigned again meanwhile, spam,
+ * resolved or closed, or a thread the AI will answer (its handoff routes
+ * it). Two at once share one run. Never throws; null when it did not route.
+ */
+export interface RerouteArgs {
+  workspaceId: string;
+  conversationId: string;
+  skipUserId?: string | null;
+  /**
+   * An operator sent it to a department: a person is wanted whatever the AI
+   * would do, so the AI's settings are not consulted (a thread the AI holds
+   * is handed off first).
+   */
+  forPerson?: boolean;
+}
+
+export function rerouteConversation(config: ServerConfig, args: RerouteArgs): Promise<RouteResult | null> {
+  return coalesce(`reroute:${args.workspaceId}:${args.conversationId}`, () => rerouteConversationNow(config, args));
+}
+
+async function rerouteConversationNow(config: ServerConfig, args: RerouteArgs): Promise<RouteResult | null> {
   try {
     const { data } = await getServiceClient(config)
       .from('conversations')
@@ -826,25 +1635,135 @@ async function routeQueueReturnNow(
     if (conv.status !== 'open' && conv.status !== 'pending') return null;
     const metadata = conv.metadata && typeof conv.metadata === 'object' && !Array.isArray(conv.metadata)
       ? conv.metadata as Record<string, unknown> : {};
-    if (metadata.routing_outcome !== 'manual_queue' || !queueReturnToAnnounce(metadata)) return null;
-    if (metadata.ai_state === 'ai_managed') return null;
-    if ((await loadAssignmentConfig(config, args.workspaceId)).mode !== 'manual') return null;
-    return await routeConversationToOperator(config, args);
+    if (args.forPerson) {
+      if (metadata.ai_state === 'ai_managed') {
+        await patchConversationMetadata(config, args.conversationId, {
+          ai_state: 'needs_human',
+          managed_by_ai: false,
+          ai_managed_by_ai: false,
+          ai_handoff_requested: true,
+          ai_handoff_reason: 'manual',
+          ai_handoff_at: new Date().toISOString(),
+        }, args.workspaceId);
+      }
+    } else {
+      if (metadata.ai_state === 'ai_managed') return null;
+      if (await aiWillAnswer(config, args.workspaceId, metadata)) return null;
+    }
+    if (args.skipUserId) await skipForConversation(config, args.workspaceId, args.conversationId, args.skipUserId);
+    if (metadata.routing_notice_sent === true) {
+      await patchConversationMetadata(config, args.conversationId, { routing_notice_sent: false }, args.workspaceId);
+    }
+    return await routeConversationToOperator(config, { workspaceId: args.workspaceId, conversationId: args.conversationId });
   } catch (err) {
-    console.warn('[chat-routing] routeQueueReturn failed:', err instanceof Error ? err.message : err);
+    console.warn('[chat-routing] rerouteConversation failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }
 
 /**
- * Manual-mode claim: the first operator to press "claim" in the Unassigned
- * inbox owns the conversation. Atomic — two operators claiming at the same
- * instant can never both succeed.
+ * Conversations released together (a member removed or suspended) whose last
+ * activity is older than this are not routed at once: they wait in the
+ * Unassigned list, and routing runs when their visitor writes again. Stale
+ * open threads must not fill the team's capacity.
+ */
+export const RELEASE_REROUTE_MAX_AGE_MS = DAY_MS;
+
+/**
+ * A member's open and pending conversations were released
+ * (chat_routing_release_member, migration 278b — by offboarding itself, or
+ * by releaseMemberChats): the inboxes and the timeline hear it, and those
+ * active within the last day are routed again (rerouteConversation). Never
+ * throws.
+ */
+export async function afterMemberReleased(
+  config: ServerConfig,
+  a: { workspaceId: string; userId: string; conversationIds: string[]; method: ReleaseMethod },
+): Promise<void> {
+  const ids = Array.from(new Set(a.conversationIds.filter((id) => typeof id === 'string' && id)));
+  if (!ids.length) return;
+  announceRelease(config, { workspaceId: a.workspaceId, conversationIds: ids, from: a.userId, method: a.method });
+  try {
+    const { data } = await getServiceClient(config)
+      .from('conversations')
+      .select('id, updated_at')
+      .eq('workspace_id', a.workspaceId)
+      .in('id', ids);
+    const since = Date.now() - RELEASE_REROUTE_MAX_AGE_MS;
+    for (const row of (data || []) as Array<{ id: string; updated_at?: string | null }>) {
+      const at = row.updated_at ? Date.parse(row.updated_at) : NaN;
+      if (!Number.isFinite(at) || at < since) continue;
+      await rerouteConversation(config, { workspaceId: a.workspaceId, conversationId: row.id });
+    }
+  } catch (err) {
+    console.warn('[chat-routing] re-routing released chats failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+/** The conversation ids of a set-returning RPC's rows (`{conversation_id}` objects, or bare ids). */
+export function releasedConversationIds(data: unknown): string[] {
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  return rows
+    .map((row) => (typeof row === 'string' ? row : (row as { conversation_id?: unknown } | null)?.conversation_id))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+/**
+ * A member was suspended, or moved to a role without an Inbox: their open
+ * and pending conversations go back to routing (R-03: they stayed theirs,
+ * invisible to colleagues and notifying nobody). Returns the released ids.
+ * Before 278b: nothing (as before). Never throws.
+ */
+export async function releaseMemberChats(
+  config: ServerConfig,
+  a: { workspaceId: string; userId: string; method: ReleaseMethod },
+): Promise<string[]> {
+  try {
+    const { data, error } = await getServiceClient(config).rpc('chat_routing_release_member', {
+      p_workspace_id: a.workspaceId,
+      p_user_id: a.userId,
+    });
+    if (error) {
+      if (error.code !== '42883') console.warn('[chat-routing] chat_routing_release_member failed:', error.message);
+      return [];
+    }
+    const ids = releasedConversationIds(data);
+    await afterMemberReleased(config, { ...a, conversationIds: ids });
+    return ids;
+  } catch (err) {
+    console.warn('[chat-routing] releasing a member\'s chats failed:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/**
+ * Whether anyone could take a chat right now (routable, receiving chats,
+ * present: the routing tiers; capacity not counted). The AI's handoff line
+ * uses it so it never says "connecting you" when routing will find nobody.
+ * Never throws; true when unknown.
+ */
+export async function anyChatOperatorPresent(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  try {
+    const { team } = await resolveChatRoutingPool(config, workspaceId, null);
+    if (!team.length) return false;
+    const presence = await readRoutingPresence(config, workspaceId, team);
+    const now = Date.now();
+    return team.some((id) => routingTierOf(presence.get(id), now) !== null);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Taking an unassigned conversation by hand (the apps' and the web Inbox's
+ * "claim" / "take"): the first operator owns it. Atomic — two operators
+ * claiming at the same instant can never both succeed; the holder claiming
+ * again is told it is theirs.
  */
 export async function claimConversationManually(
   config: ServerConfig,
   args: { workspaceId: string; conversationId: string; userId: string },
-): Promise<{ claimed: boolean; assignedTo: string | null }> {
+): Promise<{ claimed: boolean; assignedTo: string | null; alreadyHeld?: boolean }> {
   const sb = getServiceClient(config);
   const ok = await tryClaim(config, args.workspaceId, args.conversationId, args.userId);
   if (!ok) {
@@ -854,7 +1773,10 @@ export async function claimConversationManually(
       .eq('id', args.conversationId)
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
-    return { claimed: false, assignedTo: (data as { assigned_to?: string | null } | null)?.assigned_to || null };
+    const holder = (data as { assigned_to?: string | null } | null)?.assigned_to || null;
+    // Theirs already (a second click, or routing gave it to them): nothing to announce.
+    if (holder === args.userId) return { claimed: true, assignedTo: holder, alreadyHeld: true };
+    return { claimed: false, assignedTo: holder };
   }
   const agentName = await resolveAgentDisplayName(config, args.userId);
   await insertRoutingSystemMessage(
@@ -868,6 +1790,7 @@ export async function claimConversationManually(
       conversation_id: args.conversationId,
       workspace_id: args.workspaceId,
       actor_id: args.userId,
+      changes: { assigned_to: { from: null, to: args.userId } },
       reason: 'manual_claim',
     });
   } catch { /* best-effort */ }

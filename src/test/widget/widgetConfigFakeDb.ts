@@ -230,7 +230,7 @@ export function widgetScenarioTables(opts: ScenarioOptions): Record<string, Row[
       { id: 'plan-free', slug: 'free', entitlements: {} },
     ],
     feature_flags: [{ workspace_id: WS, key: 'widget_prechat_phone', enabled: true }],
-    workspace_members: [{ workspace_id: WS, user_id: USER_A }, { workspace_id: WS, user_id: USER_B }],
+    workspace_members: [{ workspace_id: WS, user_id: USER_A, role: 'owner' }, { workspace_id: WS, user_id: USER_B, role: 'agent' }],
     user_availability_prefs: [
       { user_id: USER_A, workspace_id: null, force_offline: false, available_when_using_app: true, schedule_enabled: false, timezone: 'UTC', weekly_schedule: null },
       { user_id: USER_B, workspace_id: null, force_offline: true, available_when_using_app: true, schedule_enabled: false, timezone: 'UTC', weekly_schedule: null },

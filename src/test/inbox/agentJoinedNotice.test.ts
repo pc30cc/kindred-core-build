@@ -15,20 +15,22 @@ import { readFileSync } from 'node:fs';
  * Unassigned → assigned is somebody joining, and the visitor is the person
  * who has been waiting to hear it.
  */
-const ROUTE = readFileSync('server/routes/conversations.ts', 'utf8');
+// The PATCH route's (and the transfer route's) notice is written by the
+// assignment service they share.
+const ROUTE = readFileSync('server/services/conversationAssignment.ts', 'utf8');
 const ROUTING = readFileSync('server/services/chatRouting.ts', 'utf8');
 const WIDGET_RENDERER = readFileSync('public/widget/presentation-default.js', 'utf8');
 
-/** The assignment-notice block inside the PATCH route. */
+/** The assignment-notice block (postAssignmentNotice). */
 function noticeBlock(): string {
-  const start = ROUTE.indexOf('const isJoin = !before.assigned_to && !!parsed.data.assigned_to;');
+  const start = ROUTE.indexOf('const isJoin = !a.from && !!a.to;');
   expect(start, 'the join/transfer split must exist').toBeGreaterThan(-1);
-  return ROUTE.slice(start, ROUTE.indexOf('normalizedTags !== undefined', start));
+  return ROUTE.slice(start, ROUTE.indexOf('/**', start));
 }
 
 describe('a conversation nobody held is JOINED, not transferred', () => {
   it('splits the two cases on whether anyone held it before', () => {
-    expect(noticeBlock()).toContain('const isJoin = !before.assigned_to && !!parsed.data.assigned_to;');
+    expect(noticeBlock()).toContain('const isJoin = !a.from && !!a.to;');
   });
 
   it('files a join under the same kind auto-routing already emits', () => {
@@ -48,13 +50,13 @@ describe('a conversation nobody held is JOINED, not transferred', () => {
     // being UNASSIGNED stays inbox-only now.
     expect(joinMeta).not.toContain('internal');
     const transferMeta = block.slice(block.indexOf(': {'));
-    expect(transferMeta).toContain("kind: parsed.data.assigned_to ? 'conversation_transferred' : 'conversation_unassigned'");
+    expect(transferMeta).toContain("kind: a.to ? 'conversation_transferred' : 'conversation_unassigned'");
   });
 
   it('pushes it to the widget in real time', () => {
     // Otherwise the visitor only learns who joined on their next reload.
     const block = noticeBlock();
-    expect(block).toContain('if (noticeRow && (isJoin || !!parsed.data.assigned_to)) {');
+    expect(block).toContain('if (noticeRow && a.to) {');
     expect(block).toContain('publishConversationEvent(');
     expect(block).toContain('buildMessageEnvelope({');
   });

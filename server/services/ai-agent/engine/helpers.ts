@@ -50,6 +50,15 @@ export async function resolveHandoffAckMessage(
       offline = await isWorkspaceUnreachable(config, workspaceId, locale);
     } catch { /* keep the availability verdict */ }
   }
+  // Routing is the third: "connecting you" is said only when routing can
+  // actually give the visitor someone now (a member who receives chats is
+  // here), never followed by "nobody is online" a second later.
+  if (!offline) {
+    try {
+      const { anyChatOperatorPresent } = await import('../../chatRouting.js');
+      offline = !(await anyChatOperatorPresent(config, workspaceId));
+    } catch { /* keep the availability verdict */ }
+  }
   if (!offline) return onlineMessage;
 
   // Channel conversations (Telegram) speak the operator-authored offline copy

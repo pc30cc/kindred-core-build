@@ -4,8 +4,9 @@
  * Architecture
  *   - GET /api/availability  → { prefs, status }
  *   - PATCH /api/availability → autosaves on every toggle/edit
- *   - The server computes `status` (online/offline + reason) so the
- *     "You are currently seen as: …" banner stays authoritative.
+ *   - The server computes `status` (online/offline + reason) with the
+ *     resolver the widget and chat routing read, so the "You are currently
+ *     seen as: …" banner says what visitors see.
  *
  * UX rules (mirrored from screenshot, but more refined):
  *   - Force offline takes precedence over everything.
@@ -261,7 +262,7 @@ export function PersonalAvailabilityPanel() {
     onError: (err: Error) => {
       setSavingKey(null);
       toast({
-        title: t('availabilityPage.saveError' as any) as string,
+        title: t('availabilityPage.saveError'),
         description: err.message,
         variant: 'destructive',
       });
@@ -317,7 +318,7 @@ export function PersonalAvailabilityPanel() {
   if (isError) {
     return (
       <Card className="border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
-        {(error as Error)?.message || (t('availabilityPage.loadError' as any) as string)}
+        {(error as Error)?.message || (t('availabilityPage.loadError'))}
       </Card>
     );
   }
@@ -332,10 +333,10 @@ export function PersonalAvailabilityPanel() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-foreground">
-            {t('availabilityPage.title' as any)}
+            {t('availabilityPage.title')}
           </h2>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            {t('availabilityPage.subtitle' as any)}
+            {t('availabilityPage.subtitle')}
           </p>
         </div>
         {headerStatus}
@@ -368,7 +369,7 @@ export function PersonalAvailabilityPanel() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm">
-                {t('availabilityPage.seenAs' as any)}{' '}
+                {t('availabilityPage.seenAs')}{' '}
                 <span
                   className={cn(
                     'font-semibold',
@@ -378,15 +379,18 @@ export function PersonalAvailabilityPanel() {
                   )}
                 >
                   {status.state === 'online'
-                    ? (t('availabilityPage.online' as any) as string)
-                    : (t('availabilityPage.offline' as any) as string)}
+                    ? (t('availabilityPage.online'))
+                    : (t('availabilityPage.offline'))}
                 </span>
               </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                {t('availabilityPage.statusHelp' as any)}{' '}
+                {t('availabilityPage.statusHelp')}{' '}
                 <span className="font-medium text-foreground">
-                  {t('availabilityPage.statusHelpTeam' as any)}
+                  {t('availabilityPage.statusHelpTeam')}
                 </span>
+              </p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground" data-availability-routing-note>
+                {t('availabilityPage.routingNote')}
               </p>
             </div>
           </div>
@@ -397,21 +401,23 @@ export function PersonalAvailabilityPanel() {
       <Card className="overflow-hidden">
         <div className="px-6 divide-y divide-border/60">
           <ToggleRow
-            label={t('availabilityPage.forceOffline' as any) as string}
-            description={t('availabilityPage.forceOfflineDesc' as any) as string}
+            label={t('availabilityPage.forceOffline')}
+            description={t('availabilityPage.forceOfflineDesc')}
             checked={prefs.force_offline}
             onChange={(v) => update('force_offline', v)}
           />
+          {/* available_when_using_app: off = invisible (customerAvailability.ts),
+              whatever the schedule; the label says that. */}
           <ToggleRow
-            label={t('availabilityPage.availableWhenUsingApp' as any) as string}
-            description={t('availabilityPage.availableWhenUsingAppDesc' as any) as string}
+            label={t('availabilityPage.availableWhenUsingApp')}
+            description={t('availabilityPage.availableWhenUsingAppDesc')}
             checked={prefs.available_when_using_app}
             disabled={prefs.force_offline}
             onChange={(v) => update('available_when_using_app', v)}
           />
           <ToggleRow
-            label={t('availabilityPage.scheduleEnabled' as any) as string}
-            description={t('availabilityPage.scheduleEnabledDesc' as any) as string}
+            label={t('availabilityPage.scheduleEnabled')}
+            description={t('availabilityPage.scheduleEnabledDesc')}
             checked={prefs.schedule_enabled}
             disabled={prefs.force_offline}
             onChange={(v) => update('schedule_enabled', v)}
@@ -423,7 +429,7 @@ export function PersonalAvailabilityPanel() {
       <Card className="p-6">
         <SectionHeader
           icon={Clock}
-          title={t('availabilityPage.days' as any) as string}
+          title={t('availabilityPage.days')}
           hint={`${num(DAY_KEYS.filter((d) => prefs.weekly_schedule[d]?.enabled).length)}/${num(7)}`}
         />
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -431,7 +437,7 @@ export function PersonalAvailabilityPanel() {
             <DayChip
               key={day}
               day={day}
-              label={(t(`availabilityPage.dayShort.${day}` as any) as string) || DAY_LABELS_DEFAULT[day]}
+              label={(t(`availabilityPage.dayShort.${day}` as Parameters<typeof t>[0])) || DAY_LABELS_DEFAULT[day]}
               active={!!prefs.weekly_schedule[day]?.enabled}
               disabled={scheduleLocked}
               onToggle={() =>
@@ -446,8 +452,8 @@ export function PersonalAvailabilityPanel() {
       <Card className="p-6">
         <SectionHeader
           icon={Globe2}
-          title={t('availabilityPage.timezone' as any) as string}
-          hint={String(t('availabilityPage.timezoneHint' as any)).replace('{offset}', formatTzOffset(prefs.timezone))}
+          title={t('availabilityPage.timezone')}
+          hint={String(t('availabilityPage.timezoneHint')).replace('{offset}', formatTzOffset(prefs.timezone))}
         />
         <div className="mt-4 max-w-sm">
           <Select
@@ -473,8 +479,8 @@ export function PersonalAvailabilityPanel() {
       <Card className="p-6">
         <SectionHeader
           icon={Clock}
-          title={t('availabilityPage.hours' as any) as string}
-          hint={t('availabilityPage.hoursHint' as any) as string}
+          title={t('availabilityPage.hours')}
+          hint={t('availabilityPage.hoursHint')}
         />
         <div className="mt-4 space-y-3">
           {DAY_KEYS.map((day) => {
@@ -492,11 +498,11 @@ export function PersonalAvailabilityPanel() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="min-w-[68px] text-sm font-medium">
-                      {(t(`availabilityPage.dayShort.${day}` as any) as string) || DAY_LABELS_DEFAULT[day]}
+                      {(t(`availabilityPage.dayShort.${day}` as Parameters<typeof t>[0])) || DAY_LABELS_DEFAULT[day]}
                     </span>
                     {!active && (
                       <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10.5px] uppercase tracking-wide text-muted-foreground">
-                        {t('availabilityPage.off' as any)}
+                        {t('availabilityPage.off')}
                       </span>
                     )}
                   </div>
@@ -513,7 +519,7 @@ export function PersonalAvailabilityPanel() {
                     }}
                     className="h-7 text-[12px]"
                   >
-                    <Plus className="me-1 h-3 w-3" /> {t('availabilityPage.addInterval' as any)}
+                    <Plus className="me-1 h-3 w-3" /> {t('availabilityPage.addInterval')}
                   </Button>
                 </div>
                 {(cfg?.intervals?.length ?? 0) > 0 && (
@@ -523,9 +529,9 @@ export function PersonalAvailabilityPanel() {
                         key={idx}
                         interval={it}
                         disabled={intervalsLocked || !active}
-                        fromLabel={t('availabilityPage.from' as any) as string}
-                        toLabel={t('availabilityPage.to' as any) as string}
-                        removeLabel={t('availabilityPage.removeInterval' as any) as string}
+                        fromLabel={t('availabilityPage.from')}
+                        toLabel={t('availabilityPage.to')}
+                        removeLabel={t('availabilityPage.removeInterval')}
                         rtl={rtl}
                         onChange={(next) => {
                           const list = cfg.intervals.slice();

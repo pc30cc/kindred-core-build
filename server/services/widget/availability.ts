@@ -16,6 +16,9 @@
  *  1. business_hours.enabled === false  =>  the WORKSPACE imposes no time
  *     restriction. It does NOT force 'online': operator manual status
  *     (offline/invisible) and personal schedules still decide reachability.
+ *     Only the members who receive chats count (customerAvailability.ts:
+ *     the owner and team roles, not suspended or seat-paused, "Receive
+ *     chats automatically" on); staff never make the widget online.
  *     Workspaces with zero members fail open.
 
  *  2. The client never decides availability. Bootstrap and message endpoints

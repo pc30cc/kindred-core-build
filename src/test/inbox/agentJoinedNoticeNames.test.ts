@@ -21,6 +21,8 @@ const db = vi.hoisted(() => ({
   profiles: [] as Row[],
   inserted: [] as Row[],
   conversation: null as Row | null,
+  /** The assignee's presence as routing reads it (R-27: "joined" only while they are here). */
+  presence: 'active' as string,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({
@@ -76,6 +78,15 @@ vi.mock('../../../server/services/conversationMetadata.js', () => ({ patchConver
 vi.mock('../../../server/services/billing/locks/state.js', () => ({ resolveLockState: async () => ({}) }));
 vi.mock('../../../server/services/billing/locks/predicates.js', () => ({ isMemberLocked: () => false }));
 vi.mock('../../../server/services/conversationEvents.js', () => ({ recordConversationEvent: async () => {} }));
+vi.mock('../../../server/services/widget/operatorPresence.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/widget/operatorPresence.js')>()),
+  readRoutingPresence: async (_c: unknown, _ws: string, ids: string[]) =>
+    new Map(ids.map((id) => [id, { state: db.presence, lastActivityAt: Date.now() }])),
+}));
+vi.mock('../../../server/services/calls/departments.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/calls/departments.js')>()),
+  resolveChatRoutingMember: async () => ({ role: 'agent', suspended: false, receivesChats: true }),
+}));
 
 const { routeConversationToOperator, claimConversationManually } = await import('../../../server/services/chatRouting.js');
 const { createInvitation } = await import('../../../server/services/calls/invitations.js');
@@ -87,6 +98,7 @@ beforeEach(() => {
   db.profiles = [];
   db.inserted = [];
   db.conversation = null;
+  db.presence = 'active';
 });
 
 const joins = () => db.inserted.filter((r) => (r.metadata as Row | undefined)?.kind === 'routing_agent_joined');
@@ -118,6 +130,17 @@ describe('routing\'s join notice', () => {
     const [row] = joins();
     expect(row.body).toBe('A colleague joined the conversation.');
     expect((row.metadata as Row).agent_name).toBeNull();
+  });
+
+  it('says nothing about an operator who is not here (offline, or no panel open)', async () => {
+    db.conversation = { id: 'c1', assigned_to: OP, metadata: {} };
+    db.profiles = [{ id: OP, full_name: 'Sara' }];
+    for (const presence of ['offline', 'disconnected']) {
+      db.presence = presence;
+      const res = await routeConversationToOperator(config, { workspaceId: 'ws1', conversationId: 'c1' });
+      expect(res.outcome).toBe('already_assigned');
+    }
+    expect(joins()).toEqual([]);
   });
 
   it('never stores an English placeholder as a name', async () => {

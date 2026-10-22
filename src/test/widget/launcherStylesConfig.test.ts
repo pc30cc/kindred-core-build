@@ -134,11 +134,11 @@ describe('GET /config: the launcher', () => {
       const tt = t as Record<string, Array<Record<string, unknown>>>;
       // Rows newest first; the profiles in yet another order.
       tt.workspace_members = [
-        { workspace_id: WS, user_id: id(5), created_at: '2026-10-05T09:00:00+00:00' },
-        { workspace_id: WS, user_id: id(4), created_at: '2026-10-04T09:00:00+00:00' },
-        { workspace_id: WS, user_id: id(3), created_at: '2026-10-03T09:00:00+00:00' },
-        { workspace_id: WS, user_id: id(2), created_at: '2026-10-02T09:00:00+00:00' },
-        { workspace_id: WS, user_id: id(1), created_at: '2026-10-01T09:00:00+00:00' },
+        { workspace_id: WS, user_id: id(5), created_at: '2026-10-05T09:00:00+00:00', role: 'agent' },
+        { workspace_id: WS, user_id: id(4), created_at: '2026-10-04T09:00:00+00:00', role: 'agent' },
+        { workspace_id: WS, user_id: id(3), created_at: '2026-10-03T09:00:00+00:00', role: 'agent' },
+        { workspace_id: WS, user_id: id(2), created_at: '2026-10-02T09:00:00+00:00', role: 'agent' },
+        { workspace_id: WS, user_id: id(1), created_at: '2026-10-01T09:00:00+00:00', role: 'agent' },
       ];
       tt.profiles = [
         { id: id(4), full_name: 'سارا', email: 'sara@example.com', avatar_storage_key: null },

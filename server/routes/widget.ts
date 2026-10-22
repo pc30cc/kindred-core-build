@@ -161,7 +161,8 @@ import {
   readMessageReactions,
   setMessageReaction,
 } from '../services/messageReactions.js';
-import { readQueueStatus } from '../services/chatRouting.js';
+import { readQueueStatus, routeHumanBoundConversation } from '../services/chatRouting.js';
+import { publishVisitorRead } from '../services/visitorReadReceipts.js';
 import {
   VISITOR_REACTION_EMOJI,
   normalizeReactionEmoji,
@@ -1302,15 +1303,18 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
     }
     if (!owns) return res.status(404).json({ error: 'not found' });
 
-    await supabase
+    const readAt = new Date().toISOString();
+    const { error: readError } = await supabase
       .from('widget_conversation_reads')
       .upsert({
         workspace_id: workspaceId,
         conversation_id: conversationId,
         visitor_id: visitorId,
-        last_read_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_read_at: readAt,
+        updated_at: readAt,
       }, { onConflict: 'conversation_id,visitor_id' });
+    // The operator's "Seen" follows live (services/visitorReadReceipts.ts).
+    if (!readError) void publishVisitorRead(config, { workspaceId, conversationId, readAt });
 
     return res.json({ ok: true });
   } catch (err) {
@@ -2276,8 +2280,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         .maybeSingle();
       touchedStatus = typeof touched?.status === 'string' ? touched.status : null;
     }
+    let lifecycle: Awaited<ReturnType<typeof applyInboundConversationLifecycle>> | null = null;
     if (!duplicate && convId && insertedMsg?.id) {
-      await applyInboundConversationLifecycle(config, {
+      lifecycle = await applyInboundConversationLifecycle(config, {
         workspaceId,
         conversationId: convId,
         source: 'widget',
@@ -2328,6 +2333,21 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       } catch (e) {
         console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
       }
+    }
+
+    // Chat routing (package A): a conversation nobody has and no AI will
+    // answer gets an operator now, at this message — AI off, suggest-only,
+    // or auto-reply-when-offline while the team is online. Fire-and-forget,
+    // after the platform-off restore above (which rewrites the metadata), and
+    // skipped on a duplicate replay. See chatRouting.ts
+    // routeHumanBoundConversation.
+    if (!duplicate && convId && insertedMsg?.id) {
+      void routeHumanBoundConversation(config, {
+        workspaceId,
+        conversationId: convId,
+        platformAiOff,
+        reopened: lifecycle?.transition === 'reopened_resolved',
+      });
     }
 
     // Realtime: broadcast the visitor message to the inbox subscriber.

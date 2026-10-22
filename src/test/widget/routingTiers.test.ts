@@ -1,60 +1,65 @@
 /**
- * ROUTING TIERS — "active is ALWAYS preferred over away".
+ * ROUTING TIERS — "active is ALWAYS preferred over away", and away only while
+ * idle under 30 minutes (DECISIONS §4 e; R-11).
  *
  * The previous implementation merged active+away into one candidate list and
  * then sorted it by load (auto) or alphabetically-rotated it (round robin),
- * which silently destroyed the priority. These tests pin the two real tiers.
+ * which silently destroyed the priority; and an operator whose tab was open
+ * but who had left their desk hours ago still got chats. The pick inside a
+ * tier is chat_route_claim's (src/test/integration/chatRouting278.pg.test.ts);
+ * these tests pin the tiers the engine hands it.
  */
 import { describe, it, expect } from 'vitest';
 import {
+  AWAY_ROUTING_MAX_IDLE_MS,
+  routingTierOf,
   splitPresenceTiers,
-  orderTierCandidates,
-  rankAutoCandidates,
 } from '../../../server/services/chatRouting';
+import type { RoutingPresence } from '../../../server/services/widget/operatorPresence';
 
-const states = new Map<string, string | undefined>([
-  ['active-a', 'active'],
-  ['away-b', 'away'],
-  ['disconnected-c', 'disconnected'],
-  ['offline-d', 'offline'],
+const NOW = Date.parse('2026-10-21T10:00:00Z');
+const at = (msAgo: number) => NOW - msAgo;
+
+const presence = new Map<string, RoutingPresence>([
+  ['active-a', { state: 'active', lastActivityAt: at(60_000) }],
+  ['away-b', { state: 'away', lastActivityAt: at(10 * 60_000) }],
+  ['away-long-c', { state: 'away', lastActivityAt: at(AWAY_ROUTING_MAX_IDLE_MS) }],
+  ['away-unknown-d', { state: 'away', lastActivityAt: null }],
+  ['disconnected-e', { state: 'disconnected', lastActivityAt: at(30_000) }],
+  ['offline-f', { state: 'offline', lastActivityAt: at(30_000) }],
 ]);
 
-describe('splitPresenceTiers', () => {
-  it('keeps active and away in separate tiers and drops the rest', () => {
-    const t = splitPresenceTiers(
-      ['away-b', 'active-a', 'disconnected-c', 'offline-d', 'unknown-e'],
-      states,
-    );
-    expect(t.active).toEqual(['active-a']);
-    expect(t.away).toEqual(['away-b']);
+describe('routingTierOf', () => {
+  it('active is tier 1; away is tier 2 only while idle under 30 minutes', () => {
+    expect(routingTierOf(presence.get('active-a'), NOW)).toBe('active');
+    expect(routingTierOf(presence.get('away-b'), NOW)).toBe('away');
+    expect(routingTierOf(presence.get('away-long-c'), NOW)).toBeNull();
+    expect(routingTierOf({ state: 'away', lastActivityAt: at(AWAY_ROUTING_MAX_IDLE_MS - 1) }, NOW)).toBe('away');
+  });
+
+  it('an away operator whose last interaction is unknown (e.g. since a restart) stays tier 2', () => {
+    expect(routingTierOf(presence.get('away-unknown-d'), NOW)).toBe('away');
+  });
+
+  it('disconnected, offline and unknown operators get nothing', () => {
+    expect(routingTierOf(presence.get('disconnected-e'), NOW)).toBeNull();
+    expect(routingTierOf(presence.get('offline-f'), NOW)).toBeNull();
+    expect(routingTierOf(undefined, NOW)).toBeNull();
   });
 });
 
-describe('two-tier ordering', () => {
-  it('auto: a heavily loaded ACTIVE operator still beats an idle AWAY one', () => {
-    const t = splitPresenceTiers(['active-a', 'away-b'], states);
-    const load = new Map([['active-a', 8], ['away-b', 0]]);
-    // Old behaviour (merged then ranked) would have picked the away operator.
-    expect(rankAutoCandidates(['active-a', 'away-b'], load)[0]).toBe('away-b');
-    // New behaviour: tier 1 is exhausted first.
-    expect(orderTierCandidates(t.active, 'auto', null, load)[0]).toBe('active-a');
+describe('splitPresenceTiers', () => {
+  it('keeps active and away in separate tiers, in the given order, and drops the rest', () => {
+    const t = splitPresenceTiers(
+      ['away-unknown-d', 'away-b', 'active-a', 'away-long-c', 'disconnected-e', 'offline-f', 'nobody-g'],
+      presence,
+      NOW,
+    );
+    expect(t.active).toEqual(['active-a']);
+    expect(t.away).toEqual(['away-unknown-d', 'away-b']);
   });
 
-  it('round robin: the cursor rotates INSIDE the active tier only', () => {
-    const st = new Map<string, string | undefined>([
-      ['a', 'active'], ['b', 'active'], ['z', 'away'],
-    ]);
-    const t = splitPresenceTiers(['a', 'b', 'z'], st);
-    // Alphabetical rotation across the merged list would surface 'z'.
-    expect(orderTierCandidates(t.active, 'round_robin', 'a', new Map())).toEqual(['b', 'a']);
-    expect(orderTierCandidates(t.active, 'round_robin', 'b', new Map())).toEqual(['a', 'b']);
-    // The away tier is only ordered when tier 1 produced no claim.
-    expect(orderTierCandidates(t.away, 'round_robin', 'b', new Map())).toEqual(['z']);
-  });
-
-  it('away is used when there is no active operator at all', () => {
-    const t = splitPresenceTiers(['away-b', 'offline-d'], states);
-    expect(t.active).toEqual([]);
-    expect(orderTierCandidates(t.away, 'auto', null, new Map())).toEqual(['away-b']);
+  it('an empty pool is two empty tiers', () => {
+    expect(splitPresenceTiers([], presence, NOW)).toEqual({ active: [], away: [] });
   });
 });

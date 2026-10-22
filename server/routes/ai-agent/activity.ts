@@ -414,10 +414,13 @@ activityRouter.post(
     if (!auth) return;
 
     if (assign_to_me && !conv.assigned_to) {
+      // Only while nobody has it: a routing run or a colleague's claim may
+      // have just assigned it (the inbox's own take-over answers 409 then).
       await sb
         .from('conversations')
         .update({ assigned_to: auth.userId })
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+        .is('assigned_to', null);
     }
     await markHumanTakeover(config, {
       workspaceId,

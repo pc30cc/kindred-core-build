@@ -20,7 +20,7 @@ import { getKnowledgeStatus } from '../../services/ai-agent/retrieval.js';
 import { applyKbUnlockedFilter, resolveKbLock } from '../../services/knowledge-base/locks.js';
 import { listRuns } from '../../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../../services/ai/index.js';
-import { getOperatorAvailability } from '../../services/ai-agent/availability.js';
+import { describeOperatorAvailability } from '../../services/ai-agent/availability.js';
 import { buildOverview } from '../../services/ai-agent/overview.js';
 import { randomUUID } from 'crypto';
 import { uploadFile, deleteFile } from '../../services/storage/index.js';
@@ -358,7 +358,7 @@ assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
   };
   const ready = checks.ai_provider_configured && checks.has_knowledge && checks.module_enabled;
   const recentRuns = await listRuns(config, workspaceId, { limit: 5 }).catch(() => []);
-  const availability = await getOperatorAvailability(config, workspaceId, 'en').catch(() => null);
+  const availability = await describeOperatorAvailability(config, workspaceId).catch(() => null);
 
   // Phase 3.1 — automated inbox counts (best-effort).
   const sb = getServiceClient(config);

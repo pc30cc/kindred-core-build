@@ -127,6 +127,7 @@ import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
 import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
+import { startChatRoutingTicker } from './services/chatRoutingTicker.js';
 import { startAppReviewVisitorsTicker } from './services/appReview/visitorsTicker.js';
 import { startDatabaseBackupScheduler } from './services/backup/databaseBackup.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
@@ -976,6 +977,12 @@ const httpServer = app.listen(config.port, () => {
   // feature switched off, which is how it ships. See
   // server/services/notificationEmail/ticker.ts.
   startNotificationEmailTicker(config);
+
+  // Chat routing — waiting chats go to an operator as soon as one can take
+  // them, a pre-chat form never sent stops holding routing after 2 minutes,
+  // and an unanswered assignment moves on after the first-response timeout
+  // (every 30 s, leased). See server/services/chatRoutingTicker.ts.
+  startChatRoutingTicker(config);
 
   // The App Review demo's visitors, kept on the Visitors tab while that
   // account may sign in (migration 248). See

@@ -552,11 +552,12 @@ minutes. A **hand-back** (an operator unassigns a queued conversation, or a paus
 back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
 the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per
 return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back. The inbox's unassign
-(`PATCH /api/conversations/:id` with `assigned_to: null`) runs that routing at once (`routeQueueReturn`, after its
-internal «unassigned» notice), for a conversation waiting in the manual queue (not one the AI manages again: its next
-message is the AI's, and a handoff routes it) of a workspace still in mode `manual`; the visitor's next message then
-posts nothing more. Runs for one conversation at the same moment share one (`server/lib/inflight.ts` `coalesce`, per
-backend process), so a double-clicked unassign posts one queue row.
+(`PATCH /api/conversations/:id` with `assigned_to: null`) runs that routing at once (`rerouteConversation`, after its
+internal «unassigned» notice), in every mode since 2026-10-21 (auto and round robin give it to the next operator,
+never the one who let it go; manual puts it back in the queue), for a conversation nobody has that the AI will not
+answer (one the AI manages again: its next message is the AI's, and a handoff routes it); the visitor's next message
+then posts nothing more. The unassign itself applies only while the conversation is still with whoever the panel saw
+(409 `assignment_changed` otherwise), so a double-clicked unassign posts one queue row.
 
 **Away thread** (round 3, g4 f3): `POST /api/widget/offline-messages` takes `client_message_id` (8–64 characters;
 then any non-empty message up to the 5,000 characters `POST /message` takes, and the contact's stored name, email

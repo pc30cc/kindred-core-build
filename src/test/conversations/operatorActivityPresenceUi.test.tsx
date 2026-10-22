@@ -97,7 +97,8 @@ describe('Operator Activity page — live presence, no fake online time', () => 
     expect(screen.queryByText('Active days')).toBeNull();
     expect(screen.queryByText(/Last activity/)).toBeNull();
     const badges = [...document.querySelectorAll('[data-presence]')].map((b) => [b.getAttribute('data-presence'), b.textContent]);
-    expect(badges).toEqual([['active', 'Active'], ['away', 'Away'], ['disconnected', 'Not in the panel']]);
+    // The report does not say whether an away operator is idle or chose "Away from desk": its name covers both.
+    expect(badges).toEqual([['active', 'Active'], ['away', 'Idle or away from desk'], ['disconnected', 'Not in the panel']]);
     expect(screen.getByText(/Online time is not recorded\./)).toBeTruthy();
   });
 

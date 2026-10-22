@@ -159,6 +159,14 @@ export interface WidgetLivePreviewProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   settings: Record<string, any> | null | undefined;
   prechat?: WidgetPrechatSettings | null;
+  /**
+   * The Super Admin's pre-chat policy, `{ name, email, phone }` of
+   * prechat_<field>_policy (GET /api/widget-settings/platform/public), and
+   * whether the plan includes the workspace's own form
+   * (`widget_prechat_form`): the form drawn is the one the server asks.
+   */
+  prechatPolicy?: unknown;
+  prechatFormAllowed?: boolean;
   /** Workspace identity shown in every widget header. */
   workspaceName?: string;
   /** Platform identity used only by the powered-by footer. */
@@ -227,7 +235,7 @@ export interface WidgetLivePreviewProps {
 const CHAT_VIEWS: readonly PreviewView[] = ['chat', 'list', 'prechat', 'offline'];
 
 export function WidgetLivePreview({
-  settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
+  settings, prechat, prechatPolicy, prechatFormAllowed, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
   operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent, templateId, templateOptions,
   availabilityState, aiGreets, defaultWelcome, hiddenNote,
 }: WidgetLivePreviewProps) {
@@ -594,8 +602,9 @@ export function WidgetLivePreview({
         },
         { sender: 'visitor', senderType: 'visitor', body: sample.visitor, time: nowIso, status: 'seen' },
       ],
-      // The form as the server asks it (no row: name and email, required).
-      prechat: previewPrechatForm(prechat),
+      // The form as the server asks it: policy, plan, then the row (no row:
+      // the policy's defaults, name and email required).
+      prechat: previewPrechatForm(prechat, prechatPolicy, { planAllowsForm: prechatFormAllowed }),
       kbVm,
       kbArticleVms,
 
@@ -1267,7 +1276,7 @@ export function WidgetLivePreview({
     // via postMessage so the frame animates instead of being re-created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    settings, prechat, prechatPolicy, prechatFormAllowed, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     templateId, templateOptions,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
     smartScenario?.rtl, stageBackground, stageBar, isInternational, localKit, respokKit,

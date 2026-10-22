@@ -4,27 +4,31 @@
  * behaviour, the owner's offline message in the widget's language.
  */
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
+import { effectivePrechat } from '../../../../shared/prechatPolicy';
 
 type PrechatRow = Partial<Pick<WidgetPrechatSettings, 'ask_name' | 'ask_email' | 'ask_phone' | 'require_name' | 'require_email' | 'require_phone'>>;
 
 /**
- * The pre-chat form a visitor is asked, from the workspace's row: without a
- * row the server's (name and email, both required; widgetIdentity.ts), and a
- * field is required only while it is asked.
+ * The pre-chat form a visitor is asked, by the server's rule
+ * (shared/prechatPolicy.ts effectivePrechat, as /identity/me serves it): the
+ * Super Admin's policy (`{ name, email, phone }` of prechat_<field>_policy)
+ * forces a field on or off, a plan without `widget_prechat_form` drops the
+ * workspace's row (only forced fields are asked), without a row the
+ * policy's defaults (name and email, both required), and a field is
+ * required only while it is asked.
  */
-export function previewPrechatForm(row: PrechatRow | null | undefined): {
+export function previewPrechatForm(
+  row: PrechatRow | null | undefined,
+  policy?: unknown,
+  opts: { planAllowsForm?: boolean } = {},
+): {
   asked: Record<'name' | 'email' | 'phone', boolean>;
   required: Record<'name' | 'email' | 'phone', boolean>;
 } {
-  const r: PrechatRow = row ?? { ask_name: true, ask_email: true, ask_phone: false, require_name: true, require_email: true, require_phone: false };
-  const asked = { name: r.ask_name === true, email: r.ask_email === true, phone: r.ask_phone === true };
+  const form = effectivePrechat(row, policy, opts);
   return {
-    asked,
-    required: {
-      name: asked.name && r.require_name === true,
-      email: asked.email && r.require_email === true,
-      phone: asked.phone && r.require_phone === true,
-    },
+    asked: { name: form.ask_name, email: form.ask_email, phone: form.ask_phone },
+    required: { name: form.require_name, email: form.require_email, phone: form.require_phone },
   };
 }
 

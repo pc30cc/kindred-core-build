@@ -169,6 +169,32 @@ describe('the real states', () => {
     expect(panel.querySelectorAll('[aria-required="true"]').length).toBe(2);
   });
 
+  it('the pre-chat form follows the Super Admin\'s policy and the plan, as the server asks it', () => {
+    const row = { ask_name: true, require_name: true, ask_email: true, require_email: true, ask_phone: false, require_phone: false };
+    // Forced on: asked and required; forced off: never asked, whatever the row.
+    const policy = { name: 'default_on', email: 'force_off', phone: 'force_on' };
+    expect(previewPrechatForm(row, policy)).toEqual({
+      asked: { name: true, email: false, phone: true },
+      required: { name: true, email: false, phone: true },
+    });
+    // A plan without widget_prechat_form: the workspace's row does not apply,
+    // only what the Super Admin forces on is asked.
+    expect(previewPrechatForm(row, policy, { planAllowsForm: false })).toEqual({
+      asked: { name: false, email: false, phone: true },
+      required: { name: false, email: false, phone: true },
+    });
+    // No row: the policy's defaults (an email the policy turns off is not asked).
+    expect(previewPrechatForm(null, { name: 'default_on', email: 'default_off', phone: 'default_off' })).toEqual({
+      asked: { name: true, email: false, phone: false },
+      required: { name: true, email: false, phone: false },
+    });
+    // The frame draws that form: the phone asked and required, no email.
+    const { panel } = paint('default', { view: 'prechat', prechat: row as never, prechatPolicy: policy, prechatFormAllowed: true });
+    expect(panel.querySelector('#prechat-phone, [data-prechat="phone"], [data-field="phone"]')).not.toBeNull();
+    expect(panel.querySelector('#prechat-email, [data-prechat="email"], [data-field="email"]')).toBeNull();
+    expect(panel.querySelectorAll('[aria-required="true"]').length).toBe(2);
+  });
+
   it('the welcome: the owner\'s, else the one the server sends; none while the AI agent greets', () => {
     expect(paint('default', { view: 'list', settings: { widget_language: 'fa', welcome_message: 'خوش آمدید به فروشگاه' } }).raw)
       .toContain('"welcomeMessage":"خوش آمدید به فروشگاه"');

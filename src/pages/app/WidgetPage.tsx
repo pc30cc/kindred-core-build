@@ -342,6 +342,14 @@ function WidgetPageContent() {
       url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
     };
   }, [effectiveEnts, platformWidget, platformName, live]);
+  // The Super Admin's pre-chat policy (PrechatSection's lock badges read the
+  // same): with the plan's widget_prechat_form, the preview draws the form
+  // the server asks (shared/prechatPolicy.ts effectivePrechat).
+  const previewPrechatPolicy = useMemo(() => ({
+    name: platformWidget?.prechat_name_policy,
+    email: platformWidget?.prechat_email_policy,
+    phone: platformWidget?.prechat_phone_policy,
+  }), [platformWidget]);
   // The team /config sends visitors: the first four members to join, under
   // the names visitors read in the widget's language, online as visitors see
   // them (previewTeam.ts). Every preview of the page draws it.
@@ -1402,6 +1410,8 @@ function WidgetPageContent() {
               <WidgetLivePreview
                 settings={previewSettings}
                 prechat={prechat}
+                prechatPolicy={previewPrechatPolicy}
+                prechatFormAllowed={capAllowed('widget_prechat_form')}
                 workspaceName={workspace?.name || t('widgetPage.preview.brandFallback')}
                 platformName={platformName || t('widgetPage.preview.brandFallback')}
                 poweredBy={previewPoweredBy}

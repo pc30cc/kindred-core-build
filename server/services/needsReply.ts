@@ -109,8 +109,9 @@ export function isPermanentlyUndelivered(m: NeedsReplyMessage): boolean {
  *   • outbound and customer-facing (internal notes live in `conversation_notes`,
  *     a different table, and can never reach here),
  *   • carries content (text or attachment),
- *   • was not skipped by routing, and
- *   • is not in a terminal delivery-failure state.
+ *   • was not skipped by routing,
+ *   • is not in a terminal delivery-failure state, and
+ *   • is not the AI handing the conversation to a person.
  */
 export function isQualifiedCustomerFacingAnswer(m: NeedsReplyMessage): boolean {
   if (!REPLY_SENDER_TYPES.has(String(m.sender_type ?? ''))) return false;
@@ -121,7 +122,17 @@ export function isQualifiedCustomerFacingAnswer(m: NeedsReplyMessage): boolean {
   if (String(meta(m).channel_delivery_skip ?? '') === 'true') return false;
   // Transport gave up → the customer never received an answer.
   if (isPermanentlyUndelivered(m)) return false;
+  // The AI's hand-over line ("I'll connect you with a colleague",
+  // responder.ts `metadata.handoff`) promises a person; it answers nothing,
+  // so the customer is still waiting for that person.
+  if (isAiHandoffLine(m)) return false;
   return hasContent(m);
+}
+
+/** The AI's message that hands the conversation to a person. */
+function isAiHandoffLine(m: NeedsReplyMessage): boolean {
+  const handoff = meta(m).handoff;
+  return String(m.sender_type ?? '') === 'ai' && (handoff === true || handoff === 'true');
 }
 
 /** @deprecated Use {@link isQualifiedCustomerFacingAnswer}. */

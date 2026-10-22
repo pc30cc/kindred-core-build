@@ -42,8 +42,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createFakeDb, allowAllRpc, widgetScenarioTables, WS, type FakeDb } from './widgetConfigFakeDb';
 import { launcherChoiceFields, launcherChoiceOf, type LauncherTile } from '../../../shared/launcherStyles';
-import fa from '@/i18n/locales/fa';
-import en from '@/i18n/locales/en';
+import { widgetTextDefault } from '../../../shared/widgetTextDefaults';
 
 type Row = Record<string, unknown>;
 const holder = vi.hoisted(() => ({ db: null as unknown as FakeDb }));
@@ -181,7 +180,8 @@ const patch = async (body: Row) => { await resetCaches(); return call('PATCH', `
 
 /** A tile chosen on Widget → Appearance: each column it writes, saved through the PATCH as the page does. */
 async function chooseTile(tile: LauncherTile, row: Row, locale: 'fa' | 'en') {
-  const pillDefault = (locale === 'fa' ? fa : en).widgetPage.appearance.launcherPillDefault;
+  // The pill's text a style starts with, in the widget's language (shared/widgetTextDefaults.ts).
+  const pillDefault = widgetTextDefault('pill', locale);
   const statuses: number[] = [];
   for (const [field, value] of launcherChoiceFields(launcherChoiceOf(tile, row.fab_label as string | null, pillDefault), row.widget_template_options)) {
     statuses.push((await patch({ [field]: value })).status);
@@ -266,7 +266,7 @@ describe('the launcher\'s style: the tile → the PATCH → /config → the buil
   it.each(CASES)('$brand build, $edition edition: the pill with its default text', async ({ brand, edition, locale, kit }) => {
     const row = workspace(edition);
     expect(await chooseTile('pill', row, locale)).toEqual([200, 200]);
-    const text = (locale === 'fa' ? fa : en).widgetPage.appearance.launcherPillDefault;
+    const text = widgetTextDefault('pill', locale);
     expect(row).toMatchObject({ fab_shape: 'pill', fab_icon: 'chat', fab_label: text });
 
     const body = await configBody(brand, edition);

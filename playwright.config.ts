@@ -7,18 +7,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Resolve a Chromium that actually exists on this machine. CI installs the
- * browser that matches the pinned Playwright version; sandboxes and self-host
- * runners often carry a different build number, and Playwright would otherwise
- * fail with "Executable doesn't exist". PLAYWRIGHT_CHROMIUM_PATH always wins.
+ * browser that matches the pinned Playwright version (`playwright install
+ * chromium`, no PLAYWRIGHT_BROWSERS_PATH): nothing below is found there and
+ * Playwright uses its own. Sandboxes and self-host runners often carry a
+ * different build number, in PLAYWRIGHT_BROWSERS_PATH (e.g. /opt/pw-browsers)
+ * or /opt/ms-playwright, and Playwright would otherwise fail with "Executable
+ * doesn't exist". PLAYWRIGHT_CHROMIUM_PATH always wins.
  */
 function resolveChromium(): string | undefined {
   const explicit = process.env.PLAYWRIGHT_CHROMIUM_PATH;
   if (explicit) return explicit;
-  const root = '/opt/ms-playwright';
-  if (!existsSync(root)) return undefined;
-  for (const dir of readdirSync(root).filter((d) => d.startsWith('chromium-')).sort().reverse()) {
-    const candidate = path.join(root, dir, 'chrome-linux', 'chrome');
-    if (existsSync(candidate)) return candidate;
+  const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/ms-playwright']
+    .filter((root): root is string => !!root && root !== '0' && existsSync(root));
+  for (const root of roots) {
+    const builds = readdirSync(root)
+      .filter((d) => /^chromium-\d+$/.test(d))
+      .sort((a, b) => Number(b.slice('chromium-'.length)) - Number(a.slice('chromium-'.length)));
+    for (const dir of builds) {
+      for (const sub of ['chrome-linux', 'chrome-linux64']) {
+        const candidate = path.join(root, dir, sub, 'chrome');
+        if (existsSync(candidate)) return candidate;
+      }
+    }
   }
   return undefined;
 }

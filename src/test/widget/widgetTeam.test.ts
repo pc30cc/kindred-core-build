@@ -16,12 +16,28 @@ import {
   WIDGET_TEAM_NAME_FALLBACK,
   WIDGET_TEAM_SIZE,
   agentFaceInitial,
+  isWidgetTeamMember,
   onlineFirst,
   widgetTeamMembers,
   widgetTeamName,
 } from '../../../shared/widgetTeam';
 
 const row = (user_id: string, created_at: string | null) => ({ user_id, created_at });
+
+describe('the team: who receives chats', () => {
+  it('the owner and team members, not staff, a suspended member, one not receiving chats or a paused seat', () => {
+    for (const role of ['owner', 'agent', 'team_lead', 'support_agent', 'sales_agent']) {
+      expect(isWidgetTeamMember({ role }), role).toBe(true);
+    }
+    for (const role of ['admin', 'marketing_manager', 'seo_manager', 'analyst', 'developer', 'billing', 'viewer', null, undefined]) {
+      expect(isWidgetTeamMember({ role }), String(role)).toBe(false);
+    }
+    expect(isWidgetTeamMember({ role: 'agent', suspended_at: '2026-10-01T00:00:00Z' })).toBe(false);
+    expect(isWidgetTeamMember({ role: 'owner', receives_chats: false })).toBe(false);
+    expect(isWidgetTeamMember({ role: 'agent', receives_chats: null, seat_locked: false })).toBe(true);
+    expect(isWidgetTeamMember({ role: 'agent', seat_locked: true })).toBe(false);
+  });
+});
 
 describe('the team: the first four to join', () => {
   it('in the order they joined, whatever order the rows come in', () => {

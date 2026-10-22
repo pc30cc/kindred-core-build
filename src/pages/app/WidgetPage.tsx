@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from '@/i18n';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import {
   useWidgetSettings,
   useUpdateWidgetSettings,
   useUploadWidgetFabImage,
   useRemoveWidgetFabImage,
+  useWidgetAvailabilityNow,
+  useWidgetWelcome,
 } from '@/hooks/useWidgetSettings';
+import { useWorkspaceDomains } from '@/hooks/useWorkspaceDomains';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useWidgetPlatformPublicSettings } from '@/hooks/useWidgetPlatformSettings';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
@@ -20,9 +23,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Users } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
+import { ConversationAssignmentSection } from '@/components/app/widget/ConversationAssignmentSection';
+import { PlanReadOnlySection } from '@/components/app/widget/PlanReadOnlySection';
+import { WidgetSaveStatus } from '@/components/app/widget/WidgetSaveStatus';
+import { useWidgetSettingsDraft } from '@/hooks/useWidgetSettingsDraft';
 import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
@@ -36,9 +43,12 @@ import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useEdition } from '@/hooks/useEdition';
-import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
+import { widgetTextDefault, widgetTextValue } from '../../../shared/widgetTextDefaults';
+import { WIDGET_COLOR_PATTERN, widgetBrandColor, widgetOwnColor } from '../../../shared/widgetColor';
+import { useLauncherKit } from '@/components/app/widget/launcherKit';
+import { settingsErrorMessage } from '@/lib/settingsErrors';
+import { Link } from 'react-router-dom';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
-import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 import type { WidgetSettings } from '@/types/models';
 import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
@@ -88,6 +98,7 @@ function WidgetPageContent() {
   const { t, dir, locale } = useTranslation();
   const { isInternational, edition } = useEdition();
   const workspace = useCurrentWorkspace();
+  const wsPath = useWorkspacePath();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
   // The chat widget templates the Super Admin keeps enabled, and this
   // workspace's choice. A backend without the catalog answers 404: no picker.
@@ -107,29 +118,29 @@ function WidgetPageContent() {
   const removeFab = useRemoveWidgetFabImage(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  // The kit button visitors get: its size at 100% and its brand colour.
+  const launcherKit = useLauncherKit();
+  // Settings → Domains: the verified ones may show the widget too while the
+  // list of Widget → Domains names a site (public.ts getWorkspaceOriginRules).
+  const { data: workspaceDomains } = useWorkspaceDomains(workspace?.id);
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
   const [tab, setTab] = useState<string>('appearance');
   const [manualView, setManualView] = useState<PreviewView | null>(null);
+  // A colour being typed that is not #RRGGBB yet: shown, never saved.
+  const [colorDraft, setColorDraft] = useState<string | null>(null);
 
   /**
    * Local draft layer: every keystroke updates the preview instantly while the
-   * actual save is debounced, so typing stays smooth and nothing is lost.
+   * actual save is debounced, so typing stays smooth and nothing is lost. A
+   * refused save says why and puts the field back on the stored value;
+   * leaving the page sends what is still waiting (useWidgetSettingsDraft).
    */
-  const [draft, setDraft] = useState<Partial<WidgetSettings>>({});
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
-
-  const setField = (field: WidgetField, value: unknown, delay = 500) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
-    clearTimeout(timers.current[field]);
-    timers.current[field] = setTimeout(() => {
-      updateWidget.mutate({ [field]: value });
-    }, delay);
-  };
-
-  const live = useMemo<Partial<WidgetSettings>>(() => ({ ...widget, ...draft }), [widget, draft]);
+  const {
+    live, draft, setDraft, setField: setDraftField, setFields, saveNow, cancelField, status: saveStatus, errorMessage: saveError,
+  } = useWidgetSettingsDraft(workspace?.id, widget);
+  const setField = (field: WidgetField, value: unknown, delay = 500) => setDraftField(field, value, delay);
 
   /** Launcher (FAB) image upload — goes through the workspace storage provider. */
   const fabImageInputRef = useRef<HTMLInputElement>(null);
@@ -159,7 +170,7 @@ function WidgetPageContent() {
     } catch (err) {
       toast({
         title: t('widgetPage.appearance.fabImageFailed'),
-        description: err instanceof Error ? err.message : undefined,
+        description: settingsErrorMessage(err, t),
         variant: 'destructive',
       });
     } finally {
@@ -174,8 +185,8 @@ function WidgetPageContent() {
       await removeFab.mutateAsync();
     } catch (err) {
       toast({
-        title: t('widgetPage.appearance.fabImageFailed'),
-        description: err instanceof Error ? err.message : undefined,
+        title: t('widgetPage.appearance.fabImageRemoveFailed'),
+        description: settingsErrorMessage(err, t),
         variant: 'destructive',
       });
     } finally {
@@ -190,8 +201,20 @@ function WidgetPageContent() {
    * workspace has ever picked a locale.
    */
   const regionLocales = allowedLocales.length ? allowedLocales : ['en'];
-  const effectiveLocale =
-    live?.locale && regionLocales.includes(live.locale) ? live.locale : regionLocales[0];
+  // The language the widget speaks: one chosen (widget_language), else
+  // `locale` ('auto', or no value — the column's default — follows the
+  // visitor's browser among the platform's languages, then `locale`).
+  const widgetLanguageAuto = !live?.widget_language || live.widget_language === 'auto';
+  const chosenLanguage = !widgetLanguageAuto && regionLocales.includes(String(live?.widget_language)) ? String(live?.widget_language) : null;
+  const effectiveLocale = chosenLanguage
+    ?? (live?.locale && regionLocales.includes(live.locale) ? live.locale : regionLocales[0]);
+  // "Automatic" is a choice only where there are languages to choose from.
+  const offerAutoLanguage = canSwitchLanguage && regionLocales.length > 1;
+  // What visitors read while the welcome field is empty, and whether the AI
+  // agent greets instead (GET …/welcome, the rule /config uses).
+  const { data: welcomeInfo } = useWidgetWelcome(workspace?.id, effectiveLocale);
+  // Whether visitors find the team online now: the preview's home follows it.
+  const { data: availabilityNow } = useWidgetAvailabilityNow(workspace?.id, effectiveLocale);
   /** Plan truth for widget behaviours. Unknown key => allowed (server decides). */
   const capAllowed = (key: string): boolean => {
     if (!effectiveEnts) return true;
@@ -241,8 +264,8 @@ function WidgetPageContent() {
    * landing meanwhile would swallow a refusal and leave the draft on a
    * template the workspace does not wear.
    */
-  const chooseTemplate = (id: string | null) => {
-    clearTimeout(timers.current.widget_template_id);
+  const chooseTemplate = (id: string) => {
+    cancelField('widget_template_id');
     setDraft((prev) => ({ ...prev, widget_template_id: id }));
     updateWidget.mutateAsync({ widget_template_id: id }).then(
       () => {
@@ -273,6 +296,9 @@ function WidgetPageContent() {
         // Logo is no longer a widget-level URL field: fall back to the logo the
         // workspace owner uploaded in Settings → General.
         logo_url: live?.logo_url || branding?.logo_url || null,
+        // The colour /config sends: the widget's own, else the workspace
+        // branding's, else none (the brand's: shared/widgetColor.ts).
+        primary_color: widgetOwnColor(live?.primary_color) ?? widgetOwnColor(branding?.primary_color),
         locale: effectiveLocale,
         widget_language: effectiveLocale,
       };
@@ -281,6 +307,8 @@ function WidgetPageContent() {
         if (!capAllowed(def.capability)) base[column] = def.reset;
       }
       if (!capAllowed('widget_team_avatars')) base.show_team_avatars = false;
+      // The launcher image is a launcher style (widget_launcher_icon).
+      if (!capAllowed('widget_launcher_icon')) base.fab_image_url = null;
       if (!capAllowed('widget_workspace_logo')) base.show_logo = false;
       // Every preview (this page's and the smart studio's) renders the
       // template visitors would wear.
@@ -314,6 +342,14 @@ function WidgetPageContent() {
       url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
     };
   }, [effectiveEnts, platformWidget, platformName, live]);
+  // The Super Admin's pre-chat policy (PrechatSection's lock badges read the
+  // same): with the plan's widget_prechat_form, the preview draws the form
+  // the server asks (shared/prechatPolicy.ts effectivePrechat).
+  const previewPrechatPolicy = useMemo(() => ({
+    name: platformWidget?.prechat_name_policy,
+    email: platformWidget?.prechat_email_policy,
+    phone: platformWidget?.prechat_phone_policy,
+  }), [platformWidget]);
   // The team /config sends visitors: the first four members to join, under
   // the names visitors read in the widget's language, online as visitors see
   // them (previewTeam.ts). Every preview of the page draws it.
@@ -337,26 +373,6 @@ function WidgetPageContent() {
   );
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
-
-  /**
-   * Backfill localized texts: legacy workspaces store English seeds
-   * ("Chat with us" / "Hello! How can we help you?"). Once the widget speaks
-   * another language we write the localized default into the field itself, so
-   * the operator can read and edit real text instead of a grey placeholder.
-   */
-  const backfilled = useRef(false);
-  useEffect(() => {
-    if (backfilled.current || !widget || !effectiveLocale) return;
-    backfilled.current = true;
-    const patch: Record<string, string> = {};
-    if (!widgetTextValue(widget.welcome_message, 'welcome', effectiveLocale)) {
-      patch.welcome_message = widgetTextDefault('welcome', effectiveLocale);
-    }
-    if (!Object.keys(patch).length) return;
-    setDraft(prev => ({ ...patch, ...prev }));
-    updateWidget.mutate(patch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [widget, effectiveLocale]);
 
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
@@ -386,7 +402,11 @@ function WidgetPageContent() {
     [kbCategoriesData, kbCategoriesAny],
   );
 
-  const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
+  // The widget's own colour, or none: "Brand colour", what visitors then see
+  // (the workspace branding's colour, else the kit's; shared/widgetColor.ts).
+  const ownColor = widgetOwnColor(live?.primary_color);
+  const brandColor = widgetOwnColor(branding?.primary_color) ?? widgetBrandColor(launcherKit.kit);
+  const shownColor = ownColor ?? brandColor;
   /** Launcher size is stored as a percentage (80–140) or a multiplier (0.8–1.4). */
   const fabScalePct = (() => {
     const raw = Number(live?.fab_scale);
@@ -428,11 +448,14 @@ function WidgetPageContent() {
   };
 
 
-  // Named `handleToggle` for its main use (a switch), but the assignment-mode
-  // select goes through it too, so the value is not boolean-only.
-  const handleToggle = (field: WidgetField, value: boolean | string) => {
-    updateWidget.mutate({ [field]: value });
+  // Saves one switch at once (the assignment settings save through
+  // ConversationAssignmentSection). A refusal is reported
+  // (useWidgetSettingsDraft); the control shows the stored value.
+  const handleToggle = (field: WidgetField, value: boolean) => {
+    saveNow({ [field]: value } as Partial<WidgetSettings>);
   };
+
+  const verifiedDomains = (workspaceDomains || []).filter((d) => d.verified && d.domain);
 
   const handleAddDomain = () => {
     const normalized = normalizeDomainInput(newDomain);
@@ -453,20 +476,21 @@ function WidgetPageContent() {
       return;
     }
     setDomainError('');
-    updateWidget.mutate({ allowed_domains: [...current, normalized] });
+    saveNow({ allowed_domains: [...current, normalized] });
     setNewDomain('');
   };
 
   const handleRemoveDomain = (domain: string) => {
     const current = widget?.allowed_domains || [];
-    updateWidget.mutate({ allowed_domains: current.filter(d => d !== domain) });
+    saveNow({ allowed_domains: current.filter(d => d !== domain) });
   };
 
   /**
-   * Plan-driven tab visibility. A tab whose plan feature is denied is NOT
-   * rendered at all (no locked/blurred placeholder) — the matching workspace
-   * configuration is already ignored by the server runtime. `install` has no
-   * capability: it is the embed snippet and always available.
+   * Plan-driven tabs. A tab whose plan feature is denied stays in the strip,
+   * marked with a lock, and opens read-only with the upgrade notice
+   * (PlanReadOnlySection): after a downgrade the owner still sees what is
+   * stored instead of the tab vanishing. `install` has no capability: it is
+   * the embed snippet and always available.
    */
   const TAB_CAPABILITY: Record<string, string | null> = {
     appearance: 'widget_appearance',
@@ -477,7 +501,7 @@ function WidgetPageContent() {
     domains: 'widget_domain_allowlist',
     install: null,
   };
-  const visibleTabs = ([
+  const visibleTabs = [
     { v: 'appearance', icon: Palette },
     { v: 'behavior', icon: Settings },
     { v: 'smart', icon: Sparkles },
@@ -485,17 +509,17 @@ function WidgetPageContent() {
     { v: 'availability', icon: Clock },
     { v: 'domains', icon: Shield },
     { v: 'install', icon: Code },
-  ] as const).filter(({ v }) => {
+  ] as const;
+  const tabAllowed = (v: string): boolean => {
     const cap = TAB_CAPABILITY[v];
     return !cap || capAllowed(cap);
-  });
-  const visibleTabValues = visibleTabs.map((x) => x.v as string).join(',');
-
-  // Never leave the page on a tab the plan just removed.
-  useEffect(() => {
-    const values = visibleTabValues.split(',').filter(Boolean);
-    if (values.length && !values.includes(tab)) setTab(values[0]);
-  }, [visibleTabValues, tab]);
+  };
+  /** A tab's content, read-only with the upgrade notice when the plan does not include it. */
+  const planTab = (v: string, children: ReactNode) => (
+    <PlanReadOnlySection featureKey={TAB_CAPABILITY[v] || v} allowed={tabAllowed(v)}>
+      {children}
+    </PlanReadOnlySection>
+  );
 
 
   // Never render the tab strip before the plan snapshot is known — otherwise
@@ -522,6 +546,8 @@ function WidgetPageContent() {
               <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{t('widgetPage.title')}</h1>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('widgetPage.subtitle')}</p>
             </div>
+            <div className="flex shrink-0 items-center gap-3">
+            <WidgetSaveStatus status={saveStatus} errorMessage={saveError} />
             <div className="flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-secondary/50 px-3 py-1.5">
               <span
                 className={cn(
@@ -536,6 +562,7 @@ function WidgetPageContent() {
                 checked={widget?.enabled ?? false}
                 onCheckedChange={v => handleToggle('enabled', v)}
               />
+            </div>
             </div>
           </div>
 
@@ -553,6 +580,9 @@ function WidgetPageContent() {
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">{t(`widgetPage.tabs.${v}` as Parameters<typeof t>[0])}</span>
+                {!tabAllowed(v) && (
+                  <Lock className="h-3 w-3 shrink-0 opacity-70" aria-label={t('plan.locked.upgradeHint')} />
+                )}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -569,6 +599,7 @@ function WidgetPageContent() {
           <div className="space-y-6">
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
+              {planTab('appearance',
               <div className="space-y-4">
               {/* 0 — Widget template: the picker with two or more templates
                   enabled; with one, only that template's own options */}
@@ -591,32 +622,69 @@ function WidgetPageContent() {
                   <CardDescription>{t('widgetPage.tabDesc.appearance')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5 p-6 pt-0">
-                  {/* 1 — Display name (defaults to the workspace name) */}
+                  {/* 1 — Display name: empty follows the workspace name; the
+                      switch hides the line ('' — /config sends it as is). */}
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.appearance.brandName')}</Label>
-                    <Input
-                      value={typeof live?.brand_name === 'string'
-                        ? live.brand_name
-                        : (workspace?.name || '')}
-                      onChange={e => setField('brand_name', e.target.value)}
-                      placeholder={workspace?.name || t('widgetPage.appearance.brandNamePlaceholder')}
-                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <Label htmlFor="widget-brand-name" className="text-xs font-medium">{t('widgetPage.appearance.brandName')}</Label>
+                      <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        {t('widgetPage.appearance.brandNameShow')}
+                        <Switch
+                          checked={live?.brand_name !== ''}
+                          onCheckedChange={(v) => setField('brand_name', v ? null : '', 0)}
+                          aria-label={t('widgetPage.appearance.brandNameShow')}
+                        />
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        id="widget-brand-name"
+                        disabled={live?.brand_name === ''}
+                        value={typeof live?.brand_name === 'string' ? live.brand_name : ''}
+                        onChange={e => setField('brand_name', e.target.value === '' ? null : e.target.value)}
+                        maxLength={200}
+                        placeholder={workspace?.name || t('widgetPage.appearance.brandNamePlaceholder')}
+                      />
+                      {typeof live?.brand_name === 'string' && live.brand_name !== '' && (
+                        <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setField('brand_name', null, 0)}>
+                          {t('widgetPage.appearance.useDefault')}
+                        </Button>
+                      )}
+                    </div>
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.brandNameHint')}</p>
                   </div>
 
-                  {/* 2 — Reply-time note */}
+                  {/* 2 — Reply-time note: empty is the widget's own note (it
+                      follows whether the team is online); the switch hides it. */}
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
-                    <Input
-                      disabled={!capAllowed('widget_reply_time_text')}
-                      value={capAllowed('widget_reply_time_text')
-                        ? (typeof live?.reply_time_text === 'string'
-                            ? live.reply_time_text
-                            : t('widgetPage.appearance.replyTimeDefault'))
-                        : ''}
-                      onChange={e => setField('reply_time_text', e.target.value)}
-                      placeholder={t('widgetPage.appearance.replyTimeDefault')}
-                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <Label htmlFor="widget-reply-time" className="text-xs font-medium">{t('widgetPage.preview.replyTimeLabel')}</Label>
+                      {capAllowed('widget_reply_time_text') && (
+                        <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                          {t('widgetPage.preview.replyTimeShow')}
+                          <Switch
+                            checked={live?.reply_time_text !== ''}
+                            onCheckedChange={(v) => setField('reply_time_text', v ? null : '', 0)}
+                            aria-label={t('widgetPage.preview.replyTimeShow')}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        id="widget-reply-time"
+                        disabled={!capAllowed('widget_reply_time_text') || live?.reply_time_text === ''}
+                        value={capAllowed('widget_reply_time_text') && typeof live?.reply_time_text === 'string' ? live.reply_time_text : ''}
+                        onChange={e => setField('reply_time_text', e.target.value === '' ? null : e.target.value)}
+                        maxLength={500}
+                        placeholder={t('widgetPage.appearance.replyTimeDefault')}
+                      />
+                      {capAllowed('widget_reply_time_text') && typeof live?.reply_time_text === 'string' && live.reply_time_text !== '' && (
+                        <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setField('reply_time_text', null, 0)}>
+                          {t('widgetPage.appearance.useDefault')}
+                        </Button>
+                      )}
+                    </div>
 
                     {capAllowed('widget_reply_time_text') ? (
                       <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.replyTimeHint')}</p>
@@ -625,57 +693,111 @@ function WidgetPageContent() {
                     )}
                   </div>
 
-                  {/* 3 — Welcome message */}
+                  {/* 3 — Welcome message: the owner's own, else (empty) what the
+                      placeholder shows, the text /config sends then. Opening the
+                      page writes nothing. The seeds count as unset only in the
+                      stored value: what is being typed stays as typed (an owner
+                      typing "How can we help you?" keeps it), with a note that
+                      visitors read the default for it. */}
                   <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
+                    <Label htmlFor="widget-welcome" className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
+                      id="widget-welcome"
                       disabled={!capAllowed('widget_welcome_message')}
-                      value={capAllowed('widget_welcome_message')
-                        ? widgetTextValue(live?.welcome_message, 'welcome', effectiveLocale)
-                        : widgetTextDefault('welcome', effectiveLocale)}
-                      onChange={e => setField('welcome_message', e.target.value)}
+                      value={!capAllowed('widget_welcome_message') ? ''
+                        : 'welcome_message' in draft ? (draft.welcome_message ?? '')
+                          : widgetTextValue(widget?.welcome_message, 'welcome')}
+                      onChange={e => setField('welcome_message', e.target.value.trim() ? e.target.value : null)}
+                      maxLength={2000}
                       rows={3}
-                      placeholder={widgetTextDefault('welcome', effectiveLocale)}
+                      placeholder={welcomeInfo?.default_text || widgetTextDefault('welcome', effectiveLocale)}
                     />
-                    {!capAllowed('widget_welcome_message') && (
+                    {capAllowed('widget_welcome_message') ? (
+                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.welcomeHint')}</p>
+                    ) : (
                       <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
+                    {capAllowed('widget_welcome_message') && typeof draft.welcome_message === 'string'
+                      && draft.welcome_message.trim() !== '' && !widgetTextValue(draft.welcome_message, 'welcome') && (
+                      <p data-welcome-seed-note className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.welcomeSeedHint')}</p>
+                    )}
+                    {welcomeInfo?.ai_greeting && (
+                      <p data-welcome-ai-note className="flex items-start gap-1.5 rounded-md border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] text-muted-foreground">
+                        <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <span>{t('widgetPage.appearance.welcomeAiNote')}</span>
+                      </p>
                     )}
                   </div>
 
 
-                  {/* 4 — Primary + shadow colour */}
+                  {/* 4 — The widget's colour: "Brand colour" (none of its own,
+                      NULL) or #RRGGBB (shared/widgetColor.ts). */}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label className="text-xs font-medium">{t('widget.primaryColor')}</Label>
+                      <Label htmlFor="widget-color" className="text-xs font-medium">{t('widget.primaryColor')}</Label>
                       <div className="flex gap-2">
                         <Input
                           type="color"
-                          value={primaryColor}
-                          onChange={e => setField('primary_color', e.target.value)}
+                          value={shownColor.toLowerCase()}
+                          onChange={e => { setColorDraft(null); setField('primary_color', e.target.value.toUpperCase()); }}
+                          aria-label={t('widget.primaryColor')}
                           className="h-10 w-12 shrink-0 cursor-pointer p-1"
                         />
                         <Input
-                          value={primaryColor}
+                          id="widget-color"
+                          value={colorDraft ?? ownColor ?? ''}
                           dir="ltr"
-                          onChange={e => setField('primary_color', e.target.value)}
+                          maxLength={7}
+                          placeholder={t('widgetPage.appearance.colorBrand')}
+                          aria-invalid={colorDraft !== null && !WIDGET_COLOR_PATTERN.test(colorDraft.trim())}
+                          aria-describedby="widget-color-hint"
+                          onChange={(e) => {
+                            const typed = e.target.value;
+                            const v = typed.trim();
+                            if (!v) { setColorDraft(null); setField('primary_color', null); return; }
+                            if (WIDGET_COLOR_PATTERN.test(v)) { setColorDraft(null); setField('primary_color', v.toUpperCase()); return; }
+                            // Not a colour yet (being typed): shown, not saved.
+                            setColorDraft(typed);
+                          }}
                           className="text-start font-mono text-xs"
                         />
                       </div>
                       <div data-swatches className="flex flex-wrap gap-1.5 pt-1">
-                        {['#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#111827'].map((c) => (
+                        <button
+                          type="button"
+                          data-swatch-brand
+                          aria-label={t('widgetPage.appearance.colorBrand')}
+                          aria-pressed={!ownColor}
+                          title={t('widgetPage.appearance.colorBrand')}
+                          onClick={() => { setColorDraft(null); setField('primary_color', null, 0); }}
+                          className={cn(
+                            'flex h-6 items-center gap-1 rounded-full border-2 px-1.5 text-[10px] font-medium transition-transform hover:scale-105',
+                            !ownColor ? 'border-foreground' : 'border-border/70',
+                          )}
+                        >
+                          <span className="h-3.5 w-3.5 rounded-full" style={{ background: launcherKit.kit === 'iran' && brandColor === widgetBrandColor('iran') ? 'linear-gradient(140deg,#22D3B4,#0B7D6C)' : brandColor }} aria-hidden />
+                          {t('widgetPage.appearance.colorBrand')}
+                        </button>
+                        {/* Real colours only: the seeded #3B82F6 is "Brand colour" on
+                            the wire, so the blue here is its neighbour. */}
+                        {['#2563EB', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#111827'].map((c) => (
                           <button
                             key={c}
                             type="button"
-                            aria-label={c}
-                            onClick={() => setField('primary_color', c, 0)}
+                            aria-label={t('widgetPage.appearance.colorSwatch', { hex: c })}
+                            aria-pressed={ownColor === c}
+                            onClick={() => { setColorDraft(null); setField('primary_color', c, 0); }}
                             className={cn(
                               'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
-                              primaryColor.toLowerCase() === c.toLowerCase() ? 'border-foreground' : 'border-transparent',
+                              ownColor === c ? 'border-foreground' : 'border-transparent',
                             )}
                             style={{ background: c }}
                           />
                         ))}
                       </div>
+                      <p id="widget-color-hint" className={cn('text-[11px]', colorDraft !== null ? 'text-destructive' : 'text-muted-foreground')} role={colorDraft !== null ? 'alert' : undefined}>
+                        {colorDraft !== null ? t('widgetPage.appearance.colorInvalid') : t('widgetPage.appearance.colorBrandHint')}
+                      </p>
                     </div>
                     {/* The launcher shadow is derived from the primary colour —
                         no separate shadow setting. */}
@@ -698,18 +820,31 @@ function WidgetPageContent() {
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widgetPage.appearance.language')}</Label>
+                      {/* The widget's language (widget_language): automatic (the
+                          visitor's browser, among the platform's languages, else
+                          `locale`) or one language, which also becomes `locale`. */}
                       <Select
-                        value={effectiveLocale}
+                        value={offerAutoLanguage && widgetLanguageAuto ? 'auto' : effectiveLocale}
                         disabled={!canSwitchLanguage}
-                        onValueChange={v => setField('locale', v, 0)}
+                        onValueChange={v => (v === 'auto'
+                          ? setField('widget_language', 'auto', 0)
+                          : setFields({ widget_language: v, locale: v }, { delay: 0 }))}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
+                          {offerAutoLanguage && (
+                            <SelectItem value="auto">{t('widgetPage.appearance.languageAuto')}</SelectItem>
+                          )}
                           {regionLocales.map((l) => (
                             <SelectItem key={l} value={l}>{LOCALE_LABELS[l] || l}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      {offerAutoLanguage && widgetLanguageAuto && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('widgetPage.appearance.languageAutoHint', { language: LOCALE_LABELS[effectiveLocale] || effectiveLocale })}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -720,6 +855,7 @@ function WidgetPageContent() {
                       disabled={!capAllowed('widget_launcher_label')}
                       value={capAllowed('widget_launcher_label') ? (live?.fab_label || '') : ''}
                       onChange={e => setField('fab_label', e.target.value)}
+                      maxLength={100}
                       placeholder={t(isInternational ? 'widgetPage.appearance.fabLabelPlaceholderIntl' : 'widgetPage.appearance.fabLabelPlaceholder')}
                     />
                     {capAllowed('widget_launcher_label') ? (
@@ -737,8 +873,9 @@ function WidgetPageContent() {
                       shape={capAllowed('widget_launcher_icon') ? live?.fab_shape : 'circle'}
                       icon={capAllowed('widget_launcher_icon') ? live?.fab_icon : 'chat'}
                       label={capAllowed('widget_launcher_label') ? live?.fab_label : ''}
-                      primaryColor={live?.primary_color || branding?.primary_color}
+                      primaryColor={ownColor ?? widgetOwnColor(branding?.primary_color)}
                       initial={launcherLetter}
+                      widgetLocale={effectiveLocale}
                       international={isInternational}
                       logoDirection={chatTemplateOptionKeys(previewTemplate.id).includes('logoDirection')
                         ? (previewTemplate.options.logoDirection === 'open' ? 'open' : 'thread')
@@ -752,7 +889,7 @@ function WidgetPageContent() {
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-medium">{t('widgetPage.appearance.fabScale')}</Label>
                         <span className="font-mono text-[11px] text-muted-foreground" dir="ltr">
-                          {Math.round(56 * (capAllowed('widget_launcher_size') ? fabScalePct : 100) / 100)}px
+                          {Math.round(launcherKit.baseSize * (capAllowed('widget_launcher_size') ? fabScalePct : 100) / 100)}px
                         </span>
                       </div>
                       <Slider
@@ -775,7 +912,8 @@ function WidgetPageContent() {
                           <button
                             key={key}
                             type="button"
-                            aria-label={key}
+                            aria-label={t(`widgetPage.appearance.icon${key.charAt(0).toUpperCase()}${key.slice(1)}` as Parameters<typeof t>[0])}
+                            aria-pressed={(capAllowed('widget_launcher_icon') ? (live?.fab_icon || 'chat') : 'chat') === key}
                             disabled={!capAllowed('widget_launcher_icon')}
                             onClick={() => setField('fab_icon', key, 0)}
                             className={cn(
@@ -834,7 +972,7 @@ function WidgetPageContent() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={fabImageUploading}
+                          disabled={fabImageUploading || !capAllowed('widget_launcher_icon')}
                           onClick={() => fabImageInputRef.current?.click()}
                         >
                           {t('widgetPage.appearance.fabImageUpload')}
@@ -851,7 +989,11 @@ function WidgetPageContent() {
                           </Button>
                         )}
                       </div>
-                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabImageHint')}</p>
+                      {capAllowed('widget_launcher_icon') ? (
+                        <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabImageHint')}</p>
+                      ) : (
+                        <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                      )}
                     </div>
                   </div>
 
@@ -864,6 +1006,7 @@ function WidgetPageContent() {
                       disabled={!capAllowed('widget_composer_placeholder')}
                       value={capAllowed('widget_composer_placeholder') ? (live?.placeholder_text || '') : ''}
                       onChange={e => setField('placeholder_text', e.target.value)}
+                      maxLength={500}
                       placeholder={t('widgetPage.preview.inputPlaceholder')}
                     />
                     {!capAllowed('widget_composer_placeholder') && (
@@ -887,6 +1030,17 @@ function WidgetPageContent() {
                       <p className="text-[11px] text-muted-foreground">
                         {t('widgetPage.appearance.logoHint')}
                       </p>
+                      {/* A logo link from an older version wins over the uploaded
+                          logo (/config); it can only be removed. */}
+                      {typeof widget?.logo_url === 'string' && widget.logo_url.trim() !== '' && (
+                        <div data-logo-link className="space-y-1 rounded-md border border-warning/30 bg-warning/5 px-2.5 py-2 text-[11px]">
+                          <p>{t('widgetPage.appearance.logoLinkNotice')}</p>
+                          <p dir="ltr" className="break-all font-mono text-muted-foreground">{widget.logo_url}</p>
+                          <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => saveNow({ logo_url: null })}>
+                            {t('widgetPage.appearance.logoLinkClear')}
+                          </Button>
+                        </div>
+                      )}
                       {!capAllowed('widget_workspace_logo') && (
                         <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
                       )}
@@ -901,7 +1055,11 @@ function WidgetPageContent() {
                     <div className="space-y-1">
                       <Label className="text-sm">{t('widgetPage.appearance.showTeamAvatars')}</Label>
                       <p className="text-[11px] text-muted-foreground">
-                        {t('widgetPage.appearance.showTeamAvatarsHint')}
+                        {t(previewTemplate.id.startsWith('t1')
+                          ? 'widgetPage.appearance.showTeamAvatarsHintT1'
+                          : previewTemplate.id.startsWith('t2')
+                            ? 'widgetPage.appearance.showTeamAvatarsHintT2'
+                            : 'widgetPage.appearance.showTeamAvatarsHint')}
                       </p>
                       {!capAllowed('widget_team_avatars') && (
                         <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
@@ -915,31 +1073,39 @@ function WidgetPageContent() {
                   </div>
 
                   {/* Platform credit footer. Always ON by default; only a plan
-                      granting `widget_powered_by_toggle` may switch it off. */}
-                  {capAllowed('widget_powered_by') && (
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
-                      <div className="space-y-1">
-                        <Label className="text-sm">{t('widgetPage.appearance.showPoweredBy')}</Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          {t('widgetPage.appearance.showPoweredByHint')}
-                        </p>
-                        {!capAllowed('widget_powered_by_toggle') && (
-                          <p className="text-[11px] text-primary">
-                            {t('widgetPage.appearance.showPoweredByLocked')}
+                      granting `widget_powered_by_toggle` may switch it off.
+                      With the Super Admin's master switch off no widget
+                      shows it (poweredBy.ts), and the card says so instead
+                      of a locked "on". */}
+                  {capAllowed('widget_powered_by') && (() => {
+                    const platformOff = platformWidget?.powered_by_enabled === false;
+                    const mayHide = capAllowed('widget_powered_by_toggle');
+                    return (
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3" data-powered-by-card>
+                        <div className="space-y-1">
+                          <Label htmlFor="widget-show-powered-by" className="text-sm">{t('widgetPage.appearance.showPoweredBy')}</Label>
+                          <p className="text-[11px] text-muted-foreground">
+                            {t('widgetPage.appearance.showPoweredByHint')}
                           </p>
-                        )}
+                          {platformOff ? (
+                            <p className="text-[11px] text-primary" data-powered-by-platform-off>
+                              {t('widgetPage.appearance.showPoweredByPlatformOff')}
+                            </p>
+                          ) : !mayHide && (
+                            <p className="text-[11px] text-primary">
+                              {t('widgetPage.appearance.showPoweredByLocked')}
+                            </p>
+                          )}
+                        </div>
+                        <Switch
+                          id="widget-show-powered-by"
+                          disabled={platformOff || !mayHide}
+                          checked={platformOff ? false : !mayHide ? true : (live?.show_powered_by ?? true)}
+                          onCheckedChange={v => setField('show_powered_by', v, 0)}
+                        />
                       </div>
-                      <Switch
-                        disabled={!capAllowed('widget_powered_by_toggle')}
-                        checked={
-                          !capAllowed('widget_powered_by_toggle')
-                            ? true
-                            : (live?.show_powered_by ?? true)
-                        }
-                        onCheckedChange={v => setField('show_powered_by', v, 0)}
-                      />
-                    </div>
-                  )}
+                    );
+                  })()}
 
 
                 </CardContent>
@@ -949,11 +1115,13 @@ function WidgetPageContent() {
                   FIXED presentation spec in the Web Yar template — 56px round button,
                   chat/X icon, white glyph on the primary colour — so they are no longer
                   workspace-configurable. */}
-              </div>
+              </div>,
+              )}
             </TabsContent>
 
             {/* ─── Behavior ─── */}
             <TabsContent value="behavior">
+              {planTab('behavior',
               <Card className="card-elevated">
                 <CardContent className="p-6 space-y-5">
                   {[
@@ -991,42 +1159,16 @@ function WidgetPageContent() {
                     </div>
                   ))}
 
-                  {/* Chat assignment — how a conversation is handed to an
-                      operator once AI hands off (or AI is off). Replaces
-                      what used to be manual-only assignment with a real,
-                      never-random routing algorithm. */}
-                  <div className="pt-4 mt-2 border-t border-border space-y-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-                        <Users className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <Label className="text-sm">{t('widgetPage.behavior.assignmentMode')}</Label>
-                        <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                          {t('widgetPage.behavior.assignmentModeHint')}
-                        </p>
-                        {!capAllowed('widget_assignment_routing') && (
-                          <p className="text-xs text-primary mt-0.5 mb-2">{t('plan.locked.upgradeHint')}</p>
-                        )}
-                        <Select
-                          disabled={!capAllowed('widget_assignment_routing')}
-                          value={
-                            capAllowed('widget_assignment_routing')
-                              ? (widget?.assignment_mode || 'auto')
-                              : 'manual'
-                          }
-                          onValueChange={(v) => handleToggle('assignment_mode', v as WidgetSettings['assignment_mode'])}
-                        >
-                          <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="auto">{t('widgetPage.behavior.assignmentModeAuto')}</SelectItem>
-                            <SelectItem value="round_robin">{t('widgetPage.behavior.assignmentModeRoundRobin')}</SelectItem>
-                            <SelectItem value="manual">{t('widgetPage.behavior.assignmentModeManual')}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  </div>
+                  {/* Conversation assignment: the mode, returning visitors,
+                      capacity and the first-response timeout. Saves go
+                      through the page's save layer (status, refusals said). */}
+                  <ConversationAssignmentSection
+                    workspaceId={workspace?.id}
+                    settings={live}
+                    planAllowsRouting={capAllowed('widget_assignment_routing')}
+                    onSave={(patch) => saveNow(patch)}
+                    teamPath={wsPath('/settings/team-departments')}
+                  />
 
                   {/* Privacy: optional raw IP capture (default OFF). */}
                   <div className="pt-4 mt-2 border-t border-border space-y-3">
@@ -1060,12 +1202,13 @@ function WidgetPageContent() {
                   </div>
 
                 </CardContent>
-              </Card>
+              </Card>,
+              )}
             </TabsContent>
 
             {/* ─── Smart actions ─── */}
             <TabsContent value="smart">
-              <PlanLockedOverlay featureKey="widget_smart_engagement">
+              {planTab('smart',
               <SmartRulesTab
                 workspaceId={workspace?.id}
                 masterEnabled={live?.smart_engagement_enabled === true}
@@ -1079,32 +1222,32 @@ function WidgetPageContent() {
                 teamMembers={previewTeamMembers}
                 studioKbArticles={previewKbArticles}
                 studioKbCategories={previewKbCategories}
-              />
-              </PlanLockedOverlay>
+              />,
+              )}
             </TabsContent>
 
             {/* ─── Availability ─── */}
             <TabsContent value="availability">
-              <PlanLockedOverlay featureKey="widget_business_hours">
-              {widget && (
-                <AvailabilitySection
-                  workspaceId={workspace?.id}
-                  settings={widget}
-                  onSave={(patch) => updateWidget.mutate(patch)}
-                  saving={updateWidget.isPending}
-                />
+              {planTab('availability',
+                widget && (
+                  <AvailabilitySection
+                    workspaceId={workspace?.id}
+                    settings={live}
+                    onChange={(patch, opts) => setFields(patch, opts)}
+                    saving={saveStatus === 'saving'}
+                  />
+                ),
               )}
-              </PlanLockedOverlay>
             </TabsContent>
 
             {/* ─── Pre-chat ─── */}
             <TabsContent value="prechat">
-              <PrechatSection workspaceId={workspace?.id} />
+              {planTab('prechat', <PrechatSection workspaceId={workspace?.id} />)}
             </TabsContent>
 
             {/* ─── Domains ─── */}
             <TabsContent value="domains">
-              <PlanLockedOverlay featureKey="widget_domain_allowlist">
+              {planTab('domains',
               <Card className="card-elevated">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -1145,6 +1288,31 @@ function WidgetPageContent() {
                     ))}
                   </div>
 
+                  {/* What really may show the widget (public.ts
+                      getWorkspaceOriginRules): an empty list, any site; a list,
+                      its sites and the workspace's verified domains. */}
+                  {!(widget?.allowed_domains?.length) ? (
+                    <p data-domains-any className="rounded-lg border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
+                      {t('widgetPage.domains.emptyAllowsAll')}
+                    </p>
+                  ) : verifiedDomains.length > 0 && (
+                    <div data-domains-verified className="space-y-2 rounded-lg border border-border/70 p-3">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm">{t('widgetPage.domains.verifiedTitle')}</Label>
+                        <p className="text-xs text-muted-foreground">{t('widgetPage.domains.verifiedHint')}</p>
+                      </div>
+                      {verifiedDomains.map((d) => (
+                        <div key={d.id} className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2">
+                          <Check className="h-3.5 w-3.5 text-success" aria-hidden />
+                          <span className="text-sm font-mono" dir="ltr">{d.domain}</span>
+                        </div>
+                      ))}
+                      <Link to={wsPath('/settings/domains')} className="inline-block text-xs text-primary hover:underline">
+                        {t('widgetPage.domains.manageDomains')}
+                      </Link>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between pt-3 border-t border-border">
                     <div className="space-y-0.5">
                       <Label className="text-sm">{t('widgetPage.domains.allowSubdomains')}</Label>
@@ -1158,8 +1326,8 @@ function WidgetPageContent() {
                     />
                   </div>
                 </CardContent>
-              </Card>
-              </PlanLockedOverlay>
+              </Card>,
+              )}
             </TabsContent>
 
             {/* Deployment tab moved to Super Admin → Widget Settings */}
@@ -1251,6 +1419,8 @@ function WidgetPageContent() {
               <WidgetLivePreview
                 settings={previewSettings}
                 prechat={prechat}
+                prechatPolicy={previewPrechatPolicy}
+                prechatFormAllowed={capAllowed('widget_prechat_form')}
                 workspaceName={workspace?.name || t('widgetPage.preview.brandFallback')}
                 platformName={platformName || t('widgetPage.preview.brandFallback')}
                 poweredBy={previewPoweredBy}
@@ -1263,6 +1433,10 @@ function WidgetPageContent() {
                 operatorName={previewOperator?.full_name}
                 templateId={previewTemplate.id}
                 templateOptions={previewTemplate.options as Record<string, unknown>}
+                availabilityState={availabilityNow?.state ?? null}
+                aiGreets={welcomeInfo?.ai_greeting === true}
+                defaultWelcome={welcomeInfo?.default_text ?? null}
+                hiddenNote={t('widgetPage.preview.hiddenNote')}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

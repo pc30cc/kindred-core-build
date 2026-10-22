@@ -197,6 +197,10 @@
       opts = opts || {};
       var title = esc(opts.title || workspaceName);
       var subtitle = opts.subtitle ? '<span class="wy-head-sub">' + esc(opts.subtitle) + '</span>' : '';
+      // `subOff`: the line while the team is away, which the stylesheet shows
+      // in its place while Core's live presence says so (the header's
+      // `.presence.status-*`).
+      if (subtitle && opts.subOff && opts.subOff !== opts.subtitle) subtitle += '<span class="wy-head-sub wy-sub-off">' + esc(opts.subOff) + '</span>';
       var dot = opts.online ? '<span class="wy-online-dot" aria-hidden="true"></span>' : '';
       return (opts.back ? backButtonHtml(opts.back) : '') +
         identityAvatarHtml(opts.avatarSize) +
@@ -257,11 +261,12 @@
       '</div>';
     }
 
+    /** File sizes in the visitor's digits and words (۲۴۰ کیلوبایت). */
     function humanSize(bytes) {
       var n = Number(bytes) || 0;
-      if (n < 1024) return n + ' B';
-      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
-      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+      var u = n < 1024 ? 0 : n < 1048576 ? 1 : 2;
+      var v = n / Math.pow(1024, u);
+      return fmtNum(u && v < 10 ? Math.round(v * 10) / 10 : Math.round(v)) + ' ' + tf(['sizeB', 'sizeKB', 'sizeMB'][u], ['B', 'KB', 'MB'][u]);
     }
 
     // Real attachments — authenticated media is loaded by Core through the
@@ -336,12 +341,12 @@
       var total = Math.ceil(ms / 1000);
       var timeStr;
       if (total < 60) {
-        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', String(total));
+        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', fmtNum(total));
       } else {
         var m = Math.floor(total / 60);
         var s = total % 60;
-        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', String(m));
-        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', String(m)).replace('{s}', String(s));
+        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', fmtNum(m));
+        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', fmtNum(m)).replace('{s}', fmtNum(s));
       }
       return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
     }
@@ -352,7 +357,11 @@
       var mm = Math.floor((s % 3600) / 60);
       var ss = s % 60;
       function pad(n) { return n < 10 ? '0' + n : '' + n; }
-      return hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss);
+      // In the visitor's digits, as every other number (Persian in fa).
+      return localDigits(hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss));
+    }
+    function localDigits(str) {
+      return /^fa/i.test(String(ctx.locale || '')) ? String(str).replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'.charAt(+d); }) : String(str);
     }
 
     function systemPillHtml(icon, text) {
@@ -400,7 +409,8 @@
       } else if (kind === 'routing_no_agent_available') {
         text = t('routingNoAgentAvailable');
       } else {
-        text = t('routingInQueue');
+        // In the queue: everyone busy (auto routing), or the manual queue.
+        text = t(meta.reason === 'all_busy' ? 'routingAllBusy' : 'routingInQueue');
       }
       var icon = kind === 'routing_agent_joined'
         ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
@@ -487,7 +497,7 @@
       try {
         var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
         var tag = l === 'fa' ? 'fa-IR' : l === 'tr' ? 'tr-TR' : 'en-US';
-        return new Intl.NumberFormat(tag).format(Number(n) || 0);
+        return new Intl.NumberFormat(tag, { maximumFractionDigits: 1 }).format(Number(n) || 0);
       } catch (_) { return String(n); }
     }
 
@@ -495,7 +505,9 @@
       try {
         var date = (d instanceof Date) ? d : new Date(d);
         if (!date || isNaN(date.getTime())) return '';
-        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
+        // Persian in the day dividers' zone, so a time and its day agree.
+        var fa = /^fa/i.test(String(ctx.locale || ''));
+        return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit', timeZone: fa ? persianTimeZone() : undefined });
       } catch (_) { return ''; }
     }
 
@@ -637,11 +649,15 @@
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
       var html = '<div class="messages">';
 
-      var groupKeys = s.messages.map(function (m) {
-        var author = m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+      var thread = 0;
+      var groupKeys = s.messages.map(function (m, i) {
+        // A failed message is a run of its own, so its "not delivered" and
+        // Retry stay on it when a later message goes through (as in t2).
+        var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         // A new calendar day always breaks the streak so the meta line (time +
-        // ticks) closes the previous day's run.
-        return author + '@' + dayKeyOf(m.time);
+        // ticks) closes the previous day's run; so does a new conversation.
+        if (m.threadStart) thread++;
+        return author + '@' + dayKeyOf(m.time) + '#' + thread;
       });
       var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
@@ -649,6 +665,9 @@
       s.messages.forEach(function (m, idx) {
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
+        // The visitor's message that opened a new conversation under an
+        // ended one (Core's `threadStart`).
+        if (m.threadStart) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
 
           html += renderCallInvitationCard(m); return;
@@ -664,7 +683,6 @@
           html += renderRoutingOutcomeRow(m); return;
         }
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        var bg = m.sender === 'visitor' ? 'style="background:' + esc(ctx.primaryColor) + '"' : '';
         var isAi = m.senderType === 'ai';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
@@ -681,7 +699,10 @@
           // retry action the visitor can actually act on (unlike the old
           // static "!" glyph). data-msg-retry is handled by the same
           // delegated click handler as data-msg-reply/data-msg-copy.
-          statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>' +
+          // Core's reason (`failText`: no connection yet, too many at once,
+          // too long…) is said in words beside it.
+          statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(m.failText || t('msgFailed')) + '">!</span>' +
+            (m.failText ? '<span class="msg-fail-text">' + esc(m.failText) + '</span>' : '') +
             '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
               '" title="' + esc(t('retry')) + '" aria-label="' + esc(t('retry')) + '">' +
               esc(t('retry')) + '</button>';
@@ -774,7 +795,7 @@
           '<div class="msg-col">' +
             '<div class="msg-line">' +
               '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
-                (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
+                (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + '>' +
                 quoted + textHtml + attHtml +
               '</div>' +
               actionsHtml +
@@ -901,7 +922,7 @@
         (s.title ? '<div class="smart-title">' + esc(s.title) + '</div>' : '') +
         '<div class="smart-body">' + esc(s.body || '') + '</div>' +
         (s.ctaLabel
-          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + esc(env.primaryColor) + '">' +
+          ? '<button type="button" class="smart-cta" data-smart-cta style="background:var(--wy-accent)">' +
               esc(s.ctaLabel) + '</button>'
           : '');
     }
@@ -962,7 +983,7 @@
           back: 'home',
           title: vm.workspaceName || vm.brandName || workspaceName,
           subtitle: replyTimeText(true),
-
+          subOff: replyTimeText(false),
         }) +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
           '<span class="presence-dot" data-presence-dot></span>' +
@@ -979,10 +1000,10 @@
 
       var inputHtml = chatEnabled
         ? '<div class="composer-zone" data-composer-zone>' +
-            // Typing state is preserved as a Core capability, but the design
-            // has NO visible "typing…" row above the composer — it is
-            // announced to assistive tech only.
-            '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
+            // The operator's typing, above the composer (Core shows it for
+            // 3.5 s per signal and fills the label; aria-live for screen readers).
+            '<div class="wy-typing" data-typing-row hidden aria-live="polite">' +
+              '<span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
               '<span class="typing-label" data-typing-label></span>' +
             '</div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
@@ -1158,7 +1179,8 @@
           unreadHtml + timeHtml +
         '</button>';
       }
-      var resolved = String(c.status || '') === 'resolved';
+      // A closed conversation is over for the visitor as a resolved one is.
+      var resolved = /^(resolved|closed)$/.test(String(c.status || ''));
       var statusLabel = resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open');
       return '<button type="button" class="conv-row" data-conversation-open="' + esc(c.id) + '">' +
         identityAvatarHtml('sm') +
@@ -1183,7 +1205,9 @@
       // the full list stays reachable via the conversations view.
       var convs = (vm.conversations || []).slice(0, 3);
       var hasThreads = convs.length > 0;
-      var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
+      // A thread still going (Core's rule: open or pending). A resolved or
+      // closed one is not "continued": the CTA beside it starts a new one.
+      var unresolved = (vm.conversations || []).filter(function (c) { return c.status === 'open' || c.status === 'pending'; })[0];
       var articles = (vm.articles || []);
       // Design source of truth (renderVals(): showArticleChips true,
       // showArticlesButton false): article chips stay visible even when the

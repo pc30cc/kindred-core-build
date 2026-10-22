@@ -26,6 +26,7 @@ import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
+import { useOperatorInboxAlerts } from '@/features/notifications/useOperatorInboxAlerts';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
 import { EmailOtpDialog } from '@/components/auth/EmailOtpDialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -298,6 +299,9 @@ export function AppLayout() {
   useOperatorHeartbeat(workspace?.id);
   // Primary live-presence signal (Centrifugo channel membership while visible).
   useOperatorPresenceChannel(workspace?.id);
+  // The live Inbox on every page: lists, sidebar counters, the chime, the
+  // banners and "assigned to you" (members who have an Inbox only).
+  useOperatorInboxAlerts(workspace?.id);
   // Inbox is a full-bleed workspace surface: no page gutters, no page scroll.
   const { pathname } = useLocation();
   const isFullBleed =

@@ -27,6 +27,7 @@ import {
   LAUNCHER_AVATAR, LAUNCHER_GLYPHS, launcherChoiceOf, launcherTileOf,
   type LauncherStyleChoice, type LauncherTile, type LogoDirection,
 } from '../../../../shared/launcherStyles';
+import { widgetTextDefault } from '../../../../shared/widgetTextDefaults';
 import { FAB_ICONS } from './WidgetLivePreview';
 
 export interface LauncherStylePickerProps {
@@ -39,6 +40,12 @@ export interface LauncherStylePickerProps {
   iconColor?: string | null;
   /** The agent face's letter as the visitor will see it. */
   initial: string;
+  /**
+   * The widget's language: the pill's text a style starts with is in it
+   * (shared/widgetTextDefaults.ts), as visitors read it, whatever language
+   * the dashboard speaks.
+   */
+  widgetLocale?: string;
   international: boolean;
   /** The worn template's logo direction when it reads one (t1-intl / t2-intl), else null. */
   logoDirection: LogoDirection | null;
@@ -63,8 +70,9 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
   const { t } = useTranslation();
   const {
     shape, icon, label, primaryColor, iconColor, initial, international, logoDirection,
-    allowed, labelAllowed, logoAllowed, onChoose,
+    allowed, labelAllowed, logoAllowed, onChoose, widgetLocale,
   } = props;
+  const pillDefault = widgetTextDefault('pill', widgetLocale);
   const colour = String(primaryColor || '').trim();
   const brandColour = !colour || colour.toLowerCase() === UNCUSTOMISED;
   // The edition's kit, when this build ships it (the RESPOK build has no
@@ -81,7 +89,7 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
   // build's loader has no RESPOK kit (`@intl-kit`), so there one kit tile.
   const logoTiles = respokKit && !!logoDirection;
   const selected = launcherTileOf(shape, icon, logoTiles ? logoDirection : null);
-  const pillText = (label || '').trim() || t('widgetPage.appearance.launcherPillDefault');
+  const pillText = (label || '').trim() || pillDefault;
 
   const strokeIcon = (key: string) => (
     <svg viewBox="0 0 24 24" className="h-[46%] w-[46%]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden dangerouslySetInnerHTML={{ __html: FAB_ICONS[key] }} />
@@ -187,7 +195,7 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
         aria-label={t('widgetPage.appearance.launcherStyle')}
         value={selected ?? ''}
         disabled={!allowed}
-        onValueChange={(v) => onChoose(launcherChoiceOf(v as LauncherTile, label, t('widgetPage.appearance.launcherPillDefault')))}
+        onValueChange={(v) => onChoose(launcherChoiceOf(v as LauncherTile, label, pillDefault))}
         className={cn('grid grid-cols-2 gap-2 sm:grid-cols-4', !allowed && 'opacity-50')}
       >
         {tiles.map((tile) => (

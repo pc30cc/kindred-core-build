@@ -16,12 +16,19 @@
  *  1. business_hours.enabled === false  =>  the WORKSPACE imposes no time
  *     restriction. It does NOT force 'online': operator manual status
  *     (offline/invisible) and personal schedules still decide reachability.
+ *     Only the members who receive chats count (customerAvailability.ts:
+ *     the owner and team roles, not suspended or seat-paused, "Receive
+ *     chats automatically" on); staff never make the widget online.
  *     Workspaces with zero members fail open.
 
  *  2. The client never decides availability. Bootstrap and message endpoints
  *     re-resolve here.
  *  3. Localized offline message comes from offline_message_localized first,
  *     then offline_message, then empty string. No translation pipeline.
+ *  4. The plan decides first: without `widget_business_hours` (the panel's
+ *     Availability tab: hours and offline behaviour) the stored hours and
+ *     offline mode are not applied (availabilityRowForPlan), so a downgrade
+ *     takes effect on visitors instead of lingering behind a locked tab.
  */
 
 import type { ServerConfig } from '../../config.js';
@@ -113,6 +120,59 @@ type WidgetAvailabilityRow = {
   offline_message_localized?: Record<string, string> | null;
   live_chat_enabled?: boolean | null;
 };
+
+/**
+ * The availability settings a plan wears (locked rule 4). Without
+ * `widget_business_hours` (`allowed === false`) the workspace has no
+ * schedule and the leave-a-message form, whatever is stored (its labels and
+ * offline message are copy, not behaviour, and stay). `true`, or `null` (the
+ * plan could not be read: the stored settings keep applying rather than
+ * flipping a live widget on a blip), returns the row as it is.
+ */
+export function availabilityRowForPlan<T extends Partial<WidgetAvailabilityRow>>(
+  row: T | null | undefined,
+  allowed: boolean | null | undefined,
+): T | null {
+  if (!row) return row ?? null;
+  if (allowed !== false) return row;
+  const bh = row.business_hours && typeof row.business_hours === 'object' ? row.business_hours : {};
+  return {
+    ...row,
+    business_hours: { ...bh, enabled: false },
+    offline_mode: 'capture_message',
+  } as T;
+}
+
+/**
+ * The plan's business-hours answer from resolved widget entitlements
+ * (entitlements.ts): null while any answer was unreadable (`degraded` reads
+ * unreadable as denied; availability must not flip on it).
+ */
+export function businessHoursAllowedOf(
+  ent: { features: Record<string, boolean>; degraded?: boolean } | null | undefined,
+): boolean | null {
+  if (!ent || ent.degraded) return null;
+  return ent.features.widget_business_hours !== false;
+}
+
+/** Whether the row uses anything a plan without business hours resets (no plan lookup otherwise). */
+function usesPlanGatedAvailability(row: WidgetAvailabilityRow | null): boolean {
+  if (!row) return false;
+  return row.business_hours?.enabled === true || normalizeOfflineMode(row.offline_mode) !== 'capture_message';
+}
+
+/**
+ * The plan's answer for `widget_business_hours`, for a caller that did not
+ * resolve it (entitlement cache, 60 s). Null when it cannot be read.
+ */
+async function lookupBusinessHoursAllowed(config: ServerConfig, workspaceId: string): Promise<boolean | null> {
+  try {
+    const { widgetBusinessHoursAllowed } = await import('./entitlements.js');
+    return await widgetBusinessHoursAllowed(config, workspaceId);
+  } catch {
+    return null;
+  }
+}
 
 function isWithin(intervals: Array<{ from: string; to: string }>, h: number, min: number): boolean {
   const cur = h * 60 + min;
@@ -233,6 +293,12 @@ export interface ResolveAvailabilityInput {
    * same row. For the AI's answers; visitor-facing paths leave it off.
    */
   includeSchedule?: boolean;
+  /**
+   * The plan's answer for `widget_business_hours` when the caller already
+   * holds it (the widget config snapshot's entitlements); null = unreadable.
+   * Omitted: looked up here, only when the row uses something it gates.
+   */
+  businessHoursAllowed?: boolean | null;
 }
 
 /**
@@ -265,9 +331,13 @@ export async function resolveAvailability(
   input: ResolveAvailabilityInput,
 ): Promise<AvailabilitySnapshot> {
   const now = input.now || new Date();
-  const settings = input.settingsRow !== undefined
+  const stored = input.settingsRow !== undefined
     ? ((input.settingsRow ?? null) as WidgetAvailabilityRow | null)
     : await readAvailabilityRow(config, input.workspaceId);
+  const allowed = input.businessHoursAllowed !== undefined
+    ? input.businessHoursAllowed
+    : usesPlanGatedAvailability(stored) ? await lookupBusinessHoursAllowed(config, input.workspaceId) : true;
+  const settings = availabilityRowForPlan(stored, allowed);
   const snapshot = await snapshotFor(config, input, now, settings);
   if (input.includeSchedule) {
     snapshot.schedule = describeBusinessHours(settings?.business_hours, now, snapshot.next_open_at);

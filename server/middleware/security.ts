@@ -11,6 +11,7 @@ import { readWidgetToken, verifySessionToken, verifyTokenForRefresh } from '../s
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { onInvalidate } from '../lib/cacheBus.js';
+import { applyWidgetCorsHeaders } from './widgetCors.js';
 
 /**
  * What earlier middleware — and express-rate-limit — attach to a request,
@@ -250,11 +251,37 @@ export function ipBlockMiddleware() {
       return ipCheckUnavailable(res, null);
     }
 
-    if (list && isIpBlocked(list, ip, Date.now())) {
-      return res.status(403).json({ error: 'IP blocked', reason: 'Your IP has been blocked due to suspicious activity.' });
-    }
+    if (list && isIpBlocked(list, ip, Date.now())) return ipBlocked(req, res);
     next();
   };
+}
+
+/**
+ * The visitor-facing paths a customer's page calls cross-origin. Their CORS
+ * headers come from widgetCorsMiddleware, which runs after this block: a
+ * blocked visitor's browser saw a CORS failure (a network error) instead of
+ * the answer, retried, and showed a broken launcher.
+ */
+const WIDGET_PATH = /^\/api\/(widget|visitors)(\/|$)|^\/api\/realtime\/visitor-presence$/;
+const WIDGET_BOOTSTRAP_PATH = /^\/api\/widget\/boot(strap)?$/;
+
+/**
+ * A blocked address. On a widget path the answer is readable by the page
+ * (CORS, preflight included: the body is the same for everyone and sets no
+ * cookie), and the bootstrap says the widget is off, so the loader takes the
+ * launcher away instead of drawing a widget that cannot work.
+ */
+function ipBlocked(req: Request, res: Response): void {
+  const path = String(req.originalUrl || req.url || '').split('?')[0];
+  const origin = typeof req.headers?.origin === 'string' ? req.headers.origin : '';
+  if (WIDGET_PATH.test(path)) {
+    if (origin) applyWidgetCorsHeaders(res, origin);
+    if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+    // `protocol`: routes/widget.ts BOOTSTRAP_PROTOCOL, so the loader takes
+    // the answer as final on its first (CORS-simple) request.
+    if (WIDGET_BOOTSTRAP_PATH.test(path)) { res.json({ disabled: true, blocked: true, protocol: 3 }); return; }
+  }
+  res.status(403).json({ error: 'IP blocked', code: 'IP_BLOCKED', reason: 'Your IP has been blocked due to suspicious activity.' });
 }
 
 // ─── Rate Limiters by Endpoint Type ──────────────────────────────

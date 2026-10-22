@@ -17,6 +17,7 @@ import { IdentityCacheBoundary } from "@/features/auth/IdentityCacheBoundary";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
 import { RequireWorkspaceAdmin } from "@/features/auth/RequireWorkspaceAdmin";
+import { RequireInboxAccess } from "@/components/inbox/RequireInboxAccess";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 import { WorkspaceRedirect } from "@/features/workspace/WorkspaceRedirect";
@@ -68,6 +69,7 @@ const InvitePage = lazyPage(() => import("@/pages/auth/InvitePage"), { fallback:
 
 const OverviewPage = lazyPage(() => import("@/pages/app/OverviewPage"));
 const InboxPage = lazyPage(() => import("@/pages/app/InboxPage"), { fallback: "inset" });
+const TeamChatPage = lazyPage(() => import("@/pages/app/TeamChatPage"), { fallback: "inset" });
 const ContactsPage = lazyPage(() => import("@/pages/app/ContactsPage"));
 const TeamPage = lazyPage(() => import("@/pages/app/TeamPage"));
 const ContactDetailPage = lazyPage(() => import("@/pages/app/ContactDetailPage"));
@@ -118,7 +120,6 @@ const SettingsCommercePage = lazyPage(() => import("@/pages/app/settings/Commerc
 const CommerceAuthorizePage = lazyPage(() => import("@/pages/CommerceAuthorizePage"), { fallback: "blank" });
 const SettingsDomainsPage = lazyPage(() => import("@/pages/app/settings/DomainsPage"));
 const SettingsProvidersPage = lazyPage(() => import("@/pages/app/settings/ProvidersPage"));
-const SettingsTranslationsPage = lazyPage(() => import("@/pages/app/settings/TranslationsPage"));
 const SettingsProfilePage = lazyPage(() => import("@/pages/app/settings/ProfilePage"));
 const SettingsNotificationsPage = lazyPage(() => import("@/pages/app/settings/NotificationsPage"));
 const SettingsAvailabilityPage = lazyPage(() => import("@/pages/app/settings/AvailabilityPage"));
@@ -261,7 +262,6 @@ const SETTINGS_PAGES: Record<string, Preloadable> = {
   commerce: SettingsCommercePage,
   domains: SettingsDomainsPage,
   providers: SettingsProvidersPage,
-  translations: SettingsTranslationsPage,
   profile: SettingsProfilePage,
   notifications: SettingsNotificationsPage,
   availability: SettingsAvailabilityPage,
@@ -579,7 +579,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   (React Router ranks static segments above dynamic ones). */}
               <Route path="/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
-                <Route path="inbox" element={<InboxPage />} />
+                <Route path="inbox" element={<RequireInboxAccess><InboxPage /></RequireInboxAccess>} />
+                {/* Team chat for every member, Inbox or not (staff have no Inbox). */}
+                <Route path="team-chat" element={<PlanLockedOverlay featureKey="inbox_team_chat"><TeamChatPage /></PlanLockedOverlay>} />
                 <Route path="inbox/widget-bridge" element={<RequireAdmin><WidgetBridgeInboxPage /></RequireAdmin>} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
                 <Route path="contacts/:id" element={<PlanLockedOverlay moduleKey="contacts"><ContactDetailPage /></PlanLockedOverlay>} />
@@ -643,7 +645,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="branding" element={<Navigate to="../general" replace />} />
                   <Route path="domains" element={<RequireWorkspaceAdmin><SettingsDomainsPage /></RequireWorkspaceAdmin>} />
                   <Route path="providers" element={<RequireWorkspaceAdmin><SettingsProvidersPage /></RequireWorkspaceAdmin>} />
-                  <Route path="translations" element={<RequireWorkspaceAdmin><SettingsTranslationsPage /></RequireWorkspaceAdmin>} />
+                  {/* Article translations live in the Knowledge Base (each
+                      article per language); this page had nothing of its own. */}
+                  <Route path="translations" element={<Navigate to="../../knowledge-base" replace />} />
                   <Route path="profile" element={<SettingsProfilePage />} />
                   <Route path="notifications" element={<SettingsNotificationsPage />} />
                   <Route path="availability" element={<SettingsAvailabilityPage />} />

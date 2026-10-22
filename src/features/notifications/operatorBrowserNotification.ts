@@ -16,10 +16,14 @@
  * Only while the tab is not being looked at. A banner over the very
  * conversation list that is already redrawing itself is noise, and every
  * messaging app in the world agrees.
+ *
+ * Mounted by the app shell (useOperatorInboxAlerts), not by the Inbox page:
+ * an operator on the Visitors page or in Settings is still at their desk.
  */
 import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { NotificationPrefs } from '@/lib/notifications-api';
+import { conversationsApi } from '@/lib/conversations-api';
 import { knownEdition } from '@/lib/edition';
 import { INTL_BRAND } from '@/lib/internationalMode';
 import { WEBYAR_BRAND } from '@/lib/webyarBrand';
@@ -112,6 +116,39 @@ export function assigneeFromCache(
   return undefined;
 }
 
+/**
+ * Who a conversation belongs to: the lists' cache first, then one read of the
+ * conversation, kept for a while. Off the Inbox page no list is cached, and
+ * "not known" let a colleague's every message through.
+ * `undefined` only when it cannot be read at all.
+ */
+export async function resolveAssignee(
+  qc: QueryClient,
+  workspaceId: string | undefined,
+  conversationId: string,
+): Promise<string | null | undefined> {
+  const cached = assigneeFromCache(qc, workspaceId, conversationId);
+  if (cached !== undefined) return cached;
+  if (!workspaceId) return undefined;
+  try {
+    return await qc.fetchQuery({
+      queryKey: assigneeQueryKey(workspaceId, conversationId),
+      queryFn: async () => {
+        const { conversation } = await conversationsApi.getConversation(workspaceId, conversationId);
+        return (conversation?.assigned_to as string | null | undefined) ?? null;
+      },
+      staleTime: 30_000,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The one-conversation assignee cache resolveAssignee fills (realtime keeps it current). */
+export function assigneeQueryKey(workspaceId: string, conversationId: string) {
+  return ['conversation-assignee', workspaceId, conversationId] as const;
+}
+
 /** The list endpoint is paged and has been reshaped before; be forgiving. */
 function flattenConversations(value: unknown): Array<{ id: string; assigned_to?: string | null }> {
   if (!value) return [];
@@ -127,7 +164,15 @@ function flattenConversations(value: unknown): Array<{ id: string; assigned_to?:
 }
 
 /**
- * Whether this message is worth a banner, given the operator's scope.
+ * Whether a customer's message is worth a banner or the chime, given the
+ * operator's scope and who has the conversation.
+ *
+ *   - mine: always (unless the operator turned everything off);
+ *   - unassigned: on 'all' and on 'assigned' ("Assigned to me, and
+ *     unassigned"): somebody has to pick it up;
+ *   - a colleague's: theirs, as on the phone (services/push/recipients.ts),
+ *     except for a supervisor who is watching every conversation
+ *     (`othersVisible`: the Inbox's "All conversations") with 'all'.
  *
  * The browser has no mention information on this event, so 'mentions' is the
  * one scope it cannot honour by itself — and rather than guess, it shows
@@ -138,14 +183,13 @@ export function passesScope(
   scope: NotificationPrefs['push_scope'],
   assignedTo: string | null | undefined,
   viewerId: string | undefined,
+  othersVisible = false,
 ): boolean {
   if (scope === 'none' || scope === 'mentions') return false;
-  if (scope === 'assigned') {
-    if (assignedTo === undefined) return true; // unknown — never silently drop
-    if (assignedTo === null) return false;
-    return !!viewerId && assignedTo === viewerId;
-  }
-  return true;
+  if (assignedTo === undefined) return true; // unknown — never silently drop
+  if (assignedTo === null) return true;
+  if (viewerId && assignedTo === viewerId) return true;
+  return scope === 'all' && othersVisible;
 }
 
 /** The text a banner carries, or nothing when previews are off. */
@@ -169,6 +213,8 @@ export function useOperatorBrowserNotifications(options: {
   title: string;
   fallbackBody: string;
   onOpenConversation?: (conversationId: string) => void;
+  /** A supervisor watching "All conversations" (see passesScope). */
+  othersVisible?: () => boolean;
 }): void {
   const qc = useQueryClient();
   const latest = useRef(options);
@@ -177,12 +223,13 @@ export function useOperatorBrowserNotifications(options: {
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
 
-    const onIncoming = (evt: Event) => {
+    const onIncoming = async (evt: Event) => {
       const detail = (evt as CustomEvent<IncomingMessageDetail>).detail;
       if (!detail) return;
 
-      const { workspaceId, viewerId, title, fallbackBody, onOpenConversation } = latest.current;
-      if (detail.workspaceId && workspaceId && detail.workspaceId !== workspaceId) return;
+      const { workspaceId, viewerId, title, fallbackBody, onOpenConversation, othersVisible } = latest.current;
+      if (!workspaceId) return;
+      if (detail.workspaceId && detail.workspaceId !== workspaceId) return;
       // Customer messages only — never an echo of the operator's own reply,
       // and never the AI answering on their behalf.
       if (detail.sender_type && detail.sender_type !== 'contact') return;
@@ -197,12 +244,16 @@ export function useOperatorBrowserNotifications(options: {
       if (prefs) {
         if (prefs.disable_all) return;
         if (isWithinQuietHours(prefs)) return;
-        const conversationId = detail.conversation_id ? String(detail.conversation_id) : '';
-        const assignee = conversationId
-          ? assigneeFromCache(qc, workspaceId, conversationId)
-          : undefined;
-        if (!passesScope(prefs.push_scope, assignee, viewerId)) return;
       }
+      // The scope applies with or without the preferences read: a
+      // colleague's conversation is theirs either way.
+      const conversationId = detail.conversation_id ? String(detail.conversation_id) : '';
+      const assignee = conversationId
+        ? await resolveAssignee(qc, workspaceId, conversationId)
+        : undefined;
+      if (!passesScope(prefs?.push_scope ?? 'all', assignee, viewerId, othersVisible?.() ?? false)) return;
+      // Looked at again: the tab may have been brought forward meanwhile.
+      if (isBeingWatched()) return;
 
       const key = detail.conversation_id ? String(detail.conversation_id) : 'workspace';
       const now = Date.now();
@@ -242,7 +293,8 @@ export function useOperatorBrowserNotifications(options: {
       }
     };
 
-    window.addEventListener('inbox:new-message', onIncoming as EventListener);
-    return () => window.removeEventListener('inbox:new-message', onIncoming as EventListener);
+    const listener = (evt: Event) => { void onIncoming(evt); };
+    window.addEventListener('inbox:new-message', listener);
+    return () => window.removeEventListener('inbox:new-message', listener);
   }, [qc]);
 }

@@ -65,7 +65,15 @@ describe('operatorSystemText', () => {
       expect(tr_, kind).not.toBe(en_);
       expect(`${fa_}${en_}${tr_}`, kind).not.toMatch(/inbox\.|\{(name|to|actor|op|duration|score|rating|comment)\}/);
     }
-    expect(operatorSystemText({ kind: 'routing_in_queue' }, 'fa')).toBe('کاربر در صف پشتیبانی منتظر است');
+    expect(operatorSystemText({ kind: 'routing_in_queue' }, 'fa')).toBe('بازدیدکننده در صف پشتیبانی منتظر است');
+    // The two waits chatRouting.ts tells apart: everyone busy, nobody online
+    // (the latter the visitor's own sentence, runtime.js routingNoAgentAvailable).
+    expect(operatorSystemText({ kind: 'routing_in_queue', reason: 'all_busy' }, 'en'))
+      .toBe('Everyone on the team was busy; the visitor is waiting in the queue');
+    expect(operatorSystemText({ kind: 'routing_in_queue', reason: 'all_busy' }, 'fa'))
+      .toBe('همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است');
+    expect(operatorSystemText({ kind: 'routing_no_agent_available', reason: 'nobody_online' }, 'en'))
+      .toBe("Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.");
     expect(operatorSystemText({ kind: 'conversation_closed', agent_name: 'Sara' }, 'tr')).toBe('Sara sohbeti kapattı');
   });
 
@@ -82,7 +90,7 @@ describe('withOperatorSystemBody', () => {
   it("replaces a system row's body and keeps every other field", () => {
     const row = { id: 'm1', sender_type: 'system', body: 'Your message is in the support queue.', metadata: { kind: 'routing_in_queue' }, created_at: 'x' };
     const out = withOperatorSystemBody(row, 'fa');
-    expect(out).toEqual({ ...row, body: 'کاربر در صف پشتیبانی منتظر است' });
+    expect(out).toEqual({ ...row, body: 'بازدیدکننده در صف پشتیبانی منتظر است' });
     expect(row.body).toBe('Your message is in the support queue.');
   });
 

@@ -152,7 +152,7 @@ describe('t2: the closed line and the rating card', () => {
   it('a thread that ends with a closed row: the line, one GET, the card (with the transcript link)', async () => {
     const h = await thread();
     const pills = Array.from(h.shadow.querySelectorAll('[data-chat-messages] .msg-system-pill')).map((p) => p.textContent);
-    expect(pills).toEqual(['سارا گفتگو را بست']);
+    expect(pills).toEqual(['سارا گفتگو را حل‌شده اعلام کرد']);
     expect(csatGets(h)).toEqual(['https://api.test/api/widget/conversations/c1/csat?workspace_id=ws-test']);
     const card = h.q('[data-csat]')!;
     expect(card.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
@@ -234,7 +234,7 @@ describe('t2: the closed line and the rating card', () => {
   ] as const) {
     it(`no card when the server says ${why}: the line only`, async () => {
       const h = await thread({ route: (u) => (u.includes('/csat') ? { body: { ...CSAT_OK, ...over } } : undefined) });
-      expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+      expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
       expect(h.q('[data-csat]')).toBeNull();
     });
   }
@@ -280,7 +280,7 @@ describe('t2: the closed line and the rating card', () => {
     expect(h.q('[data-csat]')).toBeNull();
     h.emitMessages([closed('cl1', 0)]);
     await flush(20);
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
     expect(h.q('[data-csat]')).not.toBeNull();
     expect(csatGets(h)).toHaveLength(1);
     // Away from the thread (where a reply would count): still no count, no event.

@@ -49,6 +49,10 @@ export const WIDGET_CUSTOMIZATION_CAPABILITY: Record<string, { capability: strin
   // The launcher's outline (circle / square / pill) is part of its style,
   // under the same capability (shared/launcherStyles.ts).
   fab_shape: { capability: 'widget_launcher_icon', reset: 'circle' },
+  // The launcher image too: without the capability the button is the chat
+  // circle (the upload is refused as well).
+  fab_image_storage_key: { capability: 'widget_launcher_icon', reset: null },
+  fab_image_url: { capability: 'widget_launcher_icon', reset: null },
   placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
   // The chat widget template choice and its options (migration 275): a plan
   // without the Appearance editor wears the catalog's default template with
@@ -162,6 +166,23 @@ async function resolveBoolean(
   return false;
 }
 
+/**
+ * One widget capability, resolved exactly as resolveWidgetEntitlements
+ * resolves it (module override, then the plan, then the registry default for
+ * a key the plan never heard of), for a caller that needs only that one —
+ * chat routing reads `widget_assignment_routing` on every routing run.
+ */
+export async function resolveWidgetCapability(
+  config: ServerConfig,
+  workspaceId: string,
+  key: (typeof WIDGET_CAPABILITY_KEYS)[number],
+  /** Called when the plan could not be read (the answer is then false, not the plan's). */
+  onUnreadable: () => void = () => {},
+): Promise<boolean> {
+  const overrides = MODULE_KEYS.has(key) ? await loadModuleOverrides(config, workspaceId) : new Map<string, boolean>();
+  return resolveBoolean(config, workspaceId, key, overrides, onUnreadable);
+}
+
 export async function resolveWidgetEntitlements(
   config: ServerConfig,
   workspaceId: string,
@@ -194,6 +215,27 @@ export async function resolveWidgetEntitlements(
   }
 
   return degraded ? { features, maxDomains, degraded } : { features, maxDomains };
+}
+
+/**
+ * The plan's answer for `widget_business_hours` alone (the Availability tab:
+ * business hours and the offline behaviour), for the availability resolver's
+ * callers that hold no snapshot. Null when the answer cannot be read, so a
+ * blip never resets a live widget's hours (resolveWidgetEntitlements reads
+ * the same answer as a denial).
+ */
+export async function widgetBusinessHoursAllowed(config: ServerConfig, workspaceId: string): Promise<boolean | null> {
+  const res = await checkEntitlementFromDB(
+    config.supabaseUrl,
+    config.supabaseServiceRoleKey,
+    workspaceId,
+    'widget_business_hours',
+    { selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
+  );
+  if (res.plan === 'error') return null;
+  if (res.allowed) return true;
+  if (isUnknownToPlan(res.reason)) return registryDefault('widget_business_hours') === true;
+  return false;
 }
 
 /** Force every plan-denied behaviour flag off in an outgoing settings row. */
@@ -272,6 +314,13 @@ export function guardWidgetSettingsPatch(
 
   if (patch.business_hours && (patch.business_hours as { enabled?: unknown }).enabled === true
       && ent.features.widget_business_hours === false) {
+    denied.push('widget_business_hours');
+  }
+  // The offline behaviour belongs to the same capability: a plan without it
+  // wears the leave-a-message form (availabilityRowForPlan).
+  if ('offline_mode' in patch && patch.offline_mode !== 'capture_message'
+      && ent.features.widget_business_hours === false
+      && !denied.includes('widget_business_hours')) {
     denied.push('widget_business_hours');
   }
 

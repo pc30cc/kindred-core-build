@@ -6,7 +6,7 @@
  * visitor.
  */
 import type { TranslationKey } from '@/i18n';
-import { CHAT_WIDGET_TEMPLATES } from '../../shared/widgetTemplates';
+import { CHAT_WIDGET_TEMPLATES, type ChatWidgetTemplateId } from '../../shared/widgetTemplates';
 
 type Translate = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
@@ -23,4 +23,29 @@ export function templateDisplayName(t: Translate, id: string, stored?: string | 
 /** One line about how a template looks (empty for an id the dashboard does not know). */
 export function templateDescription(t: Translate, id: string): string {
   return isKnownTemplate(id) ? t(`widgetCatalog.descriptions.${id}` as TranslationKey) : '';
+}
+
+/**
+ * What a visitor gets from a template, among what not every template has
+ * always had: the dashboard lists it on each template, so an owner choosing
+ * one knows (the renderers' `features`, shared/widgetTemplates.ts).
+ */
+export type TemplateVisitorFeature = 'typing' | 'queuePlace' | 'closedLine' | 'rating' | 'reactions';
+
+export function templateVisitorFeatures(id: string): TemplateVisitorFeature[] {
+  if (!isKnownTemplate(id)) return [];
+  const d = CHAT_WIDGET_TEMPLATES[id as ChatWidgetTemplateId];
+  // Every template shows an operator typing (default's row since 2026-10).
+  const out: TemplateVisitorFeature[] = ['typing'];
+  // The place in the queue is Template 1's (runtime-late.js `queuePosition`, its extras).
+  if (d.script === 'presentation-t1.js') out.push('queuePlace');
+  if (d.closedNotice) out.push('closedLine', 'rating');
+  if (d.reactions) out.push('reactions');
+  return out;
+}
+
+/** The template's features as one line in the dashboard's language. */
+export function templateFeatureLine(t: Translate, id: string): string {
+  const list = templateVisitorFeatures(id).map((f) => t(`widgetCatalog.features.${f}` as TranslationKey));
+  return list.length ? `${t('widgetCatalog.features.title' as TranslationKey)}: ${list.join(' · ')}` : '';
 }

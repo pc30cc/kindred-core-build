@@ -39,7 +39,10 @@ export type OperatorEventKind =
   // Email Inbox: a mailbox changed (a cursor, never content).
   | 'email_mailbox_changed'
   // A message's reactions changed: its new counts, never who reacted.
-  | 'message_reactions';
+  | 'message_reactions'
+  // The visitor read the conversation: `visitor_last_read_at` (ISO), for the
+  // operator's "Seen" (server/services/visitorReadReceipts.ts).
+  | 'visitor_read';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

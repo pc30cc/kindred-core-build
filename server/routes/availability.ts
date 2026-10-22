@@ -20,9 +20,14 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
+import {
+  computeCustomerAvailability,
+  type CustomerAvailabilityReason,
+} from '../services/widget/customerAvailability.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import type { Edition } from '../../shared/edition.js';
+import { isMissingColumnError } from '../lib/missingColumn.js';
 
 export const availabilityRouter = Router();
 
@@ -46,9 +51,6 @@ async function requireUser(req: Request, res: Response, next: NextFunction) {
 }
 
 availabilityRouter.use(requireUser);
-
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-type DayKey = (typeof DAY_KEYS)[number];
 
 const DEFAULT_WEEKLY = {
   mon: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
@@ -95,85 +97,48 @@ export function defaultTimezone(locale?: unknown, edition: Edition | null = 'ira
 const DEFAULTS = {
   force_offline: false,
   available_when_using_app: true,
+  manual_away: false,
   schedule_enabled: false,
   timezone: 'UTC',
   weekly_schedule: DEFAULT_WEEKLY,
 };
 
-function partsInTz(date: Date, tz: string) {
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      weekday: 'short',
-    }).formatToParts(date);
-  } catch {
-    parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'UTC',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      weekday: 'short',
-    }).formatToParts(date);
-  }
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
-  const dowMap: Record<string, DayKey> = {
-    Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
-  };
-  return {
-    h: Number(get('hour') === '24' ? '0' : get('hour')),
-    m: Number(get('minute')),
-    dow: dowMap[get('weekday') as string] ?? 'mon',
-  };
-}
-
-function isWithinIntervals(intervals: Array<{ from: string; to: string }>, h: number, m: number) {
-  const cur = h * 60 + m;
-  for (const it of intervals || []) {
-    const f = /^(\d{1,2}):(\d{2})$/.exec(it.from || '');
-    const t = /^(\d{1,2}):(\d{2})$/.exec(it.to || '');
-    if (!f || !t) continue;
-    const fm = Number(f[1]) * 60 + Number(f[2]);
-    const tm = Number(t[1]) * 60 + Number(t[2]);
-    if (fm <= cur && cur < tm) return true;
-  }
-  return false;
-}
+/** The banner's reason codes (the macOS app reads outside_schedule / day_disabled). */
+const LIVE_STATUS_REASON: Record<CustomerAvailabilityReason, string> = {
+  manual_offline: 'force_offline',
+  manual_invisible: 'unavailable_when_using_app',
+  manual_away: 'manual_away',
+  always_available: 'available_when_using_app',
+  no_prefs: 'available_when_using_app',
+  within_schedule: 'within_schedule',
+  outside_schedule: 'outside_schedule',
+  day_disabled: 'day_disabled',
+};
 
 /**
- * Live status from prefs. Returned as part of GET so the UI shows the
- * "You are currently seen as: …" banner without duplicating logic.
- *   - force_offline    => 'offline'
- *   - schedule disabled, available_when_using_app => 'online'
- *   - schedule enabled => check today's intervals
+ * Live status from prefs, returned with GET and PATCH so the UI shows the
+ * "You are currently seen as: …" banner. It is the customer-facing resolver
+ * itself (computeCustomerAvailability: what the widget and routing read), so
+ * the banner never says something visitors do not see (R-07: it used to
+ * follow the schedule while "Show me as available" was off, which the widget
+ * reads as invisible whatever the schedule says).
  */
-function computeLiveStatus(prefs: typeof DEFAULTS): { state: 'online' | 'offline'; reason: string } {
-  if (prefs.force_offline) return { state: 'offline', reason: 'force_offline' };
-
-  if (!prefs.schedule_enabled) {
-    return prefs.available_when_using_app
-      ? { state: 'online', reason: 'available_when_using_app' }
-      : { state: 'offline', reason: 'unavailable_when_using_app' };
-  }
-
-  const tz = prefs.timezone || 'UTC';
-  const { h, m, dow } = partsInTz(new Date(), tz);
-  const day = (prefs.weekly_schedule as Partial<Record<DayKey, { enabled?: boolean; intervals?: Array<{ from: string; to: string }> }>>)?.[dow];
-  if (!day || day.enabled === false) {
-    return { state: 'offline', reason: 'day_disabled' };
-  }
-  return isWithinIntervals(day.intervals || [], h, m)
-    ? { state: 'online', reason: 'within_schedule' }
-    : { state: 'offline', reason: 'outside_schedule' };
+export function computeLiveStatus(
+  prefs: typeof DEFAULTS,
+  now: Date = new Date(),
+): { state: 'online' | 'offline'; reason: string } {
+  const { availability, reason } = computeCustomerAvailability(prefs, now);
+  return {
+    state: availability === 'available' ? 'online' : 'offline',
+    reason: LIVE_STATUS_REASON[reason] || reason,
+  };
 }
 
 /** A stored `user_availability_prefs` row (or nothing yet). */
 interface AvailabilityRow {
   force_offline?: boolean | null;
   available_when_using_app?: boolean | null;
+  manual_away?: boolean | null;
   schedule_enabled?: boolean | null;
   timezone?: unknown;
   weekly_schedule?: unknown;
@@ -186,6 +151,7 @@ function mergeWithDefaults(row: AvailabilityRow | null | undefined, locale?: unk
   return {
     force_offline: !!row?.force_offline,
     available_when_using_app: row?.available_when_using_app ?? true,
+    manual_away: row?.manual_away === true,
     schedule_enabled: !!row?.schedule_enabled,
     timezone: typeof row?.timezone === 'string' && row.timezone
       ? (row.timezone as string)
@@ -239,10 +205,25 @@ const weeklySchema = z.object({
 const updateSchema = z.object({
   force_offline: z.boolean().optional(),
   available_when_using_app: z.boolean().optional(),
+  /** "Away from desk" (migration 282): no new chats, keeps the ones they hold. */
+  manual_away: z.boolean().optional(),
   schedule_enabled: z.boolean().optional(),
   timezone: z.string().min(1).max(60).optional(),
   weekly_schedule: weeklySchema.optional(),
 });
+
+/**
+ * What a PATCH writes. A client that knows only force_offline (the desktop
+ * and phone apps, the Availability page's "Appear offline") means Online or
+ * Offline by it, so writing force_offline without manual_away also ends an
+ * "Away from desk": otherwise their Online would leave them away, out of
+ * routing, with nothing on their screen to say so.
+ */
+export function availabilityPatchOf(data: z.infer<typeof updateSchema>): Record<string, unknown> {
+  const patch: Record<string, unknown> = { ...data };
+  if (data.force_offline !== undefined && data.manual_away === undefined) patch.manual_away = false;
+  return patch;
+}
 
 availabilityRouter.patch('/', async (req, res) => {
   try {
@@ -265,31 +246,23 @@ availabilityRouter.patch('/', async (req, res) => {
 
     // Merge weekly_schedule patches with the current row so a partial
     // PATCH (e.g. just toggling Tuesday) doesn't wipe other days.
-    const patch: Record<string, unknown> = { ...parsed.data };
+    const patch = availabilityPatchOf(parsed.data);
     if (parsed.data.weekly_schedule) {
       const current = mergeWithDefaults(existing).weekly_schedule;
       patch.weekly_schedule = { ...current, ...parsed.data.weekly_schedule };
     }
 
-    let row;
-    if (existing?.id) {
-      const { data, error } = await sb
-        .from('user_availability_prefs')
-        .update(patch)
-        .eq('id', existing.id)
-        .select('*')
-        .maybeSingle();
-      if (error) return res.status(500).json({ error: error.message });
-      row = data;
-    } else {
-      const { data, error } = await sb
-        .from('user_availability_prefs')
-        .insert({ user_id: user.id, workspace_id: null, ...patch })
-        .select('*')
-        .maybeSingle();
-      if (error) return res.status(500).json({ error: error.message });
-      row = data;
+    const write = (values: Record<string, unknown>) => (existing?.id
+      ? sb.from('user_availability_prefs').update(values).eq('id', existing.id).select('*').maybeSingle()
+      : sb.from('user_availability_prefs').insert({ user_id: user.id, workspace_id: null, ...values }).select('*').maybeSingle());
+    let { data: row, error } = await write(patch);
+    // Before migration 282 there is no manual_away: the rest of the change is
+    // saved (Online / Appear offline), and the row returned says what is.
+    if (error && 'manual_away' in patch && isMissingColumnError(error, ['manual_away'])) {
+      const { manual_away: _away, ...rest } = patch;
+      ({ data: row, error } = await write(rest));
     }
+    if (error) return res.status(500).json({ error: error.message });
 
     // Every workspace whose widget shows this operator.
     publishCacheInvalidation([`user:${user.id}`]);

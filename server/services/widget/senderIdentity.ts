@@ -24,7 +24,7 @@
 import type { ServerConfig } from '../../config.js';
 import { hydrateUserAvatars } from '../storage/urlResolver.js';
 import { resolveAgentLogoUrl } from '../ai-agent/settings.js';
-import { isDefaultAiAgentName } from '../../../shared/systemMessages.js';
+import { isDefaultAiAgentName, visitorDisplayName } from '../../../shared/systemMessages.js';
 import { filterVisitorVisibleMessages } from '../../routes/widgetAttachments.js';
 import { getWorkspaceWidgetSnapshot } from './configSnapshot.js';
 import { listCustomerAvailableOperators } from './customerAvailability.js';
@@ -39,6 +39,11 @@ export interface OperatorIdentity {
  * list (a thread, or the visitor's list of conversations). Ids without a
  * profile are absent from the map; a failed read is an empty map (the
  * widget then shows the workspace instead of a person).
+ *
+ * The name is one a visitor may read (I-10): an operator who typed their
+ * email address as their profile name, or left a placeholder, has none, and
+ * the widget writes its own word for an operator («اپراتور», "Operator",
+ * "Operatör") instead of putting their address on every bubble.
  */
 export async function resolveOperatorIdentities(
   config: ServerConfig,
@@ -57,7 +62,7 @@ export async function resolveOperatorIdentities(
     // one resolution for the whole list.
     await hydrateUserAvatars(config, (profiles || []));
     (profiles || []).forEach((p) => {
-      out.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
+      out.set(p.id, { name: visitorDisplayName(p.full_name), avatar: p.avatar_url || null });
     });
   } catch (e) {
     console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);

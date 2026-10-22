@@ -13,13 +13,13 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
-import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceLabelOf, presenceStateOf } from '@/lib/presenceState';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 function initials(name?: string | null, email?: string | null) {
@@ -35,7 +35,7 @@ export default function TeamPage() {
   const { data: role, isPending } = useWorkspaceRole(workspace?.id);
   const { data: members = [], isLoading } = useWorkspaceMembers(workspace?.id);
   const { data: presence } = useTeamPresence(workspace?.id);
-  const pMap = useMemo(() => presenceMap((presence as any)?.presence), [presence]);
+  const pMap = useMemo(() => presenceMap(presence?.presence), [presence]);
 
   if (isPending) return <div className="h-full w-full" />;
   if (isWorkspaceAdmin(role)) return <Navigate to="../settings/team-departments" replace />;
@@ -46,7 +46,7 @@ export default function TeamPage() {
         <div className="flex items-center gap-2 border-b border-border/60 px-5 py-4">
           <Users className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-base font-semibold text-foreground">
-            {(t as any)('team.title') || 'Team'}
+            {t('team.title') || 'Team'}
           </h1>
           <span className="ms-auto text-xs text-muted-foreground">{members.length}</span>
         </div>
@@ -56,12 +56,12 @@ export default function TeamPage() {
             <div className="p-6 text-sm text-muted-foreground">…</div>
           ) : members.length === 0 ? (
             <div className="p-6 text-sm text-muted-foreground">
-              {(t as any)('team.noMembers') || '—'}
+              {t('team.noMembers') || '—'}
             </div>
           ) : (
             <ul className="divide-y divide-border/60">
               {members.map(m => {
-                const pState = presenceStateOf(pMap.get(m.user_id) as any);
+                const pState = presenceStateOf(pMap.get(m.user_id));
                 return (
                   <li key={m.user_id} className="flex items-center gap-3 px-5 py-3">
                     <div className="relative">
@@ -74,7 +74,7 @@ export default function TeamPage() {
                           'absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background',
                           PRESENCE_DOT_CLASS[pState],
                         )}
-                        title={t(presenceHintKey(pState) as any) || undefined}
+                        title={t(presenceHintKey(presenceLabelOf(pMap.get(m.user_id))) as TranslationKey) || undefined}
                       />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -86,7 +86,7 @@ export default function TeamPage() {
                       )}
                     </div>
                     <Badge variant="secondary" className="text-[11px]">
-                      {(t as any)(`team.${m.role}`) || m.role}
+                      {t(`team.${m.role}` as TranslationKey) || m.role}
                     </Badge>
                   </li>
                 );

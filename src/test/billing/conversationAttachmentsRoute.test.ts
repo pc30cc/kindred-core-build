@@ -45,9 +45,10 @@ const sbMock = {
         if (table === "conversation_attachments")
           return { data: state.attachmentRow, error: null };
         // Membership is the workspace_members row (is_workspace_member's
-        // definition); its presence follows state.isMember.
+        // definition); its presence follows state.isMember. An operator: the
+        // attachment routes are the Inbox's (staff without one get 403).
         if (table === "workspace_members")
-          return { data: state.isMember?.data ? { role: null, suspended_at: null } : null, error: state.isMember?.error ?? null };
+          return { data: state.isMember?.data ? { role: "agent", suspended_at: null } : null, error: state.isMember?.error ?? null };
         return { data: null, error: null };
       },
       update: (patch: Row) => ({

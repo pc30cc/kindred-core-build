@@ -120,6 +120,15 @@ describe('platform public config cache', () => {
     expect(JSON.stringify(v)).not.toContain('admin-1');
   });
 
+  it('leaves out the branding labels nothing draws (widget display name, knowledge base title, support label)', async () => {
+    db.localized = [{
+      id: 'l1', locale: 'en', platform_name: 'Acme', footer_company_text: 'Acme Ltd',
+      widget_display_name: 'Acme Chat', knowledge_base_title: 'Acme Help', support_label: 'Support',
+    }];
+    const v = await getPlatformPublicConfig(CONFIG);
+    expect(v?.localized).toEqual([{ locale: 'en', platform_name: 'Acme', footer_company_text: 'Acme Ltd' }]);
+  });
+
   it('a Super Admin write is visible on the very next read', async () => {
     await getPlatformPublicConfig(CONFIG);
     db.branding = { ...db.branding, primary_color: '#abcdef' };

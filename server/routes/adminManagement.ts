@@ -845,11 +845,11 @@ const platformBrandingLocalizedSchema = z
     social_share_description: z.string().max(2000).nullable().optional(),
     browser_title_format: z.string().max(255).nullable().optional(),
     public_site_title: z.string().max(255).nullable().optional(),
-    widget_display_name: z.string().max(255).nullable().optional(),
-    knowledge_base_title: z.string().max(255).nullable().optional(),
     legal_company_display_name: z.string().max(255).nullable().optional(),
     footer_company_text: z.string().max(1000).nullable().optional(),
-    support_label: z.string().max(255).nullable().optional(),
+    // widget_display_name, knowledge_base_title and support_label are left
+    // out (stripped from a save): nothing ever drew them, so the Branding
+    // page no longer offers them. Their columns stay.
   })
   .strip();
 

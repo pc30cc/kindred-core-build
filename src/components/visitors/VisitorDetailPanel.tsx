@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { useVisitorDetail, useVisitorPageHistory } from '@/hooks/useVisitors';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { useState } from 'react';
 import {
   Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
@@ -14,6 +15,7 @@ import { contactDisplayName } from '@/lib/contact-display';
 import { formatDateTime, formatRelative } from '@/lib/date';
 import { OsAvatar } from '@/components/visitors/OsIcon';
 import { conversationsApi } from '@/lib/conversations-api';
+import type { VisitorIntelItem } from '@/lib/visitors-api';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
 interface Props {
@@ -35,6 +37,9 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
   const wsPath = useWorkspacePath();
   const [showAllPages, setShowAllPages] = useState(false);
   const [startingChat, setStartingChat] = useState(false);
+  // Chats are the Inbox's: staff without one (shared/chatRoles.ts) can look
+  // at a visitor, not start or open a conversation with them.
+  const inboxAllowed = useWorkspaceSections().visible('inbox');
 
   const copy = (label: string, value: string) => {
     navigator.clipboard.writeText(value);
@@ -55,10 +60,10 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
         visitor_session_id: data.id,
       });
       navigate(`${wsPath('/inbox')}?c=${result.conversation_id}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: t('common.error' as 'common.copy') || 'Error',
-        description: err?.message || 'Failed to start chat',
+        description: (err instanceof Error && err.message) || 'Failed to start chat',
         variant: 'destructive',
       });
     } finally {
@@ -115,7 +120,7 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
 
             {/* Quick actions */}
             <div className="grid grid-cols-2 gap-2">
-              {data.conversation ? (
+              {!inboxAllowed ? null : data.conversation ? (
                 <Button size="sm" variant="default"
                   onClick={() => navigate(`${wsPath('/inbox')}?c=${data.conversation!.id}`)}>
                   <MessageSquare className="w-3.5 h-3.5 me-1.5" />
@@ -372,7 +377,7 @@ function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>)
   return t('visitors.landedAt', { when });
 }
 
-function LocationRow({ data, t, locale }: { data: any; t: (k: string) => string; locale?: string }) {
+function LocationRow({ data, t, locale }: { data: VisitorIntelItem; t: (k: string) => string; locale?: string }) {
   const loc = localizedLocationLabel(data.geo, locale ?? 'en') ?? '';
   const src = data.geo.source as 'cache' | 'provider' | 'centroid' | 'session' | 'disabled' | 'none';
   const isPrecise = src === 'provider' || src === 'cache';
@@ -418,7 +423,7 @@ function LocationRow({ data, t, locale }: { data: any; t: (k: string) => string;
 }
 
 function IpRow({ data, t, onCopy }: {
-  data: any; t: (k: string) => string; onCopy: (label: string, value: string) => void;
+  data: VisitorIntelItem; t: (k: string) => string; onCopy: (label: string, value: string) => void;
 }) {
   if (data.ip_locked) {
     return (

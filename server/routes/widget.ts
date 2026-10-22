@@ -5,6 +5,7 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
  * Endpoints:
  *  - POST /bootstrap        — Public. Issues HMAC session token
  *  - GET  /config           — Token-secured. Full widget config
+ *  - GET  /availability     — Token-secured. The team's availability now (re-read while the panel is open)
  *  - GET  /poll             — Token-secured. Poll messages
  *  - GET  /history          — Token-secured. Conversation history
  *  - GET  /help-articles    — Token-secured. KB articles
@@ -13,7 +14,7 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
  *  - PUT  /action           — Token-secured. Heartbeat, typing, reopen
  *  - GET  /conversations/:id/csat       — The closed line's rating state, transcript availability
  *  - POST /conversations/:id/csat       — Rate the closed line
- *  - POST /conversations/:id/transcript — Mail the transcript to the contact's email
+ *  - POST /conversations/:id/transcript — Mail the transcript to the contact's email (403 while visitor email is off)
  *  - GET  /conversations/:id/reactions  — Message reactions of the thread (counts, the visitor's own)
  *  - POST /conversations/:id/reactions  — Set or take back the visitor's ❤️ on a team message
  *  - GET  /queue            — The conversation's place in the manual queue and the wait
@@ -111,6 +112,7 @@ import { clearAiManagementForPlatformOff, markNeedsHuman, type PlatformOffReason
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
 import { isContactIdentityConflict, placeUnverifiedIdentifiers } from '../services/widget/claimedIdentity.js';
+import { toAsciiDigits } from '../services/phoneVerification/phone.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from '../services/widget/visitorCode.js';
 import {
   pinContactOnVisitorSessions,
@@ -120,6 +122,7 @@ import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages, visitorReplyPreview, type ReplyToPreview } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
+import { departmentSupportsChannel, resolveDepartments } from '../services/calls/departments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import {
@@ -146,6 +149,11 @@ import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visit
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { workspaceChatTemplate } from '../services/widget/configSnapshot.js';
+import { widgetPlanDenied, WIDGET_PLAN_CHAT } from '../services/widget/planGate.js';
+import { smartRuleOpening } from '../services/widget/smartOpening.js';
+import { trackedPage, trackedReferrer, trackingAllowed, trackingPrivacyOf } from '../services/widget/trackingPrivacy.js';
+import { readPrechatRow, recordPrivacyConsent } from '../services/widget/prechatEffective.js';
+import { prechatPrivacyOf } from '../../shared/prechatPolicy.js';
 import {
   csatEnabledFor,
   csatState,
@@ -161,7 +169,8 @@ import {
   readMessageReactions,
   setMessageReaction,
 } from '../services/messageReactions.js';
-import { readQueueStatus } from '../services/chatRouting.js';
+import { readQueueStatus, routeHumanBoundConversation, routeOfflineCapture } from '../services/chatRouting.js';
+import { publishVisitorRead } from '../services/visitorReadReceipts.js';
 import {
   VISITOR_REACTION_EMOJI,
   normalizeReactionEmoji,
@@ -400,6 +409,14 @@ async function handleBootstrap(req: Request, res: Response) {
       edition,
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
+      // The visitor credential (services/widget/visitorIdentity.ts) and
+      // whether this request carried the cookie: the loader stores the
+      // credential only while the browser does not keep the cookie. When the
+      // cookie came it is not handed out at all (empty): a page that got the
+      // browser to send a visitor's cookie must not walk away with a bearer
+      // token it can replay from anywhere for a year.
+      visitor_credential: visitor.fromCookie ? '' : visitor.credential,
+      visitor_cookie: visitor.fromCookie,
       availability: availabilityPayload,
       effective_policy,
       version: '3.0.0',
@@ -582,6 +599,40 @@ widgetRouter.get('/config', widgetRateLimit('config'), async (req: Request, res:
 });
 
 // ═══════════════════════════════════════════════
+// GET /availability — The team's availability now
+// ───────────────────────────────────────────────
+// What /config's `availability` says, at this moment: the widget asks again
+// when the panel opens, every few minutes while it is open, and when the
+// team is due back (runtime.js createPresence), so a page opened before the
+// hours began (or ended) follows them. From the cached snapshots, as the
+// bootstrap computes it: no database read on a cache hit.
+// 200 { availability } | 400 workspace_id required.
+// ═══════════════════════════════════════════════
+widgetRouter.get('/availability', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  res.set('Cache-Control', 'no-store');
+  try {
+    const [snap, quotaFull] = await Promise.all([
+      getWorkspaceWidgetSnapshot(config, workspaceId),
+      getQuotaFull(config, workspaceId),
+    ]);
+    const locale = typeof req.query.locale === 'string' && req.query.locale ? req.query.locale.slice(0, 10) : 'en';
+    const availability = await bootstrapAvailability(config, workspaceId, snap, locale, new Date(), quotaFull);
+    return res.json({ availability });
+  } catch (err) {
+    if (err instanceof WidgetConfigBusyError) {
+      res.set('Retry-After', '1');
+      return res.status(503).json({ error: 'Internal error', code: err.code });
+    }
+    console.error('Widget availability error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════
 // GET /poll — Poll for new messages
 // ═══════════════════════════════════════════════
 
@@ -734,7 +785,8 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
       masterEnabled: true,
       mode: 'production',
       page: { url: journey.current.path, path: journey.current.path, hostname: '', title: journey.current.title },
-      referrer: d.referrer || undefined,
+      // Never its query string (P-01).
+      referrer: trackedReferrer(d.referrer) || undefined,
       utm: d.utm || undefined,
       device: d.device,
       locale: d.locale,
@@ -1302,15 +1354,18 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
     }
     if (!owns) return res.status(404).json({ error: 'not found' });
 
-    await supabase
+    const readAt = new Date().toISOString();
+    const { error: readError } = await supabase
       .from('widget_conversation_reads')
       .upsert({
         workspace_id: workspaceId,
         conversation_id: conversationId,
         visitor_id: visitorId,
-        last_read_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_read_at: readAt,
+        updated_at: readAt,
       }, { onConflict: 'conversation_id,visitor_id' });
+    // The operator's "Seen" follows live (services/visitorReadReceipts.ts).
+    if (!readError) void publishVisitorRead(config, { workspaceId, conversationId, readAt });
 
     return res.json({ ok: true });
   } catch (err) {
@@ -1642,15 +1697,33 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
 // ═══════════════════════════════════════════════
 // POST /message — Send message + AI auto-reply
 // ═══════════════════════════════════════════════
+const smartRuleRef = z.object({
+  id: z.string().uuid(),
+  locale: z.string().max(16).optional().nullable(),
+});
+
 const messageSchema = z.object({
   workspace_id: z.string().uuid().optional(),
   conversation_id: z.string().uuid().optional().nullable(),
   message: z.string().min(0).max(5000).optional(),
   body: z.string().min(0).max(5000).optional(),
   visitor_id: z.string().min(1).max(255).optional(),
-  visitor_name: z.string().max(200).optional(),
-  visitor_email: z.string().email().optional().nullable(),
-  visitor_phone: z.string().max(30).optional().nullable(),
+  // The contact details a site passes with identify() (loader.js) ride on
+  // every message, unchecked by the page: a value that is not usable is
+  // dropped here, never a reason to refuse the visitor's message (an
+  // invalid email used to make every send a 400).
+  visitor_name: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : undefined),
+    z.string().max(200).optional(),
+  ),
+  visitor_email: z.preprocess(
+    (v) => (typeof v === 'string' && z.string().email().max(255).safeParse(v.trim()).success ? v.trim() : undefined),
+    z.string().email().optional().nullable(),
+  ),
+  visitor_phone: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() && v.trim().length <= 30 ? v.trim() : undefined),
+    z.string().max(30).optional().nullable(),
+  ),
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
   attachment_id: z.string().uuid().optional().nullable(),
@@ -1686,6 +1759,17 @@ const messageSchema = z.object({
     source: z.literal('ai_proactive_nudge'),
     nudge_id: z.string().uuid(),
   }).optional().nullable(),
+  /**
+   * The Smart Engagement "Message inside the chat" the visitor is answering
+   * (services/widget/smartOpening.ts): on the message that opens a new
+   * conversation, the rule's published text is stored before it. Only the
+   * id is a key; the locale picks among the rule's own translations.
+   */
+  smart_rule: z.preprocess(
+    // Context only: a value that is not usable is dropped, never a reason to refuse the message.
+    (v) => (smartRuleRef.safeParse(v).success ? v : undefined),
+    smartRuleRef.optional(),
+  ),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
   { message: 'message, body, or attachment_id required' }
@@ -1718,6 +1802,28 @@ async function resolveCookieVisitorSessionId(
     return null;
   }
   return (data?.id as string | undefined) ?? null;
+}
+
+/**
+ * The department a visitor picked (the widget's picker, GET
+ * /departments/visible), as /message stores it on the message: one of this
+ * workspace's enabled chat departments, else none. Routing reads it from
+ * there (chatRouting.ts resolveConversationDepartment) and keeps it on the
+ * conversation, where the Inbox shows it and the queue counts per
+ * department (280b), so an id from elsewhere is dropped here like the
+ * other lenient fields. An unreadable department list keeps the choice:
+ * routing then checks it again against the same list.
+ */
+async function widgetChatDepartmentId(config: ServerConfig, workspaceId: string, id: string | null | undefined): Promise<string | null> {
+  if (!id) return null;
+  try {
+    const wanted = id.toLowerCase();
+    const dept = (await resolveDepartments(config, workspaceId))
+      .find((d) => String(d.id).toLowerCase() === wanted && departmentSupportsChannel(d, 'chat'));
+    return dept ? String(dept.id) : null;
+  } catch {
+    return id;
+  }
 }
 
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
@@ -1784,7 +1890,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         try {
           const u = new URL(raw);
           u.hash = '';
-          for (const k of ['token','access_token','refresh_token','code','password','session','auth','key','secret','api_key','sig','signature']) {
+          // Credentials, and the contact details a link may carry (P-01).
+          for (const k of ['token','access_token','refresh_token','id_token','code','otp','password','session','auth','key','secret','api_key','sig','signature','email','phone','mobile']) {
             u.searchParams.delete(k);
           }
           const s = u.toString();
@@ -1863,9 +1970,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
   try {
     // Verify widget is enabled
-    const { data: widget } = await readWidgetRow();
+    // The workspace's switches, then its plan: the raw chat_enabled column
+    // survives a downgrade that /config already applies (services/widget/planGate.ts).
+    const [{ data: widget }, planDenied] = await Promise.all([
+      readWidgetRow(),
+      widgetPlanDenied(config, workspaceId, [WIDGET_PLAN_CHAT]),
+    ]);
 
-    if (!widget?.enabled || widget.chat_enabled === false) {
+    if (!widget?.enabled || widget.chat_enabled === false || planDenied.has(WIDGET_PLAN_CHAT)) {
       return res.status(403).json({ error: 'Chat not enabled' });
     }
 
@@ -1895,6 +2007,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
 
     let convId = body.conversation_id || null;
+    // This request created the conversation (the winner of a concurrent pair only).
+    let createdConversation = false;
 
     // Verify conversation ownership if provided
     if (convId) {
@@ -2059,6 +2173,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // an unrelated prior open conversation the way matching on a stable
       // visitor/session identity would.
       const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;
+      // "+ New conversation" (force_new_conversation): the visitor asked for
+      // a NEW thread, so nothing may match by who they are. The contact
+      // (and session) match below would hand back their latest open thread
+      // — the very one they chose to leave — and the "new" message would
+      // land in it. Only the client-message key stays: it reunites retries
+      // of this same first message with the thread it created.
+      const forceNew = body.force_new_conversation === true;
       const lockKey = clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
       // The link (not a match key): which session this conversation belongs
       // to, so presence-by-conversation and the Visitors list can pair them.
@@ -2070,8 +2191,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         p_workspace_id: workspaceId,
         p_lock_key: lockKey,
         p_match_thread_key: widgetThreadKey,
-        p_match_session_id: body.session_id || null,
-        p_match_contact_id: contactId,
+        p_match_session_id: forceNew ? null : body.session_id || null,
+        p_match_contact_id: forceNew ? null : contactId,
         p_contact_id: contactId,
         p_visitor_session_id: linkSessionId,
         p_subject: subjectText,
@@ -2083,6 +2204,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       if (!ensuredRow?.id) throw new Error('conversation creation failed');
       convId = ensuredRow.id as string;
       const createdNewConversation = Boolean(ensuredRow.created);
+      createdConversation = createdNewConversation;
 
       // Only the winner emits creation events — the losing concurrent request
       // attached to an existing conversation and must not duplicate them.
@@ -2175,11 +2297,62 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       visitor_id: body.visitor_id,
       session_id: body.session_id,
       attachment_id: data.attachment_id || undefined,
-      department_id: data.department_id || undefined,
+      department_id: (await widgetChatDepartmentId(config, workspaceId, data.department_id)) || undefined,
       page_context: pageContext || undefined,
       nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
     };
     if (clientMessageId) insertMetadata.client_message_id = clientMessageId;
+
+    // A Smart Engagement "Message inside the chat" the visitor answers opens
+    // the conversation it started: its published text, stored as the
+    // workspace's automated line before the visitor's message, so the
+    // operator and the AI read what was asked (services/widget/smartOpening.ts).
+    // Only the request that created the conversation: a retry finds the
+    // thread by its client key, and never writes the line twice.
+    let openingMessage: Record<string, unknown> | null = null;
+    if (createdConversation && convId && data.smart_rule?.id) {
+      try {
+        const snap = await getWorkspaceWidgetSnapshot(config, workspaceId);
+        const brand = snap.settings && typeof snap.settings.brand_name === 'string'
+          ? String(snap.settings.brand_name).trim()
+          : (snap.workspace?.name || '');
+        const opening = smartRuleOpening(snap, data.smart_rule.id, data.smart_rule.locale, {
+          workspaceName: brand,
+          pageTitle: pageContext?.currentPageTitle,
+          pagePath: pageContext?.currentPagePath,
+        });
+        if (opening) {
+          const { data: row } = await supabase
+            .from('conversation_messages').insert({
+              conversation_id: convId,
+              body: opening.text,
+              sender_type: 'bot',
+              metadata: { source: 'smart_rule', smart_rule_id: opening.ruleId, smart_rule_version: opening.version },
+            })
+            .select(MESSAGE_COLUMNS)
+            .single();
+          if (row) {
+            openingMessage = row as Record<string, unknown>;
+            publishConversationEvent(config, workspaceId, convId, buildMessageEnvelope(row as Parameters<typeof buildMessageEnvelope>[0])).catch(() => {});
+            // The rule's "conversations" stat (workspaceSmartRules.ts).
+            void recordSmartEvent(supabase, {
+              workspaceId,
+              ruleId: opening.ruleId,
+              ruleVersion: opening.version,
+              source: 'rule',
+              eventType: 'conversation_started',
+              visitorId: body.visitor_id || null,
+              sessionId: body.session_id || null,
+              pagePath: pageContext?.currentPagePath || null,
+              idempotencyKey: `conversation_started:${opening.ruleId}:${convId}`,
+            }, config);
+          }
+        }
+      } catch (err) {
+        // The visitor's message is what matters; the line is context.
+        console.warn('[widget-message] smart rule opening skipped:', err?.message || err);
+      }
+    }
 
     /**
      * Idempotency (double-click / client retry / resend-after-failure).
@@ -2276,8 +2449,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         .maybeSingle();
       touchedStatus = typeof touched?.status === 'string' ? touched.status : null;
     }
+    let lifecycle: Awaited<ReturnType<typeof applyInboundConversationLifecycle>> | null = null;
     if (!duplicate && convId && insertedMsg?.id) {
-      await applyInboundConversationLifecycle(config, {
+      lifecycle = await applyInboundConversationLifecycle(config, {
         workspaceId,
         conversationId: convId,
         source: 'widget',
@@ -2328,6 +2502,21 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       } catch (e) {
         console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
       }
+    }
+
+    // Chat routing (package A): a conversation nobody has and no AI will
+    // answer gets an operator now, at this message — AI off, suggest-only,
+    // or auto-reply-when-offline while the team is online. Fire-and-forget,
+    // after the platform-off restore above (which rewrites the metadata), and
+    // skipped on a duplicate replay. See chatRouting.ts
+    // routeHumanBoundConversation.
+    if (!duplicate && convId && insertedMsg?.id) {
+      void routeHumanBoundConversation(config, {
+        workspaceId,
+        conversationId: convId,
+        platformAiOff,
+        reopened: lifecycle?.transition === 'reopened_resolved',
+      });
     }
 
     // Realtime: broadcast the visitor message to the inbox subscriber.
@@ -2435,6 +2624,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // for every OTHER read path.
       reply_to_message_id: publicReplyToMessageId,
       reply_to: replyToPreview,
+      // The rule's line stored before this message (smart_rule above): the
+      // widget puts it in the thread in place of the one it drew itself.
+      ...(openingMessage ? { opening_message: openingMessage } : {}),
     });
   } catch (err) {
     // Full detail (Postgres code/constraint/message) stays server-side only —
@@ -2496,7 +2688,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
     page_url,
     current_page,
     page_title,
-    referrer,
+    referrer: rawReferrer,
     browser,
     device,
     os,
@@ -2510,7 +2702,6 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
   try {
     const normalizedEvent = event_type || event;
-    const normalizedPageUrl = page_url || current_page || null;
     let activeSessionId: string | null = session_id || null;
 
     if (normalizedEvent === 'page_view' || normalizedEvent === 'heartbeat') {
@@ -2532,15 +2723,32 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       // lookup and identityMerge's location enrichment had nothing to read.
       // Read from the database on every request (not the config snapshot),
       // so the toggle holds from the very next request, on every node.
-      const storeRawIpRead = (async () => {
+      // The same read brings the workspace's tracking privacy (P-01,
+      // services/widget/trackingPrivacy.ts; a database before migration 281
+      // has no such columns: read again without them, the defaults apply).
+      const settingsRead = (async () => {
         try {
-          const { data: ws } = await supabase
+          let { data: ws, error } = await supabase
             .from('widget_settings')
-            .select('store_raw_ip')
+            .select('store_raw_ip, tracking_requires_consent, tracking_keep_query')
             .eq('workspace_id', workspaceId)
             .maybeSingle();
-          return ws?.store_raw_ip === true;
-        } catch { return false; /* default to not storing on lookup failure */ }
+          // Before migration 281 (the columns are missing, and only then):
+          // its defaults, consent not asked, as before it. Any other error is
+          // unreadable settings, not an older database.
+          const before281 = !!error && isMissingColumnError(error, ['tracking_requires_consent', 'tracking_keep_query']);
+          if (before281) ({ data: ws, error } = await supabase.from('widget_settings').select('store_raw_ip').eq('workspace_id', workspaceId).maybeSingle());
+          // Unreadable settings: the cautious side (no raw IP, consent asked).
+          if (error) return { storeRawIp: false, privacy: { requiresConsent: true, keepQuery: false } };
+          const row = (ws ?? {}) as { store_raw_ip?: unknown; tracking_requires_consent?: unknown; tracking_keep_query?: unknown };
+          return {
+            storeRawIp: row.store_raw_ip === true,
+            privacy: { requiresConsent: row.tracking_requires_consent === true, keepQuery: row.tracking_keep_query === true },
+          };
+        } catch {
+          // Default to not storing the raw IP, and to asking for consent, on lookup failure.
+          return { storeRawIp: false, privacy: { requiresConsent: true, keepQuery: false } };
+        }
       })();
 
       // Check for existing recent session
@@ -2556,7 +2764,14 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
-      const [storeRawIp, { data: existing }] = await Promise.all([storeRawIpRead, sessionRead]);
+      const [{ storeRawIp, privacy }, { data: existing }] = await Promise.all([settingsRead, sessionRead]);
+      // P-01: nothing at all while consent is asked for (the workspace's
+      // setting, or the browser's Global Privacy Control) and was not given;
+      // the path, its query string only when the workspace keeps it, and the
+      // referrer without its own.
+      if (!trackingAllowed(req, privacy, req.body?.consent)) return res.json({ ok: true, tracked: false });
+      const normalizedPageUrl = trackedPage(page_url || current_page, privacy.keepQuery);
+      const referrer = trackedReferrer(rawReferrer);
       const ipRawForStorage = storeRawIp ? clientIp : null;
 
       let previousIpHash: string | null = null;
@@ -2777,12 +2992,18 @@ widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res
   }
 
   try {
+    // P-01: nothing while consent is asked for (the workspace, or the
+    // browser's Global Privacy Control) and was not given, as /track; the
+    // page as the workspace tracks it (no query string unless kept).
+    const privacy = await trackingPrivacyOf(config, workspaceId);
+    if (!trackingAllowed(req, privacy, req.body?.consent)) return res.json({ ok: true, tracked: false });
+    const { keepQuery } = privacy;
     const result = await trackEvent(config, {
       workspaceId,
       sessionId: typeof session_id === 'string' ? session_id : null,
       eventName: event_name,
       properties,
-      pageUrl: typeof page_url === 'string' ? page_url : null,
+      pageUrl: trackedPage(page_url, keepQuery),
     });
     res.json(result);
   } catch (err) {
@@ -2842,6 +3063,8 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       }
 
       if (session_id) {
+        // The page as the workspace tracks it (P-01: no query string unless kept).
+        const page = trackedPage(current_page, (await trackingPrivacyOf(config, workspaceId)).keepQuery);
         // Liveness is coalesced server-side: the RPC only writes when the
         // visitor navigated or the row aged past the refresh interval, so a
         // 60 s heartbeat no longer costs a write per tick. Page-view history
@@ -2854,7 +3077,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           workspaceId,
           sessionId: session_id,
           visitorId: visitor_id || null,
-          currentPage: current_page || null,
+          currentPage: page,
           minIntervalMs: realtimePresence ? VISITOR_LIVENESS_NAVIGATION_ONLY_MS : undefined,
         });
         recordVisitorLivenessWrite(
@@ -2871,11 +3094,11 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           return res.json({ ok: true, matched: false });
         }
 
-        if (touch.pageChanged && current_page) {
+        if (touch.pageChanged && page) {
           await recordVisitorPageView(config, supabase, {
             workspaceId,
             sessionId: session_id,
-            url: current_page,
+            url: page,
             title: page_title,
             context: 'widget-action',
           });
@@ -2996,7 +3219,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           supabase,
           workspaceId,
           typeof visitor_email === 'string' ? visitor_email.trim().toLowerCase() || null : null,
-          typeof visitor_phone === 'string' ? visitor_phone.trim().replace(/[^\d+]/g, '') || null : null,
+          typeof visitor_phone === 'string' ? normalizeVisitorPhone(visitor_phone) : null,
           contact?.id ?? null,
         );
 
@@ -3667,7 +3890,10 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
 // ═══════════════════════════════════════════════
 const offlineMessageSchema = z.object({
   workspace_id: z.string().uuid(),
-  message: z.string().min(2).max(4000),
+  // What a chat message may be (POST /message's messageSchema): one
+  // character to 5,000, so a message the composer takes is never refused
+  // here (it used to be 2 to 4,000).
+  message: z.string().max(5000).refine((m) => m.trim().length > 0),
   email: z.string().email().max(255).optional(),
   name: z.string().max(120).optional(),
   phone: z.string().max(40).optional(),
@@ -3761,6 +3987,14 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
 
   const supabase = getServiceClient(config);
 
+  // The leave-a-message form's consent box, when the workspace's privacy
+  // line asks for it (P-01; the away thread's typed message is a chat
+  // message, as POST /message).
+  const formPrivacy = away ? null : prechatPrivacyOf(await readPrechatRow(supabase, workspace_id));
+  if (formPrivacy?.consent && (req.body as Record<string, unknown>)?.privacy_consent !== true) {
+    return res.status(400).json({ error: 'privacy_consent_required', field: 'privacy' });
+  }
+
   // A retry of an away message that was captured: the same answer, nothing new.
   if (threadKey && clientMessageId) {
     const prior = await priorOfflineCapture(supabase, workspace_id, threadKey, clientMessageId, readVisitorCookie(req, workspace_id)?.v || null);
@@ -3785,32 +4019,47 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   const visitorId = cookie?.v || null;
 
   let visitorSessionId: string | null = null;
+  let sessionContactId: string | null = null;
   if (visitorId) {
     const { data: vs } = await supabase
       .from('visitor_sessions')
-      .select('id')
+      .select('id, contact_id')
       .eq('workspace_id', workspace_id)
       .eq('visitor_id', visitorId)
       .order('last_seen_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     visitorSessionId = vs?.id || null;
+    sessionContactId = (vs?.contact_id as string | null | undefined) || null;
   }
 
-  // Resolve / create contact when email provided.
+  // The contact: this visitor's own (their session's, or the one made for
+  // their cookie), given what the form collected, or a new one made from
+  // ANY of name, email or phone (a visitor who left only a phone must still
+  // be called back; until 2026-10 only an email made one).
   //
   // SECURITY (C6): the typed email/phone are UNVERIFIED. They must never
   // attach this capture to an existing contact that holds them — that filed
   // the visitor's thread (and the operator's replies) under somebody else's
-  // contact. Reuse only this visitor's OWN contact (cookie visitor id);
-  // otherwise create one, storing an address another contact already holds
-  // only as an unverified claim in metadata so the operator still sees it.
+  // contact. Reuse only this visitor's OWN contact; otherwise create one,
+  // storing an address or number another contact already holds only as an
+  // unverified claim in metadata so the operator still sees it.
+  const typedEmail = email ? email.trim().toLowerCase() : null;
+  const typedPhone = normalizeVisitorPhone(phone);
+  const typedName = name ? name.trim() || null : null;
   let contactId: string | null = null;
-  if (email) {
-    const typedEmail = email.trim().toLowerCase();
-    const typedPhone = phone ? phone.trim().replace(/[^\d+]/g, '') || null : null;
+  {
     let own: { id: string; name: string | null; email: string | null; phone: string | null; metadata: Record<string, unknown> | null } | null = null;
-    if (visitorId) {
+    if (sessionContactId) {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, name, email, phone, metadata')
+        .eq('workspace_id', workspace_id)
+        .eq('id', sessionContactId)
+        .maybeSingle();
+      own = data || null;
+    }
+    if (!own && visitorId) {
       const { data } = await supabase
         .from('contacts')
         .select('id, name, email, phone, metadata')
@@ -3820,12 +4069,15 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
         .maybeSingle();
       own = data || null;
     }
-    const placement = await placeUnverifiedIdentifiers(supabase, workspace_id, typedEmail, typedPhone, own?.id ?? null);
+    const given = !!(typedEmail || typedPhone || typedName);
+    const placement = given
+      ? await placeUnverifiedIdentifiers(supabase, workspace_id, typedEmail, typedPhone, own?.id ?? null)
+      : { email: null, phone: null, metadata: {} as Record<string, unknown> };
 
     if (own) {
       contactId = own.id;
       const patch: Record<string, unknown> = {};
-      if (name && !own.name) patch.name = name;
+      if (typedName && !own.name) patch.name = typedName;
       if (placement.email && !own.email) patch.email = placement.email;
       if (placement.phone && !own.phone) patch.phone = placement.phone;
       if (Object.keys(placement.metadata).length) patch.metadata = { ...(own.metadata || {}), ...placement.metadata };
@@ -3836,13 +4088,13 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
           if (Object.keys(rest).length) await supabase.from('contacts').update(rest).eq('id', contactId);
         }
       }
-    } else {
+    } else if (given) {
       const insertContact = (cols: { email: string | null; phone: string | null }) => supabase
         .from('contacts')
         .insert({
           workspace_id,
           email: cols.email,
-          name: name || null,
+          name: typedName,
           phone: cols.phone,
           metadata: { source: 'offline_capture', visitor_id: visitorId, ...placement.metadata },
         })
@@ -3855,6 +4107,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       contactId = createErr ? null : created?.id || null;
     }
   }
+  if (formPrivacy?.consent) void recordPrivacyConsent(supabase, workspace_id, contactId, 'offline_form', formPrivacy.url);
 
   // Create conversation tagged 'offline'.
   // Phase 5 — offline capture is always a new conversation row, so
@@ -3927,6 +4180,10 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     });
   }
 
+  // A person has to answer it: routing gives it to whoever can take it now,
+  // else it waits for the ticker (or in the manual queue). Fire-and-forget.
+  if (offlineMessage?.id) void routeOfflineCapture(config, { workspaceId: workspace_id, conversationId: conv.id });
+
   // Record the timeline event so operators can see it was offline-captured.
   await recordConversationEvent(config, {
     workspaceId: workspace_id,
@@ -3938,6 +4195,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       availability_reason: snap.reason,
       transitioning,
       contact_email: email || null,
+      contact_phone: typedPhone,
       next_open_at: snap.next_open_at,
       ...(overQuota ? { over_quota: true } : {}),
     },
@@ -3949,7 +4207,8 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     conversationId: conv.id,
     message,
     email: email || null,
-    name: name || null,
+    name: typedName,
+    phone: typedPhone,
   }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
 
   return res.json({
@@ -3965,6 +4224,17 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   });
 });
 
+/**
+ * A phone the visitor typed, as stored: Persian and Arabic-Indic digits as
+ * ASCII, then + and digits only (identityMerge.ts does the same); null when
+ * nothing is left.
+ */
+function normalizeVisitorPhone(value?: string | null): string | null {
+  if (!value) return null;
+  const s = toAsciiDigits(value).trim().replace(/[^\d+]/g, '');
+  return s || null;
+}
+
 /** Visitor text for an HTML mail body: `&`, `<`, `>` and `"` as entities. */
 export function escapeMailText(value: string): string {
   return String(value).replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
@@ -3973,7 +4243,7 @@ export function escapeMailText(value: string): string {
 async function notifyOfflineCapture(
   config: ServerConfig,
   workspaceId: string,
-  payload: { conversationId: string; message: string; email: string | null; name: string | null },
+  payload: { conversationId: string; message: string; email: string | null; name: string | null; phone?: string | null },
 ): Promise<void> {
   const supabase = getServiceClient(config);
   // Resolve workspace owners/admins. The codebase uses `workspace_members`
@@ -4034,11 +4304,12 @@ async function notifyOfflineCapture(
   const html = `
     <p>A visitor left a message while your workspace was offline.</p>
     <p><strong>From:</strong> ${escapeMailText(payload.name || 'Anonymous')} ${payload.email ? `&lt;${escapeMailText(payload.email)}&gt;` : ''}</p>
+    ${payload.phone ? `<p><strong>Phone:</strong> <span dir="ltr">${escapeMailText(payload.phone)}</span></p>` : ''}
     <p><strong>Message:</strong></p>
     <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${escapeMailText(payload.message)}</blockquote>
     <p>${inboxUrl ? `<a href="${escapeMailText(inboxUrl)}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
   `;
-  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
+  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}${payload.phone ? `\nPhone: ${payload.phone}` : ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
 
   for (const { to, locale } of recipients) {
     try {
@@ -4057,12 +4328,14 @@ async function notifyOfflineCapture(
           conversation_id: payload.conversationId,
           contact_name: payload.name || '',
           contact_email: payload.email || '',
+          contact_phone: payload.phone || '',
           message_body: payload.message,
           action_url: inboxUrl,
         },
         htmlData: {
           contact_name: escapeMailText(payload.name || ''),
           contact_email: escapeMailText(payload.email || ''),
+          contact_phone: escapeMailText(payload.phone || ''),
           message_body: escapeMailText(payload.message),
           action_url: escapeMailText(inboxUrl),
         },
@@ -4110,6 +4383,7 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
         conversation_id: 'test-conversation-id',
         contact_name: 'Test Visitor',
         contact_email: 'visitor@example.com',
+        contact_phone: '+989121234567',
         message_body:
           'Hello — this is a test message confirming your offline notification pipeline works.',
       },
@@ -4263,6 +4537,7 @@ widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), asy
 // widget MUST tolerate any failure and continue rendering normally.
 // ═══════════════════════════════════════════════════════════════════
 import { maybeSendIntro } from '../services/ai-agent/intro.js';
+import { isMissingColumnError } from '../lib/missingColumn.js';
 
 widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);

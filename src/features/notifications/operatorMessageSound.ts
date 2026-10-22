@@ -1,9 +1,13 @@
 /**
  * Operator-side message notification chime.
  *
- * Fires a soft 2-note Web Audio chime when a new visitor message arrives
- * on any conversation in the workspace. Listens for the
- * `inbox:new-message` CustomEvent that `useInboxListRealtime` dispatches.
+ * Fires a soft 2-note Web Audio chime when a visitor writes in a
+ * conversation that is this operator's to answer: their own, an unassigned
+ * one, or — for a supervisor watching "All conversations" — anyone's (the
+ * banner's rule, passesScope). It used to chime for every visitor message in
+ * the workspace, a colleague's chats included. Listens for the
+ * `inbox:new-message` CustomEvent that `useInboxListRealtime` dispatches,
+ * from the app shell, so it rings on every page, not only on the Inbox.
  *
  * Settings precedence (most authoritative first):
  *   1. localStorage `operator_message_sound_enabled` (per-device override).
@@ -12,6 +16,7 @@
  *   2. Server NotificationPrefs.disable_all       → muted
  *   3. Server NotificationPrefs.play_sound        → on/off
  *   4. Server NotificationPrefs.quiet_hours_*     → muted in window
+ *   5. Server NotificationPrefs.push_scope        → which conversations
  *
  * Throttle: at most one chime per 1.5s (rapid bursts collapse).
  * Autoplay: AudioContext is created lazily and resumed on the first user
@@ -20,6 +25,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NotificationPrefs } from '@/lib/notifications-api';
+import { passesScope, resolveAssignee } from './operatorBrowserNotification';
 
 const LS_KEY = 'operator_message_sound_enabled';
 const THROTTLE_MS = 1500;
@@ -110,13 +116,44 @@ function playChime() {
 }
 
 /**
- * Mount once at the workspace shell (e.g. InboxPage). Subscribes to the
- * `inbox:new-message` window event and plays the chime when allowed.
+ * The chime, at most once per THROTTLE_MS (a message and an assignment that
+ * arrive together ring once). Silent until a user gesture unlocked audio.
  */
-export function useOperatorMessageChime(workspaceId: string | undefined): void {
+export function playOperatorChime(): void {
+  const now = Date.now();
+  if (now - lastPlayedAt < THROTTLE_MS) return;
+  lastPlayedAt = now;
+  playChime();
+}
+
+/**
+ * Whether the operator's sound settings let the chime ring now (the device's
+ * own switch, then "disable all", "play a sound" and quiet hours).
+ */
+export function chimeAllowedByPrefs(prefs: NotificationPrefs | null | undefined): boolean {
+  const local = readLocalOverride();
+  if (local === false) return false;
+  if (prefs) {
+    if (prefs.disable_all) return false;
+    if (!prefs.play_sound) return false;
+    if (isInQuietHours(prefs)) return false;
+  }
+  return true;
+}
+
+/**
+ * Mount once at the workspace shell (useOperatorInboxAlerts). Subscribes to
+ * the `inbox:new-message` window event and plays the chime when allowed.
+ */
+export function useOperatorMessageChime(
+  workspaceId: string | undefined,
+  options: { viewerId?: string; othersVisible?: () => boolean } = {},
+): void {
   const qc = useQueryClient();
   const wsRef = useRef(workspaceId);
   wsRef.current = workspaceId;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -128,39 +165,38 @@ export function useOperatorMessageChime(workspaceId: string | undefined): void {
     window.addEventListener('keydown', unlock, unlockOpts);
     window.addEventListener('touchstart', unlock, unlockOpts);
 
-    const onIncoming = (evt: Event) => {
+    const onIncoming = async (evt: Event) => {
       const detail = (evt as CustomEvent<{
         workspaceId?: string;
+        conversation_id?: string;
         sender_type?: string;
       }>).detail;
-      if (!detail) return;
-      if (detail.workspaceId && wsRef.current && detail.workspaceId !== wsRef.current) return;
+      if (!detail || !wsRef.current) return;
+      if (detail.workspaceId && detail.workspaceId !== wsRef.current) return;
       // Only chime for visitor messages — not echoes of agent/AI replies.
       if (detail.sender_type && detail.sender_type !== 'contact') return;
 
-      // Per-device override
-      const local = readLocalOverride();
-      if (local === false) return;
-
-      // Server-side preferences (read from the React Query cache so we
-      // don't add a network round-trip per event).
+      // Server-side preferences (the shell keeps them in the React Query
+      // cache, so there is no network round-trip per event).
       const cached = qc.getQueryData<{ prefs: NotificationPrefs }>(['notification-prefs']);
       const prefs = cached?.prefs ?? null;
-      if (prefs) {
-        if (prefs.disable_all) return;
-        if (!prefs.play_sound) return;
-        if (isInQuietHours(prefs)) return;
-      }
+      if (!chimeAllowedByPrefs(prefs)) return;
 
-      const now = Date.now();
-      if (now - lastPlayedAt < THROTTLE_MS) return;
-      lastPlayedAt = now;
-      playChime();
+      // Whose conversation it is: a colleague's chats are theirs.
+      const { viewerId, othersVisible } = optionsRef.current;
+      const conversationId = detail.conversation_id ? String(detail.conversation_id) : '';
+      const assignee = conversationId
+        ? await resolveAssignee(qc, wsRef.current, conversationId)
+        : undefined;
+      if (!passesScope(prefs?.push_scope ?? 'all', assignee, viewerId, othersVisible?.() ?? false)) return;
+
+      playOperatorChime();
     };
+    const listener = (evt: Event) => { void onIncoming(evt); };
 
-    window.addEventListener('inbox:new-message', onIncoming as EventListener);
+    window.addEventListener('inbox:new-message', listener);
     return () => {
-      window.removeEventListener('inbox:new-message', onIncoming as EventListener);
+      window.removeEventListener('inbox:new-message', listener);
       window.removeEventListener('pointerdown', unlock, unlockOpts);
       window.removeEventListener('keydown', unlock, unlockOpts);
       window.removeEventListener('touchstart', unlock, unlockOpts);

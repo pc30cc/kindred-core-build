@@ -95,6 +95,47 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build
 
+  # The chat widget's browser specs (e2e/widget*.spec.ts): hermetic — each
+  # loads public/widget straight from the checkout into a real Chromium, with
+  # no dev server, database or network. The Chromium is the one the pinned
+  # Playwright expects, installed here; playwright.config.ts then finds no
+  # other and uses it.
+  widget-e2e:
+    name: Widget browser specs (Chromium, hermetic)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Cache Bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium (with its system libraries)
+        run: bunx playwright install --with-deps chromium
+
+      - name: Widget browser specs
+        run: npx playwright test 'e2e/widget[^/]*\.spec\.ts$'
+
   # pgvector/pgvector:pg16 is PostgreSQL 16 with pgvector: the database-only
   # acceptance suite (postgresOnlyAcceptance.pg.test.ts) retrieves AI knowledge
   # over real embeddings, which needs the extension on the server.

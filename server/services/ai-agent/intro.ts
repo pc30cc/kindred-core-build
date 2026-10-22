@@ -182,6 +182,18 @@ export async function maybeSendIntro(
     if (settings.mode === 'suggest_only') {
       return { sent: false, reason: 'suggest_only_no_intro' };
     }
+    // "Auto-reply when operators are offline": while the team is online the
+    // AI does not answer (runtimePolicy.ts, only suggestions), so it does not
+    // greet either. Its greeting marks the thread the AI's (`ai_managed`),
+    // which parked a daytime chat in the AI's queue — out of the Inbox, with
+    // no notification — while nobody answered it (R-02). The visitor gets the
+    // widget's ordinary live-chat greeting instead.
+    if (settings.mode === 'auto_reply_when_offline') {
+      const { getOperatorAvailability } = await import('./availability.js');
+      if ((await getOperatorAvailability(config, input.workspaceId)).state !== 'offline') {
+        return { sent: false, reason: 'operators_online' };
+      }
+    }
 
     // P0-AI (BLOCKER) — the client guard is not enough: a direct POST to
     // /api/widget/ai-agent/intro must not be able to create an AI-managed

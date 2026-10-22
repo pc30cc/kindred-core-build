@@ -1,5 +1,6 @@
 /**
- * Workspace admin: list of all privacy jobs in the active workspace.
+ * Workspace admin: the workspace's visitor privacy settings (VisitorPrivacyCard)
+ * and the list of all privacy jobs in the active workspace.
  * Polled every 5s while any non-terminal job is present.
  */
 import { useTranslation } from '@/i18n';
@@ -8,6 +9,7 @@ import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { usePrivacyJobs } from '@/hooks/usePrivacyJobs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PrivacyJobsTable } from '@/components/privacy/PrivacyJobsTable';
+import { VisitorPrivacyCard } from '@/components/privacy/VisitorPrivacyCard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
 
@@ -36,6 +38,8 @@ export default function PrivacyRequestsPage() {
         <h1 className="text-2xl font-bold">{t('privacy.requests.title')}</h1>
         <p className="text-sm text-muted-foreground mt-1">{t('privacy.requests.subtitle')}</p>
       </div>
+
+      <VisitorPrivacyCard workspaceId={workspace?.id} />
 
       <Card>
         <CardHeader>

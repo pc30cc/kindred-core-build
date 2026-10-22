@@ -19,8 +19,10 @@ import {
   loadFallbackPolicy,
   saveFallbackPolicy,
 } from '../services/calls/departments.js';
+import { loadGlobalAdvancedRouting, ownerFallbackAllowedGlobal } from '../services/calls/globalAdvancedRouting.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
+import { canUseInbox } from '../../shared/chatRoles.js';
 
 export const workspaceDepartmentsRouter = Router();
 
@@ -169,6 +171,53 @@ workspaceDepartmentsRouter.delete('/:workspaceId/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/workspace-departments/:workspaceId/directory
+// The departments as the Inbox shows them — a conversation's department, the
+// list's department filter and "Transfer to a department" — with who is in
+// each. Read-only, for every member who has the Inbox (shared/chatRoles.ts):
+// an operator handing their own chat to Sales must be able to name Sales,
+// while the rest of this router is the owner's and admins' management API.
+// Names and member ids only, nothing the member list does not already show.
+workspaceDepartmentsRouter.get('/:workspaceId/directory', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!auth.isAdmin && !canUseInbox(auth.role)) {
+    return res.status(403).json({ error: 'inbox_not_allowed' });
+  }
+  const config: ServerConfig = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const [{ data: depts, error }, { data: links, error: linkErr }] = await Promise.all([
+    sb
+      .from('workspace_departments')
+      .select('id, name, enabled, chat_enabled, sort_order')
+      .eq('workspace_id', workspaceId)
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true }),
+    sb
+      .from('workspace_department_members')
+      .select('department_id, user_id')
+      .eq('workspace_id', workspaceId),
+  ]);
+  if (error || linkErr) return res.status(500).json({ error: (error || linkErr)?.message });
+  const membersByDept = new Map<string, string[]>();
+  for (const link of (links ?? []) as Array<{ department_id: string; user_id: string }>) {
+    const list = membersByDept.get(link.department_id) ?? [];
+    list.push(link.user_id);
+    membersByDept.set(link.department_id, list);
+  }
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({
+    departments: ((depts ?? []) as Array<{ id: string; name: string; enabled: boolean; chat_enabled: boolean }>).map((d) => ({
+      id: d.id,
+      name: d.name,
+      enabled: d.enabled !== false,
+      chat_enabled: d.chat_enabled !== false,
+      member_ids: membersByDept.get(d.id) ?? [],
+    })),
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Department members
 // ---------------------------------------------------------------------------
@@ -270,6 +319,27 @@ workspaceDepartmentsRouter.put('/:workspaceId/fallback', async (req, res) => {
   } catch (err: unknown) {
     res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });
   }
+});
+
+// GET /api/workspace-departments/:workspaceId/routing-policy
+// The Super Admin's platform rules as they apply to this workspace's chats
+// (globalAdvancedRouting.ts), read only, so the panel says what routing
+// really does: whether a department's chats fall back to the whole team,
+// whether returning visitors may go back to their operator at all, and
+// whether the owner is the last resort. (The per-workspace /fallback record
+// above is legacy: chat routing does not read it.)
+workspaceDepartmentsRouter.get('/:workspaceId/routing-policy', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await requireWorkspaceAdmin(req, res, workspaceId);
+  if (!auth) return;
+  const global = await loadGlobalAdvancedRouting(serverConfigOf(req));
+  res.json({
+    policy: {
+      general_pool_enabled: global.general_pool_enabled,
+      last_agent_routing_enabled: global.last_agent_routing_enabled,
+      owner_fallback_for_chat: ownerFallbackAllowedGlobal(global, 'chat'),
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------

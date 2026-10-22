@@ -49,6 +49,9 @@ import { clearLockStateCache, resolveLockState } from '../services/billing/locks
 import { isMemberLocked } from '../services/billing/locks/predicates.js';
 import { releaseLockedAgentChats } from '../services/billing/locks/release.js';
 import { invalidateDepartmentCache } from '../services/calls/departments.js';
+import { afterMemberReleased, releaseMemberChats, releasedConversationIds } from '../services/chatRouting.js';
+import { canUseInbox } from '../../shared/chatRoles.js';
+import { readWithColumnFallback } from '../lib/missingColumn.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -208,13 +211,20 @@ workspaceMembersRouter.get('/', async (req, res) => {
 
   const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data: members, error: memberErr } = await sb
-    .from('workspace_members')
-    .select('id, role, created_at, user_id, suspended_at, suspend_reason')
-    .eq('workspace_id', workspaceId);
-  if (memberErr) return res.status(500).json({ error: memberErr.message });
+  // Before migration 278 the routing columns are not there yet: the list
+  // still loads, each member reading as receiving chats at the default
+  // maximum (what routing then does too).
+  const { data: memberRows, error: memberErr, degraded } = await readWithColumnFallback(
+    (columns) => sb.from('workspace_members').select(columns).eq('workspace_id', workspaceId),
+    'id, role, created_at, user_id, suspended_at, suspend_reason, receives_chats, max_concurrent_chats',
+    'id, role, created_at, user_id, suspended_at, suspend_reason',
+    ['receives_chats', 'max_concurrent_chats'],
+  );
+  if (memberErr) return res.status(500).json({ error: (memberErr as { message?: string }).message || 'members_unreadable' });
+  const members = ((memberRows || []) as Array<{ id: string; role: string; created_at: string; user_id: string; [k: string]: unknown }>)
+    .map((m) => (degraded ? { ...m, receives_chats: true, max_concurrent_chats: null } : m));
 
-  const userIds = (members || []).map((m) => m.user_id);
+  const userIds = members.map((m) => m.user_id);
   const [{ data: profiles }, { data: deptMembers }, { data: depts }] = await Promise.all([
     userIds.length
       ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', userIds)
@@ -236,7 +246,7 @@ workspaceMembersRouter.get('/', async (req, res) => {
   }
 
   const lockState = await resolveLockState(config, workspaceId, ['member']);
-  const result = (members || []).map((m) => ({
+  const result = members.map((m) => ({
     ...m,
     profile: (profiles || []).find((p) => p.id === m.user_id) || null,
     department_names: deptsByUser.get(m.user_id) || [],
@@ -281,6 +291,17 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
     .eq('id', req.params.memberId)
     .eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: error.message });
+  // The role decides who routing may give chats (shared/chatRoles.ts): its
+  // cached member list follows at once. A role without an Inbox cannot
+  // answer the chats this member holds: they go back to routing (R-03).
+  invalidateDepartmentCache(workspaceId);
+  if (!canUseInbox(parsedBody.data.role)) {
+    void releaseMemberChats(config, {
+      workspaceId,
+      userId: (member as { user_id: string }).user_id,
+      method: 'member_role_changed',
+    });
+  }
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true });
 });
@@ -292,10 +313,13 @@ const suspensionSchema = z.object({
 
 // PATCH /api/workspace-members/:memberId/suspension?workspaceId=...
 // Bans (suspends) or reinstates a member. A suspended member keeps their
-// membership row — history, assignments and audit stay intact — but
+// membership row — history and audit stay intact — but
 // authorizeWorkspaceAccess denies every workspace capability while the ban
-// is active. The canonical owner can never be banned, and an owner/admin
-// cannot ban themselves (that would lock the workspace out of management).
+// is active. Their open and pending chats go back to routing (R-03: they
+// stayed theirs, invisible to colleagues, notifying nobody); finished ones
+// keep them as who handled them. The canonical owner can never be banned,
+// and an owner/admin cannot ban themselves (that would lock the workspace
+// out of management).
 workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
   const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
   if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
@@ -341,11 +365,56 @@ workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
   // A suspended member holds no seat (D3): suspending one can unpause the
   // next, reinstating one can pause the most recently joined.
   afterSeatChange(config, workspaceId);
+  if (parsedBody.data.suspended) {
+    void releaseMemberChats(config, { workspaceId, userId: targetUserId, method: 'member_suspended' });
+  }
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true, suspended: parsedBody.data.suspended });
 });
 
 
+
+const chatRoutingSchema = z.object({
+  receives_chats: z.boolean().optional(),
+  // null = the workspace default (widget_settings.default_max_concurrent_chats).
+  max_concurrent_chats: z.number().int().min(1).max(50).nullable().optional(),
+}).strict().refine((b) => b.receives_chats !== undefined || b.max_concurrent_chats !== undefined, {
+  message: 'nothing_to_update',
+});
+
+// PATCH /api/workspace-members/:memberId/chat-routing?workspaceId=...
+// The member's chat routing (migration 278): "Receive chats automatically"
+// (receives_chats) and their own maximum of concurrent chats (null = the
+// workspace default). The owner's own switch included — the owner decides
+// whether routing gives them chats too. Owners and admins only.
+workspaceMembersRouter.patch('/:memberId/chat-routing', async (req, res) => {
+  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
+  const parsedBody = chatRoutingSchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: 'invalid_body' });
+  const { workspaceId } = parsedQuery.data;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+
+  const config: ServerConfig = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const update: Record<string, unknown> = {};
+  if (parsedBody.data.receives_chats !== undefined) update.receives_chats = parsedBody.data.receives_chats;
+  if (parsedBody.data.max_concurrent_chats !== undefined) update.max_concurrent_chats = parsedBody.data.max_concurrent_chats;
+  const { data, error } = await sb
+    .from('workspace_members')
+    .update(update)
+    .eq('id', req.params.memberId)
+    .eq('workspace_id', workspaceId)
+    .select('id, user_id, receives_chats, max_concurrent_chats');
+  if (error) return res.status(500).json({ error: error.message });
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) return res.status(404).json({ error: 'member_not_found' });
+  // Routing's member cache, and the widget's online/offline (who counts).
+  invalidateDepartmentCache(workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
+  return res.json({ ok: true, member: row });
+});
 
 // DELETE /api/workspace-members/:memberId?workspaceId=... — remove a member.
 //
@@ -426,16 +495,33 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
       .eq('status', 'accepted');
   };
 
+  // Offboarding released the member's open and pending chats in its own
+  // transaction (278b: `released_conversation_ids`): they are announced and
+  // routed again. A database before 278b releases nothing itself, so they
+  // are released here (the member is gone by now, which changes nothing).
+  const removedUserId = (member as { user_id: string }).user_id;
+  const rerouteReleased = (result: unknown) => {
+    const released = (result as { released_conversation_ids?: unknown } | null)?.released_conversation_ids;
+    if (Array.isArray(released)) {
+      void afterMemberReleased(config, {
+        workspaceId, userId: removedUserId, conversationIds: releasedConversationIds(released), method: 'member_removed',
+      });
+    } else {
+      void releaseMemberChats(config, { workspaceId, userId: removedUserId, method: 'member_removed' });
+    }
+  };
+
   if (!requestId) {
     const { data, error } = await sb.rpc('offboard_workspace_member', {
       _workspace_id: workspaceId,
-      _user_id: (member as { user_id: string }).user_id,
+      _user_id: removedUserId,
       _actor_id: auth.userId,
       _reason: reason,
     });
     if (error) return res.status(500).json({ error: error.message });
     await purgeAcceptedInvitation().catch(() => undefined);
     afterSeatChange(config, workspaceId);
+    rerouteReleased(data);
     // The widget's team stack and availability follow the member set.
     publishCacheInvalidation([`widget:${workspaceId}`]);
     return res.json({ ok: true, replayed: false, offboarding: data });
@@ -443,7 +529,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
 
   const outcome = await runIdempotent(config, {
     ...idemCall,
-    args: { user_id: (member as { user_id: string }).user_id, reason },
+    args: { user_id: removedUserId, reason },
   });
   if (outcome.error) {
     if (/IDEMPOTENCY_KEY_REUSED/.test(outcome.error.message)) {
@@ -455,7 +541,10 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     return res.status(500).json({ error: outcome.error.message });
   }
   await purgeAcceptedInvitation().catch(() => undefined);
-  if (!outcome.replayed) afterSeatChange(config, workspaceId);
+  if (!outcome.replayed) {
+    afterSeatChange(config, workspaceId);
+    rerouteReleased(outcome.result);
+  }
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({
     ok: true,

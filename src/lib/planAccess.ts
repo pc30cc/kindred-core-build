@@ -17,7 +17,8 @@
  *    a retry — the server would refuse the requests anyway;
  *  - a key the snapshot does not carry is not available: the server denies
  *    keys it does not know.
- * Core products (Inbox, Knowledge Base, Team, Settings) are never plan-gated.
+ * Core products (Inbox, Knowledge Base, Team, Settings) are never plan-gated
+ * (the Inbox is role-gated: see `inboxAllowed`).
  */
 import type { WorkspaceEffectiveEntitlements } from './entitlements-api';
 
@@ -56,6 +57,8 @@ export interface SectionContext {
   plan: PlanAccess;
   /** Workspace owner or admin. */
   isAdmin: boolean;
+  /** The member's role opens the Inbox (src/lib/inboxAccess.ts): the owner, admins and the chat team. */
+  inboxAllowed: boolean;
   /** The AI agent is switched on and shown to this workspace's customers; null while unknown. */
   aiSurface: boolean | null;
   /** The AI agent answers by itself; null while unknown. */
@@ -65,6 +68,7 @@ export interface SectionContext {
 }
 
 export const APP_SECTIONS = [
+  'inbox',
   'aiAgent',
   'callCenter',
   'visitors',
@@ -81,6 +85,7 @@ export type AppSection = (typeof APP_SECTIONS)[number];
 
 /** The plan key a section lives or dies by (null: role-only). */
 export const SECTION_PLAN_KEY: Record<AppSection, { module?: string; channel?: string } | null> = {
+  inbox: null,
   aiAgent: { module: 'ai_assistant' },
   callCenter: { module: 'call_center' },
   visitors: { module: 'visitor_tracking' },
@@ -103,6 +108,9 @@ export function sectionInPlan(section: AppSection, plan: PlanAccess): boolean {
 }
 
 export function sectionVisible(section: AppSection, ctx: SectionContext): boolean {
+  // The Inbox is never plan-gated, only role-gated: staff other than admins
+  // do not answer chats (shared/chatRoles.ts).
+  if (section === 'inbox') return ctx.inboxAllowed;
   if (ADMIN_ONLY.has(section) && !ctx.isAdmin) return false;
   if (!sectionInPlan(section, ctx.plan)) return false;
   if (section === 'aiAgent') return ctx.aiSurface === true;
@@ -128,6 +136,16 @@ export function needsHumanQueueVisible(plan: PlanAccess): boolean {
 
 export function colleaguesQueueVisible(plan: PlanAccess): boolean {
   return plan.feature('inbox_team_chat');
+}
+
+/**
+ * The team chat (direct messages between members) on its own page, for a
+ * member whose role has no Inbox: the Inbox's Colleagues tab is everyone
+ * else's way in. Every member keeps it (its routes ask membership only);
+ * the plan decides whether it exists. Not while the role is unknown.
+ */
+export function teamChatPageVisible(ctx: Pick<SectionContext, 'plan' | 'inboxAllowed'> & { roleKnown: boolean }): boolean {
+  return ctx.roleKnown && !ctx.inboxAllowed && colleaguesQueueVisible(ctx.plan);
 }
 
 /** Channel keys the plan itself governs (the rest are decided by the plugin's own plan check). */

@@ -22,6 +22,9 @@ const state = vi.hoisted(() => ({
   updates: [] as { table: string; values: Row }[],
   settings: { id: 's1', dispatch_log_retention_days: 30, dispatch_log_auto_purge: true } as Row,
   badge: 7 as number | null,
+  /** The operator's memberships (workspace_members) and their colleagues' unread lines (team_messages). */
+  members: [{ workspace_id: 'w1', role: 'agent' }] as Row[],
+  teamUnread: [] as Row[],
 }));
 
 vi.mock('../../../server/supabase.js', () => ({
@@ -57,6 +60,8 @@ vi.mock('../../../server/supabase.js', () => ({
             return resolve({ data: null, error: null });
           }
           if (table === 'push_platform_settings') return resolve({ data: state.settings, error: null });
+          if (table === 'workspace_members') return resolve({ data: state.members, error: null });
+          if (table === 'team_messages') return resolve({ data: state.teamUnread, error: null });
           return resolve({ data: [], count: 0, error: null });
         },
       };
@@ -92,6 +97,8 @@ beforeEach(() => {
   state.updates = [];
   state.settings = { id: 's1', dispatch_log_retention_days: 30, dispatch_log_auto_purge: true };
   state.badge = 7;
+  state.members = [{ workspace_id: 'w1', role: 'agent' }];
+  state.teamUnread = [];
 });
 
 describe('the retention', () => {
@@ -167,31 +174,45 @@ describe('the number on the app icon', () => {
 
   it('is counted the long way when it does not', async () => {
     state.rpcFails = true;
-    // The long way finds no membership in this mock, which is 0 — the point
-    // is that it answers rather than failing the notification.
+    // The long way finds no unread conversation in this mock, which is 0 —
+    // the point is that it answers rather than failing the notification.
     await expect(unreadBadgeCount(CONFIG, 'u1', 'w1')).resolves.toBe(0);
+  });
+
+  it('counts staff without an Inbox no conversations, only their colleagues\' messages', async () => {
+    state.members = [{ workspace_id: 'w1', role: 'billing' }];
+    state.teamUnread = [{ sender_id: 'c1' }, { sender_id: 'c1' }, { sender_id: 'c2' }];
+    expect(await unreadBadgeCount(CONFIG, 'u1', 'w1')).toBe(2);
+    // The one statement would count the workspace's conversations: not asked.
+    expect(state.rpcCalls).toEqual([]);
+  });
+
+  it('is 0 for someone who is not a member', async () => {
+    state.members = [];
+    expect(await unreadBadgeCount(CONFIG, 'u1', 'w1')).toBe(0);
+    expect(state.rpcCalls).toEqual([]);
   });
 });
 
 describe('a handoff is looked up once', () => {
   it('the first run after the AI lets go notifies, stamped with the handoff', () => {
-    expect(handoffPushStamp({ ai_handoff_at: '2026-09-28T10:00:00Z' }, false)).toBe('2026-09-28T10:00:00Z');
+    expect(handoffPushStamp({ ai_handoff_at: '2026-09-28T10:00:00Z' })).toBe('2026-09-28T10:00:00Z');
   });
 
   it('a later run for the same handoff does not even look', () => {
     expect(
-      handoffPushStamp({ ai_handoff_at: '2026-09-28T10:00:00Z', handoff_push_at: '2026-09-28T10:00:00Z' }, false),
+      handoffPushStamp({ ai_handoff_at: '2026-09-28T10:00:00Z', handoff_push_at: '2026-09-28T10:00:00Z' }),
     ).toBeNull();
   });
 
   it('a new handoff of the same conversation notifies again', () => {
     expect(
-      handoffPushStamp({ ai_handoff_at: '2026-09-28T12:00:00Z', handoff_push_at: '2026-09-28T10:00:00Z' }, false),
+      handoffPushStamp({ ai_handoff_at: '2026-09-28T12:00:00Z', handoff_push_at: '2026-09-28T10:00:00Z' }),
     ).toBe('2026-09-28T12:00:00Z');
   });
 
-  it('without a stamp, only the run that sends the visitor notice does', () => {
-    expect(handoffPushStamp({}, true)).toEqual(expect.any(String));
-    expect(handoffPushStamp({}, false)).toBeNull();
+  it('without a stamp there was no handoff (the AI is off, or never held it): nothing', () => {
+    expect(handoffPushStamp({})).toBeNull();
+    expect(handoffPushStamp({ routing_notice_sent: false })).toBeNull();
   });
 });

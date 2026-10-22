@@ -27,6 +27,10 @@ import { I18nProvider } from '@/i18n';
 
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/use-toast', () => ({ toast: toastMock, useToast: () => ({ toasts: [], toast: toastMock }) }));
+// The transcript by email / the away email step as they come back once
+// visitor email is switched on (shared/visitorEmail.ts; off since 2026-10-21,
+// checked as such in src/test/widget/visitorEmailSwitch.test.ts).
+vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 
 import { WidgetCatalogSection } from '@/components/admin/widget/WidgetCatalogSection';
 

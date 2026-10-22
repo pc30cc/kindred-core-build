@@ -63,6 +63,7 @@ import { SupportRequesterCard } from '@/components/inbox/SupportRequesterCard';
 import { REQUESTER_KIND, type RequesterCardMeta } from '@/components/inbox/requesterMeta';
 import { MessageReactionChips } from '@/components/inbox/MessageReactions';
 import type { MessageReaction } from '@/hooks/useConversations';
+import { isReadByVisitor } from '@/lib/inboxSeen';
 
 /** One attachment as `MessageAttachmentView` needs it. */
 interface TimelineAttachment {
@@ -107,6 +108,8 @@ interface TimelineConversation {
   visitor_device?: string | null;
   visitor_country_code?: string | null;
   visitor_country_name?: string | null;
+  /** When the visitor last read it in the widget (null: never); for the read ticks. */
+  visitor_last_read_at?: string | null;
 }
 
 interface PendingAttachment {
@@ -478,14 +481,14 @@ export default function MobileConversationPage() {
                       </div>
                     )}
                     {m.body && (
-                      <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+                      <p data-latin-digits="" className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
                         {m.body}
                       </p>
                     )}
                     <span className="mt-1 flex items-center justify-end gap-1 text-[11px] text-muted-foreground">
                       {formatTime(m.created_at)}
                       {isOutbound &&
-                        (m.seen_at || m.read_at ? (
+                        (isReadByVisitor(m, conversation?.visitor_last_read_at) ? (
                           <CheckCheck className="h-3.5 w-3.5 text-primary" />
                         ) : (
                           <Check className="h-3.5 w-3.5" />

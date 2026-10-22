@@ -1,9 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Inbox, Radar, Menu as MenuIcon } from 'lucide-react';
+import { LayoutDashboard, Inbox, Radar, Users, Menu as MenuIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useInboxCounts } from '@/hooks/useConversations';
+import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
+import { teamChatPageVisible } from '@/lib/planAccess';
 import { cn } from '@/lib/utils';
 
 /**
@@ -21,9 +23,10 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const location = useLocation();
   const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
-  // Visitors is a plan section: the tab follows the sidebar's rule.
+  // Visitors is a plan section and the Inbox a role one: the tabs follow the sidebar's rules.
   const sections = useWorkspaceSections();
+  // Asked for once the role is known (staff without an Inbox get 403).
+  const { data: inboxCounts } = useInboxCounts(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
 
   const isActive = (subPath: string) => {
     const fullPath = wsPath(subPath);
@@ -32,10 +35,18 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   };
 
   const needsHuman = inboxCounts?.needs_human ?? 0;
+  // Staff have no Inbox; the team chat takes its tab.
+  const teamChat = teamChatPageVisible(sections);
+  const { data: teamChatDir } = useColleagues(teamChat ? workspace?.id : undefined);
 
   const tabs: { key: string; icon: React.ElementType; onClick?: () => void; to?: string; active: boolean; badge?: number }[] = [
     { key: 'dashboard', icon: LayoutDashboard, to: wsPath(''), active: isActive('') },
-    { key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman },
+    ...(sections.visible('inbox')
+      ? [{ key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman }]
+      : []),
+    ...(teamChat
+      ? [{ key: 'teamChat', icon: Users, to: wsPath('/team-chat'), active: isActive('/team-chat'), badge: teamChatDir?.total_unread ?? 0 }]
+      : []),
     ...(sections.visible('visitors')
       ? [{ key: 'visitors', icon: Radar, to: wsPath('/visitors'), active: isActive('/visitors') }]
       : []),

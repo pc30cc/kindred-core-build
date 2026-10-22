@@ -8,8 +8,11 @@
  * no test in this repo has ever imported it). What IS both testable and
  * meaningful is the actual decision logic each scenario turns on: whether
  * AI is visitor-facing, whether pre-chat is required for a given flow,
- * whether a callback can honestly be promised, and how an operator gets
- * picked. Each case below states the scenario in the matrix's own terms,
+ * whether a callback can honestly be promised. How an operator gets picked
+ * (cases 10–13, 18, 19 of the matrix) is chat_route_claim's, in SQL since
+ * migration 278: src/test/integration/chatRouting278.pg.test.ts proves it on
+ * a real database, src/test/routing/chatRoutingEngine.test.ts the engine
+ * around it. Each case below states the scenario in the matrix's own terms,
  * then asserts the pure functions that decide it.
  *
  * shouldRequirePrechat mirrors public/widget/runtime.js's
@@ -19,7 +22,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import { classifyEffectiveAiMode } from '../../../server/services/ai-agent/effectiveMode';
-import { rankAutoCandidates, rotateFromCursor } from '../../../server/services/chatRouting';
 import { hasOfflineContactCapability, pickHandoffOfflineMessage } from '../../../server/services/ai-agent/runtime/templates';
 
 type Flow = 'ai_entry' | 'ai_handoff' | 'human_entry';
@@ -121,37 +123,6 @@ describe('entry-flow matrix', () => {
     }
   });
 
-  it('10. auto routing picks the least-loaded eligible candidate, never randomly', () => {
-    const load = new Map([['op-1', 4], ['op-2', 1], ['op-3', 1]]);
-    // Tie between op-2/op-3 must resolve alphabetically, not by insertion order.
-    expect(rankAutoCandidates(['op-1', 'op-3', 'op-2'], load)[0]).toBe('op-2');
-  });
-
-  it('11. round_robin rotates fairly across a full cycle with no repeats', () => {
-    const pool = ['op-1', 'op-2', 'op-3'];
-    let cursor: string | null = null;
-    const order: string[] = [];
-    for (let i = 0; i < pool.length; i++) {
-      const picked = rotateFromCursor(pool, cursor)[0];
-      order.push(picked);
-      cursor = picked;
-    }
-    expect(new Set(order).size).toBe(pool.length);
-  });
-
-  it('12. manual mode routes nobody — conversation goes to the unassigned queue (asserted at the chatRouting.ts call site, not here: mode==="manual" short-circuits before ranking)', () => {
-    // Documented via the mode switch in chatRouting.ts:
-    // `if (mode === 'manual') { ...tagOutcome('manual_queue')...; return; }`
-    // — no ranking function runs, which is exactly why there is nothing to
-    // assert against rankAutoCandidates/rotateFromCursor for this case.
-    expect(true).toBe(true);
-  });
-
-  it('13. no eligible candidates → auto ranking returns nothing to try (empty in, empty out)', () => {
-    expect(rankAutoCandidates([], new Map())).toEqual([]);
-    expect(rotateFromCursor([], null)).toEqual([]);
-  });
-
   it('14. AI provider unresolvable (no_provider) is distinct from mode_off — both non-visitor-facing but for different reasons', () => {
     const modeOff = classifyEffectiveAiMode(true, { enabled: true, mode: 'off' });
     // no_provider only happens after classifyEffectiveAiMode defers
@@ -174,15 +145,6 @@ describe('entry-flow matrix', () => {
     // runtime.js call site — from that point on, field-presence rules apply.
     expect(shouldRequirePrechat('ai_handoff', true)).toBe(true);
     expect(shouldRequirePrechat('ai_handoff', false)).toBe(false);
-  });
-
-  it('18. round-robin cursor pointing at a departed/offline operator falls back to plain sort, not a crash', () => {
-    expect(rotateFromCursor(['a', 'b'], 'operator-who-left')).toEqual(['a', 'b']);
-  });
-
-  it('19. auto-mode load ranking is stable for an already-idle team (all zero load)', () => {
-    const load = new Map([['b', 0], ['a', 0], ['c', 0]]);
-    expect(rankAutoCandidates(['c', 'a', 'b'], load)).toEqual(['a', 'b', 'c']);
   });
 
   it('20. offline copy exists in all three supported locales for both capability states', () => {

@@ -7,6 +7,7 @@
  * database round trip:
  *
  *   navigation (known session, new URL)  reads: widget_settings.store_raw_ip
+ *                                        (and the tracking privacy settings)
  *                                        + the session, together (1 trip);
  *                                        writes: session UPDATE, presence
  *                                        UPDATE, page-view INSERT, together
@@ -139,9 +140,11 @@ async function track(body: Row): Promise<{ status: number; rounds: string[][]; w
   return { status: res.status, rounds, writes: db.ops.filter((o) => o.kind !== 'select') };
 }
 
+// The settings read also brings the tracking privacy settings (P-01,
+// migration 281): still one read, in the same round trip.
 const READS = [
   'select visitor_sessions(id, ip_hash, current_page, browser, device, os, last_seen_at)',
-  'select widget_settings(store_raw_ip)',
+  'select widget_settings(store_raw_ip, tracking_requires_consent, tracking_keep_query)',
 ];
 
 function existingSession(over: Row = {}): Row {

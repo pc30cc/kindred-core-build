@@ -63,20 +63,20 @@ object StrManual {
     fun sysTransferred(l: Language, actor: String, to: String): String = when (l) {
         Language.EN -> "{actor} transferred this conversation to {to}"
         Language.FA -> "{actor} این گفتگو را به {to} منتقل کرد"
-        Language.TR -> "{actor} bu görüşmeyi {to} kişisine aktardı"
+        Language.TR -> "{actor} bu sohbeti {to} kişisine aktardı"
     }.replace("{actor}", isolate(actor)).replace("{to}", isolate(to))
 
     fun sysUnassigned(l: Language, actor: String): String = when (l) {
         Language.EN -> "{actor} unassigned this conversation"
         Language.FA -> "{actor} این گفتگو را از حالت واگذارشده خارج کرد"
-        Language.TR -> "{actor} bu görüşmenin atamasını kaldırdı"
+        Language.TR -> "{actor} bu sohbetin atamasını kaldırdı"
     }.replace("{actor}", isolate(actor))
 
     /** A transfer whose actor is not known (a row written without a name). */
     fun sysTransferredTo(l: Language, to: String): String = when (l) {
         Language.EN -> "This conversation was transferred to {to}"
         Language.FA -> "این گفتگو به {to} منتقل شد"
-        Language.TR -> "Bu görüşme {to} kişisine aktarıldı"
+        Language.TR -> "Bu sohbet {to} kişisine aktarıldı"
     }.replace("{to}", isolate(to))
 
     fun sysAgentJoined(l: Language, name: String): String = when (l) {
@@ -96,7 +96,7 @@ object StrManual {
     fun sysSupportRating(l: Language, score: Int): String = when (l) {
         Language.EN -> "Rated the conversation {score}/5"
         Language.FA -> "به این گفتگو {score} از ۵ امتیاز داد"
-        Language.TR -> "Görüşmeye 5 üzerinden {score} puan verdi"
+        Language.TR -> "Sohbete 5 üzerinden {score} puan verdi"
     }.replace("{score}", score.toString())
 
     // The comment goes in last, so what the user typed is never read as a
@@ -109,13 +109,13 @@ object StrManual {
 
     fun sysCallInviteAudioFrom(l: Language, op: String): String = when (l) {
         Language.EN -> "{op} invited the visitor to an audio call"
-        Language.FA -> "{op} کاربر را به تماس صوتی دعوت کرد"
+        Language.FA -> "{op} بازدیدکننده را به تماس صوتی دعوت کرد"
         Language.TR -> "{op} ziyaretçiyi sesli aramaya davet etti"
     }.replace("{op}", isolate(op))
 
     fun sysCallInviteVideoFrom(l: Language, op: String): String = when (l) {
         Language.EN -> "{op} invited the visitor to a video call"
-        Language.FA -> "{op} کاربر را به تماس تصویری دعوت کرد"
+        Language.FA -> "{op} بازدیدکننده را به تماس تصویری دعوت کرد"
         Language.TR -> "{op} ziyaretçiyi görüntülü aramaya davet etti"
     }.replace("{op}", isolate(op))
 
@@ -123,19 +123,19 @@ object StrManual {
 
     fun callEndedByOperator(l: Language, duration: String): String = when (l) {
         Language.EN -> "Call ended by operator · Duration {duration}"
-        Language.FA -> "تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}"
+        Language.FA -> "تماس از طرف اپراتور پایان یافت · مدت تماس {duration}"
         Language.TR -> "Görüşme operatör tarafından sonlandırıldı · Süre {duration}"
     }.replace("{duration}", duration)
 
     fun callEndedByVisitor(l: Language, duration: String): String = when (l) {
         Language.EN -> "Call ended by visitor · Duration {duration}"
-        Language.FA -> "تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}"
+        Language.FA -> "تماس از طرف بازدیدکننده پایان یافت · مدت تماس {duration}"
         Language.TR -> "Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}"
     }.replace("{duration}", duration)
 
     fun callEndedBySystem(l: Language, duration: String): String = when (l) {
         Language.EN -> "Call ended · Duration {duration}"
-        Language.FA -> "تماس پایان یافت · مدت مکالمه {duration}"
+        Language.FA -> "تماس پایان یافت · مدت تماس {duration}"
         Language.TR -> "Görüşme sona erdi · Süre {duration}"
     }.replace("{duration}", duration)
 

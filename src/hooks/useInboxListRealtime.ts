@@ -10,6 +10,12 @@
  * subscribe is a no-op. `['conversations', workspace_id]` has no refetch
  * interval, so the list then refreshes only on mount, tab switch and the
  * operator's own actions.
+ *
+ * On the web it is mounted ONCE, by the app shell (useOperatorInboxAlerts),
+ * so the sidebar's counters, the chime and the banners work on every page,
+ * not only while the Inbox is open; mounting it twice would ring every alert
+ * twice. The phone app's shell has no such alerts and mounts its own
+ * (MobileInboxPage).
  */
 
 import { useEffect } from 'react';
@@ -22,6 +28,7 @@ import type {
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 import { isFirstSighting, refreshConversations } from '@/hooks/inboxListCache';
+import { laterReadMarker } from '@/lib/inboxSeen';
 
 interface ConversationCacheRow {
   id: string;
@@ -74,6 +81,28 @@ function patchConversationInCache(
   const patched = rows.slice();
   patched[idx] = next;
   return { patched, matched: true };
+}
+
+/**
+ * The visitor read a conversation (`visitor_read`, I-03): its rows in a
+ * cached list carry the newer `visitor_last_read_at`, so the open thread's
+ * "Seen" moves at once. Nothing else a list or counter shows changes, so
+ * nothing is re-read. Unchanged (the same array) when no row moved.
+ */
+export function patchVisitorReadInCache<T extends ConversationCacheRow>(
+  rows: T[] | undefined,
+  conversationId: string,
+  readAt: string,
+): T[] | undefined {
+  if (!Array.isArray(rows)) return rows;
+  const idx = rows.findIndex((r) => r.id === conversationId);
+  if (idx < 0) return rows;
+  const current = rows[idx].visitor_last_read_at as string | null | undefined;
+  const next = laterReadMarker(current, readAt);
+  if (!next || next === current) return rows;
+  const patched = rows.slice();
+  patched[idx] = { ...rows[idx], visitor_last_read_at: next };
+  return patched;
 }
 
 /** Every cached list that holds the conversation already shows it human-active. */
@@ -140,8 +169,24 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
           onEvent: (payload) => {
             if (!payload || typeof payload !== 'object') return;
             if (payload.workspace_id && payload.workspace_id !== workspaceId) return;
+            // Surface every operator event too: the "assigned to you" alert
+            // (operatorAssignmentAlert.ts) and the assignee it remembers.
+            try {
+              window.dispatchEvent(new CustomEvent('inbox:conversation-event', {
+                detail: { workspaceId, payload },
+              }));
+            } catch { /* noop */ }
 
             const kind = (payload as { kind?: string }).kind as string;
+            if (kind === 'visitor_read') {
+              const readAt = (payload as { visitor_last_read_at?: unknown }).visitor_last_read_at;
+              if (typeof readAt !== 'string' || !payload.conversation_id) return;
+              for (const [key, data] of qc.getQueriesData<ConversationCacheRow[]>({ queryKey: ['conversations', workspaceId] })) {
+                const patched = patchVisitorReadInCache(data, payload.conversation_id, readAt);
+                if (patched !== data) qc.setQueryData(key, patched);
+              }
+              return;
+            }
             if (
               kind !== 'conversation_updated' &&
               kind !== 'conversation_resolved' &&

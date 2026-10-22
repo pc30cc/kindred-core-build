@@ -21,6 +21,7 @@ import { applyInboundConversationLifecycle } from '../conversationLifecycle.js';
 import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
 import { notifyInboundMessage } from '../push/index.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
+import { routeHumanBoundConversation } from '../chatRouting.js';
 import { handleTelegramInboundFlow } from './telegram/runtime.js';
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
 import { anonCodeFrom } from '../widget/anonymousContact.js';
@@ -435,7 +436,7 @@ export async function processInboundMessage(
     // the menu router verdict, so a `/start` or menu-keyboard tap (navigation,
     // not content) can never un-park a thread. Provider status/echo events
     // never reach this far: they are dropped by the normalizers.
-    await applyInboundConversationLifecycle(config, {
+    const lifecycle = await applyInboundConversationLifecycle(config, {
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
       source: input.provider,
@@ -495,6 +496,20 @@ export async function processInboundMessage(
         .catch((e) => console.warn('[channels] AI engine error:', e?.message || e));
     }
 
+
+    // Chat routing: real content on a thread nobody has, which no AI will
+    // answer (AI off or suggest-only, Telegram's human-only handling, or
+    // auto-reply-when-offline while the team is online), gets an operator
+    // now — the same rule as the widget. Menu taps and answered commands are
+    // navigation, not a request for a person.
+    if (!menuCommand && !telegramCommandHandled) {
+      void routeHumanBoundConversation(config, {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        platformAiOff: aiAllowed ? undefined : true,
+        reopened: lifecycle.transition === 'reopened_resolved',
+      });
+    }
 
     await finish('processed', {
       conversation_id: conversation.id,

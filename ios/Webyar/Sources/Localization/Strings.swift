@@ -877,39 +877,42 @@ enum Str {
         }
     }
 
+    // The web's Availability page says the same (availabilityPage.forceOffline
+    // / availableWhenUsingApp in src/i18n/locales): what the stored switches
+    // do, not what their names once promised (audit R-07).
     static func availabilityForceOffline(_ l: Language) -> String {
         switch l {
-        case .en: "Force offline (invisible mode)"
-        case .fa: "آفلاین اجباری (حالت نامرئی)"
-        case .tr: "Zorla çevrimdışı (görünmez mod)"
-        case .ar: "الظهور غير متصل (وضع التخفي)"
+        case .en: "Appear offline"
+        case .fa: "نمایش به‌صورت آفلاین"
+        case .tr: "Çevrimdışı görün"
+        case .ar: "الظهور غير متصل"
         }
     }
 
     static func availabilityForceOfflineHint(_ l: Language) -> String {
         switch l {
-        case .en: "You appear offline to visitors whatever your schedule says."
-        case .fa: "صرف‌نظر از زمان‌بندی، برای بازدیدکنندگان آفلاین دیده می‌شوید."
-        case .tr: "Programınız ne derse desin ziyaretçilere çevrimdışı görünürsünüz."
-        case .ar: "تظهر غير متصل للزوار بغض النظر عن جدولك."
+        case .en: "Overrides everything below: visitors see you as offline and no chats are given to you automatically, whatever your schedule says."
+        case .fa: "بر همهٔ گزینه‌های زیر مقدم است: صرف‌نظر از زمان‌بندی، بازدیدکنندگان شما را آفلاین می‌بینند و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        case .tr: "Aşağıdakilerin hepsini geçersiz kılar: programınızdan bağımsız olarak ziyaretçiler sizi çevrimdışı görür ve size otomatik sohbet verilmez."
+        case .ar: "يتجاوز كل ما يلي: يراك الزوار غير متصل ولا تُسند إليك أي محادثة تلقائيًا، أيًا كان جدولك."
         }
     }
 
     static func availabilityWhenUsingApp(_ l: Language) -> String {
         switch l {
-        case .en: "Available while I use the app"
-        case .fa: "وقتی از برنامه استفاده می‌کنم، در دسترس باشم"
-        case .tr: "Uygulamayı kullanırken uygunum"
-        case .ar: "متاح أثناء استخدامي التطبيق"
+        case .en: "Show me as available to visitors"
+        case .fa: "برای بازدیدکنندگان در دسترس نشانم بده"
+        case .tr: "Ziyaretçilere müsait görün"
+        case .ar: "إظهاري متاحًا للزوار"
         }
     }
 
     static func availabilityWhenUsingAppHint(_ l: Language) -> String {
         switch l {
-        case .en: "Marks you online automatically while the app is open."
-        case .fa: "تا وقتی برنامه باز است، به‌صورت خودکار آنلاین در نظر گرفته می‌شوید."
-        case .tr: "Uygulama açıkken sizi otomatik olarak çevrimiçi işaretler."
-        case .ar: "يجعلك متصلًا تلقائيًا ما دام التطبيق مفتوحًا."
+        case .en: "On: visitors see you as available (only within your schedule, if you turn it on), and chats can be given to you automatically while the panel, the desktop app or the Android app is open. Off: you are invisible, and no chats are given to you automatically."
+        case .fa: "روشن: بازدیدکنندگان شما را در دسترس می‌بینند (اگر زمان‌بندی را روشن کنید، فقط در ساعت‌های آن) و تا وقتی پنل یا اپلیکیشن دسکتاپ یا اندروید باز است، گفتگو می‌تواند خودکار به شما سپرده شود. خاموش: نامرئی هستید و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        case .tr: "Açık: ziyaretçiler sizi müsait görür (programı açarsanız yalnızca program saatlerinde) ve panel, masaüstü uygulaması ya da Android uygulaması açıkken size otomatik sohbet verilebilir. Kapalı: görünmezsiniz ve size otomatik sohbet verilmez."
+        case .ar: "مفعّل: يراك الزوار متاحًا (ضمن جدولك فقط إن فعّلته)، ويمكن أن تُسند إليك المحادثات تلقائيًا ما دامت اللوحة أو تطبيق سطح المكتب أو تطبيق أندرويد مفتوحًا. معطّل: تكون غير مرئي ولا تُسند إليك أي محادثة تلقائيًا."
         }
     }
 
@@ -2251,7 +2254,7 @@ extension Str {
         switch l {
         case .en: text = "{actor} transferred this conversation to {to}"
         case .fa: text = "{actor} این گفتگو را به {to} منتقل کرد"
-        case .tr: text = "{actor} bu görüşmeyi {to} kişisine aktardı"
+        case .tr: text = "{actor} bu sohbeti {to} kişisine aktardı"
         case .ar: text = "{actor} حوّل هذه المحادثة إلى {to}"
         }
         return text
@@ -2264,7 +2267,7 @@ extension Str {
         switch l {
         case .en: text = "{actor} unassigned this conversation"
         case .fa: text = "{actor} این گفتگو را از حالت واگذارشده خارج کرد"
-        case .tr: text = "{actor} bu görüşmenin atamasını kaldırdı"
+        case .tr: text = "{actor} bu sohbetin atamasını kaldırdı"
         case .ar: text = "{actor} ألغى إسناد هذه المحادثة"
         }
         return text
@@ -2277,7 +2280,7 @@ extension Str {
         switch l {
         case .en: text = "This conversation was transferred to {to}"
         case .fa: text = "این گفتگو به {to} منتقل شد"
-        case .tr: text = "Bu görüşme {to} kişisine aktarıldı"
+        case .tr: text = "Bu sohbet {to} kişisine aktarıldı"
         case .ar: text = "حُوّلت هذه المحادثة إلى {to}"
         }
         return text
@@ -2288,7 +2291,7 @@ extension Str {
         switch l {
         case .en: "This conversation was transferred"
         case .fa: "این گفتگو منتقل شد"
-        case .tr: "Bu görüşme aktarıldı"
+        case .tr: "Bu sohbet aktarıldı"
         case .ar: "حُوّلت هذه المحادثة"
         }
     }
@@ -2297,7 +2300,7 @@ extension Str {
         switch l {
         case .en: "This conversation was unassigned"
         case .fa: "این گفتگو از حالت واگذارشده خارج شد"
-        case .tr: "Bu görüşmenin ataması kaldırıldı"
+        case .tr: "Bu sohbetin ataması kaldırıldı"
         case .ar: "أُلغي إسناد هذه المحادثة"
         }
     }
@@ -2346,12 +2349,14 @@ extension Str {
         }
     }
 
+    /// Nobody of the team was online: the sentence the visitor read, word
+    /// for word (the widget's routingNoAgentAvailable).
     static func sysNoAgentAvailable(_ l: Language) -> String {
         switch l {
-        case .en: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can."
-        case .fa: "همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم."
-        case .tr: "Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız."
-        case .ar: "جميع زملائنا مشغولون حاليًا. سُجّلت رسالتك وسنرد في أقرب وقت ممكن."
+        case .en: "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back."
+        case .fa: "در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم."
+        case .tr: "Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız."
+        case .ar: "لا يوجد أحد من فريقنا متصلًا الآن. حُفظت رسالتك وسنرد هنا فور عودة أحدهم."
         }
     }
 
@@ -2359,9 +2364,20 @@ extension Str {
     static func sysInQueue(_ l: Language) -> String {
         switch l {
         case .en: "The visitor is waiting in the support queue"
-        case .fa: "کاربر در صف پشتیبانی منتظر است"
+        case .fa: "بازدیدکننده در صف پشتیبانی منتظر است"
         case .tr: "Ziyaretçi destek kuyruğunda bekliyor"
         case .ar: "الزائر ينتظر في قائمة انتظار الدعم"
+        }
+    }
+
+    /// Read by the operator: everyone was at capacity, and the visitor waits
+    /// in the queue (a `routing_in_queue` row whose reason is `all_busy`).
+    static func sysInQueueAllBusy(_ l: Language) -> String {
+        switch l {
+        case .en: "Everyone on the team was busy; the visitor is waiting in the queue"
+        case .fa: "همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است"
+        case .tr: "Tüm operatörler meşguldü; ziyaretçi kuyrukta bekliyor"
+        case .ar: "كان جميع أعضاء الفريق مشغولين؛ الزائر ينتظر في قائمة الانتظار"
         }
     }
 
@@ -2372,7 +2388,7 @@ extension Str {
         switch l {
         case .en: text = "Rated the conversation {score}/5"
         case .fa: text = "به این گفتگو {score} از ۵ امتیاز داد"
-        case .tr: text = "Görüşmeye 5 üzerinden {score} puan verdi"
+        case .tr: text = "Sohbete 5 üzerinden {score} puan verdi"
         case .ar: text = "قيّم المحادثة بـ {score}/5"
         }
         return text
@@ -2397,7 +2413,7 @@ extension Str {
     static func sysCallInviteAudio(_ l: Language) -> String {
         switch l {
         case .en: "Visitor invited to an audio call"
-        case .fa: "کاربر به تماس صوتی دعوت شد"
+        case .fa: "بازدیدکننده به تماس صوتی دعوت شد"
         case .tr: "Ziyaretçi sesli aramaya davet edildi"
         case .ar: "دُعي الزائر إلى مكالمة صوتية"
         }
@@ -2406,7 +2422,7 @@ extension Str {
     static func sysCallInviteVideo(_ l: Language) -> String {
         switch l {
         case .en: "Visitor invited to a video call"
-        case .fa: "کاربر به تماس تصویری دعوت شد"
+        case .fa: "بازدیدکننده به تماس تصویری دعوت شد"
         case .tr: "Ziyaretçi görüntülü aramaya davet edildi"
         case .ar: "دُعي الزائر إلى مكالمة فيديو"
         }
@@ -2416,7 +2432,7 @@ extension Str {
         let text: String
         switch l {
         case .en: text = "{op} invited the visitor to an audio call"
-        case .fa: text = "{op} کاربر را به تماس صوتی دعوت کرد"
+        case .fa: text = "{op} بازدیدکننده را به تماس صوتی دعوت کرد"
         case .tr: text = "{op} ziyaretçiyi sesli aramaya davet etti"
         case .ar: text = "{op} دعا الزائر إلى مكالمة صوتية"
         }
@@ -2428,7 +2444,7 @@ extension Str {
         let text: String
         switch l {
         case .en: text = "{op} invited the visitor to a video call"
-        case .fa: text = "{op} کاربر را به تماس تصویری دعوت کرد"
+        case .fa: text = "{op} بازدیدکننده را به تماس تصویری دعوت کرد"
         case .tr: text = "{op} ziyaretçiyi görüntülü aramaya davet etti"
         case .ar: text = "{op} دعا الزائر إلى مكالمة فيديو"
         }
@@ -2440,7 +2456,7 @@ extension Str {
         let text: String
         switch l {
         case .en: text = "Call ended by operator · Duration {duration}"
-        case .fa: text = "تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}"
+        case .fa: text = "تماس از طرف اپراتور پایان یافت · مدت تماس {duration}"
         case .tr: text = "Görüşme operatör tarafından sonlandırıldı · Süre {duration}"
         case .ar: text = "أنهى الموظف المكالمة · المدة {duration}"
         }
@@ -2452,7 +2468,7 @@ extension Str {
         let text: String
         switch l {
         case .en: text = "Call ended by visitor · Duration {duration}"
-        case .fa: text = "تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}"
+        case .fa: text = "تماس از طرف بازدیدکننده پایان یافت · مدت تماس {duration}"
         case .tr: text = "Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}"
         case .ar: text = "أنهى الزائر المكالمة · المدة {duration}"
         }
@@ -2464,7 +2480,7 @@ extension Str {
         let text: String
         switch l {
         case .en: text = "Call ended · Duration {duration}"
-        case .fa: text = "تماس پایان یافت · مدت مکالمه {duration}"
+        case .fa: text = "تماس پایان یافت · مدت تماس {duration}"
         case .tr: text = "Görüşme sona erdi · Süre {duration}"
         case .ar: text = "انتهت المكالمة · المدة {duration}"
         }
@@ -2528,10 +2544,10 @@ extension Str {
 
     static func previewSomeone(_ l: Language) -> String {
         switch l {
-        case .en: "A user"
-        case .fa: "کاربر"
-        case .tr: "Bir kullanıcı"
-        case .ar: "مستخدم"
+        case .en: "A visitor"
+        case .fa: "بازدیدکننده"
+        case .tr: "Bir ziyaretçi"
+        case .ar: "زائر"
         }
     }
 

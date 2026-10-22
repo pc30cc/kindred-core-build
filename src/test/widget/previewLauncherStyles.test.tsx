@@ -265,7 +265,8 @@ describe('RESPOK\'s button follows the build, as the loader does', () => {
   });
 
   it('the source gates RESPOK\'s button on the build constant', () => {
-    const src = readFileSync(resolve(process.cwd(), 'src/components/app/widget/WidgetLivePreview.tsx'), 'utf8');
+    // The rule lives in launcherKit.ts, which the preview and Widget → Appearance share.
+    const src = readFileSync(resolve(process.cwd(), 'src/components/app/widget/launcherKit.ts'), 'utf8');
     expect(src).toContain('const respokKit = SHIPS_INTL_KIT && isInternational;');
   });
 });

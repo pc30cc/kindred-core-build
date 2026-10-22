@@ -28,18 +28,28 @@
  * summaries the same way, so a title holding «İ» («İade politikası») now
  * counts for "iade" too, where it used to score nothing: the database found
  * the row either way, only its place in the order changes.
+ *
+ * Every help search also folds what a keyboard changes (V-30, kbFold):
+ * «ي ى» are «ی», «ك» is «ک», Persian and Arabic-Indic digits are ASCII, and
+ * the joiners (ZWNJ), the tatweel and the Arabic marks are taken out, in the
+ * words here and in the articles' columns in the database
+ * (foldedSearch.ts, migration 280a). «پيگيري» typed on an Arabic keyboard
+ * finds «پیگیری», «میخواهم» finds «می‌خواهم», «۱۴۰۵» finds «1405». Before
+ * 280a the database cannot fold, and the plain ILIKE runs with each word as
+ * typed too (`kbSearchWords(q, false)`), so nothing it found is lost.
  */
-import { kbSuggestFold } from './widgetSuggest.js';
+import { kbFold, kbSuggestFold } from './widgetSuggest.js';
 
 /** At most this many words are searched (a pasted paragraph stays cheap). */
 export const KB_SEARCH_MAX_WORDS = 6;
 
 /**
- * The words to search for. One-letter words (a lone «و» or "a") are dropped
- * unless they are all there is, so a conjunction does not match every
- * article. Duplicates are searched once.
+ * The words to search for, folded (kbFold; `fold` false: only lower-cased,
+ * for the plain ILIKE of a database before migration 280a). One-letter words
+ * (a lone «و» or "a") are dropped unless they are all there is, so a
+ * conjunction does not match every article. Duplicates are searched once.
  */
-export function kbSearchWords(query: string): string[] {
+export function kbSearchWords(query: string, fold = true): string[] {
   const words = String(query || '')
     .replace(/[,()"{}%_*\\\p{Cc}]/gu, ' ')
     .split(/\s+/)
@@ -47,7 +57,7 @@ export function kbSearchWords(query: string): string[] {
     .filter(Boolean);
   const long = words.filter((w) => w.length >= 2);
   const picked = long.length ? long : words;
-  return Array.from(new Set(picked.map((w) => kbSuggestFold(w))))
+  return Array.from(new Set(picked.map((w) => (fold ? kbFold(w) : kbSuggestFold(w))).filter(Boolean)))
     .slice(0, KB_SEARCH_MAX_WORDS);
 }
 
@@ -91,8 +101,8 @@ export function rankKbSearchRows<T extends { title?: string | null; excerpt?: st
   limit: number,
 ): T[] {
   const score = (row: T) => {
-    const title = kbSuggestFold(String(row.title || ''));
-    const excerpt = kbSuggestFold(String(row.excerpt || ''));
+    const title = kbFold(String(row.title || ''));
+    const excerpt = kbFold(String(row.excerpt || ''));
     let s = 0;
     for (const w of words) {
       if (title.includes(w)) s += 2;

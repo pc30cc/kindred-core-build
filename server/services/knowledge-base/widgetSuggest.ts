@@ -27,6 +27,7 @@
 import type { ServerConfig } from '../../config.js';
 import { MemoCache } from '../../lib/memoCache.js';
 import { getServiceClient } from '../../supabase.js';
+import { kbFoldedSearch } from './foldedSearch.js';
 import { resolveKbLock } from './locks.js';
 import { publicArticles } from './publicArticles.js';
 
@@ -70,10 +71,61 @@ export const KB_SUGGEST_STOPWORDS: ReadonlySet<string> = new Set([
  * title holds and PostgreSQL never produces (it folds «İ» to «i»), so
  * «İade» found nothing and «İstiyorum» was no stopword. Every other letter
  * keeps its length, so positions found in the folded text are the
- * original's (kbSnippet).
+ * original's.
  */
 export function kbSuggestFold(text: string): string {
   return text.toLowerCase().replace(/i\u0307/g, 'i');
+}
+
+/** Arabic-keyboard letters, «ۀ», and Persian / Arabic-Indic digits, and what they fold to. */
+const KB_FOLD_MAP: Readonly<Record<string, string>> = (() => {
+  const map: Record<string, string> = { '\u064a': '\u06cc', '\u0649': '\u06cc', '\u0643': '\u06a9', '\u06c0': '\u0647' };
+  for (let d = 0; d < 10; d++) {
+    map[String.fromCharCode(0x0660 + d)] = String(d);
+    map[String.fromCharCode(0x06f0 + d)] = String(d);
+  }
+  return map;
+})();
+/** The joiners (ZWNJ, ZWJ), the tatweel and the Arabic marks (U+064B..U+065F, U+0670): taken out. */
+function kbFoldDrops(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c === 0x200c || c === 0x200d || c === 0x0640 || c === 0x0670 || (c >= 0x064b && c <= 0x065f);
+}
+
+/**
+ * The help search's fold (V-30): kbSuggestFold's case, plus «ي ى» → «ی»,
+ * «ك» → «ک», «ۀ» → «ه», Persian and Arabic-Indic digits → ASCII, and the
+ * joiners, the tatweel and the Arabic marks (the hamza above among them)
+ * taken out, so «پيگيري», «كد تخفيف», «میخواهم», «خانۀ» / «خانهٔ» and «۲۰۲۶»
+ * meet «پیگیری», «کد تخفیف», «می‌خواهم», «خانه» and «2026».
+ * EXACTLY what the database's public.kb_search_fold does (migration 280a),
+ * save the case, which ILIKE folds there; the search's words are compared
+ * with folded columns.
+ */
+export function kbFold(text: string): string {
+  return kbFoldIndexed(text).text;
+}
+
+/**
+ * kbFold, and for each folded character the index of the original one it
+ * came from (`at`), so a match found in the folded text is cut from the
+ * original (kbSnippet, kbMatchedWords).
+ */
+export function kbFoldIndexed(text: string): { text: string; at: number[] } {
+  const source = String(text ?? '');
+  const lower = kbSuggestFold(source);
+  // The case fold keeps every position (kbSuggestFold), unless the text
+  // held an «i» with a separate combining dot; the places are then near.
+  const aligned = lower.length === source.length;
+  let out = '';
+  const at: number[] = [];
+  for (let i = 0; i < lower.length; i++) {
+    const ch = lower[i];
+    if (kbFoldDrops(ch)) continue;
+    out += KB_FOLD_MAP[ch] ?? ch;
+    at.push(aligned ? i : Math.min(i, source.length - 1));
+  }
+  return { text: out, at };
 }
 
 /**
@@ -82,20 +134,24 @@ export function kbSuggestFold(text: string): string {
  * "shoes," are the words کفش, سلام and shoes; this also covers every
  * character the filter grammar and LIKE give a meaning, as widgetSearch.ts
  * kbSearchWords does, and a NUL, which the database refuses as text),
- * lower-cased as the database folds case (kbSuggestFold), without
- * stopwords and one-letter words, each once; the four longest (a tie goes
+ * folded (kbFold: the case as the database folds it, the Arabic-keyboard
+ * letters, the digits and the joiners), without stopwords and one-letter
+ * words, each once; the four longest (a tie goes
  * to the word typed later: the end of a draft is what is being written), in
  * the order they were typed. No word → nothing is searched.
  */
-export function kbSuggestWords(query: string): string[] {
+export function kbSuggestWords(query: string, fold = true): string[] {
   const seen = new Map<string, number>();
   String(query || '')
     .slice(0, KB_SUGGEST_MAX_QUERY)
     .replace(/[\p{P}\p{S}\p{Cc}]/gu, ' ')
     .split(/\s+/)
-    .map((w) => kbSuggestFold(w.trim()))
-    .forEach((w, index) => {
-      if (w.length < 2 || KB_SUGGEST_STOPWORDS.has(w)) return;
+    .map((w) => w.trim())
+    .forEach((typed, index) => {
+      // `fold` false (the plain ILIKE before migration 280a): the words as
+      // typed, only lower-cased, as they always were.
+      const w = fold ? kbFold(typed) : kbSuggestFold(typed);
+      if (w.length < 2 || KB_SUGGEST_STOPWORDS.has(kbFold(typed))) return;
       seen.set(w, index); // the last place a repeated word was typed
     });
   return [...seen.entries()]
@@ -142,9 +198,10 @@ export function kbSnippet(text: unknown, words: string[], max = KB_SUGGEST_SNIPP
   const body = plain(text);
   if (!body) return null;
   if (body.length <= max) return body;
-  const lower = kbSuggestFold(body);
-  const hits = words.map((w) => lower.indexOf(kbSuggestFold(w))).filter((i) => i >= 0);
-  const first = hits.length ? Math.min(...hits) : 0;
+  // Found folded (kbFold), cut from the text as written.
+  const folded = kbFoldIndexed(body);
+  const hits = words.map((w) => folded.text.indexOf(kbFold(w))).filter((i) => i >= 0);
+  const first = hits.length ? folded.at[Math.min(...hits)] : 0;
   let start = Math.max(0, first - SNIPPET_LEAD);
   if (start > 0) {
     const space = body.indexOf(' ', start);
@@ -172,23 +229,51 @@ export interface KbSuggestion {
   slug: string;
   title: string;
   snippet: string | null;
-  /** The searched words found in the title or summary, as typed (lower-case). */
+  /**
+   * The searched words found in the title or summary, as typed (lower-case),
+   * each followed by the way it is written there when that differs by more
+   * than case («پيگيري» found «پیگیری»): the widget marks every one.
+   */
   matches: string[];
   readingMinutes: number | null;
 }
 
-/** The words of `words` that `row`'s title or summary contains. */
+/**
+ * Each of `words` (kbFold'ed) that `row`'s title or summary contains, with
+ * the forms to mark: the word itself, then each way it is written there
+ * that differs by more than case (a title's «پیگیری» for «پيگيري», its
+ * «می‌خواهم» for «میخواهم»), at most three.
+ */
+export function kbMatchForms(row: { title?: string | null; excerpt?: string | null }, words: string[]): Map<string, string[]> {
+  const texts = [String(row.title || ''), String(row.excerpt || '')].map((text) => ({ text, folded: kbFoldIndexed(text) }));
+  const out = new Map<string, string[]>();
+  for (const raw of words) {
+    // The help search's words (kbSearchWords) are folded already; any other caller's are folded here.
+    const word = kbFold(raw);
+    if (!word) continue;
+    const forms = [raw];
+    let found = false;
+    for (const { text, folded } of texts) {
+      for (let i = folded.text.indexOf(word); i >= 0 && forms.length < 4; i = folded.text.indexOf(word, i + word.length)) {
+        found = true;
+        const written = text.slice(folded.at[i], folded.at[i + word.length - 1] + 1);
+        if (kbSuggestFold(written) !== kbSuggestFold(raw) && !forms.includes(written)) forms.push(written);
+      }
+    }
+    if (found) out.set(raw, forms);
+  }
+  return out;
+}
+
+/** The words of `words` that `row`'s title or summary contains, and how they are written there (kbMatchForms). */
 export function kbMatchedWords(row: { title?: string | null; excerpt?: string | null }, words: string[]): string[] {
-  const title = kbSuggestFold(String(row.title || ''));
-  const excerpt = kbSuggestFold(String(row.excerpt || ''));
-  // The help search's words (kbSearchWords) are not folded: compared folded too.
-  return words.filter((w) => title.includes(kbSuggestFold(w)) || excerpt.includes(kbSuggestFold(w)));
+  return [...new Set([...kbMatchForms(row, words).values()].flat())];
 }
 
 /** A word in the title counts 2, in the summary 1. */
 function wordScore(row: { title?: string | null; excerpt?: string | null }, words: string[]): number {
-  const title = kbSuggestFold(String(row.title || ''));
-  const excerpt = kbSuggestFold(String(row.excerpt || ''));
+  const title = kbFold(String(row.title || ''));
+  const excerpt = kbFold(String(row.excerpt || ''));
   let score = 0;
   for (const w of words) {
     if (title.includes(w)) score += 2;
@@ -247,7 +332,8 @@ interface KbSuggestHit {
   updated_at: string | null;
   score: number;
   snippet: string | null;
-  matches: string[];
+  /** Each matched word and the forms to mark for it (kbMatchForms). */
+  matches: Array<[string, string[]]>;
 }
 
 /** Every language an answer can be ranked for (kbSuggestLocale). */
@@ -275,7 +361,7 @@ function hitsOf(rows: KbSuggestRow[], words: string[]): KbSuggestHit[] {
     updated_at: row.updated_at ?? null,
     score: wordScore(row, words),
     snippet: kbSnippet(row.excerpt, words),
-    matches: kbMatchedWords(row, words),
+    matches: [...kbMatchForms(row, words).entries()],
   }));
 }
 
@@ -299,13 +385,17 @@ function rememberMinutes(key: string, minutes: number): void {
   while (minutesCache.size > MINUTES_MAX) minutesCache.delete(minutesCache.keys().next().value as string);
 }
 
-async function readRows(config: ServerConfig, workspaceId: string, words: string[]): Promise<KbSuggestHit[]> {
+async function readRows(config: ServerConfig, workspaceId: string, words: string[], typed: string[]): Promise<KbSuggestHit[]> {
   const lock = await resolveKbLock(config, workspaceId);
-  const { data, error } = await publicArticles(config, workspaceId, 'id, title, slug, excerpt, locale, updated_at', lock)
-    .eq('visible_in_widget', true)
-    .or(kbSuggestOrFilter(words))
-    .order('updated_at', { ascending: false })
-    .limit(KB_SUGGEST_WINDOW);
+  const columns = 'id, title, slug, excerpt, locale, updated_at';
+  // Folded on both sides (migration 280a); without it, the plain ILIKE, each
+  // word also as the visitor typed it.
+  const { data, error } = await kbFoldedSearch(config, workspaceId, columns, lock, words, { content: false, widgetOnly: true }, KB_SUGGEST_WINDOW)
+    ?? await publicArticles(config, workspaceId, columns, lock)
+      .eq('visible_in_widget', true)
+      .or(kbSuggestOrFilter([...new Set([...words, ...typed])]))
+      .order('updated_at', { ascending: false })
+      .limit(KB_SUGGEST_WINDOW);
   if (error) throw new Error(`kb-suggest read failed: ${error.message}`);
   return hitsOf(((data ?? []) as unknown as KbSuggestRow[]).filter((r) => r && r.id && r.slug), words);
 }
@@ -334,8 +424,9 @@ async function readingMinutesOf(config: ServerConfig, workspaceId: string, rows:
 }
 
 /**
- * The instant answers for `words` (kbSuggestWords) in a workspace. Throws on
- * a database error (the route answers `[]`).
+ * The instant answers for `words` (kbSuggestWords) in a workspace; `typed`
+ * (kbSuggestWords(q, false)) only serves a database without migration 280a.
+ * Throws on a database error (the route answers `[]`).
  */
 export async function suggestKbArticles(
   config: ServerConfig,
@@ -343,10 +434,11 @@ export async function suggestKbArticles(
   words: string[],
   limit: number,
   locale: string | null,
+  typed: string[] = words,
 ): Promise<KbSuggestion[]> {
   if (!words.length) return [];
   const key = `${workspaceId}|${[...words].sort().join(' ')}`;
-  const hits = await rowsCache.get(key, () => readRows(config, workspaceId, words));
+  const hits = await rowsCache.get(key, () => readRows(config, workspaceId, words, typed));
   const ranked = rankByScore(hits, (hit) => hit.score, Math.min(KB_SUGGEST_MAX_LIMIT, Math.max(1, limit)), kbSuggestLocale(locale));
   if (!ranked.length) return [];
   const minutes = await readingMinutesOf(config, workspaceId, ranked);
@@ -355,7 +447,7 @@ export async function suggestKbArticles(
     title: hit.title,
     snippet: hit.snippet,
     // In this draft's order (the memo is shared by every order of its words).
-    matches: words.filter((w) => hit.matches.includes(w)),
+    matches: [...new Set(words.flatMap((w) => hit.matches.find(([word]) => word === w)?.[1] ?? []))],
     readingMinutes: minutes.get(hit.id) ?? null,
   }));
 }

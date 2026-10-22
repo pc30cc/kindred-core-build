@@ -27,7 +27,7 @@ import { useInboxCounts, useInboxTabCounts } from '@/hooks/useConversations';
 import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import type { AppSection } from '@/lib/planAccess';
-import { aiQueueVisible, channelInboxVisible, colleaguesQueueVisible, needsHumanQueueVisible } from '@/lib/planAccess';
+import { aiQueueVisible, channelInboxVisible, colleaguesQueueVisible, needsHumanQueueVisible, teamChatPageVisible } from '@/lib/planAccess';
 import { pluginsApi } from '@/lib/plugins-api';
 import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
 import { artSubPath } from './layout';
@@ -57,7 +57,10 @@ const TEAM_PAGE = /^\/settings\/(team-departments|team|departments)(\/|$)/;
 // Top-level destinations by priority; a plan-gated one carries its section.
 const PRIMARY: Entry[] = [
   { key: 'dashboard', path: '', icon: LayoutDashboard },
-  { key: 'inbox', path: '/inbox', icon: Inbox },
+  // Role-gated: the owner, admins and the chat team (shared/chatRoles.ts).
+  { key: 'inbox', path: '/inbox', icon: Inbox, section: 'inbox' },
+  // A member without the Inbox: the team chat on its own page (teamChatPageVisible).
+  { key: 'teamChat', path: '/team-chat', icon: Users },
   { key: 'contacts', path: '/contacts', icon: Users, section: 'contacts' },
   { key: 'visitors', path: '/visitors', icon: Eye, section: 'visitors' },
   { key: 'aiAgent', path: '/ai-agent', icon: Sparkles, section: 'aiAgent' },
@@ -82,8 +85,11 @@ export function useArtNav() {
   const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
   const { data: isGlobalAdmin } = useIsGlobalAdmin();
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
   const sections = useWorkspaceSections();
+  // The Inbox's data is asked for once the role is known and has an Inbox
+  // (staff without one get 403 from its routes).
+  const inboxData = sections.roleKnown && sections.visible('inbox');
+  const { data: inboxCounts } = useInboxCounts(inboxData ? workspace?.id : undefined);
   const { plan } = sections;
 
   // Same query (and cache entry) as the sidebar's channel inboxes.
@@ -108,8 +114,10 @@ export function useArtNav() {
   };
 
   const label = (key: string) => t(`nav.${key}` as TranslationKey);
+  const teamChatPage = teamChatPageVisible(sections);
+  const { data: teamChatDir } = useColleagues(teamChatPage ? workspace?.id : undefined);
   // Until the plan snapshot is known a plan-gated entry is not offered at all.
-  const offered = (entry: Entry) => !entry.section || sections.visible(entry.section);
+  const offered = (entry: Entry) => (entry.key === 'teamChat' ? teamChatPage : !entry.section || sections.visible(entry.section));
   const toItem = (entry: Entry): ArtNavItem => ({
     key: entry.key,
     label: label(entry.key),
@@ -120,7 +128,9 @@ export function useArtNav() {
 
   const needsHuman = inboxCounts?.needs_human ?? 0;
   const primary = PRIMARY.filter(offered).map((entry) =>
-    entry.key === 'inbox' ? { ...toItem(entry), badge: needsHuman } : toItem(entry),
+    entry.key === 'inbox' ? { ...toItem(entry), badge: needsHuman }
+      : entry.key === 'teamChat' ? { ...toItem(entry), badge: teamChatDir?.total_unread ?? 0 }
+        : toItem(entry),
   );
 
   const settingsPath = sections.isAdmin ? '/settings/general' : '/settings/profile';
@@ -142,7 +152,7 @@ export function useArtNav() {
   // Same queries and cache entries as InboxPage's tabs; asked for only on
   // the inbox.
   const onInbox = isActive('/inbox');
-  const { data: tabCounts } = useInboxTabCounts(onInbox ? workspace?.id : undefined);
+  const { data: tabCounts } = useInboxTabCounts(onInbox && inboxData ? workspace?.id : undefined);
   const { data: colleagueDir } = useColleagues(onInbox && colleaguesQueueVisible(plan) ? workspace?.id : undefined);
   const queues: ArtQueueItem[] = [];
   const inboxTabs: ArtQueueItem[] = [];

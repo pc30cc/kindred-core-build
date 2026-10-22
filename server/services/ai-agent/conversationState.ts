@@ -73,12 +73,21 @@ export async function getConversationState(
   let visitorMessagesCountInConversation = 0;
   let aiRepliesInLastHour = 0;
   const oneHourAgo = Date.now() - 3600_000;
+  // A resolved or closed thread ended there (conversationLifecycle.ts
+  // threadEndPatch): a person's replies and the AI's own before it belong to
+  // the earlier thread, so the AI may answer this one as its settings say.
+  const meta = ((conv as { metadata?: Record<string, unknown> | null }).metadata || {}) as Record<string, unknown>;
+  const resetAt = typeof meta.ai_thread_reset_at === 'string' ? Date.parse(meta.ai_thread_reset_at) : NaN;
+  const earlierThread = (createdAt: string | null | undefined) =>
+    Number.isFinite(resetAt) && !!createdAt && Date.parse(createdAt) < resetAt;
 
   for (const m of msgs || []) {
-    if (isHumanOperatorMessage(m as any)) {
+    if (isHumanOperatorMessage(m)) {
+      if (earlierThread(m.created_at)) continue;
       if (!hasHumanAgentReplied) hasHumanAgentReplied = true;
       if (!lastHumanReplyAt) lastHumanReplyAt = m.created_at;
-    } else if (isAiAgentMessage(m as any)) {
+    } else if (isAiAgentMessage(m)) {
+      if (earlierThread(m.created_at)) continue;
       aiRepliesCountInConversation++;
       if (m.created_at && new Date(m.created_at).getTime() > oneHourAgo) {
         aiRepliesInLastHour++;
@@ -89,7 +98,6 @@ export async function getConversationState(
     }
   }
 
-  const meta = (conv as any).metadata || {};
   const pendingHandoffRequested = !!meta.ai_handoff_requested;
   const aiState = (meta.ai_state as string) || null;
   const managedByAi = meta.managed_by_ai === true || meta.ai_managed_by_ai === true;
@@ -147,7 +155,7 @@ export async function markHandoffRequested(
     .select('metadata')
     .eq('id', conversationId)
     .maybeSingle();
-  const meta = { ...(((conv as any)?.metadata || {}) as Record<string, unknown>), ...patch };
+  const meta = { ...(((conv as { metadata?: Record<string, unknown> | null } | null)?.metadata || {})), ...patch };
   await sb.from('conversations').update({ metadata: meta }).eq('id', conversationId);
 }
 

@@ -40,6 +40,7 @@ import { Globe, Lock } from 'lucide-react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import { systemMessageText, type SystemMessageMeta } from '@/lib/systemMessageText';
+import { CONVERSATION_STATUS_BADGE, conversationStatusLabel, normalizeConversationStatus } from '@/lib/conversationStatus';
 import { isPlaceholderSubject } from '../../../shared/conversationSubject';
 
 type LabelT = (k: TranslationKey) => string;
@@ -275,7 +276,7 @@ export default function ContactDetailPage() {
         />
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-foreground truncate leading-tight">{getDisplayName(contact, t, networkProfile?.geo, locale)}</h1>
-          <p className="text-[11px] text-muted-foreground truncate">
+          <p className="text-[11px] text-muted-foreground truncate" data-latin-digits="">
             {[company, contact.email, contact.phone].filter(Boolean).join(' · ') || '—'}
           </p>
         </div>
@@ -352,9 +353,9 @@ export default function ContactDetailPage() {
                 </div>
                 <ChannelIdentityCard metadata={contact.metadata} t={t as (k: string) => string} dir={dir === 'rtl' ? 'rtl' : 'ltr'} className="mb-3" />
                 <div className="space-y-3.5">
-                  <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
-                  <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
-                  <Row icon={Building2} label={t('contacts.company')} value={company} />
+                  <Row icon={Mail} label={t('contacts.email')} value={contact.email} latin />
+                  <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} latin />
+                  <Row icon={Building2} label={t('contacts.company')} value={company} latin />
                   <Row icon={MapPin} label={t('contacts.location')} value={location} />
                   <Row icon={Calendar} label={t('contacts.createdAt')} value={contact.created_at ? formatDateTime(contact.created_at) : null} />
                   <Row icon={Clock} label={t('contacts.updatedAt')} value={contact.updated_at ? formatDateTime(contact.updated_at) : null} />
@@ -397,9 +398,9 @@ export default function ContactDetailPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
                           <Row icon={UserIcon} label={t('contacts.name')} value={getDisplayName(contact, t, networkProfile?.geo, locale)} />
-                          <Row icon={Mail} label={t('contacts.email')} value={contact.email} />
-                          <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} />
-                          <Row icon={Building2} label={t('contacts.company')} value={company} />
+                          <Row icon={Mail} label={t('contacts.email')} value={contact.email} latin />
+                          <Row icon={Phone} label={t('contacts.phone')} value={contact.phone} latin />
+                          <Row icon={Building2} label={t('contacts.company')} value={company} latin />
                           <Row icon={MapPin} label={t('contacts.location')} value={location} />
                           {ipLocked ? (
                             <div className="flex items-start gap-2.5">
@@ -503,15 +504,11 @@ export default function ContactDetailPage() {
                                       {t('contacts.handledByAi')}
                                     </span>
                                   ) : null}
-                                  <span className={cn(
+                                  <span data-status={normalizeConversationStatus(conv.status)} className={cn(
                                     'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                                    conv.status === 'open' ? 'bg-success/15 text-success' :
-                                    conv.status === 'pending' ? 'bg-warning/15 text-warning' :
-                                    'bg-muted text-muted-foreground'
+                                    CONVERSATION_STATUS_BADGE[normalizeConversationStatus(conv.status)],
                                   )}>
-                                    {conv.status === 'open' ? t('contacts.statusOpen') :
-                                     conv.status === 'pending' ? t('contacts.statusPending') :
-                                     t('contacts.statusClosed')}
+                                    {conversationStatusLabel(t, conv.status)}
                                   </span>
                                   <span className="text-[10px] text-muted-foreground">{formatRelative(conv.updated_at)}</span>
                                   <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -677,7 +674,8 @@ export default function ContactDetailPage() {
   );
 }
 
-function Row({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
+/** `latin`: the value is the contact's own data (email, phone, company), shown as written — no Persian digits (I-04). */
+function Row({ icon: Icon, label, value, latin }: { icon: React.ElementType; label: string; value?: string | null; latin?: boolean }) {
   return (
     <div className="flex items-start gap-3">
       <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center shrink-0">
@@ -685,7 +683,7 @@ function Row({ icon: Icon, label, value }: { icon: React.ElementType; label: str
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
-        <p className="text-sm text-foreground truncate">{value || '—'}</p>
+        <p className="text-sm text-foreground truncate" data-latin-digits={latin && value ? '' : undefined}>{value || '—'}</p>
       </div>
     </div>
   );

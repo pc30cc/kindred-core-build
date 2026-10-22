@@ -25,6 +25,7 @@ import {
   resolveChatTemplateOptions,
   resolveWorkspaceChatTemplate,
 } from '../../../shared/chatTemplateCatalog';
+import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../../shared/visitorEmail';
 import { resolveEditionWidgetTemplateId } from '../../../server/services/widget/presentationAssets';
 import { CHAT_WIDGET_TEMPLATES, EDITION_CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
 
@@ -163,7 +164,9 @@ describe('template options', () => {
     const c = iranOn({
       t1: { enabled: true, options: { navStyle: 'vc', topics: [{ label: 'ارسال', icon: 'truck' }] } },
     });
-    const t1Rest = { prechatMode: 'card', transcriptEmail: true };
+    // The transcript by email reads off while visitor email is switched off
+    // (shared/visitorEmail.ts, owner 2026-10-21).
+    const t1Rest = { prechatMode: 'card', transcriptEmail: false };
     expect(resolveChatTemplateOptions(c, 't1', {})).toEqual({ navStyle: 'vc', navMode: 'active', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
     expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], csat: false, extra: 1 }))
       .toEqual({ navStyle: 'vc', navMode: 'none', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
@@ -172,7 +175,7 @@ describe('template options', () => {
     // An invalid workspace value falls through to the Super Admin's.
     expect(resolveChatTemplateOptions(c, 't1', { navStyle: 'zz' }).navStyle).toBe('vc');
     expect(resolveChatTemplateOptions(c, 't2', { askExamples: ['سفارشم کی می‌رسد؟'], navMode: 'none', prechatMode: 'steps' }))
-      .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'], csat: true, transcriptEmail: true });
+      .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'], csat: true, transcriptEmail: false });
     expect(resolveChatTemplateOptions(c, 'default', { navMode: 'none' })).toEqual({});
   });
 
@@ -286,6 +289,15 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
       .toMatchObject({ ok: false, problem: 'template_not_offered' });
   });
 
+  it('visitor email switched off: the transcript option reads off whatever the Super Admin and the workspace stored', () => {
+    expect(VISITOR_EMAIL_FEATURES_ENABLED).toBe(false);
+    const c = iranOn({ t1: { enabled: true, options: { transcriptEmail: true } }, t2: { enabled: true, options: { transcriptEmail: true } } });
+    expect(resolveChatTemplateOptions(c, 't1', { transcriptEmail: true }).transcriptEmail).toBe(false);
+    expect(resolveChatTemplateOptions(c, 't2', { transcriptEmail: true }).transcriptEmail).toBe(false);
+    // A template without the option gains no key.
+    expect(resolveChatTemplateOptions(c, 'default', { transcriptEmail: true })).toEqual({});
+  });
+
   it('what is saved reads back as the same catalog', () => {
     const r = cleanChatTemplateCatalogInput('iran', {
       defaultId: 't2',
@@ -299,7 +311,7 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
     const c = resolveChatTemplateCatalog('iran', r.value);
     expect(c.defaultId).toBe('t2');
     expect(enabledChatTemplateIds(c)).toEqual(['t2', 't1']);
-    expect(resolveChatTemplateOptions(c, 't2', {})).toEqual({ topics: [], askExamples: ['کی می‌رسد؟'], csat: true, transcriptEmail: true });
+    expect(resolveChatTemplateOptions(c, 't2', {})).toEqual({ topics: [], askExamples: ['کی می‌رسد؟'], csat: true, transcriptEmail: false });
     expect(resolveWorkspaceChatTemplate(c, 'default')).toBe('t2');
   });
 });

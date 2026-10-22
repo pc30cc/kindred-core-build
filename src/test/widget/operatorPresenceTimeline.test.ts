@@ -75,7 +75,18 @@ function makeQuery(table: string) {
   return q;
 }
 
-const fakeClient = { from: (t: string) => makeQuery(t), rpc: async () => ({ data: null, error: null }) };
+const fakeClient = {
+  from: (t: string) => makeQuery(t),
+  // 282b: the beat writes the lease row through operator_presence_beat (its
+  // per-source bookkeeping is operatorPresenceSources282b.pg.test.ts's).
+  rpc: async (fn: string, args: Record<string, unknown> = {}) =>
+    fn === 'operator_presence_beat'
+      ? makeQuery('operator_presence_live').upsert(
+        { workspace_id: args.p_workspace_id, user_id: args.p_user_id, last_seen_at: args.p_now, updated_at: args.p_now },
+        { onConflict: 'workspace_id,user_id' },
+      )
+      : { data: null, error: null },
+};
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient }));
 vi.mock('../../../server/supabase', () => ({ getServiceClient: () => fakeClient }));

@@ -5,7 +5,11 @@
  * thing), we render the *actual* widget markup inside an isolated iframe that
  * loads the production stylesheet at `/widget/runtime.css`. Every class name
  * below mirrors what `public/widget/runtime.js` emits at runtime, so what the
- * operator sees here is what the visitor gets on their site.
+ * operator sees here is what the visitor gets on their site. Its words are
+ * the widget's own (runtime.js's dictionary, loaded in the frame), and its
+ * states the real ones: the offline behaviour the workspace chose, whether
+ * the team is online now, the pre-chat form the server asks, the welcome the
+ * server sends (or none while the AI agent greets).
  */
 import { useEffect, useMemo, useRef } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
@@ -15,18 +19,20 @@ import { useArtPreviewStage } from './useArtPreviewStage';
 import { useEdition } from '@/hooks/useEdition';
 import { resolveChatWidgetTemplate, widgetDateHints } from '../../../../shared/widgetTemplates';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
-import { WEBYAR_BRAND, isUncustomisedColor, useWebyarKit } from '@/lib/webyarBrand';
+import { WEBYAR_BRAND } from '@/lib/webyarBrand';
+import { useLauncherKit } from './launcherKit';
+import { previewOfflineMessage, previewOfflineMode, previewPrechatForm } from './previewStates';
 import {
-  LOCAL_KIT_LAUNCHER_BASE_SIZE,
   LOCAL_KIT_LAUNCHER_CHAT_GLYPH,
   LOCAL_KIT_LAUNCHER_CLOSE_GLYPH,
   LOCAL_KIT_LAUNCHER_CSS,
 } from '../../../../shared/localKitLauncher';
-import { SHIPS_INTL_KIT, SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
+import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
 import { resolveLauncherStyle } from '../../../../shared/launcherStyles';
 import { agentFaceInitial, onlineFirst, widgetTeamName } from '../../../../shared/widgetTeam';
+import { WIDGET_UNCUSTOMISED_COLOR, widgetAccentColor, widgetOwnColor } from '../../../../shared/widgetColor';
+import { isAuthoredWidgetText, widgetTextDefault } from '../../../../shared/widgetTextDefaults';
 import {
-  RESPOK_LAUNCHER_BASE_SIZE,
   RESPOK_LAUNCHER_CHAT_GLYPH,
   RESPOK_LAUNCHER_CLOSE_GLYPH,
   RESPOK_LAUNCHER_CSS,
@@ -74,98 +80,27 @@ export type SmartPreviewMessage =
   | { source: 'gs-smart-preview'; type: 'smart-preview:widget-opened' }
   | { source: 'gs-smart-preview'; type: 'smart-preview:widget-closed' };
 
-type Dict = {
-  online: string; offline: string; typing: string; input: string;
-  name: string; email: string; phone: string; start: string;
-  prechatTitle: string; prechatIntro: string; privacy: string;
-  sample: string; visitorSample: string; chatTab: string; helpTab: string;
-  kbSearch: string; kbArticles: string[]; poweredBy: string;
-  welcomeFallback: string; brandFallback: string;
-  homeTab: string; homeGreeting: string; homeWelcome: string;
-  homeTeamOnline: string; homeTeamOffline: string;
-  homeStartChat: string; homeLeaveMessage: string;
-  homeReplyFast: string; homeReplySlow: string;
-  homeHelpTitle: string; homeSeeAll: string;
-  kbAllArticles: string; kbCategories: string; kbEmpty: string; kbBack: string;
-  attachTitle: string; micTitle: string; emojiTitle: string; talkToHuman: string;
-  msgSeen: string;
-  messagesTab: string; conversations: string; noConversations: string; newConversation: string;
-  statusOpen: string; statusResolved: string; unread: string; back: string;
-  listTimeRecent: string; listTimeEarlier: string;
-};
-
-const DICTS: Record<string, Dict> = {
+/**
+ * The preview's sample content (a conversation, the list's times, a name),
+ * per widget language. Not the widget's words: every string the widget
+ * itself shows comes from its own dictionary (public/widget/runtime.js,
+ * `__gs_runtime.t`), which the frame loads, so the preview speaks exactly
+ * as visitors read it, today's copy included.
+ */
+const SAMPLES: Record<'en' | 'fa' | 'tr', {
+  operator: string; visitor: string; recent: string; earlier: string; name: string; brand: string;
+}> = {
   en: {
-    online: 'We are online', offline: 'We are offline', typing: 'is typing…',
-    input: 'Write a message…', name: 'Your name', email: 'Email', phone: 'Phone',
-    start: 'Continue', prechatTitle: 'Before we start', prechatIntro: 'Tell us how to reach you',
-    privacy: 'Your details stay private and are only used to reply to you.',
-    sample: 'Hi! How can we help you today?', visitorSample: 'Hi, I have a question about pricing.',
-    chatTab: 'Chat', helpTab: 'Help', kbSearch: 'Search articles…',
-    kbArticles: ['Getting started', 'Billing & plans', 'Troubleshooting'],
-    poweredBy: 'Powered by', welcomeFallback: 'How can we help?', brandFallback: 'Support',
-    homeTab: 'Home', homeGreeting: 'Hello 👋', homeWelcome: 'Welcome! How can we help you today?',
-    homeTeamOnline: 'Our team is online right now', homeTeamOffline: "We're offline at the moment",
-    homeStartChat: 'Start a conversation', homeLeaveMessage: 'Leave a message',
-    homeReplyFast: 'Typically replies in a few minutes',
-    homeReplySlow: "We'll reply by email as soon as we're back",
-    homeHelpTitle: 'Find an answer', homeSeeAll: 'See all',
-    kbAllArticles: 'Popular articles', kbCategories: 'Browse by category',
-    kbEmpty: 'No articles published yet — add some in the Knowledge Base.',
-    kbBack: 'Back to articles',
-    attachTitle: 'Attach file', micTitle: 'Record voice message', emojiTitle: 'Emoji',
-    talkToHuman: 'Talk to a human', msgSeen: 'Seen',
-    messagesTab: 'Messages', conversations: 'Conversations', noConversations: 'No conversations yet',
-    newConversation: 'New conversation', statusOpen: 'Open', statusResolved: 'Resolved', unread: 'Unread messages',
-    back: 'Back', listTimeRecent: '2 min', listTimeEarlier: 'Yesterday',
+    operator: 'Hi! How can we help you today?', visitor: 'Hi, I have a question about pricing.',
+    recent: '2 min', earlier: 'Yesterday', name: 'Alex Morgan', brand: 'Support',
   },
   fa: {
-    online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
-    input: 'پیام خود را بنویسید…', name: 'نام شما', email: 'ایمیل', phone: 'شماره تماس',
-    start: 'ادامه', prechatTitle: 'پیش از شروع', prechatIntro: 'راه ارتباطی خود را وارد کنید',
-    privacy: 'اطلاعات شما محرمانه است و فقط برای پاسخ‌گویی استفاده می‌شود.',
-    sample: 'سلام! چطور می‌توانیم کمکتان کنیم؟', visitorSample: 'سلام، دربارهٔ تعرفه‌ها سؤال داشتم.',
-    chatTab: 'گفتگو', helpTab: 'راهنما', kbSearch: 'جستجوی مقاله‌ها…',
-    kbArticles: ['شروع به کار', 'صورتحساب و پلن‌ها', 'رفع اشکال'],
-    poweredBy: 'قدرت‌گرفته از', welcomeFallback: 'چطور می‌توانیم کمک کنیم؟', brandFallback: 'پشتیبانی',
-    homeTab: 'خانه', homeGreeting: 'سلام 👋', homeWelcome: 'خوش آمدید! چطور می‌توانیم کمکتان کنیم؟',
-    homeTeamOnline: 'تیم ما هم‌اکنون آنلاین است', homeTeamOffline: 'در حال حاضر آفلاین هستیم',
-    homeStartChat: 'شروع گفتگو', homeLeaveMessage: 'پیغام بگذارید',
-    homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
-    homeReplySlow: 'به‌محض بازگشت، از طریق ایمیل پاسخ می‌دهیم',
-    homeHelpTitle: 'پاسخ خود را پیدا کنید', homeSeeAll: 'مشاهده همه',
-    kbAllArticles: 'مقالات پرکاربرد', kbCategories: 'دسته‌بندی‌ها',
-    kbEmpty: 'هنوز مقاله‌ای منتشر نشده است — از بخش پایگاه دانش اضافه کنید.',
-    kbBack: 'بازگشت به مقاله‌ها',
-    attachTitle: 'پیوست فایل', micTitle: 'ضبط پیام صوتی', emojiTitle: 'شکلک',
-    talkToHuman: 'صحبت با اپراتور', msgSeen: 'دیده شد',
-    messagesTab: 'پیام‌ها', conversations: 'گفتگوها', noConversations: 'هنوز گفتگویی ندارید',
-    newConversation: 'گفتگوی جدید', statusOpen: 'باز', statusResolved: 'حل شده', unread: 'پیام‌های خوانده‌نشده',
-    back: 'بازگشت', listTimeRecent: '۲ دقیقه', listTimeEarlier: 'دیروز',
+    operator: 'سلام! چطور می‌توانیم کمکتان کنیم؟', visitor: 'سلام، دربارهٔ تعرفه‌ها سؤال داشتم.',
+    recent: '۲ دقیقه', earlier: 'دیروز', name: 'علی رضایی', brand: 'پشتیبانی',
   },
   tr: {
-    online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
-    input: 'Bir mesaj yazın…', name: 'Adınız', email: 'E-posta', phone: 'Telefon',
-    start: 'Devam', prechatTitle: 'Başlamadan önce', prechatIntro: 'Size nasıl ulaşalım?',
-    privacy: 'Bilgileriniz gizli kalır ve yalnızca yanıt vermek için kullanılır.',
-    sample: 'Merhaba! Size nasıl yardımcı olabiliriz?', visitorSample: 'Merhaba, fiyatlandırma hakkında bir sorum var.',
-    chatTab: 'Sohbet', helpTab: 'Yardım', kbSearch: 'Makalelerde ara…',
-    kbArticles: ['Başlarken', 'Faturalama ve planlar', 'Sorun giderme'],
-    poweredBy: 'Destekleyen', welcomeFallback: 'Nasıl yardımcı olabiliriz?', brandFallback: 'Destek',
-    homeTab: 'Ana sayfa', homeGreeting: 'Merhaba 👋', homeWelcome: 'Hoş geldiniz! Size nasıl yardımcı olabiliriz?',
-    homeTeamOnline: 'Ekibimiz şu anda çevrimiçi', homeTeamOffline: 'Şu anda çevrimdışıyız',
-    homeStartChat: 'Sohbeti başlat', homeLeaveMessage: 'Mesaj bırakın',
-    homeReplyFast: 'Genellikle birkaç dakika içinde yanıtlıyoruz',
-    homeReplySlow: 'Döner dönmez e-posta ile yanıtlayacağız',
-    homeHelpTitle: 'Yanıtınızı bulun', homeSeeAll: 'Tümünü gör',
-    kbAllArticles: 'Popüler makaleler', kbCategories: 'Kategoriye göre göz at',
-    kbEmpty: 'Henüz yayınlanmış makale yok — Bilgi Bankası’ndan ekleyin.',
-    kbBack: 'Makalelere dön',
-    attachTitle: 'Dosya ekle', micTitle: 'Sesli mesaj kaydet', emojiTitle: 'Emoji',
-    talkToHuman: 'Bir temsilciyle konuşun', msgSeen: 'Görüldü',
-    messagesTab: 'Mesajlar', conversations: 'Sohbetler', noConversations: 'Henüz sohbet yok',
-    newConversation: 'Yeni sohbet', statusOpen: 'Açık', statusResolved: 'Çözüldü', unread: 'Okunmamış mesajlar',
-    back: 'Geri', listTimeRecent: '2 dk', listTimeEarlier: 'Dün',
+    operator: 'Merhaba! Size nasıl yardımcı olabiliriz?', visitor: 'Merhaba, fiyatlandırma hakkında bir sorum var.',
+    recent: '2 dk', earlier: 'Dün', name: 'Alex Morgan', brand: 'Destek',
   },
 };
 
@@ -219,30 +154,19 @@ function articleText(value: unknown): string {
     .trim();
 }
 
-// Mirrors server/routes/widget.ts: English seed values are treated as unset
-// for non-English widgets so the localized default is shown instead.
-const SEED_TEXTS: Record<'launcher' | 'welcome', string[]> = {
-  launcher: ['chat with us', 'support', 'hello!'],
-  welcome: ['hello! how can we help you?', 'how can we help you?'],
-};
-
-function localizedValue(
-  value: unknown,
-  kind: 'launcher' | 'welcome',
-  locale: string,
-): string {
-  const lang = (locale || 'en').toLowerCase().split('-')[0];
-  const raw = typeof value === 'string' ? value.trim() : '';
-  if (lang === 'en') return raw;
-  if (!raw || SEED_TEXTS[kind].includes(raw.toLowerCase())) return '';
-  return raw;
-}
-
 export interface WidgetLivePreviewProps {
   // Widget settings are a loose server record read field by field below.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   settings: Record<string, any> | null | undefined;
   prechat?: WidgetPrechatSettings | null;
+  /**
+   * The Super Admin's pre-chat policy, `{ name, email, phone }` of
+   * prechat_<field>_policy (GET /api/widget-settings/platform/public), and
+   * whether the plan includes the workspace's own form
+   * (`widget_prechat_form`): the form drawn is the one the server asks.
+   */
+  prechatPolicy?: unknown;
+  prechatFormAllowed?: boolean;
   /** Workspace identity shown in every widget header. */
   workspaceName?: string;
   /** Platform identity used only by the powered-by footer. */
@@ -292,11 +216,28 @@ export interface WidgetLivePreviewProps {
   smartScenario?: SmartPreviewScenario | null;
   /** Interaction feedback coming back out of the simulated widget. */
   onSmartEvent?: (type: 'dismiss' | 'cta' | 'widget-opened' | 'widget-closed') => void;
+  /**
+   * Whether visitors find the team online right now (GET
+   * /api/widget-settings/:id/availability). The home and the chat bar show
+   * it; the `offline` view always shows the offline behaviour. Unknown:
+   * online, as the frame cannot ask.
+   */
+  availabilityState?: 'online' | 'offline' | null;
+  /** The AI agent greets first, so every template draws no welcome (/config aiAgent.suppressGreeting). */
+  aiGreets?: boolean;
+  /** The welcome visitors read while the workspace has none of its own (the platform's, else the built-in one). */
+  defaultWelcome?: string | null;
+  /** Said in the frame where the widget would be, while offline with "Hide the widget". */
+  hiddenNote?: string;
 }
 
+/** The views that need the chat (production's `features.chat`). */
+const CHAT_VIEWS: readonly PreviewView[] = ['chat', 'list', 'prechat', 'offline'];
+
 export function WidgetLivePreview({
-  settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
+  settings, prechat, prechatPolicy, prechatFormAllowed, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
   operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent, templateId, templateOptions,
+  availabilityState, aiGreets, defaultWelcome, hiddenNote,
 }: WidgetLivePreviewProps) {
   // The mock page around the widget: the panel theme's own colours under
   // Art (useArtPreviewStage), the cool slate otherwise.
@@ -304,18 +245,14 @@ export function WidgetLivePreview({
   // The International edition previews its own template and dates
   // (shared/widgetTemplates.ts); the Iranian edition exactly as before.
   const { isInternational } = useEdition();
-  // The Iranian edition (known, never assumed) previews its local kit's
-  // floating button and logo credit, as loader.js / the bootstrap draw them.
+  // The kit button visitors get (launcherKit.ts, the loader's rule): the
+  // Iranian edition (known, never assumed) previews its local kit's button
+  // and logo credit; the International edition RESPOK's button where this
+  // build ships it (an Iran-brand deployment switched to the International
+  // edition shows the plain launcher on its sites, and here).
   // SHIPS_IRAN_KIT is a build-time literal: the RESPOK build drops every
   // branch below that reads it, and the kit's strings and logo with them.
-  const iranKitEdition = useWebyarKit();
-  const localKit = SHIPS_IRAN_KIT && iranKitEdition && !isInternational;
-  // The International edition previews RESPOK's floating button (the kit's
-  // Thread or Open chat button), as loader.js draws it, when this build
-  // ships it: the Iran build's loader leaves RESPOK's kit out (`@intl-kit`),
-  // so an Iran-brand deployment switched to the International edition shows
-  // the plain launcher on its sites, and here.
-  const respokKit = SHIPS_INTL_KIT && isInternational;
+  const { localKit, respokKit, kit, baseSize } = useLauncherKit();
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -362,28 +299,46 @@ export function WidgetLivePreview({
   const srcDoc = useMemo(() => {
     const s = settings || {};
     const locale: string = smartScenario?.locale || s.widget_language || s.locale || 'en';
-    const d = DICTS[locale] || DICTS.en;
+    const sample = SAMPLES[locale as keyof typeof SAMPLES] || SAMPLES.en;
     const rtl = smartScenario ? smartScenario.rtl : locale === 'fa';
     const dir = rtl ? 'rtl' : 'ltr';
 
-    const primary: string = s.primary_color || '#3B82F6';
-    const secondary: string = s.secondary_color || s.primary_color || '#6366F1';
-    /* Launcher shadow is derived from the brand colour (same rule as loader.js). */
+    // The colour as /config sends it (the seeded #3B82F6 when the workspace
+    // has none: shared/widgetColor.ts) and the accent the loader gives the
+    // panel: its own, else the kit button's (applyConfigToShell).
+    const ownColor = widgetOwnColor(s.primary_color);
+    const wireColor = ownColor || WIDGET_UNCUSTOMISED_COLOR;
+    const primary: string = widgetAccentColor(s.primary_color, kit);
+    const secondary: string = s.secondary_color || wireColor;
+    /* Launcher shadow is derived from the accent (same rule as loader.js). */
     const shadowColor: string = shadowFromPrimary(primary);
+    // As production's `features.chat`: the Behavior tab's switch only.
+    // Availability's live_chat_enabled never hides the chat; it makes the
+    // widget offline inside business hours (the offline behaviour). Without
+    // the chat a visitor never reaches its views: the frame shows the home.
+    const chatEnabled = s.chat_enabled !== false;
+    const shown: PreviewView = chatEnabled || !CHAT_VIEWS.includes(view) ? view : 'home';
+    // Who answers now: the offline view always shows the offline behaviour.
+    const away = shown === 'offline' || availabilityState === 'offline';
+    const offlineMode = previewOfflineMode(s.offline_mode);
+    const hidden = shown === 'offline' && offlineMode === 'hide_widget';
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
        concern and is not consumed by the presentation layer. */
     // An explicit empty brand_name means "cleared" — show no name at all.
     const title = (typeof s.brand_name === 'string'
       ? s.brand_name.trim()
-      : (workspaceName || brandName || d.brandFallback)) as string;
+      : (workspaceName || brandName || sample.brand)) as string;
 
-    const welcome = (localizedValue(s.welcome_message, 'welcome', locale)
-      || localizedValue(s.greeting_message, 'welcome', locale)
-      || d.welcomeFallback) as string;
-    const placeholder = (s.placeholder_text || d.input) as string;
-    const offlineMsg =
-      (s.offline_message_localized && s.offline_message_localized[locale]) || s.offline_message || d.offline;
+    // The welcome as /config resolves it (shared/widgetTextDefaults.ts): the
+    // workspace's own, else the platform's or the built-in one.
+    const welcome = isAuthoredWidgetText(s.welcome_message, 'welcome')
+      ? String(s.welcome_message).trim()
+      : (defaultWelcome || widgetTextDefault('welcome', locale));
+    // The owner's composer text replaces the template's in the composer only
+    // (runtime.js, after the chat frame is drawn).
+    const placeholder = typeof s.placeholder_text === 'string' ? s.placeholder_text.trim() : '';
+    const offlineMsg = previewOfflineMessage(s, locale);
 
     // Scale is stored as percent (80–140) or multiplier (0.8–1.4) — normalize
     // exactly like public/widget/loader.js does.
@@ -392,7 +347,7 @@ export function WidgetLivePreview({
       1.4,
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
-    const fabSize = Math.round((SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_BASE_SIZE : respokKit ? RESPOK_LAUNCHER_BASE_SIZE : 56) * fabScale);
+    const fabSize = Math.round(baseSize * fabScale);
     // The launcher as /config sends it (shared/launcherStyles.ts: an unknown
     // icon is `chat`, a pill needs its text; `s` has the plan applied).
     const launcher = resolveLauncherStyle({ shape: s.fab_shape, icon: s.fab_icon, label: s.fab_label });
@@ -401,11 +356,11 @@ export function WidgetLivePreview({
     const customIcon = typeof s.fab_icon === 'string' && s.fab_icon !== 'chat' && Object.prototype.hasOwnProperty.call(FAB_ICONS, s.fab_icon);
     // The local kit's button (shared/localKitLauncher.ts): its gradient unless
     // the workspace chose its own colour; its bubble unless it chose an icon.
-    const kitBrand = SHIPS_IRAN_KIT && localKit && isUncustomisedColor(s.primary_color);
+    const kitBrand = SHIPS_IRAN_KIT && localKit && !ownColor;
     const kitBubble = SHIPS_IRAN_KIT && localKit && !customIcon;
     // RESPOK's button (shared/respokLauncher.ts): Ink + Signal unless the
     // workspace chose its own colour; the kit's pills unless it chose an icon.
-    const rpkBrand = respokKit && isUncustomisedColor(s.primary_color);
+    const rpkBrand = respokKit && !ownColor;
     const rpkPills = respokKit && !customIcon;
     // The kit's square has the brand's 18px corners (LOCAL_KIT_LAUNCHER_CSS), every other 16px.
     const fabRadius = launcher.shape === 'square' ? (SHIPS_IRAN_KIT && localKit ? '18px' : '16px') : '50%';
@@ -429,7 +384,7 @@ export function WidgetLivePreview({
     const fabStyleAttrs = fabStyled
       ? ` data-fx="${esc(s.fab_label || '')}" data-fi="${esc(fabInitial)}" dir="${/^fa/.test(locale) ? 'rtl' : 'ltr'}" style="visibility:hidden"`
       : '';
-    const fabStyleClass = fabStyled ? ` fx fx-${launcher.icon} fx-${launcher.shape}${view === 'offline' ? ' fx-off' : ''}` : '';
+    const fabStyleClass = fabStyled ? ` fx fx-${launcher.icon} fx-${launcher.shape}${away ? ' fx-off' : ''}` : '';
     const rawFabImage = typeof s.fab_image_url === 'string' ? s.fab_image_url.trim() : '';
     const fabImage = /^https?:\/\//i.test(rawFabImage) ? rawFabImage : '';
     const logo = s.show_logo !== false && s.logo_url ? String(s.logo_url) : '';
@@ -438,7 +393,9 @@ export function WidgetLivePreview({
     // Strict AND: either column being explicitly false hides the KB surface,
     // exactly like the production bootstrap (`features.knowledgeBase`).
     const kbEnabled = s.kb_enabled !== false && s.knowledge_base_enabled !== false;
-    const chatEnabled = s.chat_enabled !== false && s.live_chat_enabled !== false;
+    // The launcher's attention pulse: on unless switched off (/config sends
+    // `fab.animation: fab_animation ?? true`).
+    const animated = s.fab_animation !== false;
     const smartDoc = previewMode === 'smart';
 
     /* ── Real published knowledge-base content. The preview builds only the
@@ -459,7 +416,6 @@ export function WidgetLivePreview({
       categories: realCategories.map(c => ({
         name: c.name, description: c.description || '', url: '',
       })),
-      emptyText: d.kbEmpty,
       hideChatCta: true,
     };
 
@@ -514,7 +470,7 @@ export function WidgetLivePreview({
     const previewConfig = {
       brandName: brandName || title,
       workspaceName: title,
-      platformName: poweredBy?.brand || platformName || brandName || d.brandFallback,
+      platformName: poweredBy?.brand || platformName || brandName || sample.brand,
       // Platform-owned footer payload — mirrors the production bootstrap so the
       // preview reflects super-admin wording/link and plan visibility exactly.
       ...(poweredBy !== undefined
@@ -533,6 +489,12 @@ export function WidgetLivePreview({
         : {}),
       replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : null,
       welcomeMessage: welcome,
+      placeholderText: placeholder,
+      // What /config says about now (availability.ts): the state, the
+      // offline behaviour and the owner's offline message in this language.
+      availability: { state: away ? 'offline' : 'online', offline_mode: offlineMode, offline_message: offlineMsg },
+      // The AI agent's greeting replaces the welcome in every template.
+      ...(aiGreets ? { aiAgent: { suppressGreeting: true } } : {}),
       logoUrl: logo || null,
       showLogo: s.show_logo !== false,
       showTeamAvatars: s.show_team_avatars !== false,
@@ -552,7 +514,7 @@ export function WidgetLivePreview({
     };
 
     // The panel's view key, as Core names it (panel[data-view], the tabs).
-    const previewTab = view === 'home' ? 'home' : view === 'kb' ? 'help' : view === 'list' ? 'list' : 'chat';
+    const previewTab = shown === 'home' ? 'home' : shown === 'kb' ? 'help' : shown === 'list' ? 'list' : 'chat';
     const nowIso = new Date().toISOString();
     const earlierIso = new Date(Date.now() - 90 * 1000).toISOString();
 
@@ -560,40 +522,18 @@ export function WidgetLivePreview({
       locale,
       rtl,
       primary,
-      view,
+      // The colour the renderer is given, as /config sends it.
+      primaryColor: wireColor,
+      view: shown,
       /** Template id — resolved through the registry inside the frame. */
       templateId: previewTemplateId,
       smart: { enabled: smartDoc, mode: smartSurface?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' },
       smartSurface,
       config: previewConfig,
-      /** Dictionary keys are the renderer's i18n contract, filled from DICTS. */
-      dict: {
-        home: d.homeTab, chat: d.chatTab, help: d.helpTab,
-        closeWidget: 'Close', openFile: 'Open', closePreview: 'Close',
-        talkToHuman: d.talkToHuman, typeMsg: placeholder,
-        attachFile: d.attachTitle, recordVoice: d.micTitle, emojiPicker: d.emojiTitle,
-        poweredBy: d.poweredBy, operator: operatorName || title,
-        intro: welcome || d.welcomeFallback,
-        homeGreeting: d.homeGreeting, homeWelcome: d.homeWelcome,
-        homeTeamOnline: d.homeTeamOnline, homeTeamOffline: d.homeTeamOffline,
-        homeReplyFast: d.homeReplyFast, homeReplySlow: d.homeReplySlow, homeStartChat: d.homeStartChat,
-        homeLeaveMessage: d.homeLeaveMessage, homeHelpTitle: d.homeHelpTitle,
-        homeSeeAll: d.homeSeeAll,
-        msgSeen: d.msgSeen, msgSent: d.msgSeen, msgSending: d.msgSeen, msgFailed: d.msgSeen,
-        name: d.name, email: d.email, phone: d.phone,
-        prechatNamePh: d.name, prechatEmailPh: d.email, prechatPhonePh: d.phone,
-        required: '*', prechatTitle: d.prechatTitle, prechatSubtitle: d.prechatIntro,
-        continue: d.start, prechatPrivacy: d.privacy,
-        // Knowledge Base strings — the KB surfaces are part of the contract.
-        searchKb: d.kbSearch, kbAllArticles: d.kbAllArticles, kbCategories: d.kbCategories,
-        noArticles: d.kbEmpty, kbZeroResults: d.kbEmpty, kbBack: d.kbBack,
-        kbSearching: d.kbSearch, kbSwitchToChat: d.chatTab, kbOpenInBrowser: d.homeSeeAll,
-        // The conversation list (a bottom menu's Messages view).
-        messages: d.messagesTab, back: d.back,
-        wyConversations: d.conversations, wyNoConversations: d.noConversations,
-        wyNewConversation: d.newConversation, wyStatusOpen: d.statusOpen,
-        wyStatusResolved: d.statusResolved, wyUnread: d.unread,
-      },
+      /** The widget's own words come from its dictionary, loaded in the frame (runtime.js). */
+      placeholder,
+      /** The offline view: what a new visitor gets while the team is away. */
+      offline: { mode: offlineMode, message: offlineMsg, hidden, note: hiddenNote || '' },
 
       shellVm: {
         config: previewConfig,
@@ -608,7 +548,7 @@ export function WidgetLivePreview({
       },
       homeVm: {
         rtl,
-        isOnline: view !== 'offline',
+        isOnline: !away,
         chatEnabled,
         kbEnabled,
         welcomeMessage: welcome,
@@ -630,11 +570,11 @@ export function WidgetLivePreview({
         chatEnabled,
         conversations: [
           {
-            id: 'preview-1', status: 'open', preview: d.sample, unreadCount: 1, timeLabel: d.listTimeRecent,
+            id: 'preview-1', status: 'open', preview: sample.operator, unreadCount: 1, timeLabel: sample.recent,
             lastFromVisitor: false, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: true,
           },
           {
-            id: 'preview-2', status: 'resolved', preview: d.visitorSample, unreadCount: 0, timeLabel: d.listTimeEarlier,
+            id: 'preview-2', status: 'resolved', preview: sample.visitor, unreadCount: 0, timeLabel: sample.earlier,
             lastFromVisitor: true, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: false,
           },
         ],
@@ -642,43 +582,32 @@ export function WidgetLivePreview({
       // The capabilities Core passes to a renderer (production: runtime.js).
       capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true, queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true },
       // Who answers the sample conversation (the chat bar Core paints for it).
-      chatOperator: { name: operatorName || title, avatar: operatorAvatar || '', online: true },
+      chatOperator: { name: operatorName || title, avatar: operatorAvatar || '', online: !away },
       // The pre-chat one question at a time (a renderer declaring prechatSteps,
       // template option prechatMode 'steps'): its sample answers and the
       // edition's phone prefix, as runtime-late.js uses it.
       steps: {
-        name: rtl ? 'علی رضایی' : 'Alex Morgan',
+        name: sample.name,
         phonePrefix: isInternational ? '' : '+98',
       },
       // The message left while the team is away (a renderer declaring
-      // awayThread), when the workspace's offline mode takes one.
-      awaySample: (s.offline_mode || 'capture_message') === 'capture_message'
-        ? { sender: 'visitor', senderType: 'visitor', body: d.visitorSample, time: nowIso, status: 'sent' } : null,
-      messages: view === 'offline'
-        ? [{ sender: 'operator', senderType: 'system', body: offlineMsg, time: nowIso }]
-        : [
-            {
-              sender: 'operator', senderType: 'operator', body: d.sample, time: earlierIso,
-              senderName: operatorName || title, senderAvatar: operatorAvatar || '',
-            },
-            { sender: 'visitor', senderType: 'visitor', body: d.visitorSample, time: nowIso, status: 'seen' },
-          ],
-      prechat: {
-        asked: {
-          name: prechat?.ask_name !== false,
-          email: prechat?.ask_email !== false,
-          phone: !!prechat?.ask_phone,
+      // awayThread), when the workspace's offline behaviour takes one.
+      awaySample: offlineMode === 'capture_message'
+        ? { sender: 'visitor', senderType: 'visitor', body: sample.visitor, time: nowIso, status: 'sent' } : null,
+      // A conversation that already exists: answered, read by the operator.
+      messages: [
+        {
+          sender: 'operator', senderType: 'operator', body: sample.operator, time: earlierIso,
+          senderName: operatorName || title, senderAvatar: operatorAvatar || '',
         },
-        required: {
-          name: !!prechat?.require_name,
-          email: !!prechat?.require_email,
-          phone: !!prechat?.require_phone,
-        },
-      },
+        { sender: 'visitor', senderType: 'visitor', body: sample.visitor, time: nowIso, status: 'seen' },
+      ],
+      // The form as the server asks it: policy, plan, then the row (no row:
+      // the policy's defaults, name and email required).
+      prechat: previewPrechatForm(prechat, prechatPolicy, { planAllowsForm: prechatFormAllowed }),
       kbVm,
       kbArticleVms,
 
-      typingLabel: `${title} ${d.typing}`,
       phase,
       /** The launcher wears a style: the frame asks for runtime-fab.css. */
       fabStyled,
@@ -729,7 +658,11 @@ export function WidgetLivePreview({
 
   .launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));animation:none!important;}
   .launcher.open,.launcher.open:hover{transform:translateY(var(--gs-fab-exit,112px));pointer-events:none;animation:none;}
-  ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
+  /* The attention pulse, as loader.js plays it: twice, then still. */
+  .launcher.pulse:not(.open):not(.enter){animation:gs-fab-pulse 2.4s ease-in-out 2;}
+  @keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+  /* The note said where the widget would be (offline, "Hide the widget"). */
+  .gs-hidden-note{position:fixed;inset:auto 24px 24px 24px;padding:14px 16px;border-radius:14px;border:1px dashed #94A3B8;background:rgba(255,255,255,.86);color:#334155;font-size:13px;line-height:1.6;text-align:center;}
   .fab-label{position:absolute;bottom:0;z-index:2;display:flex;flex-direction:column;justify-content:center;
     --gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);
     height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;white-space:nowrap;
@@ -755,9 +688,10 @@ export function WidgetLivePreview({
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell pos-${pos}${respokKit ? (lgOpen ? ' lg-open' : ' lg-thread') : ''}${s.fab_animation === true ? ' anim-on' : ''}">
-    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}${fabStyleClass}" id="gs-launcher" aria-label="chat"${fabStyleAttrs}>
+  ${hidden ? `<p class="gs-hidden-note" dir="${dir}">${esc(hiddenNote || '')}</p>` : ''}
+  <div class="shell pos-${pos}${respokKit ? (lgOpen ? ' lg-open' : ' lg-thread') : ''}${animated ? ' anim-on' : ''}"${hidden ? ' hidden' : ''}>
+    <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${animated ? ' anim-on' : ''}" dir="${dir}"></div>
+    <button type="button" class="launcher ${pos}${animated ? ' pulse' : ''}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}${kitBrand && away ? ' lk-kit-offline' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}${away ? ' rpk-kit-away' : ''}` : ''}${fabStyleClass}" id="gs-launcher" aria-label="chat"${fabStyleAttrs}>
       ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? (lgOpen ? RESPOK_LAUNCHER_OPEN_GLYPH : RESPOK_LAUNCHER_CHAT_GLYPH) : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
       ${SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
@@ -824,9 +758,12 @@ export function WidgetLivePreview({
       // The renderer's extras (its markup no first paint needs): the live
       // widget gets them after its first paint, the preview before it paints.
       var extrasReady = !desc.extras;
+      // The widget's own dictionary (runtime.js, __gs_runtime.t): the frame
+      // speaks with the words visitors read, never a copy of them.
+      var wordsReady = !!(window.__gs_runtime && window.__gs_runtime.t);
       var mod = null;
       function prepareAndRender() {
-        if (!styleReady || !skinReady || !scriptReady || !extrasReady || !mod || !mod.create) return;
+        if (!styleReady || !skinReady || !scriptReady || !extrasReady || !wordsReady || !mod || !mod.create) return;
         var preparation = typeof mod.prepare === 'function'
           ? mod.prepare({ locale: GS_PREVIEW.locale, templateId: GS_PREVIEW.templateId })
           : null;
@@ -848,6 +785,12 @@ export function WidgetLivePreview({
         document.head.appendChild(skin);
       }
 
+      if (!wordsReady) {
+        var rt = document.createElement('script');
+        rt.src = '/widget/' + ((manifest && manifest['runtime.js']) || 'runtime.js');
+        rt.onload = rt.onerror = function () { wordsReady = true; prepareAndRender(); };
+        document.body.appendChild(rt);
+      }
       var scr = document.createElement('script');
       scr.src = '/widget/' + scriptFile;
       scr.onload = function () {
@@ -881,17 +824,26 @@ export function WidgetLivePreview({
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
       });
     }
+    // The widget's own words (public/widget/runtime.js I18n), as Core hands
+    // them to a renderer; without the dictionary (it did not load) nothing,
+    // never a raw key.
+    var words = window.__gs_runtime && typeof window.__gs_runtime.t === 'function' ? window.__gs_runtime.t : null;
     function t(key) {
-      var v = GS_PREVIEW.dict[key];
-      return v == null ? key : v;
+      return words ? words(GS_PREVIEW.locale, key) : '';
+    }
+    // A word this Core may not have yet: another of its words instead.
+    function tOr(key, fallbackKey) {
+      var v = t(key);
+      return v && v !== key ? v : t(fallbackKey);
     }
 
     var R = mod.create({
       t: t,
       escapeHtml: escapeHtml,
+      linkLabel: t('msgOpenLink'),
       config: GS_PREVIEW.config,
       locale: GS_PREVIEW.locale,
-      primaryColor: GS_PREVIEW.primary,
+      primaryColor: GS_PREVIEW.primaryColor,
       capabilities: GS_PREVIEW.capabilities,
     });
     // Its extras before anything is painted (the renderer refuses a file
@@ -963,7 +915,7 @@ export function WidgetLivePreview({
             R.prechatStepsHtml({ key: open, log: log, firstName: pc.asked.name ? GS_PREVIEW.steps.name.split(' ')[0] : '' }), {});
         }
         var stepsHead = body.querySelector('[data-chat-header]');
-        if (stepsHead && feat('chatHeader')) stepsHead.innerHTML = R.chatHeaderHtml({ online: true, typing: false, isNew: false, operator: null });
+        if (stepsHead && feat('chatHeader')) stepsHead.innerHTML = R.chatHeaderHtml({ online: GS_PREVIEW.chatOperator.online, typing: false, isNew: false, operator: null });
         var stepsBar = body.querySelector('[data-input-bar]');
         if (stepsBar) {
           stepsBar.style.display = 'none';
@@ -975,32 +927,75 @@ export function WidgetLivePreview({
       }
     } else if (view === 'kb') {
       body.innerHTML = R.kbHtml(GS_PREVIEW.kbVm);
+    } else if (view === 'offline') {
+      /* A new visitor while the team is away, by the workspace's offline
+         behaviour, as Core paints it (runtime.js deriveChatTabState):
+         "Show only the offline message": that message alone, as the empty
+         thread's welcome, no form, no composer; "Capture a message": the
+         message left in the thread (a renderer declaring awayThread, the
+         reply saying it comes here: visitor email is off) or the
+         leave-a-message form, the owner's offline message as its intro;
+         "Hide the widget": nothing (the note above says so). */
+      var off = GS_PREVIEW.offline;
+      if (off.mode === 'show_offline_message' || off.mode === 'capture_message') {
+        if (off.mode === 'capture_message' && !feat('awayThread')) {
+          var form = GS_PREVIEW.prechat;
+          body.innerHTML = R.contactFallbackHtml({
+            isAsked: function (k) { return !!form.asked[k]; },
+            isRequired: function (k) { return !!form.required[k]; },
+          }, {}, GS_PREVIEW.locale, {
+            status: 'offline', offlineMode: off.mode, liveChatEnabled: true,
+            introLabel: off.message || undefined,
+          });
+        } else {
+          body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
+          var offHost = body.querySelector('[data-chat-messages]');
+          var offBar = body.querySelector('[data-input-bar]');
+          if (off.mode === 'show_offline_message') {
+            if (offBar) offBar.style.display = 'none';
+            var ownWelcome = GS_PREVIEW.config.welcomeMessage;
+            GS_PREVIEW.config.welcomeMessage = off.message || tOr('offlineNotice', 'availOffline');
+            try { if (offHost) offHost.innerHTML = R.emptyHtml({}); } finally { GS_PREVIEW.config.welcomeMessage = ownWelcome; }
+          } else if (offHost) {
+            offHost.innerHTML = R.messagesHtml({ messages: [GS_PREVIEW.awaySample] }, '', {
+              awayReply: GS_PREVIEW.config.visitorEmail === true
+                ? { at: 0, status: 'ask', value: '', error: '', skip: true }
+                : { at: 0, email: '', value: '', error: '', skip: true, status: 'skipped' },
+            });
+          }
+          var offHead = body.querySelector('[data-chat-header]');
+          if (offHead && feat('chatHeader') && typeof R.chatHeaderHtml === 'function') {
+            offHead.innerHTML = R.chatHeaderHtml({ online: false, typing: false, isNew: true, operator: null });
+          }
+        }
+      }
     } else {
       /* Single-view architecture: chat is a full view (header + messages +
-         composer + footer) exactly like production mounts it. */
+         composer + footer) exactly like production mounts it: a
+         conversation that already exists. */
       body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
       var msgHost = body.querySelector('[data-chat-messages]');
-      /* Away, a renderer with the in-thread message (feature awayThread)
-         shows the visitor's message and the automated reply asking for an
-         e-mail, as runtime-late.js does; any other its offline line. */
-      var away = view === 'offline' && feat('awayThread') && GS_PREVIEW.awaySample;
-      if (msgHost) {
-        msgHost.innerHTML = away
-          ? R.messagesHtml({ messages: [GS_PREVIEW.awaySample] }, '', { awayReply: { at: 0, status: 'ask', value: '', error: '', skip: true } })
-          : R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
-      }
+      if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
       /* The chat bar as Core paints it for an existing conversation (feature
          chatHeader: who answers), with its closed menu button (feature
          chatMenu: the notification sounds item, drawn by the extras). */
       var chatHead = body.querySelector('[data-chat-header]');
       if (chatHead && feat('chatHeader') && typeof R.chatHeaderHtml === 'function') {
         chatHead.innerHTML = R.chatHeaderHtml({
-          online: view !== 'offline', typing: false, isNew: false,
-          operator: view === 'offline' ? null : GS_PREVIEW.chatOperator,
+          online: GS_PREVIEW.chatOperator.online, typing: false, isNew: false,
+          operator: GS_PREVIEW.chatOperator,
           menu: feat('chatMenu') ? { open: false, items: [{ action: 'sound', on: true }] } : null,
         });
       }
       /* Typing state is sr-only in the design — no visible typing row. */
+    }
+
+    // The owner's composer text replaces the template's, in the composer
+    // only (runtime.js does it once the chat frame is drawn).
+    var composer = panel.querySelector('[data-msg-input]');
+    if (composer && GS_PREVIEW.placeholder) {
+      composer.setAttribute('placeholder', GS_PREVIEW.placeholder);
+      if (composer.hasAttribute('aria-label')) composer.setAttribute('aria-label', GS_PREVIEW.placeholder);
     }
 
     // A bottom menu's current tab and its unread badges, as Core marks them
@@ -1281,10 +1276,11 @@ export function WidgetLivePreview({
     // via postMessage so the frame animates instead of being re-created.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    settings, prechat, prechatPolicy, prechatFormAllowed, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     templateId, templateOptions,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
     smartScenario?.rtl, stageBackground, stageBar, isInternational, localKit, respokKit,
+    availabilityState, aiGreets, defaultWelcome, hiddenNote,
   ]);
 
   return (

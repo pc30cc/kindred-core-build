@@ -29,17 +29,17 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
-import { toast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
 import { useBranding } from '@/hooks/useBranding';
 import { useInboxCounts } from '@/hooks/useConversations';
+import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import {
   aiQueueVisible,
   channelInboxVisible,
   colleaguesQueueVisible,
   needsHumanQueueVisible,
+  teamChatPageVisible,
 } from '@/lib/planAccess';
 import { PlanStatusBanner } from '@/components/layout/PlanStatusBanner';
 
@@ -114,18 +114,24 @@ export function AppSidebar({
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
-  const { data: inboxCounts } = useInboxCounts(workspace?.id);
   // Every plan / role / platform rule for what this member sees:
   // src/lib/planAccess.ts via useWorkspaceSections. Until the plan snapshot
   // has resolved, plan-gated entries are NOT rendered — showing them first
   // and removing them a moment later is worse than waiting.
   const sections = useWorkspaceSections();
+  // Asked for once the role is known: the Inbox is shown while it loads, but
+  // staff without one get 403 from its routes.
+  const { data: inboxCounts } = useInboxCounts(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
   const { plan } = sections;
   const entsReady = sections.ready;
   // The queues inside the inbox follow the same rules as the inbox's own tabs.
   const automatedInboxVisible = aiQueueVisible(sections, inboxCounts?.automated ?? 0);
   const needsHumanVisible = needsHumanQueueVisible(plan);
   const colleaguesVisible = colleaguesQueueVisible(plan);
+  // Staff have no Inbox, but keep the team chat: on a page of its own.
+  const teamChatVisible = teamChatPageVisible(sections);
+  const { data: teamChatDir } = useColleagues(teamChatVisible ? workspace?.id : undefined);
+  const teamChatUnread = teamChatDir?.total_unread ?? 0;
 
   // Channel inboxes — one entry per inbox-capable plugin the workspace has
   // installed (Telegram, Bale, ...) and its plan allows. Catalog is an admin surface.
@@ -211,36 +217,6 @@ export function AppSidebar({
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
-
-  // Availability — used for the "invisible mode" quick toggle in the user menu
-  const queryClient = useQueryClient();
-  const { data: availability } = useQuery({
-    queryKey: ['availability', 'me'],
-    queryFn: () => fetchAvailability(),
-    enabled: !!user,
-    staleTime: 30_000,
-  });
-  const invisible = !!availability?.prefs?.force_offline;
-  const toggleInvisible = useMutation({
-    mutationFn: () => updateAvailability({ force_offline: !invisible }),
-    onSuccess: (res) => {
-      queryClient.setQueryData(['availability', 'me'], res);
-      queryClient.invalidateQueries({ queryKey: ['team-presence'] });
-      toast({
-        title: res.prefs.force_offline ? 'Invisible mode enabled' : 'Invisible mode disabled',
-        description: res.prefs.force_offline
-          ? 'You now appear offline to visitors.'
-          : 'You are visible based on your availability schedule.',
-      });
-    },
-    onError: (err: unknown) => {
-      toast({
-        title: 'Failed to update status',
-        description: (err instanceof Error && err.message) || 'Please try again.',
-        variant: 'destructive',
-      });
-    },
-  });
 
   // Close menus on outside click
   useEffect(() => {
@@ -520,7 +496,8 @@ export function AppSidebar({
         </NavTip>
       </div>
 
-      {/* Inbox section */}
+      {/* Inbox section — the owner, admins and the chat team only (shared/chatRoles.ts). */}
+      {sections.visible('inbox') && (
       <div className="px-3 mt-2">
         <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
@@ -660,6 +637,37 @@ export function AppSidebar({
         })()}
 
       </div>
+      )}
+
+      {/* Team chat for a member without the Inbox (its Colleagues tab is everyone else's way in). */}
+      {teamChatVisible && (
+      <div className="px-3 mt-2">
+        <NavTip label={t('nav.teamChat')} enabled={collapsed}>
+        <Link
+          to={wsPath('/team-chat')}
+          data-nav-item
+          data-nav-key="teamChat"
+          data-active={isActive('/team-chat')}
+          title={collapsed ? undefined : t('nav.teamChat')}
+          className={cn(
+            'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
+            isActive('/team-chat')
+              ? 'nav-glow text-sidebar-foreground font-semibold'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+            collapsed && 'justify-center px-0'
+          )}
+        >
+          <NavChip icon={Users} accent="emerald" active={isActive('/team-chat')} collapsed={collapsed} />
+          {!collapsed && <span className="flex-1">{t('nav.teamChat')}</span>}
+          {!collapsed && teamChatUnread > 0 && (
+            <span className="ms-auto bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+              {teamChatUnread > 99 ? '99+' : teamChatUnread}
+            </span>
+          )}
+        </Link>
+        </NavTip>
+      </div>
+      )}
 
       {/* Main navigation */}
       <nav className="flex-1 overflow-y-auto pt-3 px-3 space-y-0.5">

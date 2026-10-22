@@ -109,7 +109,8 @@ enum SystemText {
         case "routing_no_agent_available":
             return s["sysNoAgentAvailable"]
         case "routing_in_queue":
-            return s["sysInQueue"]
+            // Everyone at capacity (auto routing), or the manual queue.
+            return str("reason") == "all_busy" ? s["sysInQueueAllBusy"] : s["sysInQueue"]
         case "platform_support_requester":
             // The "who is asking" card as one line.
             let raw = meta["user"]?["name"]?.string?.trimmingCharacters(in: .whitespaces) ?? ""

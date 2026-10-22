@@ -73,6 +73,20 @@ async function jsonFetch(path: string, init?: RequestInit) {
   return res.json();
 }
 
+/** A department as the Inbox shows it (GET …/directory, any member who has the Inbox). */
+export interface InboxDepartment {
+  id: string;
+  name: string;
+  enabled: boolean;
+  chat_enabled: boolean;
+  member_ids: string[];
+}
+
+export async function listInboxDepartments(workspaceId: string): Promise<InboxDepartment[]> {
+  const { departments } = await jsonFetch(`/api/workspace-departments/${workspaceId}/directory`);
+  return Array.isArray(departments) ? departments : [];
+}
+
 export async function listDepartments(workspaceId: string): Promise<Department[]> {
   const { departments } = await jsonFetch(`/api/workspace-departments/${workspaceId}`);
   return departments;

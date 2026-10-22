@@ -76,7 +76,9 @@ object SystemMessage {
 
             "routing_no_agent_available" -> Str.sysNoAgentAvailable(language)
 
-            "routing_in_queue" -> Str.sysInQueue(language)
+            // Everyone at capacity (auto routing), or the manual queue.
+            "routing_in_queue" ->
+                if (value("reason") == "all_busy") Str.sysInQueueAllBusy(language) else Str.sysInQueue(language)
 
             // The "who is asking" card as one line, where the card is not drawn.
             "platform_support_requester" -> {

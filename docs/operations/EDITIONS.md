@@ -105,7 +105,11 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
   per the kit's open Lottie, in CSS) and close (the dots arrive again),
   unread (saffron badge, Persian digits in Persian, one nudge), offline (ink
   ground, turquoise bubble), 60px at 100%; the kit's timings and easings;
-  motion off with prefers-reduced-motion. A workspace colour other than `#3B82F6` keeps
+  motion off with prefers-reduced-motion. Without a colour of its own (Widget
+  → Appearance "Brand colour": NULL, sent as the seeded `#3B82F6`,
+  shared/widgetColor.ts) the panel's accent is the kit's deep turquoise
+  #0B7D6C too, so the button and the panel agree (loader.js
+  applyConfigToShell; RESPOK's Ink #16142B the same way). A workspace colour other than `#3B82F6` keeps
   its own solid colour (no gradient, no offline recolouring); its icon colour,
   a custom icon, image, shape, size, label and position work as before. The
   panel opens from the same corner as before, so the launcher still slides

@@ -42,7 +42,9 @@ export async function handleKbSuggest(req: Request, res: Response) {
   const words = kbSuggestWords(parsed.data.q);
   if (!words.length) return res.json({ results: [] });
   try {
-    const results = await suggestKbArticles(serverConfigOf(req), workspaceId, words, parsed.data.limit, parsed.data.locale ?? null);
+    const results = await suggestKbArticles(
+      serverConfigOf(req), workspaceId, words, parsed.data.limit, parsed.data.locale ?? null, kbSuggestWords(parsed.data.q, false),
+    );
     return res.json({ results });
   } catch (err) {
     console.warn('[kb-suggest] failed:', err instanceof Error ? err.message : err);

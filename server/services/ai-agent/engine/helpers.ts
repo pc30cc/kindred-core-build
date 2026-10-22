@@ -39,15 +39,25 @@ export async function resolveHandoffAckMessage(
   onlineMessage: string,
   conversationId?: string | null,
 ): Promise<string> {
-  // `isTeamOffline` comes from the widget availability resolver, which reports
-  // "online" whenever business hours are disabled. Operator presence is the
-  // second, authoritative signal — without it a visitor gets promised a live
-  // agent while every operator is force-offline.
+  // `isTeamOffline` comes from the caller, usually the widget availability
+  // resolver (business hours and, with them off, the operators' own status
+  // and schedule). The workspace's reachability is read again here as a
+  // second signal, so a stale or optimistic verdict never promises a live
+  // operator while every operator is offline.
   let offline = isTeamOffline;
   if (!offline) {
     try {
       const { isWorkspaceUnreachable } = await import('../../channels/telegram/runtime.js');
       offline = await isWorkspaceUnreachable(config, workspaceId, locale);
+    } catch { /* keep the availability verdict */ }
+  }
+  // Routing is the third: "connecting you" is said only when routing can
+  // actually give the visitor someone now (a member who receives chats is
+  // here), never followed by "nobody is online" a second later.
+  if (!offline) {
+    try {
+      const { anyChatOperatorPresent } = await import('../../chatRouting.js');
+      offline = !(await anyChatOperatorPresent(config, workspaceId));
     } catch { /* keep the availability verdict */ }
   }
   if (!offline) return onlineMessage;

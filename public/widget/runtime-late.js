@@ -107,7 +107,8 @@
     if (threadShown(api) && !(a && a.hasAttribute && a.hasAttribute('data-prechat'))) api.renderBody();
   }
   function focusOn(el) { if (el) { try { el.focus({ preventScroll: true }); } catch (_) {} } }
-  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  // The server's rule (zod's `.email()`), as Core's Util.isValidEmail.
+  var EMAIL_RE = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
 
   // ═══ After a chat (`csat`, `chatMenu`) ═══
   function afterChat(api) {
@@ -725,11 +726,12 @@
         resp = resp || {};
         var f = resp.field || st.keys.filter(function (k) { return resp.details && resp.details[k]; })[0];
         var at = f ? st.keys.indexOf(f) : -1;
-        if (at < 0) st.error = true;
+        // The consent box (Core says it under the box): nothing else to say.
+        if (at < 0) st.error = f !== 'privacy';
         else {
           st.i = at;
           delete st.answers[f];
-          st.log.push({ key: f, value: String(st.drafts[f] || '').trim(), ok: false, why: resp.field ? 'required' : 'invalid' });
+          st.log.push({ key: f, value: String(st.drafts[f] || '').trim(), ok: false, why: /_required$/.test(resp.error || '') ? 'required' : 'invalid' });
           st.focus = true;
         }
         api.renderBody();
@@ -793,6 +795,8 @@
       if (!vm) return;
       inputBar.insertAdjacentHTML('beforebegin', P.prechatStepBoxHtml(vm));
       box = inputBar.previousElementSibling;
+      // The workspace's privacy line (and consent box), under the step.
+      if (box && identity.privacyInto) identity.privacyInto(box, null);
       var input = box && box.querySelector('[data-prechat-step-input]');
       if (input && (had || st.focus)) {
         focusOn(input);
@@ -885,18 +889,39 @@
     // A conversation's first message, away: the message left for the team.
     // What the visitor writes while it is on its way waits for it (each
     // capture would be a conversation of its own), then goes as any message
-    // of that conversation: Core's retry, once marked as not sent.
+    // of that conversation: Core's retry, once marked as not sent. When the
+    // first one fails in a way a retry may pass (no connection, too many at
+    // once, a 5xx), the ones after it keep waiting for it (`held`, Retry
+    // without a resend of their own, so none opens the conversation before
+    // it): its retry, Core's or the visitor's (on any of them), takes them.
     var later = null;
+    var failedFirst = null, held = [];
+    // In order; a held one sent again keeps its place.
+    function queue(id, cbs) {
+      for (var i = 0; i < later.length; i += 2) if (later[i] === id) { later[i + 1] = cbs; return; }
+      later.push(id, cbs);
+    }
     api.on('send', function (req, cbs) {
-      if (later && !req.conversationId) { later.push(req.clientMessageId, cbs); return true; }
-      if (!awayOn() || req.conversationId || req.attachmentId) return;
+      if (req.conversationId) return;
+      var id = req.clientMessageId;
+      if (later) { queue(id, cbs); return true; }
+      if (failedFirst && id !== failedFirst) {
+        var first = failedFirst;
+        failedFirst = null;
+        api.chatUI.resendMessage(first, api.renderBody);
+        if (later) { queue(id, cbs); return true; }
+      }
+      if (id === failedFirst) failedFirst = null;
+      if (!awayOn() || req.attachmentId) return;
       var c = contact();
       var body = { workspace_id: ctx.workspaceId, message: req.text, locale: ctx.locale || 'en', honeypot: '', client_message_id: req.clientMessageId };
       if (c.name) body.name = c.name;
       if (c.email) body.email = c.email;
       if (c.phone) body.phone = c.phone;
-      captured[req.clientMessageId] = 1;
+      captured[id] = 1;
       later = [];
+      for (var k = 0; k < held.length; k++) if (held[k] !== id) later.push(held[k], null);
+      held = [];
       // Core's transport rule: an answer for a conversation left meanwhile is dropped.
       var epoch = api.ConvEpoch.get();
       request(api, '/api/widget/offline-messages', body, function (status, j) {
@@ -904,13 +929,17 @@
         later = null;
         if (!api.ConvEpoch.valid(epoch)) return;
         var ok = status === 200 && j.conversation_id;
+        var retry = !ok && (!status || status === 429 || status >= 500);
         if (ok) {
           cbs.onConversation(j.conversation_id);
           cbs.onAccepted({ messageId: j.message_id || null });
         } else cbs.onError({ status: status, feature: j.feature || j.code });
+        if (retry) failedFirst = id;
         for (var i = 0; i < next.length; i += 2) {
-          next[i + 1].onError({});
-          if (ok) api.chatUI.resendMessage(next[i], api.renderBody);
+          if (next[i + 1]) next[i + 1].onError(ok ? {} : 'queued');
+          if (retry) held.push(next[i]);
+          // Accepted: into its conversation. Refused for good: the next one is the first.
+          else api.chatUI.resendMessage(next[i], api.renderBody);
         }
       });
       return true;
@@ -923,6 +952,10 @@
         if (m.sender !== 'visitor' || !(captured[m.localId] || (m.metadata && m.metadata.source === 'offline_capture'))) continue;
         if (m.status === 'sending' || m.status === 'failed') return null;
         var email = String(contact().email || '');
+        // The email step promises the reply by email: drawn only while
+        // visitor email is switched on (config.visitorEmail,
+        // shared/visitorEmail.ts); else the reply says it comes here.
+        if (config.visitorEmail !== true) return { at: i, email: '', value: '', error: '', skip: true, status: 'skipped' };
         return {
           at: i, email: email, value: card.value, error: card.error, skip: !api.identity.isRequired('email'),
           status: email && card.status !== 'saving' ? 'saved' : card.status === 'saved' ? 'ask' : card.status,

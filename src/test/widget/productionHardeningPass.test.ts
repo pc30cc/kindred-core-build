@@ -134,10 +134,9 @@ describe('visitor reply-to-message — real persisted relationship', () => {
 });
 
 describe('failed message — retry/resend', () => {
-  it('the composer creates a visible failed bubble (not a silent no-op) when the transport is not online', () => {
-    expect(runtime).toContain(
-      "status: transportStore.get().connectionState === 'online' ? 'sending' : 'failed',",
-    );
+  it('the composer creates a visible failed bubble (not a silent no-op) when the message cannot go yet: it waits, said in words, and goes once connected', () => {
+    expect(runtime).toContain("status: canSendNow() ? 'sending' : 'failed',");
+    expect(runtime).toContain("failText: canSendNow() ? null : t('msgFailOffline'),");
   });
 
   it('resendMessage() is exported on the chat UI and re-sends with the SAME localId as client_message_id', () => {
@@ -242,7 +241,7 @@ describe('public window.__gs API', () => {
 
   it('identify() reuses the EXISTING visitor_name/visitor_email/visitor_phone fields already accepted by POST /message — no new identity mechanism', () => {
     expect(loader).toContain('function setIdentifyData(data) {');
-    expect(widgetRoute).toContain('visitor_email: z.string().email().optional().nullable()');
+    expect(widgetRoute).toContain('z.string().email().optional().nullable()');
     expect(runtimeChat).toContain('window.__gs_identify_data');
     expect(runtimeChat).toContain('visitor_name: (identifyData && identifyData.name) || undefined,');
   });

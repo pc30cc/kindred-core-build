@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 404 of 424 strings are generated.
+// 405 of 425 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -595,27 +595,27 @@ object Str {
     }
 
     fun availabilityForceOffline(l: Language): String = when (l) {
-        Language.EN -> "Force offline (invisible mode)"
-        Language.FA -> "آفلاین اجباری (حالت نامرئی)"
-        Language.TR -> "Zorla çevrimdışı (görünmez mod)"
+        Language.EN -> "Appear offline"
+        Language.FA -> "نمایش به‌صورت آفلاین"
+        Language.TR -> "Çevrimdışı görün"
     }
 
     fun availabilityForceOfflineHint(l: Language): String = when (l) {
-        Language.EN -> "You appear offline to visitors whatever your schedule says."
-        Language.FA -> "صرف‌نظر از زمان‌بندی، برای بازدیدکنندگان آفلاین دیده می‌شوید."
-        Language.TR -> "Programınız ne derse desin ziyaretçilere çevrimdışı görünürsünüz."
+        Language.EN -> "Overrides everything below: visitors see you as offline and no chats are given to you automatically, whatever your schedule says."
+        Language.FA -> "بر همهٔ گزینه‌های زیر مقدم است: صرف‌نظر از زمان‌بندی، بازدیدکنندگان شما را آفلاین می‌بینند و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        Language.TR -> "Aşağıdakilerin hepsini geçersiz kılar: programınızdan bağımsız olarak ziyaretçiler sizi çevrimdışı görür ve size otomatik sohbet verilmez."
     }
 
     fun availabilityWhenUsingApp(l: Language): String = when (l) {
-        Language.EN -> "Available while I use the app"
-        Language.FA -> "وقتی از برنامه استفاده می‌کنم، در دسترس باشم"
-        Language.TR -> "Uygulamayı kullanırken uygunum"
+        Language.EN -> "Show me as available to visitors"
+        Language.FA -> "برای بازدیدکنندگان در دسترس نشانم بده"
+        Language.TR -> "Ziyaretçilere müsait görün"
     }
 
     fun availabilityWhenUsingAppHint(l: Language): String = when (l) {
-        Language.EN -> "Marks you online automatically while the app is open."
-        Language.FA -> "تا وقتی برنامه باز است، به‌صورت خودکار آنلاین در نظر گرفته می‌شوید."
-        Language.TR -> "Uygulama açıkken sizi otomatik olarak çevrimiçi işaretler."
+        Language.EN -> "On: visitors see you as available (only within your schedule, if you turn it on), and chats can be given to you automatically while the panel, the desktop app or the Android app is open. Off: you are invisible, and no chats are given to you automatically."
+        Language.FA -> "روشن: بازدیدکنندگان شما را در دسترس می‌بینند (اگر زمان‌بندی را روشن کنید، فقط در ساعت‌های آن) و تا وقتی پنل یا اپلیکیشن دسکتاپ یا اندروید باز است، گفتگو می‌تواند خودکار به شما سپرده شود. خاموش: نامرئی هستید و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        Language.TR -> "Açık: ziyaretçiler sizi müsait görür (programı açarsanız yalnızca program saatlerinde) ve panel, masaüstü uygulaması ya da Android uygulaması açıkken size otomatik sohbet verilebilir. Kapalı: görünmezsiniz ve size otomatik sohbet verilmez."
     }
 
     fun availabilitySchedule(l: Language): String = when (l) {
@@ -1463,13 +1463,13 @@ object Str {
     fun sysTransferredGeneric(l: Language): String = when (l) {
         Language.EN -> "This conversation was transferred"
         Language.FA -> "این گفتگو منتقل شد"
-        Language.TR -> "Bu görüşme aktarıldı"
+        Language.TR -> "Bu sohbet aktarıldı"
     }
 
     fun sysUnassignedGeneric(l: Language): String = when (l) {
         Language.EN -> "This conversation was unassigned"
         Language.FA -> "این گفتگو از حالت واگذارشده خارج شد"
-        Language.TR -> "Bu görüşmenin ataması kaldırıldı"
+        Language.TR -> "Bu sohbetin ataması kaldırıldı"
     }
 
     fun sysAgentJoinedGeneric(l: Language): String = when (l) {
@@ -1484,28 +1484,42 @@ object Str {
         Language.TR -> "Sohbet kapatıldı"
     }
 
+    /**
+     * Nobody of the team was online: the sentence the visitor read, word
+     * for word (the widget's routingNoAgentAvailable).
+     */
     fun sysNoAgentAvailable(l: Language): String = when (l) {
-        Language.EN -> "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can."
-        Language.FA -> "همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم."
-        Language.TR -> "Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız."
+        Language.EN -> "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back."
+        Language.FA -> "در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم."
+        Language.TR -> "Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız."
     }
 
     /** Read by the operator: the visitor is the one waiting. */
     fun sysInQueue(l: Language): String = when (l) {
         Language.EN -> "The visitor is waiting in the support queue"
-        Language.FA -> "کاربر در صف پشتیبانی منتظر است"
+        Language.FA -> "بازدیدکننده در صف پشتیبانی منتظر است"
         Language.TR -> "Ziyaretçi destek kuyruğunda bekliyor"
+    }
+
+    /**
+     * Read by the operator: everyone was at capacity, and the visitor waits
+     * in the queue (a `routing_in_queue` row whose reason is `all_busy`).
+     */
+    fun sysInQueueAllBusy(l: Language): String = when (l) {
+        Language.EN -> "Everyone on the team was busy; the visitor is waiting in the queue"
+        Language.FA -> "همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است"
+        Language.TR -> "Tüm operatörler meşguldü; ziyaretçi kuyrukta bekliyor"
     }
 
     fun sysCallInviteAudio(l: Language): String = when (l) {
         Language.EN -> "Visitor invited to an audio call"
-        Language.FA -> "کاربر به تماس صوتی دعوت شد"
+        Language.FA -> "بازدیدکننده به تماس صوتی دعوت شد"
         Language.TR -> "Ziyaretçi sesli aramaya davet edildi"
     }
 
     fun sysCallInviteVideo(l: Language): String = when (l) {
         Language.EN -> "Visitor invited to a video call"
-        Language.FA -> "کاربر به تماس تصویری دعوت شد"
+        Language.FA -> "بازدیدکننده به تماس تصویری دعوت شد"
         Language.TR -> "Ziyaretçi görüntülü aramaya davet edildi"
     }
 
@@ -1546,9 +1560,9 @@ object Str {
     }
 
     fun previewSomeone(l: Language): String = when (l) {
-        Language.EN -> "A user"
-        Language.FA -> "کاربر"
-        Language.TR -> "Bir kullanıcı"
+        Language.EN -> "A visitor"
+        Language.FA -> "بازدیدکننده"
+        Language.TR -> "Bir ziyaretçi"
     }
 
     fun previewYouSentImage(l: Language): String = when (l) {

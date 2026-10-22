@@ -87,7 +87,7 @@ describe('a first chat asks one question at a time', () => {
     expect(box(h)!.getAttribute('data-prechat-step')).toBe('name');
     expect(box(h)!.nextElementSibling).toBe(bar(h));
     expect(bar(h).style.display).toBe('none');
-    expect(thread(h)).toEqual(['q:سلام! برای شروع، اسم‌تون چیه؟']);
+    expect(thread(h)).toEqual(['q:سلام! برای شروع، نامتان را بنویسید.']);
     expect(h.q('.prog > span')!.textContent).toBe('مرحله ۱ از ۳');
     // The chat bar is the workspace's, not "new conversation".
     const head = h.lastCall('chatHeaderHtml')![0] as { isNew: boolean };
@@ -122,9 +122,9 @@ describe('a first chat asks one question at a time', () => {
     expect(h.q('.prog > span')!.textContent).toBe('مرحله ۳ از ۳ · اختیاری');
     expect(h.q('.ex .pre')!.textContent).toBe('+۹۸');
     expect(thread(h)).toEqual([
-      'q:سلام! برای شروع، اسم‌تون چیه؟', 'v:علی رضایی',
-      'q:ممنون علی جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.', 'v:ali@example', 'v:ali@example.com',
-      'q:اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.',
+      'q:سلام! برای شروع، نامتان را بنویسید.', 'v:علی رضایی',
+      'q:ممنون علی. ایمیلتان را هم بنویسید.', 'v:ali@example', 'v:ali@example.com',
+      'q:اگر مایلید، شماره موبایلتان را هم بنویسید.',
     ]);
     expect(prechatPosts(h)).toEqual([]);
     await answer(h, '۰۹۱۲ ۳۴۵ ۶۷۸۹');
@@ -137,6 +137,31 @@ describe('a first chat asks one question at a time', () => {
     expect(bar(h).style.display).toBe('flex');
     expect(h.q('[data-prechat-edit]')).not.toBeNull();
     expect(h.calls.some((c) => c.surface === 'prechatSummaryHtml')).toBe(true);
+  });
+
+  it('P-01: the workspace\'s privacy line under the step; with its box, nothing sent until it is ticked', async () => {
+    const h = start({ identity: ASK({ ask_phone: false, privacy: { text: null, url: 'https://shop.test/privacy', consent: true } }) });
+    await toChat(h);
+    const line = () => h.q('[data-composer-zone] [data-prechat-step] [data-prechat-privacy]');
+    expect(line()).not.toBeNull();
+    expect(line()!.querySelector('a')!.getAttribute('href')).toBe('https://shop.test/privacy');
+    await answer(h, 'علی رضایی');
+    expect(line()).not.toBeNull();
+    await answer(h, 'ali@example.com');
+    await flush(20);
+    // The last answer, the box not ticked: nothing sent, said under the box, the step stays.
+    expect(prechatPosts(h)).toEqual([]);
+    expect(box(h)!.getAttribute('data-prechat-step')).toBe('email');
+    expect(line()!.querySelector('[data-err="privacy"]')!.textContent).toBe('برای ادامه، لطفاً گزینهٔ موافقت را علامت بزنید.');
+    const tick = line()!.querySelector<HTMLInputElement>('[data-prechat-consent]')!;
+    tick.checked = true;
+    tick.dispatchEvent(new Event('change'));
+    await answer(h, 'ali@example.com');
+    await flush(20);
+    expect(prechatPosts(h).map((p) => p.body)).toEqual([
+      { workspace_id: 'ws-test', name: 'علی رضایی', email: 'ali@example.com', phone: null, privacy_consent: true },
+    ]);
+    expect(box(h)).toBeNull();
   });
 
   it('an optional step is skipped (no bubble, no value); a required one offers no skip', async () => {
@@ -167,7 +192,7 @@ describe('a first chat asks one question at a time', () => {
     await flush(20);
     expect(box(h)!.getAttribute('data-prechat-step')).toBe('email');
     const t = h.env().t as (k: string) => string;
-    expect(h.q('[data-chat-messages] .st-err[role="alert"]')!.textContent).toBe(t('required'));
+    expect(h.q('[data-chat-messages] .st-err[role="alert"]')!.textContent).toBe(t('fieldRequired'));
     // Answered again: the phone given before stands, the details go at once.
     await answer(h, 'ali@example.org');
     await flush(20);
@@ -377,10 +402,11 @@ describe('the chat bar while the details are asked, and on the saved details', (
   });
 
   it('away: the store\'s own tile', async () => {
-    const h = start({ config: { availability: { state: 'offline', offline_mode: 'show_offline_message' } } });
+    // (A capture: "show only the offline message" shows that message alone, no form.)
+    const h = start({ config: { availability: { state: 'offline', offline_mode: 'capture_message' } } });
     await toChat(h);
     expect(box(h)).not.toBeNull();
-    expect(bar2(h)).toEqual({ face: 'ف', title: 'فروشگاه نیلوفر', status: 'آفلاین · پاسخ از طریق ایمیل' });
+    expect(bar2(h)).toEqual({ face: 'ف', title: 'فروشگاه نیلوفر', status: 'آفلاین · پاسخ همین‌جا' });
   });
 
   it('t2 draws no lead in its bar: its view-model has no `prechat`, so the pre-chat repaints nothing there', async () => {
@@ -527,7 +553,7 @@ describe('a conversation keeps the mode its pre-chat showed in first', () => {
     expect(box(h)!.getAttribute('data-prechat-step')).toBe('name');
     const rows = thread(h);
     expect(rows[0]).toBe('q:سلام');
-    expect(rows[rows.length - 1]).toBe('q:سلام! برای شروع، اسم‌تون چیه؟');
+    expect(rows[rows.length - 1]).toBe('q:سلام! برای شروع، نامتان را بنویسید.');
     expect(h.q('[data-chat-messages] [data-typing-id="hc-subtitle"]')).not.toBeNull();
     // Answered, the composer comes back unlocked (the card's lock is not left behind).
     await answer(h, 'Ali');

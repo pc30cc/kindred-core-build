@@ -176,7 +176,8 @@ export interface WidgetSettings {
   id: string;
   workspace_id: string;
   enabled: boolean;
-  primary_color: string;
+  /** `#RRGGBB`, or null: "Brand colour" (shared/widgetColor.ts). */
+  primary_color: string | null;
   launcher_text: string | null;
   welcome_message: string | null;
   /** Reply-time note under the workspace name in the widget header. */
@@ -224,13 +225,26 @@ export interface WidgetSettings {
   emoji_enabled?: boolean;
   smart_engagement_enabled?: boolean;
   store_raw_ip?: boolean;
+  // Visitor privacy (migration 281; absent before it).
+  tracking_requires_consent?: boolean;
+  tracking_keep_query?: boolean;
+  visitor_data_retention_days?: number | null;
   assignment_mode?: 'auto' | 'round_robin' | 'manual';
+  // Chat routing (migration 278): returning visitors to their previous
+  // operator, the default maximum of open chats per operator, and the
+  // first-response timeout in minutes (0 = off).
+  last_agent_routing_enabled?: boolean;
+  last_agent_window_days?: number;
+  default_max_concurrent_chats?: number;
+  first_response_timeout_minutes?: number;
   allowed_domains: string[];
   allow_subdomains: boolean;
   chat_enabled: boolean;
   kb_enabled: boolean;
   visitor_tracking_enabled: boolean;
   locale: string;
+  /** 'auto' (the visitor's browser, among the platform's languages, else `locale`) or one language. */
+  widget_language?: string | null;
   debug_mode: boolean;
   // Phase 8 — Availability
   live_chat_enabled: boolean;

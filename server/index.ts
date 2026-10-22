@@ -103,6 +103,7 @@ import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startDispatchLogJanitor } from './services/push/logRetention.js';
 import { startRecordingRetentionJanitor } from './services/recordings/retentionJanitor.js';
+import { startVisitorDataRetention } from './services/privacy/visitorRetention.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startInvitationWorker } from './services/invitations/worker.js';
 import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
@@ -127,6 +128,7 @@ import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
 import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
+import { startChatRoutingTicker } from './services/chatRoutingTicker.js';
 import { startAppReviewVisitorsTicker } from './services/appReview/visitorsTicker.js';
 import { startDatabaseBackupScheduler } from './services/backup/databaseBackup.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
@@ -733,6 +735,9 @@ const httpServer = app.listen(config.port, () => {
   // retention. See server/services/recordings/retentionJanitor.ts and
   // docs/CALL_RECORDING_RETENTION.md.
   startRecordingRetentionJanitor(config);
+  // Visitor tracking data retention (migration 281): 13 months, or the
+  // workspace's own period. See server/services/privacy/visitorRetention.ts.
+  startVisitorDataRetention(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
   // Invitation outbox. Self-hosted single-container deployments have no
@@ -976,6 +981,12 @@ const httpServer = app.listen(config.port, () => {
   // feature switched off, which is how it ships. See
   // server/services/notificationEmail/ticker.ts.
   startNotificationEmailTicker(config);
+
+  // Chat routing — waiting chats go to an operator as soon as one can take
+  // them, a pre-chat form never sent stops holding routing after 2 minutes,
+  // and an unanswered assignment moves on after the first-response timeout
+  // (every 30 s, leased). See server/services/chatRoutingTicker.ts.
+  startChatRoutingTicker(config);
 
   // The App Review demo's visitors, kept on the Visitors tab while that
   // account may sign in (migration 248). See

@@ -1,15 +1,15 @@
 /**
  * The live preview's team stack and the launcher picker's letter, by the
  * rule GET /config uses (shared/widgetTeam.ts), so the dashboard shows the
- * people and the agent face's letter a visitor will see: the workspace's
- * first four members to join, under the name visitors read (the widget's
+ * people and the agent face's letter a visitor will see: the first four
+ * members to join among those who receive chats, under the name visitors read (the widget's
  * word for an operator in its language without one, never an email), online
  * by customer availability (manual status and schedule, as the widget's
  * green dots, not connection state).
  */
 import type { WorkspaceMember } from '@/hooks/useWorkspaceMembers';
 import type { OperatorPresence } from '@/hooks/useTeamPresence';
-import { agentFaceInitial, widgetTeamMembers, widgetTeamName } from '../../../../shared/widgetTeam';
+import { agentFaceInitial, isWidgetTeamMember, widgetTeamMembers, widgetTeamName } from '../../../../shared/widgetTeam';
 
 export interface PreviewTeamMember {
   /** The stack's name in the page's widget language. */
@@ -33,7 +33,7 @@ export function previewTeam(
   locale: string,
 ): PreviewTeamMember[] {
   const byUser = new Map((presence || []).filter((p) => p?.user_id).map((p) => [p.user_id, p]));
-  return widgetTeamMembers(members || []).map((m) => ({
+  return widgetTeamMembers((members || []).filter(isWidgetTeamMember)).map((m) => ({
     name: widgetTeamName(m.full_name, locale),
     fullName: m.full_name || null,
     avatar: m.avatar_url,

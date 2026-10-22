@@ -32,6 +32,7 @@ import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from './conversationEvents.js';
 import { publishOperatorEvent } from './realtime/publish.js';
 import { resumeConversationIfPending } from './conversationPending.js';
+import { patchConversationMetadata } from './conversationMetadata.js';
 import {
   isInboundCustomerMessageEligibleForResume,
   type ResumeCandidate,
@@ -59,6 +60,67 @@ export function decideInboundConversationLifecycle(
     default:
       return 'reuse';
   }
+}
+
+/**
+ * What a finished thread (resolved or closed) clears for the next one
+ * (DECISIONS §4 "Reopened conversation"; R-17): the AI's hold on it — a
+ * person's takeover, a handoff waiting — so the AI may answer a later thread
+ * as its settings say (getConversationState counts human replies and the
+ * AI's own only from `ai_thread_reset_at`), and routing's stamp that the
+ * thread ended (`routing_thread_ended_at`), by which the visitor's next
+ * message re-examines who has the conversation (chatRouting.ts
+ * routeHumanBoundConversation).
+ */
+export function threadEndPatch(now: string): Record<string, unknown> {
+  return {
+    ai_state: null,
+    managed_by_ai: false,
+    ai_managed_by_ai: false,
+    ai_handoff_requested: false,
+    ai_handoff_reason: null,
+    ai_handoff_sent: false,
+    human_takeover_at: null,
+    human_takeover_by: null,
+    human_takeover_reason: null,
+    routing_pending: false,
+    // A transfer's "this department only" was for this thread.
+    routing_department_only: null,
+    ai_thread_reset_at: now,
+    routing_thread_ended_at: now,
+  };
+}
+
+/**
+ * A conversation was resolved or closed (the inbox's status change, Send &
+ * resolve): its thread is over — see threadEndPatch. Routing's skip list for
+ * it is forgotten too, so a later thread may go to anyone. Never throws.
+ */
+export async function endConversationThread(
+  config: ServerConfig,
+  params: { workspaceId: string; conversationId: string },
+): Promise<void> {
+  try {
+    await patchConversationMetadata(config, params.conversationId, threadEndPatch(new Date().toISOString()), params.workspaceId);
+    const { error } = await getServiceClient(config).rpc('chat_routing_skip', {
+      p_workspace_id: params.workspaceId,
+      p_conversation_id: params.conversationId,
+      p_user_id: null,
+    });
+    if (error && error.code !== '42883') console.warn('[conversationLifecycle] skip list reset failed:', error.message);
+  } catch { /* best-effort: the next thread is judged as before */ }
+}
+
+/**
+ * An operator reopened the conversation, or wrote into it to continue it:
+ * it is theirs to continue, so the visitor's next message does not re-examine
+ * who has it. Never throws.
+ */
+export async function continueConversationThread(
+  config: ServerConfig,
+  params: { workspaceId: string; conversationId: string },
+): Promise<void> {
+  await patchConversationMetadata(config, params.conversationId, { routing_thread_ended_at: null }, params.workspaceId);
 }
 
 export type ReopenResult = { reopened: boolean; reason: string };
@@ -93,11 +155,19 @@ export async function reopenConversationIfResolved(
       .eq('id', conversationId)
       .eq('workspace_id', workspaceId)
       .eq('status', 'resolved')
-      .select('id, status, updated_at')
+      .select('id, status, updated_at, metadata')
       .maybeSingle();
     // No match → not resolved anymore (already reopened by a concurrent
     // message, or never resolved). Exactly one winner emits the event.
     if (error || !data) return { reopened: false, reason: 'not_resolved' };
+
+    // A thread resolved before its end was recorded (threadEndPatch): the
+    // AI's hold on it is cleared now, before the AI reads this message.
+    const meta = (data as { metadata?: Record<string, unknown> | null }).metadata || {};
+    if (typeof meta.ai_thread_reset_at !== 'string') {
+      const { routing_thread_ended_at: _ended, ...aiReset } = threadEndPatch(new Date().toISOString());
+      await patchConversationMetadata(config, conversationId, aiReset, workspaceId);
+    }
 
     void recordConversationEvent(config, {
       workspaceId,

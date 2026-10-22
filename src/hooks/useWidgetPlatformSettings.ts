@@ -2,22 +2,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 
 export type PreChatPolicy = 'force_on' | 'force_off' | 'default_on' | 'default_off';
-export type FeatureLockMode = 'allow' | 'force_on' | 'force_off';
 
+/**
+ * The columns the Super Admin page edits. The row has more (the feature
+ * locks, the domain and message limits, the stale-socket guard and idle
+ * disposal), which nothing ever read: the PATCH no longer accepts them
+ * (server/routes/widgetSettings.ts), so they are not typed here either.
+ */
 export interface WidgetPlatformSettings {
   id: string;
   prechat_name_policy: PreChatPolicy;
   prechat_email_policy: PreChatPolicy;
   prechat_phone_policy: PreChatPolicy;
-  default_allow_subdomains: boolean;
-  max_allowed_domains_per_workspace: number;
-  enforce_domain_validation: boolean;
   default_debug_mode: boolean;
-  force_chat_enabled: FeatureLockMode;
-  force_kb_enabled: FeatureLockMode;
-  force_visitor_tracking: FeatureLockMode;
-  max_message_length: number;
-  rate_limit_messages_per_minute: number;
   admin_notes: string | null;
   // ── Deployment URLs (single source of truth for widget loader/assets/api) ──
   widget_loader_base_url: string | null;
@@ -41,12 +38,9 @@ export interface WidgetPlatformSettings {
   typing_rate_limit_enabled: boolean;
   typing_rate_limit_window_ms: number;
   typing_rate_limit_max_events: number;
-  // Realtime / Transport — diagnostic flag for the resubscribe-loop guard.
-  realtime_stale_resubscribe_guard_enabled: boolean;
   // ── Phase 2 hardening ──────────────────────────────────────────────
   realtime_reconnect_jitter_pct: number;
   realtime_token_ttl_seconds: number;
-  realtime_idle_disposal_ms: number;
   realtime_pending_max: number;
   realtime_message_dedupe_enabled: boolean;
   realtime_message_dedupe_window: number;
@@ -56,6 +50,14 @@ export interface WidgetPlatformSettings {
 }
 
 const QUERY_KEY = ['widget-platform-settings'] as const;
+
+/** What the platform settings routes answer (a row, or an error with its details). */
+interface PlatformSettingsAnswer {
+  settings?: WidgetPlatformSettings | null;
+  error?: string;
+  detail?: string;
+  hint?: string;
+}
 
 const PLATFORM_PATH = '/api/widget-settings/platform/config';
 
@@ -98,7 +100,7 @@ export function useWidgetPlatformSettings() {
     queryFn: async () => {
       const res = await fetchPlatform();
       const raw = await res.text();
-      let json: any = null;
+      let json: PlatformSettingsAnswer | null = null;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {
@@ -124,10 +126,11 @@ export function useWidgetPlatformSettings() {
 
 /**
  * Non-admin projection of the platform singleton (embed URLs, embed header /
- * footer comments and the platform "Powered by" wording). Workspace owners are
- * not platform admins, so they must NOT call `/platform/config` — that route is
- * admin-only and returns 403, which previously left their Install snippet
- * without the platform-authored comments.
+ * footer comments, the platform "Powered by" wording and the pre-chat field
+ * policy). Workspace owners are not platform admins, so they must NOT call
+ * `/platform/config` — that route is admin-only and returns 403, which
+ * previously left their Install snippet without the platform-authored
+ * comments and their pre-chat form without the Super Admin's locks.
  */
 export type PublicWidgetPlatformSettings = Pick<
   WidgetPlatformSettings,
@@ -142,6 +145,9 @@ export type PublicWidgetPlatformSettings = Pick<
   | 'powered_by_text'
   | 'powered_by_brand_text'
   | 'powered_by_url'
+  | 'prechat_name_policy'
+  | 'prechat_email_policy'
+  | 'prechat_phone_policy'
 >;
 
 export function useWidgetPlatformPublicSettings() {
@@ -184,7 +190,7 @@ export function useUpdateWidgetPlatformSettings() {
         body: JSON.stringify({ id, ...updates }),
       });
       const raw = await res.text();
-      let json: any = null;
+      let json: PlatformSettingsAnswer | null = null;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {

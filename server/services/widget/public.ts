@@ -361,10 +361,20 @@ export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId:
     /* best-effort: keep the stored rules on resolution failure */
   }
 
-  const domains = uniqueStrings([
-    ...(allowlistGranted ? ((widgetData?.allowed_domains as string[] | null) || []) : []),
-    ...(((domainData || []) as Array<{ domain: string | null }>).map((row) => row.domain)),
-  ]);
+  // The allow-list is the one Widget → Domains shows. Only while it names a
+  // site do the workspace's verified domains (Settings → Domains, e.g. the
+  // site registered at signup) join it, as the tab lists them: an empty
+  // list, or a plan without the allowlist, lets any site show the widget,
+  // as the tab says, and a verified domain never restricts it unseen.
+  const ownList = allowlistGranted
+    ? uniqueStrings((widgetData?.allowed_domains as string[] | null) || [])
+    : [];
+  const domains = ownList.length
+    ? uniqueStrings([
+      ...ownList,
+      ...(((domainData || []) as Array<{ domain: string | null }>).map((row) => row.domain)),
+    ])
+    : [];
 
 
   const result = {

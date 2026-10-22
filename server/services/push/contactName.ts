@@ -15,11 +15,9 @@
  * visitor was the same word.
  */
 
-export interface NamedContact {
-  name?: string | null;
-  email?: string | null;
-  visitor_code?: string | null;
-}
+import { contactOwnName as sharedContactOwnName, type NamedContact } from '../../../shared/contactName.js';
+
+export type { NamedContact };
 
 /** `Str.unknownVisitor` in the apps. */
 const VISITOR: Record<'en' | 'fa' | 'tr', string> = {
@@ -28,30 +26,21 @@ const VISITOR: Record<'en' | 'fa' | 'tr', string> = {
   tr: 'Ziyaretçi',
 };
 
-/**
- * The contact's own name, or null: older anonymous contacts still carry the
- * literal 'Visitor' (widget/anonymousContact.ts ANON_CONTACT_NAME), which
- * the dashboard treats as no name; read as a name it put English on a
- * Persian lock screen.
- */
-function realName(name: string | null | undefined): string | null {
-  const trimmed = (name ?? '').trim();
-  return trimmed && trimmed.toLowerCase() !== 'visitor' ? (name as string) : null;
-}
-
 function language(locale: string | null | undefined): 'en' | 'fa' | 'tr' {
   const base = String(locale ?? '').trim().toLowerCase().split(/[-_]/)[0];
   return base === 'fa' || base === 'tr' ? base : 'en';
 }
 
+/**
+ * Their name, else their email's local part (the rule every operator surface
+ * shares, shared/contactName.ts — the web Inbox included), else "Visitor"
+ * and their code in the recipient's language. Older anonymous contacts still
+ * carry the literal 'Visitor' as a name, which counts as none: read as a
+ * name it put English on a Persian lock screen.
+ */
 export function contactDisplayName(contact: NamedContact | null | undefined, locale: string | null | undefined): string {
-  const name = realName(contact?.name);
-  if (name) return name;
-  const email = contact?.email;
-  if (email) {
-    const at = email.indexOf('@');
-    return at > 0 ? email.slice(0, at) : email;
-  }
+  const own = sharedContactOwnName(contact);
+  if (own) return own;
   const visitor = VISITOR[language(locale)];
   const code = contact?.visitor_code;
   if (code) return `${visitor} ${code}`;
@@ -64,12 +53,5 @@ export function contactDisplayName(contact: NamedContact | null | undefined, loc
  * each phone names in its own language from the visitor code.
  */
 export function contactOwnName(contact: NamedContact | null | undefined): string | null {
-  const name = realName(contact?.name);
-  if (name) return name;
-  const email = contact?.email;
-  if (email) {
-    const at = email.indexOf('@');
-    return at > 0 ? email.slice(0, at) : email;
-  }
-  return null;
+  return sharedContactOwnName(contact);
 }

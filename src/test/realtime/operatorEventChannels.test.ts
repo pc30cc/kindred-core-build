@@ -141,7 +141,11 @@ describe('what the visitor channel may carry is what the widget reads', () => {
       // This module: publishOperatorEvent, team, support and visitor events.
       'server/services/realtime/publish.ts',
       'server/services/webAnalytics/eventsService.ts',
+      // vp:v2:<ws>:<session> (the visitor's presence channel): a wake with no data.
+      'server/services/widget/visitorWake.ts',
     ]);
+    expect(read('server/services/widget/visitorWake.ts')).toContain('buildVisitorPresenceChannelName(workspaceId, sid)');
+    expect(read('server/services/widget/visitorWake.ts')).not.toMatch(/buildChannelName\(/);
     expect(read('server/services/calls/queue.ts')).toContain('return `ws:${workspaceId}:queue`;');
     expect(read('server/services/calls/callbacks.ts')).toContain('return `ws:${workspaceId}:queue`;');
     // eventsService's `type: 'event'` is a funnel step, not an envelope.
@@ -180,7 +184,8 @@ vi.mock('../../../server/supabase.js', () => ({
 }));
 vi.mock('../../../server/lib/workspaceAuth.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/lib/workspaceAuth.js')>()),
-  authorizeWorkspaceAccess: async () => ({ userId: OP }),
+  // An operator: the note routes are the Inbox's (staff without one get 403).
+  authorizeWorkspaceAccess: async () => ({ userId: OP, isAdmin: false, role: 'agent' }),
 }));
 vi.mock('../../../server/services/conversationEvents.js', () => ({ recordConversationEvent: async () => ({ ok: true }) }));
 vi.mock('../../../server/services/push/index.js', () => ({ notifyInboundMessage: async () => undefined }));

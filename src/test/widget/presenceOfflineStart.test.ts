@@ -6,7 +6,8 @@
  *   - the workspace's offline_mode reaches Core, so a new visitor without
  *     the AI and without a thread gets the leave-a-message form
  *     (`capture_message`, the server's default) instead of a composer that
- *     ignored the setting; `show_offline_message` keeps the composer;
+ *     ignored the setting; `show_offline_message` shows the owner's offline
+ *     message alone, with no form and no composer (V-10);
  *   - an existing thread and an AI chat keep their composer (the leave-a-
  *     message form owns only a fresh human thread);
  *   - the screen reader's presence label says "away" instead of nothing.
@@ -126,11 +127,26 @@ describe('default, the team away at load', () => {
     expect(h.lastCall('contactFallbackHtml')![3]).toMatchObject({ status: 'offline', label: 'تیم در دسترس نیست', offlineMode: 'capture_message' });
   });
 
-  it('show_offline_message keeps the composer, open', async () => {
+  it('show_offline_message: the owner\'s offline message alone, no form and no composer', async () => {
+    const h = await chat({ config: { availability: { ...AWAY, offline_mode: 'show_offline_message', labels: {}, offline_message: 'ساعت ۹ صبح برمی‌گردیم.' } } });
+    expect(drewForm(h)).toBe(false);
+    expect(inputBar(h).style.display).toBe('none');
+    expect(h.q('[data-chat-messages]')!.textContent).toContain('ساعت ۹ صبح برمی‌گردیم.');
+    // The workspace's own welcome is untouched for the home view.
+    expect((h.env().config as { welcomeMessage?: unknown }).welcomeMessage).not.toBe('ساعت ۹ صبح برمی‌گردیم.');
+  });
+
+  it('show_offline_message without a written message: the widget\'s own words, never a form', async () => {
     const h = await chat({ config: { availability: { ...AWAY, offline_mode: 'show_offline_message', labels: {} } } });
     expect(drewForm(h)).toBe(false);
-    expect(composer(h).disabled).toBe(false);
-    expect(inputBar(h).style.display).not.toBe('none');
+    expect(inputBar(h).style.display).toBe('none');
+    expect(h.q('[data-chat-messages]')!.textContent).toContain('در حال حاضر آفلاین هستیم');
+  });
+
+  it('capture_message: the owner\'s offline message is the form\'s intro', async () => {
+    const h = await chat({ config: { availability: { ...AWAY, offline_message: 'فعلاً در دسترس نیستیم، ساعت ۹ برمی‌گردیم.' } } });
+    expect(drewForm(h)).toBe(true);
+    expect(h.lastCall('contactFallbackHtml')![3]).toMatchObject({ introLabel: 'فعلاً در دسترس نیستیم، ساعت ۹ برمی‌گردیم.' });
   });
 
   it('an AI answering away keeps the AI chat and its composer', async () => {
@@ -186,7 +202,7 @@ describe('default: the presence label follows every change', () => {
     let recheck: (() => void) | null = null;
     const realInterval = globalThis.setInterval;
     vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
-      if (ms === 60_000 && /resolveStatus\(\)/.test(String(fn))) { recheck = fn; return 0; }
+      if (ms === 60_000 && /resolveStatus\(\)|publish\(\)/.test(String(fn))) { recheck = fn; return 0; }
       return realInterval(fn, ms, ...rest);
     }) as unknown as typeof setInterval);
     const h = await chat({
@@ -207,9 +223,10 @@ describe('default: the presence label follows every change', () => {
     recheck!();
     expect(wrap.className).toBe('presence sr-only status-offline');
     expect(label.textContent).toBe('تیم در دسترس نیست');
-    // The thread and its composer stay (show_offline_message).
+    // The chat frame stays; with no thread yet, show_offline_message now
+    // shows the offline message alone, without the composer.
     expect(h.q('[data-presence-label]')).toBe(label);
-    expect(composer(h).disabled).toBe(false);
+    expect(inputBar(h).style.display).toBe('none');
   });
 });
 
@@ -218,5 +235,75 @@ describe('a template whose chat header shows the presence line (t1), away at loa
     const h = await chat({ renderer: 't1', late: 'fail', config: { availability: { ...AWAY, offline_mode: 'show_offline_message', labels: {} } } });
     expect(h.q('[data-chat-header] [data-presence-label]')!.textContent).toBe((h.env().t as (k: string) => string)('availOffline'));
     expect(composer(h).disabled).toBe(false);
+  });
+});
+
+describe('V-17: the team\'s state is read again while the visitor has the panel open', () => {
+  it('every few minutes the server is asked (GET /api/widget/availability); its answer moves the widget from the form to the chat, and the header\'s line with it', async () => {
+    const start = new Date(2026, 9, 19, 8, 58);
+    vi.useFakeTimers({ toFake: ['Date'], now: start });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    let recheck: (() => void) | null = null;
+    const realInterval = globalThis.setInterval;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === 60_000 && /publish\(\)/.test(String(fn))) { recheck = fn; return 0; }
+      return realInterval(fn, ms, ...rest);
+    }) as unknown as typeof setInterval);
+    const asked: string[] = [];
+    const h = await chat({
+      config: { availability: AWAY, replyTimeText: null },
+      api: (u) => {
+        if (!u.includes('/api/widget/availability')) return undefined;
+        asked.push(u);
+        return { body: { availability: { state: 'online', reason: 'within_hours', offline_mode: 'capture_message', labels: { online: 'در خدمتیم' }, next_open_at: null } } };
+      },
+    });
+    expect(drewForm(h)).toBe(true);
+    // A minute on: not yet (the page's own answer is fresh).
+    vi.setSystemTime(new Date(start.getTime() + 60_000));
+    recheck!();
+    await flush(10);
+    expect(asked).toEqual([]);
+    // Three minutes on, the team opened at 9:00.
+    vi.setSystemTime(new Date(start.getTime() + 3 * 60_000 + 1000));
+    recheck!();
+    await flush(20);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('/api/widget/availability?workspace_id=');
+    expect(asked[0]).toContain('&locale=');
+    expect(h.q('[data-presence]')!.className).toBe('presence sr-only status-online');
+    expect(h.q('[data-presence-label]')!.textContent).toBe('در خدمتیم');
+    expect(h.q('[data-fb="message"]')).toBeNull();
+    expect(inputBar(h).style.display).not.toBe('none');
+    // The chat header carries both reply-time lines; its stylesheet shows the
+    // away one while the header's presence says offline (no "replies in a
+    // few minutes" over an away team any more).
+    const env = h.env().t as (k: string) => string;
+    expect(Array.from(h.shadow.querySelectorAll('.wy-head-chat .wy-head-sub')).map((e) => [e.className, e.textContent]))
+      .toEqual([['wy-head-sub', env('homeReplyFast')], ['wy-head-sub wy-sub-off', env('homeReplySlow')]]);
+  });
+
+  it('a form being filled in is never repainted away under the visitor', async () => {
+    const start = new Date(2026, 9, 19, 8, 58);
+    vi.useFakeTimers({ toFake: ['Date'], now: start });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    let recheck: (() => void) | null = null;
+    const realInterval = globalThis.setInterval;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === 60_000 && /publish\(\)/.test(String(fn))) { recheck = fn; return 0; }
+      return realInterval(fn, ms, ...rest);
+    }) as unknown as typeof setInterval);
+    const h = await chat({
+      config: { availability: AWAY },
+      api: (u) => (u.includes('/api/widget/availability')
+        ? { body: { availability: { state: 'online', offline_mode: 'capture_message', labels: {}, next_open_at: null } } } : undefined),
+    });
+    const message = h.q<HTMLTextAreaElement>('[data-fb="message"]')!;
+    message.value = 'نیمه‌کاره';
+    vi.setSystemTime(new Date(start.getTime() + 4 * 60_000));
+    recheck!();
+    await flush(20);
+    expect(h.q('[data-fb="message"]')).toBe(message);
+    expect(message.value).toBe('نیمه‌کاره');
   });
 });

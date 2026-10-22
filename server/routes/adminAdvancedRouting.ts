@@ -9,7 +9,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import type { ServerConfig } from '../config.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   loadGlobalAdvancedRouting,
   saveGlobalAdvancedRouting,
@@ -23,25 +23,26 @@ const patchSchema = z.object({
   owner_fallback_for_audio: z.boolean().optional(),
   owner_fallback_for_video: z.boolean().optional(),
   general_pool_enabled: z.boolean().optional(),
+  // Chat: "Return returning visitors to the same operator" for every
+  // workspace (each workspace also has its own switch; migration 278).
+  last_agent_routing_enabled: z.boolean().optional(),
 }).strict();
 
 adminAdvancedRoutingRouter.get('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const policy = await loadGlobalAdvancedRouting(config);
+    const policy = await loadGlobalAdvancedRouting(serverConfigOf(req));
     res.json({ policy });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'failed_to_load' });
+  } catch (e) {
+    res.status(500).json({ error: (e instanceof Error && e.message) || 'failed_to_load' });
   }
 });
 
 adminAdvancedRoutingRouter.patch('/', async (req, res) => {
   try {
     const patch = patchSchema.parse(req.body ?? {});
-    const config: ServerConfig = (req as any).serverConfig;
-    const policy = await saveGlobalAdvancedRouting(config, patch);
+    const policy = await saveGlobalAdvancedRouting(serverConfigOf(req), patch);
     res.json({ policy });
-  } catch (e: any) {
-    res.status(400).json({ error: e?.message || 'invalid_request' });
+  } catch (e) {
+    res.status(400).json({ error: (e instanceof Error && e.message) || 'invalid_request' });
   }
 });

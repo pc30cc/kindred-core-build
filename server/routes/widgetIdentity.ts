@@ -60,6 +60,8 @@ import { getClientCountry } from '../utils/clientIp.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../services/storage/urlResolver.js';
 import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { loadEffectivePrechat, recordPrechatSubmitted } from '../services/widget/prechatEffective.js';
+import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../shared/visitorEmail.js';
 
 /**
  * markNeedsHuman() (server/services/ai-agent/handoffState.ts) defers actual
@@ -160,37 +162,11 @@ const HISTORY_CONTINUE_WINDOW_HOURS = 720;
 widgetIdentityRouter.use(enforceWidgetToken);
 widgetIdentityRouter.use(enforceOrigin);
 
-// ─── Pre-chat settings cache (per workspace) ─────────────────
-export const PRECHAT_TIMINGS = ['always', 'after_handoff', 'never'] as const;
-export type PrechatTiming = (typeof PRECHAT_TIMINGS)[number];
-
-/** Never trust a stored/legacy value — fall back to the historical behaviour. */
-export function normalizePrechatTiming(value): PrechatTiming {
-  return PRECHAT_TIMINGS.includes(value) ? value : 'after_handoff';
-}
-
-async function getPrechatSettings(supabase, workspaceId: string) {
-  const { data } = await supabase
-    .from('widget_prechat_settings')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-
-  return data || {
-    workspace_id: workspaceId,
-    ask_name: true,
-    ask_email: true,
-    ask_phone: false,
-    require_name: true,
-    require_email: true,
-    require_phone: false,
-    verify_email: false,
-    verify_phone: false,
-    prechat_timing: 'after_handoff',
-    history_continue_window_hours: 24,
-  };
-}
-
+// ─── Pre-chat form (shared/prechatPolicy.ts) ─────────────────
+// What a visitor is asked (loadEffectivePrechat): the workspace's row (or the
+// platform policy's defaults without one) while the plan allows a pre-chat
+// form, clamped by the Super Admin's policy, a field required only when
+// asked. The same answer for /me, GET /prechat and the POST that enforces it.
 
 // ═══════════════════════════════════════════════
 // GET /identity/me — Resolve current visitor + contact
@@ -212,7 +188,7 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
     supabase, req, res, workspaceId, visitorId, 'chat_widget',
   );
 
-  const prechat = await getPrechatSettings(supabase, workspaceId);
+  const prechat = await loadEffectivePrechat(config, supabase, workspaceId);
   // A contact avatar we stored is derived from its key for the current
   // provider; one a CRM import supplied stays exactly as given.
   const contactAvatarUrl = await resolveContactAvatarUrl(
@@ -230,18 +206,7 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
       phone: contact.phone,
       avatar_url: contactAvatarUrl,
     } : null,
-    prechat: {
-      ask_name: prechat.ask_name,
-      ask_email: prechat.ask_email,
-      ask_phone: prechat.ask_phone,
-      require_name: prechat.require_name,
-      require_email: prechat.require_email,
-      require_phone: prechat.require_phone,
-      verify_email: prechat.verify_email,
-      verify_phone: prechat.verify_phone,
-      timing: normalizePrechatTiming(prechat.prechat_timing),
-    },
-
+    prechat,
   });
 });
 
@@ -255,23 +220,13 @@ widgetIdentityRouter.get('/prechat', widgetRateLimit('default'), async (req: Req
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
   const supabase = getServiceClient(config);
-  const prechat = await getPrechatSettings(supabase, workspaceId);
+  const prechat = await loadEffectivePrechat(config, supabase, workspaceId);
 
   // Ensure visitor cookie exists (so subsequent submit knows who's submitting)
   const cookie = readVisitorCookie(req, workspaceId);
   if (!cookie) resolveVisitorIdentity(req, res, workspaceId);
 
-  return res.json({
-    ask_name: prechat.ask_name,
-    ask_email: prechat.ask_email,
-    ask_phone: prechat.ask_phone,
-    require_name: prechat.require_name,
-    require_email: prechat.require_email,
-    require_phone: prechat.require_phone,
-    verify_email: prechat.verify_email,
-    verify_phone: prechat.verify_phone,
-    timing: normalizePrechatTiming(prechat.prechat_timing),
-  });
+  return res.json(prechat);
 });
 
 
@@ -283,13 +238,23 @@ const prechatSchema = z.object({
   name: z.string().trim().min(1).max(120).optional().nullable(),
   email: z.string().trim().email().max(254).optional().nullable(),
   phone: z.string().trim().min(4).max(30).optional().nullable(),
+  // The consent box of the form's privacy line (P-01), when it shows one.
+  privacy_consent: z.boolean().optional().nullable(),
 });
 
 widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const parsed = prechatSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+    // `field` names the first field refused, so the widget says it under that
+    // field (runtime.js wirePrechatForm), not nowhere.
+    const details = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
+    const field = (['name', 'email', 'phone'] as const).find((k) => details[k]?.length) ?? null;
+    return res.status(400).json({
+      error: field ? `${field}_invalid` : 'Invalid input',
+      details,
+      ...(field ? { field } : {}),
+    });
   }
 
   const workspaceId = resolveWorkspaceId(req, res, parsed.data.workspace_id);
@@ -297,12 +262,16 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
   const supabase = getServiceClient(config);
-  const prechat = await getPrechatSettings(supabase, workspaceId);
+  const prechat = await loadEffectivePrechat(config, supabase, workspaceId);
 
-  // Validate required fields
+  // Validate required fields (only asked ones can be: shared/prechatPolicy.ts)
   if (prechat.require_name && !parsed.data.name) return res.status(400).json({ error: 'name_required', field: 'name' });
   if (prechat.require_email && !parsed.data.email) return res.status(400).json({ error: 'email_required', field: 'email' });
   if (prechat.require_phone && !parsed.data.phone) return res.status(400).json({ error: 'phone_required', field: 'phone' });
+  // The form's consent box, when the workspace asks for it (P-01).
+  if (prechat.privacy?.consent && parsed.data.privacy_consent !== true) {
+    return res.status(400).json({ error: 'privacy_consent_required', field: 'privacy' });
+  }
 
   // Resolve / create visitor cookie
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
@@ -331,6 +300,8 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       cfCountry: getClientCountry(req),
     });
 
+    // Sent (consent included when asked): routing no longer waits for it.
+    void recordPrechatSubmitted(supabase, workspaceId, merge.contactId, prechat.privacy?.consent ? { policyUrl: prechat.privacy.url } : null);
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
     void triggerDeferredRoutingForContact(config, supabase, workspaceId, merge.contactId);
     // Hand the call widget a continuity cookie for the same contact so its
@@ -440,7 +411,8 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
 // and now says where the reply should go. Body { workspace_id?,
 // conversation_id, email } → 200 { ok, contact_id } | 400 Invalid input |
 // 403 CONVERSATION_ACCESS_DENIED | 409 not_offline_capture | 500
-// merge_failed.
+// merge_failed. While visitor email is switched off (shared/visitorEmail.ts,
+// owner 2026-10-21) it answers 403 visitor_email_disabled to everything.
 //
 // Only for a conversation the visitor owns (the signed cookie alone) and
 // that was captured while away (tagged `offline`): never a way around the
@@ -459,6 +431,9 @@ const offlineEmailSchema = z.object({
 
 widgetIdentityRouter.post('/offline-email', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
+  // The step promises the reply by email: not offered while visitor email
+  // is switched off (shared/visitorEmail.ts), and the widget never draws it.
+  if (!VISITOR_EMAIL_FEATURES_ENABLED) return res.status(403).json({ error: 'visitor_email_disabled' });
   const parsed = offlineEmailSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });

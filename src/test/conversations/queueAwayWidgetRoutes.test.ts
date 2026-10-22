@@ -32,6 +32,8 @@ const state = vi.hoisted(() => ({
   sent: [] as Array<Record<string, unknown>>,
   pushes: [] as Array<Record<string, unknown>>,
   events: [] as Array<Record<string, unknown>>,
+  /** Conversations the leave-a-message form handed to routing. */
+  routed: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -60,6 +62,10 @@ vi.mock('../../../server/services/billing/conversationLimit.js', async (orig) =>
 vi.mock('../../../server/services/push/index.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/push/index.js')>()),
   notifyInboundMessage: async (_c: unknown, p: Record<string, unknown>) => { state.pushes.push(p); },
+}));
+vi.mock('../../../server/services/chatRouting.js', async (orig) => ({
+  ...(await orig<typeof import('../../../server/services/chatRouting.js')>()),
+  routeOfflineCapture: async (_c: unknown, a: Record<string, unknown>) => { state.routed.push(a); return { outcome: 'no_eligible_agent', assignedTo: null }; },
 }));
 vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordConversationEvent: async (_c: unknown, input: Record<string, unknown>) => { state.events.push(input); return { ok: true }; },
@@ -125,6 +131,7 @@ beforeEach(() => {
   state.sent.length = 0;
   state.pushes.length = 0;
   state.events.length = 0;
+  state.routed.length = 0;
   __resetWidgetRateLimitsForTests();
 });
 afterEach(() => { vi.useRealTimers(); });
@@ -186,6 +193,17 @@ describe('GET /queue', () => {
   });
 });
 
+// ─── GET /availability ─────────────────────────────────────────────────────
+describe('GET /availability (V-17: the widget reads the team\'s state again while open)', () => {
+  it('the same payload as /config\'s availability, now, no-store; 400 without a workspace', async () => {
+    const res = await call('GET', `/api/widget/availability?workspace_id=${WS}&locale=fa`);
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body.availability).toMatchObject({ state: 'offline', reason: 'outside_hours', next_open_at: null });
+    expect((await call('GET', '/api/widget/availability')).status).toBe(400);
+  });
+});
+
 // ─── POST /offline-messages ────────────────────────────────────────────────
 const leave = (body: Row) => call('POST', '/api/widget/offline-messages', { workspace_id: WS, ...body });
 const tick = () => new Promise((r) => setTimeout(r, 20));
@@ -202,10 +220,51 @@ describe('POST /offline-messages without client_message_id (the leave-a-message 
     expect(msg.metadata).toEqual({ source: 'offline_capture', visitor_id: 'visitor-1' });
   });
 
-  it('a one-character message is refused as before (400 invalid_payload)', async () => {
-    const res = await leave({ message: 'x' });
+  it('a message is what a chat message may be (V-32): one character is taken, a blank one refused (400 invalid_payload)', async () => {
+    expect((await leave({ message: 'x' })).status).toBe(200);
+    state.db.inserts.length = 0;
+    const res = await leave({ message: '   ' });
     expect(res).toMatchObject({ status: 400, body: { error: 'invalid_payload' } });
     expect(state.db.inserts).toHaveLength(0);
+  });
+});
+
+describe('POST /offline-messages: whatever way to reach the visitor the form collected is kept (V-09)', () => {
+  it('a name and a phone alone (Persian digits): a contact with both, the conversation linked, the phone in the timeline and the owners\' mail', async () => {
+    const res = await leave({ message: 'لطفاً تماس بگیرید', name: 'علی', phone: '۰۹۱۲ ۳۴۵ ۶۷۸۹', locale: 'fa' });
+    expect(res.status).toBe(200);
+    const contacts = state.db.inserts.filter((i) => i.table === 'contacts');
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].row).toMatchObject({ workspace_id: WS, name: 'علی', email: null, phone: '09123456789' });
+    expect((contacts[0].row.metadata as Row).visitor_id).toBe('visitor-1');
+    const conv = state.db.inserts.find((i) => i.table === 'conversations')!.row;
+    expect(conv.contact_id).toBe(state.db.tables.contacts![0].id);
+    const captured = state.events.find((e) => e.eventType === 'captured_offline')!;
+    expect(captured.payload).toMatchObject({ contact_email: null, contact_phone: '09123456789' });
+    await tick();
+    const mail = state.sent[0] as { templateData: Record<string, string>; htmlData: Record<string, string>; html: string; text: string };
+    expect(mail.templateData).toMatchObject({ contact_name: 'علی', contact_email: '', contact_phone: '09123456789' });
+    expect(mail.htmlData.contact_phone).toBe('09123456789');
+    expect(mail.html).toContain('09123456789');
+    expect(mail.text).toContain('Phone: 09123456789');
+  });
+
+  it('a visitor already known (their session\'s contact) leaving only a message: the capture is filed under that contact, nothing new made', async () => {
+    const own = randomUUID();
+    state.db.tables.contacts = [{ id: own, workspace_id: WS, name: 'سارا', email: null, phone: null, metadata: {} }];
+    state.db.tables.visitor_sessions = [{ id: randomUUID(), workspace_id: WS, visitor_id: 'visitor-1', contact_id: own, last_seen_at: new Date(NOW).toISOString() }];
+    const res = await leave({ message: 'سلام، هنوز منتظرم' });
+    expect(res.status).toBe(200);
+    expect(state.db.inserts.filter((i) => i.table === 'contacts')).toHaveLength(0);
+    expect(state.db.inserts.find((i) => i.table === 'conversations')!.row.contact_id).toBe(own);
+  });
+
+  it('their own contact gets the phone it lacked, never another contact\'s', async () => {
+    const own = randomUUID();
+    state.db.tables.contacts = [{ id: own, workspace_id: WS, name: null, email: null, phone: null, metadata: { visitor_id: 'visitor-1' } }];
+    expect((await leave({ message: 'سلام', name: 'سارا', phone: '+98 912 000 1111' })).status).toBe(200);
+    expect(state.db.inserts.filter((i) => i.table === 'contacts')).toHaveLength(0);
+    expect(state.db.tables.contacts![0]).toMatchObject({ id: own, name: 'سارا', phone: '+989120001111' });
   });
 });
 
@@ -224,6 +283,8 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
     expect(state.pushes).toHaveLength(1);
     expect(state.sent).toHaveLength(1);
     expect(state.events.filter((e) => e.eventType === 'captured_offline')).toHaveLength(1);
+    // A person has to answer it: routing hears of it once.
+    expect(state.routed).toEqual([{ workspaceId: WS, conversationId: conv.id }]);
   });
 
   it('the same id again (a retry) answers the same ids: no second conversation, message, push, event or mail', async () => {
@@ -276,7 +337,10 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
   it('the contact\'s stored details never cost the away message: a long name is cut, an address or number the form refuses is left out', async () => {
     const res = await leave({ message: 'hi', client_message_id: CMID, name: 'ن'.repeat(200), email: 'not-an-address', phone: '9'.repeat(60) });
     expect(res.status).toBe(200);
-    expect(state.db.inserts.filter((i) => i.table === 'contacts')).toHaveLength(0);
+    // The name alone still makes the contact (V-09); the refused address and number are left out.
+    const contacts = state.db.inserts.filter((i) => i.table === 'contacts');
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].row).toMatchObject({ name: 'ن'.repeat(120), email: null, phone: null });
     await tick();
     expect((state.sent[0] as { templateData: Record<string, string> }).templateData).toMatchObject({ contact_name: 'ن'.repeat(120), contact_email: '' });
     // The leave-a-message form keeps its checks.
@@ -286,11 +350,12 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
     expect(state.db.inserts).toHaveLength(0);
   });
 
-  it('the away message is as long as POST /message takes (5,000); the leave-a-message form keeps its 4,000', async () => {
+  it('the away message and the leave-a-message form are as long as POST /message takes (5,000)', async () => {
     expect((await leave({ message: 'س'.repeat(5000), client_message_id: CMID })).status).toBe(200);
     expect((await leave({ message: 'س'.repeat(5001), client_message_id: 'local_1760778000000_zz99yy' })).status).toBe(400);
-    expect((await leave({ message: 'س'.repeat(4001) })).status).toBe(400);
-    expect(state.db.inserts.filter((i) => i.table === 'conversations')).toHaveLength(1);
+    expect((await leave({ message: 'س'.repeat(5000) })).status).toBe(200);
+    expect((await leave({ message: 'س'.repeat(5001) })).status).toBe(400);
+    expect(state.db.inserts.filter((i) => i.table === 'conversations')).toHaveLength(2);
   });
 
   it('an empty message or a malformed client id is 400 invalid_payload', async () => {

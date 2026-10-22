@@ -6,7 +6,11 @@
  * launcher picker and the live preview, src/pages/app/WidgetPage.tsx), so
  * the preview shows the people and the letter a visitor will see:
  *
- *   - the workspace's first four members in the order they joined
+ *   - only the members who receive chats (isWidgetTeamMember: the owner or
+ *     a team member, shared/chatRoles.ts, not suspended, "Receive chats
+ *     automatically" on, a seat the plan has not paused), the same people
+ *     the widget's online/offline counts; staff never answer a visitor;
+ *   - the first four of them in the order they joined
  *     (`workspace_members.created_at`, then the user id), whatever order the
  *     database returns its rows in;
  *   - each under their own name; without one (or with nothing in it that
@@ -22,6 +26,8 @@
  * same person), else the workspace's name (launcherInitial).
  */
 import { launcherInitial } from './launcherStyles.js';
+import { visitorDisplayName } from './systemMessages.js';
+import { isRoutableChatRole } from './chatRoles.js';
 
 /** How many members the widget shows (and the agent face picks from). */
 export const WIDGET_TEAM_SIZE = 4;
@@ -33,6 +39,24 @@ export const WIDGET_TEAM_NAME_FALLBACK: Readonly<Record<string, string>> = { en:
 export interface WidgetTeamMemberRow {
   user_id: string | null;
   created_at?: string | null;
+}
+
+/** What isWidgetTeamMember reads of a member (a reader without a field passes it as not set). */
+export interface WidgetTeamCandidate {
+  role?: string | null;
+  suspended_at?: string | null;
+  receives_chats?: boolean | null;
+  seat_locked?: boolean | null;
+}
+
+/**
+ * Whether a member is one of the people who answer the widget's chats
+ * (server/services/widget/customerAvailability.ts chatReceivingMemberIds,
+ * which reads the seat lock itself): a role routing gives chats, not
+ * suspended, "Receive chats automatically" on, the seat not paused.
+ */
+export function isWidgetTeamMember(row: WidgetTeamCandidate): boolean {
+  return isRoutableChatRole(row.role) && !row.suspended_at && row.receives_chats !== false && row.seat_locked !== true;
 }
 
 /**
@@ -56,7 +80,9 @@ export function widgetTeamMembers<T extends WidgetTeamMemberRow>(rows: readonly 
 
 /** A member's name in the team stack, in a widget speaking `locale` (fa, en, tr; a region tag reads as its language). */
 export function widgetTeamName(fullName: string | null | undefined, locale: string | null | undefined): string {
-  if (fullName && launcherInitial([fullName])) return fullName;
+  // A profile name that is an email address is no name here either (I-10).
+  const own = visitorDisplayName(fullName);
+  if (own && launcherInitial([own])) return own;
   const lang = String(locale || '').toLowerCase().split('-')[0];
   return Object.prototype.hasOwnProperty.call(WIDGET_TEAM_NAME_FALLBACK, lang)
     ? WIDGET_TEAM_NAME_FALLBACK[lang]

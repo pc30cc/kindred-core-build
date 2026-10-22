@@ -31,6 +31,8 @@ export interface SystemMessageMeta {
   to_name?: string | null;
   // routing_agent_joined, conversation_closed (who closed it)
   agent_name?: string | null;
+  // routing_in_queue: 'all_busy' when everyone was at capacity (chatRouting.ts)
+  reason?: string | null;
   // call_invitation
   channel?: string | null;
   operator_name?: string | null;
@@ -137,13 +139,18 @@ export function systemMessageText(
         : line(t, 'inbox.system.closed', 'The conversation was closed');
     }
     case 'routing_no_agent_available':
+      // Nobody of the team was online: the sentence the visitor read
+      // (public/widget/runtime.js routingNoAgentAvailable), word for word.
       return line(
         t, 'inbox.system.noAgentAvailable',
-        "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+        "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.",
       );
     case 'routing_in_queue':
-      // The operator reads it: the visitor is the one waiting.
-      return line(t, 'inbox.system.inQueue', 'The visitor is waiting in the support queue');
+      // The operator reads it: the visitor is the one waiting. Everyone at
+      // capacity (auto routing) says so; the manual queue is the plain line.
+      return meta?.reason === 'all_busy'
+        ? line(t, 'inbox.system.inQueueAllBusy', 'Everyone on the team was busy; the visitor is waiting in the queue')
+        : line(t, 'inbox.system.inQueue', 'The visitor is waiting in the support queue');
     case 'call_invitation': {
       const isVideo = meta?.channel === 'video';
       const op = personName(meta?.operator_name);
@@ -240,7 +247,7 @@ export function attachmentPreviewText(
   // An unidentified visitor still gets a subject — "sent a photo" with no
   // subject reads like a fragment in every language this ships in.
   const name = String(sender.name || '').trim()
-    || line(t, 'inbox.previewSomeone', 'A user');
+    || line(t, 'inbox.previewSomeone', 'A visitor');
   return line(t, `inbox.previewSentBy${suffix}`, `{name} sent ${noun}`)
     .replace('{name}', name);
 }

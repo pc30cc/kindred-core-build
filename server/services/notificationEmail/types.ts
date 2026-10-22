@@ -36,11 +36,13 @@ export interface NotificationEmailDefinition {
   slug: string;
   /**
    * Who may receive it. 'members' is every operator in the workspace;
-   * 'admins' is the owner and workspace admins only — an invoice is the
-   * company's money, and an operator who answers chats has no business
-   * being told what it paid.
+   * 'inbox' those whose role may open the Inbox (shared/chatRoles.ts
+   * INBOX_ROLES: a digest of waiting conversations links to it, and staff
+   * without one get 403 there); 'admins' is the owner and workspace admins
+   * only — an invoice is the company's money, and an operator who answers
+   * chats has no business being told what it paid.
    */
-  audience: 'members' | 'admins';
+  audience: 'members' | 'inbox' | 'admins';
   /**
    * Whether the operator may turn it off. A platform announcement is the one
    * an admin sends BECAUSE everybody has to see it, and it is still bounded:
@@ -60,7 +62,7 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
   unread_messages: {
     type: 'unread_messages',
     slug: 'operator_unread_digest',
-    audience: 'members',
+    audience: 'inbox',
     operatorOptOut: true,
     respectsQuietHours: true,
   },

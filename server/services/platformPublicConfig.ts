@@ -66,10 +66,7 @@ const LOCALIZED_COLUMNS = [
   'social_share_title',
   'social_share_description',
   'footer_company_text',
-  'support_label',
   'legal_company_display_name',
-  'knowledge_base_title',
-  'widget_display_name',
 ];
 
 const REALTIME_KEYS = [

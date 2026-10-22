@@ -76,6 +76,10 @@ import { resolveLauncherStyle } from '../../../shared/launcherStyles.js';
 import { agentFaceInitial, onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
+import { isAuthoredWidgetText, resolveWelcomeMessage, widgetTextDefault } from '../../../shared/widgetTextDefaults.js';
+import { widgetWireColor } from '../../../shared/widgetColor.js';
+import { isPrechatFieldLocked, normalizePreChatPolicy } from '../../../shared/prechatPolicy.js';
+import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../../shared/visitorEmail.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from './poweredBy.js';
 import {
   resolveWidgetEntitlements,
@@ -84,11 +88,14 @@ import {
 } from './entitlements.js';
 import { loadPublishedSmartRules, isSmartRuleUnexpired, type PublicSmartRule } from './smartEngagement.js';
 import { resolveEffectiveAiNudgePolicy } from './aiNudge/policy.js';
-import { resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
+import { businessHoursAllowedOf, resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from './availability.js';
 import {
-  AVAILABILITY_PREFS_COLUMNS,
+  chatReceivingMemberIds,
   listCustomerAvailableOperators,
+  readChatMemberRows,
+  readGlobalAvailabilityPrefs,
   type AvailabilityPrefsRow,
+  type ChatMemberRow,
   type WorkspaceAvailabilityPrefs,
 } from './customerAvailability.js';
 import { createStorageUrlResolver, hydrateUserAvatars, type StorageUrlResolver } from '../storage/urlResolver.js';
@@ -113,38 +120,28 @@ import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 // Defaults and pre-chat policy (moved from server/routes/widget.ts)
 // ═══════════════════════════════════════════════════════════════════════
 
-// Seeded English defaults. When the widget locale is not English these are
-// treated as "unset" so the visitor sees a localized string instead of the
-// leftover English seed value.
-const SEED_LAUNCHER_TEXTS = ['chat with us', 'support', 'hello!'];
-const SEED_WELCOME_TEXTS = ['hello! how can we help you?', 'how can we help you?'];
-const LOCALIZED_WIDGET_DEFAULTS: Record<string, { launcher: string; welcome: string }> = {
-  fa: { launcher: 'با ما گفتگو کنید', welcome: 'سلام! چطور می‌توانیم کمکتان کنیم؟' },
-  tr: { launcher: 'Bizimle sohbet edin', welcome: 'Merhaba! Size nasıl yardımcı olabiliriz?' },
-  en: { launcher: 'Chat with us', welcome: 'Hello! How can we help you?' },
-};
-
+// The launcher text's English seeds count as unset in a non-English widget
+// (shared/widgetTextDefaults.ts holds the seeds and the localized texts).
 export function resolveLocalizedDefault(
   value: unknown,
   kind: 'launcher' | 'welcome',
   locale: string | null | undefined,
 ): string {
   const lang = String(locale || 'en').toLowerCase().split('-')[0];
-  const defaults = LOCALIZED_WIDGET_DEFAULTS[lang] || LOCALIZED_WIDGET_DEFAULTS.en;
   const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) return lang === 'en' ? '' : defaults[kind];
+  if (!raw) return lang === 'en' ? '' : widgetTextDefault(kind, lang);
   if (lang === 'en') return raw;
-  const seeds = kind === 'launcher' ? SEED_LAUNCHER_TEXTS : SEED_WELCOME_TEXTS;
-  if (seeds.includes(raw.toLowerCase())) return defaults[kind];
-  return raw;
+  return isAuthoredWidgetText(raw, kind) ? raw : widgetTextDefault(kind, lang);
 }
 
 export const DEFAULT_WIDGET_SETTINGS = {
   enabled: true,
-  primary_color: '#3B82F6',
+  // NULL = no colour of its own: the brand's (shared/widgetColor.ts).
+  primary_color: null as string | null,
   secondary_color: '#6366f1',
   greeting_message: '',
-  welcome_message: 'Hello! How can we help you?',
+  // NULL = the platform's or the built-in welcome (shared/widgetTextDefaults.ts).
+  welcome_message: null as string | null,
   // NULL (not '') = "never authored" → the UI/widget uses its default text.
   // An explicit '' is an authored "hide this line" signal.
   reply_time_text: null as string | null,
@@ -170,13 +167,16 @@ export const DEFAULT_WIDGET_SETTINGS = {
   chat_enabled: true,
   kb_enabled: true,
   visitor_tracking_enabled: true,
+  // P-01 (migration 281, services/widget/trackingPrivacy.ts).
+  tracking_requires_consent: false,
+  tracking_keep_query: false,
   support_mode: 'human_first',
   widget_language: 'auto',
   mobile_behavior: 'bottom_sheet',
   locale: 'en',
   // Phase 5 — Availability
   live_chat_enabled: true,
-  offline_mode: 'accept_messages',
+  offline_mode: 'capture_message',
   business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
   availability_labels: {},
   // Phase 6a — Attachments (off by default)
@@ -201,23 +201,7 @@ export const PRECHAT_FIELD_KEYS = {
   email: 'widget_prechat_email',
   phone: 'widget_prechat_phone',
 } as const;
-const DEFAULT_PRECHAT_POLICY = {
-  name: 'default_on',
-  email: 'default_on',
-  phone: 'default_on',
-} as const;
-
-type PreChatMode = 'force_on' | 'force_off' | 'default_on' | 'default_off';
-
-export function normalizePreChatPolicy(value: unknown): Record<'name' | 'email' | 'phone', PreChatMode> {
-  const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
-  const valid = (v: unknown): v is PreChatMode => v === 'force_on' || v === 'force_off' || v === 'default_on' || v === 'default_off';
-  return {
-    name: valid(source.name) ? source.name : DEFAULT_PRECHAT_POLICY.name,
-    email: valid(source.email) ? source.email : DEFAULT_PRECHAT_POLICY.email,
-    phone: valid(source.phone) ? source.phone : DEFAULT_PRECHAT_POLICY.phone,
-  };
-}
+export { normalizePreChatPolicy };
 
 // Loads policy from widget_platform_settings (preferred) or falls back to app_runtime_config
 async function loadPlatformPreChatPolicy(supabase: ServiceClient): Promise<{ value: unknown; error: boolean }> {
@@ -244,15 +228,22 @@ async function loadPlatformPreChatPolicy(supabase: ServiceClient): Promise<{ val
   return { value: legacy?.value || null, error: !!error || !!legacyError };
 }
 
+/**
+ * `config.preChat`: each field's platform policy as the widget's fallback form
+ * reads it when /identity/me cannot be reached (runtime.js configFallback).
+ * A forced field is locked, on for `force_on` and off for `force_off`; the
+ * defaults follow the workspace override when one exists. What a visitor is
+ * really asked comes from /identity/me (shared/prechatPolicy.ts).
+ */
 export function buildPreChatConfig(policyValue: unknown, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
   const policy = normalizePreChatPolicy(policyValue);
   const flagMap = new Map(workspaceFlags.map((flag) => [flag.key, flag.enabled]));
 
   const resolveField = (field: keyof typeof PRECHAT_FIELD_KEYS) => {
     const mode = policy[field];
-    const locked = mode === 'force_off';
+    const locked = isPrechatFieldLocked(mode);
     const workspaceOverride = flagMap.has(PRECHAT_FIELD_KEYS[field]) ? flagMap.get(PRECHAT_FIELD_KEYS[field]) ?? false : null;
-    const enabled = locked ? false : workspaceOverride === null ? mode === 'default_on' : !!workspaceOverride;
+    const enabled = locked ? mode === 'force_on' : workspaceOverride === null ? mode === 'default_on' : !!workspaceOverride;
     return { enabled, locked, mode, workspaceOverride };
   };
 
@@ -613,7 +604,8 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       console.error('[widget/config] entitlement resolution failed', err);
       return null;
     }),
-    sb.from('workspace_members').select('user_id, created_at').eq('workspace_id', workspaceId),
+    // The chat columns decide who counts for online/offline (CHAT_MEMBER_COLUMNS).
+    readChatMemberRows<ChatMemberRow & { created_at?: string | null }>(sb, workspaceId, ['created_at']),
     sb.from('ai_agent_settings')
       .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, metadata')
       .eq('workspace_id', workspaceId)
@@ -656,7 +648,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
       ? applyWidgetEntitlementsToSettings({ ...DEFAULT_WIDGET_SETTINGS, ...widgetRow }, entitlements)
       : { ...DEFAULT_WIDGET_SETTINGS, ...widgetRow })
     : null;
-  const memberRows = (membersResult.data || []) as Array<{ user_id: string | null; created_at?: string | null }>;
+  const memberRows = (membersResult.data || []) as Array<ChatMemberRow & { created_at?: string | null }>;
   const memberIds = memberRows
     .map((m) => m.user_id)
     .filter((id): id is string => !!id);
@@ -676,14 +668,23 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
   const resolver = createStorageUrlResolver(config);
 
   // ── Wave 3 ──
-  const [prefsResult, teamResult, smart, aiProactive, aiAgent, logoUrl, fabImageUrl] = await Promise.all([
+  const chatMemberIdsRead: Promise<string[] | undefined> = needsPrefs && memberIds.length
+    ? chatReceivingMemberIds(config, workspaceId, memberRows)
+    : Promise.resolve(undefined);
+  const [prefsResult, chatMemberIds, teamResult, smart, aiProactive, aiAgent, logoUrl, fabImageUrl] = await Promise.all([
     needsPrefs && memberIds.length
-      ? sb.from('user_availability_prefs')
-        .select(AVAILABILITY_PREFS_COLUMNS)
-        .in('user_id', memberIds)
-        .is('workspace_id', null)
+      ? readGlobalAvailabilityPrefs(sb, memberIds)
       : Promise.resolve({ data: [] as AvailabilityPrefsRow[], error: null }),
-    forConfig ? loadTeam(sb, resolver, widgetTeamMembers(memberRows).map((m) => m.user_id as string)) : Promise.resolve({ team: null, error: false }),
+    chatMemberIdsRead,
+    // The team stack is the members who receive chats (shared/widgetTeam.ts),
+    // the same people the widget's online/offline counts.
+    forConfig
+      ? chatMemberIdsRead.then((ids) => {
+        const receiving = new Set(ids ?? []);
+        const rows = memberRows.filter((m) => !!m.user_id && receiving.has(m.user_id));
+        return loadTeam(sb, resolver, widgetTeamMembers(rows).map((m) => m.user_id as string));
+      })
+      : Promise.resolve({ team: null, error: false }),
     // Smart Engagement rules (active + published only). Failure here must
     // never take down /config — the helper already degrades to an empty list.
     forConfig
@@ -749,7 +750,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
     smart: { enabled: smart.enabled, rules: smart.rules },
     aiProactive,
     aiAgent,
-    availabilityPrefs: { memberIds, prefsByUser },
+    availabilityPrefs: { memberIds, prefsByUser, chatMemberIds },
     memberIds: new Set(memberIds.map((id) => id.toLowerCase())),
     team: teamResult.team,
     logoUrl,
@@ -907,6 +908,23 @@ export function resolveEffectiveChatTemplate(
     descriptor: chatWidgetTemplate(id),
     options: resolveChatTemplateOptions(catalog, id, chosen?.widget_template_options),
   };
+}
+
+/**
+ * The visitor's preferred language (an Accept-Language header, by its
+ * q-values, ties in order) among `platformLocales`, as a base tag; '' when
+ * none of them is wanted. Reads at most 20 entries.
+ */
+export function preferredPlatformLocale(header: unknown, platformLocales: readonly string[]): string {
+  if (typeof header !== 'string' || !header) return '';
+  const wanted = header.split(',').slice(0, 20).map((part, i) => {
+    const [tag, ...params] = part.trim().split(';');
+    const qParam = params.map((p) => p.trim()).find((p) => p.startsWith('q='));
+    const q = qParam ? Number(qParam.slice(2)) : 1;
+    return { base: (tag || '').trim().toLowerCase().split('-')[0], q: Number.isFinite(q) ? q : 0, i };
+  }).filter((w) => w.base && w.base !== '*' && w.q > 0).sort((a, b) => b.q - a.q || a.i - b.i);
+  for (const w of wanted) if (platformLocales.includes(w.base)) return w.base;
+  return '';
 }
 
 /**
@@ -1176,8 +1194,13 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     if (base && platformLocales.includes(base)) return base;
     return fallbackToFirst ? (platformLocales[0] || 'en') : '';
   };
+  // 'auto' (the default): the visitor's browser language when the platform
+  // offers it, else the workspace's language. Every server-side text of the
+  // payload (availability labels, the welcome, the team's names) follows it.
+  const autoLanguage = !ws.widget_language || ws.widget_language === 'auto';
+  const browserLocale = autoLanguage ? preferredPlatformLocale(req?.headers?.['accept-language'], platformLocales) : '';
   const effectiveLocale = clampLoc(
-    ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
+    !autoLanguage ? ws.widget_language : browserLocale || ws.locale,
   );
   // Online operators first so the stack leads with available staff; a member
   // without a name of their own is the widget's word for an operator, in
@@ -1276,7 +1299,9 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     timeZone: dateHints.timeZone,
 
 
-    primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
+    // The widget's own colour, else the workspace branding's, else the seeded
+    // #3B82F6, which the widget reads as "the brand's" (shared/widgetColor.ts).
+    primaryColor: widgetWireColor(ws.primary_color, branding?.primary_color),
     secondaryColor: ws.secondary_color || '#6366f1',
     // `widget_settings.logo_url` (an operator-typed external link) or the
     // workspace's own logo derived from its storage key — snapshot.
@@ -1286,17 +1311,11 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       'launcher',
       effectiveLocale,
     ),
-    // Three-tier resolution: workspace override → platform default → hardcoded fallback.
-    // Stored in `widget_settings.welcome_message` (per-workspace) or
-    // `widget_platform_settings.default_welcome_message` (platform-wide).
-    welcomeMessage:
-      resolveLocalizedDefault(
-        ws.welcome_message,
-        'welcome',
-        effectiveLocale,
-      )
-      || platformWidget?.default_welcome_message
-      || '',
+    // The workspace's own welcome, else the Super Admin's platform default,
+    // else the built-in one in the widget's language: one rule with the
+    // panel's placeholder (shared/widgetTextDefaults.ts). An English seed
+    // left in a row counts as unset in every language.
+    welcomeMessage: resolveWelcomeMessage(ws.welcome_message, platformWidget?.default_welcome_message, effectiveLocale),
     // Workspace-authored reply-time note for the widget header. An explicit
     // empty string means "hide it"; NULL (never configured) falls back to
     // the locale default in the presentation layer.
@@ -1341,12 +1360,22 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       knowledgeBase: ws.kb_enabled ?? true,
       visitorTracking: ws.visitor_tracking_enabled ?? true,
     },
+    // P-01: the loader waits for the page's `consent` before tracking, and
+    // keeps a tracked page's query string (services/widget/trackingPrivacy.ts).
+    // Only while one is on, so other payloads are unchanged.
+    ...(ws.tracking_requires_consent === true || ws.tracking_keep_query === true
+      ? { privacy: { consent: ws.tracking_requires_consent === true, keepQuery: ws.tracking_keep_query === true } }
+      : {}),
     preChat,
     // Phase 8 — Server-authoritative availability. Computed via resolver
-    // so runtime never has to interpret weekly schedules. Locked rules:
-    //  - business_hours.enabled === false  =>  state = 'online' always.
+    // so runtime never has to interpret weekly schedules. Locked rules
+    // (availability.ts):
+    //  - business_hours.enabled === false  =>  no schedule: online while an
+    //    operator is customer-available, offline (offline_mode) otherwise.
     //  - offline_message comes from offline_message_localized (per-locale)
     //    with legacy offline_message as fallback. No translation pipeline.
+    //  - a plan without widget_business_hours wears no schedule and the
+    //    default offline behaviour, whatever the row stores.
     // `quota_full` (phase 4) only while billing locks are on: the monthly
     // chat quota is full, so a new conversation goes to the
     // leave-a-message form (see resolveConversationQuotaFull).
@@ -1354,8 +1383,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       await resolveAvailability(config, {
         workspaceId,
         locale: effectiveLocale,
-        // The raw row (not the entitlement-applied `ws`), as its own read was.
+        // The raw row (not the entitlement-applied `ws`, whose other columns
+        // the resolver does not read), with the plan's business-hours answer.
         settingsRow: widget,
+        businessHoursAllowed: businessHoursAllowedOf(snap.entitlements),
         availabilityPrefs: snap.availabilityPrefs,
         now,
       }),
@@ -1407,6 +1438,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     // store that can answer order questions (getStoreOrders); absent
     // otherwise, so other payloads are unchanged.
     ...(trackOrder ? { commerce: { trackOrder: true } } : {}),
+    // Additive, only while visitor email is switched on (shared/visitorEmail.ts;
+    // off since 2026-10-21): the away thread's "where should the reply go"
+    // email step (runtime-late.js) is drawn only then. Absent otherwise.
+    ...(VISITOR_EMAIL_FEATURES_ENABLED ? { visitorEmail: true } : {}),
     presentationRegistryUrl: assetUrl(presentationRegistryJsName),
     presentationUrl: assetUrl(presentationJsName),
     presentationStyleUrl: assetUrl(presentationCssName),
@@ -1509,7 +1544,7 @@ export async function resolveWidgetConfigBody(
 
 /**
  * Phase 8 — the bootstrap's server-authoritative availability, from the
- * snapshot (the raw row and the prefs) at `now`; no I/O.
+ * snapshot (the raw row, the plan and the prefs) at `now`; no I/O.
  */
 export async function bootstrapAvailability(
   config: ServerConfig,
@@ -1523,6 +1558,7 @@ export async function bootstrapAvailability(
     workspaceId,
     locale: localeHint,
     settingsRow: snap.widgetRow,
+    businessHoursAllowed: businessHoursAllowedOf(snap.entitlements),
     availabilityPrefs: snap.availabilityPrefs,
     now,
   });

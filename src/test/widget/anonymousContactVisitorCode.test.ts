@@ -120,6 +120,12 @@ describe('ensureVisitorContact — visitor_code stability', () => {
     expect(state.contacts[0].visitor_code).toBe(codeAfterFirst); // code unchanged
   });
 
+  it('V-08: a phone typed with Persian digits is stored in ASCII digits, never stripped to nothing', async () => {
+    await ensureVisitorContact(fakeSb(state), { workspaceId: WS, visitorId: 'v-fa', sessionId: 's1', name: 'علی', phone: '۰۹۱۲ ۳۴۵ ۶۷۸۹' });
+    expect(state.contacts).toHaveLength(1);
+    expect(state.contacts[0].phone).toBe('09123456789');
+  });
+
   it('a different visitor gets a different contact (and independently generated code)', async () => {
     await ensureVisitorContact(fakeSb(state), { workspaceId: WS, visitorId: 'v1', sessionId: 's1' });
     await ensureVisitorContact(fakeSb(state), { workspaceId: WS, visitorId: 'v2', sessionId: 's2' });

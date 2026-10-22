@@ -24,7 +24,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
-import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceLabelKey, presenceLabelOf, presenceStateOf } from '@/lib/presenceState';
 import {
   useColleagues,
   useTeamThread,
@@ -354,12 +354,12 @@ export default function TeamChatPanel() {
                 <span className={cn(
                   'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                   PRESENCE_DOT_CLASS[stateOf(peer.user_id)],
-                )} title={t(presenceHintKey(stateOf(peer.user_id)) as TranslationKey) || undefined} />
+                )} title={t(presenceHintKey(presenceLabelOf(pMap.get(peer.user_id))) as TranslationKey) || undefined} />
               </div>
               <div className="min-w-0">
                 <p className="text-[13.5px] font-semibold text-foreground truncate">{peer.full_name || peer.email}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {t(`presenceState.${stateOf(peer.user_id)}` as TranslationKey) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
+                  {t(presenceLabelKey(presenceLabelOf(pMap.get(peer.user_id))) as TranslationKey) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
                 </p>
               </div>
               <span className="ms-auto text-[10.5px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium">
@@ -407,7 +407,7 @@ export default function TeamChatPanel() {
                               </div>
                             )}
                             {!!m.body && (
-                              <p className="whitespace-pre-wrap break-words" dir="auto">{m.body}</p>
+                              <p className="whitespace-pre-wrap break-words" dir="auto" data-latin-digits="">{m.body}</p>
                             )}
                             <div className={cn('mt-1 text-[10px] tabular-nums', mine ? 'text-primary-foreground/70 text-end' : 'text-muted-foreground')}>
                               {formatTime(m.created_at)}

@@ -53,11 +53,8 @@ export interface PlatformBrandingLocalized {
   social_share_description: string | null;
   browser_title_format: string | null;
   public_site_title: string | null;
-  widget_display_name: string | null;
-  knowledge_base_title: string | null;
   legal_company_display_name: string | null;
   footer_company_text: string | null;
-  support_label: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

@@ -1,12 +1,16 @@
 /**
- * Operator Activity — online-time & productivity report for the workspace.
+ * Operator Activity — live presence & workload report for the workspace.
  *
  * Visible to workspace owners/admins only (the API enforces this too).
  * Online minutes are no longer recorded — their table,
  * `operator_activity_samples`, is dropped (database/migrations/223) — so the
- * API reports zero for them; assignments and message counts are still live.
- * Satisfaction (visitors' ratings after a chat) shows only once the window
- * has ratings.
+ * online-time tile, columns and CSV columns show only when the server says
+ * it records them (`online_time_tracked`); they used to read zero under a
+ * subtitle promising "accurate online time" (R-25). "Online now" is live
+ * presence (a panel or app open), each operator's badge too; "Available
+ * now" is what their status and schedule say. Assignments and message
+ * counts are live. Satisfaction (visitors' ratings after a chat) shows only
+ * once the window has ratings.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -17,7 +21,10 @@ import {
 import { useI18n, useTranslation } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
-import { fetchOperatorActivity, type OperatorActivityRow } from '@/lib/operator-activity-api';
+import {
+  fetchOperatorActivity, livePresenceOf, onlineTimeTracked, presenceTotals, type OperatorActivityRow,
+} from '@/lib/operator-activity-api';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceLabelKey } from '@/lib/presenceState';
 import { exportSummaryCsv, exportDetailedCsv, exportOperatorCsv } from '@/lib/operator-activity-export';
 
 import { Card } from '@/components/ui/card';
@@ -86,6 +93,8 @@ export default function OperatorActivityPage() {
 
   const maxMinutes = Math.max(1, ...(data?.operators || []).map((o) => o.online_minutes));
   const showSatisfaction = (data?.totals.csat_count ?? 0) > 0;
+  const tracked = onlineTimeTracked(data);
+  const { onlineNow, availableNow } = presenceTotals(data);
 
   return (
     <div dir={dir} className="space-y-6 animate-fade-in">
@@ -96,7 +105,7 @@ export default function OperatorActivityPage() {
             {t('operatorActivity.title')}
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {t('operatorActivity.subtitle')}
+            {t(tracked ? 'operatorActivity.subtitle' : 'operatorActivity.subtitleLive')}
           </p>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/30 p-1">
@@ -138,12 +147,14 @@ export default function OperatorActivityPage() {
       {/* KPI tiles */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { icon: CircleDot, key: 'onlineNow', value: fmt.num(data?.totals.online_now ?? 0), tone: 'text-emerald-500' },
-          { icon: Clock, key: 'totalOnline', value: duration(data?.totals.online_minutes ?? 0), tone: 'text-primary' },
-          { icon: MessageSquare, key: 'replies', value: fmt.num(data?.totals.replies_sent ?? 0), tone: 'text-indigo-500' },
-          { icon: Users, key: 'operators', value: fmt.num(data?.totals.operators ?? 0), tone: 'text-amber-500' },
-        ].map(({ icon: Icon, key, value, tone }) => (
-          <Card key={key} className="border-border/60 p-4">
+          { icon: CircleDot, key: 'onlineNow', value: onlineNow === null ? '—' : fmt.num(onlineNow), tone: 'text-emerald-500', hint: 'operatorActivity.kpi.onlineNowHint' },
+          tracked
+            ? { icon: Clock, key: 'totalOnline', value: duration(data?.totals.online_minutes ?? 0), tone: 'text-primary', hint: null }
+            : { icon: Clock, key: 'availableNow', value: fmt.num(availableNow), tone: 'text-primary', hint: 'operatorActivity.kpi.availableNowHint' },
+          { icon: MessageSquare, key: 'replies', value: fmt.num(data?.totals.replies_sent ?? 0), tone: 'text-indigo-500', hint: null },
+          { icon: Users, key: 'operators', value: fmt.num(data?.totals.operators ?? 0), tone: 'text-amber-500', hint: null },
+        ].map(({ icon: Icon, key, value, tone, hint }) => (
+          <Card key={key} data-kpi={key} className="border-border/60 p-4" title={hint ? t(hint as Parameters<typeof t>[0]) : undefined}>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Icon className={`h-4 w-4 ${tone}`} />
               {t(`operatorActivity.kpi.${key}` as Parameters<typeof t>[0])}
@@ -188,6 +199,7 @@ export default function OperatorActivityPage() {
           <div className="divide-y divide-border/60">
             {data.operators.map((op: OperatorActivityRow) => {
               const name = op.profile?.full_name || op.profile?.email || '—';
+              const live = livePresenceOf(op);
               return (
                 <div key={op.user_id} className="flex flex-wrap items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/30">
                   <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-primary/10">
@@ -203,23 +215,33 @@ export default function OperatorActivityPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-foreground">{name}</span>
+                      {/* Live presence (R-25): whether their panel or app is
+                          open right now, not only what their settings say. */}
                       <Badge
-                        className={`border px-2 py-0 text-[10px] ${
-                          op.current_state === 'online'
+                        data-presence={live}
+                        title={t(presenceHintKey(live) as Parameters<typeof t>[0])}
+                        className={`inline-flex items-center gap-1 border px-2 py-0 text-[10px] ${
+                          live === 'active'
                             ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
-                            : 'border-border bg-secondary text-muted-foreground'
+                            : live === 'away'
+                              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600'
+                              : 'border-border bg-secondary text-muted-foreground'
                         }`}
                       >
-                        {t(`operatorActivity.state.${op.current_state}` as Parameters<typeof t>[0])}
+                        <span className={`h-1.5 w-1.5 rounded-full ${PRESENCE_DOT_CLASS[live]}`} aria-hidden />
+                        {t(presenceLabelKey(live) as Parameters<typeof t>[0])}
                       </Badge>
                     </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {t('operatorActivity.lastSeen', { date: fmt.dt(op.last_seen) })}
-                    </p>
+                    {tracked && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t('operatorActivity.lastSeen', { date: fmt.dt(op.last_seen) })}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Online time + bar */}
-                  <div className="w-40">
+                  {/* Online time + bar (only when it is recorded) */}
+                  {tracked && (<>
+                  <div className="w-40" data-online-time>
                     <div className="mb-1 flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{t('operatorActivity.col.online')}</span>
                       <span className="font-medium text-foreground">{duration(op.online_minutes)}</span>
@@ -240,6 +262,7 @@ export default function OperatorActivityPage() {
                     <div className="text-xs text-muted-foreground">{t('operatorActivity.col.avgPerDay')}</div>
                     <div className="text-sm font-medium text-foreground">{duration(op.avg_minutes_per_active_day)}</div>
                   </div>
+                  </>)}
                   <div className="hidden text-center lg:block">
                     <div className="text-xs text-muted-foreground">{t('operatorActivity.col.replies')}</div>
                     <div className="text-sm font-medium text-foreground">{fmt.num(op.replies_sent)}</div>
@@ -281,7 +304,7 @@ export default function OperatorActivityPage() {
       <Card className="border-border/60 bg-muted/20 p-4">
         <div className="flex items-start gap-3 text-sm text-muted-foreground">
           <TrendingUp className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{t('operatorActivity.methodology')}</span>
+          <span>{t(tracked ? 'operatorActivity.methodology' : 'operatorActivity.methodologyLive')}</span>
         </div>
       </Card>
     </div>

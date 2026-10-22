@@ -40,6 +40,10 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
+// The transcript by email / the away email step as they come back once
+// visitor email is switched on (shared/visitorEmail.ts; off since 2026-10-21,
+// checked as such in src/test/widget/visitorEmailSwitch.test.ts).
+vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 vi.mock('../../../server/services/widget/visitorIdentity.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/visitorIdentity.js')>()),
   readVisitorCookie: () => (state.visitor ? { v: state.visitor } : null),

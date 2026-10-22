@@ -41,7 +41,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `askExamples` | up to 2 strings | none | T2 | Lines 2 and 3 of the rotating ask placeholder, each shown after `simpleAskExamplePrefix` | Line 1 is `simpleAskPlaceholder`. With fewer than two examples, render the static field (`.field.static`, suggestion). WY2 §4.4, RP2 §4.5 |
 | `topics` | list of `{label, icon}` | none | T2 home and thread chips; T1 new-conversation chips | Topic chips (`data-topic`) | Without topics: Q&A chips (`data-qna-question`); T2 home falls back to article chips (`data-home-article`) or no chips. RP2 §4.17, WY2 §4.4 |
 | `fab.shape` (existing) | `circle`, `square`; new `pill` | `circle` | Launcher (both templates) | Launcher outline. `square` is the "WebYar square" tile (18px radius on WebYar's kit button, as the designs draw it; 16px on any other launcher). `pill` is "Pill with text" | With `pill` the launcher widens to the glyph plus the `fab.label` text inside it, and the separate `.gs-fab-label` card is not drawn. The pill's glyph follows `fab.icon` (the boards draw the kit glyph). A pill (and the glyphs `bubble`, `duo`, `avatar`) is drawn by `runtime-fab.css` (§6, "Launcher styles"). WY1 §4.24, RP1 §4.29 |
-| `fab.icon` (existing) | `chat`, `message`, `help`, `headset`, `phone`, `sparkles`, `smile`; new `bubble`, `duo`, `avatar` | `chat` | Launcher | Launcher glyph. `chat` = the brand kit glyph (Respok: per `logoDirection`). `bubble` = classic bubble, `duo` = two bubbles, `headset` = support headset (the templates draw the design's glyph), `avatar` = agent face | `avatar` draws an initial tile with a presence dot; the letter is `fab.initial` (the first character that shows of the team's first operator's stack name, online first, else of the workspace's; the team is the first four members to join, one without a name of their own named «اپراتور» / "Operatör" / "Operator" by the widget's language, in `teamMembers` too; the same rule in every dashboard preview and the picker, `shared/widgetTeam.ts`). An agent photo stays production's `fab.imageUrl` (unchanged). The idle loops of board 11 / board 10 are settings-preview only. WY1 §4.24, RP1 §4.29 |
+| `fab.icon` (existing) | `chat`, `message`, `help`, `headset`, `phone`, `sparkles`, `smile`; new `bubble`, `duo`, `avatar` | `chat` | Launcher | Launcher glyph. `chat` = the brand kit glyph (Respok: per `logoDirection`). `bubble` = classic bubble, `duo` = two bubbles, `headset` = support headset (the templates draw the design's glyph), `avatar` = agent face | `avatar` draws an initial tile with a presence dot; the letter is `fab.initial` (the first character that shows of the team's first operator's stack name, online first, else of the workspace's; the team is the first four members to join among those who receive chats, one without a name of their own named «اپراتور» / "Operatör" / "Operator" by the widget's language, in `teamMembers` too; the same rule in every dashboard preview and the picker, `shared/widgetTeam.ts`). An agent photo stays production's `fab.imageUrl` (unchanged). The idle loops of board 11 / board 10 are settings-preview only. WY1 §4.24, RP1 §4.29 |
 | `fab.label` (existing) | string | none | Launcher | Today the label card next to the launcher; with `fab.shape: "pill"`, the text inside the pill | Design defaults for the pill: «سؤالی دارید؟ بپرسید» (WY1 §10) and "Questions? Ask us" (RP1 §10) |
 | `primaryColor` (existing) | any hex; palette presets in [brief §5.5](../CLAUDE_CODE_BRIEF.md) | `#3B82F6` (= uncustomised) | all | Accent `--a` | Uncustomised (empty, `#3B82F6` or unparseable) maps to the brand accent (`#0B7D6C` WebYar, `#16142B` Respok): the renderer writes no inline colour and puts `.gs-accent-brand` on its view roots and the panel's close button ([brief §5.2](../CLAUDE_CODE_BRIEF.md)). A chosen colour gets Ink text only when it is light; any other gets white, on the colour darkened until white on it reaches 5:1 (T1, T2 `accentTokens()`: `#EF4444` → `#CB3939`, `#8B5CF6` → `#7D53DF`; owner, 2026-10-18). The launcher keeps the raw colour |
 
@@ -546,17 +546,20 @@ operator has it, it is closed, routing never queued it; and before 276); 403 `CO
 in assignment mode `manual` (`server/services/chatRouting.ts`) writes `metadata.queued_at` when the conversation
 enters the queue (kept while it waits and when an operator hands it back; one older than 24 hours is a new entry)
 and `metadata.queue_entry_position`; `chat_queue_status()` (276) counts the place on the partial index (only the rows
-that wait: unassigned, open or pending, not spam) and gives the wait only from 3 measured claims and up to 180
-minutes. A **hand-back** (an operator unassigns a queued conversation, or a paused seat is released): 276's trigger
+that wait: unassigned, open or pending, not spam), since 280b in the conversation's own department's queue (the same
+`metadata.department_id`, the one the visitor picked; none counts among none, R-22), and gives the wait only from 3
+measured claims and up to 180 minutes. `POST /message` keeps a picked `department_id` only when it is one of the
+workspace's enabled chat departments. A **hand-back** (an operator unassigns a queued conversation, or a paused seat is released): 276's trigger
 `trg_conversations_queue_return` keeps `queued_at` (the place) and writes `metadata.queue_reentered_at` (when it came
 back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
 the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per
 return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back. The inbox's unassign
-(`PATCH /api/conversations/:id` with `assigned_to: null`) runs that routing at once (`routeQueueReturn`, after its
-internal «unassigned» notice), for a conversation waiting in the manual queue (not one the AI manages again: its next
-message is the AI's, and a handoff routes it) of a workspace still in mode `manual`; the visitor's next message then
-posts nothing more. Runs for one conversation at the same moment share one (`server/lib/inflight.ts` `coalesce`, per
-backend process), so a double-clicked unassign posts one queue row.
+(`PATCH /api/conversations/:id` with `assigned_to: null`) runs that routing at once (`rerouteConversation`, after its
+internal «unassigned» notice), in every mode since 2026-10-21 (auto and round robin give it to the next operator,
+never the one who let it go; manual puts it back in the queue), for a conversation nobody has that the AI will not
+answer (one the AI manages again: its next message is the AI's, and a handoff routes it); the visitor's next message
+then posts nothing more. The unassign itself applies only while the conversation is still with whoever the panel saw
+(409 `assignment_changed` otherwise), so a double-clicked unassign posts one queue row.
 
 **Away thread** (round 3, g4 f3): `POST /api/widget/offline-messages` takes `client_message_id` (8–64 characters;
 then any non-empty message up to the 5,000 characters `POST /message` takes, and the contact's stored name, email
@@ -655,7 +658,8 @@ workspace's name; `shared/widgetTeam.ts`, the same rule in the dashboard's picke
 in `data-fx`, the letter in `data-fi` and `dir` (§2.3). The file only restyles that launcher: inline `data:` SVG masks
 of the launcher's colour, the bubble's dots in the kit's second colour on the kit's own ground
 (`var(--rpk-kit-accent, var(--lk-kit-dot))`), no font, no host (WIDGET_TEMPLATE_RULES.md §2, §3). The team behind
-the stack and the letter is the first four members to join (`workspace_members.created_at`), online first; one
+the stack and the letter is the first four members to join (`workspace_members.created_at`) among those who
+receive chats (no staff, no suspended member), online first; one
 without a name of their own is «اپراتور» / "Operatör" / "Operator" by the widget's language, never an e-mail.
 
 **System messages in the reader's language** (2026-10-18, every template): a `sender_type: 'system'` row keeps its

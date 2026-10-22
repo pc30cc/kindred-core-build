@@ -54,7 +54,8 @@ import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
 import { notifyInboundMessage } from '../services/push/index.js';
-import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { authorizeInboxAccess } from '../lib/inboxAccess.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const conversationNotesRouter = Router({ mergeParams: true });
@@ -74,7 +75,7 @@ async function authorizeMember(
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
-  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  const auth = await authorizeInboxAccess(req, res, workspaceId);
   if (!auth) return null;
   return { userId: auth.userId };
 }

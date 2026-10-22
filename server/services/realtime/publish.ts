@@ -35,7 +35,7 @@ import {
 } from './types.js';
 import type { ConversationEventEnvelope } from './publishers/types.js';
 import { rtDebug, rtWarn } from './debug.js';
-import { isPlaceholderName, looksLikeEmail } from '../../../shared/systemMessages.js';
+import { isPlaceholderName, looksLikeEmail, visitorDisplayName } from '../../../shared/systemMessages.js';
 
 export type { ConversationEventEnvelope } from './publishers/types.js';
 
@@ -228,7 +228,9 @@ export function visitorMessageMetadata<T>(metadata: T): T {
  * replies, the inviting or hanging-up operator's on call rows; nothing in the
  * widget groups or labels by it: runtime.js keys a sender by its name and
  * avatar) and metadata through visitorMessageMetadata. A `sender_name` that
- * is a placeholder is null. An AI row keeps its stored name, the built-in
+ * is a placeholder or an email address (an operator who typed theirs as
+ * their profile name, I-10) is null: the widget then writes its own word
+ * for an operator. An AI row keeps its stored name, the built-in
  * 'AI Assistant' too: the runtime.js loaded before this release labels the
  * reply with it, and today's treats it as no name (runtime.js aiOwnName).
  * Keys keep their order.
@@ -238,7 +240,7 @@ export function visitorMessagePayload<T extends Record<string, unknown>>(payload
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'sender_id') continue;
     if (key === 'metadata') out[key] = visitorMessageMetadata(value);
-    else if (key === 'sender_name') out[key] = isPlaceholderName(value) ? null : value;
+    else if (key === 'sender_name') out[key] = typeof value === 'string' ? visitorDisplayName(value) : value;
     else out[key] = value;
   }
   return out as T;
@@ -276,7 +278,11 @@ export type OperatorEventKind =
   | 'message_reactions'
   // A call invitation's status changed (services/calls/invitations.ts),
   // read by the inbox's call card (src/lib/call-invitations-events.ts).
-  | 'call_invitation_changed';
+  | 'call_invitation_changed'
+  // The visitor read the conversation in the widget
+  // (services/visitorReadReceipts.ts): `visitor_last_read_at`, for the
+  // operator's "Seen". Operators only.
+  | 'visitor_read';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

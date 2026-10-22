@@ -69,11 +69,16 @@ vi.mock('../../../server/services/channels/integrations.js', () => ({ getIntegra
 vi.mock('../../../server/services/channels/providerActions.js', () => ({
   enqueueProviderActions: async (_c: unknown, job: { actions: Row[] }) => { state.queued.push(...job.actions); return true; },
 }));
-vi.mock('../../../server/services/calls/departments.js', () => ({
-  resolveRoutingCandidates: async () => ({ user_ids: [] }),
-  loadFallbackPolicy: async () => ({}),
-  ownerFallbackAllowed: () => false,
+vi.mock('../../../server/services/calls/departments.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/calls/departments.js')>()),
+  resolveChatRoutingPool: async () => ({ team: [], department: null }),
+  resolveChatRoutingMember: async () => null,
   resolveWorkspaceOwnerId: async () => null,
+}));
+// The plan allows automatic assignment (a plan without it routes as manual).
+vi.mock('../../../server/services/widget/entitlements.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/widget/entitlements.js')>()),
+  resolveWidgetCapability: async () => true,
 }));
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishOperatorEvent: async () => {},

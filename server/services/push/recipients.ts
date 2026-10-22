@@ -22,6 +22,7 @@ import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { operatorLocales } from '../operatorLocale.js';
+import { canUseInbox } from '../../../shared/chatRoles.js';
 
 /**
  * `team_message` is a colleague's direct message in team chat: addressed to
@@ -86,6 +87,21 @@ export interface Recipient {
 interface MemberRow {
   user_id: string;
   suspended_at: string | null;
+  role: string | null;
+}
+
+/**
+ * Events about a customer's conversation (or the workspace's email inbox):
+ * they reach only roles that may open the Inbox (shared/chatRoles.ts
+ * INBOX_ROLES). Staff without one get 403 there, so a push with the
+ * visitor's text would be a leak they cannot even open. A colleague's
+ * direct message, a support reply and a callback request reach every
+ * member, as before.
+ */
+const INBOX_EVENTS: ReadonlySet<PushEventType> = new Set(['new_message', 'internal_note', 'assignment', 'handoff', 'email_message']);
+
+function needsInbox(ctx: RecipientContext): boolean {
+  return INBOX_EVENTS.has(ctx.eventType) || (ctx.eventType === 'mention' && !!ctx.conversationId);
 }
 
 interface PrefsRow {
@@ -195,7 +211,7 @@ export async function resolveRecipients(
 
   let memberQuery = sb
     .from('workspace_members')
-    .select('user_id, suspended_at')
+    .select('user_id, suspended_at, role')
     .eq('workspace_id', ctx.workspaceId);
   if (ctx.userIds) memberQuery = memberQuery.in('user_id', ctx.userIds);
   const { data: members, error } = await memberQuery;
@@ -206,8 +222,10 @@ export async function resolveRecipients(
 
   const mentioned = new Set(ctx.mentionedUserIds ?? []);
   const locks = await resolveLockState(config, ctx.workspaceId, ['member']);
+  const inboxOnly = needsInbox(ctx);
   const eligible = (members as MemberRow[] | null ?? [])
     .filter((m) => !m.suspended_at)
+    .filter((m) => !inboxOnly || canUseInbox(m.role))
     .map((m) => String(m.user_id))
     .filter((id) => id !== ctx.actorId)
     .filter((id) => !isMemberLocked(locks, id));
@@ -256,6 +274,11 @@ export async function resolveRecipients(
 
     const isMentioned = mentioned.has(userId);
     const isAssignee = ctx.assignedTo === userId;
+    // A conversation nobody holds yet reaches those who follow everything
+    // ('all'). 'assigned' is "Conversations assigned to me", as the phone and
+    // desktop apps that set it say (and they are not updated with this
+    // server): an unassigned thread is not theirs.
+    const followsUnassigned = p.push_scope === 'all';
 
     // Quiet hours: silenced unless the operator was personally mentioned AND
     // the platform allows a mention to break the window. A colleague's
@@ -277,10 +300,10 @@ export async function resolveRecipients(
       // one, everyone who follows all conversations on an unassigned one.
       if (ctx.assignedTo) {
         if (!isAssignee && !isMentioned) continue;
-      } else if (p.push_scope !== 'all' && !isMentioned) continue;
+      } else if (!followsUnassigned && !isMentioned) continue;
     }
-    // Email and callbacks belong to no one yet: they reach those who follow
-    // everything, as an unassigned customer message does.
+    // Email and callbacks belong to no conversation yet: they reach those who
+    // follow everything.
     if ((ctx.eventType === 'email_message' || ctx.eventType === 'callback_request') && p.push_scope !== 'all') continue;
     // Each kind of event beyond a customer's message has its own switch.
     if (ctx.eventType === 'team_message' && p.push_team_chat === false) continue;
@@ -289,7 +312,7 @@ export async function resolveRecipients(
     if (ctx.eventType === 'handoff') {
       // Handed to somebody already: theirs alone. Handed to the queue: the
       // same people an unassigned customer message reaches.
-      if (ctx.assignedTo ? !isAssignee : p.push_scope !== 'all') continue;
+      if (ctx.assignedTo ? !isAssignee : !followsUnassigned) continue;
     }
     if (ctx.eventType === 'new_message') {
       if (p.push_scope === 'mentions' && !isMentioned) continue;
@@ -427,47 +450,45 @@ export async function unreadBadgeCount(
   workspaceId?: string | null,
 ): Promise<number> {
   const sb = getServiceClient(config);
-  // One statement (migration 236) in place of the four round trips below,
-  // which stay as the path for a database that has not run it yet.
-  try {
-    const { data, error } = await sb.rpc('push_unread_badge', {
-      p_user_id: userId,
-      p_workspace_id: workspaceId ?? null,
-    });
-    if (!error && data != null && Number.isFinite(Number(data))) return Number(data);
-  } catch {
-    // No such function, or a client without rpc: count it the long way.
+  // The memberships, with their roles: a role without an Inbox (staff,
+  // shared/chatRoles.ts) is counted no conversations — they cannot open one
+  // — only its colleagues' messages.
+  let memberQuery = sb
+    .from('workspace_members')
+    .select('workspace_id, role')
+    .eq('user_id', userId)
+    .is('suspended_at', null);
+  if (workspaceId) memberQuery = memberQuery.eq('workspace_id', workspaceId);
+  const { data: memberRows, error: memberError } = await memberQuery;
+  const memberships = (memberRows as Array<{ workspace_id: string; role: string | null }> | null ?? []);
+  const workspaceIds = memberships.map((r) => String(r.workspace_id));
+  const inboxWorkspaceIds = memberships.filter((r) => canUseInbox(r.role)).map((r) => String(r.workspace_id));
+  if (!memberError && !workspaceIds.length) return 0;
+  // One statement (migration 236) in place of the round trips below, which
+  // stay as the path for a database that has not run it yet, and for a
+  // member who is staff somewhere.
+  if (memberError || inboxWorkspaceIds.length === workspaceIds.length) {
+    try {
+      const { data, error } = await sb.rpc('push_unread_badge', {
+        p_user_id: userId,
+        p_workspace_id: workspaceId ?? null,
+      });
+      if (!error && data != null && Number.isFinite(Number(data))) return Number(data);
+    } catch {
+      // No such function, or a client without rpc: count it the long way.
+    }
+    if (memberError) return 0;
   }
-  let workspaceIds: string[] = [];
-  if (workspaceId) {
-    const { data: member } = await sb
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', userId)
-      .is('suspended_at', null)
-      .maybeSingle();
-    if (!member) return 0;
-    workspaceIds = [workspaceId];
-  } else {
-    const { data: rows } = await sb
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', userId)
-      .is('suspended_at', null);
-    workspaceIds = (rows as { workspace_id: string }[] | null ?? []).map((r) => String(r.workspace_id));
-  }
-  if (!workspaceIds.length) return 0;
 
-  const { data: convs } = await sb
+  const { data: convs } = inboxWorkspaceIds.length ? await sb
     .from('conversations')
     .select('id')
-    .in('workspace_id', workspaceIds)
+    .in('workspace_id', inboxWorkspaceIds)
     .eq('status', 'open')
     .eq('is_spam', false)
     .or('ai_state.is.null,ai_state.neq.ai_managed')
     .or(`assigned_to.is.null,assigned_to.eq.${userId}`)
-    .limit(500);
+    .limit(500) : { data: [] };
   const ids = (convs as { id: string }[] | null ?? []).map((c) => String(c.id));
 
   let conversations = 0;

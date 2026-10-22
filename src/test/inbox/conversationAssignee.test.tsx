@@ -108,12 +108,12 @@ describe('a team lead on a colleague\'s conversation', () => {
     expect(option('unassign')).not.toBeNull();
   });
 
-  it('hands it to an operator through the transfer route', async () => {
+  it('hands it to an operator through the transfer route, telling the server whose it was', async () => {
     const transfer = vi.spyOn(conversationsApi, 'transfer').mockResolvedValue({});
     const { invalidate } = draw({ assignedTo: 'amy', viewerId: 'lead', viewerRole: 'team_lead' });
     fireEvent.click(document.querySelector('[data-inbox="transfer-toggle"]')!);
     fireEvent.click(option('user:zed')!);
-    await waitFor(() => expect(transfer).toHaveBeenCalledWith({ workspace_id: WS, conversation_id: CONV, user_id: 'zed' }));
+    await waitFor(() => expect(transfer).toHaveBeenCalledWith({ workspace_id: WS, conversation_id: CONV, user_id: 'zed', expected_assigned_to: 'amy' }));
     await waitFor(() => expect(toastSpy).toHaveBeenCalledWith({ title: 'inbox.transferDone{"name":"Zed"}' }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversations', WS] });
     expect(picker()).toBeNull();
@@ -124,7 +124,7 @@ describe('a team lead on a colleague\'s conversation', () => {
     draw({ assignedTo: 'amy', viewerId: 'lead', viewerRole: 'team_lead' });
     fireEvent.click(document.querySelector('[data-inbox="transfer-toggle"]')!);
     fireEvent.click(option('department:d-sales')!);
-    await waitFor(() => expect(transfer).toHaveBeenCalledWith({ workspace_id: WS, conversation_id: CONV, department_id: 'd-sales' }));
+    await waitFor(() => expect(transfer).toHaveBeenCalledWith({ workspace_id: WS, conversation_id: CONV, department_id: 'd-sales', expected_assigned_to: 'amy' }));
     await waitFor(() => expect(toastSpy).toHaveBeenCalledWith({ title: 'inbox.transferToDepartmentDone{"name":"Sales"}' }));
   });
 

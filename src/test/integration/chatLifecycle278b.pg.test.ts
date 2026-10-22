@@ -359,6 +359,10 @@ suite('who has a conversation, on a real database (278b)', () => {
     expect(toBahar.status).toBe(200);
     expect(toBahar.body.conversation).toMatchObject({ id: alis, assigned_to: b });
     expect(await until(() => events(alis, 'assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ from: a, to: b, method: 'manual', source: 'transfer' })]);
+    // A panel that still shows Ali (the Inbox sends whom it showed): somebody
+    // moved it since, so nothing moves and the answer names who has it.
+    expect((await transfer(lead, alis, { user_id: c, expected_assigned_to: a })).body).toEqual({ error: 'assignment_changed', assigned_to: b });
+    expect((await transfer(lead, alis, { department_id: sales, expected_assigned_to: null })).status).toBe(409);
     // Not Ali's any more: he may not move it.
     expect((await transfer(a, alis, { user_id: a })).status).toBe(403);
     expect((await transfer(a, alis, { department_id: sales })).body).toEqual({ error: 'not_allowed' });

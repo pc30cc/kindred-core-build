@@ -172,15 +172,18 @@ export function describeEvent(
       return { primary: L('conversationStarted', 'Operator started the conversation') };
     case 'identified':
       return { primary: L('identified', 'Visitor identified'), secondary: codeLabel(t, 'method', p?.method) };
+    // How it was given or taken away (chat routing's methods: auto, round
+    // robin, last agent, timeout, take over, a member leaving…), and for a
+    // hand-made one where it came from (a transfer, an operator's outreach).
     case 'assigned': {
       const to = p?._refs?.to?.full_name || p?._refs?.to?.email || L('someone', 'someone');
       return {
         primary: `${L('assignedTo', 'Assigned to')} ${to}`,
-        secondary: codeLabel(t, 'method', p?.method),
+        secondary: joinParts(codeLabel(t, 'method', p?.method), codeLabel(t, 'source', p?.source)),
       };
     }
     case 'unassigned':
-      return { primary: L('unassigned', 'Unassigned') };
+      return { primary: L('unassigned', 'Unassigned'), secondary: codeLabel(t, 'method', p?.method) };
     // The PATCH files a move to `closed` as a `resolved` event too; its
     // payload says which (finding I-01: it used to read "Marked as resolved").
     case 'resolved':

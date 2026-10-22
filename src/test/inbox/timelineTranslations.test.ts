@@ -40,13 +40,25 @@ function event(event_type: string, payload: Record<string, unknown> = {}): Timel
   return { id: event_type, event_type, payload, created_at: '2026-10-16T00:00:00Z', actor_type: 'system' } as unknown as TimelineEvent;
 }
 
+const ASSIGNED_METHODS = ['auto', 'round_robin', 'last_agent', 'owner_fallback', 'timeout_reassign', 'take_over', 'manual', 'first_reply'];
+const UNASSIGNED_METHODS = [
+  'manual', 'timeout_release', 'transfer_department', 'reopen_release', 'assignee_unavailable',
+  'member_removed', 'member_suspended', 'member_role_changed',
+];
+
 const EVENTS: TimelineEvent[] = [
   event('created', { source: 'widget' }),
   ...['telegram', 'bale', 'whatsapp', 'instagram', 'x', 'platform_support'].map((source) => event('created', { source })),
   event('conversation_started', { source: 'visitor_outreach' }),
   ...['email', 'phone', 'visitor_id', 'prechat', 'token'].map((method) => event('identified', { method })),
   event('assigned', { method: 'manual_claim' }),
+  // Chat routing's and the Inbox's ways of giving a conversation and taking
+  // it away (server/services/chatRouting.ts, conversationAssignment.ts).
+  ...ASSIGNED_METHODS.map((method) => event('assigned', { method })),
+  event('assigned', { method: 'manual', source: 'transfer' }),
+  event('assigned', { method: 'manual', source: 'visitor_outreach' }),
   event('unassigned'),
+  ...UNASSIGNED_METHODS.map((method) => event('unassigned', { method })),
   event('status_changed', { from: 'pending', to: 'open', reason: 'customer_replied' }),
   event('status_changed', { from: 'open', to: 'pending', reason: 'manual_status_change' }),
   event('status_changed', { to: 'pending', reason: 'waiting_for_customer' }),
@@ -107,6 +119,22 @@ describe('Activity timeline translations', () => {
       expect(bad).toEqual([]);
     });
   }
+
+  it('names how a conversation was given or taken away in every language, not by its code', () => {
+    for (const [locale, messages] of Object.entries({ en, fa, tr })) {
+      const t = translator(messages as unknown as Record<string, unknown>);
+      for (const method of new Set([...ASSIGNED_METHODS, ...UNASSIGNED_METHODS])) {
+        const key = `inbox.timeline.method.${method}`;
+        expect(t(key), `${locale} ${method}`).not.toBe(key);
+      }
+      expect(t('inbox.timeline.source.transfer'), locale).not.toBe('inbox.timeline.source.transfer');
+    }
+    const faT = translator(fa as unknown as Record<string, unknown>);
+    expect(describeEvent(event('assigned', { method: 'last_agent' }), faT).secondary).toBe('بازدیدکنندهٔ بازگشتی: همان اپراتور قبلی');
+    expect(describeEvent(event('assigned', { method: 'manual', source: 'transfer' }), faT).secondary).toBe('واگذاری دستی · انتقال توسط اپراتور');
+    expect(describeEvent(event('unassigned', { method: 'member_removed' }), faT))
+      .toEqual({ primary: 'لغو واگذاری', secondary: 'اپراتور از تیم خارج شد' });
+  });
 
   it('shows the real values: Persian reason, channel and duration', () => {
     const t = translator(fa as unknown as Record<string, unknown>);

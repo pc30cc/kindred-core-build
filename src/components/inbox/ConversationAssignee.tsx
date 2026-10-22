@@ -126,16 +126,22 @@ export function ConversationAssignee({
     const done = t('inbox.transferDone', { name: me ? memberName(me) : t('inbox.you') });
     // Unassigned: the atomic claim (409 when somebody was quicker).
     if (!assignedTo) return run(() => conversationsApi.claim({ workspace_id: workspaceId, conversation_id: conversationId }), done);
-    return run(() => conversationsApi.transfer({ workspace_id: workspaceId, conversation_id: conversationId, user_id: viewerId }), done);
+    return run(() => conversationsApi.transfer({
+      workspace_id: workspaceId, conversation_id: conversationId, user_id: viewerId, expected_assigned_to: assignedTo,
+    }), done);
   };
   const toOperator = (userId: string, name: string) =>
     run(
-      () => conversationsApi.transfer({ workspace_id: workspaceId, conversation_id: conversationId, user_id: userId }),
+      () => conversationsApi.transfer({
+        workspace_id: workspaceId, conversation_id: conversationId, user_id: userId, expected_assigned_to: assignedTo,
+      }),
       t('inbox.transferDone', { name }),
     );
   const toDepartment = (id: string, name: string) =>
     run(
-      () => conversationsApi.transfer({ workspace_id: workspaceId, conversation_id: conversationId, department_id: id }),
+      () => conversationsApi.transfer({
+        workspace_id: workspaceId, conversation_id: conversationId, department_id: id, expected_assigned_to: assignedTo,
+      }),
       t('inbox.transferToDepartmentDone', { name }),
     );
   const unassign = () =>

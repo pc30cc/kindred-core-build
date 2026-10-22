@@ -324,13 +324,16 @@ export const conversationsApi = {
    * A department unassigns it and routes it among that department's
    * available operators. Supervisors move anyone's conversation; everyone
    * else only an unassigned one or their own (shared/chatRoles.ts).
-   * Throws AssignmentError.
+   * `expected_assigned_to`: who the panel showed as the assignee, so the
+   * server answers 409 `assignment_changed` when somebody else moved it
+   * since. Throws AssignmentError.
    */
   async transfer(payload: {
     workspace_id: string;
     conversation_id: string;
     user_id?: string;
     department_id?: string;
+    expected_assigned_to?: string | null;
   }): Promise<{ conversation?: Record<string, unknown> } & Record<string, unknown>> {
     const { conversation_id, ...body } = payload;
     return assignmentRequest(`/api/conversations/${encodeURIComponent(conversation_id)}/transfer`, body);

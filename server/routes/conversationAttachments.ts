@@ -16,10 +16,20 @@
  * Routes:
  *   POST   /api/conversation-attachments/init       → reserve row + path
  *   POST   /api/conversation-attachments/:id/upload → stream bytes via storage
- *   DELETE /api/conversation-attachments/:id        → admin/owner only
+ *   DELETE /api/conversation-attachments/:id        → uploader only
+ *   GET    /api/conversation-attachments/:id/file   → operator-side stream
  *
  * Attaching to a message happens via POST /api/conversations/send-message
- * by passing `attachment_id` (handled there).
+ * (the Inbox) or POST /api/team-chat/messages (team chat) by passing
+ * `attachment_id` (handled there).
+ *
+ * Who may use them: a row bound to a conversation is the Inbox's, so only
+ * a member who has the Inbox (server/lib/inboxAccess.ts) touches it. A row
+ * with `conversation_id = NULL` is a team-chat file, and team chat is for
+ * every member, staff without an Inbox included: any member reserves one,
+ * its uploader uploads or deletes it, and it opens for its uploader or for
+ * the sender or recipient of the team message that carries it. Inbox roles
+ * open any row of their workspace, as before.
  */
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -30,8 +40,8 @@ import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
-import { serverConfigOf } from '../lib/workspaceAuth.js';
-import { authorizeInboxAccess } from '../lib/inboxAccess.js';
+import { authorizeWorkspaceAccess, serverConfigOf, type WorkspaceAuth } from '../lib/workspaceAuth.js';
+import { INBOX_NOT_ALLOWED, mayUseInbox } from '../lib/inboxAccess.js';
 import { verifyAttachmentAccess } from '../services/channels/mediaOutbound.js';
 
 export const conversationAttachmentsRouter = Router();
@@ -125,11 +135,44 @@ function buildStoragePath(workspaceId: string, fileName: string, mime: string): 
 
 /** Authenticate caller as a workspace member. Sends 401/403 on failure. */
 async function authorizeMember(
-  req: Request, res: Response, _config: ServerConfig, workspaceId: string,
-): Promise<{ userId: string } | null> {
-  const auth = await authorizeInboxAccess(req, res, workspaceId);
-  if (!auth) return null;
-  return { userId: auth.userId };
+  req: Request, res: Response, workspaceId: string,
+): Promise<WorkspaceAuth | null> {
+  return authorizeWorkspaceAccess(req, res, workspaceId);
+}
+
+/**
+ * The Inbox's door for a row bound to a conversation (or a reservation for
+ * one): a member without the Inbox gets 403 `inbox_not_allowed`. A
+ * team-chat row (no conversation) passes. Writes the 403 and returns false
+ * when the caller must stop.
+ */
+function passesInboxDoor(
+  res: Response, auth: WorkspaceAuth, conversationId: unknown,
+): boolean {
+  if (!conversationId || mayUseInbox(auth)) return true;
+  res.status(403).json(INBOX_NOT_ALLOWED);
+  return false;
+}
+
+/**
+ * Whether a member without the Inbox may open this team-chat row: they
+ * uploaded it, or they sent or received the team message that carries it.
+ */
+async function mayOpenTeamChatFile(
+  sb: ReturnType<typeof getServiceClient>,
+  row: { id: string; workspace_id: string; uploaded_by_type?: string | null; uploaded_by_id?: string | null },
+  userId: string,
+): Promise<boolean> {
+  if (row.uploaded_by_type === 'agent' && row.uploaded_by_id === userId) return true;
+  const { data, error } = await sb
+    .from('team_messages')
+    .select('id')
+    .eq('workspace_id', row.workspace_id)
+    .eq('attachment_id', row.id)
+    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+    .limit(1);
+  if (error) throw new Error(`team_messages read failed: ${error.message}`);
+  return Array.isArray(data) && data.length > 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -152,8 +195,11 @@ conversationAttachmentsRouter.post('/init', async (req, res) => {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
     }
     const data = parsed.data;
-    const auth = await authorizeMember(req, res, config, data.workspace_id);
+    const auth = await authorizeMember(req, res, data.workspace_id);
     if (!auth) return;
+    // A reservation for a conversation is the Inbox's; one with none is a
+    // team-chat file, open to every member.
+    if (!passesInboxDoor(res, auth, data.conversation_id)) return;
 
     if (!GLOBAL_ALLOWED_MIMES.has(data.mime_type)) {
       return res.status(415).json({ error: 'File type not allowed', mime_type: data.mime_type });
@@ -229,18 +275,19 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
     const parsed = uploadSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid body' });
 
-    const auth = await authorizeMember(req, res, config, parsed.data.workspace_id);
+    const auth = await authorizeMember(req, res, parsed.data.workspace_id);
     if (!auth) return;
 
     const sb = getServiceClient(config);
     const { data: row } = await sb
       .from('conversation_attachments')
-      .select('id, workspace_id, storage_path, mime_type, size_bytes, status, uploaded_by_id, uploaded_by_type')
+      .select('id, workspace_id, conversation_id, storage_path, mime_type, size_bytes, status, uploaded_by_id, uploaded_by_type')
       .eq('id', req.params.id)
       .maybeSingle();
 
     if (!row) return res.status(404).json({ error: 'Attachment not found' });
     if (row.workspace_id !== parsed.data.workspace_id) return res.status(403).json({ error: 'Forbidden' });
+    if (!passesInboxDoor(res, auth, row.conversation_id)) return;
     if (row.status !== 'uploading') return res.status(409).json({ error: 'Attachment not in uploading state' });
     // Operator upload route can only finalize operator-initiated rows.
     if (row.uploaded_by_type !== 'agent' || row.uploaded_by_id !== auth.userId) {
@@ -314,17 +361,18 @@ conversationAttachmentsRouter.delete('/:id', async (req, res) => {
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
-    const auth = await authorizeMember(req, res, config, workspaceId);
+    const auth = await authorizeMember(req, res, workspaceId);
     if (!auth) return;
 
     const sb = getServiceClient(config);
     const { data: row } = await sb
       .from('conversation_attachments')
-      .select('id, workspace_id, uploaded_by_id, uploaded_by_type, status')
+      .select('id, workspace_id, conversation_id, uploaded_by_id, uploaded_by_type, status')
       .eq('id', req.params.id)
       .maybeSingle();
     if (!row) return res.status(404).json({ error: 'Not found' });
     if (row.workspace_id !== workspaceId) return res.status(403).json({ error: 'Forbidden' });
+    if (!passesInboxDoor(res, auth, row.conversation_id)) return;
     // Only the uploader (agent) can delete pending/uploaded operator attachments.
     if (row.uploaded_by_type !== 'agent' || row.uploaded_by_id !== auth.userId) {
       return res.status(403).json({ error: 'Forbidden' });
@@ -356,7 +404,7 @@ conversationAttachmentsRouter.get('/:id/file', async (req, res) => {
 
     const { data: row } = await sb
       .from('conversation_attachments')
-      .select('id, workspace_id, storage_path, mime_type, file_name, size_bytes, status')
+      .select('id, workspace_id, conversation_id, storage_path, mime_type, file_name, size_bytes, status, uploaded_by_type, uploaded_by_id')
       .eq('id', req.params.id)
       .maybeSingle();
     if (!row) return res.status(404).json({ error: 'not_found' });
@@ -366,8 +414,13 @@ conversationAttachmentsRouter.get('/:id/file', async (req, res) => {
 
     // Authorization derives from the row's OWN workspace — a caller cannot
     // probe an arbitrary attachment id with a forged workspace_id.
-    const auth = await authorizeMember(req, res, config, row.workspace_id as string);
+    const auth = await authorizeMember(req, res, row.workspace_id as string);
     if (!auth) return;
+    if (!passesInboxDoor(res, auth, row.conversation_id)) return;
+    // A member without the Inbox opens a team-chat file only when it is theirs.
+    if (!mayUseInbox(auth) && !(await mayOpenTeamChatFile(sb, row, auth.userId))) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
 
     const expectedPrefix = `workspace/${row.workspace_id}/`;
     if (!String(row.storage_path).startsWith(expectedPrefix) || String(row.storage_path).includes('..')) {

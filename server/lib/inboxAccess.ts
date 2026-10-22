@@ -5,7 +5,9 @@
  *   - the Inbox — its conversations, messages, notes, timeline and
  *     attachments — is for the owner, admins and the chat team
  *     (INBOX_ROLES); every other staff role gets 403 `inbox_not_allowed`
- *     from its routes (the panel hides it for them);
+ *     from its routes (the panel hides it for them). Team chat is not the
+ *     Inbox: its files (attachment rows with no conversation) stay open to
+ *     the members they concern (server/routes/conversationAttachments.ts);
  *   - "All conversations" and moving anyone's conversation are for
  *     supervisors (owner, admin, team lead).
  *

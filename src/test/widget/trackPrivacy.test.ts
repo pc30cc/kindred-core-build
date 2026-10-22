@@ -25,7 +25,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 type Row = Record<string, unknown>;
 interface Op { table: string; kind: 'select' | 'insert' | 'update'; columns: string; payload?: Row; filters: Array<[string, unknown]> }
 
-const db = vi.hoisted(() => ({ tables: {} as Record<string, Row[]>, ops: [] as Op[], noPrivacyColumns: false }));
+const db = vi.hoisted(() => ({ tables: {} as Record<string, Row[]>, ops: [] as Op[], noPrivacyColumns: false, settingsFailOnce: false }));
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
@@ -37,6 +37,10 @@ vi.mock('@supabase/supabase-js', () => ({
         if (op.kind !== 'select') {
           if (op.kind === 'insert' && table === 'visitor_sessions') return { data: { id: 'sess-new' }, error: null };
           return { data: null, error: null };
+        }
+        if (table === 'widget_settings' && db.settingsFailOnce) {
+          db.settingsFailOnce = false;
+          return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
         }
         if (table === 'widget_settings' && db.noPrivacyColumns && op.columns.includes('tracking_')) {
           return { data: null, error: { code: '42703', message: 'column "tracking_requires_consent" does not exist' } };
@@ -119,6 +123,7 @@ function settings(over: Row = {}) {
 
 beforeEach(() => {
   db.noPrivacyColumns = false;
+  db.settingsFailOnce = false;
   db.tables = { visitor_sessions: [], workspaces: [{ id: WS, name: 'Shop' }] };
   settings();
 });
@@ -162,6 +167,14 @@ describe('POST /track: consent', () => {
     const given = await track({ consent: true });
     expect(given.body.session_id).toBe('sess-new');
     expect(written('visitor_sessions')).toBeTruthy();
+  });
+
+  it('settings that cannot be read (a timeout, not an older database) are the cautious side: consent asked', async () => {
+    settings({ tracking_requires_consent: true });
+    db.settingsFailOnce = true;
+    const held = await track({});
+    expect(held.body).toEqual({ ok: true, tracked: false });
+    expect(writes()).toEqual([]);
   });
 
   it('a refusal is never tracked, wherever', async () => {

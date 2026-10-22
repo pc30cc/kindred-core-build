@@ -201,9 +201,12 @@ export function effectivePrechat(
     }
   }
   // Without the plan's form only a forced field is asked, at the historical
-  // moment; nothing forced, no form.
-  const timing: PrechatTiming = base
-    ? normalizePrechatTiming(base.prechat_timing)
+  // moment; nothing forced, no form. A field the Super Admin forces on is
+  // asked whatever the workspace's timing says: "never" cannot switch it
+  // off (it becomes the historical moment too).
+  const own = base ? normalizePrechatTiming(base.prechat_timing) : null;
+  const timing: PrechatTiming = own
+    ? (forced && own === 'never' ? 'after_handoff' : own)
     : forced ? 'after_handoff' : 'never';
   return {
     ask_name: ask.name,

@@ -164,13 +164,12 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const memoKey = `${workspaceId}:${auth.userId}`;
     const leaseKey = `${memoKey}:${source}`;
 
-    // LIVE PRESENCE — the lease is now refreshed on every beat (coalesced to
-    // one write per LEASE_REWRITE_MS per operator per process across that
-    // operator's sources), not only in
-    // database-fallback mode. Rationale: a *successful but empty* Centrifugo
-    // presence read is indistinguishable from "this operator's subscription
-    // silently died", which used to pin a working, open panel to "offline"
-    // for its whole session. The lease is one upsert per operator per
+    // LIVE PRESENCE — the lease is now refreshed on every beat (at most one
+    // write per LEASE_REWRITE_MS per source per process, see the memo), not
+    // only in database-fallback mode. Rationale: a *successful but empty*
+    // Centrifugo presence read is indistinguishable from "this operator's
+    // subscription silently died", which used to pin a working, open panel to
+    // "offline" for its whole session. The lease is one write per source per
     // heartbeat interval (2 min) on a bounded, single-row-per-operator table
     // — operators are dozens, unlike visitors — so it is a cheap, durable
     // second signal. Presence reads UNION realtime with this lease; realtime

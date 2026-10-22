@@ -149,6 +149,9 @@ suite('the visitor\'s department, from the picker to an operator and a place in 
     await q(`INSERT INTO public.workspace_department_members (workspace_id, department_id, user_id) VALUES ($1, $2, $3), ($1, $4, $5)`,
       [ws, sales, cyrus, support, bahar]);
     await q(`INSERT INTO public.widget_settings (workspace_id, enabled, assignment_mode, first_response_timeout_minutes) VALUES ($1, true, 'auto', 0)`, [ws]);
+    // No pre-chat form (without a row of its own the default one is asked, and routing waits for it).
+    await q(`INSERT INTO public.widget_prechat_settings (workspace_id, ask_name, ask_email, ask_phone, require_name, require_email, prechat_timing)
+             VALUES ($1, false, false, false, false, false, 'never')`, [ws]);
 
     Object.assign(process.env, {
       DATABASE_URL: chain.url,

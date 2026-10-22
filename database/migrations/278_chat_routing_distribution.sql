@@ -44,6 +44,11 @@
 -- 6. Two partial indexes on conversations: the load count
 --    (conversations_open_assignee_idx) and a contact's latest conversations
 --    (conversations_contact_recent_idx, for the returning visitor's operator).
+-- 7. Conversations an older release left waiting for the pre-chat form
+--    (metadata.routing_pending, no deadline anywhere): those still open,
+--    unassigned and active in the last 24 hours get a deadline of now, so
+--    the ticker routes them on its first pass; older ones are routed by
+--    their visitor's next message (chatRouting.ts prechatWaitOver).
 --
 -- Every new table is server-only: RLS on, nothing for PUBLIC, anon or
 -- authenticated, service_role alone through its policy. The functions are
@@ -69,15 +74,16 @@
 -- UPDATE EXCLUSIVE: reads and writes go on). The new tables' foreign keys
 -- take SHARE ROW EXCLUSIVE on workspaces and conversations for an instant;
 -- the two indexes SHARE on conversations (writes wait) while they are built,
--- unless they were built beforehand as above. Re-runnable: every step is
+-- unless they were built beforehand as above. 7. reads conversations once
+-- (no lock beyond ACCESS SHARE) and inserts into the new table. Re-runnable: every step is
 -- guarded or a no-op the second time.
 -- The file sets lock_timeout 5s itself (not one transaction, so for the
 -- session, reset at the end): a runner without PGOPTIONS, such as RESPOK's
 -- migrator, must not leave every chat write queued behind a lock that waits
 -- for an open transaction. A statement stopped by it is simply run again.
 -- Dry run: the file inside BEGIN … ROLLBACK. Changes no existing value (the
--- new columns read their defaults); drops nothing; touches no archive schema
--- or table.
+-- new columns read their defaults; 7. only adds routing rows); drops
+-- nothing; touches no archive schema or table.
 
 SET lock_timeout = '5s';
 
@@ -704,6 +710,17 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- ─── 7. Pre-chat waits an older release left without a deadline ──────────
+INSERT INTO public.chat_routing_state AS s (conversation_id, workspace_id, prechat_deadline, updated_at)
+SELECT c.id, c.workspace_id, now(), now()
+  FROM public.conversations c
+ WHERE (c.metadata->>'routing_pending') = 'true'
+   AND c.assigned_to IS NULL
+   AND c.status IN ('open', 'pending')
+   AND c.is_spam = false
+   AND c.updated_at > now() - interval '24 hours'
+ON CONFLICT (conversation_id) DO NOTHING;
 
 -- ─── Access: the backend (service_role) only ──────────────────────────────
 DO $acl$

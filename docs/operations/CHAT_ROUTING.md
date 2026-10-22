@@ -35,9 +35,16 @@ and 280b (`chat_route_claim` and its helpers).
 **When a chat is routed.** At the visitor's first message, unless an AI will
 answer it (the AI is off by default; `suggest_only` never answers;
 `auto_reply_when_offline` answers only while nobody is online). When the AI
-does answer, the chat is routed when it hands over. If the workspace asks
-for the pre-chat form first, routing waits for it, and routes anyway two
-minutes later if the form never comes.
+does answer, the chat is routed when it hands over. A message left in the
+widget's leave-a-message form is routed too (no visitor notice: the form
+confirmed it), waiting for the ticker when nobody can take it. If the
+visitor is asked the pre-chat form (the form they actually get: the Super
+Admin's policy, the plan and the workspace's own, timing not "never"; never
+on a channel), routing waits for it, once per conversation, and routes
+anyway two minutes later if the form never comes; a form sent, even empty,
+is never waited for again. A claim that fails (a database blip) is retried
+by the ticker. If the plan cannot be read for a moment, the stored mode
+stands rather than Manual.
 
 **Who gets it**, in this order:
 
@@ -99,7 +106,9 @@ arriving at the same moment spread out instead of all landing on one person.
   holder when someone was faster); a reassignment from a stale screen gets
   409 `assignment_changed`. `POST /api/conversations/:id/transfer` moves a
   chat to a person or to a department (a department transfer unassigns it
-  and routes it inside that department). Assigning to a suspended member, a
+  and routes it inside that department only: not the whole team, not the
+  owner fallback; nobody there, it waits for them, until the thread ends or
+  someone gives it to a person). Assigning to a suspended member, a
   non-member or staff is refused (400 `invalid_target`). Assigning an
   AI-handled chat to a person is a human takeover.
 - **Unassign** routes the chat again, in every mode.
@@ -149,8 +158,14 @@ one replica takes the `chat_routing` lease (`tickerLease`, as the other
 tickers) and asks `chat_routing_due()` for up to 100 due rows of each kind:
 
 - `prechat`: the pre-chat wait ran out (two minutes): route anyway;
-- `waiting`: a chat nobody could take: try again, oldest first (a workspace
-  where nobody was online is skipped for the rest of that pass);
+- `waiting`: a chat nobody could take: try again. The rows whose retry fell
+  due longest ago go first, so more than 100 waiting chats take turns; a
+  pass's rows are tried oldest wait first, and a workspace where nobody was
+  online is skipped for the rest of that pass. A wait that saw activity (the
+  visitor wrote, the chat was handed back) in the last hour is retried every
+  25 seconds, an older one every 2 minutes; one that nothing but the ticker
+  touched for 24 hours is forgotten (it stays in Unassigned, and the
+  visitor's next message routes it again), as released chats are;
 - `timeout`: an assignee missed the first-response timeout: reassign.
 
 Every step is idempotent (the assignment is `chat_route_claim`'s

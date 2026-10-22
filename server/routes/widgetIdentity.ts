@@ -60,7 +60,7 @@ import { getClientCountry } from '../utils/clientIp.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../services/storage/urlResolver.js';
 import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
-import { loadEffectivePrechat, recordPrivacyConsent } from '../services/widget/prechatEffective.js';
+import { loadEffectivePrechat, recordPrechatSubmitted } from '../services/widget/prechatEffective.js';
 import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../shared/visitorEmail.js';
 
 /**
@@ -300,7 +300,8 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       cfCountry: getClientCountry(req),
     });
 
-    if (prechat.privacy?.consent) void recordPrivacyConsent(supabase, workspaceId, merge.contactId, 'prechat', prechat.privacy.url);
+    // Sent (consent included when asked): routing no longer waits for it.
+    void recordPrechatSubmitted(supabase, workspaceId, merge.contactId, prechat.privacy?.consent ? { policyUrl: prechat.privacy.url } : null);
     void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
     void triggerDeferredRoutingForContact(config, supabase, workspaceId, merge.contactId);
     // Hand the call widget a continuity cookie for the same contact so its

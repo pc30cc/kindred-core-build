@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- the data layer test double is intentionally untyped. */
 /**
  * Support Intelligence vNext — production acceptance matrix (scenarios A–L).
  *
@@ -170,7 +171,9 @@ beforeEach(() => {
   conv = { id: CONV, workspace_id: WS, status: 'open', contact_id: null, metadata: {} };
   messages = [{ id: MSG, conversation_id: CONV, sender_type: 'contact', created_at: ANCHOR }];
   guidance = [];
-  prechat = null;
+  // No pre-chat form (a workspace without its own row is asked the default
+  // one, and routing would wait for it: the deferral case sets its own).
+  prechat = { ask_name: false, ask_email: false, ask_phone: false, prechat_timing: 'never' };
   routeCalls = [];
   routeThrows = false;
   metadataRpcFails = false;

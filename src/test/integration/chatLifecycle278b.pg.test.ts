@@ -143,6 +143,9 @@ suite('who has a conversation, on a real database (278b)', () => {
                ($1, $2, 'owner'), ($1, $3, 'support_agent'), ($1, $4, 'agent'), ($1, $5, 'sales_agent'),
                ($1, $6, 'team_lead'), ($1, $7, 'admin'), ($1, $8, 'seo_manager')`, [ws, owner, a, b, c, lead, admin, seo]);
     await q(`INSERT INTO public.widget_settings (workspace_id, enabled, assignment_mode) VALUES ($1, true, 'auto')`, [ws]);
+    // No pre-chat form (without a row of its own the default one is asked, and routing waits for it).
+    await q(`INSERT INTO public.widget_prechat_settings (workspace_id, ask_name, ask_email, ask_phone, require_name, require_email, prechat_timing)
+             VALUES ($1, false, false, false, false, false, 'never')`, [ws]);
     sales = String((await one(`INSERT INTO public.workspace_departments (workspace_id, name) VALUES ($1, 'Sales') RETURNING id`, [ws])).id);
     await q(`INSERT INTO public.workspace_department_members (workspace_id, department_id, user_id) VALUES ($1, $2, $3)`, [ws, sales, c]);
 

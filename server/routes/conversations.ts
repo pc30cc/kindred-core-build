@@ -1302,14 +1302,16 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 //                   atomic, the visitor's transfer line, the new operator's
 //                   phone, the AI letting go);
 //   to a department the conversation leaves its operator (atomically), takes
-//                   the department, and is routed there now — the
-//                   department's available operators first, then the team
-//                   unless the Super Admin turned the general pool off; in
-//                   manual mode it waits in the queue — whatever the AI would
-//                   do (a person was asked for). Whoever held it is not
-//                   offered it again for this chat. The Inbox reads "X
-//                   transferred this conversation to <department>"
-//                   (internal); the visitor hears who joins.
+//                   the department, and is routed inside it now — the
+//                   department's available operators only (never the whole
+//                   team or the owner fallback: nobody there = it waits for
+//                   them, `routing_department_only` until the thread ends or
+//                   someone moves it to a person); in manual mode it waits
+//                   in the queue — whatever the AI would do (a person was
+//                   asked for). Whoever held it is not offered it again for
+//                   this chat. The Inbox reads "X transferred this
+//                   conversation to <department>" (internal); the visitor
+//                   hears who joins.
 // Supervisors move anyone's conversation; everyone else only their own (or
 // takes an unassigned one themselves).
 // ═══════════════════════════════════════════════════════════════════
@@ -1363,6 +1365,11 @@ conversationsRouter.post('/:id/transfer', async (req, res) => {
       const moved = await compareAndAssign(config, { workspaceId, conversationId, from: heldBy, to });
       if ('conflict' in moved) return res.status(409).json({ error: 'assignment_changed', assigned_to: moved.assignedTo });
       if ('error' in moved) return res.status(500).json({ error: moved.error });
+      // A person now, whoever they are: an earlier transfer's "this
+      // department only" no longer holds.
+      if ((before.metadata as Record<string, unknown> | null)?.routing_department_only === true) {
+        await patchConversationMetadata(config, conversationId, { routing_department_only: null }, workspaceId);
+      }
       await announceManualAssignment(config, {
         workspaceId, conversationId, actorId: auth.userId, from: heldBy, to,
         aiState: (before as { ai_state?: string | null }).ai_state ?? null,
@@ -1393,7 +1400,7 @@ conversationsRouter.post('/:id/transfer', async (req, res) => {
     }
     const beforeMeta = (before.metadata || {}) as Record<string, unknown>;
     const fromDepartment = typeof beforeMeta.department_id === 'string' ? beforeMeta.department_id : null;
-    await patchConversationMetadata(config, conversationId, { department_id: department.id }, workspaceId);
+    await patchConversationMetadata(config, conversationId, { department_id: department.id, routing_department_only: true }, workspaceId);
 
     const { data: people } = await sb
       .from('profiles')

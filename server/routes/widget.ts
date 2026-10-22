@@ -169,7 +169,7 @@ import {
   readMessageReactions,
   setMessageReaction,
 } from '../services/messageReactions.js';
-import { readQueueStatus, routeHumanBoundConversation } from '../services/chatRouting.js';
+import { readQueueStatus, routeHumanBoundConversation, routeOfflineCapture } from '../services/chatRouting.js';
 import { publishVisitorRead } from '../services/visitorReadReceipts.js';
 import {
   VISITOR_REACTION_EMOJI,
@@ -4172,6 +4172,10 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       channel: 'widget',
     });
   }
+
+  // A person has to answer it: routing gives it to whoever can take it now,
+  // else it waits for the ticker (or in the manual queue). Fire-and-forget.
+  if (offlineMessage?.id) void routeOfflineCapture(config, { workspaceId: workspace_id, conversationId: conv.id });
 
   // Record the timeline event so operators can see it was offline-captured.
   await recordConversationEvent(config, {

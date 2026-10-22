@@ -84,6 +84,8 @@ export function threadEndPatch(now: string): Record<string, unknown> {
     human_takeover_by: null,
     human_takeover_reason: null,
     routing_pending: false,
+    // A transfer's "this department only" was for this thread.
+    routing_department_only: null,
     ai_thread_reset_at: now,
     routing_thread_ended_at: now,
   };

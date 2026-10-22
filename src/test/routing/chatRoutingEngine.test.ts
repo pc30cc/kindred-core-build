@@ -27,6 +27,11 @@ const state = vi.hoisted(() => ({
   db: null as unknown as FakeServiceDb,
   presence: new Map<string, { state: string; lastActivityAt: number | null }>(),
   planAllows: true,
+  /** The plan read fails (resolveWidgetCapability's onUnreadable). */
+  planUnreadable: false,
+  handoffs: [] as Array<Record<string, unknown>>,
+  /** chat_route_claim answers with an error (a timeout, a blip). */
+  claimFails: false,
   platformAllowed: true,
   teamOffline: false,
   leased: true,
@@ -44,7 +49,10 @@ vi.mock('../../../server/services/widget/operatorPresence.js', async (orig) => (
 }));
 vi.mock('../../../server/services/widget/entitlements.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/entitlements.js')>()),
-  resolveWidgetCapability: async () => state.planAllows,
+  resolveWidgetCapability: async (_c: unknown, _w: unknown, _k: unknown, onUnreadable?: () => void) => {
+    if (state.planUnreadable) { onUnreadable?.(); return false; }
+    return state.planAllows;
+  },
 }));
 vi.mock('../../../server/services/ai-agent/platformGuards.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/ai-agent/platformGuards.js')>()),
@@ -63,7 +71,10 @@ vi.mock('../../../server/services/realtime/publish.js', () => ({
   buildMessageEnvelope: (m: unknown) => m,
 }));
 vi.mock('../../../server/services/channels/outbound.js', () => ({ dispatchOutboundIfChannelConversation: async () => {} }));
-vi.mock('../../../server/services/push/index.js', () => ({ notifyAssignment: async () => {}, notifyHandoff: async () => {} }));
+vi.mock('../../../server/services/push/index.js', () => ({
+  notifyAssignment: async () => {},
+  notifyHandoff: async (_c: unknown, a: Record<string, unknown>) => { state.handoffs.push(a); },
+}));
 vi.mock('../../../server/services/platformSupport/changes.js', () => ({ onSupportConversationChanged: async () => {} }));
 vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordConversationEvent: async (_c: unknown, e: Record<string, unknown>) => { state.events.push(e); return { ok: true }; },
@@ -104,6 +115,9 @@ beforeEach(() => {
   state.db = createFakeServiceDb();
   state.presence.clear();
   state.planAllows = true;
+  state.planUnreadable = false;
+  state.handoffs = [];
+  state.claimFails = false;
   state.platformAllowed = true;
   state.teamOffline = false;
   state.leased = true;
@@ -122,6 +136,8 @@ beforeEach(() => {
     { workspace_id: WS, user_id: SEO, role: 'seo_manager', suspended_at: null, receives_chats: true },
   ];
   state.db.tables.widget_settings = [{ workspace_id: WS, assignment_mode: 'auto', last_agent_routing_enabled: true, last_agent_window_days: 30 }];
+  // No pre-chat form (routing would wait for it: see the pre-chat cases).
+  state.db.tables.widget_prechat_settings = [{ workspace_id: WS, ask_name: false, ask_email: false, ask_phone: false, prechat_timing: 'never' }];
   state.db.tables.profiles = [{ id: ALI, full_name: 'Ali' }, { id: BAHAR, full_name: 'Bahar' }, { id: CYRUS, full_name: 'Cyrus' }, { id: OWNER, full_name: 'Owner' }];
   state.db.rpc = (fn, args) => {
     if (fn === 'patch_conversation_metadata') {
@@ -131,6 +147,7 @@ beforeEach(() => {
     }
     if (fn === 'chat_route_claim') {
       state.claims.push(args);
+      if (state.claimFails) return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
       const answer = state.claimAnswer?.(args)
         ?? { outcome: 'assigned', picked_user_id: (args.p_candidates as string[])[0] ?? null };
       if (answer.outcome === 'assigned') conv(args.p_conversation_id).assigned_to = answer.picked_user_id;
@@ -203,7 +220,7 @@ describe('R-01 a conversation no AI will answer is routed at the visitor\'s mess
     state.presence.set(ALI, here());
     for (const c of [
       conversation({}, { assigned_to: BAHAR }), conversation({}, { is_spam: true }),
-      conversation({}, { status: 'resolved' }), conversation({ routing_pending: true }),
+      conversation({}, { status: 'resolved' }), conversation({ routing_pending: true, routing_pending_at: new Date().toISOString() }),
     ]) {
       expect(await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: c.id as string, platformAiOff: true })).toBeNull();
     }
@@ -412,5 +429,149 @@ describe('R-08 the AI\'s hand-over line follows who routing can give the visitor
     state.presence.set(BAHAR, away(5 * 60_000 + 1));
     expect(await routing.anyChatOperatorPresent(config, WS)).toBe(true);
     expect(await resolveHandoffAckMessage(config, WS, 'en', false, 'CONNECTING', null)).toBe('CONNECTING');
+  });
+});
+
+describe('what a routing run leaves behind', () => {
+  const rpcsOf = (fn: string, id: unknown) => state.db.rpcs.filter((r) => r.fn === fn && r.args.p_conversation_id === id);
+
+  it('no "The AI handed this conversation to your team" push for a chat the AI never had; one when the AI lets go of one', async () => {
+    // AI off, Manual: queued, no handoff push (the message push already went).
+    state.db.tables.widget_settings![0].assignment_mode = 'manual';
+    const queued = conversation();
+    expect((await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: queued.id as string, platformAiOff: true }))?.outcome)
+      .toBe('manual_queue');
+    // AI off, Auto, nobody online: it waits, no handoff push either.
+    state.db.tables.widget_settings![0].assignment_mode = 'auto';
+    const waiting = conversation();
+    expect((await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: waiting.id as string, platformAiOff: true }))?.outcome)
+      .toBe('no_eligible_agent');
+    expect(state.handoffs).toEqual([]);
+    // A thread the AI held but will not answer: the team's now, told once.
+    state.db.tables.ai_agent_settings = [{ workspace_id: WS, enabled: true, mode: 'suggest_only' }];
+    const held = conversation({ ai_state: 'ai_managed' });
+    await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: held.id as string });
+    await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: held.id as string });
+    expect(state.handoffs).toEqual([expect.objectContaining({ conversationId: held.id, handoffAt: (held.metadata as Row).ai_handoff_at })]);
+  });
+
+  it('the ticker retrying a waiting chat with the same answer writes nothing (its updated_at stays)', async () => {
+    const c = conversation({ routing_notice_sent: true, routing_outcome: 'no_eligible_agent' });
+    const before = state.db.rpcs.length;
+    expect(await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string }, { fromTicker: true }))
+      .toEqual({ outcome: 'no_eligible_agent', assignedTo: null });
+    expect(state.db.rpcs.slice(before).filter((r) => r.fn === 'patch_conversation_metadata')).toEqual([]);
+    // A changed answer (someone is here now, but at capacity) is tagged.
+    state.presence.set(ALI, here());
+    state.claimAnswer = () => ({ outcome: 'all_busy', picked_user_id: null });
+    expect((await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string }, { fromTicker: true })).outcome)
+      .toBe('all_agents_busy');
+    expect(c.metadata).toMatchObject({ routing_outcome: 'all_agents_busy' });
+  });
+
+  it('a pre-chat wait with no start, or past its grace, no longer holds routing; a fresh one does', async () => {
+    state.presence.set(ALI, here());
+    const fresh = conversation({ routing_pending: true, routing_pending_at: new Date().toISOString() });
+    const stale = conversation({ routing_pending: true, routing_pending_at: new Date(Date.now() - 3 * 60_000).toISOString() });
+    const legacy = conversation({ routing_pending: true });
+    expect(await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: fresh.id as string, platformAiOff: true })).toBeNull();
+    for (const c of [stale, legacy]) {
+      expect(await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: c.id as string, platformAiOff: true }))
+        .toEqual({ outcome: 'assigned_auto', assignedTo: ALI });
+      expect(c.metadata).toMatchObject({ routing_pending: false });
+    }
+    expect(routing.prechatWaitOver({ routing_pending_at: new Date().toISOString() })).toBe(false);
+    expect(routing.prechatWaitOver({})).toBe(true);
+  });
+
+  it('a claim that fails waits for the ticker (nothing told, nothing tagged, a pre-chat flag kept)', async () => {
+    state.presence.set(ALI, here());
+    state.claimFails = true;
+    const c = conversation({ routing_pending: true });
+    expect(await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string }))
+      .toEqual({ outcome: 'error', assignedTo: null });
+    expect(rpcsOf('chat_routing_wait', c.id).map((r) => r.args.p_reason)).toEqual(['all_busy']);
+    expect(notices(c.id)).toEqual([]);
+    expect(c.metadata).toEqual({ routing_pending: true });
+  });
+
+  it('a plan that cannot be read keeps the stored mode for the run (not Manual); a plan without routing is Manual', async () => {
+    state.presence.set(ALI, here());
+    state.planUnreadable = true;
+    expect((await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: conversation().id as string })).outcome)
+      .toBe('assigned_auto');
+    state.planUnreadable = false;
+    state.planAllows = false;
+    expect((await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: conversation().id as string })).outcome)
+      .toBe('manual_queue');
+  });
+
+  it('a chat transferred to a department stays inside it: not the team, not the owner; nobody there = it waits', async () => {
+    state.db.tables.workspace_departments = [{ id: 'd-sales', workspace_id: WS, name: 'Sales', enabled: true, chat_enabled: true, sort_order: 0 }];
+    state.db.tables.workspace_department_members = [{ workspace_id: WS, department_id: 'd-sales', user_id: CYRUS }];
+    state.presence.set(ALI, here());
+    state.presence.set(OWNER, here());
+    const c = conversation({ department_id: 'd-sales', routing_department_only: true });
+    expect(await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string }))
+      .toEqual({ outcome: 'no_eligible_agent', assignedTo: null });
+    expect(state.claims).toEqual([]);
+    state.presence.set(CYRUS, here());
+    expect(await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string }))
+      .toEqual({ outcome: 'assigned_auto', assignedTo: CYRUS });
+    expect(state.claims.map((x) => x.p_pool_key)).toEqual(['d-sales']);
+    // A visitor's own department choice still falls back to the team.
+    state.claims = [];
+    state.presence.delete(CYRUS);
+    const picked = conversation({ department_id: 'd-sales' });
+    expect((await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: picked.id as string })).assignedTo).not.toBeNull();
+    expect(state.claims.map((x) => x.p_pool_key)).toEqual(['team']);
+  });
+
+  it('a message left in the leave-a-message form is routed, without a visitor notice', async () => {
+    const nobody = conversation();
+    expect(await routing.routeOfflineCapture(config, { workspaceId: WS, conversationId: nobody.id as string }))
+      .toEqual({ outcome: 'no_eligible_agent', assignedTo: null });
+    expect(rpcsOf('chat_routing_wait', nobody.id).map((r) => r.args.p_reason)).toEqual(['nobody_online']);
+    expect(notices(nobody.id)).toEqual([]);
+    state.presence.set(BAHAR, here());
+    const someone = conversation();
+    expect(await routing.routeOfflineCapture(config, { workspaceId: WS, conversationId: someone.id as string }))
+      .toEqual({ outcome: 'assigned_auto', assignedTo: BAHAR });
+  });
+});
+
+describe('routing waits for the pre-chat form only while the visitor is asked one', () => {
+  const visitorContact = (fields: Row = {}) => {
+    const id = `ct-${Math.random().toString(36).slice(2, 8)}`;
+    (state.db.tables.contacts ||= []).push({ id, workspace_id: WS, name: 'Visitor', email: null, phone: null, metadata: {}, ...fields });
+    return id;
+  };
+  const first = (c: Row) => routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: c.id as string, platformAiOff: true });
+  beforeEach(() => { state.presence.set(ALI, here()); });
+
+  it('a workspace that never saved its form asks the default one: routing waits, once per conversation', async () => {
+    state.db.tables.widget_prechat_settings = [];
+    const c = conversation({}, { contact_id: visitorContact() });
+    expect(await first(c)).toEqual({ outcome: 'routing_deferred', assignedTo: null });
+    expect(c.metadata).toMatchObject({ routing_pending: true });
+    // The grace ran out (the ticker routed it, or not yet): the next message
+    // routes it, and the conversation is never held for the form again.
+    c.metadata = { ...(c.metadata as Row), routing_pending: false };
+    expect(await first(c)).toEqual({ outcome: 'assigned_auto', assignedTo: ALI });
+  });
+
+  it('timing "never", nothing asked, a channel, a form already sent (even empty) or real details: routed at once', async () => {
+    const cases: Array<[string, Row | null, Row, Row]> = [
+      ['timing never', { ask_name: true, ask_email: true, prechat_timing: 'never' }, {}, {}],
+      ['nothing asked', { ask_name: false, ask_email: false, ask_phone: false, prechat_timing: 'always' }, {}, {}],
+      ['a channel', null, { channel: 'telegram' }, {}],
+      ['form sent empty', null, {}, { metadata: { prechat_submitted_at: '2026-10-22T08:00:00Z' } }],
+      ['real details', null, {}, { email: 'a@b.test' }],
+    ];
+    for (const [label, row, meta, contactFields] of cases) {
+      state.db.tables.widget_prechat_settings = row ? [{ workspace_id: WS, ...row }] : [];
+      const c = conversation(meta, { contact_id: visitorContact(contactFields) });
+      expect(await first(c), label).toEqual({ outcome: 'assigned_auto', assignedTo: ALI });
+    }
   });
 });

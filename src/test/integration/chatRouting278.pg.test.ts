@@ -144,6 +144,10 @@ suite('chat routing on a real database (278)', () => {
                ($7, $2, 'agent')`, [ws, a, b, c, admin, seo, wsPlan]);
     await q(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'agent'), ($1, $3, 'agent'), ($1, $4, 'agent')`, [wsRr, r1, r2, r3]);
     await q(`INSERT INTO public.widget_settings (workspace_id, enabled, assignment_mode, first_response_timeout_minutes) VALUES ($1, true, 'auto', 5), ($2, true, 'auto', 5), ($3, true, 'round_robin', 5)`, [ws, wsPlan, wsRr]);
+    // No pre-chat form (without a row of its own a workspace asks the default
+    // one, and routing waits for it): E6 asks one.
+    await q(`INSERT INTO public.widget_prechat_settings (workspace_id, ask_name, ask_email, ask_phone, require_name, require_email, prechat_timing)
+             VALUES ($1, false, false, false, false, false, 'never'), ($2, false, false, false, false, false, 'never'), ($3, false, false, false, false, false, 'never')`, [ws, wsPlan, wsRr]);
 
     Object.assign(process.env, {
       DATABASE_URL: chain.url,
@@ -542,8 +546,7 @@ suite('chat routing on a real database (278)', () => {
   });
 
   it('E6 a pre-chat form never sent stops holding routing; a plan without automatic assignment queues', async () => {
-    await q(`INSERT INTO public.widget_prechat_settings (workspace_id, ask_name) VALUES ($1, true)
-             ON CONFLICT (workspace_id) DO UPDATE SET ask_name = true`, [ws]);
+    await q(`UPDATE public.widget_prechat_settings SET ask_name = true, prechat_timing = 'after_handoff' WHERE workspace_id = $1`, [ws]);
     state.presence.set(a, 'active');
     const cid = await conversation(ws, { contact: await contact(ws) });
     expect(await routing.routeHumanBoundConversation(config as never, { workspaceId: ws, conversationId: cid, platformAiOff: true }))
@@ -554,7 +557,7 @@ suite('chat routing on a real database (278)', () => {
     expect(await ticker.runChatRoutingOnce(config as never)).toMatchObject({ prechat: 1, assigned: 1 });
     expect(await assignee(cid)).toBe(a);
     expect((await one(`SELECT metadata FROM public.conversations WHERE id = $1`, [cid])).metadata).toMatchObject({ routing_pending: false });
-    await q(`DELETE FROM public.widget_prechat_settings WHERE workspace_id = $1`, [ws]);
+    await q(`UPDATE public.widget_prechat_settings SET ask_name = false, prechat_timing = 'never' WHERE workspace_id = $1`, [ws]);
 
     // No plan grants widget_assignment_routing here: the stored 'auto' routes as manual.
     const planless = { ...config, selfHostBillingUnlimited: false };

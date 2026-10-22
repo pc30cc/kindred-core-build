@@ -22,11 +22,16 @@ import { patchConversationMetadata } from './conversationMetadata.js';
 export const PRECHAT_ROUTING_GRACE_MS = 2 * 60_000;
 
 /**
- * True when the workspace's pre-chat asks for at least one field and this
- * conversation's contact hasn't actually supplied any of them yet — i.e.
- * the visitor is still looking at (or about to see) the pre-chat card.
- * Fails open (false = route now) on any lookup error so a DB hiccup can
- * never strand a conversation unrouted.
+ * True when the visitor is still looking at (or about to see) the pre-chat
+ * form: a widget conversation (a channel never shows one), not deferred
+ * before (a conversation gets its grace once: after it, the visitor's
+ * messages route it at once), the form the workspace's visitors are actually
+ * asked (shared/prechatPolicy.ts effectivePrechat: the Super Admin's policy,
+ * the plan and the workspace's own row) has a timing other than "never" and
+ * asks at least one field, and the contact has neither answered it (sent it,
+ * even empty: `metadata.prechat_submitted_at`) nor given a real name, email or
+ * phone some other way. Fails open (false = route now) on any lookup error so
+ * a DB hiccup can never strand a conversation unrouted.
  */
 export async function shouldDeferRoutingForPrechat(
   config: ServerConfig,
@@ -35,34 +40,37 @@ export async function shouldDeferRoutingForPrechat(
 ): Promise<boolean> {
   try {
     const sb = getServiceClient(config);
-    const { data: prechat } = await sb
-      .from('widget_prechat_settings')
-      .select('ask_name, ask_email, ask_phone')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    const asks = prechat as { ask_name?: boolean | null; ask_email?: boolean | null; ask_phone?: boolean | null } | null;
-    const anyAsked = !!(asks && (asks.ask_name || asks.ask_email || asks.ask_phone));
-    if (!anyAsked) return false;
-
     const { data: conv } = await sb
       .from('conversations')
-      .select('contact_id')
+      .select('contact_id, metadata')
       .eq('id', conversationId)
       .maybeSingle();
-    const contactId = (conv as { contact_id?: string | null } | null)?.contact_id;
-    if (!contactId) return true;
+    const row = conv as { contact_id?: string | null; metadata?: Record<string, unknown> | null } | null;
+    if (!row) return false;
+    const meta = row.metadata || {};
+    const channel = typeof meta.channel === 'string' ? meta.channel : '';
+    if (channel && channel !== 'widget') return false;
+    if (typeof meta.routing_pending_at === 'string') return false;
 
+    // Loaded here: the effective form reads the widget's cached snapshots.
+    const { loadEffectivePrechat } = await import('./widget/prechatEffective.js');
+    const prechat = await loadEffectivePrechat(config, sb, workspaceId);
+    if (prechat.timing === 'never') return false;
+    if (!(prechat.ask_name || prechat.ask_email || prechat.ask_phone)) return false;
+
+    if (!row.contact_id) return true;
     const { data: contact } = await sb
       .from('contacts')
-      .select('name, email, phone')
-      .eq('id', contactId)
+      .select('name, email, phone, metadata')
+      .eq('id', row.contact_id)
       .maybeSingle();
     if (!contact) return true;
+    const who = contact as { name?: string | null; email?: string | null; phone?: string | null; metadata?: Record<string, unknown> | null };
+    if (typeof who.metadata?.prechat_submitted_at === 'string') return false;
     // mergeVisitorIdentity() seeds an unidentified contact's name with the
     // literal placeholder 'Visitor' — a real pre-chat submission always
     // writes an actual field, so "still just the placeholder, no email/
     // phone either" means pre-chat genuinely hasn't happened yet.
-    const who = contact as { name?: string | null; email?: string | null; phone?: string | null };
     const hasReal = (who.name && who.name !== 'Visitor') || who.email || who.phone;
     return !hasReal;
   } catch {

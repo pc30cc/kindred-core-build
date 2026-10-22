@@ -877,39 +877,42 @@ enum Str {
         }
     }
 
+    // The web's Availability page says the same (availabilityPage.forceOffline
+    // / availableWhenUsingApp in src/i18n/locales): what the stored switches
+    // do, not what their names once promised (audit R-07).
     static func availabilityForceOffline(_ l: Language) -> String {
         switch l {
-        case .en: "Force offline (invisible mode)"
-        case .fa: "آفلاین اجباری (حالت نامرئی)"
-        case .tr: "Zorla çevrimdışı (görünmez mod)"
-        case .ar: "الظهور غير متصل (وضع التخفي)"
+        case .en: "Appear offline"
+        case .fa: "نمایش به‌صورت آفلاین"
+        case .tr: "Çevrimdışı görün"
+        case .ar: "الظهور غير متصل"
         }
     }
 
     static func availabilityForceOfflineHint(_ l: Language) -> String {
         switch l {
-        case .en: "You appear offline to visitors whatever your schedule says."
-        case .fa: "صرف‌نظر از زمان‌بندی، برای بازدیدکنندگان آفلاین دیده می‌شوید."
-        case .tr: "Programınız ne derse desin ziyaretçilere çevrimdışı görünürsünüz."
-        case .ar: "تظهر غير متصل للزوار بغض النظر عن جدولك."
+        case .en: "Overrides everything below: visitors see you as offline and no chats are given to you automatically, whatever your schedule says."
+        case .fa: "بر همهٔ گزینه‌های زیر مقدم است: صرف‌نظر از زمان‌بندی، بازدیدکنندگان شما را آفلاین می‌بینند و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        case .tr: "Aşağıdakilerin hepsini geçersiz kılar: programınızdan bağımsız olarak ziyaretçiler sizi çevrimdışı görür ve size otomatik sohbet verilmez."
+        case .ar: "يتجاوز كل ما يلي: يراك الزوار غير متصل ولا تُسند إليك أي محادثة تلقائيًا، أيًا كان جدولك."
         }
     }
 
     static func availabilityWhenUsingApp(_ l: Language) -> String {
         switch l {
-        case .en: "Available while I use the app"
-        case .fa: "وقتی از برنامه استفاده می‌کنم، در دسترس باشم"
-        case .tr: "Uygulamayı kullanırken uygunum"
-        case .ar: "متاح أثناء استخدامي التطبيق"
+        case .en: "Show me as available to visitors"
+        case .fa: "برای بازدیدکنندگان در دسترس نشانم بده"
+        case .tr: "Ziyaretçilere müsait görün"
+        case .ar: "إظهاري متاحًا للزوار"
         }
     }
 
     static func availabilityWhenUsingAppHint(_ l: Language) -> String {
         switch l {
-        case .en: "Marks you online automatically while the app is open."
-        case .fa: "تا وقتی برنامه باز است، به‌صورت خودکار آنلاین در نظر گرفته می‌شوید."
-        case .tr: "Uygulama açıkken sizi otomatik olarak çevrimiçi işaretler."
-        case .ar: "يجعلك متصلًا تلقائيًا ما دام التطبيق مفتوحًا."
+        case .en: "On: visitors see you as available (only within your schedule, if you turn it on), and chats can be given to you automatically while the panel, the desktop app or the Android app is open. Off: you are invisible, and no chats are given to you automatically."
+        case .fa: "روشن: بازدیدکنندگان شما را در دسترس می‌بینند (اگر زمان‌بندی را روشن کنید، فقط در ساعت‌های آن) و تا وقتی پنل یا اپلیکیشن دسکتاپ یا اندروید باز است، گفتگو می‌تواند خودکار به شما سپرده شود. خاموش: نامرئی هستید و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        case .tr: "Açık: ziyaretçiler sizi müsait görür (programı açarsanız yalnızca program saatlerinde) ve panel, masaüstü uygulaması ya da Android uygulaması açıkken size otomatik sohbet verilebilir. Kapalı: görünmezsiniz ve size otomatik sohbet verilmez."
+        case .ar: "مفعّل: يراك الزوار متاحًا (ضمن جدولك فقط إن فعّلته)، ويمكن أن تُسند إليك المحادثات تلقائيًا ما دامت اللوحة أو تطبيق سطح المكتب أو تطبيق أندرويد مفتوحًا. معطّل: تكون غير مرئي ولا تُسند إليك أي محادثة تلقائيًا."
         }
     }
 

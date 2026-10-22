@@ -595,27 +595,27 @@ object Str {
     }
 
     fun availabilityForceOffline(l: Language): String = when (l) {
-        Language.EN -> "Force offline (invisible mode)"
-        Language.FA -> "آفلاین اجباری (حالت نامرئی)"
-        Language.TR -> "Zorla çevrimdışı (görünmez mod)"
+        Language.EN -> "Appear offline"
+        Language.FA -> "نمایش به‌صورت آفلاین"
+        Language.TR -> "Çevrimdışı görün"
     }
 
     fun availabilityForceOfflineHint(l: Language): String = when (l) {
-        Language.EN -> "You appear offline to visitors whatever your schedule says."
-        Language.FA -> "صرف‌نظر از زمان‌بندی، برای بازدیدکنندگان آفلاین دیده می‌شوید."
-        Language.TR -> "Programınız ne derse desin ziyaretçilere çevrimdışı görünürsünüz."
+        Language.EN -> "Overrides everything below: visitors see you as offline and no chats are given to you automatically, whatever your schedule says."
+        Language.FA -> "بر همهٔ گزینه‌های زیر مقدم است: صرف‌نظر از زمان‌بندی، بازدیدکنندگان شما را آفلاین می‌بینند و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        Language.TR -> "Aşağıdakilerin hepsini geçersiz kılar: programınızdan bağımsız olarak ziyaretçiler sizi çevrimdışı görür ve size otomatik sohbet verilmez."
     }
 
     fun availabilityWhenUsingApp(l: Language): String = when (l) {
-        Language.EN -> "Available while I use the app"
-        Language.FA -> "وقتی از برنامه استفاده می‌کنم، در دسترس باشم"
-        Language.TR -> "Uygulamayı kullanırken uygunum"
+        Language.EN -> "Show me as available to visitors"
+        Language.FA -> "برای بازدیدکنندگان در دسترس نشانم بده"
+        Language.TR -> "Ziyaretçilere müsait görün"
     }
 
     fun availabilityWhenUsingAppHint(l: Language): String = when (l) {
-        Language.EN -> "Marks you online automatically while the app is open."
-        Language.FA -> "تا وقتی برنامه باز است، به‌صورت خودکار آنلاین در نظر گرفته می‌شوید."
-        Language.TR -> "Uygulama açıkken sizi otomatik olarak çevrimiçi işaretler."
+        Language.EN -> "On: visitors see you as available (only within your schedule, if you turn it on), and chats can be given to you automatically while the panel, the desktop app or the Android app is open. Off: you are invisible, and no chats are given to you automatically."
+        Language.FA -> "روشن: بازدیدکنندگان شما را در دسترس می‌بینند (اگر زمان‌بندی را روشن کنید، فقط در ساعت‌های آن) و تا وقتی پنل یا اپلیکیشن دسکتاپ یا اندروید باز است، گفتگو می‌تواند خودکار به شما سپرده شود. خاموش: نامرئی هستید و هیچ گفتگویی خودکار به شما سپرده نمی‌شود."
+        Language.TR -> "Açık: ziyaretçiler sizi müsait görür (programı açarsanız yalnızca program saatlerinde) ve panel, masaüstü uygulaması ya da Android uygulaması açıkken size otomatik sohbet verilebilir. Kapalı: görünmezsiniz ve size otomatik sohbet verilmez."
     }
 
     fun availabilitySchedule(l: Language): String = when (l) {

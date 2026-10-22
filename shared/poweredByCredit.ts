@@ -12,7 +12,7 @@
  */
 export const POWERED_BY_WIDGET_WORDS = {
   en: 'Powered by',
-  fa: 'قدرت گرفته از',
+  fa: 'با فناوری',
   tr: 'Sağlayan',
 } as const;
 

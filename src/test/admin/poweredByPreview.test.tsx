@@ -94,7 +94,7 @@ describe('the credit\'s words are the widget\'s', () => {
         expect(renderedPrefix(locale, text), `${locale} "${text}"`).toBe(poweredByPrefixFor(text, locale));
       }
     }
-    expect(poweredByPrefixFor('Built with', 'fa')).toBe('قدرت گرفته از');
+    expect(poweredByPrefixFor('Built with', 'fa')).toBe('با فناوری');
     expect(poweredByPrefixFor('ساخته‌شده با', 'fa')).toBe('ساخته‌شده با');
     expect(poweredByPrefixFor('ساخته‌شده با', 'tr')).toBe('Sağlayan');
   });
@@ -122,7 +122,7 @@ describe('Super Admin → Widget settings → Powered by: the preview', () => {
     flags.edition = null;
     const preview = section();
     expect(within(row(preview(), 'en')).getByText('Built with')).toBeTruthy();
-    expect(row(preview(), 'fa').querySelector('[data-powered-prefix]')!.textContent).toBe('قدرت گرفته از');
+    expect(row(preview(), 'fa').querySelector('[data-powered-prefix]')!.textContent).toBe('با فناوری');
     expect(row(preview(), 'tr').querySelector('[data-powered-prefix]')!.textContent).toBe('Built with');
     expect(row(preview(), 'fa').querySelector('[data-powered-brand]')!.textContent).toBe('Acme Cloud');
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase test double is intentionally untyped. */
 /**
  * "Only tell my phone when I am away from my desk."
  *
@@ -94,8 +95,8 @@ function ctx(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
   db.workspace_members = [
-    { workspace_id: WORKSPACE, user_id: AT_DESK, suspended_at: null },
-    { workspace_id: WORKSPACE, user_id: AWAY, suspended_at: null },
+    { workspace_id: WORKSPACE, user_id: AT_DESK, suspended_at: null, role: 'agent' },
+    { workspace_id: WORKSPACE, user_id: AWAY, suspended_at: null, role: 'support_agent' },
   ];
   db.profiles = [
     { id: AT_DESK, preferred_locale: 'en' },

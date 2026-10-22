@@ -33,6 +33,11 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   availability_labels: 'widgetPage.availability.copyTitle',
   offline_message_localized: 'widgetPage.availability.offlineMessage',
   business_hours: 'widgetPage.availability.hoursTitle',
+  assignment_mode: 'widgetPage.behavior.assignmentMode',
+  last_agent_routing_enabled: 'widgetPage.behavior.assignment.lastAgent',
+  last_agent_window_days: 'widgetPage.behavior.assignment.lastAgent',
+  default_max_concurrent_chats: 'widgetPage.behavior.assignment.capacity',
+  first_response_timeout_minutes: 'widgetPage.behavior.assignment.timeout',
 };
 
 /** Why a save did not go through, in the dashboard's language. */
@@ -63,8 +68,12 @@ export interface WidgetSettingsDraft {
   setField: (field: keyof WidgetSettings & string, value: unknown, delay?: number) => void;
   /** setField for several fields; `draftOnly` keeps them in the draft and sends nothing (a value not valid yet). */
   setFields: (patch: Partial<WidgetSettings>, opts?: { delay?: number; draftOnly?: boolean }) => void;
-  /** Save now, without drafting (a switch that shows the server's value). */
-  saveNow: (patch: Partial<WidgetSettings>) => void;
+  /**
+   * Save now, without drafting (a switch that shows the server's value).
+   * Resolves true once saved, false when refused — already reported (the
+   * toast, the status); it never rejects.
+   */
+  saveNow: (patch: Partial<WidgetSettings>) => Promise<boolean>;
   /** Drop a field's waiting save (a caller that saves it its own way). */
   cancelField: (field: keyof WidgetSettings & string) => void;
   /** Send every waiting save now. */
@@ -88,17 +97,18 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
   const latest = useRef({ mutateAsync: update.mutateAsync, t, qc, workspaceId });
   latest.current = { mutateAsync: update.mutateAsync, t, qc, workspaceId };
 
-  const send = useCallback((patch: Partial<WidgetSettings>, rollback: boolean) => {
-    if (!Object.keys(patch).length) return;
+  const send = useCallback((patch: Partial<WidgetSettings>, rollback: boolean): Promise<boolean> => {
+    if (!Object.keys(patch).length) return Promise.resolve(true);
     inFlight.current += 1;
     setStatus('saving');
-    latest.current.mutateAsync(patch).then(
+    return latest.current.mutateAsync(patch).then(
       () => {
         inFlight.current -= 1;
         if (inFlight.current === 0 && Object.keys(waiting.current).length === 0) {
           setStatus('saved');
           setErrorMessage(null);
         }
+        return true;
       },
       (err: unknown) => {
         inFlight.current -= 1;
@@ -117,6 +127,7 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
         setStatus('error');
         setErrorMessage(message);
         toast({ title: tr('widgetPage.save.failedTitle'), description: message, variant: 'destructive' });
+        return false;
       },
     );
   }, []);
@@ -130,7 +141,7 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
       patch[field] = waiting.current[field];
       delete waiting.current[field];
     }
-    send(patch as Partial<WidgetSettings>, true);
+    void send(patch as Partial<WidgetSettings>, true);
   }, [send]);
 
   const flush = useCallback(() => flushFields(Object.keys(waiting.current)), [flushFields]);

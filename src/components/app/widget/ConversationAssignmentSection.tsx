@@ -57,7 +57,11 @@ export interface ConversationAssignmentSectionProps {
   settings: Partial<AssignmentFields> | undefined;
   /** The plan's `widget_assignment_routing`. Without it: Manual, locked. */
   planAllowsRouting: boolean;
-  /** Saves a patch of widget settings; a rejection undoes the change here. */
+  /**
+   * Saves a patch of widget settings. A rejection undoes the change here and
+   * says so; resolving `false` undoes it silently (the caller's save layer,
+   * useWidgetSettingsDraft, has said why already).
+   */
   onSave: (patch: Partial<AssignmentFields>) => Promise<unknown>;
   /** Where Team & departments lives, for the per-member settings link. */
   teamPath?: string;

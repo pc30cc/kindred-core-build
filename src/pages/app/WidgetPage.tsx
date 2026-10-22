@@ -1142,13 +1142,14 @@ function WidgetPageContent() {
                     </div>
                   ))}
 
-                  {/* Conversation assignment (package A): the mode, returning
-                      visitors, capacity and the first-response timeout. */}
+                  {/* Conversation assignment: the mode, returning visitors,
+                      capacity and the first-response timeout. Saves go
+                      through the page's save layer (status, refusals said). */}
                   <ConversationAssignmentSection
                     workspaceId={workspace?.id}
-                    settings={widget}
+                    settings={live}
                     planAllowsRouting={capAllowed('widget_assignment_routing')}
-                    onSave={(patch) => updateWidget.mutateAsync(patch)}
+                    onSave={(patch) => saveNow(patch)}
                     teamPath={wsPath('/settings/team-departments')}
                   />
 

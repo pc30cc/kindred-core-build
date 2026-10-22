@@ -4,7 +4,9 @@
  *   - GET /:workspaceId/availability answers with the widget's own resolver
  *     (the "Now" card): business hours off with nobody available is offline,
  *     not "always online"; it counts the operators visitors may consider
- *     reachable; it says when the plan does not apply the hours;
+ *     reachable, out of the members who receive chats (staff, a suspended
+ *     member and one with "Receive chats" off count for neither); it says
+ *     when the plan does not apply the hours;
  *   - PATCH refuses business hours the resolver would never match while
  *     they are on (an end before its start, a time that is not HH:mm, an
  *     unknown time zone; too many intervals a day at any time) with 400
@@ -99,7 +101,7 @@ beforeEach(() => {
     id: 'row-1', workspace_id: WS_ID, offline_mode: 'capture_message', live_chat_enabled: true,
     business_hours: { enabled: false, timezone: 'UTC' }, availability_labels: {}, offline_message_localized: {},
   };
-  state.members = [{ user_id: 'a' }, { user_id: 'b' }];
+  state.members = [{ user_id: 'a', role: 'owner' }, { user_id: 'b', role: 'agent' }];
   state.prefs = [person('a'), person('b', { force_offline: true })];
   state.features = {};
 });
@@ -113,6 +115,19 @@ describe('GET /:workspaceId/availability (the "Now" card)', () => {
       operators: { members: 2, available: 1 },
     });
     expect(typeof res.body.checked_at).toBe('string');
+  });
+
+  it('only the members who receive chats count: staff, a suspended member and one not receiving are neither reachable nor counted', async () => {
+    state.members = [
+      { user_id: 'a', role: 'owner' },
+      { user_id: 'b', role: 'agent' },
+      { user_id: 'c', role: 'analyst' },
+      { user_id: 'd', role: 'support_agent', suspended_at: '2026-10-01T00:00:00Z' },
+      { user_id: 'e', role: 'sales_agent', receives_chats: false },
+    ];
+    state.prefs = [person('a', { force_offline: true }), person('b', { force_offline: true }), person('c'), person('d'), person('e')];
+    const res = await call('GET', '/availability');
+    expect(res.body).toMatchObject({ state: 'offline', reason: 'no_operators_online', operators: { members: 2, available: 0 } });
   });
 
   it('hours off and nobody available: offline (the offline behaviour applies), not "always online"', async () => {

@@ -156,7 +156,9 @@ widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
 // were off, while visitors were offline as soon as no operator was available.
 // This answers with the resolver the widget itself uses (business hours, the
 // operators' own status and personal hours, the plan), for the saved
-// settings, plus how many operators visitors may consider reachable.
+// settings, plus how many operators visitors may consider reachable, out of
+// the members who count for it (customerAvailability.ts: the owner and team
+// roles with "Receive chats" on, not suspended or seat-paused; never staff).
 widgetSettingsRouter.get('/:workspaceId/availability', async (req, res) => {
   const config = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
@@ -182,7 +184,7 @@ widgetSettingsRouter.get('/:workspaceId/availability', async (req, res) => {
       timezone: snapshot.timezone,
       offline_mode: snapshot.offline_mode,
       business_hours_allowed: businessHoursAllowed !== false,
-      operators: { members: operators.memberCount, available: operators.available.length },
+      operators: { members: prefs.chatMemberIds?.length ?? operators.memberCount, available: operators.available.length },
       checked_at: now.toISOString(),
     });
   } catch (err) {

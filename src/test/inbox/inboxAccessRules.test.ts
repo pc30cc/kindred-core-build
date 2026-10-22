@@ -8,19 +8,22 @@
  * operators who had gone home, it was hidden; admins and team leads, whom
  * the server allowed, never had it. Any member could move anyone's chat.
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import {
   assignmentActions,
   canSeeAllConversations,
   effectiveInboxScope,
   inboxAllowed,
   INBOX_SCOPE_EVENT,
+  isAssignmentConflict,
   isTransferTarget,
   readStoredInboxScope,
   writeStoredInboxScope,
 } from '@/lib/inboxAccess';
 import { planAccessOf, sectionVisible, type SectionContext } from '@/lib/planAccess';
 import { quickStatusAction, replyNeedsReopen } from '@/lib/inboxReply';
+import { aiAgentApi } from '@/lib/ai-agent-api';
+import { AssignmentError } from '@/lib/conversations-api';
 
 const STAFF = ['marketing_manager', 'seo_manager', 'analyst', 'developer', 'billing', 'viewer'];
 const TEAM = ['agent', 'team_lead', 'support_agent', 'sales_agent'];
@@ -131,5 +134,22 @@ describe('a finished conversation', () => {
     expect(replyNeedsReopen('resolved')).toBe(false);
     expect(replyNeedsReopen('open')).toBe(false);
     expect(replyNeedsReopen(undefined)).toBe(false);
+  });
+});
+
+describe('a take-over somebody else won', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('POST …/take-over answering 409 already_assigned reads as "someone else has it", other refusals do not', async () => {
+    const answer = (status: number, body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })));
+    answer(409, { error: 'already_assigned', assigned_to: 'u-2' });
+    const lost = await aiAgentApi.takeOverConversation('ws-1', 'c-1').catch((e: unknown) => e);
+    expect(isAssignmentConflict(lost)).toBe(true);
+    answer(500, { error: 'boom' });
+    const failed = await aiAgentApi.takeOverConversation('ws-1', 'c-1').catch((e: unknown) => e);
+    expect(isAssignmentConflict(failed)).toBe(false);
+    expect(isAssignmentConflict(new AssignmentError('assignment_changed', 409, 'u-2'))).toBe(true);
+    expect(isAssignmentConflict(new AssignmentError('not_allowed', 403))).toBe(false);
+    expect(isAssignmentConflict(null)).toBe(false);
   });
 });

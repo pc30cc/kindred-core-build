@@ -17,7 +17,7 @@ import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { useInboxDepartments } from '@/hooks/useInboxDepartments';
 import {
-  canSeeAllConversations, effectiveInboxScope, readStoredInboxScope, writeStoredInboxScope, type InboxScope,
+  canSeeAllConversations, effectiveInboxScope, isAssignmentConflict, readStoredInboxScope, writeStoredInboxScope, type InboxScope,
 } from '@/lib/inboxAccess';
 import { departmentFilterOptions, departmentNameOf, matchesDepartmentFilter } from '@/lib/inboxDepartments';
 import { DepartmentFilter } from '@/components/inbox/DepartmentFilter';
@@ -595,6 +595,23 @@ export default function InboxPage() {
 
   // Visitor presence (online/idle/offline + current page) — polling-safe via 10s refetch.
   const { data: presence } = useVisitorPresenceForConversation(workspace?.id, selectedId ?? undefined);
+
+  // A take-over that did not go through. 409 (`already_assigned`): routing
+  // or a colleague assigned the conversation first — said as such, and the
+  // lists are read again to show who has it.
+  const takeOverFailed = (err: unknown) => {
+    const conflict = isAssignmentConflict(err);
+    toast({
+      title: t('inbox.takeOverFailed') || 'Take-over failed',
+      description: conflict ? t('inbox.assignmentChanged') : (errorText(err) || '—'),
+      variant: 'destructive',
+    });
+    if (conflict && workspace?.id) {
+      void qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+      void qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
+      void qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
+    }
+  };
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
@@ -1953,7 +1970,7 @@ export default function InboxPage() {
                                   qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                                 } catch (err) {
-                                  toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: errorText(err) || '—', variant: 'destructive' });
+                                  takeOverFailed(err);
                                 }
                               }}
 
@@ -2157,7 +2174,7 @@ export default function InboxPage() {
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                         } catch (e) {
-                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: errorText(e) || '—', variant: 'destructive' });
+                          takeOverFailed(e);
                         }
                       }}
                     >
@@ -2192,7 +2209,7 @@ export default function InboxPage() {
                           qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                   qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
                         } catch (e) {
-                          toast({ title: t('inbox.takeOverFailed') || 'Take-over failed', description: errorText(e) || '—', variant: 'destructive' });
+                          takeOverFailed(e);
                         }
                       }}
                     >

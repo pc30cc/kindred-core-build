@@ -80,6 +80,16 @@ export function assignmentActions(
   return { take: !assignedTo, transfer: mine, unassign: mine };
 }
 
+/**
+ * A refused assignment change that means somebody else has the conversation
+ * now — 409 from the claim, the transfer, the PATCH (`assignment_changed`)
+ * or the take-over (`already_assigned`: routing or a colleague assigned it
+ * first) — rather than a failure.
+ */
+export function isAssignmentConflict(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { status?: unknown }).status === 409;
+}
+
 /** A member a conversation may be handed to by hand (never staff, never a suspended or paused seat). */
 export function isTransferTarget(member: {
   role: string;

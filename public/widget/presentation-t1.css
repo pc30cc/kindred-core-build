@@ -911,6 +911,11 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .dept-picker__title { font-size: 17px; font-weight: 700; }
 .dept-picker__subtitle { font-size: 13px; color: #666D7A; }
 .dept-option { display: flex; flex-direction: column; padding: 12px 14px; border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px #D4D8DE; text-align: start; }
+.dept-picker__list { display: flex; flex-direction: column; gap: 8px; }
+.dept-option__status { font-size: 11.5px; color: var(--ink-3); }
+.dept-option__caps { display: inline-flex; gap: 6px; margin-top: 4px; color: var(--ink-3); }
+.dept-option__cap svg { display: block; width: 14px; height: 14px; }
+.dept-option.is-offline .dept-option__name { color: var(--ink-3); }
 
 /* ─── Messages (all conversations) ─────────────────────────────────── */
 .wy-list-scroll { flex: 1; min-height: 0; padding: 0 16px; }
@@ -1234,4 +1239,12 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
   .panel, .panel *, .panel *::before, .panel *::after { animation: none !important; transition: opacity .15s ease !important; }
   .epk[hidden] { transition: none !important; }
   .launcher.open, .launcher:not(.open):not(:hover) { transition: none; }
+}
+
+/* A field under 16px makes iOS Safari zoom the page on focus: on phones and
+   touch screens every field the visitor types in is 16px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .panel input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .panel textarea,
+  .panel select { font-size: 16px !important; }
 }

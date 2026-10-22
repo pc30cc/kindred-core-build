@@ -9456,6 +9456,15 @@ const en = {
           chat_message: 'Message inside the chat',
           announcement: 'Announcement bar',
         },
+        // What the visitor sees: the widget never takes the screen or the
+        // focus on its own (loader.js showPanelSurface).
+        modeHints: {
+          launcher_nudge: 'A short message beside the chat button.',
+          open_widget: 'On a computer the widget opens, the visitor keeps typing where they were. On a phone it shows beside the chat button and opens when tapped.',
+          home_card: 'Shows beside the chat button first; when the visitor opens the widget, it is a card on the home screen.',
+          chat_message: 'Shows beside the chat button first; when the visitor opens the widget, it is the first message of the chat, and their reply starts a conversation with it.',
+          announcement: 'Shows beside the chat button first; when the visitor opens the widget, it is a bar at the top.',
+        },
         heading: 'Title',
         body: 'Message',
         cta: 'Button label',

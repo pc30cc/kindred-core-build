@@ -335,6 +335,27 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   again while the panel is open (`GET /api/widget/availability`), so a
   template drawing it from `config.availability` and the presence store
   follows it.
+- What else every chat template gets from Core (2026-10, round C3):
+  - a visitor message with `threadStart: true` opened a new conversation
+    under one that had ended (closed): the template draws a "New
+    conversation" divider before it (`wyNewConversation`) and starts a new
+    run there; a template that draws the closed line (`closedNotice`, t2)
+    may leave it out;
+  - the panel's `lang` (the widget's language) and its readable accent:
+    `--gs-primary-aa` (the brand colour, darkened until white on it reaches
+    4.5:1; a light one kept, with dark ink) and `--gs-on-primary` (that
+    ink), set on `.panel` (runtime.js `Util.readableAccent`). `default` and
+    `intl` wear them; t1 and t2 compute their own;
+  - on a phone the open panel is modal (`aria-modal`, Tab kept inside);
+  - the operator's typing in `[data-typing-row]` / `[data-typing-label]`
+    (shown 3.5 s per signal), which `default` draws visibly above its composer;
+  - the department picker's markup (`.dept-picker`, `.dept-option`,
+    `.dept-option__status` for a department nobody answers now,
+    `.dept-option.is-offline`): every template's stylesheet styles it;
+  - every field 16px on phones and touch screens, from each stylesheet
+    (iOS zooms the page into a smaller field);
+  - a list row's `status` is the server's; `closed` reads as over, like
+    `resolved` (never "open", no live dot).
 - Call widget: the presentation (the core and the panel module) never calls
   the network or storage; the runtime never touches the DOM
   (`src/test/callWidgetPresentationContract.test.ts`).

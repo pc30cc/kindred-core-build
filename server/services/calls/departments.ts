@@ -19,6 +19,7 @@ import { resolveRolePermissions, type RoleSlug } from './permissions.js';
 import { listWorkspaceAvailability, isEligible } from './availability.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
+import { isRoutableChatRole } from '../../../shared/chatRoles.js';
 
 export type DepartmentChannel = 'chat' | 'audio' | 'video';
 
@@ -324,6 +325,13 @@ export interface VisibleDepartment {
   video: boolean;
   member_count: number;
   available_count: number;
+  /**
+   * Someone who answers this channel is there now. Chat: a routable member
+   * (shared/chatRoles.ts) in `onlineIds`, when the caller passed them
+   * (otherwise true: chat never needed presence to be offered); audio and
+   * video: an available eligible member, which their visibility requires.
+   */
+  online: boolean;
 }
 
 /**
@@ -337,6 +345,8 @@ export async function resolveWidgetVisibleDepartments(
   config: ServerConfig,
   workspaceId: string,
   channel: DepartmentChannel,
+  /** Chat: the members the widget counts as online (senderIdentity.ts availableOperatorIds). */
+  opts: { onlineIds?: Set<string> } = {},
 ): Promise<VisibleDepartment[]> {
   const departments = await resolveDepartments(config, workspaceId);
   if (departments.length === 0) return [];
@@ -401,10 +411,12 @@ export async function resolveWidgetVisibleDepartments(
     const memberIds = await resolveDepartmentMembers(config, d.id);
     let eligibleCount = 0;
     let availableCount = 0;
+    let chatOnline = false;
     for (const uid of memberIds) {
       const r = userEligible(uid);
       if (r.eligible) eligibleCount++;
       if (r.available) availableCount++;
+      if (r.eligible && opts.onlineIds?.has(uid) && isRoutableChatRole(roleByUser.get(uid))) chatOnline = true;
     }
     // Visibility rules per channel:
     //   chat  → any eligible member is enough
@@ -423,6 +435,7 @@ export async function resolveWidgetVisibleDepartments(
       video: d.video_enabled,
       member_count: eligibleCount,
       available_count: availableCount,
+      online: channel === 'chat' ? (opts.onlineIds ? chatOnline : true) : availableCount > 0,
     });
   }
   return out;
@@ -440,8 +453,9 @@ export async function resolveWidgetDepartmentMode(
   config: ServerConfig,
   workspaceId: string,
   channel: DepartmentChannel,
+  opts: { onlineIds?: Set<string> } = {},
 ): Promise<WidgetDepartmentResolution> {
-  const visible = await resolveWidgetVisibleDepartments(config, workspaceId, channel);
+  const visible = await resolveWidgetVisibleDepartments(config, workspaceId, channel, opts);
   if (visible.length === 0) {
     return { mode: 'general', visible_departments: [], default_department_id: null };
   }

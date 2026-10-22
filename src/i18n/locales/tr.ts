@@ -9439,6 +9439,13 @@ const tr: TranslationKeys = {
           chat_message: 'Sohbet içinde mesaj',
           announcement: 'Duyuru çubuğu',
         },
+        modeHints: {
+          launcher_nudge: 'Sohbet düğmesinin yanında kısa bir mesaj.',
+          open_widget: "Bilgisayarda widget açılır, ziyaretçi yazdığı yerde yazmaya devam eder. Telefonda sohbet düğmesinin yanında görünür ve dokunulunca açılır.",
+          home_card: "Önce sohbet düğmesinin yanında görünür; ziyaretçi widget'ı açınca ana sayfada bir kart olur.",
+          chat_message: "Önce sohbet düğmesinin yanında görünür; ziyaretçi widget'ı açınca sohbetin ilk mesajı olur ve yanıtı bu mesajla bir sohbet başlatır.",
+          announcement: "Önce sohbet düğmesinin yanında görünür; ziyaretçi widget'ı açınca üstte bir çubuk olur.",
+        },
         heading: 'Başlık',
         body: 'Mesaj',
         cta: 'Buton etiketi',

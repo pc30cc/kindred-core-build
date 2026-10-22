@@ -310,6 +310,38 @@
       var s = Util.asciiDigits(v).trim().replace(/[\s\-().]/g, '');
       return /^\+?\d{6,20}$/.test(s);
     },
+    /**
+     * The loader's first-party hint `gs_active`: this browser has an open or
+     * pending conversation here. The loader then boots the runtime silently
+     * on the next page view (its unread badge, its live replies) and keeps a
+     * `hide_widget` launcher. No identity in it; one day at most.
+     */
+    activeHint: function (on) {
+      try {
+        document.cookie = on ? 'gs_active=1; path=/; max-age=86400; SameSite=Lax' : 'gs_active=; path=/; max-age=0; SameSite=Lax';
+      } catch (_) { /* a sandboxed page */ }
+    },
+    /**
+     * The brand colour as a readable accent (WCAG 1.4.3, 4.5:1 for text on
+     * it): on a light colour (luminance over 0.3) dark ink, as it is; on any
+     * other, white ink, the colour darkened (each channel ×0.97) until
+     * white reaches 4.5:1. null for a value that is no #rgb / #rrggbb.
+     * Core puts it on the panel as `--gs-primary-aa` / `--gs-on-primary`
+     * (template-agnostic; `default` and `intl` wear them).
+     */
+    readableAccent: function (hex) {
+      var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+      if (!m) return null;
+      var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+      var rgb = [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); });
+      function lum(c) {
+        var v = c.map(function (x) { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+      }
+      if (lum(rgb) > 0.3) return { bg: '#' + h.toLowerCase(), ink: '#1c2024' };
+      while (lum(rgb) > 0.175) rgb = rgb.map(function (x) { return Math.floor(x * 0.97); });
+      return { bg: '#' + rgb.map(function (x) { return (x < 16 ? '0' : '') + x.toString(16); }).join(''), ink: '#ffffff' };
+    },
     debug: false,
     log: function () {
       if (!Util.debug) return;
@@ -1081,7 +1113,7 @@
         sizeKB: 'KB',
         sizeMB: 'MB',
         selected: 'Selected',
-        // Voice notes + emoji + escalate
+        // Voice notes + emoji
         recordVoice: 'Record voice message',
         recording: 'Recording…',
         stopRecording: 'Stop recording',
@@ -1091,8 +1123,6 @@
         voiceNote: 'Voice message',
         emojiPicker: 'Emoji',
         talkToHuman: 'Talk to a human',
-        escalateRequested: "We've let our team know — someone will join shortly.",
-        escalateFailed: 'Could not reach an operator right now.',
         chatUnavailable: 'Chat is currently unavailable',
         attachmentsDisabled: 'File attachments are not enabled',
         voiceNotesDisabled: 'Voice messages are not enabled',
@@ -1124,7 +1154,7 @@
         msgFailRate: 'Too many messages at once: sending again in a moment',
         msgFailLong: 'Too long: at most 5,000 characters',
         msgFailClosed: 'Chat is not available right now',
-        typingOperator: 'Support is typing…',
+        typingOperator: 'An operator is typing…',
         aiThinking: 'Thinking…',
         routingAgentJoined: '{name} joined the conversation',
         routingAgentJoinedSuffix: 'joined the conversation',
@@ -1163,7 +1193,7 @@
         ciWaitOneMinute: 'The operator will wait up to one minute for you to join.',
         // Pass A — call-ended summary message
         csEndedByOperator: 'Call ended by operator · Duration {duration}',
-        csEndedByVisitor: 'Call ended by visitor · Duration {duration}',
+        csEndedByVisitor: 'You ended the call · Duration {duration}',
         csEndedBySystem: 'Call ended · Duration {duration}',
         csEndedNotConnected: 'Call did not connect',
         // Pass 2 — In-panel call surface
@@ -1208,6 +1238,13 @@
         support: 'Support',
         operator: 'Operator',
         team: 'Team',
+        // The department picker (several departments answer chats or calls).
+        deptTitle: 'How can we help?',
+        deptChat: 'Choose the department you would like to chat with',
+        deptAudio: 'Choose the department you would like to call',
+        deptVideo: 'Choose the department you would like to video call',
+        deptGroup: 'Departments',
+        deptOffline: 'Offline now',
         anonymous: 'Anonymous',
         poweredBy: 'Powered by',
         welcomeFallback: 'Hi there 👋\nHow can we help you today?',
@@ -1343,8 +1380,6 @@
         voiceNote: 'پیام صوتی',
         emojiPicker: 'شکلک',
         talkToHuman: 'صحبت با اپراتور',
-        escalateRequested: 'به تیم پشتیبانی اطلاع داده شد؛ به‌زودی یک اپراتور به گفتگو ملحق می‌شود.',
-        escalateFailed: 'در حال حاضر امکان اتصال به اپراتور وجود ندارد.',
         chatUnavailable: 'گفتگو در حال حاضر در دسترس نیست',
         attachmentsDisabled: 'ارسال فایل فعال نیست',
         voiceNotesDisabled: 'ارسال پیام صوتی فعال نیست',
@@ -1372,7 +1407,7 @@
         msgFailRate: 'پیام‌ها پشت سر هم زیاد شد؛ چند لحظهٔ دیگر دوباره ارسال می‌شود',
         msgFailLong: 'پیام طولانی است؛ حداکثر ۵٬۰۰۰ نویسه',
         msgFailClosed: 'گفتگو در حال حاضر در دسترس نیست',
-        typingOperator: 'پشتیبانی در حال نوشتن…',
+        typingOperator: 'اپراتور در حال نوشتن است…',
         aiThinking: 'در حال فکر…',
         routingAgentJoined: '{name} به گفتگو پیوست',
         routingAgentJoinedSuffix: 'به گفتگو پیوست',
@@ -1409,7 +1444,7 @@
         ciWaitMinutes: 'اپراتور حداکثر {m} دقیقه منتظر پیوستن شما می‌ماند.',
         ciWaitOneMinute: 'اپراتور حداکثر یک دقیقه منتظر پیوستن شما می‌ماند.',
         csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت تماس {duration}',
-        csEndedByVisitor: 'تماس از طرف بازدیدکننده پایان یافت · مدت تماس {duration}',
+        csEndedByVisitor: 'شما تماس را پایان دادید · مدت تماس {duration}',
         csEndedBySystem: 'تماس پایان یافت · مدت تماس {duration}',
         csEndedNotConnected: 'تماس برقرار نشد',
         csConnecting: 'در حال اتصال به تماس…',
@@ -1450,6 +1485,12 @@
         support: 'پشتیبانی',
         operator: 'اپراتور',
         team: 'تیم',
+        deptTitle: 'چطور می‌توانیم کمکتان کنیم؟',
+        deptChat: 'دپارتمانی را که می‌خواهید با آن گفتگو کنید انتخاب کنید',
+        deptAudio: 'دپارتمانی را که می‌خواهید با آن تماس بگیرید انتخاب کنید',
+        deptVideo: 'دپارتمانی را که می‌خواهید با آن تماس تصویری بگیرید انتخاب کنید',
+        deptGroup: 'دپارتمان‌ها',
+        deptOffline: 'اکنون آفلاین',
         anonymous: 'ناشناس',
         poweredBy: 'با فناوری',
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
@@ -1472,7 +1513,7 @@
         wyReceivedFile: 'یک فایل دریافت کردید',
         wyLoading: 'در حال بارگذاری…',
         wyStatusOpen: 'باز',
-        wyStatusResolved: 'حل شده',
+        wyStatusResolved: 'حل‌شده',
         wyContinueLast: 'ادامه آخرین گفتگو',
         wyStartNew: 'گفتگوی جدید',
         wyArticles: 'مقالات',
@@ -1582,8 +1623,6 @@
         voiceNote: 'Sesli mesaj',
         emojiPicker: 'Emoji',
         talkToHuman: 'Bir temsilciyle konuşun',
-        escalateRequested: 'Ekibimize bildirdik — kısa süre içinde biri katılacak.',
-        escalateFailed: 'Şu anda bir temsilciye ulaşılamadı.',
         chatUnavailable: 'Sohbet şu anda kullanılamıyor',
         attachmentsDisabled: 'Dosya paylaşımı etkin değil',
         voiceNotesDisabled: 'Sesli mesajlar etkin değil',
@@ -1611,7 +1650,7 @@
         msgFailRate: 'Aynı anda çok fazla mesaj: birazdan yeniden gönderilecek',
         msgFailLong: 'Çok uzun: en fazla 5.000 karakter',
         msgFailClosed: 'Sohbet şu anda kullanılamıyor',
-        typingOperator: 'Destek yazıyor…',
+        typingOperator: 'Operatör yazıyor…',
         aiThinking: 'Düşünüyor…',
         routingAgentJoined: '{name} görüşmeye katıldı',
         routingAgentJoinedSuffix: 'görüşmeye katıldı',
@@ -1648,7 +1687,7 @@
         ciWaitMinutes: 'Operatör katılmanız için en fazla {m} dakika bekleyecek.',
         ciWaitOneMinute: 'Operatör katılmanız için en fazla bir dakika bekleyecek.',
         csEndedByOperator: 'Görüşme operatör tarafından sonlandırıldı · Süre {duration}',
-        csEndedByVisitor: 'Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}',
+        csEndedByVisitor: 'Aramayı siz sonlandırdınız · Süre {duration}',
         csEndedBySystem: 'Görüşme sona erdi · Süre {duration}',
         csEndedNotConnected: 'Görüşme bağlanamadı',
         csConnecting: 'Aramaya bağlanılıyor…',
@@ -1689,6 +1728,12 @@
         support: 'Destek',
         operator: 'Operatör',
         team: 'Ekip',
+        deptTitle: 'Size nasıl yardımcı olabiliriz?',
+        deptChat: 'Sohbet etmek istediğiniz departmanı seçin',
+        deptAudio: 'Aramak istediğiniz departmanı seçin',
+        deptVideo: 'Görüntülü aramak istediğiniz departmanı seçin',
+        deptGroup: 'Departmanlar',
+        deptOffline: 'Şu an çevrimdışı',
         anonymous: 'Anonim',
         poweredBy: 'Sağlayan',
         welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
@@ -2054,6 +2099,7 @@
           clientMessageId: payload.clientMessageId || null,
           replyToMessageId: payload.replyToMessageId || null,
           departmentId: payload.departmentId || null,
+          smartRule: payload.smartRule || null,
 
           text: payload.text,
           onConversation: function (cid) {
@@ -2852,6 +2898,11 @@
         }
       });
       shellDiv.appendChild(toastEl);
+      // It stays while the pointer is on it (WCAG 2.2.1), 5 s more after.
+      toastEl.addEventListener('mouseenter', function () { if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; } });
+      toastEl.addEventListener('mouseleave', function () {
+        if (toastEl && toastEl.classList.contains('visible')) toastTimer = setTimeout(hideToast, 5000);
+      });
       // Keep toast position in sync if widget position ever changes at runtime.
       uiPrefsStore.subscribe(function () {
         if (!toastEl) return;
@@ -4458,6 +4509,37 @@
       }
     }
 
+    /** The visitor's message that opened a new conversation under an ended one (see onConversation). */
+    function markThreadStart(localId) {
+      var arr = chatStore.get().messages.map(function (m) {
+        return m.localId === localId ? Object.assign({}, m, { threadStart: true }) : m;
+      });
+      chatStore.set({ messages: arr });
+    }
+
+    /**
+     * The Smart Engagement "Message inside the chat" the server stored as
+     * this conversation's first line (POST /message `opening_message`): it
+     * takes the place of the one drawn locally, above the visitor's answer.
+     */
+    function adoptOpeningMessage(localId, row) {
+      if (!row || !row.id) return;
+      mergeIncoming([row]);
+      var arr = chatStore.get().messages.slice();
+      var at = -1, mine = -1;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].__id === row.id) at = i;
+        if (arr[i].localId === localId) mine = i;
+      }
+      if (at > mine && mine >= 0) {
+        var moved = arr.splice(at, 1)[0];
+        moved.time = arr[mine].time;
+        arr.splice(mine, 0, moved);
+        chatStore.set({ messages: arr });
+      }
+      if (typeof ctx.smartOpened === 'function') ctx.smartOpened();
+    }
+
     /**
      * Fires the actual network send for an already-pushed optimistic bubble.
      * Shared by sendMessage() (fresh bubble) and resendMessage() (retry) so
@@ -4479,6 +4561,9 @@
         clientMessageId: localId,
         replyToMessageId: replyToMessageId || null,
         departmentId: departmentId,
+        // The "Message inside the chat" this first message answers, if it
+        // is on screen: the server stores the rule's text before it.
+        smartRule: !s.conversationId && ctx.smartChatRule ? ctx.smartChatRule : null,
       };
       var cbs = {
         onConversation: function (cid) {
@@ -4486,10 +4571,17 @@
           // a follow-up message can never spawn a second thread, and so
           // history/polling may resume adopting this (now current) id.
           chatStore.set({ freshIntent: false });
-          if (cid && cid !== chatStore.get().conversationId) {
+          var prevCid = chatStore.get().conversationId;
+          if (cid && cid !== prevCid) {
+            // The thread on screen had ended (an operator closed it): this
+            // message opened a new conversation under its lines. A renderer
+            // draws `threadStart` as a "New conversation" divider (t2 has the
+            // closed line instead), so the two do not read as one.
+            if (prevCid) markThreadStart(localId);
             chatStore.set({ conversationId: cid });
             transport.subscribeConversation(cid);
           }
+          Util.activeHint(true);
         },
 
 
@@ -4503,6 +4595,7 @@
             failReason: null,
             failText: null,
           }, onChange);
+          if (info && info.openingMessage) { adoptOpeningMessage(localId, info.openingMessage); if (onChange) onChange(); }
           if (done) done();
         },
         onReply: function (reply) {
@@ -4755,8 +4848,8 @@
           // another thread) while the request was in flight.
           if (!ConvEpoch.valid(startEpoch) || forcingNew() || result.stale) return;
           if (result.conversationId) {
+            // (`gs_active` follows the thread list's statuses: syncUnreadFromList.)
             chatStore.set({ conversationId: result.conversationId });
-            try { document.cookie = 'gs_active=1; path=/; max-age=86400; SameSite=Lax'; } catch (_) {}
             transport.subscribeConversation(result.conversationId);
           }
           if (mergeIncoming(result.messages || [])) onChange();
@@ -6514,10 +6607,10 @@
     // Returns a Promise<Resolution> where Resolution is:
     //   { mode: 'general'|'single'|'multi', visible_departments: [...],
     //     default_department_id: string|null, channel: 'chat'|'audio'|'video' }
-    function resolveDepartmentMode(channel) {
+    function resolveDepartmentMode(channel, fresh) {
       var ch = channel === 'audio' || channel === 'video' ? channel : 'chat';
       var s = departmentStore.get();
-      if (s.modes && s.modes[ch]) return Promise.resolve(s.modes[ch]);
+      if (s.modes && s.modes[ch] && !fresh) return Promise.resolve(s.modes[ch]);
       if (s._inflight && s._inflight[ch]) return s._inflight[ch];
       if (!ctx.apiBase || !ctx.workspaceId) {
         // No API base available — degrade to general mode silently.
@@ -6538,6 +6631,8 @@
             visible_departments: (j && j.visible_departments) || [],
             default_department_id: (j && j.default_department_id) || null,
             channel: ch,
+            // When it was read: who is online changes (the picker reads it again).
+            at: Date.now(),
           };
           var ns = departmentStore.get();
           var modes = Object.assign({}, ns.modes); modes[ch] = resolution;
@@ -6980,10 +7075,22 @@
     } else {
       panel.setAttribute('dir', 'ltr');
     }
-    // Dialog semantics. `aria-modal` stays OFF on purpose: on desktop the
-    // panel is a corner popover and the host page behind it remains fully
-    // usable, so claiming modality would lie to assistive tech. The label
-    // is the workspace identity, falling back to the generic "Chat".
+    // The widget's language, whatever the host page's is (WCAG 3.1.2): a
+    // Persian widget on an English-themed site is read with a Persian voice.
+    panel.setAttribute('lang', String(ctx.locale || 'en').split('-')[0]);
+    // The brand colour as a readable accent with its ink (Util.readableAccent),
+    // for a template's stylesheet to wear (`default`, `intl`).
+    var __aa = Util.readableAccent(ctx.primaryColor);
+    if (__aa) {
+      panel.style.setProperty('--gs-primary-aa', __aa.bg);
+      panel.style.setProperty('--gs-on-primary', __aa.ink);
+    }
+    // Dialog semantics. On desktop the panel is a corner popover and the
+    // host page behind it remains fully usable, so it is not modal there. On
+    // a phone the open panel covers the whole screen (the loader's
+    // full-screen shell): there it is modal, `aria-modal` and Tab kept
+    // inside (syncPanelModal). The label is the workspace identity,
+    // falling back to the generic "Chat".
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', brandName || t('chat'));
     // Focusable as a container (never in the tab order) so open() can park
@@ -7131,7 +7238,6 @@
     var micBtn = chatQ('[data-mic-btn]');
     var emojiBtn = chatQ('[data-emoji-btn]');
     var emojiPickerEl = chatQ('[data-emoji-picker]');
-    var escalateBtn = chatQ('[data-escalate-btn]');
 
     // ─── Quote (forward) + copy affordances ────────────────────────────
     // The presentation renders the buttons on each bubble's bottom line and
@@ -7345,6 +7451,7 @@
 
     function clearSmartSurface() {
       smartSurface = null;
+      ctx.smartChatRule = null;
       renderSmartDock();
       renderSmartAnnounce();
       if (shellStore.get().activeTab === 'home') renderBody();
@@ -7589,6 +7696,36 @@
     if (lightboxEl) lightboxEl.addEventListener('click', function (e) {
       if (e.target === lightboxEl) closeLightbox();
     });
+    // ── A full-screen panel is modal ──
+    // The loader's phone test (loader.js PHONE_MQ): there the open panel is
+    // the whole screen, and what is behind it can be neither seen nor used.
+    var PHONE_MQ = '(max-width:640px),(max-height:500px) and (pointer:coarse)';
+    function panelIsFullScreen() {
+      try { return !!shellStore.get().isOpen && window.matchMedia(PHONE_MQ).matches; } catch (_) { return false; }
+    }
+    function syncPanelModal() {
+      if (panelIsFullScreen()) panel.setAttribute('aria-modal', 'true');
+      else panel.removeAttribute('aria-modal');
+    }
+    try { window.addEventListener('resize', syncPanelModal); } catch (_) { /* no window */ }
+    // Tab and Shift+Tab go round the panel's own controls.
+    panel.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab' || !panelIsFullScreen()) return;
+      if (lightboxEl && !lightboxEl.hidden) return; // the lightbox keeps its own
+      var all = panel.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      var list = [];
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].offsetParent !== null || all[i].getClientRects().length) list.push(all[i]);
+      }
+      if (!list.length) { e.preventDefault(); return; }
+      var active = shadowRoot && shadowRoot.activeElement;
+      var first = list[0], last = list[list.length - 1];
+      if (e.shiftKey && (active === first || !panel.contains(active))) { e.preventDefault(); try { last.focus(); } catch (_) {} }
+      else if (!e.shiftKey && (active === last || !panel.contains(active))) { e.preventDefault(); try { first.focus(); } catch (_) {} }
+    });
+
     // ── Escape ──
     // Bound on the PANEL, not the document: a widget must never swallow the
     // host page's own Escape (closing their modal, cancelling their form)
@@ -8065,50 +8202,6 @@
     }
     renderVoicePreview();
 
-    // ─── Escalate to a human operator ───────────────────────────────────
-    // Invokes the existing AI-handoff state machine server-side (same
-    // transition keyword-detection already triggers), reachable from an
-    // explicit button instead of requiring the visitor to type the right
-    // words. Only shown once a conversation exists (needs a conversation_id
-    // to escalate).
-    function syncEscalateButton() {
-      if (!escalateBtn) return;
-      escalateBtn.hidden = !chatStore.get().conversationId;
-    }
-    chatStore.subscribe(syncEscalateButton);
-    syncEscalateButton();
-    if (escalateBtn) {
-      escalateBtn.addEventListener('click', function () {
-        if (escalateBtn.disabled) return;
-        var cid = chatStore.get().conversationId;
-        if (!cid) return;
-        escalateBtn.disabled = true;
-        ctx.fetchWith(ctx.apiBase + '/api/widget/escalate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            conversation_id: cid,
-            visitor_id: identityStore.get().visitorId || undefined,
-            session_id: identityStore.get().sessionId || undefined,
-          }),
-        }).then(function (r) { return r.json().catch(function () { return {}; }); })
-          .then(function (resp) {
-            if (resp && resp.ok) {
-              escalateBtn.classList.add('sent');
-              try { ctx.__handoffRequested = true; } catch (_) {}
-              escalateBtn.title = t('escalateRequested') || "We've let our team know.";
-            } else {
-              escalateBtn.disabled = false;
-              escalateBtn.title = t('escalateFailed') || 'Could not reach an operator right now.';
-            }
-          })
-          .catch(function () {
-            escalateBtn.disabled = false;
-            escalateBtn.title = t('escalateFailed') || 'Could not reach an operator right now.';
-          });
-      });
-    }
-
     function syncAttachButton() {
       if (!attachBtn) return;
       var conn = transportStore.get().connectionState;
@@ -8562,9 +8655,14 @@
       if (resolution.mode === 'general') return false;
       // Single mode → resolver auto-binds selectedId. No UI step needed.
       if (resolution.mode === 'single') return false;
-      // Multi mode — show selector unless visitor already picked one.
+      // Multi mode — show selector unless visitor already picked one, or
+      // the chat already has a thread (a new tab of an open conversation:
+      // its department was given with its first message).
       if (s.selectedId) return false;
+      if (ch === 'chat' && (chatStore.get().conversationId || (chatStore.get().messages || []).length)) return false;
       renderDepartmentPicker(channel, resolution);
+      // Who is online now, at most a minute old (the store's change repaints).
+      if (Date.now() - (resolution.at || 0) > 60000 && !(s._inflight && s._inflight[ch])) resolveDepartmentMode(ch, true);
       return true;
     }
 
@@ -8576,25 +8674,28 @@
     function renderDepartmentPicker(channel, resolution) {
       if (!body) return;
       var depts = (resolution && resolution.visible_departments) || [];
-      var subtitleKey = channel === 'audio'
-        ? 'Choose who you would like to call'
-        : channel === 'video'
-          ? 'Choose who you would like to video call'
-          : 'Choose a team to chat with';
-      var html = '<div class="dept-picker" role="group" aria-label="Department selector">' +
-        '<h3 class="dept-picker__title">How can we help?</h3>' +
-        '<p class="dept-picker__subtitle">' + Util.escapeHtml(subtitleKey) + '</p>' +
+      // Every word in the visitor's language (Core's dictionary), and each
+      // department nobody answers right now marked (`online` from the
+      // server: chat only; a call department is listed only when someone
+      // can take the call).
+      var subtitle = t(channel === 'audio' ? 'deptAudio' : channel === 'video' ? 'deptVideo' : 'deptChat');
+      var html = '<div class="dept-picker" role="group" aria-label="' + Util.escapeHtml(t('deptGroup')) + '">' +
+        '<h3 class="dept-picker__title">' + Util.escapeHtml(t('deptTitle')) + '</h3>' +
+        '<p class="dept-picker__subtitle">' + Util.escapeHtml(subtitle) + '</p>' +
         '<div class="dept-picker__list">';
+      var capNames = { chat: t('chat'), audio: t('voiceCall'), video: t('videoCall') };
       for (var i = 0; i < depts.length; i++) {
         var d = depts[i];
         if (!d || !d.id) continue;
         var caps = d.capabilities || {};
         var capHtml = '';
-        if (caps.chat) capHtml += '<span class="dept-option__cap" title="Chat" aria-label="Chat">' + __DEPT_ICONS.chat + '</span>';
-        if (caps.audio) capHtml += '<span class="dept-option__cap" title="Voice" aria-label="Voice">' + __DEPT_ICONS.audio + '</span>';
-        if (caps.video) capHtml += '<span class="dept-option__cap" title="Video" aria-label="Video">' + __DEPT_ICONS.video + '</span>';
-        html += '<button type="button" class="dept-option" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
+        ['chat', 'audio', 'video'].forEach(function (c) {
+          if (caps[c]) capHtml += '<span class="dept-option__cap" title="' + Util.escapeHtml(capNames[c]) + '">' + __DEPT_ICONS[c] + '</span>';
+        });
+        var away = d.online === false;
+        html += '<button type="button" class="dept-option' + (away ? ' is-offline' : '') + '" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
           '<span class="dept-option__name">' + Util.escapeHtml(d.name || t('team')) + '</span>' +
+          (away ? '<span class="dept-option__status">' + Util.escapeHtml(t('deptOffline')) + '</span>' : '') +
           '<span class="dept-option__caps" aria-hidden="true">' + capHtml + '</span>' +
         '</button>';
       }
@@ -8814,7 +8915,7 @@
     }
 
     // Mount/unmount the single chat view. Mounting never rebuilds the frame,
-    // so composer/attachment/voice/reply/emoji/escalate bindings stay live.
+    // so composer/attachment/voice/reply/emoji bindings stay live.
     function mountChatFrame() {
       if (!body || !chatFrame) return null;
       if (chatFrame.parentNode !== body) {
@@ -9040,6 +9141,7 @@
         if (!(conversationsStore.get() || {}).loaded) {
           conversationsStore.set({ loaded: true, loading: false, error: false, items: [] });
         }
+        Util.activeHint(false);
         if (onDone) onDone();
         return;
       }
@@ -9075,12 +9177,14 @@
             document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
             conversationsVisibilityHandler = null;
           }
+          var rows = data && data.conversations ? data.conversations : [];
           conversationsStore.set({
             loaded: true,
             loading: false,
             error: false,
-            items: (data && data.conversations ? data.conversations : []).map(mapConversationVm),
+            items: rows.map(mapConversationVm),
           });
+          syncUnreadFromList(rows);
           if (onDone) onDone();
         })
         .catch(function (err) {
@@ -9142,8 +9246,11 @@
         ConvEpoch.bump('start_new_conversation_fallback', { fresh: true });
         chatStore.set({ freshIntent: true, conversationId: null, messages: [], seenIds: {}, aiThinking: false });
       }
-      // Per-conversation escalation state must not leak into the new thread.
-      try { ctx.__handoffRequested = false; } catch (_) {}
+      // With several departments, a new conversation is a new choice of one.
+      var deptState = departmentStore.get();
+      if (deptState.modes && deptState.modes.chat && deptState.modes.chat.mode === 'multi' && deptState.selectedId) {
+        departmentStore.set({ selectedId: null, selectedFromCh: null });
+      }
       switchTab('chat');
       // renderBody() fires requestAiAgentIntro('chat_open') for the AI_CHAT
       // entry flow; because the intro guard is keyed by the conversation
@@ -9414,13 +9521,13 @@
       // handoff-transition message — e.g. the visitor just typed "connect
       // me to a human" and the AI replied "sure, connecting you now").
       // That last case has NO human-sender message yet (no operator has
-      // joined) and no escalate-button click either, so it was previously
+      // joined), so it was previously
       // invisible to this check — the server already tags exactly this
       // moment via conversation_messages.metadata.handoff === true on the
       // AI's own transitional message (see engine.ts's three handoff
       // insertAiMessage call sites, all pass handoff: true) — reuse that
       // signal instead of guessing from sender type alone.
-      var handedOff = !!ctx.__handoffRequested || msgs.some(function (m) {
+      var handedOff = msgs.some(function (m) {
         var s = m && (m.senderType || m.sender || m.role || '');
         if (s === 'agent' || s === 'operator' || s === 'human') return true;
         return !!(m && m.metadata && m.metadata.handoff === true);
@@ -9996,7 +10103,7 @@
       ext('typing', 1, p);
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
-      typingLabel.textContent = t('typingOperator') || 'Support is typing…';
+      typingLabel.textContent = t('typingOperator') || 'An operator is typing…';
       typingRow.hidden = false;
       if (typingHideTimer) clearTimeout(typingHideTimer);
       typingHideTimer = setTimeout(function () {
@@ -10004,16 +10111,13 @@
       }, 3500);
     }
     // A driver's capabilities are only known once the realtime negotiation
-    // answers, after this line runs: a renderer with features (here still
-    // waiting for them: it may draw typing) listens regardless; only a
-    // driver that supports typing emits.
-    if ((transport.hasCapability && transport.hasCapability('supportsTyping')) || extWait) {
-      transport.on('typing', function (e) {
-        var actor = e && e.payload && e.payload.actor;
-        if (actor === 'visitor') return; // ignore self-echo
-        showOperatorTyping(e && e.payload);
-      });
-    }
+    // answers, after this line runs, so every template listens (`default`
+    // draws it above its composer too); only a driver that supports typing emits.
+    transport.on('typing', function (e) {
+      var actor = e && e.payload && e.payload.actor;
+      if (actor === 'visitor') return; // ignore self-echo
+      showOperatorTyping(e && e.payload);
+    });
 
     // ─── AI "thinking…" indicator ───
     // The AI has no realtime typing signal (it's request/response, not a
@@ -10196,11 +10300,55 @@
       __resume.identityDone = true;
       __runBootHistory();
       if (!contextualNeedsPrechat()) {
+        // Only into an open panel: a runtime booted silently (a reply on the
+        // way, a Smart Engagement rule) never takes the host page's focus.
         if (msgInput) setTimeout(function () {
-          if (transportStore.get().connectionState === 'online' && !ext('autofocus', coreFocused)) msgInput.focus();
+          if (shellStore.get().isOpen && transportStore.get().connectionState === 'online' && !ext('autofocus', coreFocused)) msgInput.focus();
         }, 200);
       }
     });
+
+    // ─── The visitor's unread replies, as the server counts them ───
+    // The live count starts at this page view, so a reply that came while
+    // the visitor was on another page, or an operator's first message
+    // (Visitors → Start chat), was never counted: the thread list carries
+    // each thread's unread replies (after the visitor's own read marker).
+    // They go on the launcher (badge, page title) and, once per reply, as
+    // the preview beside it; the thread the visitor has open in view counts
+    // none, and a live count already higher is kept. The list also keeps the
+    // loader's `gs_active` hint: set while a thread is open or pending, so
+    // the next page view boots this runtime silently (loader.js).
+    var __previewedKey = 'gs:previewed:' + (ctx.workspaceId || '');
+    function syncUnreadFromList(rows) {
+      Util.activeHint(rows.some(function (c) { return c && (c.status === 'open' || c.status === 'pending'); }));
+      var sh = shellStore.get();
+      // The thread on screen, or the one this page is reopening (the view hint).
+      var activeCid = chatStore.get().conversationId || __resumeConversationId;
+      var viewing = sh.isOpen && sh.activeTab === 'chat' && !(typeof document !== 'undefined' && document.hidden);
+      var ns = notifyStore.get();
+      var per = {};
+      for (var k in ns.perConversation) {
+        if (Object.prototype.hasOwnProperty.call(ns.perConversation, k)) per[k] = ns.perConversation[k];
+      }
+      var newest = null;
+      rows.forEach(function (c) {
+        var n = c && c.id && !(viewing && c.id === activeCid) ? (Number(c.unreadCount) || 0) : 0;
+        if (n <= 0) return;
+        per[c.id] = Math.max(n, per[c.id] || 0);
+        if (!c.outbound && (!newest || String(c.lastMessageAt || '') > String(newest.lastMessageAt || ''))) newest = c;
+      });
+      var total = 0;
+      for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
+      if (total !== ns.totalUnread) notifyStore.set({ perConversation: per, totalUnread: total });
+      if (!newest || sh.isOpen) return;
+      // One preview per reply, whatever page the visitor goes on to.
+      var mark = newest.id + '|' + (newest.lastMessageAt || '');
+      var seen = '';
+      try { seen = sessionStorage.getItem(__previewedKey) || ''; } catch (_) { seen = ''; }
+      if (seen === mark) return;
+      try { sessionStorage.setItem(__previewedKey, mark); } catch (_) { /* private mode: it may show again */ }
+      notify.showToast(newest.operatorName || null, mapConversationVm(newest).preview);
+    }
 
     // ─── Helper: clear unread for the currently-active conversation ───
     // Only the visible conversation is cleared; other conversations keep
@@ -10318,11 +10466,15 @@
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },
 
-      open: function () {
+      // `quiet`: an open nobody asked for (a Smart Engagement rule set to
+      // open the widget): the panel shows, the focus stays where the visitor
+      // has it (a checkout form being filled keeps its keystrokes).
+      open: function (quiet) {
         if (shellStore.get().isOpen) return true;
         shellStore.set({ isOpen: true });
         panel.removeAttribute('inert');
         panel.setAttribute('aria-hidden', 'false');
+        syncPanelModal();
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
         transport.pollNow();
@@ -10333,6 +10485,7 @@
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
         coreFocused = shadowRoot && shadowRoot.activeElement;
+        if (quiet === true) return true;
         // Focus has to LAND somewhere inside the panel, otherwise a keyboard
         // visitor is still on the launcher (or worse, on the host page) with
         // no way to reach the widget, and Escape has nothing to close.
@@ -10370,6 +10523,7 @@
         } catch (_) {}
         panel.setAttribute('aria-hidden', 'true');
         panel.setAttribute('inert', '');
+        panel.removeAttribute('aria-modal');
         return false;
       },
       toggle: function () {
@@ -10413,6 +10567,11 @@
         if (surface.mode === 'home_card') {
           switchTab('home');
         } else if (surface.mode === 'chat_message') {
+          // A first message answering it names it: the server stores the
+          // rule's own text as the conversation's first line (V-28), and
+          // the locally drawn one goes (smartOpened).
+          ctx.smartChatRule = surface.id ? { id: String(surface.id), locale: ctx.locale || null } : null;
+          ctx.smartOpened = clearSmartSurface;
           switchTab('chat');
           renderSmartDock();
         } else if (surface.mode === 'announcement') {

@@ -41,7 +41,7 @@ import {
   WidgetCatalogError,
   type AdminWidgetCatalog,
 } from '@/hooks/useWidgetCatalog';
-import { templateDescription, templateDisplayName } from '@/lib/widgetTemplateNames';
+import { templateDescription, templateDisplayName, templateFeatureLine } from '@/lib/widgetTemplateNames';
 import { TemplateSketch } from '@/components/app/widget/TemplateSketch';
 import { TemplateOptionsFields } from '@/components/app/widget/TemplateOptionsFields';
 import { WidgetLivePreview, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
@@ -290,6 +290,7 @@ export function WidgetCatalogSection() {
                       {isDefault && <Badge variant="secondary" className="text-[10px]">{t('widgetCatalog.admin.default')}</Badge>}
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">{templateDescription(t, tpl.id)}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground" data-tpl-features>{templateFeatureLine(t, tpl.id)}</p>
                     {count !== null && (
                       <p className="mt-1 text-[11px] text-muted-foreground">{t('widgetCatalog.admin.chosenBy', { count })}</p>
                     )}

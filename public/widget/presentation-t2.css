@@ -1737,3 +1737,29 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
   .shell *, .shell *::before, .shell *::after { animation: none !important; transition: opacity .15s ease !important; }
   .ph span:first-child { opacity: 1; }
 }
+
+/* ─── Department picker (Core's, before a chat or a call) ───────────── */
+.dept-picker { display: flex; flex-direction: column; gap: 10px; padding: 20px 18px; }
+.dept-picker__title { margin: 0; font-size: 17px; font-weight: 700; color: var(--ink); }
+.dept-picker__subtitle { margin: 0 0 4px; font-size: 13px; line-height: 1.7; color: var(--ink-3); }
+.dept-picker__list { display: flex; flex-direction: column; gap: 8px; }
+.dept-option {
+  display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 12px 14px;
+  border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-2); color: var(--ink);
+  font: inherit; font-size: 14px; text-align: start; cursor: pointer; transition: background-color .15s;
+}
+.dept-option:hover { background: var(--paper); }
+.dept-option:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+.dept-option__name { flex: 1; min-width: 0; font-weight: 600; }
+.dept-option__status { font-size: 11.5px; color: var(--ink-3); }
+.dept-option__caps { display: inline-flex; gap: 6px; color: var(--ink-3); }
+.dept-option__cap svg { display: block; width: 15px; height: 15px; }
+.dept-option.is-offline .dept-option__name { color: var(--ink-3); }
+
+/* A field under 16px makes iOS Safari zoom the page on focus: on phones and
+   touch screens every field the visitor types in is 16px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .panel input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .panel textarea,
+  .panel select { font-size: 16px !important; }
+}

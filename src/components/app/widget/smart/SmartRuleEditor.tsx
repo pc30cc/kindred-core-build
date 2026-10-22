@@ -6,7 +6,7 @@
  * Preview updates as the operator types.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,8 +60,8 @@ export function SmartRuleEditor({
   }, [value.content_config, contentLocale]);
 
   const patch = (next: Partial<SmartRuleDraft>) => onChange({ ...value, ...next });
-  const patchIn = <K extends keyof SmartRuleDraft>(key: K, next: any) =>
-    onChange({ ...value, [key]: { ...(value[key] as any), ...next } });
+  const patchIn = <K extends keyof SmartRuleDraft>(key: K, next: Partial<SmartRuleDraft[K]>) =>
+    onChange({ ...value, [key]: { ...(value[key] as object), ...next } });
 
   const issues = useMemo(
     () => validateSmartRuleForPublish({
@@ -96,7 +96,7 @@ export function SmartRuleEditor({
             )}
           >
             <span className="grid h-4 w-4 place-items-center rounded-full bg-black/10 text-[10px]">{i + 1}</span>
-            {t(`widgetPage.smart.steps.${s}` as any)}
+            {t(`widgetPage.smart.steps.${s}` as TranslationKey)}
           </button>
         ))}
       </div>
@@ -144,7 +144,7 @@ export function SmartRuleEditor({
                       : 'border-border/70 hover:border-primary/40',
                   )}
                 >
-                  {t(`widgetPage.smart.trigger.${type}` as any)}
+                  {t(`widgetPage.smart.trigger.${type}` as TranslationKey)}
                 </button>
               ))}
             </div>
@@ -182,7 +182,7 @@ export function SmartRuleEditor({
             <h4 className="text-sm font-semibold">{t('widgetPage.smart.audience.title')}</h4>
             <Select
               value={value.audience_config.match}
-              onValueChange={(v) => patchIn('audience_config', { match: v })}
+              onValueChange={(v) => patchIn('audience_config', { match: v as SmartRuleDraft['audience_config']['match'] })}
             >
               <SelectTrigger className="max-w-[260px]"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -207,21 +207,21 @@ export function SmartRuleEditor({
                 };
                 return (
                   <div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-background/60 p-2">
-                    <Select value={cond.field} onValueChange={(v) => update({ field: v as any, value: '' })}>
+                    <Select value={cond.field} onValueChange={(v) => update({ field: v as typeof cond.field, value: '' })}>
                       <SelectTrigger className="h-9 w-[190px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {SMART_CONDITION_FIELDS.map((f) => (
-                          <SelectItem key={f} value={f}>{t(`widgetPage.smart.audience.fields.${f}` as any)}</SelectItem>
+                          <SelectItem key={f} value={f}>{t(`widgetPage.smart.audience.fields.${f}` as TranslationKey)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Select value={cond.operator} onValueChange={(v) => update({ operator: v as any })}>
+                    <Select value={cond.operator} onValueChange={(v) => update({ operator: v as typeof cond.operator })}>
                       <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {SMART_OPERATORS
                           .filter((op) => NUMERIC_FIELDS.has(cond.field) ? true : op !== 'gt' && op !== 'lt')
                           .map((op) => (
-                            <SelectItem key={op} value={op}>{t(`widgetPage.smart.audience.operators.${op}` as any)}</SelectItem>
+                            <SelectItem key={op} value={op}>{t(`widgetPage.smart.audience.operators.${op}` as TranslationKey)}</SelectItem>
                           ))}
                       </SelectContent>
                     </Select>
@@ -284,7 +284,10 @@ export function SmartRuleEditor({
                         : 'border-border/70 hover:border-primary/40',
                     )}
                   >
-                    {t(`widgetPage.smart.message.modes.${mode}` as any)}
+                    {t(`widgetPage.smart.message.modes.${mode}` as TranslationKey)}
+                    <span className="mt-1 block font-normal leading-snug text-muted-foreground">
+                      {t(`widgetPage.smart.message.modeHints.${mode}` as TranslationKey)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -360,12 +363,12 @@ export function SmartRuleEditor({
                 <Label className="text-xs">{t('widgetPage.smart.message.action')}</Label>
                 <Select
                   value={value.presentation_config.action}
-                  onValueChange={(v) => patchIn('presentation_config', { action: v })}
+                  onValueChange={(v) => patchIn('presentation_config', { action: v as SmartRuleDraft['presentation_config']['action'] })}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {SMART_ACTIONS.map((a) => (
-                      <SelectItem key={a} value={a}>{t(`widgetPage.smart.message.actions.${a}` as any)}</SelectItem>
+                      <SelectItem key={a} value={a}>{t(`widgetPage.smart.message.actions.${a}` as TranslationKey)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -490,12 +493,12 @@ export function SmartRuleEditor({
                 <Label className="text-xs">{t('widgetPage.smart.schedule.frequency')}</Label>
                 <Select
                   value={value.frequency_config.mode}
-                  onValueChange={(v) => patchIn('frequency_config', { mode: v })}
+                  onValueChange={(v) => patchIn('frequency_config', { mode: v as SmartRuleDraft['frequency_config']['mode'] })}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {SMART_FREQUENCY_MODES.map((m) => (
-                      <SelectItem key={m} value={m}>{t(`widgetPage.smart.schedule.modes.${m}` as any)}</SelectItem>
+                      <SelectItem key={m} value={m}>{t(`widgetPage.smart.schedule.modes.${m}` as TranslationKey)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -532,9 +535,9 @@ export function SmartRuleEditor({
                 ['stop_after_visitor_reply', 'stopReply'],
               ] as const).map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between rounded-lg border border-border/70 p-2.5">
-                  <span className="text-xs">{t(`widgetPage.smart.schedule.${label}` as any)}</span>
+                  <span className="text-xs">{t(`widgetPage.smart.schedule.${label}` as TranslationKey)}</span>
                   <Switch
-                    checked={(value.behavior_config as any)[key] !== false}
+                    checked={(value.behavior_config as Record<string, unknown>)[key] !== false}
                     onCheckedChange={(v) => patchIn('behavior_config', { [key]: v })}
                   />
                 </div>
@@ -550,7 +553,7 @@ export function SmartRuleEditor({
                 <span className="text-xs">{t('widgetPage.smart.schedule.offline')}</span>
                 <Select
                   value={value.behavior_config.offline_mode || 'show'}
-                  onValueChange={(v) => patchIn('behavior_config', { offline_mode: v })}
+                  onValueChange={(v) => patchIn('behavior_config', { offline_mode: v as SmartRuleDraft['behavior_config']['offline_mode'] })}
                 >
                   <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -569,11 +572,11 @@ export function SmartRuleEditor({
             <div className="rounded-xl border border-border/70 bg-secondary/30 p-4 text-xs leading-relaxed">
               <p className="font-medium">{value.name || t('widgetPage.smart.fields.namePlaceholder')}</p>
               <p className="mt-1 text-muted-foreground">
-                {t(`widgetPage.smart.trigger.${value.trigger_config.type}` as any)}
+                {t(`widgetPage.smart.trigger.${value.trigger_config.type}` as TranslationKey)}
                 {' · '}
-                {t(`widgetPage.smart.message.modes.${value.presentation_config.mode}` as any)}
+                {t(`widgetPage.smart.message.modes.${value.presentation_config.mode}` as TranslationKey)}
                 {' · '}
-                {t(`widgetPage.smart.schedule.modes.${value.frequency_config.mode}` as any)}
+                {t(`widgetPage.smart.schedule.modes.${value.frequency_config.mode}` as TranslationKey)}
               </p>
             </div>
             {issues.length > 0 && (

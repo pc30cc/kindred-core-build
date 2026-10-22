@@ -26,6 +26,7 @@ import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider } from '@/i18n';
 import { TemplateChoiceCard } from '@/components/app/widget/TemplateChoiceCard';
+import { templateVisitorFeatures } from '@/lib/widgetTemplateNames';
 import { WidgetLivePreview } from '@/components/app/widget/WidgetLivePreview';
 import { effectiveWorkspaceTemplate, templateCardVisible, templatePickerVisible, type WorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 
@@ -118,6 +119,20 @@ describe('TemplateChoiceCard', () => {
     expect(radios[0].textContent).toContain('Default');
     expect(radios[1].textContent).toContain('Sea');
     expect(radios[0].getAttribute('aria-checked')).toBe('true');
+  });
+
+  // V-36: what visitors get differs by template; each one says so.
+  it('each template lists what its visitors get', async () => {
+    await card();
+    const [def, t1] = screen.getAllByRole('radio').map((r) => r.querySelector('[data-tpl-features]')!.textContent || '');
+    expect(def).toContain('Operator typing');
+    expect(def).not.toContain('Place in the queue');
+    expect(t1).toContain('Place in the queue');
+    expect(t1).not.toContain('Rating after a chat');
+    expect(templateVisitorFeatures('t2')).toEqual(['typing', 'closedLine', 'rating', 'reactions']);
+    expect(templateVisitorFeatures('t2-intl')).toEqual(templateVisitorFeatures('t2'));
+    expect(templateVisitorFeatures('intl')).toEqual(['typing']);
+    expect(templateVisitorFeatures('nope')).toEqual([]);
   });
 
   it('a pick calls back with the id', async () => {

@@ -264,7 +264,7 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     h.emitMessages([closed.payload]);
     await until(() => card(h));
 
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
     expect(sentTo('/csat').map((r) => [r.method, r.path])).toEqual([['GET', `/api/widget/conversations/${cid}/csat?workspace_id=${WS}`]]);
     expect(card(h)!.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
     expect(card(h)!.querySelector('[data-csat-transcript]')).not.toBeNull();
@@ -314,7 +314,7 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     expect(rows.filter((m) => (m.metadata as Row | null)?.kind === 'conversation_closed').map((m) => m.id)).toEqual([closed.id]);
     h.emitPoll(rows);
     await until(() => card(h));
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
   });
 
   it('a system notice after the line (a transfer, a join): the server still rates that closure, and the widget draws its card', async () => {
@@ -346,7 +346,7 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     const h = await widget(cid);
     await until(() => sentTo('/csat').length === 1);
     await flush(20);
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
     expect(card(h)).toBeNull();
   });
 

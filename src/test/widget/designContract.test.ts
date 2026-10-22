@@ -196,12 +196,20 @@ describe('chat header design contract', () => {
 });
 
 describe('typing state', () => {
-  it('keeps the typing hooks but renders no visible typing row', () => {
+  // I-09: `default` shows the operator typing above the composer (it was for
+  // screen readers only); hidden until Core shows it, and still no row in the thread.
+  it('keeps the typing hooks as a visible row above the composer, hidden at rest', () => {
     const el = chatDom();
     expect(el.querySelectorAll('[data-typing-row]').length).toBe(1);
     expect(el.querySelectorAll('[data-typing-label]').length).toBe(1);
-    expect(el.querySelector('[data-typing-row]')!.classList.contains('sr-only')).toBe(true);
+    const row = el.querySelector('[data-typing-row]')!;
+    expect(row.classList.contains('sr-only')).toBe(false);
+    expect(row.hasAttribute('hidden')).toBe(true);
+    expect(row.getAttribute('aria-live')).toBe('polite');
+    expect(row.querySelector('.typing-dots')).not.toBeNull();
+    expect(el.querySelector('[data-composer-zone]')!.contains(row)).toBe(true);
     expect(el.querySelectorAll('.typing-row').length).toBe(0);
+    expect(PRES_CSS).toMatch(/\.wy-typing\[hidden\]\s*\{\s*display:\s*none/);
   });
 });
 

@@ -648,13 +648,15 @@
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
       var html = '<div class="messages">';
 
+      var thread = 0;
       var groupKeys = s.messages.map(function (m, i) {
         // A failed message is a run of its own, so its "not delivered" and
         // Retry stay on it when a later message goes through (as in t2).
         var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         // A new calendar day always breaks the streak so the meta line (time +
-        // ticks) closes the previous day's run.
-        return author + '@' + dayKeyOf(m.time);
+        // ticks) closes the previous day's run; so does a new conversation.
+        if (m.threadStart) thread++;
+        return author + '@' + dayKeyOf(m.time) + '#' + thread;
       });
       var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
@@ -662,6 +664,9 @@
       s.messages.forEach(function (m, idx) {
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
+        // The visitor's message that opened a new conversation under an
+        // ended one (Core's `threadStart`).
+        if (m.threadStart) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
 
           html += renderCallInvitationCard(m); return;
@@ -677,7 +682,9 @@
           html += renderRoutingOutcomeRow(m); return;
         }
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        var bg = m.sender === 'visitor' ? 'style="background:' + esc(ctx.primaryColor) + '"' : '';
+        // The visitor's bubble wears the stylesheet's accent (Core's readable
+        // one, --gs-primary-aa: its ink reaches 4.5:1), not the raw colour.
+        var bg = '';
         var isAi = m.senderType === 'ai';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
@@ -995,10 +1002,10 @@
 
       var inputHtml = chatEnabled
         ? '<div class="composer-zone" data-composer-zone>' +
-            // Typing state is preserved as a Core capability, but the design
-            // has NO visible "typing…" row above the composer — it is
-            // announced to assistive tech only.
-            '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
+            // The operator's typing, above the composer (Core shows it for
+            // 3.5 s per signal and fills the label; aria-live for screen readers).
+            '<div class="wy-typing" data-typing-row hidden aria-live="polite">' +
+              '<span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
               '<span class="typing-label" data-typing-label></span>' +
             '</div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
@@ -1174,7 +1181,8 @@
           unreadHtml + timeHtml +
         '</button>';
       }
-      var resolved = String(c.status || '') === 'resolved';
+      // A closed conversation is over for the visitor as a resolved one is.
+      var resolved = /^(resolved|closed)$/.test(String(c.status || ''));
       var statusLabel = resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open');
       return '<button type="button" class="conv-row" data-conversation-open="' + esc(c.id) + '">' +
         identityAvatarHtml('sm') +

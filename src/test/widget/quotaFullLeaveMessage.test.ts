@@ -75,7 +75,7 @@ describe('a first message refused for max_conversations', () => {
   it('the send error carries the limit key from the 403 body', () => {
     expect(chat).toMatch(/e\.feature = \(body && typeof body\.feature === 'string'\) \? body\.feature : null;/);
     const idx = runtime.indexOf('function attemptSend(');
-    const body = runtime.slice(idx, idx + 3000);
+    const body = runtime.slice(idx, idx + 6000);
     expect(body).toMatch(/onError: function \(err\) \{[\s\S]*?if \(switchToQuotaForm\(err, localId, text, onChange\)\) \{ if \(done\) done\(\); return; \}/);
   });
 });

@@ -123,8 +123,10 @@ describe('widget polish — accessibility', () => {
     expect(runtime).toContain("panel.setAttribute('role', 'dialog')");
     expect(runtime).toContain("panel.setAttribute('aria-label', brandName || t('chat'))");
     expect(runtime).toContain("panel.setAttribute('tabindex', '-1')");
-    // Not modal: the host page behind a corner popover stays usable.
-    expect(runtime).not.toContain("panel.setAttribute('aria-modal'");
+    // Modal only where it covers the page (a phone's full-screen panel,
+    // V-24): the host page behind a desktop corner popover stays usable.
+    // Behaviour: src/test/widget/panelModalLang.test.ts.
+    expect(runtime).toContain("if (panelIsFullScreen()) panel.setAttribute('aria-modal', 'true');");
   });
 
   it('Escape unwinds the widget without hijacking the host page', () => {

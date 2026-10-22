@@ -106,7 +106,7 @@ function withExtras(r: Renderer): Renderer {
 /** A `conversation_closed` row as Core keeps it. */
 const closedRow = (id: string, agentName: string | null, over: Vm = {}): Vm => msg({
   __id: id, sender: 'operator', senderType: 'system', senderName: agentName, body: `${agentName} closed the conversation`,
-  metadata: { kind: 'conversation_closed', by: 'agent', agent_name: agentName, operator_name: agentName, status: 'resolved' }, ...over,
+  metadata: { kind: 'conversation_closed', by: 'agent', agent_name: agentName, operator_name: agentName, status: 'closed' }, ...over,
 });
 /** The rating card's view-model (runtime-late.js `view.csat`). */
 const CSAT = (closedId: string, over: Vm = {}): Vm => ({
@@ -1093,6 +1093,17 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
     expect(line(null)).toBe('فروشگاه نیلوفر گفتگو را بست');
     expect(line('Sara', 'en')).toBe('Sara closed the conversation');
     expect(line('Sara', 'tr')).toBe('Sara sohbeti kapattı');
+  });
+
+  // V-12: a resolve is not a close (the visitor's next message continues
+  // the conversation), and the line says so.
+  it('a resolve reads as resolved, not closed; in fa, en and tr', () => {
+    const line = (locale: string) => thread(withExtras(make({ locale })), [closedRow('c1', 'Sara', {
+      metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Sara', status: 'resolved' },
+    })]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
+    expect(line('fa')).toBe('Sara گفتگو را حل‌شده اعلام کرد');
+    expect(line('en')).toBe('Sara marked the conversation as resolved');
+    expect(line('tr')).toBe('Sara sohbeti çözüldü olarak işaretledi');
   });
 
   it('before the extras: no line, no card, and taking them asks Core for one repaint', () => {

@@ -76,6 +76,7 @@ type MessageAttachment = {
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { publishVisitorSeen } from '../services/widget/visitorSeen.js';
+import { wakeVisitorWidget } from '../services/widget/visitorWake.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
@@ -530,6 +531,9 @@ conversationsRouter.post('/send-message', async (req, res) => {
             sender_avatar: senderProfile?.avatar ?? null,
           }),
         );
+    // A visitor whose widget is not listening yet (another page, or never
+    // opened: Visitors → Start chat) hears of it through the loader.
+    if (!duplicate) void wakeVisitorWidget(config, parsed.data.workspace_id, parsed.data.conversation_id);
 
 
     // Platform support: when this conversation is an operator's support

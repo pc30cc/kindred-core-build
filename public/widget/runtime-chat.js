@@ -149,6 +149,8 @@
       // a resend as idempotent instead of inserting a second row.
       var clientMessageId = opts.clientMessageId || null;
       var replyToMessageId = opts.replyToMessageId || null;
+      // { id, version, locale } of the Smart Engagement message answered (first message only).
+      var smartRule = opts.smartRule || null;
       var onReply = opts.onReply;
       var onConversation = opts.onConversation;
       // Phase 7 — receives { conversationId, messageId } once the backend
@@ -222,6 +224,7 @@
           // alias from older deployed runtimes for backward compatibility.
           page_context: pageCtxOut || undefined,
           nudge_context: nudgeCtxOut || undefined,
+          smart_rule: smartRule || undefined,
         }),
       })
         .then(function (r) {
@@ -258,6 +261,8 @@
             onAccepted({
               conversationId: data.conversation_id || null,
               messageId: data.message_id || null,
+              // The rule's line stored before this message (smart_rule).
+              openingMessage: data.opening_message || null,
             });
           }
           if (data.reply && onReply) onReply(data.reply);

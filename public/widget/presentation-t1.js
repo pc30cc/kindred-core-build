@@ -713,12 +713,14 @@
       // «back at …», then the reply-time note the workspace wrote (07·09), never our own.
       var html = '<div class="messages">' + banHtml(' ban-row', [awayLine((config.availability || {}).next_open_at), replyText(' ')]
         .filter(function (s) { return s.trim(); }).join(' · '));
-      // A run = consecutive messages of one author on one day; system rows break runs.
+      // A run = consecutive messages of one author on one day (and one
+      // conversation: Core's `threadStart`); system rows break runs.
+      var th = 0;
       var keys = msgs.map(function (m, i) {
         if (isSystemRow(m)) return 's' + i;
         // A failed message is a run of its own: its label and Retry stay on it.
         return (m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : 'o:' + (m.senderName || '') + '|' + (m.senderAvatar || '') + '|' + (m.senderType === 'ai' ? 1 : 0)) +
-          '@' + dayKeyOf(m.time);
+          '@' + dayKeyOf(m.time) + (m.threadStart ? ++th : th);
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
@@ -727,6 +729,8 @@
       msgs.forEach(function (m, idx) {
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
+        // A new conversation opened under an ended one.
+        if (m.threadStart) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
         if (isSystemRow(m)) {
           var kind = m.metadata.kind;
           // The queued row Core gives the visitor's place (`view.queue`, by the extras).
@@ -1126,7 +1130,8 @@
     /** One conversation (the compact flag of older callers draws the same row). */
     function conversationRowHtml(c) {
       c = c || {};
-      var resolved = String(c.status || '') === 'resolved';
+      // Closed is over for the visitor as resolved is (no live dot).
+      var resolved = /^(resolved|closed)$/.test(c.status);
       return '<button type="button" class="li conv-row" data-conversation-open="' + esc(c.id) + '">' + convAvatar(c, 's44') +
         '<span class="lx"><span class="l1"><span class="nm">' + esc(convName(c)) + '</span>' +
           (c.timeLabel ? '<span class="tm-s">' + esc(c.timeLabel) + '</span>' : '') + '</span>' + previewHtml(c) +

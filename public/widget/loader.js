@@ -569,6 +569,8 @@
     "width:100vw;height:var(--gs-vvh,100dvh);}",
     ".shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,",
     ".shell.gs-mobile-open .smart-nudge{display:none!important;}",
+    /* A bubble gives way to the open panel (it holds what the bubble previews). */
+    ".launcher.open~.smart-nudge{display:none!important;}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
@@ -823,6 +825,8 @@
   // while a Smart Engagement silent preload (see preloadRuntimeForSmart)
   // was already in flight. A silent preload alone never sets this.
   var wantRuntimeOpen = false;
+  // That open is nobody's request (a Smart Engagement rule): no focus move.
+  var quietOpen = false;
   var shellEl = null;
   var shadowRoot = null;
   var shellContentEl = null;
@@ -949,10 +953,12 @@
       configFailed: "Sohbet ayarları yüklenemedi.",
     },
   };
+  /** The widget's language ('fa', 'en', 'tr'), whatever the host page's is. */
+  function widgetLang() {
+    return String((configData && configData.locale) || document.documentElement.lang || navigator.language || "en").toLowerCase().split("-")[0];
+  }
   function lt(key) {
-    var raw = (configData && configData.locale) || document.documentElement.lang || navigator.language || "en";
-    var locale = String(raw).toLowerCase().split("-")[0];
-    var dict = LOADER_STRINGS[locale] || LOADER_STRINGS.en;
+    var dict = LOADER_STRINGS[widgetLang()] || LOADER_STRINGS.en;
     return dict[key] || LOADER_STRINGS.en[key] || key;
   }
 
@@ -1206,6 +1212,9 @@
         config.secondaryColor || config.primaryColor || "#6366F1"
       );
       shellDiv.style.setProperty("--gs-shadow", shadowFromPrimary(config.primaryColor));
+      // The launcher, its bubbles and the panel speak the widget's language
+      // to a screen reader, not the host page's (WCAG 3.1.2).
+      shellDiv.lang = widgetLang();
     }
 
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
@@ -1639,6 +1648,10 @@
 
         applyConfigToShell(config);
         attachLauncherClick({ launcherOnly: false });
+        // A conversation is going on in this browser (the runtime's
+        // `gs_active` hint): the runtime boots silently once the page is
+        // idle, so a reply reaches this page too (badge, preview, title).
+        if (/(^|;\s*)gs_active=1/.test(document.cookie)) scheduleDeferred(preloadRuntimeForSmart);
 
         if (config.features && config.features.visitorTracking) {
           scheduleDeferred(function () {
@@ -1935,16 +1948,17 @@
     }
   }
 
-  function triggerOpen() {
+  // `quiet`: nobody asked (a Smart Engagement rule): the focus stays put.
+  function triggerOpen(quiet) {
     if (!launcherEl) return;
     commerceContextOnOpen();
     var inst = runtimeInstanceRef();
     if (runtimeLoaded && inst) {
-      try { inst.open(); } catch (_) {}
+      try { inst.open(quiet); } catch (_) {}
       syncOpenStateFromRuntime();
       return;
     }
-    onLauncherClick();
+    onLauncherClick(quiet);
   }
   function triggerClose() {
     var inst = runtimeInstanceRef();
@@ -1975,7 +1989,7 @@
   // desync `isOpen` and leave the launcher stuck in the "open" state).
   try { window.__gs_panel_close = triggerClose; } catch (_) {}
 
-  function onLauncherClick() {
+  function onLauncherClick(quiet) {
     if (!configData) return;
     commerceContextOnOpen();
     var inst = runtimeInstanceRef();
@@ -1989,6 +2003,7 @@
     // Upgrade it to "open when ready" instead of starting a second,
     // redundant load.
     wantRuntimeOpen = true;
+    quietOpen = quiet === true;
     if (runtimeLoading) { releaseRuntimeInit(); return; }
     holdRuntimeInit = false;
     loadRuntimeAssets();
@@ -2209,7 +2224,7 @@
           // something actually asked for it (a real launcher click). A silent
           // Smart Engagement preload leaves the widget mounted but closed.
           if (wantRuntimeOpen) {
-            try { instance.open(); } catch (_) {}
+            try { instance.open(quietOpen); } catch (_) {}
           }
           syncOpenStateFromRuntime();
           processQueue();
@@ -2446,7 +2461,7 @@
       badge.textContent = count > 9 ? "9+" : String(count);
       // The local kit's button: Persian digits in a Persian widget, and one
       // nudge when the first unread message arrives.
-      if (LOCAL_KIT && kitBadge && String((configData && configData.locale) || "").toLowerCase().split("-")[0] === "fa") {
+      if (LOCAL_KIT && kitBadge && widgetLang() === "fa") {
         badge.textContent = persianDigits(badge.textContent);
       }
       if (LOCAL_KIT && kitBadge && !(lastUnreadCount > 0)) {
@@ -2857,12 +2872,20 @@
 
     function showAiNudge(data) {
       if (!shellContentEl || activeSurface) return false;
-      var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
-      var el = document.createElement("div");
-      el.className = "smart-nudge " + posClass;
-      el.innerHTML = surfaceHtml({ title: "", body: data.message, cta_label: data.cta && data.cta.label }, true);
-      shellContentEl.appendChild(el);
-      activeSurface = { ruleId: "ai:" + data.nudgeId, el: el };
+      bubble("ai:" + data.nudgeId, { title: "", body: data.message, cta_label: data.cta && data.cta.label }, true, 25,
+        function () {
+          if (data.topic && session.aiFreq.dismissedTopics.indexOf(data.topic) === -1) {
+            session.aiFreq.dismissedTopics.push(data.topic);
+            writeJson(window.sessionStorage, sessionKey, session);
+          }
+          reportAiEvent(data.nudgeId, "dismissed");
+        },
+        function () {
+          session.aiFreq.lastEngaged = true;
+          writeJson(window.sessionStorage, sessionKey, session);
+          reportAiEvent(data.nudgeId, "cta_clicked");
+          runAiNudgeAction(data);
+        });
 
       session.aiFreq.shownInSession = (Number(session.aiFreq.shownInSession) || 0) + 1;
       session.aiFreq.lastShownAt = Date.now();
@@ -2871,31 +2894,6 @@
       writeJson(window.sessionStorage, sessionKey, session);
       lastSurfaceAt = Date.now();
       reportAiEvent(data.nudgeId, "shown");
-
-      var dismissBtn = el.querySelector("[data-smart-dismiss]");
-      if (dismissBtn) {
-        dismissBtn.addEventListener("click", function () {
-          if (data.topic && session.aiFreq.dismissedTopics.indexOf(data.topic) === -1) {
-            session.aiFreq.dismissedTopics.push(data.topic);
-            writeJson(window.sessionStorage, sessionKey, session);
-          }
-          reportAiEvent(data.nudgeId, "dismissed");
-          clearSurface();
-        });
-      }
-      var ctaBtn = el.querySelector("[data-smart-cta]");
-      if (ctaBtn) {
-        ctaBtn.addEventListener("click", function () {
-          session.aiFreq.lastEngaged = true;
-          writeJson(window.sessionStorage, sessionKey, session);
-          reportAiEvent(data.nudgeId, "cta_clicked");
-          clearSurface();
-          runAiNudgeAction(data);
-        });
-      }
-      setTimeout(function () {
-        if (activeSurface && activeSurface.el === el) clearSurface();
-      }, 25000);
       return true;
     }
 
@@ -3190,61 +3188,72 @@
       });
     }
 
-    function showNudge(rule, content) {
+    // One bubble beside the launcher: a rule's nudge, an AI nudge, the
+    // preview of a rule meant for the panel. A live region (role=status: a
+    // screen reader hears it once it is filled), in the widget's language
+    // and direction. It goes after `sec` seconds, never while the pointer or
+    // the focus is on it (WCAG 2.2.1). `onDismiss` / `onCta` run before it goes.
+    function bubble(id, content, dismissible, sec, onDismiss, onCta) {
+      var lang = widgetLang();
+      var el = document.createElement("div");
+      el.className = "smart-nudge entering " + (configData.position === "bottom-left" ? "bottom-left" : "bottom-right");
+      el.setAttribute("role", "status");
+      el.lang = lang;
+      el.dir = ["fa", "ar", "he", "ur"].indexOf(lang) >= 0 ? "rtl" : "ltr";
+      shellContentEl.appendChild(el);
+      el.innerHTML = surfaceHtml(content, dismissible);
+      // Drop the intro class once it has played so a late-arriving template
+      // stylesheet cannot restart the entry animation mid-life.
+      var settle = function () { try { el.classList.remove("entering"); } catch (_) {} };
+      try { el.addEventListener("animationend", settle, { once: true }); } catch (_) {}
+      setTimeout(settle, 480);
+      activeSurface = { ruleId: id, el: el };
+      [["[data-smart-dismiss]", onDismiss], ["[data-smart-cta]", onCta]].forEach(function (b) {
+        var btn = el.querySelector(b[0]);
+        if (btn) btn.addEventListener("click", function (e) { e.stopPropagation(); b[1](); clearSurface(); });
+      });
+      // Auto-release: a bubble the visitor never touches must not block
+      // every other rule forever. It goes WITHOUT being marked dismissed, so
+      // the evaluation loop is free to surface the next matching rule (still
+      // behind the global cooldown); frequency state already counted it.
+      var timer = null;
+      var arm = function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () { if (activeSurface && activeSurface.el === el) clearSurface(); }, (sec > 0 ? sec : 25) * 1000);
+      };
+      var hold = function () { clearTimeout(timer); };
+      el.addEventListener("mouseenter", hold);
+      el.addEventListener("focusin", hold);
+      el.addEventListener("mouseleave", arm);
+      el.addEventListener("focusout", arm);
+      arm();
+      return el;
+    }
+
+    // A rule's bubble. With `open`, it is the preview of a surface meant for
+    // the panel (showPanelSurface): a tap on it opens the panel there.
+    function showNudge(rule, content, open) {
       if (!shellContentEl) return false;
       injectPresentationFonts(configData.presentationFontsUrl || "");
       // A template newer than the edition's first one dresses the bubble in
       // its own stylesheet: load the template now, as an open intent does
       // (nothing runs until an open).
       if (configData.templateId && !/^(default|intl)$/.test(configData.templateId)) onOpenIntent();
-      var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
-      var el = document.createElement("div");
-      el.className = "smart-nudge entering " + posClass;
-      // Text direction follows the widget locale so RTL copy (fa/ar/he/ur)
-      // reads right-aligned and the CTA flows to the correct edge.
-      var nudgeLocale = String(
-        (configData && configData.locale) || document.documentElement.lang || navigator.language || "en"
-      ).toLowerCase().split("-")[0];
-      el.setAttribute("dir", ["fa", "ar", "he", "ur"].indexOf(nudgeLocale) >= 0 ? "rtl" : "ltr");
-
-      el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
-      shellContentEl.appendChild(el);
-      // Drop the intro class once it has played so a late-arriving template
-      // stylesheet cannot restart the entry animation mid-life.
-      var settle = function () { try { el.classList.remove("entering"); } catch (_) {} };
-      try { el.addEventListener("animationend", settle, { once: true }); } catch (_) {}
-      setTimeout(settle, 480);
-      activeSurface = { ruleId: rule.id, el: el };
-
-      var dismissBtn = el.querySelector("[data-smart-dismiss]");
-      if (dismissBtn) {
-        dismissBtn.addEventListener("click", function () {
+      var el = bubble(rule.id, content, (rule.presentation_config || {}).dismissible,
+        Number((rule.behavior_config || {}).auto_hide_seconds),
+        function () {
           markRule(rule, "dismissed");
           report(rule, "dismissed");
-          clearSurface();
-        });
-      }
-      var ctaBtn = el.querySelector("[data-smart-cta]");
-      if (ctaBtn) {
-        ctaBtn.addEventListener("click", function () {
+          // The surface waiting in the panel goes with its preview.
+          var inst = open && runtimeInstance();
+          if (inst && inst.hideSmart) inst.hideSmart();
+        },
+        open || function () {
           markRule(rule, "cta");
           report(rule, "cta_clicked");
-          clearSurface();
           runAction(rule);
         });
-      }
-      // Auto-release: a launcher nudge that the visitor never touches must
-      // not block every other rule forever. After its display window we
-      // remove it WITHOUT marking it dismissed, so the evaluation loop is
-      // free to surface the next matching rule (still behind the global
-      // cooldown). Only the visual surface is released — frequency state
-      // already counted this impression.
-      var behavior = rule.behavior_config || {};
-      var autoSec = Number(behavior.auto_hide_seconds);
-      if (!isFinite(autoSec) || autoSec <= 0) autoSec = 25;
-      setTimeout(function () {
-        if (activeSurface && activeSurface.el === el) clearSurface();
-      }, autoSec * 1000);
+      if (open) el.addEventListener("click", function () { clearSurface(); open(); });
       return true;
     }
 
@@ -3256,17 +3265,28 @@
     function showPanelSurface(rule, content, onResult) {
       var pres = rule.presentation_config || {};
       var wasOpen = !!isOpen;
-      triggerOpen();
-      if (!wasOpen) {
-        // widget_opened is only ever reported once the panel actually opens.
-        var tries0 = 0;
-        (function waitOpen() {
-          if (isOpen) { report(rule, "widget_opened"); return; }
-          if (tries0++ > 40) return;
-          setTimeout(waitOpen, 100);
-        })();
+      // Proactive (the panel is closed): the screen and the focus stay the
+      // visitor's (WCAG 3.2). The surface waits in the panel, previewed by
+      // the launcher, until the visitor opens it, from the preview or the
+      // launcher. Only `open_widget` opens by itself, on a computer, with
+      // the focus left where it is: a phone's open panel is the whole screen.
+      var preview = !wasOpen && (pres.mode !== "open_widget" || isPhoneViewport());
+      var tap = function () { triggerOpen(); report(rule, "widget_opened"); };
+      if (!preview) {
+        triggerOpen(true);
+        if (!wasOpen) {
+          // widget_opened is only ever reported once the panel actually opens.
+          var tries0 = 0;
+          (function waitOpen() {
+            if (isOpen) { report(rule, "widget_opened"); return; }
+            if (tries0++ > 40) return;
+            setTimeout(waitOpen, 100);
+          })();
+        }
       }
-      if (pres.mode === "open_widget") { onResult(true); return; }
+      if (pres.mode === "open_widget") { onResult(preview ? showNudge(rule, content, tap) : true); return; }
+      // The surface waits in the runtime, booted silently for a preview.
+      preloadRuntimeForSmart();
       var tries = 0;
       (function waitReady() {
         var inst = runtimeInstance();
@@ -3291,6 +3311,7 @@
             },
           });
           if (delivered) activeSurface = { ruleId: rule.id, el: null };
+          if (delivered && preview) showNudge(rule, content, tap);
           onResult(delivered);
           return;
         }
@@ -3593,6 +3614,10 @@
           if (frame && frame.error) {
             setOwns(false);
           }
+          // A publication on this visitor's channel: an operator wrote to
+          // them (services/widget/visitorWake.ts). It carries nothing; the
+          // runtime, booted silently, reads the reply and shows it.
+          if (frame && frame.push && frame.push.pub) preloadRuntimeForSmart();
         }
       };
       ws.onclose = function (ev) {

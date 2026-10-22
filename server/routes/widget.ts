@@ -148,6 +148,8 @@ import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visit
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { workspaceChatTemplate } from '../services/widget/configSnapshot.js';
+import { widgetPlanDenied, WIDGET_PLAN_CHAT } from '../services/widget/planGate.js';
+import { smartRuleOpening } from '../services/widget/smartOpening.js';
 import {
   csatEnabledFor,
   csatState,
@@ -1683,6 +1685,11 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
 // ═══════════════════════════════════════════════
 // POST /message — Send message + AI auto-reply
 // ═══════════════════════════════════════════════
+const smartRuleRef = z.object({
+  id: z.string().uuid(),
+  locale: z.string().max(16).optional().nullable(),
+});
+
 const messageSchema = z.object({
   workspace_id: z.string().uuid().optional(),
   conversation_id: z.string().uuid().optional().nullable(),
@@ -1740,6 +1747,17 @@ const messageSchema = z.object({
     source: z.literal('ai_proactive_nudge'),
     nudge_id: z.string().uuid(),
   }).optional().nullable(),
+  /**
+   * The Smart Engagement "Message inside the chat" the visitor is answering
+   * (services/widget/smartOpening.ts): on the message that opens a new
+   * conversation, the rule's published text is stored before it. Only the
+   * id is a key; the locale picks among the rule's own translations.
+   */
+  smart_rule: z.preprocess(
+    // Context only: a value that is not usable is dropped, never a reason to refuse the message.
+    (v) => (smartRuleRef.safeParse(v).success ? v : undefined),
+    smartRuleRef.optional(),
+  ),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
   { message: 'message, body, or attachment_id required' }
@@ -1917,9 +1935,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
   try {
     // Verify widget is enabled
-    const { data: widget } = await readWidgetRow();
+    // The workspace's switches, then its plan: the raw chat_enabled column
+    // survives a downgrade that /config already applies (services/widget/planGate.ts).
+    const [{ data: widget }, planDenied] = await Promise.all([
+      readWidgetRow(),
+      widgetPlanDenied(config, workspaceId, [WIDGET_PLAN_CHAT]),
+    ]);
 
-    if (!widget?.enabled || widget.chat_enabled === false) {
+    if (!widget?.enabled || widget.chat_enabled === false || planDenied.has(WIDGET_PLAN_CHAT)) {
       return res.status(403).json({ error: 'Chat not enabled' });
     }
 
@@ -1949,6 +1972,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
 
     let convId = body.conversation_id || null;
+    // This request created the conversation (the winner of a concurrent pair only).
+    let createdConversation = false;
 
     // Verify conversation ownership if provided
     if (convId) {
@@ -2144,6 +2169,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       if (!ensuredRow?.id) throw new Error('conversation creation failed');
       convId = ensuredRow.id as string;
       const createdNewConversation = Boolean(ensuredRow.created);
+      createdConversation = createdNewConversation;
 
       // Only the winner emits creation events — the losing concurrent request
       // attached to an existing conversation and must not duplicate them.
@@ -2241,6 +2267,57 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
     };
     if (clientMessageId) insertMetadata.client_message_id = clientMessageId;
+
+    // A Smart Engagement "Message inside the chat" the visitor answers opens
+    // the conversation it started: its published text, stored as the
+    // workspace's automated line before the visitor's message, so the
+    // operator and the AI read what was asked (services/widget/smartOpening.ts).
+    // Only the request that created the conversation: a retry finds the
+    // thread by its client key, and never writes the line twice.
+    let openingMessage: Record<string, unknown> | null = null;
+    if (createdConversation && convId && data.smart_rule?.id) {
+      try {
+        const snap = await getWorkspaceWidgetSnapshot(config, workspaceId);
+        const brand = snap.settings && typeof snap.settings.brand_name === 'string'
+          ? String(snap.settings.brand_name).trim()
+          : (snap.workspace?.name || '');
+        const opening = smartRuleOpening(snap, data.smart_rule.id, data.smart_rule.locale, {
+          workspaceName: brand,
+          pageTitle: pageContext?.currentPageTitle,
+          pagePath: pageContext?.currentPagePath,
+        });
+        if (opening) {
+          const { data: row } = await supabase
+            .from('conversation_messages').insert({
+              conversation_id: convId,
+              body: opening.text,
+              sender_type: 'bot',
+              metadata: { source: 'smart_rule', smart_rule_id: opening.ruleId, smart_rule_version: opening.version },
+            })
+            .select(MESSAGE_COLUMNS)
+            .single();
+          if (row) {
+            openingMessage = row as Record<string, unknown>;
+            publishConversationEvent(config, workspaceId, convId, buildMessageEnvelope(row as Parameters<typeof buildMessageEnvelope>[0])).catch(() => {});
+            // The rule's "conversations" stat (workspaceSmartRules.ts).
+            void recordSmartEvent(supabase, {
+              workspaceId,
+              ruleId: opening.ruleId,
+              ruleVersion: opening.version,
+              source: 'rule',
+              eventType: 'conversation_started',
+              visitorId: body.visitor_id || null,
+              sessionId: body.session_id || null,
+              pagePath: pageContext?.currentPagePath || null,
+              idempotencyKey: `conversation_started:${opening.ruleId}:${convId}`,
+            }, config);
+          }
+        }
+      } catch (err) {
+        // The visitor's message is what matters; the line is context.
+        console.warn('[widget-message] smart rule opening skipped:', err?.message || err);
+      }
+    }
 
     /**
      * Idempotency (double-click / client retry / resend-after-failure).
@@ -2496,6 +2573,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // for every OTHER read path.
       reply_to_message_id: publicReplyToMessageId,
       reply_to: replyToPreview,
+      // The rule's line stored before this message (smart_rule above): the
+      // widget puts it in the thread in place of the one it drew itself.
+      ...(openingMessage ? { opening_message: openingMessage } : {}),
     });
   } catch (err) {
     // Full detail (Postgres code/constraint/message) stays server-side only —

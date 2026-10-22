@@ -97,7 +97,9 @@ describe('default declares no feature and Core stays as it was', () => {
     expect(Object.keys(view).sort()).toEqual(['qna', 'typewriter']);
   });
 
-  it('typing from the operator changes nothing visible (no typing row, header untouched)', async () => {
+  // I-09: the operator's typing shows in default's own row above the
+  // composer (Core's [data-typing-row]); the thread and the header stay as they were.
+  it('typing from the operator shows only the row above the composer (no row in the thread, header untouched)', async () => {
     const h = boot({
       renderer: 'default',
       realtime: true,
@@ -115,6 +117,9 @@ describe('default declares no feature and Core stays as it was', () => {
     expect(header.innerHTML).toBe(before);
     expect(h.q('[data-chat-messages]')!.innerHTML).toBe(thread);
     expect(h.q('.typing-row')).toBeNull();
+    const row = h.q('[data-typing-row]')!;
+    expect(row.hidden).toBe(false);
+    expect(row.textContent!.length).toBeGreaterThan(0);
   });
 
   it('the composer stays hidden (not locked) while the pre-chat card waits, and no skip is bound', async () => {

@@ -140,7 +140,7 @@ const DICTS: Record<string, Dict> = {
     attachTitle: 'پیوست فایل', micTitle: 'ضبط پیام صوتی', emojiTitle: 'شکلک',
     talkToHuman: 'صحبت با اپراتور', msgSeen: 'دیده شد',
     messagesTab: 'پیام‌ها', conversations: 'گفتگوها', noConversations: 'هنوز گفتگویی ندارید',
-    newConversation: 'گفتگوی جدید', statusOpen: 'باز', statusResolved: 'حل شده', unread: 'پیام‌های خوانده‌نشده',
+    newConversation: 'گفتگوی جدید', statusOpen: 'باز', statusResolved: 'حل‌شده', unread: 'پیام‌های خوانده‌نشده',
     back: 'بازگشت', listTimeRecent: '۲ دقیقه', listTimeEarlier: 'دیروز',
   },
   tr: {

@@ -1714,8 +1714,15 @@ export async function renderTemplateScreens(opts: ScreenOptions): Promise<string
   const unknown = names.filter((n) => !SCREEN_STATES[n]);
   if (unknown.length) throw new Error(`unknown state(s): ${unknown.join(', ')} (known: ${Object.keys(SCREEN_STATES).join(', ')})`);
   mkdirSync(opts.outDir, { recursive: true });
+  // With no Chromium of its own found (CI: the one `playwright install
+  // chromium` put in Playwright's cache), the full build in the new headless
+  // mode, not the headless shell Playwright picks by default: after a tap the
+  // shell moves the hover back to its own mouse position (0,0), so a phone's
+  // sticky hover on the tapped line (widgetChatThread's tap checks) never
+  // lasts there, unlike on any phone or in Chrome.
+  const executablePath = resolveScreensChromium(opts.chromiumPath);
   const browser = await chromium.launch({
-    executablePath: resolveScreensChromium(opts.chromiumPath),
+    ...(executablePath ? { executablePath } : { channel: 'chromium' }),
     args: FAKE_MEDIA_ARGS,
   });
   const files: string[] = [];

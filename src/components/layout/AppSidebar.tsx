@@ -32,12 +32,14 @@ import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity'
 import { useQuery } from '@tanstack/react-query';
 import { useBranding } from '@/hooks/useBranding';
 import { useInboxCounts } from '@/hooks/useConversations';
+import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import {
   aiQueueVisible,
   channelInboxVisible,
   colleaguesQueueVisible,
   needsHumanQueueVisible,
+  teamChatPageVisible,
 } from '@/lib/planAccess';
 import { PlanStatusBanner } from '@/components/layout/PlanStatusBanner';
 
@@ -126,6 +128,10 @@ export function AppSidebar({
   const automatedInboxVisible = aiQueueVisible(sections, inboxCounts?.automated ?? 0);
   const needsHumanVisible = needsHumanQueueVisible(plan);
   const colleaguesVisible = colleaguesQueueVisible(plan);
+  // Staff have no Inbox, but keep the team chat: on a page of its own.
+  const teamChatVisible = teamChatPageVisible(sections);
+  const { data: teamChatDir } = useColleagues(teamChatVisible ? workspace?.id : undefined);
+  const teamChatUnread = teamChatDir?.total_unread ?? 0;
 
   // Channel inboxes — one entry per inbox-capable plugin the workspace has
   // installed (Telegram, Bale, ...) and its plan allows. Catalog is an admin surface.
@@ -630,6 +636,36 @@ export function AppSidebar({
           );
         })()}
 
+      </div>
+      )}
+
+      {/* Team chat for a member without the Inbox (its Colleagues tab is everyone else's way in). */}
+      {teamChatVisible && (
+      <div className="px-3 mt-2">
+        <NavTip label={t('nav.teamChat')} enabled={collapsed}>
+        <Link
+          to={wsPath('/team-chat')}
+          data-nav-item
+          data-nav-key="teamChat"
+          data-active={isActive('/team-chat')}
+          title={collapsed ? undefined : t('nav.teamChat')}
+          className={cn(
+            'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
+            isActive('/team-chat')
+              ? 'nav-glow text-sidebar-foreground font-semibold'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+            collapsed && 'justify-center px-0'
+          )}
+        >
+          <NavChip icon={Users} accent="emerald" active={isActive('/team-chat')} collapsed={collapsed} />
+          {!collapsed && <span className="flex-1">{t('nav.teamChat')}</span>}
+          {!collapsed && teamChatUnread > 0 && (
+            <span className="ms-auto bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+              {teamChatUnread > 99 ? '99+' : teamChatUnread}
+            </span>
+          )}
+        </Link>
+        </NavTip>
       </div>
       )}
 

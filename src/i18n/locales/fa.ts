@@ -891,6 +891,7 @@ const fa: TranslationKeys = {
     dashboard: 'داشبورد',
     menu: 'منو',
     inbox: 'صندوق ورودی',
+    teamChat: 'گفتگوی تیمی',
     contacts: 'مخاطبین',
     visitors: 'بازدیدکنندگان',
     knowledgeBase: 'پایگاه دانش',

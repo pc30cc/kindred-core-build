@@ -49,8 +49,8 @@ export function MobileRoutes() {
         }
       >
         <Route index element={<Navigate to="inbox" replace />} />
-        <Route path="inbox" element={<RequireInboxAccess showBack={false}><MobileInboxPage /></RequireInboxAccess>} />
-        <Route path="inbox/:conversationId" element={<RequireInboxAccess showBack={false}><MobileConversationPage /></RequireInboxAccess>} />
+        <Route path="inbox" element={<RequireInboxAccess showBack={false} teamChatPage={false}><MobileInboxPage /></RequireInboxAccess>} />
+        <Route path="inbox/:conversationId" element={<RequireInboxAccess showBack={false} teamChatPage={false}><MobileConversationPage /></RequireInboxAccess>} />
         <Route
           path="contacts"
           element={

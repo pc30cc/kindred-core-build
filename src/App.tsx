@@ -69,6 +69,7 @@ const InvitePage = lazyPage(() => import("@/pages/auth/InvitePage"), { fallback:
 
 const OverviewPage = lazyPage(() => import("@/pages/app/OverviewPage"));
 const InboxPage = lazyPage(() => import("@/pages/app/InboxPage"), { fallback: "inset" });
+const TeamChatPage = lazyPage(() => import("@/pages/app/TeamChatPage"), { fallback: "inset" });
 const ContactsPage = lazyPage(() => import("@/pages/app/ContactsPage"));
 const TeamPage = lazyPage(() => import("@/pages/app/TeamPage"));
 const ContactDetailPage = lazyPage(() => import("@/pages/app/ContactDetailPage"));
@@ -579,6 +580,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<RequireInboxAccess><InboxPage /></RequireInboxAccess>} />
+                {/* Team chat for every member, Inbox or not (staff have no Inbox). */}
+                <Route path="team-chat" element={<PlanLockedOverlay featureKey="inbox_team_chat"><TeamChatPage /></PlanLockedOverlay>} />
                 <Route path="inbox/widget-bridge" element={<RequireAdmin><WidgetBridgeInboxPage /></RequireAdmin>} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
                 <Route path="contacts/:id" element={<PlanLockedOverlay moduleKey="contacts"><ContactDetailPage /></PlanLockedOverlay>} />

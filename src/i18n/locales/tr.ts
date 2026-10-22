@@ -891,6 +891,7 @@ const tr: TranslationKeys = {
     dashboard: 'Kontrol Paneli',
     menu: 'Menü',
     inbox: 'Gelen Kutusu',
+    teamChat: 'Ekip sohbeti',
     contacts: 'Kişiler',
     visitors: 'Ziyaretçiler',
     knowledgeBase: 'Bilgi Bankası',

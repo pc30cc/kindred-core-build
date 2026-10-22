@@ -889,6 +889,7 @@ const en = {
     dashboard: 'Dashboard',
     menu: 'Menu',
     inbox: 'Inbox',
+    teamChat: 'Team chat',
     contacts: 'Contacts',
     visitors: 'Visitors',
     knowledgeBase: 'Knowledge Base',

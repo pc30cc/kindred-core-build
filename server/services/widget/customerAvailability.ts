@@ -14,14 +14,17 @@
  *   - `operator_activity_samples`
  *   - tab visibility, minimize, sleep, network blips
  *
- * MANUAL STATUS CONTRACT (mapped onto the existing schema — no migration):
+ * MANUAL STATUS CONTRACT (the boolean columns, first match wins):
  *   force_offline = true                       → 'offline'
  *   available_when_using_app === false         → 'invisible'
+ *   manual_away = true (migration 282)         → 'away'
  *   otherwise                                  → 'online'
  *
  *   online     → customer-available, subject to the personal schedule
  *   offline    → customer-unavailable
  *   invisible  → customer-unavailable AND hidden from teammates as active
+ *   away       → customer-unavailable (no new chats, R-26); teammates see
+ *                them away while connected, and they keep the chats they hold
  *
  * WHO COUNTS: only the members chat routing may give a conversation (owner
  * decision of 2026-10-21) — the owner and the team roles
@@ -44,12 +47,13 @@ import { isMemberLocked } from '../billing/locks/predicates.js';
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 type DayKey = (typeof DAY_KEYS)[number];
 
-export type ManualAvailability = 'online' | 'offline' | 'invisible';
+export type ManualAvailability = 'online' | 'away' | 'offline' | 'invisible';
 export type CustomerAvailability = 'available' | 'unavailable';
 
 export type CustomerAvailabilityReason =
   | 'manual_offline'
   | 'manual_invisible'
+  | 'manual_away'
   | 'within_schedule'
   | 'outside_schedule'
   | 'day_disabled'
@@ -72,13 +76,15 @@ export interface AvailabilityPrefsRow {
   user_id?: string;
   force_offline: boolean | null;
   available_when_using_app: boolean | null;
+  /** "Away from desk" chosen by the operator (migration 282); absent on older rows and readers. */
+  manual_away?: boolean | null;
   schedule_enabled: boolean | null;
   timezone: string | null;
   weekly_schedule: Partial<Record<DayKey, ScheduleDay>> | null;
 }
 
 export const AVAILABILITY_PREFS_COLUMNS =
-  'user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule';
+  'user_id, force_offline, available_when_using_app, manual_away, schedule_enabled, timezone, weekly_schedule';
 
 /**
  * Formatters per time zone, as in availability.ts: availability is computed
@@ -143,6 +149,7 @@ export function manualAvailabilityOf(
   if (!prefs) return 'online';
   if (prefs.force_offline === true) return 'offline';
   if (prefs.available_when_using_app === false) return 'invisible';
+  if (prefs.manual_away === true) return 'away';
   return 'online';
 }
 
@@ -163,6 +170,9 @@ export function computeCustomerAvailability(
   }
   if (manual === 'invisible') {
     return { availability: 'unavailable', manual, reason: 'manual_invisible' };
+  }
+  if (manual === 'away') {
+    return { availability: 'unavailable', manual, reason: 'manual_away' };
   }
   if (!prefs) {
     return { availability: 'available', manual, reason: 'no_prefs' };

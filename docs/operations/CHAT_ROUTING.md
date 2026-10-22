@@ -61,11 +61,14 @@ minutes later if the form never comes.
      visitor sees their place in the queue. A plan without
      `widget_assignment_routing` always routes as Manual, whatever is stored.
 4. **Available** means: their own availability says so ("Appear offline" off,
-   "Show me as available to visitors" on, inside their schedule if they use
-   one), the panel, the desktop app or the Android app is open, and they
-   hold fewer chats than their maximum (workspace default 5, a member may
-   have their own). Active operators come first; an operator away for less
-   than 30 minutes is used only when no active one is free.
+   "Show me as available to visitors" on, not "Away from desk", inside their
+   schedule if they use one), the panel, the desktop app or the Android app
+   is open, and they hold fewer chats than their maximum (workspace default
+   5, a member may have their own). Active operators come first; an operator
+   idle for less than 30 minutes is used only when no active one is free. An
+   operator who chose "Away from desk" in the account menu (282) gets nothing
+   new, not as the previous operator nor as the owner fallback, keeps the
+   chats they hold, and does not make the widget online.
 5. **Owner fallback**: when nobody above can take it, the owner gets it if the
    Super Admin's global advanced-routing policy allows the owner fallback for
    chats (the same policy calls use) and the owner receives chats and is
@@ -123,6 +126,7 @@ suspended, seat-paused or staff.
 | Max (per member) | Team & departments | `workspace_members.max_concurrent_chats` (1–50, empty = the workspace default) | empty |
 | Departments and their members | Team & departments | `workspace_departments`, `workspace_department_members` | none |
 | My availability (Appear offline, Show me as available to visitors, schedule) | Each operator: Availability | `user_availability_prefs` | available, no schedule |
+| My status: Online / Away from desk / Offline | Each operator: the account menu | `user_availability_prefs.manual_away` (282) with `force_offline` | Online |
 | Use the general pool | Super Admin → Widget settings → Routing | global advanced-routing policy, `general_pool_enabled` | on |
 | Return returning visitors to the same operator (platform) | Same page | `last_agent_routing_enabled` (off = off for every workspace) | on |
 | Workspace-owner fallback (master and per channel) | Same page | `owner_fallback_enabled`, `owner_fallback_for_chat` | on |
@@ -192,8 +196,8 @@ before merging the code.
    `278_chat_routing_distribution.sql`, `278b_chat_routing_member_release.sql`,
    `279_widget_offline_mode_values.sql`, `279b_widget_primary_color_brand.sql`,
    `280_widget_visitor_forms.sql`, `280a_widget_kb_search_fold.sql`,
-   `280b_widget_queue_per_department.sql`, `281_widget_visitor_privacy.sql`
-   (and any later file of this series), with the CLAUDE.md procedure: the
+   `280b_widget_queue_per_department.sql`, `281_widget_visitor_privacy.sql`,
+   `282_operator_manual_away.sql` (and any later file of this series), with the CLAUDE.md procedure: the
    folder with `scripts/` and `database/migrations/`, `docker cp` into the
    database container, `migrate-database.sh` as `postgres` with
    `PGOPTIONS='-c lock_timeout=5s'`. Each file also sets `lock_timeout` itself;

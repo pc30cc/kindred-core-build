@@ -9,7 +9,8 @@
  * that the AI answers now.
  *
  * R-26 — the account menu's status dot was always green; its only control
- * was "invisible mode", and its toasts were English in every panel.
+ * was "invisible mode", and its toasts were English in every panel. The menu
+ * now offers Online / Away from desk / Offline (migration 282).
  *
  * @vitest-environment jsdom
  */
@@ -64,7 +65,7 @@ const { UserMenu } = await import('@/components/layout/UserMenu');
 const { I18nProvider } = await import('@/i18n');
 const { summaryRows } = await import('@/lib/operator-activity-export');
 const { operatorAvailabilityStatus } = await import('@/lib/ai-agent/assistant');
-const { myOperatorStatus } = await import('@/lib/myOperatorStatus');
+const { myOperatorStatus, manualChoiceOf } = await import('@/lib/myOperatorStatus');
 
 afterEach(() => { cleanup(); state.updates = []; state.toasts = []; });
 
@@ -196,13 +197,42 @@ describe('the operator\'s own status', () => {
     await waitFor(() => expect(document.querySelector('[data-my-status]')?.getAttribute('data-my-status')).toBe('online'));
     fireEvent.click(document.querySelector('button')!);
     fireEvent.click(document.querySelector('[data-status-choice="offline"]')!);
-    await waitFor(() => expect(state.updates).toEqual([{ force_offline: true }]));
+    await waitFor(() => expect(state.updates).toEqual([{ force_offline: true, manual_away: false }]));
     await waitFor(() => expect(state.toasts[0]?.title).toBe('اکنون آفلاین هستید'));
     expect(JSON.stringify(state.toasts)).not.toMatch(/Invisible mode|Error/);
     await waitFor(() => expect(document.querySelector('[data-status-choice="offline"]')!.getAttribute('aria-checked')).toBe('true'));
     fireEvent.click(document.querySelector('[data-status-choice="online"]')!);
     // Online makes them available again, whichever switch had turned them off.
-    await waitFor(() => expect(state.updates[1]).toEqual({ force_offline: false, available_when_using_app: true }));
+    await waitFor(() => expect(state.updates[1]).toEqual({ force_offline: false, available_when_using_app: true, manual_away: false }));
+  });
+
+  it('"Away from desk" is a choice of its own: stored, marked, explained, and the dot says so', async () => {
+    state.role = 'owner';
+    state.presence = [me('active')];
+    state.availability = availability();
+    mountWith(<UserMenu />, 'fa');
+    await waitFor(() => expect(document.querySelector('[data-my-status]')?.getAttribute('data-my-status')).toBe('online'));
+    fireEvent.click(document.querySelector('button')!);
+    expect([...document.querySelectorAll('[data-status-choice]')].map((b) => b.getAttribute('data-status-choice'))).toEqual(['online', 'away', 'offline']);
+    expect(document.querySelector('[data-status-choice="away"]')!.textContent).toBe('دور از میز');
+    fireEvent.click(document.querySelector('[data-status-choice="away"]')!);
+    await waitFor(() => expect(state.updates).toEqual([{ force_offline: false, available_when_using_app: true, manual_away: true }]));
+    await waitFor(() => expect(state.toasts[0]?.title).toBe('اکنون دور از میز هستید'));
+    expect(state.toasts[0]?.description).toBe(fa.nav.statusManualAwayHint);
+    await waitFor(() => expect(document.querySelector('[data-status-choice="away"]')!.getAttribute('aria-checked')).toBe('true'));
+    // Active in the panel, away by choice: the dot follows the choice.
+    expect(document.querySelector('[data-my-status]')!.getAttribute('data-my-status')).toBe('manual_away');
+    expect(document.querySelector('[data-my-status-menu]')!.textContent).toContain(fa.nav.statusManualAwayHint);
+    expect(document.querySelector('[data-status-choice="online"]')!.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('"Appear offline" wins over an away choice; an older server (no manual_away) is online or offline only', () => {
+    expect(myOperatorStatus(availability({ manual_away: true }), me('active'))).toBe('manual_away');
+    expect(myOperatorStatus(availability({ manual_away: true, force_offline: true }), me('active'))).toBe('offline');
+    expect(myOperatorStatus(availability({ manual_away: true }, { state: 'offline', reason: 'manual_away' }), me('away'))).toBe('manual_away');
+    expect(manualChoiceOf(availability({ manual_away: true }))).toBe('away');
+    expect(manualChoiceOf(availability({ manual_away: true, available_when_using_app: false }))).toBe('offline');
+    expect(manualChoiceOf(availability())).toBe('online');
   });
 
   it('staff, who are never given chats, have no status', async () => {

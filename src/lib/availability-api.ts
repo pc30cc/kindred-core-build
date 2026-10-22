@@ -34,6 +34,8 @@ export type WeeklySchedule = Record<DayKey, AvailabilityDay>;
 export interface AvailabilityPrefs {
   force_offline: boolean;
   available_when_using_app: boolean;
+  /** "Away from desk", chosen in the account menu (absent from older servers). */
+  manual_away?: boolean;
   schedule_enabled: boolean;
   timezone: string;
   weekly_schedule: WeeklySchedule;

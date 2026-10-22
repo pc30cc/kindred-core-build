@@ -392,6 +392,11 @@ export function PersonalAvailabilityPanel() {
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground" data-availability-routing-note>
                 {t('availabilityPage.routingNote')}
               </p>
+              {prefs.manual_away === true && !prefs.force_offline && (
+                <p className="mt-1 text-[12.5px] font-medium leading-relaxed text-foreground" data-availability-manual-away>
+                  {t('availabilityPage.manualAwayNote')}
+                </p>
+              )}
             </div>
           </div>
         </Card>

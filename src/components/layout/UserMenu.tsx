@@ -17,7 +17,8 @@ import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import {
-  MY_STATUS_DOT_CLASS, manualChoiceOf, myOperatorStatus, myStatusKeys, prefsForChoice,
+  CHOICE_DOT_CLASS, CHOICE_KEYS, MANUAL_STATUS_CHOICES, MY_STATUS_DOT_CLASS, manualChoiceOf, myOperatorStatus, myStatusKeys,
+  prefsForChoice, type ManualStatusChoice,
 } from '@/lib/myOperatorStatus';
 import { isRoutableChatRole } from '../../../shared/chatRoles';
 import { toast } from '@/hooks/use-toast';
@@ -47,10 +48,10 @@ export function UserMenu() {
     queryFn: () => fetchAvailability(),
     staleTime: 30_000,
   });
-  // R-26: the dot says what is true — offline by hand, outside their own
-  // schedule, idle ("away"), not connected, or online — for the members who
-  // receive chats (the owner and the chat team). Staff are never given
-  // chats, so they have no status here.
+  // R-26: the dot says what is true — offline by hand, away by their own
+  // choice, outside their own schedule, idle ("away"), not connected, or
+  // online — for the members who receive chats (the owner and the chat
+  // team). Staff are never given chats, so they have no status here.
   const hasChatStatus = isRoutableChatRole(wsRole);
   const { data: teamPresence } = useTeamPresence(hasChatStatus ? currentWorkspace?.id : undefined);
   const myPresence = teamPresence?.presence?.find((p) => p.user_id === user?.id) ?? null;
@@ -60,15 +61,15 @@ export function UserMenu() {
   const statusHint = statusKeys ? word(t, statusKeys.hint) : '';
   const manualChoice = manualChoiceOf(availability);
   const setStatus = useMutation({
-    mutationFn: (choice: 'online' | 'offline') => updateAvailability(prefsForChoice(choice)),
+    mutationFn: (choice: ManualStatusChoice) => updateAvailability(prefsForChoice(choice)),
     onSuccess: (res, choice) => {
       queryClient.setQueryData(['availability', 'me'], res);
       queryClient.invalidateQueries({ queryKey: ['team-presence'] });
       // Online by hand, but the schedule keeps them offline right now: say so.
       const scheduleClosed = choice === 'online' && res.status?.state === 'offline';
       toast({
-        title: word(t, choice === 'online' ? 'nav.statusNowOnline' : 'nav.statusNowOffline'),
-        description: word(t, scheduleClosed ? 'nav.statusOutsideScheduleHint' : choice === 'online' ? 'nav.statusOnlineHint' : 'nav.statusOfflineHint'),
+        title: word(t, CHOICE_KEYS[choice].done),
+        description: word(t, scheduleClosed ? 'nav.statusOutsideScheduleHint' : CHOICE_KEYS[choice].hint),
       });
     },
     onError: (err: unknown) => toast({
@@ -158,7 +159,7 @@ export function UserMenu() {
                   {statusHint && <p className="text-[11px] leading-snug text-muted-foreground">{statusHint}</p>}
                 </div>
               </div>
-              {(['online', 'offline'] as const).map((choice) => (
+              {MANUAL_STATUS_CHOICES.map((choice) => (
                 <button
                   key={choice}
                   type="button"
@@ -169,9 +170,9 @@ export function UserMenu() {
                   disabled={setStatus.isPending || !availability}
                   className={cn(itemCls, 'disabled:cursor-not-allowed disabled:opacity-60')}
                 >
-                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', choice === 'online' ? 'bg-success' : 'bg-muted-foreground/60')} aria-hidden />
+                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', CHOICE_DOT_CLASS[choice])} aria-hidden />
                   <span className="flex-1 text-start">
-                    {word(t, choice === 'online' ? 'nav.statusOnline' : 'nav.statusOffline')}
+                    {word(t, CHOICE_KEYS[choice].label)}
                   </span>
                   {manualChoice === choice && <Check className="h-4 w-4 shrink-0 text-primary" />}
                 </button>

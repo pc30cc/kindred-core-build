@@ -12,12 +12,14 @@
  * Internal decision matrix:
  *
  *   manual offline/invisible OR schedule closed  → offline
+ *   manual away + connected                      → away (manual: never routed)
+ *   manual away + NOT connected                  → offline
  *   customer-available + connected + act <5m     → active
  *   customer-available + connected + act ≥5m     → away
  *   customer-available + NOT connected           → disconnected
  *
  * `state` ('online' | 'offline') is kept for backward compatibility and means
- * "connected AND customer-available" (active or away).
+ * "connected AND customer-available" (active or away; not a manual away).
  *
  * Presence source: `operatorPresenceSource.ts` (Centrifugo channel membership,
  * with the bounded DB-lease fallback). Activity: `operatorActivity.ts`
@@ -61,6 +63,7 @@ export interface OperatorPresence {
   reason:
     | 'force_offline'
     | 'manual_invisible'
+    | 'manual_away'
     | 'available_when_using_app'
     | 'unavailable_when_using_app'
     | 'always_available'
@@ -91,6 +94,7 @@ export function computeOperatorState(
   const reasonMap: Record<string, OperatorPresence['reason']> = {
     manual_offline: 'force_offline',
     manual_invisible: 'unavailable_when_using_app',
+    manual_away: 'manual_away',
     always_available: 'available_when_using_app',
     within_schedule: 'within_schedule',
     outside_schedule: 'outside_schedule',
@@ -140,6 +144,11 @@ function classifyPresence(
   ts: number,
 ): { presence_state: OperatorPresenceState; reason: OperatorPresence['reason'] } {
   const isActive = lastActivity !== null && ts - lastActivity < OPERATOR_ACTIVITY_ACTIVE_MS;
+  // Away by their own choice (R-26): teammates see them away while they are
+  // here; routing reads `manualAway` and gives them nothing new.
+  if (customer.reason === 'manual_away') {
+    return { presence_state: isConnected ? 'away' : 'offline', reason: 'manual_away' };
+  }
   if (customer.availability === 'unavailable') {
     return {
       presence_state: 'offline',
@@ -166,6 +175,8 @@ export interface RoutingPresence {
   state: OperatorPresenceState;
   /** Last known interaction (epoch ms); null = none seen (e.g. since a restart). */
   lastActivityAt: number | null;
+  /** They chose "Away from desk" (migration 282): no new automatic chats, whatever `state` says. */
+  manualAway?: boolean;
 }
 
 /**
@@ -209,6 +220,7 @@ export async function readRoutingPresence(
     out.set(id, {
       state: classifyPresence(customer, connected.has(id), lastActivity, ts).presence_state,
       lastActivityAt: lastActivity,
+      ...(customer.manual === 'away' ? { manualAway: true } : {}),
     });
   }
   return out;
@@ -274,7 +286,7 @@ export async function listWorkspacePresence(
     const prof = profileById.get(id);
     return {
       user_id: id,
-      state: presence_state === 'active' || presence_state === 'away' ? 'online' : 'offline',
+      state: (presence_state === 'active' || presence_state === 'away') && customer.availability === 'available' ? 'online' : 'offline',
       presence_state,
       customer_availability: customer.availability,
       manual: customer.manual,

@@ -77,6 +77,18 @@ describe('PersonalAvailabilityPanel — R-07', () => {
     await screen.findByText('Online');
   });
 
+  it('an operator away by their own choice (R-26) is told so, and where to change it', async () => {
+    prefs = { ...prefs, available_when_using_app: true, manual_away: true };
+    await mount();
+    await screen.findByText('Show me as available to visitors');
+    expect(document.querySelector('[data-availability-manual-away]')!.textContent).toContain('You chose Away from desk in your account menu');
+    cleanup();
+    prefs = { ...prefs, manual_away: false };
+    await mount();
+    await screen.findByText('Show me as available to visitors');
+    expect(document.querySelector('[data-availability-manual-away]')).toBeNull();
+  });
+
   it('in Persian', async () => {
     await mount('fa');
     expect(await screen.findByText('برای بازدیدکنندگان در دسترس نشانم بده')).toBeTruthy();

@@ -53,6 +53,7 @@ import {
   readRoutingPresence,
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
+import { AVAILABILITY_PREFS_COLUMNS } from '../services/widget/customerAvailability.js';
 import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 import { recordOperatorActivity } from '../services/widget/operatorActivity.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
@@ -163,7 +164,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
 
     const { data: prefs } = await sb
       .from('user_availability_prefs')
-      .select('user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule')
+      .select(AVAILABILITY_PREFS_COLUMNS)
       .eq('user_id', auth.userId)
       .is('workspace_id', null)
       .maybeSingle();
@@ -259,7 +260,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       userIds.length
         ? sb
             .from('user_availability_prefs')
-            .select('user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule')
+            .select(AVAILABILITY_PREFS_COLUMNS)
             .in('user_id', userIds)
             .is('workspace_id', null)
         : Promise.resolve({ data: [] }),

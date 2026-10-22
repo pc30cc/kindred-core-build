@@ -221,6 +221,11 @@ async function presenceOf(
  *     no live connection)                     → NOT auto-assigned
  *   offline (manual off/invisible or
  *     schedule closed)                        → ineligible
+ *   "Away from desk" by their own choice
+ *     (manual_away, migration 282)            → ineligible for anything new
+ *                                               (last agent and owner
+ *                                               fallback included); keeps
+ *                                               the chats they hold
  *
  * "Messenger online" therefore never implies "assign a live chat to this
  * operator right now".
@@ -234,7 +239,7 @@ export interface RoutingTiers {
 
 /** The tier an operator is in for routing right now, or null (not routable now). Pure. */
 export function routingTierOf(p: RoutingPresence | undefined, now: number = Date.now()): 'active' | 'away' | null {
-  if (!p) return null;
+  if (!p || p.manualAway === true) return null;
   if (p.state === 'active') return 'active';
   if (p.state !== 'away') return null;
   if (p.lastActivityAt === null) return 'away';

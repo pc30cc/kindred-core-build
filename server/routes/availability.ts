@@ -96,6 +96,7 @@ export function defaultTimezone(locale?: unknown, edition: Edition | null = 'ira
 const DEFAULTS = {
   force_offline: false,
   available_when_using_app: true,
+  manual_away: false,
   schedule_enabled: false,
   timezone: 'UTC',
   weekly_schedule: DEFAULT_WEEKLY,
@@ -105,6 +106,7 @@ const DEFAULTS = {
 const LIVE_STATUS_REASON: Record<CustomerAvailabilityReason, string> = {
   manual_offline: 'force_offline',
   manual_invisible: 'unavailable_when_using_app',
+  manual_away: 'manual_away',
   always_available: 'available_when_using_app',
   no_prefs: 'available_when_using_app',
   within_schedule: 'within_schedule',
@@ -135,6 +137,7 @@ export function computeLiveStatus(
 interface AvailabilityRow {
   force_offline?: boolean | null;
   available_when_using_app?: boolean | null;
+  manual_away?: boolean | null;
   schedule_enabled?: boolean | null;
   timezone?: unknown;
   weekly_schedule?: unknown;
@@ -147,6 +150,7 @@ function mergeWithDefaults(row: AvailabilityRow | null | undefined, locale?: unk
   return {
     force_offline: !!row?.force_offline,
     available_when_using_app: row?.available_when_using_app ?? true,
+    manual_away: row?.manual_away === true,
     schedule_enabled: !!row?.schedule_enabled,
     timezone: typeof row?.timezone === 'string' && row.timezone
       ? (row.timezone as string)
@@ -200,10 +204,25 @@ const weeklySchema = z.object({
 const updateSchema = z.object({
   force_offline: z.boolean().optional(),
   available_when_using_app: z.boolean().optional(),
+  /** "Away from desk" (migration 282): no new chats, keeps the ones they hold. */
+  manual_away: z.boolean().optional(),
   schedule_enabled: z.boolean().optional(),
   timezone: z.string().min(1).max(60).optional(),
   weekly_schedule: weeklySchema.optional(),
 });
+
+/**
+ * What a PATCH writes. A client that knows only force_offline (the desktop
+ * and phone apps, the Availability page's "Appear offline") means Online or
+ * Offline by it, so writing force_offline without manual_away also ends an
+ * "Away from desk": otherwise their Online would leave them away, out of
+ * routing, with nothing on their screen to say so.
+ */
+export function availabilityPatchOf(data: z.infer<typeof updateSchema>): Record<string, unknown> {
+  const patch: Record<string, unknown> = { ...data };
+  if (data.force_offline !== undefined && data.manual_away === undefined) patch.manual_away = false;
+  return patch;
+}
 
 availabilityRouter.patch('/', async (req, res) => {
   try {
@@ -226,7 +245,7 @@ availabilityRouter.patch('/', async (req, res) => {
 
     // Merge weekly_schedule patches with the current row so a partial
     // PATCH (e.g. just toggling Tuesday) doesn't wipe other days.
-    const patch: Record<string, unknown> = { ...parsed.data };
+    const patch = availabilityPatchOf(parsed.data);
     if (parsed.data.weekly_schedule) {
       const current = mergeWithDefaults(existing).weekly_schedule;
       patch.weekly_schedule = { ...current, ...parsed.data.weekly_schedule };

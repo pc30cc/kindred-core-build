@@ -6,7 +6,8 @@
  * still saw green and thought chats would come.
  *
  * Two inputs, both the server's:
- *   - their availability (GET /api/availability): the manual status and the
+ *   - their availability (GET /api/availability): the manual status
+ *     (Online, "Away from desk" — migration 282 —, Offline) and the
  *     schedule — what visitors see;
  *   - their live presence (GET /api/availability/team/:workspaceId, their
  *     own row): connected and active, idle ("away" after 5 minutes without
@@ -17,10 +18,16 @@ import type { AvailabilityResponse, OperatorPresence } from '@/lib/availability-
 export type MyOperatorStatus =
   | 'online'
   | 'away'
+  | 'manual_away'
   | 'offline'
   | 'outside_schedule'
   | 'disconnected'
   | 'unknown';
+
+/** The statuses an operator can choose in the account menu. */
+export type ManualStatusChoice = 'online' | 'away' | 'offline';
+
+export const MANUAL_STATUS_CHOICES: readonly ManualStatusChoice[] = ['online', 'away', 'offline'];
 
 export function myOperatorStatus(
   availability: AvailabilityResponse | null | undefined,
@@ -30,6 +37,8 @@ export function myOperatorStatus(
   const { prefs, status } = availability;
   // Offline by hand (or "invisible": not available when using the app).
   if (prefs.force_offline || prefs.available_when_using_app === false) return 'offline';
+  // Away by their own choice: no new chats whatever the schedule says.
+  if (prefs.manual_away === true) return 'manual_away';
   if (status?.state === 'offline') return 'outside_schedule';
   switch (presence?.presence_state) {
     case 'away': return 'away';
@@ -40,37 +49,60 @@ export function myOperatorStatus(
   }
 }
 
-/** The manual choice the menu marks as current: 'offline' when they went offline by hand. */
-export function manualChoiceOf(availability: AvailabilityResponse | null | undefined): 'online' | 'offline' | null {
+/** The manual choice the menu marks as current. */
+export function manualChoiceOf(availability: AvailabilityResponse | null | undefined): ManualStatusChoice | null {
   if (!availability?.prefs) return null;
-  return availability.prefs.force_offline || availability.prefs.available_when_using_app === false ? 'offline' : 'online';
+  const { prefs } = availability;
+  if (prefs.force_offline || prefs.available_when_using_app === false) return 'offline';
+  return prefs.manual_away === true ? 'away' : 'online';
 }
 
-/** What choosing a status writes (Online makes them available again, whichever switch had turned them off). */
-export function prefsForChoice(choice: 'online' | 'offline'): { force_offline: boolean; available_when_using_app?: boolean } {
-  return choice === 'offline' ? { force_offline: true } : { force_offline: false, available_when_using_app: true };
+/**
+ * What choosing a status writes. Online makes them available again,
+ * whichever switch had turned them off; each choice also sets "Away from
+ * desk", so exactly one of the three is current.
+ */
+export function prefsForChoice(choice: ManualStatusChoice): { force_offline: boolean; available_when_using_app?: boolean; manual_away: boolean } {
+  if (choice === 'offline') return { force_offline: true, manual_away: false };
+  return { force_offline: false, available_when_using_app: true, manual_away: choice === 'away' };
 }
 
 export const MY_STATUS_DOT_CLASS: Record<MyOperatorStatus, string> = {
   online: 'bg-success',
   away: 'bg-warning',
+  manual_away: 'bg-warning',
   offline: 'bg-muted-foreground/60',
   outside_schedule: 'bg-muted-foreground/60',
   disconnected: 'bg-muted-foreground/40 ring-1 ring-success/50',
   unknown: 'bg-muted',
 };
 
-const KEY_SUFFIX: Record<Exclude<MyOperatorStatus, 'unknown'>, string> = {
-  online: 'Online',
-  away: 'Away',
-  offline: 'Offline',
-  outside_schedule: 'OutsideSchedule',
-  disconnected: 'Disconnected',
+/** The dot of each choice in the menu. */
+export const CHOICE_DOT_CLASS: Record<ManualStatusChoice, string> = {
+  online: MY_STATUS_DOT_CLASS.online,
+  away: MY_STATUS_DOT_CLASS.manual_away,
+  offline: MY_STATUS_DOT_CLASS.offline,
 };
 
-/** `nav.status<X>` and `nav.status<X>Hint`; null while unknown. */
+const STATUS_KEYS: Record<Exclude<MyOperatorStatus, 'unknown'>, { label: string; hint: string }> = {
+  online: { label: 'nav.statusOnline', hint: 'nav.statusOnlineHint' },
+  away: { label: 'nav.statusAway', hint: 'nav.statusAwayHint' },
+  // The same name as the idle state, its own explanation.
+  manual_away: { label: 'nav.statusAway', hint: 'nav.statusManualAwayHint' },
+  offline: { label: 'nav.statusOffline', hint: 'nav.statusOfflineHint' },
+  outside_schedule: { label: 'nav.statusOutsideSchedule', hint: 'nav.statusOutsideScheduleHint' },
+  disconnected: { label: 'nav.statusDisconnected', hint: 'nav.statusDisconnectedHint' },
+};
+
+/** The label and hint keys (`nav.status…`); null while unknown. */
 export function myStatusKeys(status: MyOperatorStatus): { label: string; hint: string } | null {
   if (status === 'unknown') return null;
-  const suffix = KEY_SUFFIX[status];
-  return { label: `nav.status${suffix}`, hint: `nav.status${suffix}Hint` };
+  return STATUS_KEYS[status];
 }
+
+/** A choice's menu label, the toast once it is saved, and its explanation. */
+export const CHOICE_KEYS: Record<ManualStatusChoice, { label: string; done: string; hint: string }> = {
+  online: { label: 'nav.statusOnline', done: 'nav.statusNowOnline', hint: 'nav.statusOnlineHint' },
+  away: { label: 'nav.statusAway', done: 'nav.statusNowAway', hint: 'nav.statusManualAwayHint' },
+  offline: { label: 'nav.statusOffline', done: 'nav.statusNowOffline', hint: 'nav.statusOfflineHint' },
+};

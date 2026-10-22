@@ -721,7 +721,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 /* A tap on a link or button in the bubble hovers the line too. Shown then,
    the actions made iOS Safari take that tap for a hover only and drop its
    click: the link opened on the second tap. They stay hidden. */
-@media (hover: none) { .msg-line:has(> .msg :is(a, button):hover) > .msg-actions { opacity: 0; pointer-events: none; } }
+@media (hover: none) { .msg-line:has(> .msg :is(a, button):hover) > .msg-actions:not(:focus-within) { opacity: 0; pointer-events: none; } }
 .msg-act { display: inline-flex; padding: 3px; border-radius: 6px; color: var(--ink-4); transition: background-color .15s, color .15s; }
 .msg-act:hover { background: var(--paper); color: var(--ink); }
 .msg-act.is-done { color: var(--a); }

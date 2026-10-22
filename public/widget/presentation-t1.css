@@ -533,7 +533,7 @@ button.cd:hover {
   .msg-line:hover .msg-actions, .msg-actions:focus-within { pointer-events: auto; }
   /* Not for a tap on a link or button in the bubble: shown then, they made
      iOS Safari drop that tap's click (the link opened on the second tap). */
-  .msg-line:has(> .msg :is(a, button):hover) .msg-actions { opacity: 0; pointer-events: none; }
+  .msg-line:has(> .msg :is(a, button):hover) .msg-actions:not(:focus-within) { opacity: 0; pointer-events: none; }
 }
 .msg-act { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; color: var(--ink-3); }
 .msg-act:hover { background: var(--bg-2); color: var(--ink); }

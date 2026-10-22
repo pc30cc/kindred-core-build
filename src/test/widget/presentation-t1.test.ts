@@ -1293,7 +1293,7 @@ describe('t1: stylesheet details', () => {
     expect(T1_CSS).toContain('.msg-line:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }');
     // Not for a tap on a link or button in the bubble: revealed by it, they
     // made iOS Safari drop its click (the link opened on the second tap).
-    expect(T1_CSS).toMatch(/@media \(hover: none\) \{[^}]*\}[^}]*\}[^@]*\.msg-line:has\(> \.msg :is\(a, button\):hover\) \.msg-actions \{ opacity: 0; pointer-events: none; \}/);
+    expect(T1_CSS).toMatch(/@media \(hover: none\) \{[^}]*\}[^}]*\}[^@]*\.msg-line:has\(> \.msg :is\(a, button\):hover\) \.msg-actions:not\(:focus-within\) \{ opacity: 0; pointer-events: none; \}/);
   });
 
   it('draws the played part of a voice track without container units too', () => {

@@ -148,6 +148,9 @@ async function linkKeepsActionsHidden(page: Page, en: boolean) {
   await expect.poll(state).toBe('1 auto');
   await mine.locator('.msg-link').hover();
   await expect.poll(state).toBe('0 none');
+  // A key that moves into them still shows them (a keyboard on a tablet).
+  await actions.locator('[data-msg-reply]').focus();
+  await expect.poll(state).toBe('1 auto');
 }
 
 /** The panel's `--a` as each accent comes out (the brand colour is the stylesheet's). */

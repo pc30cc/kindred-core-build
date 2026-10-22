@@ -173,7 +173,10 @@ before merging the code.
    - 279: `SELECT tgname, tgenabled FROM pg_trigger WHERE tgname = 'widget_settings_validate_offline_mode';`
    - 279b: `SELECT primary_color, count(*) FROM public.widget_settings GROUP BY 1;`
      (and confirm RESPOK's `/data/respok/migrator/overlay.sql` does not write
-     `widget_settings.primary_color`).
+     `widget_settings.primary_color`). 279b converts CSS names, rgb()/hsl()
+     and #RRGGBBAA to #RRGGBB, and keeps every value it changes in
+     `widget_primary_color_backup_279b`; its header has the restore
+     statement.
 2. **Build the indexes CONCURRENTLY first** (WebYar, outside a transaction,
    one statement at a time; the files then find them and build nothing).
    From the 278 header:
@@ -210,8 +213,11 @@ before merging the code.
    `chat_routing_due` and `chat_routing_release_member` exist and are
    executable by `service_role` only (`\df+` or `has_function_privilege`);
    `chat_queue_status` keeps its grants; the five visitor retention policies
-   of 281 are there and **disabled** (a Super Admin turns them on in Data
-   Retention when the owner wants old visitor data deleted).
+   of 281 are there and **disabled**, and
+   `visitor_data_retention_delete_batch` is fenced like 171's
+   `data_retention_delete_batch` (`retention_cleanup_not_ready`): even an
+   enabled policy deletes nothing until the owner lifts migration 171's
+   fence in a reviewed migration of its own.
 6. **Ledger**: add each file with its UTC time to the migrations list in
    CLAUDE.md, and take it off the pending list there.
 7. Merge. After the backend deploys, a new chat with the AI off is assigned

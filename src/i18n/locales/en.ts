@@ -9865,6 +9865,7 @@ const en = {
       brandNameShow: 'Show in the header',
       useDefault: 'Use the default',
       welcomeHint: 'Left empty, visitors read the text shown in the field.',
+      welcomeSeedHint: 'This is the built-in text: visitors read the default welcome, in their own language.',
       welcomeAiNote: 'Your AI agent greets visitors first, so this message is not shown while the agent is on.',
       colorBrand: 'Brand color',
       colorBrandHint: 'Without a color of its own, the widget wears the brand color on the button and in the panel.',

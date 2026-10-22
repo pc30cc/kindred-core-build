@@ -9842,6 +9842,7 @@ const tr: TranslationKeys = {
       brandNameShow: 'Başlıkta göster',
       useDefault: 'Varsayılanı kullan',
       welcomeHint: 'Boş bırakılırsa ziyaretçiler alanda görünen metni okur.',
+      welcomeSeedHint: 'Bu yerleşik metindir: ziyaretçiler varsayılan karşılama mesajını kendi dillerinde okur.',
       welcomeAiNote: 'Yapay zekâ asistanınız ziyaretçileri önce karşılar; asistan açıkken bu mesaj gösterilmez.',
       colorBrand: 'Marka rengi',
       colorBrandHint: 'Kendi rengi seçilmezse widget, düğmede ve panelde marka rengini kullanır.',

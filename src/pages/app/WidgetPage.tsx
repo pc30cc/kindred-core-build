@@ -138,7 +138,7 @@ function WidgetPageContent() {
    * leaving the page sends what is still waiting (useWidgetSettingsDraft).
    */
   const {
-    live, setDraft, setField: setDraftField, setFields, saveNow, cancelField, status: saveStatus, errorMessage: saveError,
+    live, draft, setDraft, setField: setDraftField, setFields, saveNow, cancelField, status: saveStatus, errorMessage: saveError,
   } = useWidgetSettingsDraft(workspace?.id, widget);
   const setField = (field: WidgetField, value: unknown, delay = 500) => setDraftField(field, value, delay);
 
@@ -695,13 +695,18 @@ function WidgetPageContent() {
 
                   {/* 3 — Welcome message: the owner's own, else (empty) what the
                       placeholder shows, the text /config sends then. Opening the
-                      page writes nothing. */}
+                      page writes nothing. The seeds count as unset only in the
+                      stored value: what is being typed stays as typed (an owner
+                      typing "How can we help you?" keeps it), with a note that
+                      visitors read the default for it. */}
                   <div className="space-y-2">
                     <Label htmlFor="widget-welcome" className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
                     <Textarea
                       id="widget-welcome"
                       disabled={!capAllowed('widget_welcome_message')}
-                      value={capAllowed('widget_welcome_message') ? widgetTextValue(live?.welcome_message, 'welcome') : ''}
+                      value={!capAllowed('widget_welcome_message') ? ''
+                        : 'welcome_message' in draft ? (draft.welcome_message ?? '')
+                          : widgetTextValue(widget?.welcome_message, 'welcome')}
                       onChange={e => setField('welcome_message', e.target.value.trim() ? e.target.value : null)}
                       maxLength={2000}
                       rows={3}
@@ -711,6 +716,10 @@ function WidgetPageContent() {
                       <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.welcomeHint')}</p>
                     ) : (
                       <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
+                    )}
+                    {capAllowed('widget_welcome_message') && typeof draft.welcome_message === 'string'
+                      && draft.welcome_message.trim() !== '' && !widgetTextValue(draft.welcome_message, 'welcome') && (
+                      <p data-welcome-seed-note className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.welcomeSeedHint')}</p>
                     )}
                     {welcomeInfo?.ai_greeting && (
                       <p data-welcome-ai-note className="flex items-start gap-1.5 rounded-md border border-border/70 bg-muted/40 px-2.5 py-2 text-[11px] text-muted-foreground">

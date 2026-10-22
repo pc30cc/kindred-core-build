@@ -155,6 +155,22 @@ describe('the welcome message (W-07)', () => {
     expect(state.previewProps!.defaultWelcome).toBe('Welcome to our store');
   });
 
+  it('a text being typed stays as typed, an English seed too ("How can we help you?"), with a note that visitors read the default for it', async () => {
+    const view = mount();
+    const field = () => view.container.querySelector<HTMLTextAreaElement>('#widget-welcome')!;
+    fireEvent.change(field(), { target: { value: 'How can we help you' } });
+    expect(field().value).toBe('How can we help you');
+    expect(view.container.querySelector('[data-welcome-seed-note]')).toBeNull();
+    fireEvent.change(field(), { target: { value: 'How can we help you?' } });
+    expect(field().value).toBe('How can we help you?');
+    expect(view.container.querySelector('[data-welcome-seed-note]')!.textContent).toBe(A.welcomeSeedHint);
+    fireEvent.change(field(), { target: { value: 'How can we help you? Ask away.' } });
+    expect(field().value).toBe('How can we help you? Ask away.');
+    expect(view.container.querySelector('[data-welcome-seed-note]')).toBeNull();
+    await settle();
+    expect(state.patches).toEqual([{ welcome_message: 'How can we help you? Ask away.' }]);
+  });
+
   it('says when the AI agent\'s greeting replaces it, and the preview draws none', () => {
     state.welcome = { default_text: 'Hello! How can we help you?', ai_greeting: true };
     const view = mount();

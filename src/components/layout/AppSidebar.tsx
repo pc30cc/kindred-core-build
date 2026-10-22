@@ -117,7 +117,9 @@ export function AppSidebar({
   // has resolved, plan-gated entries are NOT rendered — showing them first
   // and removing them a moment later is worse than waiting.
   const sections = useWorkspaceSections();
-  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
+  // Asked for once the role is known: the Inbox is shown while it loads, but
+  // staff without one get 403 from its routes.
+  const { data: inboxCounts } = useInboxCounts(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
   const { plan } = sections;
   const entsReady = sections.ready;
   // The queues inside the inbox follow the same rules as the inbox's own tabs.

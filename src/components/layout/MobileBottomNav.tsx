@@ -23,7 +23,8 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const { workspace } = useActiveWorkspace();
   // Visitors is a plan section and the Inbox a role one: the tabs follow the sidebar's rules.
   const sections = useWorkspaceSections();
-  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
+  // Asked for once the role is known (staff without an Inbox get 403).
+  const { data: inboxCounts } = useInboxCounts(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
 
   const isActive = (subPath: string) => {
     const fullPath = wsPath(subPath);

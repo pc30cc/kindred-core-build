@@ -84,7 +84,10 @@ export function useArtNav() {
   const { workspace } = useActiveWorkspace();
   const { data: isGlobalAdmin } = useIsGlobalAdmin();
   const sections = useWorkspaceSections();
-  const { data: inboxCounts } = useInboxCounts(sections.visible('inbox') ? workspace?.id : undefined);
+  // The Inbox's data is asked for once the role is known and has an Inbox
+  // (staff without one get 403 from its routes).
+  const inboxData = sections.roleKnown && sections.visible('inbox');
+  const { data: inboxCounts } = useInboxCounts(inboxData ? workspace?.id : undefined);
   const { plan } = sections;
 
   // Same query (and cache entry) as the sidebar's channel inboxes.
@@ -143,7 +146,7 @@ export function useArtNav() {
   // Same queries and cache entries as InboxPage's tabs; asked for only on
   // the inbox.
   const onInbox = isActive('/inbox');
-  const { data: tabCounts } = useInboxTabCounts(onInbox ? workspace?.id : undefined);
+  const { data: tabCounts } = useInboxTabCounts(onInbox && inboxData ? workspace?.id : undefined);
   const { data: colleagueDir } = useColleagues(onInbox && colleaguesQueueVisible(plan) ? workspace?.id : undefined);
   const queues: ArtQueueItem[] = [];
   const inboxTabs: ArtQueueItem[] = [];

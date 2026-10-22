@@ -93,7 +93,9 @@ export default function OverviewPage() {
   // staff without one (shared/chatRoles.ts) are not shown either.
   const sections = useWorkspaceSections();
   const inboxOk = sections.visible('inbox');
-  const { data: conversations, isPending: conversationsPending } = useConversations(inboxOk ? workspace?.id : undefined);
+  // Read once the role is known: the Inbox shows while it loads, but staff
+  // without one get 403 from its routes.
+  const { data: conversations, isPending: conversationsPending } = useConversations(inboxOk && sections.roleKnown ? workspace?.id : undefined);
   const visitorsInPlan = sections.visible('visitors');
   const contactsInPlan = sections.visible('contacts');
   const { data: visitors } = useOnlineVisitors(visitorsInPlan ? workspace?.id : undefined);

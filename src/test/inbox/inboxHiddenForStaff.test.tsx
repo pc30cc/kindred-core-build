@@ -33,12 +33,12 @@ vi.mock('@/hooks/useWorkspaceSections', () => ({
     const ctx = {
       plan: planAccessOf(null, false),
       isAdmin: who.role === 'owner' || who.role === 'admin',
-      inboxAllowed: inboxAllowed(who.role),
+      inboxAllowed: inboxAllowed(who.pending ? undefined : who.role),
       aiSurface: null,
       aiAutoAnswer: null,
       callCenterEnabled: null,
     };
-    return { ...ctx, ready: true, roleKnown: true, workspaceId: 'ws-1', visible: (s: AppSection) => sectionVisible(s, ctx) };
+    return { ...ctx, ready: true, roleKnown: !who.pending, workspaceId: 'ws-1', visible: (s: AppSection) => sectionVisible(s, ctx) };
   },
 }));
 
@@ -58,6 +58,13 @@ describe('the navigation', () => {
     who.role = 'support_agent';
     expect(bottomNav()).toContain('/acme/inbox');
     expect(who.countsFor.at(-1)).toBe('ws-1');
+  });
+
+  it('shows it while the role loads, but asks for its counts only once the role is known', () => {
+    who.pending = true;
+    who.role = undefined as unknown as string;
+    expect(bottomNav()).toContain('/acme/inbox');
+    expect(who.countsFor.every((ws) => ws === undefined)).toBe(true);
   });
 
   it('does not offer it to staff, and does not ask for its counts', () => {

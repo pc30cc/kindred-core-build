@@ -72,7 +72,8 @@ function tzOffset(tz: string): string {
     const part = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
       .formatToParts(new Date())
       .find((p) => p.type === 'timeZoneName');
-    return part?.value?.replace('GMT', 'UTC') || 'UTC';
+    // ICU builds differ on UTC itself ("GMT" or "GMT+0"): both read "UTC".
+    return part?.value?.replace('GMT', 'UTC').replace(/^UTC[+-]0$/, 'UTC') || 'UTC';
   } catch {
     return 'UTC';
   }

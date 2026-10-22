@@ -821,6 +821,10 @@ describe('t2: the thread and the composer after the owner\'s screenshots (2026-1
     // a touch screen's taps go through them while they are hidden.
     expect(rule(T2_CSS, '.msg-actions')).not.toContain('pointer-events');
     expect(T2_CSS).toContain('@media (hover: none) { .msg { cursor: pointer; } .msg-actions { pointer-events: none; } }');
+    // Not for a tap on a link or button in the bubble: revealed by it, they
+    // made iOS Safari drop its click (the link opened on the second tap).
+    // A key that moves into them still shows them (`:not(:focus-within)`).
+    expect(T2_CSS).toContain('@media (hover: none) { .msg-line:has(> .msg :is(a, button):hover) > .msg-actions:not(:focus-within) { opacity: 0; pointer-events: none; } }');
     expect(T2_CSS).not.toMatch(/\.msg-actions \{ opacity: 0?\.6; \}/);
     expect(T2_CSS).not.toContain('.msg-row:hover .msg-actions');
     // Their names stay for assistive tech; the tooltip repeated them.

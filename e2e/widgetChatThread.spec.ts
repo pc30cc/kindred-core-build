@@ -130,6 +130,29 @@ async function replyWithLink(page: Page, en: boolean) {
   await expect(page.locator('[data-chat-messages] .msg-row.visitor').last().locator('.msg-ticks:not(.is-sending)')).toBeAttached();
 }
 
+/**
+ * On a phone: a link in a bubble, hovered (a tap on it hovers it), leaves its
+ * line's actions hidden; the rest of the bubble still shows them. Revealed by
+ * that tap, they made iOS Safari take it for a hover only and drop its click,
+ * so the link opened on the second tap (iOS 26.4 Simulator, real touches,
+ * 2026-10-22). Chromium has no such rule, so the styles are what is checked.
+ */
+async function linkKeepsActionsHidden(page: Page, en: boolean) {
+  await replyWithLink(page, en);
+  const mine = page.locator('[data-chat-messages] .msg.visitor').last();
+  const actions = mine.locator('xpath=..').locator(':scope > .msg-actions');
+  const state = () => actions.evaluate((g) => { const c = getComputedStyle(g); return `${c.opacity} ${c.pointerEvents}`; });
+  await mine.locator('.msg-link').hover();
+  await expect.poll(state).toBe('0 none');
+  await mine.locator('.msg-quote').hover();
+  await expect.poll(state).toBe('1 auto');
+  await mine.locator('.msg-link').hover();
+  await expect.poll(state).toBe('0 none');
+  // A key that moves into them still shows them (a keyboard on a tablet).
+  await actions.locator('[data-msg-reply]').focus();
+  await expect.poll(state).toBe('1 auto');
+}
+
 /** The panel's `--a` as each accent comes out (the brand colour is the stylesheet's). */
 const PANEL_ACCENT: Record<string, Record<string, string>> = {
   't2-intl': { '#EF4444': '#CB3939', '#FDE047': '#FDE047', '#1E1B4B': '#1E1B4B', '#3B82F6': '#16142B' },
@@ -384,6 +407,11 @@ for (const v of VARIANTS) {
     });
   });
 
+  test(`${v.templateId}: on a phone a tap on a link in a bubble leaves its line's actions hidden, so iOS opens it on that tap`, async () => {
+    test.setTimeout(120_000);
+    await onStates(v, ['mobile-chat-operator'], (page) => linkKeepsActionsHidden(page, v.locale !== 'fa'));
+  });
+
   test(`${v.templateId}: the visitor's reply reads whole: its quote, its text and a link in it at 4.5:1 or more`, async () => {
     test.setTimeout(120_000);
     await onStates(v, ['mobile-chat-operator'], async (page) => {
@@ -532,6 +560,11 @@ for (const v of T1_VARIANTS) {
       const wantMine = await only(page, mine);
       await expect.poll(() => groups(page)).toEqual(wantMine);
     });
+  });
+
+  test(`${v.templateId}: on a phone a tap on a link in a bubble leaves its line's actions hidden, so iOS opens it on that tap`, async () => {
+    test.setTimeout(120_000);
+    await onStates(v, ['mobile-chat-operator'], (page) => linkKeepsActionsHidden(page, v.locale !== 'fa'));
   });
 
   test(`${v.templateId}: the visitor's reply reads whole: its quote, its text and a link in it at 4.5:1 or more`, async () => {

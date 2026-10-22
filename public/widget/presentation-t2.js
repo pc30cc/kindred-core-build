@@ -745,13 +745,13 @@
       // arriving — so it reads as a join, naming whoever now holds it.
       if (kind === 'conversation_transferred' || kind === 'routing_agent_joined') {
         var name = String(meta.agent_name || meta.to_name || '');
-        var raw = t('routingAgentJoined');
         text = name
           // split/join, not replace(): a name holding `$&` or `$'` stays as typed.
-          ? (raw && raw !== 'routingAgentJoined' ? String(raw).split('{name}').join(name) : name + ' ' + t('routingAgentJoinedSuffix'))
+          ? String(t('routingAgentJoined')).split('{name}').join(name)
           : t('routingAgentJoinedGeneric');
       } else {
-        text = t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : 'routingInQueue');
+        // Nobody online, everyone busy (auto routing), or the manual queue.
+        text = t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : meta.reason === 'all_busy' ? 'routingAllBusy' : 'routingInQueue');
       }
       return systemPillHtml('', text);
     }

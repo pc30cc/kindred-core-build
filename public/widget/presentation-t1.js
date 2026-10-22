@@ -572,7 +572,7 @@
       var name = String(meta.agent_name || meta.to_name || '');
       var text = joined
         ? (name ? fill(t('routingAgentJoined'), { name: name }) : t('routingAgentJoinedGeneric'))
-        : t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : 'routingInQueue');
+        : t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : meta.reason === 'all_busy' ? 'routingAllBusy' : 'routingInQueue');
       return systemPillHtml(liveHtml(joined), text);
     }
 

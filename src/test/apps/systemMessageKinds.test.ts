@@ -13,6 +13,12 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { SYSTEM_MESSAGE_KINDS } from '../../../shared/systemMessages';
+import enLocale from '@/i18n/locales/en';
+import faLocale from '@/i18n/locales/fa';
+import trLocale from '@/i18n/locales/tr';
+
+type InboxCopy = { inbox: Record<string, string> };
+const [en, fa, tr] = [enLocale, faLocale, trLocale] as unknown as InboxCopy[];
 
 const LOCALIZERS: Record<string, { file: string; strings: string[] }> = {
   ios: {
@@ -70,6 +76,20 @@ describe('native localizers know every system kind', () => {
       expect(copy, app).toContain('کاربر در صف پشتیبانی منتظر است');
       expect(copy, app).toContain('Ziyaretçi destek kuyruğunda bekliyor');
       expect(copy, app).not.toContain('You are in the queue');
+    }
+  });
+
+  it('every app tells the two waits apart, in the dashboard\'s words', () => {
+    // chatRouting.ts: routing_no_agent_available = nobody of the team online
+    // (the visitor's sentence, as the dashboard shows it); routing_in_queue
+    // with reason 'all_busy' = everyone at capacity.
+    const PHRASES = [en.inbox['system.noAgentAvailable'], fa.inbox['system.noAgentAvailable'], tr.inbox['system.noAgentAvailable'],
+      en.inbox['system.inQueueAllBusy'], fa.inbox['system.inQueueAllBusy'], tr.inbox['system.inQueueAllBusy']];
+    for (const [app, { file, strings }] of Object.entries(LOCALIZERS)) {
+      const copy = strings.map(read).join('\n');
+      expect(PHRASES.filter((p) => !copy.includes(p)), app).toEqual([]);
+      expect(copy, app).not.toContain('All our colleagues are currently busy');
+      expect(read(file), app).toMatch(/"reason"\)?\s*(==|===)\s*"all_busy"|'reason'\)\s*===\s*'all_busy'/);
     }
   });
 

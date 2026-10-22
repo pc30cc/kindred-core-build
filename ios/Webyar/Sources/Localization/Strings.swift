@@ -2346,12 +2346,14 @@ extension Str {
         }
     }
 
+    /// Nobody of the team was online: the sentence the visitor read, word
+    /// for word (the widget's routingNoAgentAvailable).
     static func sysNoAgentAvailable(_ l: Language) -> String {
         switch l {
-        case .en: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can."
-        case .fa: "همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم."
-        case .tr: "Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız."
-        case .ar: "جميع زملائنا مشغولون حاليًا. سُجّلت رسالتك وسنرد في أقرب وقت ممكن."
+        case .en: "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back."
+        case .fa: "در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم."
+        case .tr: "Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız."
+        case .ar: "لا يوجد أحد من فريقنا متصلًا الآن. حُفظت رسالتك وسنرد هنا فور عودة أحدهم."
         }
     }
 
@@ -2362,6 +2364,17 @@ extension Str {
         case .fa: "کاربر در صف پشتیبانی منتظر است"
         case .tr: "Ziyaretçi destek kuyruğunda bekliyor"
         case .ar: "الزائر ينتظر في قائمة انتظار الدعم"
+        }
+    }
+
+    /// Read by the operator: everyone was at capacity, and the visitor waits
+    /// in the queue (a `routing_in_queue` row whose reason is `all_busy`).
+    static func sysInQueueAllBusy(_ l: Language) -> String {
+        switch l {
+        case .en: "Everyone on the team was busy; the visitor is waiting in the queue"
+        case .fa: "همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است"
+        case .tr: "Tüm operatörler meşguldü; ziyaretçi kuyrukta bekliyor"
+        case .ar: "كان جميع أعضاء الفريق مشغولين؛ الزائر ينتظر في قائمة الانتظار"
         }
     }
 

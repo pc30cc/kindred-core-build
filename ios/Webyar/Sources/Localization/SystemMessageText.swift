@@ -64,7 +64,8 @@ enum SystemMessage {
             return Str.sysNoAgentAvailable(language)
 
         case "routing_in_queue":
-            return Str.sysInQueue(language)
+            // Everyone at capacity (auto routing), or the manual queue.
+            return value("reason") == "all_busy" ? Str.sysInQueueAllBusy(language) : Str.sysInQueue(language)
 
         case "platform_support_requester":
             // The "who is asking" card as one line, where the card is not drawn.

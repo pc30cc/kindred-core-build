@@ -38,7 +38,7 @@ export type VisitorPreviewSystemKind = (typeof VISITOR_PREVIEW_SYSTEM_KINDS)[num
 
 /** The metadata a visitor-side sentence needs, under the row's own key names. Names only, never ids. */
 export const VISITOR_SYSTEM_META_KEYS = [
-  'agent_name', 'to_name', 'channel', 'operator_name', 'ended_by', 'end_reason', 'duration_seconds',
+  'agent_name', 'to_name', 'channel', 'operator_name', 'ended_by', 'end_reason', 'duration_seconds', 'reason',
 ] as const;
 
 export type VisitorSystemMetaKey = (typeof VISITOR_SYSTEM_META_KEYS)[number];
@@ -56,6 +56,9 @@ const CALL_ENDED_BY: ReadonlySet<string> = new Set(['operator', 'visitor', 'syst
 
 /** An end reason is a short code ('failed', 'hangup', …), never text; longer is dropped. */
 const MAX_END_REASON_CHARS = 64;
+
+/** Why a routing row waits (chatRouting.ts): nobody of the team online, or everyone busy. */
+const ROUTING_REASONS: ReadonlySet<string> = new Set(['nobody_online', 'all_busy']);
 
 /**
  * English stand-ins the server once stored as a NAME ('a colleague':
@@ -130,6 +133,8 @@ export function visitorSystemPreview(metadata: unknown): VisitorSystemPreview | 
       if (typeof value === 'string' && CALL_ENDED_BY.has(value)) meta.ended_by = value;
     } else if (key === 'end_reason') {
       if (typeof value === 'string' && value.length <= MAX_END_REASON_CHARS) meta.end_reason = value;
+    } else if (key === 'reason') {
+      if (typeof value === 'string' && ROUTING_REASONS.has(value)) meta.reason = value;
     }
   }
   return { kind: kind as VisitorPreviewSystemKind, meta };

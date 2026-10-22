@@ -29,17 +29,19 @@ beforeEach(() => { vi.useRealTimers(); resetWindow(); });
 afterEach(() => { vi.restoreAllMocks(); });
 
 type Locale = 'fa' | 'en' | 'tr';
-type Kind = 'queue' | 'join' | 'transfer' | 'noAgent' | 'invite' | 'ended';
+type Kind = 'queue' | 'busy' | 'join' | 'transfer' | 'noAgent' | 'invite' | 'ended';
 
 const NOW = new Date().toISOString();
 
 /** One row per visitor kind, as the server sends it (stored English body as `preview`). */
 const ROWS: Record<Kind, Record<string, unknown>> = {
   queue: { preview: 'Your message is in the support queue.', systemKind: 'routing_in_queue', systemMeta: {} },
+  // Everyone at capacity (chatRouting.ts): the same kind, another wait.
+  busy: { preview: 'Everyone on our team is busy right now.', systemKind: 'routing_in_queue', systemMeta: { reason: 'all_busy' } },
   join: { preview: 'Sara joined the conversation.', systemKind: 'routing_agent_joined', systemMeta: { agent_name: 'Sara' } },
   // A name with a replacement pattern in it stays as typed.
   transfer: { preview: 'Ali transferred this conversation to Mina $&', systemKind: 'conversation_transferred', systemMeta: { to_name: 'Mina $&' } },
-  noAgent: { preview: 'All our colleagues are currently busy.', systemKind: 'routing_no_agent_available', systemMeta: {} },
+  noAgent: { preview: 'Nobody from our team is online right now.', systemKind: 'routing_no_agent_available', systemMeta: { reason: 'nobody_online' } },
   invite: { preview: 'You have been invited to a video call.', systemKind: 'call_invitation', systemMeta: { channel: 'video', operator_name: 'Sara' } },
   ended: { preview: 'Call ended by operator · 01:15', systemKind: 'call_ended', systemMeta: { ended_by: 'operator', end_reason: 'hangup', duration_seconds: 75 } },
 };
@@ -47,25 +49,28 @@ const ROWS: Record<Kind, Record<string, unknown>> = {
 const EXPECTED: Record<Locale, Record<Kind, string>> = {
   fa: {
     queue: 'پیام شما در صف پشتیبانی قرار گرفت.',
+    busy: 'در حال حاضر همهٔ همکاران ما مشغول‌اند. شما در صف هستید و به‌محض آزاد شدن یکی از همکاران، همین‌جا پاسخ می‌دهیم.',
     join: 'Sara به گفتگو پیوست',
     transfer: 'Mina $& به گفتگو پیوست',
-    noAgent: 'در حال حاضر همکاران ما مشغولند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم.',
+    noAgent: 'در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم.',
     invite: 'Sara شما را به تماس تصویری دعوت کرد',
     ended: 'تماس از طرف اپراتور پایان یافت · مدت تماس ۰۱:۱۵',
   },
   en: {
     queue: 'Your message is in the support queue.',
+    busy: "Everyone on our team is busy right now. You're in the queue and we'll reply here as soon as someone is free.",
     join: 'Sara joined the conversation',
     transfer: 'Mina $& joined the conversation',
-    noAgent: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+    noAgent: "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.",
     invite: 'Sara invited you to a video call',
     ended: 'Call ended by operator · Duration 01:15',
   },
   tr: {
     queue: 'Mesajınız destek kuyruğuna alındı.',
+    busy: 'Ekibimizin tamamı şu anda meşgul. Sıradasınız; biri müsait olur olmaz burada yanıtlayacağız.',
     join: 'Sara görüşmeye katıldı',
     transfer: 'Mina $& görüşmeye katıldı',
-    noAgent: 'Şu anda ekibimiz meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız.',
+    noAgent: 'Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız.',
     invite: 'Sara sizi görüntülü aramaya davet etti',
     ended: 'Görüşme operatör tarafından sonlandırıldı · Süre 01:15',
   },
@@ -287,4 +292,35 @@ describe('a quoted system row reads in the visitor\'s language', () => {
       expect(h.panel.textContent, renderer).not.toContain('Something new happened');
     }
   });
+});
+
+describe('the thread says which wait it is (chatRouting.ts reason)', () => {
+  // Nobody of the team online, everyone busy (auto routing at capacity), or
+  // the manual queue: three rows, three sentences, in every renderer.
+  for (const renderer of ['default', 't1', 't2'] as const) {
+    it(`${renderer}: nobody online, everyone busy and the manual queue each read as themselves`, async () => {
+      resetWindow();
+      const h = boot({
+        renderer,
+        config: { locale: 'fa' },
+        conversations: [{ id: 'c1' }],
+        history: {
+          c1: [
+            { id: 'v1', role: 'visitor', sender_type: 'contact', text: 'سلام', time: NOW, conversation_id: 'c1' },
+            { ...systemFrame('s1', { kind: 'routing_no_agent_available', reason: 'nobody_online' }, 'Nobody from our team is online right now.'), role: 'system' },
+            { ...systemFrame('s2', { kind: 'routing_in_queue', reason: 'all_busy' }, 'Everyone on our team is busy right now.'), role: 'system' },
+            { ...systemFrame('s3', { kind: 'routing_in_queue' }, 'Your message is in the support queue.'), role: 'system' },
+          ],
+        },
+      });
+      await flush(20);
+      h.runtime.__test.openConversation('c1');
+      await vi.waitFor(() => expect(h.panel.textContent).toContain('سلام'));
+      const text = h.panel.textContent || '';
+      expect(text, renderer).toContain(EXPECTED.fa.noAgent);
+      expect(text, renderer).toContain(EXPECTED.fa.busy);
+      expect(text, renderer).toContain(EXPECTED.fa.queue);
+      expect(text, renderer).not.toMatch(/Nobody from|Everyone on|support queue/);
+    });
+  }
 });

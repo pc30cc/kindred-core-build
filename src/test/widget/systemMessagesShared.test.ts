@@ -76,6 +76,11 @@ describe('names a visitor may read', () => {
 describe('visitorSystemPreview', () => {
   it('queue and no-agent rows carry their kind and nothing else', () => {
     expect(visitorSystemPreview({ kind: 'routing_in_queue' })).toEqual({ kind: 'routing_in_queue', meta: {} });
+    // Why it waits is a code from chatRouting.ts; anything else is dropped.
+    expect(visitorSystemPreview({ kind: 'routing_in_queue', reason: 'all_busy' })).toEqual({ kind: 'routing_in_queue', meta: { reason: 'all_busy' } });
+    expect(visitorSystemPreview({ kind: 'routing_no_agent_available', reason: 'nobody_online' }))
+      .toEqual({ kind: 'routing_no_agent_available', meta: { reason: 'nobody_online' } });
+    expect(visitorSystemPreview({ kind: 'routing_in_queue', reason: 'Sara is on a break' })).toEqual({ kind: 'routing_in_queue', meta: {} });
     expect(visitorSystemPreview({ kind: 'routing_no_agent_available', provider: 'telegram' }))
       .toEqual({ kind: 'routing_no_agent_available', meta: {} });
   });

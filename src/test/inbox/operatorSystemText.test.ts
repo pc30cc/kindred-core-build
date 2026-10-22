@@ -66,6 +66,14 @@ describe('operatorSystemText', () => {
       expect(`${fa_}${en_}${tr_}`, kind).not.toMatch(/inbox\.|\{(name|to|actor|op|duration|score|rating|comment)\}/);
     }
     expect(operatorSystemText({ kind: 'routing_in_queue' }, 'fa')).toBe('کاربر در صف پشتیبانی منتظر است');
+    // The two waits chatRouting.ts tells apart: everyone busy, nobody online
+    // (the latter the visitor's own sentence, runtime.js routingNoAgentAvailable).
+    expect(operatorSystemText({ kind: 'routing_in_queue', reason: 'all_busy' }, 'en'))
+      .toBe('Everyone on the team was busy; the visitor is waiting in the queue');
+    expect(operatorSystemText({ kind: 'routing_in_queue', reason: 'all_busy' }, 'fa'))
+      .toBe('همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است');
+    expect(operatorSystemText({ kind: 'routing_no_agent_available', reason: 'nobody_online' }, 'en'))
+      .toBe("Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.");
     expect(operatorSystemText({ kind: 'conversation_closed', agent_name: 'Sara' }, 'tr')).toBe('Sara sohbeti kapattı');
   });
 

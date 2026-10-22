@@ -189,7 +189,8 @@ export function systemText(meta: JSONObject | null | undefined, language: Langua
     case 'routing_no_agent_available':
       return t('sysNoAgentAvailable')
     case 'routing_in_queue':
-      return t('sysInQueue')
+      // Everyone at capacity (auto routing), or the manual queue.
+      return metaString(meta, 'reason') === 'all_busy' ? t('sysInQueueAllBusy') : t('sysInQueue')
     case 'platform_support_requester': {
       // The "who is asking" card as one line.
       const user = meta?.user

@@ -37,7 +37,8 @@ public static class SystemText
             case "routing_no_agent_available":
                 return s["sysNoAgentAvailable"];
             case "routing_in_queue":
-                return s["sysInQueue"];
+                // Everyone at capacity (auto routing), or the manual queue.
+                return Str(meta, "reason") == "all_busy" ? s["sysInQueueAllBusy"] : s["sysInQueue"];
             case "platform_support_requester":
                 // The "who is asking" card as one line.
                 var asker = meta.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object ? Person(user, "name") : string.Empty;

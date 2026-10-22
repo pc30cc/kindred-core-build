@@ -114,8 +114,10 @@
       // split/join, not replace(): a name holding `$&` or `$'` stays as typed.
       return name ? String(t('routingAgentJoined')).split('{name}').join(name) : t('routingAgentJoinedGeneric');
     }
+    // Nobody of the team online, or everyone busy (the server's `reason`,
+    // chatRouting.ts): two different waits, each said as it is.
     if (kind === 'routing_no_agent_available') return t('routingNoAgentAvailable');
-    if (kind === 'routing_in_queue') return t('routingInQueue');
+    if (kind === 'routing_in_queue') return t(meta.reason === 'all_busy' ? 'routingAllBusy' : 'routingInQueue');
     if (kind === 'call_invitation') {
       var op = String(meta.operator_name || '').trim();
       return String(t('ciHeadline' + (meta.channel === 'video' ? 'Video' : 'Audio') + (op ? 'From' : ''))).split('{op}').join(op);
@@ -1162,8 +1164,9 @@
         routingAgentJoined: '{name} joined the conversation',
         routingAgentJoinedSuffix: 'joined the conversation',
         routingAgentJoinedGeneric: 'A colleague joined the conversation',
-        routingNoAgentAvailable: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+        routingNoAgentAvailable: "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.",
         routingInQueue: 'Your message is in the support queue.',
+        routingAllBusy: "Everyone on our team is busy right now. You're in the queue and we'll reply here as soon as someone is free.",
         // Phase 9 — Call invitation card (visitor side)
         ciJoinAudio: 'Join call',
         ciJoinVideo: 'Join video call',
@@ -1418,8 +1421,9 @@
         routingAgentJoined: '{name} به گفتگو پیوست',
         routingAgentJoinedSuffix: 'به گفتگو پیوست',
         routingAgentJoinedGeneric: 'یکی از همکاران به گفتگو پیوست',
-        routingNoAgentAvailable: 'در حال حاضر همکاران ما مشغولند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم.',
+        routingNoAgentAvailable: 'در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم.',
         routingInQueue: 'پیام شما در صف پشتیبانی قرار گرفت.',
+        routingAllBusy: 'در حال حاضر همهٔ همکاران ما مشغول‌اند. شما در صف هستید و به‌محض آزاد شدن یکی از همکاران، همین‌جا پاسخ می‌دهیم.',
         ciJoinAudio: 'پیوستن به تماس',
         ciJoinVideo: 'پیوستن به تماس تصویری',
         ciDecline: 'رد کردن',
@@ -1664,8 +1668,9 @@
         routingAgentJoined: '{name} görüşmeye katıldı',
         routingAgentJoinedSuffix: 'görüşmeye katıldı',
         routingAgentJoinedGeneric: 'Bir temsilci görüşmeye katıldı',
-        routingNoAgentAvailable: 'Şu anda ekibimiz meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız.',
+        routingNoAgentAvailable: 'Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız.',
         routingInQueue: 'Mesajınız destek kuyruğuna alındı.',
+        routingAllBusy: 'Ekibimizin tamamı şu anda meşgul. Sıradasınız; biri müsait olur olmaz burada yanıtlayacağız.',
         ciJoinAudio: 'Aramaya katıl',
         ciJoinVideo: 'Görüntülü aramaya katıl',
         ciDecline: 'Reddet',

@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 404 of 424 strings are generated.
+// 405 of 425 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1484,10 +1484,14 @@ object Str {
         Language.TR -> "Sohbet kapatıldı"
     }
 
+    /**
+     * Nobody of the team was online: the sentence the visitor read, word
+     * for word (the widget's routingNoAgentAvailable).
+     */
     fun sysNoAgentAvailable(l: Language): String = when (l) {
-        Language.EN -> "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can."
-        Language.FA -> "همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم."
-        Language.TR -> "Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız."
+        Language.EN -> "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back."
+        Language.FA -> "در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم."
+        Language.TR -> "Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız."
     }
 
     /** Read by the operator: the visitor is the one waiting. */
@@ -1495,6 +1499,16 @@ object Str {
         Language.EN -> "The visitor is waiting in the support queue"
         Language.FA -> "کاربر در صف پشتیبانی منتظر است"
         Language.TR -> "Ziyaretçi destek kuyruğunda bekliyor"
+    }
+
+    /**
+     * Read by the operator: everyone was at capacity, and the visitor waits
+     * in the queue (a `routing_in_queue` row whose reason is `all_busy`).
+     */
+    fun sysInQueueAllBusy(l: Language): String = when (l) {
+        Language.EN -> "Everyone on the team was busy; the visitor is waiting in the queue"
+        Language.FA -> "همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است"
+        Language.TR -> "Tüm operatörler meşguldü; ziyaretçi kuyrukta bekliyor"
     }
 
     fun sysCallInviteAudio(l: Language): String = when (l) {

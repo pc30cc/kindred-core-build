@@ -48,7 +48,7 @@ interface Props {
 }
 
 /** The message a refused assignment change shows. */
-export function assignmentErrorText(err: unknown, t: T): string {
+function assignmentErrorText(err: unknown, t: T): string {
   if (err instanceof AssignmentError) {
     if (err.conflict) return t('inbox.assignmentChanged');
     if (err.code === 'not_allowed' || err.code === 'inbox_not_allowed') return t('inbox.transferNotAllowed');

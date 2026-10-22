@@ -2,6 +2,7 @@ import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
  * Operator activity API — self-hosted Express endpoints.
  *   POST /api/operator-activity/heartbeat
+ *   POST /api/operator-activity/leave   (a beacon)
  *   GET  /api/operator-activity/:workspaceId/stats?days=
  */
 const API_BASE = RESOLVED_API_BASE;
@@ -73,13 +74,38 @@ export async function fetchOperatorActivity(workspaceId: string, days: number): 
  * previous beat (key/click/focus — never mousemove streams). It only drives
  * the internal active/away split; it can never affect what visitors see.
  */
-export async function sendOperatorHeartbeat(workspaceId: string, interacted = true): Promise<void> {
+export async function sendOperatorHeartbeat(workspaceId: string, interacted = true, sourceId?: string): Promise<void> {
   await fetch(`${API_BASE}/api/operator-activity/heartbeat`, {
     credentials: 'include',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace_id: workspaceId, interacted }),
+    body: JSON.stringify(sourceId ? { workspace_id: workspaceId, interacted, source_id: sourceId } : { workspace_id: workspaceId, interacted }),
   }).catch(() => undefined);
+}
+
+/**
+ * This tab is going away (R-11): ends its part of the operator's live
+ * presence now, instead of when the lease expires (up to 5 minutes later,
+ * while routing could still pick them). A beacon, so it survives the page
+ * being torn down: the string body goes as text/plain, a CORS-simple request
+ * (no preflight) that carries the session cookie and the Origin like the
+ * heartbeat does. Where sendBeacon is missing or refuses, a keepalive fetch.
+ */
+export function sendOperatorLeave(workspaceId: string, sourceId: string): void {
+  const url = `${API_BASE}/api/operator-activity/leave`;
+  const body = JSON.stringify({ workspace_id: workspaceId, source_id: sourceId });
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, body)) return;
+  } catch { /* fall through */ }
+  try {
+    void fetch(url, {
+      credentials: 'include',
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body,
+    }).catch(() => undefined);
+  } catch { /* the lease expires as before */ }
 }
 
 /** Whether the report carries real online time (see `online_time_tracked`). */

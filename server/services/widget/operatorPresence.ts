@@ -29,7 +29,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { createStorageUrlResolver, userAvatarUrlMap } from '../storage/urlResolver.js';
-import { getConnectedOperators } from './operatorPresenceSource.js';
+import { getConnectedOperators, PRESENCE_LIVENESS_MS } from './operatorPresenceSource.js';
 import {
   AVAILABILITY_PREFS_COLUMNS,
   computeCustomerAvailability,
@@ -110,18 +110,67 @@ export function computeOperatorState(
 export { PRESENCE_HEARTBEAT_MS, PRESENCE_LIVENESS_MS } from './operatorPresenceSource.js';
 
 /**
- * Records a fallback live-presence lease beat. Single-row UPSERT; no history.
- * Called from the heartbeat route ONLY when the presence provider is in
- * database-fallback mode (see `shouldWriteFallbackPresence`).
+ * The source of a beat that names none: the desktop and phone apps, and
+ * panels from before migration 282b. Such a client never sends a beacon, so
+ * its part of the lease only expires.
+ */
+export const LEGACY_PRESENCE_SOURCE = '_';
+
+const PRESENCE_SOURCE_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+/** A panel tab's source id as the client sent it, or null when it is not one. */
+export function presenceSourceOf(value: unknown): string | null {
+  return typeof value === 'string' && PRESENCE_SOURCE_RE.test(value) ? value : null;
+}
+
+/** "Function does not exist" (a database before migration 282b): PostgREST PGRST202 / Postgres 42883. */
+function isMissingFunction(error: { code?: unknown; message?: unknown } | null | undefined): boolean {
+  const code = String(error?.code ?? '');
+  return code === '42883' || code === 'PGRST202'
+    || /could not find the function .*operator_presence_|function public\.operator_presence_\w+\(.*\) does not exist/i.test(String(error?.message ?? ''));
+}
+
+/** Until when this process writes the plain lease (282b's functions were missing), epoch ms. */
+let presenceSourcesMissingUntil = 0;
+/** How long a missing function is believed missing before it is tried again. */
+const PRESENCE_SOURCES_RECHECK_MS = 10 * 60_000;
+
+/** Test hook. */
+export function __resetPresenceSourcesProbe(): void {
+  presenceSourcesMissingUntil = 0;
+}
+
+/**
+ * Records a live-presence lease beat: one row per (workspace, operator), no
+ * history. Since migration 282b the row also records which source beat
+ * (`source`: a panel tab's id, else LEGACY_PRESENCE_SOURCE), so the beacon of
+ * a tab that went away ends only that tab's part (endOperatorPresenceSource).
+ * Before 282b — the function is missing — the plain upsert, as always.
  */
 export async function recordOperatorPresenceBeat(
   config: ServerConfig,
   workspaceId: string,
   userId: string,
   now: Date = new Date(),
+  source: string = LEGACY_PRESENCE_SOURCE,
 ): Promise<boolean> {
   const sb = getServiceClient(config);
   const iso = now.toISOString();
+  if (now.getTime() >= presenceSourcesMissingUntil) {
+    const { error } = await sb.rpc('operator_presence_beat', {
+      p_workspace_id: workspaceId,
+      p_user_id: userId,
+      p_source: source,
+      p_now: iso,
+      p_window_ms: PRESENCE_LIVENESS_MS,
+    });
+    if (!error) return true;
+    if (!isMissingFunction(error)) {
+      console.warn('[presence] lease write failed:', error.message);
+      return false;
+    }
+    presenceSourcesMissingUntil = now.getTime() + PRESENCE_SOURCES_RECHECK_MS;
+  }
   const { error } = await sb
     .from('operator_presence_live')
     .upsert(
@@ -130,6 +179,41 @@ export async function recordOperatorPresenceBeat(
     );
   if (error) console.warn('[presence] fallback lease write failed:', error.message);
   return !error;
+}
+
+/**
+ * A panel tab went away (its beacon, R-11): its part of the operator's lease
+ * ends now instead of in up to PRESENCE_LIVENESS_MS. 'present': another tab
+ * or app of theirs beat within the window, so they are still here; 'gone':
+ * nothing else holds the lease, so routing and teammates no longer see them
+ * connected (unless Centrifugo still does); 'unknown': nothing was changed
+ * (no lease, a lease from before 282b, or 282b not applied, or the write
+ * failed) and the lease expires as it always did. Never throws.
+ */
+export async function endOperatorPresenceSource(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  source: string,
+  now: Date = new Date(),
+): Promise<'present' | 'gone' | 'unknown'> {
+  try {
+    const { data, error } = await getServiceClient(config).rpc('operator_presence_leave', {
+      p_workspace_id: workspaceId,
+      p_user_id: userId,
+      p_source: source,
+      p_now: now.toISOString(),
+      p_window_ms: PRESENCE_LIVENESS_MS,
+    });
+    if (error) {
+      if (!isMissingFunction(error)) console.warn('[presence] lease end failed:', error.message);
+      return 'unknown';
+    }
+    return data === 'present' || data === 'gone' ? data : 'unknown';
+  } catch (err) {
+    console.warn('[presence] lease end failed:', err instanceof Error ? err.message : err);
+    return 'unknown';
+  }
 }
 
 /**

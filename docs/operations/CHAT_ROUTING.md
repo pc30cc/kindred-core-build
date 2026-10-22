@@ -68,7 +68,10 @@ minutes later if the form never comes.
    idle for less than 30 minutes is used only when no active one is free. An
    operator who chose "Away from desk" in the account menu (282) gets nothing
    new, not as the previous operator nor as the owner fallback, keeps the
-   chats they hold, and does not make the widget online.
+   chats they hold, and does not make the widget online. "Open" ends as soon
+   as the operator closes their last panel tab (the tab's beacon, 282b), not
+   up to 5 minutes later; their other tabs, the desktop app and the phone
+   keep them here.
 5. **Owner fallback**: when nobody above can take it, the owner gets it if the
    Super Admin's global advanced-routing policy allows the owner fallback for
    chats (the same policy calls use) and the owner receives chats and is
@@ -197,7 +200,8 @@ before merging the code.
    `279_widget_offline_mode_values.sql`, `279b_widget_primary_color_brand.sql`,
    `280_widget_visitor_forms.sql`, `280a_widget_kb_search_fold.sql`,
    `280b_widget_queue_per_department.sql`, `281_widget_visitor_privacy.sql`,
-   `282_operator_manual_away.sql` (and any later file of this series), with the CLAUDE.md procedure: the
+   `282_operator_manual_away.sql`, `282b_operator_presence_sources.sql`
+   (and any later file of this series), with the CLAUDE.md procedure: the
    folder with `scripts/` and `database/migrations/`, `docker cp` into the
    database container, `migrate-database.sh` as `postgres` with
    `PGOPTIONS='-c lock_timeout=5s'`. Each file also sets `lock_timeout` itself;

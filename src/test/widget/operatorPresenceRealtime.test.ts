@@ -36,7 +36,25 @@ const state = vi.hoisted(() => ({
   presenceCalls: 0,
 }));
 
-interface Row { [k: string]: any }
+type Row = Record<string, unknown>;
+interface FakeQuery {
+  select: () => FakeQuery;
+  eq: (c: string, v: unknown) => FakeQuery;
+  in: (c: string, v: unknown[]) => FakeQuery;
+  is: (c: string, v: unknown) => FakeQuery;
+  gte: (c: string, v: unknown) => FakeQuery;
+  lt: (c: string, v: unknown) => FakeQuery;
+  order: () => FakeQuery;
+  limit: () => FakeQuery;
+  maybeSingle: () => Promise<{ data: Row | null; error: null }>;
+  then: (resolve: (result: { data: Row[]; error: null }) => unknown) => unknown;
+  upsert: (payload: Row, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => Promise<{ data: null; error: null }>;
+  delete: () => FakeDelete;
+}
+interface FakeDelete {
+  eq: (c: string, v: unknown) => Promise<{ data: null; error: null }>;
+  then: (resolve: (result: { data: null; error: null }) => unknown) => unknown;
+}
 const db: Record<string, Row[]> = {};
 let presenceWrites = 0;
 let analyticsInserts = 0;
@@ -44,17 +62,17 @@ let analyticsInserts = 0;
 function makeQuery(table: string) {
   const filters: Array<(r: Row) => boolean> = [];
   const rows = () => db[table] || [];
-  const q: any = {
+  const q: FakeQuery = {
     select: () => q,
-    eq: (c: string, v: any) => (filters.push((r) => r[c] === v), q),
-    in: (c: string, v: any[]) => (filters.push((r) => v.includes(r[c])), q),
-    is: (c: string, v: any) => (filters.push((r) => (r[c] ?? null) === v), q),
-    gte: (c: string, v: any) => (filters.push((r) => String(r[c]) >= String(v)), q),
-    lt: (c: string, v: any) => (filters.push((r) => String(r[c]) < String(v)), q),
+    eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), q),
+    in: (c: string, v: unknown[]) => (filters.push((r) => v.includes(r[c])), q),
+    is: (c: string, v: unknown) => (filters.push((r) => (r[c] ?? null) === v), q),
+    gte: (c: string, v: unknown) => (filters.push((r) => String(r[c]) >= String(v)), q),
+    lt: (c: string, v: unknown) => (filters.push((r) => String(r[c]) < String(v)), q),
     order: () => q,
     limit: () => q,
     maybeSingle: async () => ({ data: rows().filter((r) => filters.every((f) => f(r)))[0] ?? null, error: null }),
-    then: (resolve: any) => resolve({ data: rows().filter((r) => filters.every((f) => f(r))), error: null }),
+    then: (resolve) => resolve({ data: rows().filter((r) => filters.every((f) => f(r))), error: null }),
     upsert: async (payload: Row, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
       db[table] = db[table] || [];
       const keys = (opts?.onConflict || '').split(',').map((k) => k.trim()).filter(Boolean);
@@ -68,12 +86,12 @@ function makeQuery(table: string) {
       return { data: null, error: null };
     },
     delete: () => {
-      const dq: any = {
-        eq: (c: string, v: any) => {
+      const dq: FakeDelete = {
+        eq: (c: string, v: unknown) => {
           db[table] = (db[table] || []).filter((r) => r[c] !== v);
           return Promise.resolve({ data: null, error: null });
         },
-        then: (resolve: any) => resolve({ data: null, error: null }),
+        then: (resolve) => resolve({ data: null, error: null }),
       };
       return dq;
     },
@@ -81,7 +99,18 @@ function makeQuery(table: string) {
   return q;
 }
 
-const fakeClient = { from: (t: string) => makeQuery(t), rpc: async () => ({ data: null, error: null }) };
+const fakeClient = {
+  from: (t: string) => makeQuery(t),
+  // 282b: the beat writes the lease row through operator_presence_beat (its
+  // per-source bookkeeping is operatorPresenceSources282b.pg.test.ts's).
+  rpc: async (fn: string, args: Record<string, unknown> = {}) =>
+    fn === 'operator_presence_beat'
+      ? makeQuery('operator_presence_live').upsert(
+        { workspace_id: args.p_workspace_id, user_id: args.p_user_id, last_seen_at: args.p_now, updated_at: args.p_now },
+        { onConflict: 'workspace_id,user_id' },
+      )
+      : { data: null, error: null },
+};
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient }));
 vi.mock('../../../server/supabase', () => ({ getServiceClient: () => fakeClient }));
 
@@ -138,10 +167,11 @@ import {
   isOperatorPresenceChannel,
   channelBelongsToWorkspace,
 } from '../../../server/services/realtime/types';
+import type { ServerConfig } from '../../../server/config';
 
 const WS = 'ws-1';
 const USER = 'user-1';
-const cfg: any = {};
+const cfg = {} as ServerConfig;
 const T0 = new Date('2026-01-05T12:00:30.000Z').getTime();
 const at = (min: number) => new Date(T0 + min * 60_000);
 
@@ -319,7 +349,7 @@ describe('operator presence — realtime-first', () => {
     await getConnectedOperators(cfg, WS, [USER], at(0));
     expect(await shouldWriteFallbackPresence(cfg, at(0.1).getTime(), WS)).toBe(true);
     expect(await shouldWriteFallbackPresence(cfg, at(0.1).getTime(), 'ws-other')).toBe(false);
-    const scopes = db.operator_presence_fallback_state.map((r: any) => r.scope);
+    const scopes = db.operator_presence_fallback_state.map((r) => r.scope);
     expect(scopes).toEqual([WS]);
   });
 
@@ -433,13 +463,13 @@ describe('operator presence — realtime-first', () => {
 
     // The global row is a pure signal: no roster, so it can never be applied
     // as another workspace's operator list.
-    const globalRow = db.operator_presence_fallback_state.find((r: any) => r.scope === 'global');
+    const globalRow = db.operator_presence_fallback_state.find((r) => r.scope === 'global');
     expect(globalRow).toBeTruthy();
     expect(globalRow.roster).toEqual([]);
     expect(globalRow.roster_complete).toBe(false);
     // Each workspace has its OWN roster entry.
-    const rowA = db.operator_presence_fallback_state.find((r: any) => r.scope === WS);
-    const rowB = db.operator_presence_fallback_state.find((r: any) => r.scope === WS_B);
+    const rowA = db.operator_presence_fallback_state.find((r) => r.scope === WS);
+    const rowB = db.operator_presence_fallback_state.find((r) => r.scope === WS_B);
     expect(rowA.roster).toEqual([USER]);
     expect(rowA.roster_complete).toBe(true);
     expect(rowB.roster).toEqual([USER_B]);
@@ -508,9 +538,9 @@ describe('operator presence — realtime-first', () => {
     expect(snap.connected.has('u-0')).toBe(true);
     expect(snap.connected.has('u-201')).toBe(true);
     expect(snap.connected.has('u-249')).toBe(true);
-    const row = db.operator_presence_fallback_state.find((r: any) => r.scope === WS);
+    const row = db.operator_presence_fallback_state.find((r) => r.scope === WS);
     expect(row.roster_complete).toBe(false);
-    expect(row.roster.length).toBe(0); // row stays small
+    expect(row.roster).toEqual([]); // row stays small
   });
   it('O — LENIENT resolver fallback (Centrifugo configured, resolved to polling): treated as a realtime failure', async () => {
     // Exactly what resolveRealtimeProvider() returns in production when the

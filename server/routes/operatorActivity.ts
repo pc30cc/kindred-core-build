@@ -36,12 +36,21 @@
  * the operator each rated closure names. Null averages, and the report's
  * column stays hidden, while there are none (or before 276).
  *
+ * A TAB THAT GOES AWAY (R-11): the panel names its tab in every beat
+ * (`source_id`, a random id per tab) and, when the tab goes away (pagehide;
+ * on iPhone and iPad also when it is hidden), sends a beacon to /leave with
+ * the same id. That ends this tab's part of the lease at once (migration
+ * 282b): routing stops picking an operator who just closed their last tab,
+ * instead of for up to 5 minutes, while their other tabs, the desktop app
+ * and the phone (beats without an id) keep them here.
+ *
  * ─── ROUTES ────────────────────────────────────────────────────────
- *   POST /api/operator-activity/heartbeat  { workspace_id }
+ *   POST /api/operator-activity/heartbeat  { workspace_id, interacted?, source_id? }
+ *   POST /api/operator-activity/leave      { workspace_id, source_id }  (a beacon: text/plain JSON)
  *   GET  /api/operator-activity/:workspaceId/stats?days=7   (owner/admin)
  */
 
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -50,6 +59,9 @@ import {
 } from '../lib/workspaceAuth.js';
 import {
   computeOperatorState,
+  endOperatorPresenceSource,
+  LEGACY_PRESENCE_SOURCE,
+  presenceSourceOf,
   readRoutingPresence,
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
@@ -83,19 +95,34 @@ const LAST_WRITTEN_MAX = 5000;
 
 /**
  * Per-process memo of the last successful live-presence lease write for a
- * (workspace, user). One operator usually has several sources beating every
- * 2 minutes each — every open tab, the desktop app, the phone — and every
- * beat rewrote the same row. A beat within LEASE_REWRITE_MS of the last write
- * now skips the upsert. 90s keeps the lease under ~2 minutes old while ANY
- * source is beating, far inside the 5-minute liveness window
- * (PRESENCE_LIVENESS_MS, operatorPresenceSource.ts), so an open panel can
- * never read as offline because of it. A lone source still writes on every
- * beat (its beats are 120s apart). Only this route writes the lease and
- * nothing deletes it, so the memo cannot mask a missing row; a failed write
- * is not remembered, so the next beat retries.
+ * (workspace, user, source). A source beats every 2 minutes; a beat of the
+ * same source within LEASE_REWRITE_MS of its last write (a remount, a burst)
+ * skips the write. It is per source, not per operator, since migration 282b:
+ * each source's own stamp in the lease must stay fresh, or the beacon of one
+ * tab would end the lease while another tab, whose beats were skipped, is
+ * still open. 90s keeps every stamp under ~2 minutes old, far inside the
+ * 5-minute liveness window (PRESENCE_LIVENESS_MS, operatorPresenceSource.ts).
+ * A lone source writes on every beat (its beats are 120s apart). The beacon
+ * forgets its source's entry (the panel also starts a new id after it); a
+ * failed write is not remembered, so the next beat retries.
  */
 const LEASE_REWRITE_MS = 90_000;
 const lastLeaseWriteAt = new Map<string, number>();
+
+/** The body of a beacon: sendBeacon sends a string as text/plain (CORS-simple, no preflight). */
+const beaconText = express.text({ type: 'text/plain', limit: '2kb' });
+
+function beaconBody(body: unknown): Record<string, unknown> {
+  if (typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+  return body && typeof body === 'object' ? body as Record<string, unknown> : {};
+}
 
 // operator_activity_samples was dropped from the database, so there is
 // nothing left to prune. Kept as a no-op rather than deleted so the call
@@ -115,6 +142,8 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
       .safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'workspace_id required' });
     const workspaceId = parsed.data.workspace_id;
+    // A panel tab names itself; anything else (the apps) is the legacy source.
+    const source = presenceSourceOf((req.body as { source_id?: unknown } | undefined)?.source_id) ?? LEGACY_PRESENCE_SOURCE;
 
     const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
     if (!auth) return;
@@ -133,6 +162,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     }
     const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
+    const leaseKey = `${memoKey}:${source}`;
 
     // LIVE PRESENCE — the lease is now refreshed on every beat (coalesced to
     // one write per LEASE_REWRITE_MS per operator per process across that
@@ -146,11 +176,11 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     // second signal. Presence reads UNION realtime with this lease; realtime
     // remains the fast path and the lease can only ever add an operator.
     const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime(), workspaceId);
-    const lastLease = lastLeaseWriteAt.get(memoKey);
+    const lastLease = lastLeaseWriteAt.get(leaseKey);
     if (lastLease === undefined || now.getTime() - lastLease >= LEASE_REWRITE_MS) {
-      if (await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now)) {
+      if (await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now, source)) {
         if (lastLeaseWriteAt.size >= LAST_WRITTEN_MAX) lastLeaseWriteAt.clear();
-        lastLeaseWriteAt.set(memoKey, now.getTime());
+        lastLeaseWriteAt.set(leaseKey, now.getTime());
       }
     }
 
@@ -191,6 +221,28 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
   }
 });
 
+// ── POST /leave ───────────────────────────────────────────────────
+// The panel's beacon when a tab goes away (header). Authenticated exactly as
+// the heartbeat is (the session cookie, and the Origin check every cookie
+// mutation gets). Ends only that tab's part of the lease; always 204, since
+// a beacon reads no answer: a lease it could not end expires as before.
+operatorActivityRouter.post('/leave', beaconText, async (req, res) => {
+  try {
+    const body = beaconBody(req.body);
+    const workspaceId = typeof body.workspace_id === 'string' ? body.workspace_id : '';
+    const source = presenceSourceOf(body.source_id);
+    if (!z.string().uuid().safeParse(workspaceId).success || !source) {
+      return res.status(400).json({ error: 'workspace_id and source_id required' });
+    }
+    const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+    if (!auth) return;
+    lastLeaseWriteAt.delete(`${workspaceId}:${auth.userId}:${source}`);
+    await endOperatorPresenceSource(serverConfigOf(req), workspaceId, auth.userId, source);
+    return res.status(204).end();
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'Leave failed' });
+  }
+});
 
 /** One decimal, or null without ratings. */
 function averageScore(sum: number, count: number): number | null {

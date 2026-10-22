@@ -69,8 +69,13 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'automation',        type: 'module', label: 'Automation',         group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 60 },
   { key: 'analytics',         type: 'module', label: 'Analytics',          group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
   { key: 'omnichannel',       type: 'module', label: 'Omnichannel',        group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
-  { key: 'custom_branding',   type: 'module', label: 'Custom Branding',    group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 90 },
-  { key: 'api_access',        type: 'module', label: 'API Access',         group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 100 },
+  // RESERVED, like advanced_ai_agent below: nothing reads custom_branding or
+  // api_access (there is no workspace API and no branding module; a
+  // workspace's own brand is the widget_* capabilities), so neither is
+  // offered on a plan, overridden per workspace or listed on a plan card.
+  // Kept because existing plans may carry the keys.
+  { key: 'custom_branding',   type: 'module', label: 'Custom Branding',    group: 'modules', description: 'Reserved: nothing reads this key, so it grants nothing. Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 90 },
+  { key: 'api_access',        type: 'module', label: 'API Access',         group: 'modules', description: 'Reserved: nothing reads this key, so it grants nothing. Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 100 },
   { key: 'voice_video',       type: 'module', label: 'Voice & Video',      group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 110 },
   { key: 'help_center',       type: 'module', label: 'Help Center',        group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
   { key: 'call_center',       type: 'module', label: 'Call Center',        group: 'modules', description: 'Call queue, routing, invitations and callbacks suite. Bounded by Voice & Video and the global call control plane.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 115 },
@@ -115,21 +120,25 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // RESERVED: no server route or app surface reads this flag. The AI Agent
   // is gated by the `ai_assistant` module; its advanced QA/debug tools are
   // platform-admin only (customerSafe.ts), never plan-gated. Kept because
-  // production plans may carry the key (design rule 1: never remove).
-  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       description: 'Reserved: no feature reads this flag yet, so enabling it grants nothing today. Kept because existing plans may set it.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  // production plans may carry the key (design rule 1: never remove), but
+  // neither offered on a plan nor listed on a plan card.
+  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       description: 'Reserved: no feature reads this flag yet, so enabling it grants nothing today. Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 10 },
   { key: 'ai_operator_assist',    type: 'feature', label: 'AI Operator Assist',     group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'ai_kb_builder',         type: 'feature', label: 'AI KB Builder',          group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
   { key: 'priority_support',      type: 'feature', label: 'Priority Support',       group: 'support',  defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
-  { key: 'sso',                   type: 'feature', label: 'SSO / SAML',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
+  // RESERVED: there is no single sign-on; nothing reads the key.
+  { key: 'sso',                   type: 'feature', label: 'SSO / SAML',             group: 'security', description: 'Reserved: there is no single sign-on yet, so this grants nothing. Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 10 },
   { key: 'audit_logs',            type: 'feature', label: 'Audit Logs',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
-  { key: 'white_label',           type: 'feature', label: 'White-label Branding',   group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  // RESERVED: nothing reads it. What a plan really changes about the
+  // platform's credit is widget_powered_by / widget_powered_by_toggle below.
+  { key: 'white_label',           type: 'feature', label: 'White-label Branding',   group: 'branding', description: 'Reserved: nothing reads this flag, so it grants nothing; the platform credit is "Show Widget Powered by Credit". Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 10 },
   // DEPRECATED legacy inverse of `widget_powered_by`. Kept in the registry so
   // historical plan JSON stays known (no "unknown key" warnings) but never
   // shown as a second toggle in the admin plan editor or customer billing UI,
   // and never overridable per workspace.
   { key: 'remove_powered_by',     type: 'feature', label: 'Remove "Powered by" (legacy)', description: 'Deprecated — superseded by `widget_powered_by`. Read only as a fallback for plans that were never migrated.', group: 'branding', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, internalOnly: true, deprecated: true, sortOrder: 20 },
-  { key: 'widget_powered_by',     type: 'feature', label: 'Show Widget "Powered by" Footer', group: 'branding', description: 'Whether the chat widget shows the platform credit footer. Wording, brand label and link are platform-admin owned (Admin → Widget Settings → Powered by). Turn OFF for a plan to hide the footer entirely — the widget content then extends to the bottom edge.', defaultValue: true, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 25 },
-  { key: 'widget_powered_by_toggle', type: 'feature', label: 'Workspace May Hide "Powered by"', group: 'branding', description: 'Lets the workspace owner switch the powered-by footer off in Widget → Appearance → Logo & branding. The workspace switch defaults to ON, so the credit keeps showing until the owner turns it off. Requires the footer to be allowed by "Show Widget \'Powered by\' Footer".', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 26 },
+  { key: 'widget_powered_by',     type: 'feature', label: 'Show the Widget "Powered by" Credit', group: 'branding', description: 'Whether the chat widget shows the platform\'s "Powered by" credit at its foot. Wording, brand label and link are the Super Admin\'s (Super Admin → Widget settings → Powered by); the credit shows only while its master switch there is on. Turn OFF for a plan to hide the footer entirely — the widget content then extends to the bottom edge.', defaultValue: true, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 25 },
+  { key: 'widget_powered_by_toggle', type: 'feature', label: 'Workspace May Hide the "Powered by" Credit', group: 'branding', description: 'Lets the workspace owner switch the "Powered by" credit off in Widget → Appearance → Logo & branding. The workspace switch defaults to ON, so the credit keeps showing until the owner turns it off. Requires the credit to be allowed by "Show the Widget \'Powered by\' Credit".', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 26 },
 
   // ─── Chat widget surface features (bounded by the `chat_widget` channel) ───
   // Live chat / Knowledge base / Visitor tracking intentionally REUSE the

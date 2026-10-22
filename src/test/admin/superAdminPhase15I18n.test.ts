@@ -17,10 +17,9 @@ const files = [
 ];
 
 const technicalCopy = new Set([
-  'app_runtime_config.global_advanced_routing', 'socket_closed', 'lovable-realtime', 'centrifugo',
-  '10000 – 1800000 ms', 'payload.id', '• ws:{workspaceId}:inbox',
+  'app_runtime_config.global_advanced_routing', 'payload.id', '• ws:{workspaceId}:inbox',
   '• ws:{workspaceId}:visitors', '• ws:{workspaceId}:conv:{conversationId}',
-  'action=typing', '250 – 60000 ms', 'https://example.com',
+  'action=typing', 'https://example.com',
   'USD/mo', 'IRR/mo', 'TRY/mo', 'EUR/mo', '/api/',
   'https://widget.yourdomain.com', 'https://api.yourdomain.com', 'HTTP',
   'stripe', 'Stripe', 'paddle', 'Paddle', 'lemon_squeezy', 'Lemon Squeezy',

@@ -5,7 +5,9 @@
  *
  * Deliberately NOT a notification feed: conversation / team-chat activity is
  * already surfaced by the Inbox tabs. This endpoint only reports *operational*
- * conditions the operator must act on (plan, quota, billing, verification).
+ * conditions the operator must act on (plan, quota, billing, verification,
+ * and — for the workspace's owner and admins — a chat widget template the
+ * platform switched off).
  *
  * No new tables, no realtime, no background jobs — everything is derived from
  * data the app already stores, in a handful of parallel reads.
@@ -19,6 +21,9 @@ import { findIdentityById } from '../services/auth/identity.js';
 import { getPhoneVerificationState } from '../services/phoneVerification/index.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
 import { BYTES_PER_MB, STORAGE_LIMIT_KEY } from '../../shared/planLimits.js';
+import { getChatTemplateCatalog } from '../services/widget/configSnapshot.js';
+import { isChosenTemplateUnavailable } from '../services/widget/templateCatalog.js';
+import type { ServerConfig } from '../config.js';
 
 export const workspaceAlertsRouter = Router();
 
@@ -66,10 +71,28 @@ function daysUntil(iso: string | null | undefined): number | null {
 }
 
 /**
- * Derives the current operational alerts for a workspace.
- * Pure read — no dismissal filtering applied here.
+ * Whether the workspace's chosen chat widget template is one the Super Admin
+ * has switched off (its visitors wear the default meanwhile). False before
+ * migration 275, without a choice, or when either read fails: an alert is
+ * never raised on a guess.
  */
-async function deriveAlerts(req: object, workspaceId: string, userId: string) {
+async function chosenWidgetTemplateUnavailable(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const [{ data, error }, { catalog, ready }] = await Promise.all([
+    sb.from('widget_settings').select('widget_template_id').eq('workspace_id', workspaceId).maybeSingle(),
+    getChatTemplateCatalog(config),
+  ]);
+  if (error || !ready) return false;
+  return isChosenTemplateUnavailable(catalog, (data as { widget_template_id?: string | null } | null)?.widget_template_id);
+}
+
+/**
+ * Derives the current operational alerts for a workspace.
+ * Pure read — no dismissal filtering applied here. `manages`: the caller is
+ * the workspace's owner or an admin (or a platform admin), who set up its
+ * widget.
+ */
+async function deriveAlerts(req: object, workspaceId: string, userId: string, manages = false) {
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const period = new Date().toISOString().slice(0, 7);
@@ -195,6 +218,19 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
     });
   }
 
+  // ── 4. The widget's template, switched off by the platform ──
+  // The owner chose it; while the Super Admin keeps it disabled their
+  // visitors see the catalog's default. The choice is kept and comes back
+  // when it is enabled again, which also clears this alert.
+  if (manages && (await chosenWidgetTemplateUnavailable(config, workspaceId).catch(() => false))) {
+    alerts.push({
+      id: 'widget_template_unavailable',
+      kind: 'widget_template_unavailable',
+      severity: 'warning',
+      action: '/widget',
+    });
+  }
+
   // Critical conditions demand action, so they are never dismissible. The
   // signature encodes the *state* of the alert: when it worsens (e.g. quota
   // 80% -> 95%) the signature changes and a previous dismissal stops applying.
@@ -211,6 +247,11 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
   return alerts;
 }
 
+/** Owners, admins and platform admins set up the widget (its page is theirs alone). */
+function managesWidget(auth: { isAdmin?: boolean; role?: string | null }): boolean {
+  return auth.isAdmin === true || auth.role === 'owner' || auth.role === 'admin';
+}
+
 workspaceAlertsRouter.get('/:workspaceId', async (req, res) => {
   const workspaceId = req.params.workspaceId;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
@@ -221,7 +262,7 @@ workspaceAlertsRouter.get('/:workspaceId', async (req, res) => {
 
   try {
     const [derived, dismissalsRes] = await Promise.all([
-      deriveAlerts(req, workspaceId, auth.userId),
+      deriveAlerts(req, workspaceId, auth.userId, managesWidget(auth)),
       sb
         .from('workspace_alert_dismissals')
         .select('alert_key, signature, dismissed_until')
@@ -275,7 +316,7 @@ workspaceAlertsRouter.post('/:workspaceId/dismiss', async (req, res) => {
   const body = (req.body || {}) as { alertId?: string; all?: boolean };
 
   try {
-    const derived = await deriveAlerts(req, workspaceId, auth.userId);
+    const derived = await deriveAlerts(req, workspaceId, auth.userId, managesWidget(auth));
     const targets = body.all
       ? derived.filter((a) => a.dismissible)
       : derived.filter((a) => a.dismissible && a.id === body.alertId);

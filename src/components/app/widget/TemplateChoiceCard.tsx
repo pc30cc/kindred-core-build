@@ -32,8 +32,8 @@ export interface TemplateChoiceCardProps {
   draftOptions: unknown;
   /** The plan allows customising the appearance (widget_appearance). */
   planAllows: boolean;
-  /** A pick; null = follow the catalog's default (the entry badged "Default"). */
-  onChoose: (id: string | null) => void;
+  /** A pick, stored as picked (the default's id too: it then stays when the default moves). */
+  onChoose: (id: string) => void;
   onOptionsChange: (next: ChatTemplateOptions) => void;
 }
 
@@ -49,9 +49,14 @@ export function TemplateChoiceCard({
   const effective = view.templates.find((tpl) => tpl.id === effectiveId);
   // The stored choice is unavailable, and the owner has not picked another.
   const unavailable = view.selectedUnavailable && (draftId ?? null) === view.selectedId;
-  // The default's entry stores null (follow the default, as before any pick),
-  // so a later move of the catalog's default reaches this workspace too.
-  const choose = (id: string) => onChoose(id === view.defaultId ? null : id);
+  const chosenName = view.selectedId ? templateDisplayName(t, view.selectedId) : '';
+  // No pick at all: visitors wear the catalog's default, and another one if
+  // the Super Admin moves the default.
+  const following = (draftId ?? null) === null;
+  // A pick is stored as picked, the default's entry included: an owner who
+  // picks it keeps it when the Super Admin moves the default (and is counted
+  // as having chosen it).
+  const choose = (id: string) => onChoose(id);
   const ownOptions = readTemplateOptions(draftOptions);
   // Keep a row the owner is still typing (the cleaner drops empty rows).
   if (draftOptions && typeof draftOptions === 'object') {
@@ -72,7 +77,12 @@ export function TemplateChoiceCard({
         {unavailable && (
           <p className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
             <Info className="mt-px h-3.5 w-3.5 shrink-0" />
-            <span>{t('widgetCatalog.workspace.unavailable', { name: defaultName })}</span>
+            <span>{t('widgetCatalog.workspace.unavailable', { chosen: chosenName, name: defaultName })}</span>
+          </p>
+        )}
+        {picker && following && !locked && (
+          <p className="text-xs leading-relaxed text-muted-foreground" data-tpl-follows-default>
+            {t('widgetCatalog.workspace.followsDefault', { name: defaultName })}
           </p>
         )}
         {picker && (
@@ -91,10 +101,11 @@ export function TemplateChoiceCard({
                   key={tpl.id}
                   value={tpl.id}
                   data-tpl-choice={tpl.id}
-                  // An unavailable stored choice shows the default checked,
-                  // and Radix reports no change for a checked entry: a click
-                  // there is the owner taking the default (clears the choice).
-                  onClick={unavailable && selected ? () => choose(tpl.id) : undefined}
+                  // An unavailable stored choice, or no choice at all, shows
+                  // the default checked, and Radix reports no change for a
+                  // checked entry: a click there is the owner picking the
+                  // default, stored as such.
+                  onClick={(unavailable || following) && selected ? () => choose(tpl.id) : undefined}
                   className={cn(
                     'group relative flex flex-col gap-2 rounded-xl border bg-background p-2.5 text-start transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',

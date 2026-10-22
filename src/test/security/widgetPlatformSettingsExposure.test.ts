@@ -183,7 +183,7 @@ describe('widget_platform_settings — anon exposure', () => {
 
 // ── Backend platform-admin endpoint + self-heal ────────────────────
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 let rows: Row[] = [];
 /** The route validates this as a uuid, so the fixture has to be one. */
 const SINGLETON_ID = '11111111-2222-4333-8444-555555555555';
@@ -194,7 +194,7 @@ let authed = true;
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from() {
-      const builder: any = {
+      const builder: Record<string, unknown> = {
         select: () => builder,
         limit: () => builder,
         eq: () => builder,
@@ -223,7 +223,7 @@ vi.mock('../../../server/supabase.js', () => ({
 
 vi.mock('../../../server/lib/workspaceAuth.js', () => ({
   authorizeWorkspaceAccess: async () => null,
-  requirePlatformAdmin: async (_req: any, res: any) => {
+  requirePlatformAdmin: async (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }) => {
     if (!authed) {
       res.status(401).json({ error: 'Unauthorized' });
       return null;
@@ -240,8 +240,8 @@ async function app() {
   const { widgetSettingsRouter } = await import('../../../server/routes/widgetSettings.js');
   const a = express();
   a.use(express.json());
-  a.use((req: any, _res, next) => {
-    req.serverConfig = {};
+  a.use((req, _res, next) => {
+    (req as unknown as { serverConfig: unknown }).serverConfig = {};
     next();
   });
   a.use('/api/widget-settings', widgetSettingsRouter);
@@ -283,9 +283,9 @@ describe('platform widget settings endpoint', () => {
     await request(a).get('/api/widget-settings/platform/config');
     const res = await request(a)
       .patch('/api/widget-settings/platform/config')
-      .send({ id: SINGLETON_ID, max_message_length: 1234 });
+      .send({ id: SINGLETON_ID, realtime_token_ttl_seconds: 1234 });
     expect(res.status).toBe(200);
-    expect(rows[0].max_message_length).toBe(1234);
+    expect(rows[0].realtime_token_ttl_seconds).toBe(1234);
   });
 
   it('rejects non-admin with 403 and does not self-heal', async () => {

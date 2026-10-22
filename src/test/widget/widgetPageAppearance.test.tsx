@@ -18,7 +18,7 @@ const capabilityKeys = [
   'widget_domain_allowlist', 'chat', 'knowledge_base', 'visitor_tracking', 'widget_attachments', 'widget_voice_notes',
   'widget_emoji', 'widget_raw_ip_storage', 'widget_assignment_routing', 'widget_reply_time_text', 'widget_welcome_message',
   'widget_launcher_label', 'widget_launcher_size', 'widget_launcher_icon', 'widget_composer_placeholder',
-  'widget_team_avatars', 'widget_workspace_logo',
+  'widget_team_avatars', 'widget_workspace_logo', 'widget_powered_by', 'widget_powered_by_toggle',
 ];
 const state = vi.hoisted(() => ({
   row: {} as Record<string, unknown>,
@@ -29,6 +29,7 @@ const state = vi.hoisted(() => ({
   patches: [] as Array<Record<string, unknown>>,
   previewProps: null as Record<string, unknown> | null,
   pickerProps: null as Record<string, unknown> | null,
+  platform: null as Record<string, unknown> | null,
 }));
 
 vi.mock('@/features/phone-verification/PhoneVerificationGate', () => ({ PhoneVerificationGate: ({ children }: { children: unknown }) => children }));
@@ -56,7 +57,7 @@ vi.mock('@/hooks/useEntitlements', () => ({
   }),
 }));
 vi.mock('@/features/branding/BrandingContext', () => ({ useBrandingContext: () => ({ branding: { primary_color: '#3B82F6' }, platformName: 'WebYar' }) }));
-vi.mock('@/hooks/useWidgetPlatformSettings', () => ({ useWidgetPlatformPublicSettings: () => ({ data: null }) }));
+vi.mock('@/hooks/useWidgetPlatformSettings', () => ({ useWidgetPlatformPublicSettings: () => ({ data: state.platform }) }));
 vi.mock('@/hooks/useWidgetCatalog', () => ({
   useWorkspaceWidgetCatalog: () => ({ data: undefined, refetch: vi.fn() }),
   effectiveWorkspaceTemplate: (_v: unknown, _e: unknown, id: string | null) => ({ id: id || 'default', options: {} }),
@@ -103,6 +104,7 @@ beforeEach(() => {
   state.patches = [];
   state.previewProps = null;
   state.pickerProps = null;
+  state.platform = null;
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -296,5 +298,44 @@ describe('Widget → Domains says which sites may show the widget (W-03)', () =>
     expect(verified.textContent).not.toContain('pending.com');
     expect(verified.querySelector('a')!.getAttribute('href')).toBe('/acme/settings/domains');
     expect(listed.container.querySelector('[data-domains-any]')).toBeNull();
+  });
+});
+
+describe('the “Powered by” credit follows the Super Admin’s master switch (S-04)', () => {
+  const card = () => document.querySelector('[data-powered-by-card]') as HTMLElement;
+  const toggle = () => card().querySelector('[role="switch"]') as HTMLButtonElement;
+
+  it('switched off for the platform: the card says the widget shows none, never a locked “on”', async () => {
+    state.platform = { powered_by_enabled: false, powered_by_text: '', powered_by_brand_text: null, powered_by_url: null };
+    state.denied = new Set(['widget_powered_by_toggle']);
+    mount();
+    await screen.findByText(A.showPoweredBy);
+    expect(card().textContent).toContain(A.showPoweredByPlatformOff);
+    expect(card().textContent).not.toContain(A.showPoweredByLocked);
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
+    expect(toggle().disabled).toBe(true);
+    // The preview draws no credit either.
+    expect(state.previewProps?.poweredBy).toBeNull();
+  });
+
+  it('on for the platform, a plan without the toggle: locked on, as visitors see it', async () => {
+    state.platform = { powered_by_enabled: true, powered_by_text: '', powered_by_brand_text: 'WebYar', powered_by_url: null };
+    state.denied = new Set(['widget_powered_by_toggle']);
+    mount();
+    await screen.findByText(A.showPoweredBy);
+    expect(card().textContent).toContain(A.showPoweredByLocked);
+    expect(card().textContent).not.toContain(A.showPoweredByPlatformOff);
+    expect(toggle().getAttribute('aria-checked')).toBe('true');
+    expect(toggle().disabled).toBe(true);
+  });
+
+  it('on for the platform, a plan with the toggle: the owner may switch it off', async () => {
+    state.platform = { powered_by_enabled: true, powered_by_text: '', powered_by_brand_text: 'WebYar', powered_by_url: null };
+    mount();
+    await screen.findByText(A.showPoweredBy);
+    expect(toggle().disabled).toBe(false);
+    fireEvent.click(toggle());
+    await settle();
+    expect(state.patches).toContainEqual({ show_powered_by: false });
   });
 });

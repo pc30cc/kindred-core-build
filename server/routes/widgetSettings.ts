@@ -34,8 +34,9 @@ import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
+import { PLATFORM_TUNING_RANGES } from '../../shared/platformTuning.js';
 import { getChatTemplateCatalog, getWidgetPlatformSnapshot, getWorkspaceWidgetSnapshot } from '../services/widget/configSnapshot.js';
-import { isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
+import { isChosenTemplateUnavailable, isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
 import {
   CHAT_TEMPLATE_LOCALES,
   canonicalChatTemplateId,
@@ -129,7 +130,6 @@ widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
   const selectedId = typeof row.widget_template_id === 'string' ? row.widget_template_id : null;
   const selectedOptions = readTemplateOptions(row.widget_template_options);
   const effectiveId = resolveWorkspaceChatTemplate(catalog, selectedId, planAllowsChoice);
-  const selected = canonicalChatTemplateId(catalog.edition, selectedId);
   return res.json({
     edition: catalog.edition,
     ready: ready && columnReady,
@@ -142,7 +142,7 @@ widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
     })),
     selectedId,
     selectedOptions,
-    selectedUnavailable: selectedId !== null && !(selected && enabled.includes(selected)),
+    selectedUnavailable: isChosenTemplateUnavailable(catalog, selectedId),
     effectiveId,
     effectiveOptions: resolveChatTemplateOptions(catalog, effectiveId, planAllowsChoice ? selectedOptions : {}),
     planAllowsChoice,
@@ -870,20 +870,32 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
  * writable field that changes a value with no runtime effect is worse
  * than an unwritable one, since it implies a capability that does not
  * exist.
+ *
+ * For the same reason none of these is writable any more, though their
+ * columns stay: `force_chat_enabled`, `force_kb_enabled`,
+ * `force_visitor_tracking` (the plans' chat / knowledge_base /
+ * visitor_tracking capabilities and each workspace's own switches decide
+ * those), `default_allow_subdomains`, `enforce_domain_validation`,
+ * `max_allowed_domains_per_workspace` (the widget's origin rules are the
+ * workspace's Widget → Domains list under the plan's widget_domain_allowlist
+ * and max_widget_domains), `max_message_length` and
+ * `rate_limit_messages_per_minute` (a visitor message is at most 5000
+ * characters and 15 a minute, fixed in the widget routes), and
+ * `realtime_stale_resubscribe_guard_enabled` / `realtime_idle_disposal_ms`
+ * (the guard is always on in the realtime client; no socket reads an idle
+ * timeout). Nothing read any of them; a save answered 200 and changed
+ * nothing.
+ *
+ * The tuning values are bounded here to the ranges their readers use
+ * (services/widget/platformSettings.ts, the realtime client), the ranges the
+ * page offers, so a value outside them is refused instead of stored and then
+ * quietly clamped.
  */
 const widgetPlatformConfigPatchSchema = z.object({
   id: z.string().uuid(),
   prechat_name_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
   prechat_email_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
   prechat_phone_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
-  default_allow_subdomains: z.boolean().optional(),
-  max_allowed_domains_per_workspace: z.number().int().min(1).max(1000).optional(),
-  enforce_domain_validation: z.boolean().optional(),
-  force_chat_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
-  force_kb_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
-  force_visitor_tracking: z.enum(['allow', 'force_on', 'force_off']).optional(),
-  max_message_length: z.number().int().min(1).max(50000).optional(),
-  rate_limit_messages_per_minute: z.number().int().min(1).max(1000).optional(),
   admin_notes: z.string().max(10000).nullable().optional(),
   default_welcome_message: z.string().max(2000).optional(),
   widget_loader_base_url: z.string().max(2000).nullable().optional(),
@@ -893,15 +905,13 @@ const widgetPlatformConfigPatchSchema = z.object({
   embed_header_comment: z.string().max(5000).nullable().optional(),
   embed_footer_comment: z.string().max(5000).nullable().optional(),
   typing_rate_limit_enabled: z.boolean().optional(),
-  typing_rate_limit_window_ms: z.number().int().min(0).optional(),
-  typing_rate_limit_max_events: z.number().int().min(0).optional(),
-  realtime_stale_resubscribe_guard_enabled: z.boolean().optional(),
-  realtime_reconnect_jitter_pct: z.number().int().min(0).max(100).optional(),
-  realtime_token_ttl_seconds: z.number().int().min(0).optional(),
-  realtime_idle_disposal_ms: z.number().int().min(0).optional(),
-  realtime_pending_max: z.number().int().min(0).optional(),
+  typing_rate_limit_window_ms: z.number().int().min(PLATFORM_TUNING_RANGES.typing_rate_limit_window_ms.min).max(PLATFORM_TUNING_RANGES.typing_rate_limit_window_ms.max).optional(),
+  typing_rate_limit_max_events: z.number().int().min(PLATFORM_TUNING_RANGES.typing_rate_limit_max_events.min).max(PLATFORM_TUNING_RANGES.typing_rate_limit_max_events.max).optional(),
+  realtime_reconnect_jitter_pct: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_reconnect_jitter_pct.min).max(PLATFORM_TUNING_RANGES.realtime_reconnect_jitter_pct.max).optional(),
+  realtime_token_ttl_seconds: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_token_ttl_seconds.min).max(PLATFORM_TUNING_RANGES.realtime_token_ttl_seconds.max).optional(),
+  realtime_pending_max: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_pending_max.min).max(PLATFORM_TUNING_RANGES.realtime_pending_max.max).optional(),
   realtime_message_dedupe_enabled: z.boolean().optional(),
-  realtime_message_dedupe_window: z.number().int().min(0).optional(),
+  realtime_message_dedupe_window: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_message_dedupe_window.min).max(PLATFORM_TUNING_RANGES.realtime_message_dedupe_window.max).optional(),
   observability_metrics_enabled: z.boolean().optional(),
   observability_structured_logs_enabled: z.boolean().optional(),
   observability_log_level: z.string().max(20).optional(),

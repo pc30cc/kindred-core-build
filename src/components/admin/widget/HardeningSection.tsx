@@ -1,3 +1,4 @@
+import { useEffect, useId, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -5,117 +6,150 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Lock, Shield, Activity, MessageSquare, Info } from 'lucide-react';
 import type { WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import { cn } from '@/lib/utils';
+import {
+  PLATFORM_TUNING_RANGES,
+  parsePlatformTuningValue,
+  type PlatformTuningKey,
+} from '../../../../shared/platformTuning';
 
 interface Props {
+  /** The stored settings with the page's draft over them. */
   settings: WidgetPlatformSettings;
+  /** A switch: saved at once. */
   onSave: (patch: Partial<WidgetPlatformSettings>) => void;
+  /** A typed value: saved once the typing stops. */
+  onDraft: (patch: Partial<WidgetPlatformSettings>) => void;
 }
 
 /**
- * Phase 1 — Realtime / Transport
- * Houses transport-level safety flags. Each toggle has a safe default and
- * is wired through to server-side runtime via `widget_platform_settings`.
+ * One tuning number. The field keeps what is typed; only a whole number in
+ * the key's range (shared/platformTuning.ts) is drafted, so an emptied or
+ * out-of-range field saves nothing and says why, and leaving it puts the
+ * stored value back.
  */
-export function RealtimeTransportSection({ settings, onSave }: Props) {
+export function TuningNumberField({
+  field, label, rangeKey, value, disabled, onDraft,
+}: {
+  field: PlatformTuningKey;
+  label: string;
+  /** The range line, with {{min}} and {{max}} in its unit. */
+  rangeKey: TranslationKey;
+  value: number;
+  disabled?: boolean;
+  onDraft: (patch: Partial<WidgetPlatformSettings>) => void;
+}) {
+  const { t } = useTranslation();
+  const id = useId();
+  const range = PLATFORM_TUNING_RANGES[field];
+  const [text, setText] = useState(String(value));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setText(String(value));
+  }, [value, editing]);
+  const invalid = parsePlatformTuningValue(field, text) === null;
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
+      <Input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        dir="ltr"
+        disabled={disabled}
+        value={text}
+        aria-invalid={invalid || undefined}
+        aria-describedby={`${id}-range`}
+        data-tuning-field={field}
+        className={cn('max-w-32', invalid && 'border-destructive focus-visible:ring-destructive')}
+        onFocus={() => setEditing(true)}
+        onBlur={() => {
+          setEditing(false);
+          setText(String(value));
+        }}
+        onChange={(e) => {
+          setText(e.target.value);
+          const next = parsePlatformTuningValue(field, e.target.value);
+          if (next !== null && next !== value) onDraft({ [field]: next } as Partial<WidgetPlatformSettings>);
+        }}
+      />
+      <p id={`${id}-range`} className="text-[10px] text-muted-foreground">
+        {t(rangeKey, { min: range.min, max: range.max })}
+      </p>
+      {invalid && (
+        <p role="alert" className="text-[11px] text-destructive">
+          {t('admin.widgetSettingsPage.hardening.outOfRange', { min: range.min, max: range.max })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Phase 1 — Realtime / Transport: the realtime client's recovery and memory
+ * values and the token lifetime. Each one is read: jitter, the pending cap
+ * and the dedupe window by the realtime client (platform public config), the
+ * token lifetime by the token routes (server/routes/realtime.ts). The
+ * stale-socket guard switch and the idle-disposal time are gone: the guard is
+ * always on in the client and nothing disposes an idle socket by time.
+ */
+export function RealtimeTransportSection({ settings, onSave, onDraft }: Props) {
   const { t } = useTranslation();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Activity className="h-4 w-4 text-primary" />
-          {t('admin.widgetSettingsPage.hardening.realtime.title' as any)}
+          {t('admin.widgetSettingsPage.hardening.realtime.title')}
         </CardTitle>
         <CardDescription>
-          {t('admin.widgetSettingsPage.hardening.realtime.description' as any)}
+          {t('admin.widgetSettingsPage.hardening.realtime.description')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-lg border border-border p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5 max-w-xl">
-              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.staleGuard' as any)}</Label>
-              <p className="text-xs text-muted-foreground">
-                {t('admin.widgetSettingsPage.hardening.realtime.staleBefore' as any)}{' '}
-                <code className="bg-muted px-1 rounded">socket_closed</code>{' '}
-                {t('admin.widgetSettingsPage.hardening.realtime.staleAfter' as any)}
-              </p>
-            </div>
-            <Switch
-              checked={settings.realtime_stale_resubscribe_guard_enabled}
-              onCheckedChange={(v) =>
-                onSave({ realtime_stale_resubscribe_guard_enabled: v })
-              }
-            />
-          </div>
-        </div>
-
         {/* Phase 2 — reconnect jitter */}
         <div className="rounded-lg border border-border p-4 space-y-2">
-          <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.jitter' as any)}</Label>
+          <p className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.jitter')}</p>
           <p className="text-xs text-muted-foreground">
-            {t('admin.widgetSettingsPage.hardening.realtime.jitterHint' as any)}
+            {t('admin.widgetSettingsPage.hardening.realtime.jitterHint')}
           </p>
-          <Input
-            type="number" min={0} max={50} step={1}
+          <TuningNumberField
+            field="realtime_reconnect_jitter_pct"
+            label={t('admin.widgetSettingsPage.hardening.realtime.jitterValue')}
+            rangeKey="admin.widgetSettingsPage.hardening.realtime.jitterRange"
             value={settings.realtime_reconnect_jitter_pct}
-            onChange={(e) => onSave({
-              realtime_reconnect_jitter_pct: Math.max(0, Math.min(50, parseInt(e.target.value || '20', 10))),
-            })}
-            className="max-w-32"
+            onDraft={onDraft}
           />
-          <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.jitterRange' as any)}</p>
         </div>
 
-        {/* Phase 2 — JWT TTL */}
+        {/* Phase 2 — token lifetime */}
         <div className="rounded-lg border border-border p-4 space-y-2">
-          <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.tokenTtl' as any)}</Label>
+          <p className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.tokenTtl')}</p>
           <p className="text-xs text-muted-foreground">
-            {t('admin.widgetSettingsPage.hardening.realtime.tokenTtlBefore' as any)}{' '}
-            <code className="bg-muted px-1 rounded">lovable-realtime</code> /{' '}
-            <code className="bg-muted px-1 rounded">centrifugo</code>{' '}
-            {t('admin.widgetSettingsPage.hardening.realtime.tokenTtlAfter' as any)}
+            {t('admin.widgetSettingsPage.hardening.realtime.tokenTtlHint')}
           </p>
-          <Input
-            type="number" min={300} max={7200} step={60}
+          <TuningNumberField
+            field="realtime_token_ttl_seconds"
+            label={t('admin.widgetSettingsPage.hardening.realtime.tokenTtlValue')}
+            rangeKey="admin.widgetSettingsPage.hardening.realtime.tokenRange"
             value={settings.realtime_token_ttl_seconds}
-            onChange={(e) => onSave({
-              realtime_token_ttl_seconds: Math.max(300, Math.min(7200, parseInt(e.target.value || '1800', 10))),
-            })}
-            className="max-w-32"
+            onDraft={onDraft}
           />
-          <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.tokenRange' as any)}</p>
         </div>
 
-        {/* Phase 2 — idle disposal + pending cap */}
-        <div className="rounded-lg border border-border p-4 space-y-3">
-          <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.memory' as any)}</Label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.idleDisposal' as any)}</Label>
-              <Input
-                type="number" min={10000} max={1800000} step={1000}
-                value={settings.realtime_idle_disposal_ms}
-                onChange={(e) => onSave({
-                  realtime_idle_disposal_ms: Math.max(10000, Math.min(1800000, parseInt(e.target.value || '60000', 10))),
-                })}
-              />
-              <p className="text-[10px] text-muted-foreground">10000 – 1800000 ms</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.pendingCap' as any)}</Label>
-              <Input
-                type="number" min={32} max={4096} step={32}
-                value={settings.realtime_pending_max}
-                onChange={(e) => onSave({
-                  realtime_pending_max: Math.max(32, Math.min(4096, parseInt(e.target.value || '256', 10))),
-                })}
-              />
-              <p className="text-[10px] text-muted-foreground">32 – 4096</p>
-            </div>
-          </div>
+        {/* Phase 2 — pending cap */}
+        <div className="rounded-lg border border-border p-4 space-y-2">
+          <p className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.memory')}</p>
+          <TuningNumberField
+            field="realtime_pending_max"
+            label={t('admin.widgetSettingsPage.hardening.realtime.pendingCap')}
+            rangeKey="admin.widgetSettingsPage.hardening.realtime.pendingRange"
+            value={settings.realtime_pending_max}
+            onDraft={onDraft}
+          />
           <p className="text-[10px] text-muted-foreground">
-            {t('admin.widgetSettingsPage.hardening.realtime.pendingHint' as any)}
+            {t('admin.widgetSettingsPage.hardening.realtime.pendingHint')}
           </p>
         </div>
 
@@ -123,36 +157,32 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
         <div className="rounded-lg border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 max-w-xl">
-              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.dedupe' as any)}</Label>
+              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.dedupe')}</Label>
               <p className="text-xs text-muted-foreground">
-                {t('admin.widgetSettingsPage.hardening.realtime.dedupeBefore' as any)} <code className="bg-muted px-1 rounded">payload.id</code>{' '}
-                {t('admin.widgetSettingsPage.hardening.realtime.dedupeAfter' as any)}
+                {t('admin.widgetSettingsPage.hardening.realtime.dedupeBefore')} <code className="bg-muted px-1 rounded">payload.id</code>{' '}
+                {t('admin.widgetSettingsPage.hardening.realtime.dedupeAfter')}
               </p>
             </div>
             <Switch
+              aria-label={t('admin.widgetSettingsPage.hardening.realtime.dedupe')}
               checked={settings.realtime_message_dedupe_enabled}
               onCheckedChange={(v) => onSave({ realtime_message_dedupe_enabled: v })}
             />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.ringWindow' as any)}</Label>
-            <Input
-              type="number" min={16} max={4096} step={16}
-              disabled={!settings.realtime_message_dedupe_enabled}
-              value={settings.realtime_message_dedupe_window}
-              onChange={(e) => onSave({
-                realtime_message_dedupe_window: Math.max(16, Math.min(4096, parseInt(e.target.value || '200', 10))),
-              })}
-              className="max-w-32"
-            />
-            <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.ringRange' as any)}</p>
-          </div>
+          <TuningNumberField
+            field="realtime_message_dedupe_window"
+            label={t('admin.widgetSettingsPage.hardening.realtime.ringWindow')}
+            rangeKey="admin.widgetSettingsPage.hardening.realtime.ringRange"
+            value={settings.realtime_message_dedupe_window}
+            disabled={!settings.realtime_message_dedupe_enabled}
+            onDraft={onDraft}
+          />
         </div>
 
         <div className="flex items-start gap-2 bg-muted/40 rounded-md p-2 text-xs text-muted-foreground">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <p>
-            {t('admin.widgetSettingsPage.hardening.realtime.clamped' as any)}
+            {t('admin.widgetSettingsPage.hardening.realtime.clamped')}
           </p>
         </div>
       </CardContent>
@@ -170,7 +200,7 @@ export function SecurityIsolationSection() {
   const enforced = (
     <Badge variant="default" className="gap-1 text-xs">
       <Lock className="h-3 w-3" />
-      {t('admin.widgetSettingsPage.hardening.security.enforced' as any)}
+      {t('admin.widgetSettingsPage.hardening.security.enforced')}
     </Badge>
   );
   return (
@@ -178,20 +208,20 @@ export function SecurityIsolationSection() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Shield className="h-4 w-4 text-primary" />
-          {t('admin.widgetSettingsPage.hardening.security.title' as any)}
+          {t('admin.widgetSettingsPage.hardening.security.title')}
         </CardTitle>
         <CardDescription>
-          {t('admin.widgetSettingsPage.hardening.security.description' as any)}
+          {t('admin.widgetSettingsPage.hardening.security.description')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="rounded-lg border border-border p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.security.channelPolicy' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.security.channelPolicy')}</Label>
             {enforced}
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('admin.widgetSettingsPage.hardening.security.channelHint' as any)}
+            {t('admin.widgetSettingsPage.hardening.security.channelHint')}
           </p>
           <ul className="text-xs font-mono space-y-1 text-muted-foreground ps-2">
             <li>• ws:&#123;workspaceId&#125;:inbox</li>
@@ -202,11 +232,11 @@ export function SecurityIsolationSection() {
 
         <div className="rounded-lg border border-border p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.security.strictValidation' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.security.strictValidation')}</Label>
             {enforced}
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('admin.widgetSettingsPage.hardening.security.strictHint' as any)}
+            {t('admin.widgetSettingsPage.hardening.security.strictHint')}
           </p>
         </div>
       </CardContent>
@@ -217,83 +247,61 @@ export function SecurityIsolationSection() {
 /**
  * Phase 1 — Flood / Abuse Protection
  * Server-side typing rate limit — per-conversation sliding window with
- * silent overflow drop. Future flood controls will land here.
+ * silent overflow drop (services/widget/typingRateLimit.ts).
  */
-export function FloodProtectionSection({ settings, onSave }: Props) {
+export function FloodProtectionSection({ settings, onSave, onDraft }: Props) {
   const { t } = useTranslation();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
-          {t('admin.widgetSettingsPage.hardening.flood.title' as any)}
+          {t('admin.widgetSettingsPage.hardening.flood.title')}
         </CardTitle>
         <CardDescription>
-          {t('admin.widgetSettingsPage.hardening.flood.description' as any)}
+          {t('admin.widgetSettingsPage.hardening.flood.description')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 max-w-xl">
-              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.flood.typingLimit' as any)}</Label>
+              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.flood.typingLimit')}</Label>
               <p className="text-xs text-muted-foreground">
-                {t('admin.widgetSettingsPage.hardening.flood.typingBefore' as any)} <code className="bg-muted px-1 rounded">action=typing</code>{' '}
-                {t('admin.widgetSettingsPage.hardening.flood.typingAfter' as any)}
+                {t('admin.widgetSettingsPage.hardening.flood.typingBefore')} <code className="bg-muted px-1 rounded">action=typing</code>{' '}
+                {t('admin.widgetSettingsPage.hardening.flood.typingAfter')}
               </p>
             </div>
             <Switch
+              aria-label={t('admin.widgetSettingsPage.hardening.flood.typingLimit')}
               checked={settings.typing_rate_limit_enabled}
               onCheckedChange={(v) => onSave({ typing_rate_limit_enabled: v })}
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.flood.window' as any)}</Label>
-              <Input
-                type="number"
-                min={250}
-                max={60000}
-                step={250}
-                disabled={!settings.typing_rate_limit_enabled}
-                value={settings.typing_rate_limit_window_ms}
-                onChange={(e) =>
-                  onSave({
-                    typing_rate_limit_window_ms: Math.max(
-                      250,
-                      Math.min(60000, parseInt(e.target.value || '2000', 10)),
-                    ),
-                  })
-                }
-              />
-              <p className="text-[10px] text-muted-foreground">250 – 60000 ms</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.flood.maxEvents' as any)}</Label>
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                disabled={!settings.typing_rate_limit_enabled}
-                value={settings.typing_rate_limit_max_events}
-                onChange={(e) =>
-                  onSave({
-                    typing_rate_limit_max_events: Math.max(
-                      1,
-                      Math.min(100, parseInt(e.target.value || '2', 10)),
-                    ),
-                  })
-                }
-              />
-              <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.flood.eventsRange' as any)}</p>
-            </div>
+            <TuningNumberField
+              field="typing_rate_limit_window_ms"
+              label={t('admin.widgetSettingsPage.hardening.flood.window')}
+              rangeKey="admin.widgetSettingsPage.hardening.flood.windowRange"
+              value={settings.typing_rate_limit_window_ms}
+              disabled={!settings.typing_rate_limit_enabled}
+              onDraft={onDraft}
+            />
+            <TuningNumberField
+              field="typing_rate_limit_max_events"
+              label={t('admin.widgetSettingsPage.hardening.flood.maxEvents')}
+              rangeKey="admin.widgetSettingsPage.hardening.flood.eventsRange"
+              value={settings.typing_rate_limit_max_events}
+              disabled={!settings.typing_rate_limit_enabled}
+              onDraft={onDraft}
+            />
           </div>
 
           <div className="flex items-start gap-2 bg-muted/40 rounded-md p-2 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <p>
-              {t('admin.widgetSettingsPage.hardening.flood.defaultBehavior' as any)}
+              {t('admin.widgetSettingsPage.hardening.flood.defaultBehavior')}
             </p>
           </div>
         </div>

@@ -263,7 +263,7 @@ function WidgetPageContent() {
    * landing meanwhile would swallow a refusal and leave the draft on a
    * template the workspace does not wear.
    */
-  const chooseTemplate = (id: string | null) => {
+  const chooseTemplate = (id: string) => {
     cancelField('widget_template_id');
     setDraft((prev) => ({ ...prev, widget_template_id: id }));
     updateWidget.mutateAsync({ widget_template_id: id }).then(
@@ -1055,31 +1055,39 @@ function WidgetPageContent() {
                   </div>
 
                   {/* Platform credit footer. Always ON by default; only a plan
-                      granting `widget_powered_by_toggle` may switch it off. */}
-                  {capAllowed('widget_powered_by') && (
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3">
-                      <div className="space-y-1">
-                        <Label className="text-sm">{t('widgetPage.appearance.showPoweredBy')}</Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          {t('widgetPage.appearance.showPoweredByHint')}
-                        </p>
-                        {!capAllowed('widget_powered_by_toggle') && (
-                          <p className="text-[11px] text-primary">
-                            {t('widgetPage.appearance.showPoweredByLocked')}
+                      granting `widget_powered_by_toggle` may switch it off.
+                      With the Super Admin's master switch off no widget
+                      shows it (poweredBy.ts), and the card says so instead
+                      of a locked "on". */}
+                  {capAllowed('widget_powered_by') && (() => {
+                    const platformOff = platformWidget?.powered_by_enabled === false;
+                    const mayHide = capAllowed('widget_powered_by_toggle');
+                    return (
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 p-3" data-powered-by-card>
+                        <div className="space-y-1">
+                          <Label htmlFor="widget-show-powered-by" className="text-sm">{t('widgetPage.appearance.showPoweredBy')}</Label>
+                          <p className="text-[11px] text-muted-foreground">
+                            {t('widgetPage.appearance.showPoweredByHint')}
                           </p>
-                        )}
+                          {platformOff ? (
+                            <p className="text-[11px] text-primary" data-powered-by-platform-off>
+                              {t('widgetPage.appearance.showPoweredByPlatformOff')}
+                            </p>
+                          ) : !mayHide && (
+                            <p className="text-[11px] text-primary">
+                              {t('widgetPage.appearance.showPoweredByLocked')}
+                            </p>
+                          )}
+                        </div>
+                        <Switch
+                          id="widget-show-powered-by"
+                          disabled={platformOff || !mayHide}
+                          checked={platformOff ? false : !mayHide ? true : (live?.show_powered_by ?? true)}
+                          onCheckedChange={v => setField('show_powered_by', v, 0)}
+                        />
                       </div>
-                      <Switch
-                        disabled={!capAllowed('widget_powered_by_toggle')}
-                        checked={
-                          !capAllowed('widget_powered_by_toggle')
-                            ? true
-                            : (live?.show_powered_by ?? true)
-                        }
-                        onCheckedChange={v => setField('show_powered_by', v, 0)}
-                      />
-                    </div>
-                  )}
+                    );
+                  })()}
 
 
                 </CardContent>

@@ -82,6 +82,9 @@ describe('effectiveWorkspaceTemplate', () => {
     expect(templateCardVisible(VIEW, 'default')).toBe(true);
     expect(templateCardVisible(onlyT1, 't1')).toBe(true);
     expect(templateCardVisible(onlyDefault, 'default')).toBe(false);
+    // A stored choice that is no longer enabled keeps the card, for its
+    // warning, even when the default is all that is left.
+    expect(templateCardVisible({ ...onlyDefault, selectedId: 't2', selectedUnavailable: true }, 'default')).toBe(true);
     expect(templateCardVisible({ ...onlyT1, ready: false }, 't1')).toBe(false);
     expect(templateCardVisible(undefined, 't1')).toBe(false);
   });
@@ -144,15 +147,18 @@ describe('TemplateChoiceCard', () => {
     expect(screen.queryByText('Bottom menu style')).toBeNull();
   });
 
-  it('says so when the stored choice is unavailable', async () => {
+  it('says so when the stored choice is unavailable, naming it and the default', async () => {
     await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
-    expect(screen.getByText(/not available right now/).textContent).toContain('“Familiar”');
+    const warning = screen.getByText(/not available right now/).textContent;
+    expect(warning).toContain('“Breeze”');
+    expect(warning).toContain('“Familiar”');
+    expect(warning).toContain('Your choice is kept');
   });
 
-  it('picking the catalog\'s default entry follows the default (null), not its id', async () => {
+  it('picking the catalog\'s default entry stores its id, so a later move of the default does not move it', async () => {
     const { onChoose } = await card({ effectiveId: 't1', draftId: 't1' });
     fireEvent.click(screen.getAllByRole('radio')[0]);
-    expect(onChoose).toHaveBeenCalledWith(null);
+    expect(onChoose).toHaveBeenCalledWith('default');
     cleanup();
     // The Super Admin's default may be another template: the same rule.
     const moved: WorkspaceWidgetCatalog = {
@@ -162,16 +168,27 @@ describe('TemplateChoiceCard', () => {
     };
     const second = await card({ view: moved, effectiveId: 'default', draftId: 'default' });
     fireEvent.click(screen.getAllByRole('radio')[1]);
-    expect(second.onChoose).toHaveBeenCalledWith(null);
+    expect(second.onChoose).toHaveBeenCalledWith('t1');
   });
 
-  it('a stored choice that is unavailable: a click on the (checked) default entry clears it', async () => {
-    const { onChoose } = await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
+  it('no pick at all: the default is checked, the card says it follows the platform\'s default, and a click on it keeps it', async () => {
+    const { onChoose } = await card({ effectiveId: 'default', draftId: null });
+    expect(screen.getByText(/You have not picked a template/).textContent).toContain('“Familiar”');
     const radios = screen.getAllByRole('radio');
     expect(radios[0].getAttribute('aria-checked')).toBe('true');
     fireEvent.click(radios[0]);
     expect(onChoose).toHaveBeenCalledTimes(1);
-    expect(onChoose).toHaveBeenCalledWith(null);
+    expect(onChoose).toHaveBeenCalledWith('default');
+  });
+
+  it('a stored choice that is unavailable: a click on the (checked) default entry picks the default', async () => {
+    const { onChoose } = await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
+    const radios = screen.getAllByRole('radio');
+    expect(radios[0].getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByText(/You have not picked a template/)).toBeNull();
+    fireEvent.click(radios[0]);
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith('default');
   });
 
   it('a click on the checked entry otherwise changes nothing', async () => {

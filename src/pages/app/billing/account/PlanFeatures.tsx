@@ -5,6 +5,13 @@
  * Storage is in MB (`storage_mb`, migration 271). The monthly AI credit is
  * passed in already formatted (`aiCredit`): the server computes it with the
  * grant's own function and converts it as the billing page does.
+ *
+ * Only keys something enforces are listed. The reserved ones nothing reads
+ * (advanced_ai_agent, custom_branding, white_label, sso, api_access; see
+ * server/services/billing/capabilityRegistry.ts) are not, whatever a plan
+ * stores. What a plan really changes about the platform's "Powered by"
+ * credit (server/services/widget/poweredBy.ts) is listed instead: none in
+ * the widget, or the owner's option to hide it.
  */
 import { useState } from 'react';
 import { Check } from 'lucide-react';
@@ -35,7 +42,6 @@ const FEATURE_KEYS = [
   'sms',
   'bale',
   'ai_assistant',
-  'advanced_ai_agent',
   'ai_kb_builder',
   'ai_operator_assist',
   'knowledge_base',
@@ -49,14 +55,28 @@ const FEATURE_KEYS = [
   'widget_smart_engagement',
   'automation',
   'analytics',
-  'api_access',
   'audit_logs',
-  'sso',
-  'custom_branding',
-  'white_label',
-  'remove_powered_by',
   'priority_support',
 ] as const;
+
+/** The "Powered by" credit's items, after the features (see creditItem). */
+const CREDIT_KEYS = ['no_powered_by', 'widget_powered_by_toggle'] as const;
+
+/**
+ * What the plan changes about the credit, by the rule the widget follows
+ * (isPoweredByAllowedForPlan): `widget_powered_by: false` shows none (the
+ * legacy `remove_powered_by: true` too, while the plan does not name
+ * widget_powered_by); else `widget_powered_by_toggle: true` lets the owner
+ * hide it. Nothing to say for a plan that shows it, as every plan does by
+ * default.
+ */
+function creditItem(entitlements: Record<string, unknown>): (typeof CREDIT_KEYS)[number] | null {
+  const shown = 'widget_powered_by' in entitlements
+    ? entitlements.widget_powered_by !== false
+    : entitlements.remove_powered_by !== true;
+  if (!shown) return 'no_powered_by';
+  return entitlements.widget_powered_by_toggle === true ? 'widget_powered_by_toggle' : null;
+}
 
 const SHOWN = 6;
 
@@ -93,6 +113,8 @@ export default function PlanFeatures({
     if (key === 'bale' && !editionFeatures.bale) continue;
     items.push(t(`billing.plans.feat.${key}` as TranslationKey));
   }
+  const credit = creditItem(entitlements);
+  if (credit) items.push(t(`billing.plans.feat.${credit}` as TranslationKey));
   if (items.length === 0) return null;
   const shown = expanded ? items : items.slice(0, SHOWN);
 

@@ -9,7 +9,7 @@
  *     the status reads "Not saved", and the field goes back to the stored
  *     value unless a newer edit replaced it;
  *   - a draft-only change (hours not valid yet) sends nothing and drops the
- *     waiting save;
+ *     waiting save, and the status goes back to what it read before it;
  *   - leaving the page (unmount, pagehide) sends what still waits; a small
  *     PATCH is a keepalive request, so it outlives the page;
  *   - a success reads "All changes saved".
@@ -98,6 +98,34 @@ describe('drafting and the debounced save', () => {
     await new Promise((r) => setTimeout(r, 80));
     expect(sent).toHaveLength(0);
     expect(result.current.live.business_hours).toEqual({ enabled: true, timezone: 'UTC', weekly: { mon: [{ from: '18:00', to: '09:00' }] } });
+  });
+
+  it('a waiting save dropped by a draft-only change does not leave "Saving…" behind', async () => {
+    const { result } = mount();
+    expect(result.current.status).toBe('idle');
+    // A valid hour, then an invalid one (an <input type="time"> typed digit by digit).
+    act(() => { result.current.setFields({ business_hours: { a: 1 } } as unknown as Partial<WidgetSettings>, { delay: 50 }); });
+    expect(result.current.status).toBe('saving');
+    act(() => { result.current.setFields({ business_hours: { a: 2 } } as unknown as Partial<WidgetSettings>, { delay: 50, draftOnly: true }); });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(sent).toHaveLength(0);
+    expect(result.current.status).toBe('idle');
+    // After a save, it goes back to "All changes saved".
+    act(() => { result.current.setField('brand_name', 'Acme Store', 0); });
+    await waitFor(() => expect(result.current.status).toBe('saved'));
+    act(() => { result.current.setFields({ business_hours: { a: 3 } } as unknown as Partial<WidgetSettings>, { delay: 50 }); });
+    act(() => { result.current.setFields({ business_hours: { a: 4 } } as unknown as Partial<WidgetSettings>, { delay: 50, draftOnly: true }); });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(result.current.status).toBe('saved');
+  });
+
+  it('a draft-only change of one field keeps "Saving…" while another still waits', async () => {
+    const { result } = mount();
+    act(() => { result.current.setField('brand_name', 'Acme Store', 60); });
+    act(() => { result.current.setFields({ business_hours: { a: 1 } } as unknown as Partial<WidgetSettings>, { delay: 60, draftOnly: true }); });
+    expect(result.current.status).toBe('saving');
+    await waitFor(() => expect(result.current.status).toBe('saved'));
+    expect(sent.map((x) => x.body)).toEqual([{ brand_name: 'Acme Store' }]);
   });
 
   it('a small PATCH is a keepalive request', async () => {

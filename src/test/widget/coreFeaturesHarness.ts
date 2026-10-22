@@ -132,6 +132,8 @@ export interface BootOptions {
   open?: boolean;
   /** Seed the per-tab view hint (a reload inside a thread). */
   hint?: { tab: string; conversationId: string | null };
+  /** The accent the loader put on its `.shell` (loader.js applyConfigToShell); without it Core makes its own shell. */
+  shellAccent?: string;
   /**
    * How the runtime-ext.js request answers: 'load' (at once, default: the
    * module is in before any data, so a test sees the features from the
@@ -454,6 +456,12 @@ export function boot(opts: BootOptions = {}): Harness {
   const host = document.createElement('gs-widget-test');
   document.body.appendChild(host);
   const shadow = host.attachShadow({ mode: 'open' });
+  if (opts.shellAccent) {
+    const shellDiv = document.createElement('div');
+    shellDiv.className = 'shell';
+    shellDiv.style.setProperty('--gs-primary', opts.shellAccent);
+    shadow.appendChild(shellDiv);
+  }
   const launcher = document.createElement('button');
   shadow.appendChild(launcher);
 

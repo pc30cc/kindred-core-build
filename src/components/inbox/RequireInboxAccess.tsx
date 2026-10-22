@@ -4,26 +4,41 @@
  * billing and viewers do not answer chats: the server refuses their Inbox
  * requests (403 `inbox_not_allowed`), so the page never mounts for them and
  * its queries never fire. A link that still leads here (an old bookmark, a
- * shared URL) explains why instead of showing an empty, failing Inbox.
+ * shared URL) explains why instead of showing an empty, failing Inbox; one
+ * to the Inbox's Colleagues tab goes to the team chat's own page, which
+ * every member keeps (TeamChatPage).
+ *
+ * A role that could not be read is no answer: the Inbox shows, as the
+ * sidebar offers it then (inboxAllowed), and the server still refuses
+ * staff. Only a role that says so is told it has no Inbox.
  */
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { Inbox } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
-import { canUseInbox } from '../../../shared/chatRoles';
+import { inboxAllowed } from '@/lib/inboxAccess';
 
-export function RequireInboxAccess({ children, showBack = true }: {
+export function RequireInboxAccess({ children, showBack = true, teamChatPage = true }: {
   children: React.ReactNode;
   /** The phone app's index IS the Inbox, so there it has nowhere to go back to. */
   showBack?: boolean;
+  /** The shell has the team chat's own page (`/team-chat`; the phone app has none). */
+  teamChatPage?: boolean;
 }) {
   const workspace = useCurrentWorkspace();
-  const { data: role, isPending } = useWorkspaceRole(workspace?.id);
+  const { data: role, isPending, isSuccess } = useWorkspaceRole(workspace?.id);
+  const location = useLocation();
+  const wsPath = useWorkspacePath();
 
   if (!workspace?.id || isPending) return <div className="h-full w-full" />;
-  if (!canUseInbox(role)) return <InboxNotAllowed showBack={showBack} />;
+  if (!inboxAllowed(isSuccess ? role ?? null : undefined)) {
+    if (teamChatPage && new URLSearchParams(location.search).get('filter') === 'colleagues') {
+      return <Navigate to={wsPath('/team-chat')} replace />;
+    }
+    return <InboxNotAllowed showBack={showBack} />;
+  }
   return <>{children}</>;
 }
 

@@ -24,6 +24,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { JSDOM } from 'jsdom';
+import postcss from 'postcss';
 import { CALL_WIDGET_TEMPLATES, CHAT_WIDGET_TEMPLATES, EDITION_CALL_WIDGET_TEMPLATES, EDITION_CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
 import { transformWidgetAsset } from '../../../scripts/build/widgetBrand.mjs';
 import { buildCallWidget } from './callWidgetBuildFixture';
@@ -256,6 +257,31 @@ describe('template stylesheets carry no fonts and fetch nothing', () => {
     // A url() the reading cannot take whole stays in `rest`, where the rule sees it.
     expect(cssUrls('.d { background: url("data:image/svg+xml,x) }').rest).toMatch(/url\(/);
   });
+});
+
+// A browser without :has() (Chrome/WebView < 105, Safari < 15.4, Firefox <
+// 121) drops a whole rule whose selector list holds one: the other
+// selectors of that list lose their rule too (the chat header once showed
+// both reply-time lines there). A :has() selector goes in a rule of its own.
+describe('template stylesheets: a :has() selector never shares a rule with others', () => {
+  const sheets = unique([
+    ...chatTemplates.flatMap((t) => [t.style, t.skin].filter(Boolean).map((f) => `${CHAT_DIR}/${f}`)),
+    ...callTemplates.flatMap((t) => [`${CALL_DIR}/${t.style}`, `${CALL_DIR}/${t.panel.style}`]),
+    `${CALL_DIR}/runtime.css`,
+    `${CHAT_DIR}/runtime.css`,
+    `${CHAT_DIR}/runtime-fab.css`,
+  ]);
+  for (const sheet of sheets) {
+    it(sheet, () => {
+      const mixed: string[] = [];
+      postcss.parse(read(sheet)).walkRules((rule) => {
+        const list = rule.selectors || [];
+        const withHas = list.filter((sel) => sel.includes(':has('));
+        if (withHas.length && withHas.length < list.length) mixed.push(`line ${rule.source?.start?.line}: ${list.join(', ')}`);
+      });
+      expect(mixed).toEqual([]);
+    });
+  }
 });
 
 describe('fonts: one document-level stylesheet per template, each face fetched only when its text is on screen', () => {

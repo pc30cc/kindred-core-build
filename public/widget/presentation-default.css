@@ -266,8 +266,10 @@
 .wy-head-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wy-head-sub { font-size: 13px; color: var(--wy-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The chat header's reply-time line follows Core's live presence (its
-   sr-only `.presence.status-*`): the away line in the online one's place. */
-.wy-sub-off,
+   sr-only `.presence.status-*`): the away line in the online one's place.
+   The away line's own rule stands alone: a selector list with :has() is
+   dropped whole by a browser without it, which then showed both lines. */
+.wy-sub-off { display: none; }
 .wy-head-chat:has(.status-offline, .status-unavailable) .wy-head-sub:not(.wy-sub-off) { display: none; }
 .wy-head-chat:has(.status-offline, .status-unavailable) .wy-sub-off { display: block; }
 .wy-online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wy-online); flex: none; }

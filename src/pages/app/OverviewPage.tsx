@@ -72,6 +72,9 @@ interface TeamRow {
   user_id?: string;
   state?: string;
   status?: string;
+  presence_state?: string;
+  /** `manual_away`: away by their own choice ("Away from desk"), not idle. */
+  reason?: string;
   full_name?: string | null;
   name?: string | null;
   email?: string | null;
@@ -669,7 +672,7 @@ export default function OverviewPage() {
                   presence === 'online'
                     ? tr('dashboard.statusOnline')
                     : presence === 'idle'
-                    ? tr('dashboard.statusAway')
+                    ? tr(m.reason === 'manual_away' ? 'dashboard.statusAway' : 'dashboard.statusIdle')
                     : tr('dashboard.statusOffline');
                 return (
                   <li key={m.user_id || label} className="flex items-center gap-3 px-5 py-2.5">

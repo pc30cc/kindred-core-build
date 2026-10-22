@@ -12,7 +12,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
-import type { AppSection } from '@/lib/planAccess';
+import { teamChatPageVisible, type AppSection } from '@/lib/planAccess';
 
 /**
  * Global quick-navigation palette (Cmd/Ctrl + K).
@@ -48,6 +48,7 @@ export function CommandPalette() {
   const all: Item[] = [
     { key: 'overview', icon: Rocket, path: '' },
     { key: 'inbox', icon: Inbox, path: '/inbox', section: 'inbox' },
+    ...(teamChatPageVisible(sections) ? [{ key: 'teamChat', icon: Users, path: '/team-chat' }] : []),
     { key: 'aiAgent', icon: Sparkles, path: '/ai-agent', section: 'aiAgent' },
     { key: 'callCenter', icon: PhoneCall, path: '/call-center', section: 'callCenter' },
     { key: 'visitors', icon: Eye, path: '/visitors', section: 'visitors' },

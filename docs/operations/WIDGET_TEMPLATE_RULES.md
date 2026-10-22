@@ -317,6 +317,13 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   (links, logos) come from the view-model.
 - Interaction is expressed with `data-*` behaviour hooks the core binds;
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
+- A stylesheet's `:has()` selector stands in a rule of its own, never in a
+  selector list with others: a browser without `:has()` (Chrome/WebView
+  < 105, Safari < 15.4, Firefox < 121) drops the whole rule, so the other
+  selectors lose it too (`default`'s chat header once showed both
+  reply-time lines there). The state a browser without it keeps must read
+  right (`templateRules.test.ts` checks every template stylesheet,
+  `e2e/widgetHasFallback.spec.ts` the chat header).
 - Two things every chat template draws for Core: a failed visitor message's
   `failText` (why it was not sent, in the visitor's language: no connection
   yet, too many at once, too long, chat not available) in place of the
@@ -343,10 +350,14 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
     run there; a template that draws the closed line (`closedNotice`, t2)
     may leave it out;
   - the panel's `lang` (the widget's language) and its readable accent:
-    `--gs-primary-aa` (the brand colour, darkened until white on it reaches
+    `--gs-primary-aa` (the colour the loader put on the shell, the kit's in
+    place of the uncustomised one, darkened until white on it reaches
     4.5:1; a light one kept, with dark ink) and `--gs-on-primary` (that
-    ink), set on `.panel` (runtime.js `Util.readableAccent`). `default` and
-    `intl` wear them; t1 and t2 compute their own;
+    ink), set on `.shell` (runtime.js `Util.readableAccent`), where a
+    stylesheet resolves its `--wy-accent` (a custom property inherits its
+    value: a token on `.panel` changes nothing below it). `default` and
+    `intl` wear them (`e2e/widgetAccentContrast.spec.ts`); t1 and t2
+    compute their own;
   - on a phone the open panel is modal (`aria-modal`, Tab kept inside);
   - the operator's typing in `[data-typing-row]` / `[data-typing-label]`
     (shown 3.5 s per signal), which `default` draws visibly above its composer;

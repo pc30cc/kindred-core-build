@@ -159,6 +159,70 @@ describe('t1: the thread, away', () => {
     expect(msgs.map((m) => [m.body, m.status])).toEqual([['سلام', 'sent'], ['برای سفارش عمده', 'sending']]);
   });
 
+  // The first message fails while a second waits for it: the second never
+  // opens the conversation ahead of it (each would otherwise be resent on
+  // its own, the second as the message left away).
+  function failingFirst(first: ApiAnswer) {
+    let n = 0;
+    let release: () => void = () => {};
+    const h = start({
+      route: (u, b) => {
+        if (!u.endsWith('/offline-messages')) return OK(u, b);
+        n += 1;
+        if (n === 1) return new Promise<ApiAnswer>((r) => { release = () => r(first); });
+        return OK(u, b);
+      },
+    });
+    return { h, release: () => release() };
+  }
+  const states = (h: ReturnType<typeof boot>) => (h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => [m.body, m.status, m.failReason ?? null]);
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('a 5xx on the first: the one waiting keeps waiting, and the first\'s own resend takes it into the conversation', async () => {
+    const { h, release } = failingFirst({ status: 500, body: { error: 'x' } });
+    await toChat(h);
+    await send(h, 'سلام');
+    await send(h, 'برای سفارش عمده');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    release();
+    await vi.advanceTimersByTimeAsync(50);
+    // The second is not "no connection" and is not resent by itself.
+    expect(states(h)).toEqual([['سلام', 'failed', 'server'], ['برای سفارش عمده', 'failed', 'error']]);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(awayPosts(h).map((p) => p.body.message)).toEqual(['سلام']);
+    // Core sends the first again after its wait; the second follows it.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(awayPosts(h).map((p) => p.body.message)).toEqual(['سلام', 'سلام']);
+    expect(chatSends(h).map((p) => [p.body.text, p.body.conversationId])).toEqual([['برای سفارش عمده', 'c-away']]);
+    expect(h.runtime.__test.chatState().conversationId).toBe('c-away');
+  });
+
+  it('the visitor\'s Retry on the one waiting sends the first again, then it', async () => {
+    const { h, release } = failingFirst({ status: 503, body: { error: 'x' } });
+    await toChat(h);
+    await send(h, 'سلام');
+    await send(h, 'برای سفارش عمده');
+    release();
+    await flush(20);
+    const second = (h.runtime.__test.chatState().messages as Array<Record<string, unknown>>)[1];
+    click(h.q(`[data-msg-retry="${String(second.localId)}"]`));
+    await flush(30);
+    expect(awayPosts(h).map((p) => p.body.message)).toEqual(['سلام', 'سلام']);
+    expect(chatSends(h).map((p) => [p.body.text, p.body.conversationId])).toEqual([['برای سفارش عمده', 'c-away']]);
+  });
+
+  it('the first refused for good (a 400): the next one is the message left away, the first keeps its Retry', async () => {
+    const { h, release } = failingFirst({ status: 400, body: { error: 'invalid' } });
+    await toChat(h);
+    await send(h, 'سلام');
+    await send(h, 'برای سفارش عمده');
+    release();
+    await flush(30);
+    expect(awayPosts(h).map((p) => p.body.message)).toEqual(['سلام', 'برای سفارش عمده']);
+    expect(chatSends(h)).toEqual([]);
+    expect(states(h)).toEqual([['سلام', 'failed', 'error'], ['برای سفارش عمده', 'sent', null]]);
+  });
+
   it('a conversation started meanwhile is not taken over by the answer for the message left away', async () => {
     let release: () => void = () => {};
     const h = start({

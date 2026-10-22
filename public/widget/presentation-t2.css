@@ -450,7 +450,8 @@
    late) the ask field and the topics would not answer (a typed question
    would be lost): the field opens a chat (its send button, stretched over
    it) and the topics (the track-order row is one) are set aside. */
-.ext-off .ask-in, .ext-off :has(> .chip[data-topic]), .ext-off .r[data-topic] { display: none; }
+.ext-off .ask-in, .ext-off .r[data-topic] { display: none; }
+.ext-off :has(> .chip[data-topic]) { display: none; }
 .ext-off .ask .send { position: static; transform: none; }
 .ext-off .ask .send::before { content: ''; position: absolute; inset: 0; }
 .ph span { position: absolute; inset: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; animation: t2-ph 12s var(--ease) infinite; }

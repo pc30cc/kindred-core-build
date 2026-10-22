@@ -21,10 +21,26 @@ export function presenceStateOf(p: OperatorPresence | undefined | null): Operato
   return p.state === 'online' ? 'active' : 'offline';
 }
 
-export function presenceLabelKey(state: OperatorPresenceState): string {
-  return `presenceState.${state}`;
+/**
+ * What a teammate's presence reads as. The server's `away` is one of two
+ * things that route differently, told apart by its reason: idle (no
+ * activity for a few minutes: a fallback for new chats) or "Away from desk"
+ * (their own choice, `manual_away`: nothing new). Each has its own name; a
+ * row without a reason (an older server, the activity report) keeps the
+ * plain `away`, which names both.
+ */
+export type PresenceLabel = OperatorPresenceState | 'idle' | 'manualAway';
+
+export function presenceLabelOf(p: Pick<OperatorPresence, 'presence_state' | 'state' | 'reason'> | undefined | null): PresenceLabel {
+  const state = presenceStateOf(p as OperatorPresence | null | undefined);
+  if (state !== 'away' || !p?.reason) return state;
+  return p.reason === 'manual_away' ? 'manualAway' : 'idle';
 }
 
-export function presenceHintKey(state: OperatorPresenceState): string {
-  return `presenceState.${state}Hint`;
+export function presenceLabelKey(label: PresenceLabel): string {
+  return `presenceState.${label}`;
+}
+
+export function presenceHintKey(label: PresenceLabel): string {
+  return `presenceState.${label}Hint`;
 }

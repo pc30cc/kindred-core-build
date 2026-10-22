@@ -138,6 +138,16 @@ export function colleaguesQueueVisible(plan: PlanAccess): boolean {
   return plan.feature('inbox_team_chat');
 }
 
+/**
+ * The team chat (direct messages between members) on its own page, for a
+ * member whose role has no Inbox: the Inbox's Colleagues tab is everyone
+ * else's way in. Every member keeps it (its routes ask membership only);
+ * the plan decides whether it exists. Not while the role is unknown.
+ */
+export function teamChatPageVisible(ctx: Pick<SectionContext, 'plan' | 'inboxAllowed'> & { roleKnown: boolean }): boolean {
+  return ctx.roleKnown && !ctx.inboxAllowed && colleaguesQueueVisible(ctx.plan);
+}
+
 /** Channel keys the plan itself governs (the rest are decided by the plugin's own plan check). */
 const PLAN_CHANNELS: ReadonlySet<string> = new Set([
   'chat_widget', 'email', 'whatsapp', 'sms', 'instagram', 'telegram', 'bale', 'gmail', 'yahoomail', 'voice', 'video',

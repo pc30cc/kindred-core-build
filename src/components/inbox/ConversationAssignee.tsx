@@ -234,7 +234,8 @@ export function ConversationAssignee({
                   <PresenceDot
                     state={c.presence}
                     size={8}
-                    title={c.presence === 'online' ? t('inbox.online') : c.presence === 'idle' ? t('inbox.operatorAway') : t('inbox.offline')}
+                    title={c.presence === 'online' ? t('inbox.online')
+                      : c.presence === 'idle' ? t(c.manualAway ? 'inbox.operatorAway' : 'inbox.operatorIdle') : t('inbox.offline')}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">

@@ -7,7 +7,8 @@
  *   - the maximum sends a whole number from 1 to 50, or null (empty = the
  *     workspace default, shown as the placeholder); anything else is refused
  *     before it is sent;
- *   - a refused save goes back to what the server has and says why;
+ *   - a refused save goes back to what the server has and says why, in the
+ *     panel's language (never the server's code);
  *   - the note says who receives chats (owner and team members with the
  *     switch on, never staff), the department fallback as the platform has
  *     it, and that Manual gives nobody a chat.
@@ -29,18 +30,23 @@ type Row = { id: string; user_id: string; receives_chats: boolean; max_concurren
 
 let patches: Array<{ url: string; body: Record<string, unknown> }>;
 let fail: string | null;
+let failStatus: number;
+let offline: boolean;
 let stored: Row;
 
 beforeEach(() => {
   patches = [];
   fail = null;
+  failStatus = 400;
+  offline = false;
   stored = { id: 'm-1', user_id: 'u-1', receives_chats: true, max_concurrent_chats: null };
   toastMock.success.mockReset();
   toastMock.error.mockReset();
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     patches.push({ url: String(url), body });
-    if (fail) return new Response(JSON.stringify({ error: fail }), { status: 400 });
+    if (offline) throw new TypeError('Failed to fetch');
+    if (fail) return new Response(JSON.stringify({ error: fail }), { status: failStatus });
     stored = { ...stored, ...body } as Row;
     return new Response(JSON.stringify({ ok: true, member: stored }), { status: 200 });
   }));
@@ -118,15 +124,31 @@ describe('MemberChatRoutingControls', () => {
     expect(patches).toHaveLength(sent);
   });
 
-  it('a refused save goes back to what the server has, and says why', async () => {
+  it('a refused save goes back to what the server has, and says why in the panel\'s language (never the server\'s code)', async () => {
     fail = 'member_not_found';
     const { sw, max } = await mount({ max_concurrent_chats: 3 });
     fireEvent.click(sw);
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('member_not_found'));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('Could not save chat routing', { description: 'Something went wrong. Please try again.' }));
     expect(sw.getAttribute('aria-checked')).toBe('true');
     typeMax(max, '9');
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(2));
     expect(max.value).toBe('3');
+  });
+
+  it('a refusal for the role, an ended session or no connection is said as such', async () => {
+    const { sw } = await mount();
+    fail = 'forbidden_role';
+    failStatus = 403;
+    fireEvent.click(sw);
+    await waitFor(() => expect(toastMock.error).toHaveBeenLastCalledWith('Could not save chat routing', { description: 'You do not have permission to change this.' }));
+    failStatus = 401;
+    fail = 'unauthorized';
+    fireEvent.click(sw);
+    await waitFor(() => expect(toastMock.error).toHaveBeenLastCalledWith('Could not save chat routing', { description: 'Your session has ended. Sign in again.' }));
+    offline = true;
+    fireEvent.click(sw);
+    await waitFor(() => expect(toastMock.error).toHaveBeenLastCalledWith('Could not save chat routing', { description: 'No connection. Check your internet and try again.' }));
+    for (const call of toastMock.error.mock.calls) expect(JSON.stringify(call)).not.toMatch(/forbidden_role|unauthorized|Failed to fetch|HTTP/);
   });
 });
 

@@ -1030,7 +1030,8 @@ describe('t2: review fixes', () => {
 
   it('painted without Core\'s module (`.ext-off`), the ask field opens a chat and the topics are set aside', () => {
     // The topic chips' rows, and the track-order row (a topic too): never the list it sits in.
-    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off :has(> .chip[data-topic]), .ext-off .r[data-topic] { display: none; }');
+    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off .r[data-topic] { display: none; }');
+    expect(T2_CSS).toContain('.ext-off :has(> .chip[data-topic]) { display: none; }');
     expect(T2_CSS).toContain('.ext-off .ask .send { position: static; transform: none; }');
     expect(T2_CSS).toContain(".ext-off .ask .send::before { content: ''; position: absolute; inset: 0; }");
     expect(T2_CSS).toMatch(/\.field \{\s*position: relative;/);

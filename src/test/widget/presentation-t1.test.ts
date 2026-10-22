@@ -1128,7 +1128,9 @@ describe('t1: the workspace\'s reply-time note', () => {
     expect(wel.querySelector('p.on .live:not(.off)')).not.toBeNull();
     expect(wel.querySelector('p.off .live.off')).not.toBeNull();
     expect(wel.querySelector('p.off')!.textContent).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
-    expect(T1_CSS).toContain('.wel > .off, .wy-view-chat:has(.away) .wel > .on { display: none; }');
+    // Each rule of its own: a browser without :has() keeps `.wel > .off` hidden (templateRules.test.ts).
+    expect(T1_CSS).toContain('.wel > .off { display: none; }');
+    expect(T1_CSS).toContain('.wy-view-chat:has(.away) .wel > .on { display: none; }');
     expect(T1_CSS).toContain('.wy-view-chat:has(.away) .wel > .off { display: flex; }');
   });
 
@@ -1264,7 +1266,8 @@ describe('t1: stylesheet details', () => {
   });
 
   it('painted without Core\'s module (`.ext-off`), sets the home search aside and keeps the articles', () => {
-    expect(T1_CSS).toContain('.ext-off .cd.hc .sr, .ext-off .cd.hc:not(:has(.ls)) { display: none; }');
+    expect(T1_CSS).toContain('.ext-off .cd.hc .sr { display: none; }');
+    expect(T1_CSS).toContain('.ext-off .cd.hc:not(:has(.ls)) { display: none; }');
   });
 
   it('sets the emoji button aside without Core\'s module or once its extras failed (its grid is in them)', () => {

@@ -5,7 +5,9 @@
  *   V-07  a page view counts the replies that came while the visitor was
  *         elsewhere (the thread list's unread counts): the launcher badge,
  *         one preview beside it per reply, and the loader's `gs_active`
- *         hint while a thread is open or pending;
+ *         hint while a thread is open or pending; replies the visitor saw
+ *         where they landed move the read marker, so they never come back
+ *         as unread;
  *   V-12  a closed conversation reads as over in the lists (never "open",
  *         no live dot), and a message that opens a new conversation under
  *         an ended one is set apart by a "New conversation" divider;
@@ -119,6 +121,89 @@ describe('V-07: replies that came while the visitor was on another page', () => 
     await flush(40);
     await new Promise((r) => setTimeout(r, 260));
     expect(document.activeElement).toBe(field);
+  });
+});
+
+describe('V-07: what the visitor read where it landed is read for the server too', () => {
+  // The server counts a thread's replies after the visitor's read marker as
+  // unread on the next page view (badge, title, preview), so the marker
+  // follows what is seen, not only a thread opened from the list.
+  const reads = (h: Harness, cid = 'c1') => h.fetches.filter((u) => u.includes(`/api/widget/conversations/${cid}/read`)).length;
+  const reply = (id: string, cid = 'c1') => ({ id, conversation_id: cid, role: 'agent', sender_type: 'agent', sender_name: 'سارا', text: 'پاسخ ' + id, time: iso() });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('a reply that lands in the thread open in view moves the marker, once for a burst', async () => {
+    const h = boot({ realtime: true, hint: { tab: 'chat', conversationId: 'c1' }, conversations: [{ id: 'c1', status: 'open' }], history: { c1: [] } });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    const before = reads(h);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    h.emitMessages([reply('op-1')]);
+    h.emitMessages([reply('op-2')]);
+    await vi.advanceTimersByTimeAsync(500);
+    // Not one request per reply.
+    expect(reads(h)).toBe(before);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads(h)).toBe(before + 1);
+    // Nothing new: nothing more.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reads(h)).toBe(before + 1);
+    expect(h.unread.every((n) => n === 0)).toBe(true);
+  });
+
+  it('replies that came while the panel was closed are read when it opens again', async () => {
+    // The visitor has written in it (a thread without a visitor line opens by itself on a reply).
+    const history = { c1: [{ id: 'v-1', role: 'visitor', sender_type: 'visitor', text: 'سلام', time: iso(60_000) }] };
+    const h = boot({ realtime: true, hint: { tab: 'chat', conversationId: 'c1' }, conversations: [{ id: 'c1', status: 'open' }], history });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    h.runtime.close();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const before = reads(h);
+    h.emitMessages([reply('op-3')]);
+    await vi.advanceTimersByTimeAsync(6000);
+    // Closed: unread, and not read for the server.
+    expect(h.unread[h.unread.length - 1]).toBe(1);
+    expect(reads(h)).toBe(before);
+    h.runtime.open();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(h.unread[h.unread.length - 1]).toBe(0);
+    expect(reads(h)).toBe(before + 1);
+  });
+
+  it('a reply in the background is not read for the server until the visitor is back', async () => {
+    const h = boot({ realtime: true, hint: { tab: 'chat', conversationId: 'c1' }, conversations: [{ id: 'c1', status: 'open' }], history: { c1: [] } });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    const before = reads(h);
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    h.emitMessages([reply('op-4')]);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(reads(h)).toBe(before);
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads(h)).toBe(before + 1);
+  });
+
+  it('the conversation a first message opens is read with the lines already on screen', async () => {
+    const h = boot({ conversations: [] });
+    await flush(40);
+    h.runtime.__test.setConnectionState('online');
+    h.runtime.setTab('chat');
+    await flush(10);
+    write(h, 'سلام');
+    await flush(5);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const send = sends(h)[0];
+    send.onConversation('c-new');
+    send.onAccepted({ conversationId: 'c-new', messageId: 'srv-1' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads(h, 'c-new')).toBe(1);
   });
 });
 
@@ -239,15 +324,33 @@ describe('V-22 / V-24 / V-26: the panel itself', () => {
     expect(tr.panel.getAttribute('lang')).toBe('tr');
   });
 
+  // On the shell, where the template's stylesheet resolves --wy-accent
+  // (e2e/widgetAccentContrast.spec.ts checks the colours a browser draws).
+  const shellOf = (h: Harness) => h.shadow.querySelector<HTMLElement>('.shell')!;
   for (const color of ['#3B82F6', '#F59E0B', '#1F93FF', '#FFEB3B', '#6D5DFB']) {
     it(`a readable accent for ${color}: its ink reaches 4.5:1`, () => {
       const h = boot({ config: { primaryColor: color } });
-      const bg = h.panel.style.getPropertyValue('--gs-primary-aa');
-      const ink = h.panel.style.getPropertyValue('--gs-on-primary');
+      const bg = shellOf(h).style.getPropertyValue('--gs-primary-aa');
+      const ink = shellOf(h).style.getPropertyValue('--gs-on-primary');
       expect(bg).toMatch(/^#[0-9a-f]{6}$/);
       expect(ratio(bg, ink)).toBeGreaterThanOrEqual(4.5);
+      expect(h.panel.style.getPropertyValue('--gs-primary-aa')).toBe('');
     });
   }
+
+  it('the readable accent is made from the colour the shell wears (a kit\'s, in place of the uncustomised one)', () => {
+    // The loader put the Iran kit's turquoise on the shell for the seeded #3B82F6.
+    const h = boot({ config: { primaryColor: '#3B82F6' }, shellAccent: '#0B7D6C' });
+    const bg = shellOf(h).style.getPropertyValue('--gs-primary-aa');
+    expect(bg).toBe('#0b7d6c');
+    expect(ratio(bg, shellOf(h).style.getPropertyValue('--gs-on-primary'))).toBeGreaterThanOrEqual(4.5);
+    // A light workspace colour keeps its own hue with dark ink.
+    resetWindow();
+    vi.restoreAllMocks();
+    const light = boot({ config: { primaryColor: '#F5C518' }, shellAccent: '#F5C518' });
+    expect(shellOf(light).style.getPropertyValue('--gs-primary-aa')).toBe('#f5c518');
+    expect(shellOf(light).style.getPropertyValue('--gs-on-primary')).toBe('#1c2024');
+  });
 
   it('on a phone the open panel is modal and keeps Tab inside; closed or on a computer it is not', async () => {
     (window as unknown as Dict).matchMedia = (q: string) => ({ matches: /max-width:640px/.test(q), media: q });

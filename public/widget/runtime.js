@@ -328,7 +328,7 @@
      * it): on a light colour (luminance over 0.3) dark ink, as it is; on any
      * other, white ink, the colour darkened (each channel ×0.97) until
      * white reaches 4.5:1. null for a value that is no #rgb / #rrggbb.
-     * Core puts it on the panel as `--gs-primary-aa` / `--gs-on-primary`
+     * Core puts it on the shell as `--gs-primary-aa` / `--gs-on-primary`
      * (template-agnostic; `default` and `intl` wear them).
      */
     readableAccent: function (hex) {
@@ -3383,6 +3383,9 @@
     var renderBody = typeof callBridge.renderBody === 'function'
       ? callBridge.renderBody
       : function () {};
+    var threadStarted = typeof callBridge.threadStarted === 'function'
+      ? callBridge.threadStarted
+      : function () {};
 
     // ─── AI intro quick-question chips (ai_agent_qna) ───
     // Fetched once per panel lifetime, in-flight de-duped the same way
@@ -4700,6 +4703,8 @@
             if (prevCid) markThreadStart(localId);
             chatStore.set({ conversationId: cid });
             transport.subscribeConversation(cid);
+            // Its first lines (a greeting, the rule's message) are on screen.
+            threadStarted(cid);
           }
           Util.activeHint(true);
         },
@@ -7245,6 +7250,9 @@
         showAiThinking: function () {
           try { if (typeof showAiThinking === 'function') showAiThinking(); } catch (_) {}
         },
+        // A message of the visitor's opened this conversation: the read
+        // marker covers the lines already on screen (markSeenSoon below).
+        threadStarted: function (cid) { markSeenSoon(cid, 1000); },
       },
     });
     var kbUI = createKbUI({
@@ -7328,12 +7336,19 @@
     // The widget's language, whatever the host page's is (WCAG 3.1.2): a
     // Persian widget on an English-themed site is read with a Persian voice.
     panel.setAttribute('lang', String(ctx.locale || 'en').split('-')[0]);
-    // The brand colour as a readable accent with its ink (Util.readableAccent),
-    // for a template's stylesheet to wear (`default`, `intl`).
-    var __aa = Util.readableAccent(ctx.primaryColor);
+    // The accent the shell wears (the loader puts the workspace's colour
+    // there, or its kit's in place of the uncustomised one: loader.js
+    // applyConfigToShell) as a readable accent with its ink
+    // (Util.readableAccent), for a template's stylesheet to wear (`default`,
+    // `intl`). On the shell, where those stylesheets resolve --wy-accent: a
+    // custom property inherits its value, so tokens set on the panel would
+    // change nothing below it.
+    var __shellAccent = '';
+    try { __shellAccent = shellDiv.style.getPropertyValue('--gs-primary') || getComputedStyle(shellDiv).getPropertyValue('--gs-primary'); } catch (_) {}
+    var __aa = Util.readableAccent(String(__shellAccent || '').trim() || ctx.primaryColor);
     if (__aa) {
-      panel.style.setProperty('--gs-primary-aa', __aa.bg);
-      panel.style.setProperty('--gs-on-primary', __aa.ink);
+      shellDiv.style.setProperty('--gs-primary-aa', __aa.bg);
+      shellDiv.style.setProperty('--gs-on-primary', __aa.ink);
     }
     // Dialog semantics. On desktop the panel is a corner popover and the
     // host page behind it remains fully usable, so it is not modal there. On
@@ -9470,6 +9485,8 @@
     // reloads and devices. Fire-and-forget; failure just leaves the badge.
     function markConversationRead(conversationId) {
       if (!conversationId) return;
+      delete readOwed[conversationId];
+      readLastAt = Date.now();
       try {
         ctx.fetchWith(ctx.apiBase + '/api/widget/conversations/' +
           encodeURIComponent(conversationId) + '/read', {
@@ -9485,6 +9502,32 @@
           });
         }).catch(function () {});
       } catch (_) {}
+    }
+
+    // The marker follows what the visitor sees. The server counts a thread's
+    // replies after it as unread (the launcher's badge and preview on the
+    // next page view, the operator's "Seen"), so replies the visitor read
+    // where they landed are marked too: one that comes into the thread open
+    // in view, the replies a thread had when the panel opens on it, the
+    // first lines of a conversation the visitor just started. `readOwed`
+    // holds the threads with replies the marker may not cover yet. At most
+    // one request every few seconds: the marker is the server's clock, so
+    // the last one covers every reply before it.
+    var readOwed = {};
+    var readTimer = null;
+    var readLastAt = 0;
+    function readInView() {
+      var s = shellStore.get();
+      return !!s.isOpen && s.activeTab === 'chat' && !(typeof document !== 'undefined' && document.hidden);
+    }
+    function markSeenSoon(cid, delay) {
+      if (cid) readOwed[cid] = 1;
+      if (readTimer) return;
+      readTimer = setTimeout(function () {
+        readTimer = null;
+        var active = chatStore.get().conversationId;
+        if (active && readOwed[active] && readInView()) markConversationRead(active);
+      }, Math.max(delay || 0, readLastAt + 4000 - Date.now()));
     }
 
     // Explicit "+ / start new conversation": detach the current thread and
@@ -10172,6 +10215,7 @@
         var cid = m.conversation_id || m.conversationId || activeCid || '__default__';
         // Active conversation visible to the user → no unread bump.
         var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid && !pageHidden;
+        if (cid !== '__default__') readOwed[cid] = 1;
         if (isActiveVisible) { lastVisible = m; continue; }
         // Read on the visitor's return to the page (the visibilitychange below).
         if (pageHidden && panelOpen && activeTab === 'chat' && cid === activeCid) unreadWhileHiddenCid = cid;
@@ -10211,6 +10255,9 @@
           }
         }
       } catch (_) { /* never break on audio */ }
+
+      // Read where it landed: the marker follows (a burst is one request).
+      if (lastVisible) markSeenSoon(activeCid, 1000);
 
       if (!(newCount > 0 && lastIncoming) && lastVisible) {
         // The open thread's reply: the typing row gives way to it, and it is
@@ -10582,6 +10629,7 @@
       }
       var newest = null;
       rows.forEach(function (c) {
+        if (c && c.id && Number(c.unreadCount) > 0) readOwed[c.id] = 1;
         var n = c && c.id && !(viewing && c.id === activeCid) ? (Number(c.unreadCount) || 0) : 0;
         if (n <= 0) return;
         per[c.id] = Math.max(n, per[c.id] || 0);
@@ -10590,6 +10638,7 @@
       var total = 0;
       for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
       if (total !== ns.totalUnread) notifyStore.set({ perConversation: per, totalUnread: total });
+      if (viewing && activeCid && readOwed[activeCid]) markSeenSoon(null, 0);
       if (!newest || sh.isOpen) return;
       // One preview per reply, whatever page the visitor goes on to.
       var mark = newest.id + '|' + (newest.lastMessageAt || '');
@@ -10625,8 +10674,14 @@
     }
 
     // When the user switches to the chat tab while panel is open, clear unread.
+    // The thread's replies the marker does not cover yet are read now too.
     shellStore.subscribe(function (s) {
-      if (s.isOpen && s.activeTab === 'chat') { clearUnreadForActive(); flushPendingRead(); }
+      if (s.isOpen && s.activeTab === 'chat') {
+        clearUnreadForActive();
+        flushPendingRead();
+        var cid = chatStore.get().conversationId;
+        if (cid && readOwed[cid]) markSeenSoon(null, 0);
+      }
     });
     // Replies that came while the page was in the background counted as
     // unread (transport.on('message')): the visitor coming back to the open
@@ -10640,6 +10695,7 @@
         var cid = chatStore.get().conversationId;
         clearUnreadForActive();
         if (cid && unreadWhileHiddenCid === cid) markConversationRead(cid);
+        else if (cid && readOwed[cid]) markSeenSoon(null, 0);
         unreadWhileHiddenCid = null;
       });
     }

@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Eye, Info } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { widgetSaveErrorMessage } from '@/hooks/useWidgetSettingsDraft';
 import type { WidgetSettings } from '@/types/models';
 
 /** The periods a workspace may choose (days); the server takes 30 to 1095. */
@@ -43,7 +44,8 @@ export function VisitorPrivacyCard({ workspaceId }: { workspaceId: string | unde
   const save = (patch: Partial<WidgetSettings>) => {
     updateMut.mutate(patch, {
       onSuccess: () => toast({ title: t('privacy.visitor.saved') }),
-      onError: (e: Error) => toast({ title: t('privacy.visitor.saveError'), description: e.message, variant: 'destructive' }),
+      // Why, in the panel's language (the widget page's sentences), never the server's code.
+      onError: (e: Error) => toast({ title: t('privacy.visitor.saveError'), description: widgetSaveErrorMessage(e, t), variant: 'destructive' }),
     });
   };
 

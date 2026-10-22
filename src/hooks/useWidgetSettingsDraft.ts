@@ -38,6 +38,10 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   last_agent_window_days: 'widgetPage.behavior.assignment.lastAgent',
   default_max_concurrent_chats: 'widgetPage.behavior.assignment.capacity',
   first_response_timeout_minutes: 'widgetPage.behavior.assignment.timeout',
+  // Settings → Privacy requests → Visitor privacy (VisitorPrivacyCard).
+  tracking_requires_consent: 'privacy.visitor.consentTitle',
+  tracking_keep_query: 'privacy.visitor.keepQueryTitle',
+  visitor_data_retention_days: 'privacy.visitor.retentionTitle',
 };
 
 /** Why a save did not go through, in the dashboard's language. */
@@ -93,6 +97,9 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const waiting = useRef<Record<string, unknown>>({});
   const inFlight = useRef(0);
+  // What the status read before a change started waiting: a waiting save
+  // dropped with nothing else to send (a draft-only edit) goes back to it.
+  const settled = useRef<WidgetSaveStatus>('idle');
   // The latest of each, for the timers and the unmount / pagehide flush.
   const latest = useRef({ mutateAsync: update.mutateAsync, t, qc, workspaceId });
   latest.current = { mutateAsync: update.mutateAsync, t, qc, workspaceId };
@@ -105,6 +112,7 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
       () => {
         inFlight.current -= 1;
         if (inFlight.current === 0 && Object.keys(waiting.current).length === 0) {
+          settled.current = 'saved';
           setStatus('saved');
           setErrorMessage(null);
         }
@@ -124,6 +132,7 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
           });
         }
         void client.invalidateQueries({ queryKey: ['widget-settings', ws] });
+        settled.current = 'error';
         setStatus('error');
         setErrorMessage(message);
         toast({ title: tr('widgetPage.save.failedTitle'), description: message, variant: 'destructive' });
@@ -150,6 +159,10 @@ export function useWidgetSettingsDraft(workspaceId: string | undefined, widget: 
     clearTimeout(timers.current[field]);
     delete timers.current[field];
     delete waiting.current[field];
+    // Nothing left to send or on its way: "Saving…" would stay for good.
+    if (inFlight.current === 0 && Object.keys(waiting.current).length === 0) {
+      setStatus((prev) => (prev === 'saving' ? settled.current : prev));
+    }
   }, []);
 
   const setFields = useCallback((patch: Partial<WidgetSettings>, opts: { delay?: number; draftOnly?: boolean } = {}) => {

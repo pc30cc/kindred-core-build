@@ -49,6 +49,8 @@ export interface TransferCandidate {
   avatarUrl: string | null;
   departments: string[];
   presence: OperatorDot;
+  /** Away by their own choice ("Away from desk"), not idle: routing gives them nothing new. */
+  manualAway: boolean;
   isViewer: boolean;
   isCurrent: boolean;
 }
@@ -71,6 +73,7 @@ export function transferCandidates(
     avatarUrl: m.avatar_url ?? null,
     departments: m.department_names ?? [],
     presence: operatorDot(byUser.get(m.user_id)),
+    manualAway: byUser.get(m.user_id)?.presence_state === 'away' && byUser.get(m.user_id)?.reason === 'manual_away',
     isViewer: !!ctx.viewerId && m.user_id === ctx.viewerId,
     isCurrent: !!ctx.assignedTo && m.user_id === ctx.assignedTo,
   }));

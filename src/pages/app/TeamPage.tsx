@@ -13,13 +13,13 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
-import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceLabelOf, presenceStateOf } from '@/lib/presenceState';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 function initials(name?: string | null, email?: string | null) {
@@ -74,7 +74,7 @@ export default function TeamPage() {
                           'absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background',
                           PRESENCE_DOT_CLASS[pState],
                         )}
-                        title={t(presenceHintKey(pState) as any) || undefined}
+                        title={t(presenceHintKey(presenceLabelOf(pMap.get(m.user_id))) as TranslationKey) || undefined}
                       />
                     </div>
                     <div className="min-w-0 flex-1">

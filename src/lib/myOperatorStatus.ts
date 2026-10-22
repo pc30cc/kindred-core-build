@@ -11,7 +11,8 @@
  *     schedule — what visitors see;
  *   - their live presence (GET /api/availability/team/:workspaceId, their
  *     own row): connected and active, idle ("away" after 5 minutes without
- *     interaction), or not connected — what routing reads.
+ *     interaction, named "Idle", never "Away from desk"), or not connected —
+ *     what routing reads.
  */
 import type { AvailabilityResponse, OperatorPresence } from '@/lib/availability-api';
 
@@ -86,8 +87,9 @@ export const CHOICE_DOT_CLASS: Record<ManualStatusChoice, string> = {
 
 const STATUS_KEYS: Record<Exclude<MyOperatorStatus, 'unknown'>, { label: string; hint: string }> = {
   online: { label: 'nav.statusOnline', hint: 'nav.statusOnlineHint' },
-  away: { label: 'nav.statusAway', hint: 'nav.statusAwayHint' },
-  // The same name as the idle state, its own explanation.
+  // Idle (automatic) and "Away from desk" (their choice) route differently:
+  // each has its own name, so the choice never reads as the idle fallback.
+  away: { label: 'nav.statusIdle', hint: 'nav.statusIdleHint' },
   manual_away: { label: 'nav.statusAway', hint: 'nav.statusManualAwayHint' },
   offline: { label: 'nav.statusOffline', hint: 'nav.statusOfflineHint' },
   outside_schedule: { label: 'nav.statusOutsideSchedule', hint: 'nav.statusOutsideScheduleHint' },

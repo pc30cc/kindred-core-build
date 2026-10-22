@@ -110,7 +110,8 @@ describe('ConversationAssignmentSection', () => {
     expect(help().getAttribute('data-assignment-help')).toBe('auto');
     expect(help().textContent).toContain('fewest open conversations right now');
     await waitFor(() => expect(help().textContent).toContain('its operators come first, then the whole team'));
-    expect(help().textContent).toContain('away for less than 30 minutes');
+    expect(help().textContent).toContain('idle for less than 30 minutes');
+    expect(help().textContent).toContain('chose Away from desk gets no new chats');
     expect(help().textContent).toContain('waits in Unassigned');
     // The promise the old hint made is gone: routing now runs with the AI off too.
     expect(screen.getByText(/at the visitor's first message when the AI is off/)).toBeTruthy();

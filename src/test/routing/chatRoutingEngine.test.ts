@@ -380,6 +380,11 @@ describe('the routing ticker', () => {
     expect(await runChatRoutingOnce(config)).toEqual({ prechat: 1, waiting: 1, timeout: 1, assigned: 0 });
     expect(pre.metadata).toMatchObject({ routing_pending: false });
     expect(timedOut.assigned_to).toBeNull();
+    // The ticker's own retry is not activity (the wait backs off, and is
+    // forgotten after a day); the pre-chat row's first routing is.
+    const waitOf = (id: unknown) => state.db.rpcs.find((r) => r.fn === 'chat_routing_wait' && r.args.p_conversation_id === id)?.args;
+    expect(waitOf(waiting1.id)).toMatchObject({ p_reason: 'nobody_online', p_from_ticker: true });
+    expect(waitOf(pre.id)).toMatchObject({ p_from_ticker: false });
     timedOut.assigned_to = BAHAR; // (as if Bahar had taken it back by hand)
     // Someone is here now (the database hands the pre-chat row out once).
     state.presence.set(ALI, here());

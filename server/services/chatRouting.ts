@@ -954,12 +954,25 @@ async function assigneePresent(
   }
 }
 
-async function recordWait(config: ServerConfig, workspaceId: string, conversationId: string, reason: WaitReason | null): Promise<void> {
+/**
+ * The conversation waits for an operator (null: it no longer does). The
+ * ticker's own retry (`fromTicker`) is not activity: it keeps the retry time
+ * and the last activity chat_routing_due() goes by, so a wait nobody else
+ * touches backs off and, after a day, is forgotten (migration 278).
+ */
+async function recordWait(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  reason: WaitReason | null,
+  fromTicker = false,
+): Promise<void> {
   try {
     const { error } = await getServiceClient(config).rpc('chat_routing_wait', {
       p_workspace_id: workspaceId,
       p_conversation_id: conversationId,
       p_reason: reason,
+      p_from_ticker: fromTicker,
     });
     if (error) console.warn('[chat-routing] chat_routing_wait failed:', error.message);
   } catch { /* the visitor's next message routes it again */ }
@@ -1107,7 +1120,7 @@ export async function routeConversationToOperator(
     // as someone can. The visitor is told which it is, once: nobody of the
     // team is online, or everyone is busy and they are in the queue.
     const outcome: RoutingOutcome = pick.waitReason === 'all_busy' ? 'all_agents_busy' : 'no_eligible_agent';
-    await recordWait(config, args.workspaceId, args.conversationId, pick.waitReason);
+    await recordWait(config, args.workspaceId, args.conversationId, pick.waitReason, opts.fromTicker === true);
     notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
     if (!noticeAlreadySent) {
       if (pick.waitReason === 'all_busy') {

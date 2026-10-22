@@ -354,6 +354,49 @@ suite('chat routing on a real database (278)', () => {
     expect((await one(`SELECT waiting_since FROM public.chat_routing_state WHERE conversation_id = $1`, [wait])).waiting_since).toBeNull();
   });
 
+  it('D2 more waiting chats than a pass takes turns (least recently tried first, a pass oldest wait first); idle waits back off, then are forgotten', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const cid = await conversation(ws);
+      await q(`SELECT public.chat_routing_wait($1, $2, 'nobody_online')`, [ws, cid]);
+      // ids[i] has waited 10 + i minutes (ids[6] longest), all due long ago.
+      await q(`UPDATE public.chat_routing_state SET waiting_since = now() - make_interval(mins => $2), waiting_active_at = now() - make_interval(mins => $2),
+                 waiting_retry_at = now() - make_interval(mins => $2) + interval '25 seconds' WHERE conversation_id = $1`, [cid, 10 + i]);
+      ids.push(cid);
+    }
+    const pass = async (limit: number) => (await q(`SELECT due_conversation_id AS id FROM public.chat_routing_due($1) WHERE due_kind = 'waiting'`, [limit]))
+      .map((r) => String(r.id));
+    // The ticker's next pass, 30 seconds later.
+    const later = () => q(`UPDATE public.chat_routing_state SET waiting_retry_at = waiting_retry_at - interval '30 seconds' WHERE workspace_id = $1 AND waiting_since IS NOT NULL`, [ws]);
+    expect(await pass(3)).toEqual([ids[6], ids[5], ids[4]]);
+    await later();
+    // Those three were just tried: the next three go first, not the same ones again.
+    expect(await pass(3)).toEqual([ids[3], ids[2], ids[1]]);
+    await later();
+    expect(await pass(3)).toEqual([ids[6], ids[5], ids[0]]);
+    // A wait with activity in the last hour comes back in 25 seconds, an older one in 2 minutes.
+    await q(`UPDATE public.chat_routing_state SET waiting_retry_at = now() - interval '1 second' WHERE conversation_id = ANY($1::uuid[])`, [[ids[0], ids[1]]]);
+    await q(`UPDATE public.chat_routing_state SET waiting_active_at = now() - interval '2 hours' WHERE conversation_id = $1`, [ids[1]]);
+    await pass(100);
+    const retryIn = async (cid: string) => Number((await one(`SELECT extract(epoch FROM waiting_retry_at - now()) AS s FROM public.chat_routing_state WHERE conversation_id = $1`, [cid])).s);
+    expect(await retryIn(ids[0])).toBeLessThanOrEqual(25);
+    expect(await retryIn(ids[1])).toBeGreaterThan(100);
+    // The ticker's own retry keeps that; the visitor writing again is activity.
+    await q(`SELECT public.chat_routing_wait($1, $2, 'nobody_online', true)`, [ws, ids[1]]);
+    expect(await retryIn(ids[1])).toBeGreaterThan(100);
+    expect((await one(`SELECT waiting_active_at < now() - interval '1 hour' AS idle FROM public.chat_routing_state WHERE conversation_id = $1`, [ids[1]])).idle).toBe(true);
+    await q(`SELECT public.chat_routing_wait($1, $2, 'all_busy')`, [ws, ids[1]]);
+    expect(await retryIn(ids[1])).toBeLessThanOrEqual(25);
+    expect(await one(`SELECT wait_reason, waiting_active_at > now() - interval '1 minute' AS active,
+                        waiting_since < now() - interval '10 minutes' AS kept_since FROM public.chat_routing_state WHERE conversation_id = $1`, [ids[1]]))
+      .toEqual({ wait_reason: 'all_busy', active: true, kept_since: true });
+    // Nothing but the ticker for 24 hours: forgotten (the chat stays unassigned for the team).
+    await q(`UPDATE public.chat_routing_state SET waiting_active_at = now() - interval '25 hours', waiting_retry_at = now() - interval '1 second' WHERE conversation_id = $1`, [ids[2]]);
+    expect(await pass(100)).not.toContain(ids[2]);
+    expect((await one(`SELECT waiting_since FROM public.chat_routing_state WHERE conversation_id = $1`, [ids[2]])).waiting_since).toBeNull();
+    expect(await assignee(ids[2])).toBeNull();
+  });
+
   // ─── E: the engine for real ────────────────────────────────────────────
 
   const contact = async (wsId: string) => String((await one(`INSERT INTO public.contacts (workspace_id, name) VALUES ($1, 'Visitor') RETURNING id`, [wsId])).id);

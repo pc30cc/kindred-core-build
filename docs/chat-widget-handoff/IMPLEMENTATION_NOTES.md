@@ -161,10 +161,21 @@ Core file changed. Tests: `src/test/widget/presentation-t2.test.ts`, `src/test/w
   No operator, no workspace name, or the same name twice: the bar as before. So t2's "Offline; we'll reply by email" /
   "Typing" words and t1's reply-time line are not on the bar while an operator holds the thread; away still shows in
   the thread's banner, the avatar's ring and t2's grey line.
-- **A name over a run only where the team's side changes hands** (t1, t2): another person than the last
-  operator-side run, or a person after the AI. The first run never has one (the bar names who answers); a day break,
-  the visitor's messages or a system row between runs do not bring it back. The AI keeps its badge and name under its
-  bubble. A direct transfer with no AI before it (Sara, then Mehdi) therefore labels Mehdi's run only.
+- **No name over a run, in any template** (owner, 2026-10-23; it replaces this round's "a name over a run only where
+  the team's side changes hands"). t1 and t2 no longer draw `span.msg-sender-label`; `default` never did. The visitor
+  reads who comes in from the server's "‹name› joined the conversation" line (`routing_agent_joined`), which it now
+  writes right before that person's first message after the AI or a colleague, never at assignment
+  (`docs/operations/CHAT_ROUTING.md`), and still sees the avatar beside each run, the chat bar (t1, t2), a quote's
+  author and the typing row. A conversation from before that change can hand over with no line: the avatar changes.
+- **The AI's badge is the sparkle** (owner, 2026-10-23: the icon instead of the text «هوش مصنوعی», in all three
+  templates). `span.msg-ai-badge` holds t2's instant-answers sparkle (an `aria-hidden` 13px SVG in the accent ink),
+  with `role="img"` and the word for the AI (`wyAiShort`) as its `aria-label`, so a screen reader reads what it read
+  before; `default` keeps its `title` (`wyAiAssistant`), t1 and t2 have none. The agent's own name (`span.msg-sender`,
+  the one the workspace gave it) and the time stay beside it. `default` (and `intl`) no longer prints Core's stand-in
+  for a nameless AI there («دستیار هوش مصنوعی», "Yapay zekâ asistanı"): runtime.js still names such a reply with it,
+  so its runs and toasts are unchanged (`src/test/widget/aiNamelessRun.test.ts`). Bytes after both points (iran /
+  respok): `presentation-t2.js` 19,968 / 19,808 of 20,000, `presentation-t1.js` 19,597 / 19,518,
+  `presentation-default.js` 14,108; the stylesheets shrank.
 - **The typing and thinking rows** sit their avatar on their bubble's bottom (they have no time line under them; t2
   both rows, t1 the thinking row, its typing row already did).
 - **A message's actions** (reply, copy, the heart) show only on the line hovered (a tap hovers the tapped line on a

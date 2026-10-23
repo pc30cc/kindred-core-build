@@ -506,12 +506,11 @@ button.cd:hover {
 .msg-text { white-space: pre-wrap; unicode-bidi: plaintext; }
 .msg-avatar, .welcome-row > .av { width: 28px; height: 28px; margin-bottom: 21px; }
 .msg-avatar-spacer { flex: none; visibility: hidden; }
-.msg-sender-label { margin: 0 12px 4px; font-size: 11.5px; font-weight: 600; line-height: 1.5; color: var(--ink-3); }
 .msg-footline { margin: 5px 8px 0; }
 .msg-meta { display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 1.5; color: var(--ink-3); }
 .msg-ticks { display: inline-flex; align-items: center; gap: 4px; }
 .msg-ticks.is-seen { color: var(--a-tx); }
-.msg-ai-badge { padding: 0 5px; border-radius: 5px; background: var(--a-2); color: var(--a-ink); font-weight: 700; }
+.msg-ai-badge { display: inline-flex; color: var(--a-ink); }
 .msg-status-spinner { width: 10px; height: 10px; border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: wy-spin .7s linear infinite; }
 @keyframes wy-spin { to { transform: rotate(360deg); } }
 .msg-row.is-failed .msg { opacity: .55; }

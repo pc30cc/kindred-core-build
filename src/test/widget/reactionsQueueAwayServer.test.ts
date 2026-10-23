@@ -912,7 +912,7 @@ describe('who is typing: the inbox\'s typing event names the operator the row dr
 });
 
 // ═══ The privacy strip: two operators ═════════════════════════════════════
-describe('messages of two operators, as the visitor now gets them (no operator ids), group and label by operator', () => {
+describe('messages of two operators, as the visitor now gets them (no operator ids), group by operator, the join line naming who comes in', () => {
   async function twoOperators() {
     const cid = conversation({ assigned_to: MEHDI });
     message(cid, 'contact', 'سلام، سفارشم نرسیده');
@@ -931,8 +931,9 @@ describe('messages of two operators, as the visitor now gets them (no operator i
   }
   /**
    * The thread's bubbles as the renderer grouped them: who wrote each (the
-   * author its quote button names), `|` closing a run, the run's label
-   * (`.msg-sender-label`, t1 / t2) before it.
+   * author its quote button names), `|` closing a run, and a name label over
+   * the run (`.msg-sender-label`, which no template draws since 2026-10-23)
+   * before it.
    */
   function runs(h: ReturnType<typeof boot>) {
     return Array.from(h.shadow.querySelectorAll('[data-chat-messages] .msg-row.visitor, [data-chat-messages] .msg-row.operator')).map((r) => {
@@ -941,30 +942,38 @@ describe('messages of two operators, as the visitor now gets them (no operator i
         (r.classList.contains('is-last') ? '|' : '');
     });
   }
-  // The chat bar names who answers, so the first run has no label; a
-  // label only where the team's side changes hands (owner, 2026-10-18).
-  const RUNS = ['شما|', 'سارا', 'سارا|', 'مهدی: مهدی', 'مهدی|'];
+  /** Each system line, then the author of the bubble right under it. */
+  function joins(h: ReturnType<typeof boot>) {
+    return Array.from(h.shadow.querySelectorAll('[data-chat-messages] .msg-row.system')).map((r) =>
+      r.textContent!.trim() + ' > ' + r.nextElementSibling?.querySelector('[data-msg-reply-author]')?.getAttribute('data-msg-reply-author'));
+  }
+  // No name over a run in any template (owner, 2026-10-23): the join line
+  // right before Mehdi's first message says who came in.
+  const RUNS = ['شما|', 'سارا', 'سارا|', 'مهدی', 'مهدی|'];
+  const JOINS = ['مهدی به گفتگو پیوست > مهدی'];
 
-  it('t1 and t2: a label where another operator takes over, one avatar per run', async () => {
+  it('t1 and t2: no label over a run, the join line right above the newcomer\'s first bubble, one avatar per run', async () => {
     for (const renderer of ['t1', 't2'] as const) {
       resetWindow();
       const { cid, rows } = await twoOperators();
       state.template = renderer;
       const h = await widget(cid, { renderer, messages: rows });
-      await until(() => h.q('[data-chat-messages] .msg-sender-label'));
+      await until(() => h.shadow.querySelectorAll('[data-chat-messages] .msg-row.operator').length === 4);
       expect(runs(h), renderer).toEqual(RUNS);
+      expect(joins(h), renderer).toEqual(JOINS);
       const avatars = Array.from(h.shadow.querySelectorAll('[data-chat-messages] .msg-row.operator .msg-avatar:not(.msg-avatar-spacer)'));
       expect(avatars.map((a) => a.textContent!.trim()), renderer).toEqual(['س', 'م']);
       expect(h.shadow.querySelector('[data-chat-messages]')!.textContent, renderer).toContain('مهدی');
     }
   });
 
-  it('default: each run is its operator\'s', async () => {
+  it('default: each run is its operator\'s, the join line right above the newcomer\'s first bubble', async () => {
     const { cid, rows } = await twoOperators();
     state.template = 'default';
     const h = await widget(cid, { renderer: 'default', messages: rows });
-    await until(() => h.q('[data-chat-messages] .msg-row.operator'));
-    expect(runs(h)).toEqual(['شما|', 'سارا', 'سارا|', 'مهدی', 'مهدی|']);
+    await until(() => h.shadow.querySelectorAll('[data-chat-messages] .msg-row.operator').length === 4);
+    expect(runs(h)).toEqual(RUNS);
+    expect(joins(h)).toEqual(JOINS);
   });
 
   it('live: the conversation channel\'s copy of each reply has no operator id, and the widget groups it with its run', async () => {
@@ -984,5 +993,6 @@ describe('messages of two operators, as the visitor now gets them (no operator i
     h.emitMessages(live);
     await until(() => h.shadow.querySelectorAll('[data-chat-messages] .msg-row.operator').length === 4);
     expect(runs(h)).toEqual(RUNS);
+    expect(joins(h)).toEqual(JOINS);
   });
 });

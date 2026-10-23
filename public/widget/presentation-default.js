@@ -91,6 +91,8 @@
       recCheck: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
       playSm: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z"/></svg>',
       pauseSm: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg>',
+      // The AI's mark on its meta line: t2's sparkle, the widget's one AI glyph.
+      ai: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5c.6 3.9 2.6 5.9 6.5 6.5-3.9.6-5.9 2.6-6.5 6.5-.6-3.9-2.6-5.9-6.5-6.5 3.9-.6 5.9-2.6 6.5-6.5z"/><path d="M18.5 15.5v4M16.5 17.5h4"/></svg>',
     };
 
     // Delivery ticks: one tick = sent, two ticks = delivered, two accent
@@ -733,11 +735,16 @@
         }
 
         // AI attribution lives on the meta line UNDER the bubble, next to the
-        // time — never as a badge floating above the text.
+        // time — never as a badge floating above the text. It is the sparkle,
+        // read as the word for the AI (owner, 2026-10-23). Core names a
+        // nameless AI reply with the word for "AI assistant" (its runs group
+        // by name); the sparkle already says that, so only a name the
+        // workspace gave the agent is printed beside it.
+        var aiName = m.senderName && m.senderName !== tf('wyAiAssistant', 'AI assistant') ? m.senderName : '';
         var aiMetaHtml = (isAi && isLastInStreak)
-          ? '<span class="msg-ai-badge" title="' + esc(tf('wyAiAssistant', 'AI assistant')) + '">' +
-              esc(tf('wyAiShort', 'AI')) + '</span>' +
-            (m.senderName ? '<span class="msg-sender">' + esc(m.senderName) + '</span>' : '')
+          ? '<span class="msg-ai-badge" role="img" aria-label="' + esc(tf('wyAiShort', 'AI')) +
+              '" title="' + esc(tf('wyAiAssistant', 'AI assistant')) + '">' + ICON.ai + '</span>' +
+            (aiName ? '<span class="msg-sender">' + esc(aiName) + '</span>' : '')
           : '';
 
         var timeStr = formatMsgTime(m.time);

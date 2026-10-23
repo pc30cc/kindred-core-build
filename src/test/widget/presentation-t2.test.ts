@@ -684,22 +684,38 @@ describe('t2: direction, people, the workspace', () => {
     expect(thread.querySelector('.msg-sender-label')).toBeNull();
   });
 
-  it('labels a run only where the team\'s side changes hands, and gives every run its avatar', () => {
-    const labels = (messages: Vm[]) => Array.from(parse(make().messagesHtml({ messages }, '', {}))
-      .querySelectorAll('.msg-sender-label')).map((l) => l.textContent);
+  it('never labels a run (the server\'s join line names who comes in), and gives every run its avatar', () => {
+    const joinWords = (k: string) => (k === 'routingAgentJoined' ? '{name} به گفتگو پیوست' : FA[k] ?? k);
+    const draw = (messages: Vm[]) => parse(make({ t: joinWords }).messagesHtml({ messages }, '', {}));
+    const labels = (messages: Vm[]) => {
+      const t = draw(messages);
+      expect(t.innerHTML).not.toContain('msg-sender-label');
+      return Array.from(t.querySelectorAll('.msg-sender-label')).map((l) => l.textContent);
+    };
     const sara = (body: string, over: Vm = {}) => msg({ senderName: 'سارا', body, ...over });
+    const mehdi = (body: string) => msg({ senderName: 'مهدی', body });
     const visitor = (body: string) => msg({ sender: 'visitor', senderType: 'contact', body, status: 'seen' });
-    // One operator all along (owner, 2026-10-18: no name over and over).
+    const ai = (body: string) => msg({ senderType: 'ai', senderName: 'دستیار', body });
+    const joined = (name: string) => msg({ senderType: 'system', senderName: null, body: name + ' joined the conversation.',
+      metadata: { kind: 'routing_agent_joined', agent_name: name } });
+    // One operator all along.
     expect(labels([sara('1'), sara('2'), visitor('3'), sara('4')])).toEqual([]);
-    // The AI hands over to a person: her name, once.
-    expect(labels([msg({ senderType: 'ai', senderName: 'دستیار', body: '1' }), visitor('2'), sara('3'), visitor('4'), sara('5')])).toEqual(['سارا']);
-    // A transfer to someone else.
-    expect(labels([sara('1'), visitor('2'), msg({ senderName: 'مهدی', body: '3' }), msg({ senderName: 'مهدی', body: '4' })])).toEqual(['مهدی']);
-    // A day break does not bring the name back.
+    // The AI hands over to a person, and a person to another (owner,
+    // 2026-10-23: no name over a run in any template), with or without the
+    // join line before them.
+    expect(labels([ai('1'), visitor('2'), sara('3'), visitor('4'), sara('5')])).toEqual([]);
+    expect(labels([ai('1'), visitor('2'), joined('سارا'), sara('3'), visitor('4'), sara('5')])).toEqual([]);
+    expect(labels([sara('1'), visitor('2'), mehdi('3'), mehdi('4')])).toEqual([]);
+    expect(labels([sara('1'), visitor('2'), joined('مهدی'), mehdi('3'), mehdi('4')])).toEqual([]);
+    // A day break or a system row changes nothing.
     const yesterday = new Date(Date.now() - 86400000).toISOString();
     expect(labels([sara('1', { time: yesterday }), visitor('2'), sara('3')])).toEqual([]);
-    // A system row between two runs is no hand-over either.
     expect(labels([sara('1'), msg({ senderType: 'system', senderName: null, body: 'x' }), sara('2')])).toEqual([]);
+    // The join line is what names the newcomer, right above their first bubble.
+    const handover = draw([ai('1'), visitor('2'), joined('سارا'), sara('3'), visitor('4'), joined('مهدی'), mehdi('5')]);
+    const pills = Array.from(handover.querySelectorAll('.msg-row.system'));
+    expect(pills.map((p) => p.textContent)).toEqual(['سارا به گفتگو پیوست', 'مهدی به گفتگو پیوست']);
+    expect(pills.map((p) => p.nextElementSibling!.querySelector('.msg-text')!.textContent)).toEqual(['3', '5']);
 
     const t = parse(make().messagesHtml({ messages: [
       sara('1'), sara('2'), visitor('3'),
@@ -710,6 +726,28 @@ describe('t2: direction, people, the workspace', () => {
     expect(t.querySelectorAll('.msg-avatar-spacer').length).toBe(1);
     expect(t.querySelector('.msg-row.visitor .msg-ticks.is-seen')).not.toBeNull();
     expect(t.innerHTML).not.toMatch(/style="background/);
+  });
+
+  it('marks an AI reply with the sparkle, read as the word for the AI, then its own name and the time', () => {
+    const meta = (senderName: string | null, t?: (k: string) => string) => parse(make({ t })
+      .messagesHtml({ messages: [msg({ senderType: 'ai', senderName, body: 'سلام' })] }, '', {})).querySelector('.msg-meta')!;
+    // The owner, 2026-10-23: the icon instead of the text «هوش مصنوعی».
+    const fa = meta('هوشمند', (k) => (k === 'wyAiShort' ? 'هوش مصنوعی' : FA[k] ?? k));
+    const badge = fa.querySelector('.msg-ai-badge[role="img"]')!;
+    expect(badge.getAttribute('aria-label')).toBe('هوش مصنوعی');
+    expect(badge.textContent).toBe('');
+    expect(badge.hasAttribute('title')).toBe(false);
+    expect(badge.querySelectorAll('svg')).toHaveLength(1);
+    expect(badge.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(badge.nextElementSibling!.className).toBe('msg-sender');
+    expect(badge.nextElementSibling!.textContent).toBe('هوشمند');
+    expect(badge.nextElementSibling!.nextElementSibling!.className).toBe('msg-time');
+    expect(fa.textContent).not.toContain('هوش مصنوعی');
+    // No word in the dictionary: the English one. No name: the time comes next.
+    const bare = meta(null);
+    expect(bare.querySelector('.msg-ai-badge')!.getAttribute('aria-label')).toBe('AI');
+    expect(bare.querySelector('.msg-sender')).toBeNull();
+    expect(bare.querySelector('.msg-ai-badge')!.nextElementSibling!.className).toBe('msg-time');
   });
 
   it('a message that failed is its own run: the one before it keeps its time and ticks', () => {

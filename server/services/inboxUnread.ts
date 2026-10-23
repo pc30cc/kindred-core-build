@@ -24,7 +24,6 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { coalesce } from '../lib/inflight.js';
-import { selectInChunks } from '../lib/chunkedIn.js';
 import { isConversationLocked, resolveContactChatLocks } from './contactChatLocks.js';
 import { publishOperatorEvent } from './realtime/publish.js';
 
@@ -32,8 +31,14 @@ import { publishOperatorEvent } from './realtime/publish.js';
 export const UNREAD_IDS_CAP = 100;
 /** The most open conversations examined, newest first: far more than an Inbox has open at once. */
 const CONVERSATIONS_CAP = 1000;
-/** Unread visitor messages read per chunk of conversations; one per conversation is enough. */
-const MESSAGES_PER_CHUNK = 5000;
+/** Conversations asked about per read (the ids go in an IN list). */
+const CONVERSATIONS_PER_READ = 50;
+/**
+ * Rows per read of unread visitor messages. Below every row cap a read can
+ * meet (DATABASE_MAX_ROWS, 1000 by default, and Supabase's), so a page that
+ * comes back short really is the last one.
+ */
+const MESSAGES_PER_READ = 500;
 
 export interface InboxUnread {
   /** Conversations with at least one unread visitor message. */
@@ -56,7 +61,7 @@ export function isChannelMenuEvent(meta: Record<string, unknown> | null | undefi
  * This operator's unread number in one workspace. Concurrent identical
  * requests (the sidebar, the shell and a realtime refresh at the same moment)
  * share one read. Throws when the conversations cannot be read; an unreadable
- * chunk of messages only counts nothing (selectInChunks logs it).
+ * read of messages counts what was found until then (and logs it).
  */
 export function loadInboxUnread(
   config: ServerConfig,
@@ -82,26 +87,48 @@ export function loadInboxUnread(
       .filter((c) => c.id && !isConversationLocked(locks, c));
     if (open.length === 0) return { conversations: 0, ids: [] };
 
-    const unseen = await selectInChunks<{ conversation_id: string; metadata: Record<string, unknown> | null }>(
-      open.map((c) => c.id),
-      (chunk) => sb
-        .from('conversation_messages')
-        .select('conversation_id, metadata')
-        .in('conversation_id', chunk)
-        .eq('sender_type', 'contact')
-        .is('seen_at', null)
-        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
-        .limit(MESSAGES_PER_CHUNK),
-      'inbox unread',
-    );
-    const waiting = new Set<string>();
-    for (const m of unseen) {
-      if (m.conversation_id && !isChannelMenuEvent(m.metadata)) waiting.add(m.conversation_id);
-    }
+    const waiting = await withUnreadVisitorMessage(sb, open.map((c) => c.id));
     // In the conversations' own order (most recently active first).
     const ids = open.map((c) => c.id).filter((id) => waiting.has(id));
     return { conversations: ids.length, ids: ids.slice(0, UNREAD_IDS_CAP) };
   });
+}
+
+/**
+ * Which of `ids` hold at least one unread visitor message (not a menu tap).
+ * An existence check over the partial index: a full page is followed by
+ * another read of just the conversations not found yet, so a chat with a thousand unread messages cannot crowd the
+ * others out of the answer. Each full page finds at least one more
+ * conversation, so it ends. An unreadable page counts what was found so far.
+ */
+async function withUnreadVisitorMessage(sb: ReturnType<typeof getServiceClient>, ids: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (let i = 0; i < ids.length; i += CONVERSATIONS_PER_READ) {
+    let pending = ids.slice(i, i + CONVERSATIONS_PER_READ);
+    while (pending.length) {
+      const { data, error } = await sb
+        .from('conversation_messages')
+        .select('conversation_id, metadata')
+        .in('conversation_id', pending)
+        .eq('sender_type', 'contact')
+        .is('seen_at', null)
+        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
+        .is('metadata->>channel_menu_command', null)
+        .limit(MESSAGES_PER_READ);
+      if (error) {
+        console.warn('[inbox unread] unread messages unreadable:', error.message);
+        return found;
+      }
+      const rows = (data || []) as Array<{ conversation_id?: string | null; metadata?: Record<string, unknown> | null }>;
+      const before = found.size;
+      for (const r of rows) if (r.conversation_id && !isChannelMenuEvent(r.metadata)) found.add(r.conversation_id);
+      // A short page was the last; a full one that found nobody new (taps the
+      // filters let through) would only repeat itself.
+      if (rows.length < MESSAGES_PER_READ || found.size === before) break;
+      pending = pending.filter((id) => !found.has(id));
+    }
+  }
+  return found;
 }
 
 /**

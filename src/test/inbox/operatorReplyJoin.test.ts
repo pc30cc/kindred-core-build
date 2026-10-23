@@ -12,7 +12,7 @@
  * The route's side, on a real database: chatLifecycle278b.pg.test.ts B5.
  */
 import { describe, expect, it } from 'vitest';
-import { JOIN_WINDOW, joinOwed, lockConversationReplies, type JoinWindowRow } from '../../../server/services/operatorReplyJoin';
+import { JOIN_WINDOW, joinOwed, joinTimeBefore, lockConversationReplies, type JoinWindowRow } from '../../../server/services/operatorReplyJoin';
 
 const ALI = 'ali';
 const BAHAR = 'bahar';
@@ -144,5 +144,21 @@ describe('lockConversationReplies', () => {
     const started = Date.now();
     (await lockConversationReplies('c4', 1000))();
     expect(Date.now() - started).toBeLessThan(50);
+  });
+});
+
+describe('joinTimeBefore: the line stays before its reply for millisecond readers too', () => {
+  it('moves a line that shares the reply\'s millisecond to 1 ms before it', () => {
+    // The phone apps and the inbox delta sort by the millisecond, then by a random id.
+    expect(joinTimeBefore('2026-10-23T10:00:00.123400+00:00', '2026-10-23T10:00:00.123900+00:00')).toBe('2026-10-23T10:00:00.122Z');
+  });
+  it('leaves a line already a millisecond or more earlier', () => {
+    expect(joinTimeBefore('2026-10-23T10:00:00.122999+00:00', '2026-10-23T10:00:00.123000+00:00')).toBeNull();
+    expect(joinTimeBefore('2026-10-23T10:00:00.100Z', '2026-10-23T10:00:00.140Z')).toBeNull();
+  });
+  it('moves one a skewed clock put after the reply, and ignores unreadable times', () => {
+    expect(joinTimeBefore('2026-10-23T10:00:00.130Z', '2026-10-23T10:00:00.125Z')).toBe('2026-10-23T10:00:00.124Z');
+    expect(joinTimeBefore(null, '2026-10-23T10:00:00.125Z')).toBeNull();
+    expect(joinTimeBefore('2026-10-23T10:00:00.125Z', undefined)).toBeNull();
   });
 });

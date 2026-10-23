@@ -73,9 +73,12 @@ describe('only the operator\'s reply introduces them', () => {
 
   it('send-message awaits the line\'s publish before the reply\'s', () => {
     const handler = sendMessage();
-    const joinPublish = handler.indexOf('if (join) await publishReplyJoin(config, parsed.data.workspace_id, join);');
+    // A millisecond before the reply first (joinTimeBefore), then published.
+    const separated = handler.indexOf('join = await separateJoinFromReply(config, join, ');
+    const joinPublish = handler.indexOf('await publishReplyJoin(config, parsed.data.workspace_id, join);');
     const replyPublish = handler.indexOf('await publishConversationEvent(');
-    expect(joinPublish).toBeGreaterThan(-1);
+    expect(separated).toBeGreaterThan(-1);
+    expect(joinPublish).toBeGreaterThan(separated);
     expect(replyPublish).toBeGreaterThan(joinPublish);
     expect(JOIN).toContain('await publishConversationEvent(config, workspaceId, row.conversation_id, buildMessageEnvelope(');
   });
@@ -98,6 +101,15 @@ describe('a hand-made assignment tells the Inbox, not the visitor', () => {
     expect(block).toContain('internal: true,');
     expect(ASSIGNMENT).not.toContain('publishConversationEvent');
     expect(ASSIGNMENT).not.toContain('buildMessageEnvelope');
+  });
+
+  it('colleagues\' open thread shows the line live: an operator-only event once it is written', () => {
+    const block = noticeBlock();
+    const written = block.indexOf("if (insertError) throw new Error(insertError.message);");
+    const told = block.indexOf("kind: 'timeline_event'");
+    expect(written).toBeGreaterThan(-1);
+    expect(told).toBeGreaterThan(written);
+    expect(block.slice(told)).toContain('{ skipConversationChannel: true }');
   });
 });
 

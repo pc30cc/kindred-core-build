@@ -186,6 +186,43 @@ export async function publishReplyJoin(config: ServerConfig, workspaceId: string
   void onSupportConversationChanged(config, { workspaceId, conversationId: row.conversation_id });
 }
 
+/**
+ * The line's time when it must move to stay before its reply for every
+ * reader, else null. The two inserts are often under a millisecond apart, and
+ * the phone apps and the inbox's delta sort by the millisecond, then by id (a
+ * random uuid): in the same millisecond the line could show under the reply,
+ * the very inversion it exists to end. Then it moves to 1 ms before the reply.
+ */
+export function joinTimeBefore(joinCreatedAt: string | null | undefined, replyCreatedAt: string | null | undefined): string | null {
+  const join = Date.parse(String(joinCreatedAt ?? ''));
+  const reply = Date.parse(String(replyCreatedAt ?? ''));
+  if (!Number.isFinite(join) || !Number.isFinite(reply) || join < reply) return null;
+  return new Date(reply - 1).toISOString();
+}
+
+/**
+ * Keeps the line a millisecond before its reply (joinTimeBefore), before it
+ * is published. Returns the row as it now stands. Never throws: at worst the
+ * line keeps its time, which /poll, /history and the web inbox still order
+ * right (they sort to the microsecond).
+ */
+export async function separateJoinFromReply(
+  config: ServerConfig,
+  join: ReplyJoinRow,
+  replyCreatedAt: string | null | undefined,
+): Promise<ReplyJoinRow> {
+  const at = joinTimeBefore(join.created_at, replyCreatedAt);
+  if (!at) return join;
+  try {
+    const { error } = await getServiceClient(config).from('conversation_messages').update({ created_at: at }).eq('id', join.id);
+    if (error) throw new Error(error.message);
+    return { ...join, created_at: at };
+  } catch (err) {
+    console.warn('[operator-reply-join] could not move', join.id, 'before its reply:', err instanceof Error ? err.message : err);
+    return join;
+  }
+}
+
 /** Takes back a line whose reply was not written by this request. Never throws. */
 export async function dropReplyJoin(config: ServerConfig, id: string): Promise<void> {
   try {

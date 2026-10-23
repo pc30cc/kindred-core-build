@@ -52,7 +52,7 @@ export function useOperatorInboxAlerts(workspaceId: string | undefined): void {
     staleTime: 5 * 60_000,
   });
 
-  useInboxListRealtime(ws);
+  useInboxListRealtime(ws, user?.id);
 
   // The same entry as the sidebar's Inbox badge; staff ask for nothing.
   const { data: unread } = useInboxUnread(ws);

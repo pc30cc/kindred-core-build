@@ -67,3 +67,46 @@ for (const c of CASES) {
     }
   });
 }
+
+/** A computed colour as 0-255 channels (color-mix() comes back as `color(srgb r g b)`, 0-1). */
+function rgbOf(css: string): number[] {
+  const n = channels(css);
+  return /^color\(srgb/.test(css) ? n.map((x) => Math.round(x * 255)) : n;
+}
+
+for (const c of CASES) {
+  test(`${c.templateId} · ${c.accent}: the AI's sparkle under its bubble reaches 3:1 on the thread`, async () => {
+    test.setTimeout(120_000);
+    const out = mkdtempSync(path.join(os.tmpdir(), `accent-ai-${c.templateId}-`));
+    const seen: Array<{ icon: string; under: string }> = [];
+    try {
+      await renderTemplateScreens({
+        templateId: c.templateId,
+        edition: c.edition,
+        locale: c.locale,
+        accent: c.accent,
+        states: ['chat-handover'],
+        outDir: out,
+        beforeShot: async (page) => {
+          seen.push(await page.evaluate(() => {
+            const shadow = document.getElementById('gs-host')!.shadowRoot!;
+            const badge = shadow.querySelector('.msg-ai-badge') as HTMLElement;
+            // The colour it is drawn on: the first painted background up the tree.
+            let el: HTMLElement | null = badge;
+            let under = 'rgb(255, 255, 255)';
+            while (el) {
+              const bg = getComputedStyle(el).backgroundColor;
+              if (bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg)) { under = bg; break; }
+              el = el.parentElement;
+            }
+            return { icon: getComputedStyle(badge).color, under };
+          }));
+        },
+      });
+      expect(seen).toHaveLength(1);
+      expect(contrast(rgbOf(seen[0].icon), rgbOf(seen[0].under))).toBeGreaterThanOrEqual(3);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+}

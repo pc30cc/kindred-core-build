@@ -14,6 +14,21 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { isBeingWatched } from './operatorBrowserNotification';
 
+/**
+ * Whether the selected thread is on screen: not under the Inbox's Colleagues
+ * view (it keeps the selection but shows team chat), and on a phone not while
+ * the list covers it. Only then is a visitor message in it read for the
+ * operator: marking it would also turn the visitor's ticks to "Seen".
+ */
+export function threadOnScreen(a: {
+  selectedId: string | null | undefined;
+  view: string | null | undefined;
+  isDesktop: boolean;
+  showList: boolean;
+}): boolean {
+  return !!a.selectedId && a.view !== 'colleagues' && (a.isDesktop || !a.showList);
+}
+
 /** At most one mark per this long; a burst ends with one more. */
 export const KEEP_SEEN_THROTTLE_MS = 1000;
 

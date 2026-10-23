@@ -21,7 +21,7 @@
  * (MobileInboxPage).
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { resolveClientRealtimeProvider } from '@/realtime';
 import type {
@@ -121,8 +121,37 @@ function isAlreadyHumanActive(qc: QueryClient, workspaceId: string, conversation
   return seen;
 }
 
-export function useInboxListRealtime(workspaceId: string | undefined) {
+/** The unread number's refresh window: every Inbox member's tab re-reads it. */
+const UNREAD_REFRESH_WINDOW_MS = 3000;
+
+/**
+ * Whether a visitor message in `conversationId` can change this operator's
+ * unread number, from what the panel already holds: not when that chat is
+ * already counted, or when a cached row shows it out of their scope (the AI
+ * handles it, or a colleague has it). Unknown chats may count, so they do.
+ */
+export function unreadMayChange(
+  qc: QueryClient,
+  workspaceId: string,
+  conversationId: string,
+  viewerId: string | null | undefined,
+): boolean {
+  const counted = qc.getQueryData<{ ids?: string[] }>(['inbox-unread', workspaceId]);
+  if (Array.isArray(counted?.ids) && counted.ids.includes(conversationId)) return false;
+  for (const [, rows] of qc.getQueriesData<ConversationCacheRow[]>({ queryKey: ['conversations', workspaceId] })) {
+    const row = Array.isArray(rows) ? rows.find((r) => r?.id === conversationId) : undefined;
+    if (!row) continue;
+    if (row.ai_state === 'ai_managed') return false;
+    if (viewerId && row.assigned_to && row.assigned_to !== viewerId) return false;
+    return true;
+  }
+  return true;
+}
+
+export function useInboxListRealtime(workspaceId: string | undefined, viewerId?: string | null) {
   const qc = useQueryClient();
+  const viewerRef = useRef(viewerId);
+  viewerRef.current = viewerId;
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -164,10 +193,13 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               invalidateThrottled(qc, ['inbox-counts', workspaceId]);
             }
             // The Inbox's unread number counts conversations with an unread
-            // visitor message: any visitor message can add one, also on a
-            // thread the lists already hold, so every one re-reads it
-            // (throttled). Team and system messages never do.
-            if (senderType === 'contact') invalidateThrottled(qc, ['inbox-unread', workspaceId]);
+            // visitor message: a visitor message can add one, also on a thread
+            // the lists already hold, so it re-reads it (throttled) unless the
+            // chat cannot change it (unreadMayChange). Team and system
+            // messages never do.
+            if (senderType === 'contact' && (!convId || unreadMayChange(qc, workspaceId, convId, viewerRef.current))) {
+              invalidateThrottled(qc, ['inbox-unread', workspaceId], UNREAD_REFRESH_WINDOW_MS);
+            }
             // Surface to subscribers (e.g. notification chime).
             try {
               window.dispatchEvent(new CustomEvent('inbox:new-message', {

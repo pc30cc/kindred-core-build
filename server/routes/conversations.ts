@@ -62,6 +62,7 @@ import {
   introduceOperatorBeforeReply,
   lockConversationReplies,
   publishReplyJoin,
+  separateJoinFromReply,
   type ReplyJoinRow,
 } from '../services/operatorReplyJoin.js';
 import { patchConversationMetadata } from '../services/conversationMetadata.js';
@@ -567,7 +568,10 @@ conversationsRouter.post('/send-message', async (req, res) => {
       releaseReplyLock?.();
     }
     // Awaited, so the line reaches the visitor before the reply's publish below.
-    if (join) await publishReplyJoin(config, parsed.data.workspace_id, join);
+    if (join) {
+      join = await separateJoinFromReply(config, join, (inserted as { created_at?: string | null } | null)?.created_at);
+      await publishReplyJoin(config, parsed.data.workspace_id, join);
+    }
 
 
     // Phase 2 — Bind operator-uploaded attachment to this message + conversation.

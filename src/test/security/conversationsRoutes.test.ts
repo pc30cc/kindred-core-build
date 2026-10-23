@@ -90,6 +90,9 @@ function fakeClient() {
       const orGroups: string[][] = [];
       const sorts: Array<{ col: string; ascending: boolean }> = [];
       let countMode = false;
+      // Applied with the server's own row cap (DATABASE_MAX_ROWS, 1000), as a
+      // real read is: a limit never returns more, whatever it asks for.
+      let rowLimit: number | null = null;
       const builder: QueryBuilder = {
         select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
           if (opts?.head) countMode = true;
@@ -108,7 +111,7 @@ function fakeClient() {
         },
         // Applied, so an answer's order can be tested (the unread ids).
         order(col: string, opts?: { ascending?: boolean }) { sorts.push({ col, ascending: opts?.ascending !== false }); return builder; },
-        limit: () => builder,
+        limit(n: unknown) { rowLimit = Math.min(Number(n), 1000); return builder; },
         insert(payload: Row | Row[]) {
           const items = Array.isArray(payload) ? payload : [payload];
           const inserted = items.map((it) => ({ id: it.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...it }));
@@ -165,6 +168,7 @@ function fakeClient() {
             });
           }
           if (countMode) return resolve({ data: null, error: null, count: matched.length });
+          if (rowLimit !== null) matched = matched.slice(0, rowLimit);
           return resolve({ data: matched, error: null });
         },
       };
@@ -456,6 +460,17 @@ describe('GET /api/conversations/unread — the Inbox badge', () => {
     // One real message among the taps: the chat counts.
     say(convNeedsHuman);
     expect((await unread()).json).toEqual({ conversations: 1, ids: [convNeedsHuman] });
+  });
+
+  it('a chat with more unread messages than one read returns does not hide the others', async () => {
+    // Its messages come first (conversation_id order), as the index returns them.
+    const flooded = chat({ updated_at: '2026-02-01T00:00:00Z' });
+    for (let i = 0; i < 1200; i += 1) say(flooded);
+    const others = [chat(), chat(), chat()];
+    for (const c of others) say(c);
+    const res = await unread();
+    expect(res.json.conversations).toBe(4);
+    expect(new Set(res.json.ids as string[])).toEqual(new Set([flooded, ...others]));
   });
 
   it('names at most 100 chats, the most recently active first, and counts every one', async () => {

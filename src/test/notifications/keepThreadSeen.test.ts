@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { KEEP_SEEN_THROTTLE_MS, useKeepThreadSeen } from '@/features/notifications/keepThreadSeen';
+import { KEEP_SEEN_THROTTLE_MS, threadOnScreen, useKeepThreadSeen } from '@/features/notifications/keepThreadSeen';
 
 let visible = true;
 let focused = true;
@@ -111,5 +111,32 @@ describe('useKeepThreadSeen', () => {
     hook.rerender({ id: null });
     hook.result.current(fromVisitor);
     expect(marked).toEqual([]);
+  });
+});
+
+describe('threadOnScreen: only a thread the operator can see is read for them', () => {
+  const base = { selectedId: 'c1', view: null, isDesktop: true, showList: true };
+  it('the selected thread on a desktop, beside the list', () => {
+    expect(threadOnScreen(base)).toBe(true);
+  });
+  it('not under the Colleagues view, which keeps the selection but shows team chat', () => {
+    expect(threadOnScreen({ ...base, view: 'colleagues' })).toBe(false);
+    expect(threadOnScreen({ ...base, view: 'needs_human' })).toBe(true);
+  });
+  it('on a phone only once the list gives way to the thread', () => {
+    expect(threadOnScreen({ ...base, isDesktop: false, showList: true })).toBe(false);
+    expect(threadOnScreen({ ...base, isDesktop: false, showList: false })).toBe(true);
+  });
+  it('no selection, nothing on screen', () => {
+    expect(threadOnScreen({ ...base, selectedId: null })).toBe(false);
+  });
+  it('the hook marks nothing while handed no thread (InboxPage passes null off screen)', () => {
+    vi.useFakeTimers();
+    const markSeen = vi.fn();
+    const { result } = renderHook(() => useKeepThreadSeen(null, markSeen));
+    act(() => { result.current({ sender_type: 'contact', conversation_id: 'c1' }); });
+    act(() => { vi.advanceTimersByTime(KEEP_SEEN_THROTTLE_MS * 3); });
+    expect(markSeen).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

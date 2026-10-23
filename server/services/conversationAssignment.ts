@@ -244,7 +244,7 @@ async function postAssignmentNotice(
     const body = toName
       ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
       : `${actorName || 'An operator'} unassigned this conversation`;
-    await sb.from('conversation_messages').insert({
+    const { error: insertError } = await sb.from('conversation_messages').insert({
       conversation_id: a.conversationId,
       sender_type: 'system',
       body,
@@ -259,6 +259,15 @@ async function postAssignmentNotice(
         to_name: toName,
       },
     });
+    if (insertError) throw new Error(insertError.message);
+    // The line is written after the assignee change was announced, so an
+    // open thread re-reads its messages now, to show it live: operators only
+    // (the inbox channel), never the visitor's channel.
+    void publishOperatorEvent(
+      config,
+      { kind: 'timeline_event', conversation_id: a.conversationId, workspace_id: a.workspaceId, actor_id: a.actorId },
+      { skipConversationChannel: true },
+    ).catch(() => undefined);
   } catch (e) {
     console.warn('[conversation assignment] notice failed:', e instanceof Error ? e.message : e);
   }

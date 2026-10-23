@@ -67,9 +67,27 @@ const message = (senderType: string, conversationId = CID) => ({
 describe('the unread number, from realtime', () => {
   it('is read again for a visitor message on a conversation the lists already hold', async () => {
     const { qc, wrapper } = setup();
+    qc.setQueryData(UNREAD, { conversations: 1, ids: [OTHER] });
     const { handlers, invalidate } = await listening(qc, wrapper);
     handlers.onMessage!(message('contact'));
     expect(asked(invalidate, UNREAD)).toBe(true);
+  });
+
+  it('not when the chat cannot change it: already counted, the AI\'s, or a colleague\'s', async () => {
+    const { unreadMayChange } = await import('@/hooks/useInboxListRealtime');
+    const { qc } = setup();
+    // Counted already: another message leaves the number as it is.
+    expect(unreadMayChange(qc, WS, CID, 'me')).toBe(false);
+    qc.setQueryData(UNREAD, { conversations: 0, ids: [] });
+    expect(unreadMayChange(qc, WS, CID, 'me')).toBe(true);
+    qc.setQueryData(LIST, [{ id: CID, status: 'open', ai_state: 'ai_managed' }]);
+    expect(unreadMayChange(qc, WS, CID, 'me')).toBe(false);
+    qc.setQueryData(LIST, [{ id: CID, status: 'open', assigned_to: 'colleague' }]);
+    expect(unreadMayChange(qc, WS, CID, 'me')).toBe(false);
+    qc.setQueryData(LIST, [{ id: CID, status: 'open', assigned_to: 'me' }]);
+    expect(unreadMayChange(qc, WS, CID, 'me')).toBe(true);
+    // A chat no list holds may be new and in scope.
+    expect(unreadMayChange(qc, WS, crypto.randomUUID(), 'me')).toBe(true);
   });
 
   it('not for the team\'s, the AI\'s or the system\'s messages', async () => {

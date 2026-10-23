@@ -49,7 +49,7 @@ export interface IncomingMessageDetail {
 }
 
 /** Whether the operator is looking at this tab right now. */
-function isBeingWatched(): boolean {
+export function isBeingWatched(): boolean {
   if (typeof document === 'undefined') return false;
   if (document.visibilityState !== 'visible') return false;
   return document.hasFocus();

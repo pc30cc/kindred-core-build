@@ -81,6 +81,7 @@ import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAtta
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
 import { resolveClientPlatform } from '@/components/inbox/clientPlatform';
 import { ContactDrawer } from '@/features/contacts/ContactDrawer';
+import { useKeepThreadSeen } from '@/features/notifications/keepThreadSeen';
 import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator';
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import TeamChatPanel from '@/components/inbox/TeamChatPanel';
@@ -487,6 +488,10 @@ export default function InboxPage() {
     // rows after the first call) but we still avoid the wasted RPC.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
+  // A visitor message arriving while the operator reads the thread is read
+  // too (or once they come back to the tab), so the Inbox badge never counts
+  // the chat on their screen.
+  const keepSeen = useKeepThreadSeen(selectedId, markSeen.mutate);
 
   // Wire inbox to the active realtime provider (Centrifugo / Supabase / polling).
   // - On `message` push: refetch the message list (visitor replies appear live).
@@ -505,6 +510,7 @@ export default function InboxPage() {
   useInboxRealtime({
     workspaceId: workspace?.id,
     conversationId: selectedId ?? undefined,
+    onMessage: keepSeen,
     // useInboxRealtime re-reads this thread's messages and its list row.
     // The queue and tab counters count conversations by status and AI state,
     // which a message on an open thread does not change; the status and AI

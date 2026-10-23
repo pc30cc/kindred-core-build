@@ -221,6 +221,22 @@ export async function maybeSendIntro(
     const forceNew = input.forceNewConversation === true;
     let conversationId = forceNew ? null : (input.conversationId || null);
 
+    // The id comes from the visitor's browser and the greeting is written
+    // into it (and a channel conversation would deliver it): only this
+    // workspace's, and never a closed one, which is never revived. Anything
+    // else is ignored, and the visitor's own conversation is found or
+    // created below. (The route also checks it is this visitor's.)
+    if (conversationId) {
+      const { data: named } = await sb
+        .from('conversations')
+        .select('id')
+        .eq('id', conversationId)
+        .eq('workspace_id', input.workspaceId)
+        .neq('status', 'closed')
+        .maybeSingle();
+      if (!named?.id) conversationId = null;
+    }
+
     if (!forceNew && !conversationId && input.visitorSessionId) {
       const { data: existing } = await sb
         .from('conversations')

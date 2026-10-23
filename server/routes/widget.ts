@@ -4567,9 +4567,18 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
 
   try {
+    // The AI's greeting is written into the conversation the widget names:
+    // it must be this visitor's own, in this workspace, and not closed, as
+    // for POST /message. Otherwise it is ignored, and the intro finds or
+    // creates the visitor's own conversation.
+    let conversationId = parsed.data.conversation_id || null;
+    if (conversationId && parsed.data.force_new_conversation !== true) {
+      const owned = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId || null, parsed.data.session_id || null, req);
+      if (!owned.valid || owned.conversation?.status === 'closed') conversationId = null;
+    }
     const result = await maybeSendIntro(config, {
       workspaceId,
-      conversationId: parsed.data.conversation_id || null,
+      conversationId,
       visitorSessionId: parsed.data.session_id || null,
       visitorId: visitorId || null,
       locale: parsed.data.locale,

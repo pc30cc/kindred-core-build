@@ -33,6 +33,15 @@ describe('the title as it should read', () => {
     // A title that merely contains a number in brackets is not ours.
     expect(titleWithUnread('Inbox (beta)', 0)).toBe('Inbox (beta)');
   });
+
+  it('writes Persian digits in Persian, as the panel does, and knows its prefix in both', () => {
+    expect(titleWithUnread('وب‌یار', 3, true)).toBe('(۳) وب‌یار');
+    expect(titleWithUnread('وب‌یار', 120, true)).toBe('(۹۹+) وب‌یار');
+    // The language changed while it was up: replaced, not stacked.
+    expect(titleWithUnread('(۳) وب‌یار', 4)).toBe('(4) وب‌یار');
+    expect(titleWithUnread('(4) WebYar', 4, true)).toBe('(۴) WebYar');
+    expect(titleWithUnread('(۹۹+) وب‌یار', 0, true)).toBe('وب‌یار');
+  });
 });
 
 describe('useInboxTabTitle', () => {

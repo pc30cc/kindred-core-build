@@ -9,7 +9,8 @@
  *   B  taking a conversation is atomic: two take-overs, two claims, two
  *      first replies at once — one wins, the other hears who has it (409);
  *      the visitor reads who joined right before that operator's first
- *      message (operatorReplyJoin.ts), never at an assignment.
+ *      message (operatorReplyJoin.ts), never at an assignment; a platform
+ *      admin's reply claims only when they hold an Inbox seat.
  *   C  moving one by hand: who may move whose, to whom (never staff, a
  *      suspended member or a non-member), 409 when it changed; an AI thread
  *      assigned to a person is theirs; an unassign routes again (auto: the
@@ -399,6 +400,36 @@ suite('who has a conversation, on a real database (278b)', () => {
     await q(`INSERT INTO public.conversations (id, workspace_id, status) VALUES ($1, $2, 'open')`, [outreach, ws]);
     expect((await send(b, outreach, 'سلام، می‌تونم کمکتون کنم؟')).status).toBe(200);
     expect((await thread(outreach)).map((r) => r.who)).toEqual([b]);
+  });
+
+  it('B6 a platform admin with an Inbox seat claims on reply; without one, no claim, but the visitor still reads who joined', async () => {
+    const { createSession } = await import('../../../server/services/auth/sessions.js');
+    const seated = randomUUID();
+    const outsider = randomUUID();
+    for (const [id, name] of [[seated, 'Sima'], [outsider, 'Omid']]) {
+      await q(`INSERT INTO public.profiles (id, email, full_name) VALUES ($1, $2, $3)`, [id, `p-${id.slice(0, 8)}@test.local`, name]);
+      await q(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'admin')`, [id]);
+      tokens[id] = (await createSession(config as never, { userId: id, email: `p-${id.slice(0, 8)}@test.local` })).token;
+    }
+    await q(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'agent')`, [ws, seated]);
+    try {
+      const mine = await conversation();
+      expect((await send(seated, mine, 'سلام، سیما هستم')).status).toBe(200);
+      expect(await until(() => assignee(mine), (v) => v === seated)).toBe(seated);
+      expect(await until(() => events(mine, 'assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ to: seated, method: 'first_reply' })]);
+      expect(await introducedFirst(mine, seated)).toBe(true);
+
+      const theirs = await conversation();
+      expect((await send(outsider, theirs, 'سلام، امید هستم')).status).toBe(200);
+      await new Promise((r) => setTimeout(r, 150));
+      expect(await assignee(theirs)).toBeNull();
+      expect(await events(theirs, 'assigned')).toEqual([]);
+      expect(await introducedFirst(theirs, outsider)).toBe(true);
+      expect((await joinsOf(theirs))[0].metadata).toMatchObject({ agent_id: outsider, agent_name: 'Omid' });
+    } finally {
+      await q(`DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, seated]);
+      await q(`DELETE FROM public.user_roles WHERE user_id = ANY($1::uuid[])`, [[seated, outsider]]);
+    }
   });
 
   it('C1 who may move whose: an operator only their own (or takes an unassigned one); a supervisor anyone\'s', async () => {

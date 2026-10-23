@@ -47,7 +47,7 @@ import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-ag
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
-import { authorizeInboxAccess, supervisesInbox } from '../lib/inboxAccess.js';
+import { authorizeInboxAccess, holdsInboxSeat, supervisesInbox } from '../lib/inboxAccess.js';
 import {
   announceManualAssignment,
   checkAssignmentTarget,
@@ -611,8 +611,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // The first operator reply to an unassigned conversation claims it, the
     // way the apps' claim does (R-10): atomically, only while nobody has it,
     // so a colleague's list drops it at once instead of two people answering.
-    // A platform admin's reply (no workspace seat) claims nothing.
-    if (!duplicate && !auth.isAdmin && !(conv as { assigned_to?: string | null }).assigned_to) {
+    // A platform admin claims only when they hold an Inbox seat in this
+    // workspace (the owner answering in their own); one looking in from
+    // outside claims nothing, though the visitor still reads who joined.
+    if (
+      !duplicate
+      && !(conv as { assigned_to?: string | null }).assigned_to
+      && (!auth.isAdmin || await holdsInboxSeat(config, conv.workspace_id, auth.userId))
+    ) {
       await claimUnassigned(config, {
         workspaceId: conv.workspace_id,
         conversationId: conv.id,

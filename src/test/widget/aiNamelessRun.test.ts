@@ -56,6 +56,10 @@ async function thread(renderer: 'default' | 't1' | 't2', aiName: string | null, 
 const senderOf = (h: { panel: HTMLElement }) =>
   h.panel.querySelector('.msg-ai-badge')?.closest('.msg-meta')?.querySelector('.msg-sender')?.textContent;
 
+/** The name Core gave the AI reply (the thread's second message). */
+const standInOf = (h: Awaited<ReturnType<typeof thread>>) =>
+  (h.runtime.__test.chatState().messages as Array<{ senderName?: string | null }>)[1]?.senderName;
+
 /** The AI badge: the sparkle alone, read (and, in `default`, titled) in the visitor's words. */
 function expectSparkle(badge: Element, label: string, title: string | null) {
   expect(badge.getAttribute('role')).toBe('img');
@@ -78,6 +82,8 @@ describe('a nameless AI reply followed by a system line', () => {
       expect(meta.querySelector('.msg-sender')).toBeNull();
       expect(meta.textContent).not.toContain('هوش مصنوعی');
       expect(h.panel.textContent).not.toContain(BUILT_IN);
+      // Core still names the reply with its stand-in: that keeps its run apart from the line under it.
+      expect(standInOf(h)).toBe('دستیار هوش مصنوعی');
     });
 
     it(`default, Turkish (name ${JSON.stringify(name)}): the Turkish words, on the badge only`, async () => {
@@ -86,6 +92,7 @@ describe('a nameless AI reply followed by a system line', () => {
       expect(senderOf(h)).toBeUndefined();
       expect(h.panel.textContent).not.toContain('Yapay zekâ asistanı');
       expect(h.panel.textContent).not.toContain(BUILT_IN);
+      expect(standInOf(h)).toBe('Yapay zekâ asistanı');
     });
   }
 

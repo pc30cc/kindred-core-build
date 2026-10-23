@@ -460,15 +460,16 @@ button.cd:hover {
 .wy-chat-scroll-host { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .wy-chat-scroll {
   flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 14px 4px;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30px); mask-image: linear-gradient(to bottom, transparent 0, #000 30px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px); mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
 }
 .wy-chat-scroll:has(.welcome-only) { -webkit-mask-image: none; mask-image: none; }
 .messages { display: flex; flex-direction: column; flex: 1 0 auto; }
-/* The away banner stays on top; the thread itself sits at the bottom. */
+/* The away banner heads the thread. The thread starts at the top, as in
+   default (owner, 2026-10-23: the handoff anchored it to the composer, so
+   the AI's first answer sat at the bottom under an empty panel); the fade
+   above ends at the padding, so a short thread's first line is not faded. */
 .messages > .ban-row { display: none; margin-bottom: 18px; }
-.messages > .ban-row + * { margin-top: auto; }
 .wy-view-chat:has(.away) .ban-row { display: flex; }
-.wy-view-chat:has(.away) .ban-row + * { margin-top: 0; }
 .wy-view-chat:has(.away) .msg-ticks[role='img']:not(.is-seen) svg { display: none; }
 .wy-view-chat:has(.away) .msg-ticks[role='img']:not(.is-seen)::before { content: '· ' attr(aria-label); }
 .wy-view-chat:has(.away) .wy-chat-scroll { -webkit-mask-image: none; mask-image: none; }
@@ -1005,7 +1006,7 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .wy-skeleton .art h1:empty { width: 72%; height: 30px; }
 .wy-skeleton .kb-article-body:empty { height: 260px; border-radius: 0; -webkit-mask: repeating-linear-gradient(#000 0 11px, transparent 11px 29px); mask: repeating-linear-gradient(#000 0 11px, transparent 11px 29px); }
 .on-hero { background: rgba(255, 255, 255, .22); animation: none; }
-.wy-sk-msgs { gap: 12px; justify-content: flex-end; }
+.wy-sk-msgs { gap: 12px; }
 .wy-sk-msg { display: flex; align-items: flex-end; gap: 8px; }
 [dir='rtl'] .wy-sk-msg { flex-direction: row-reverse; }
 .wy-sk-msg.is-me { justify-content: flex-end; }

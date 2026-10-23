@@ -47,7 +47,7 @@ import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-ag
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
-import { authorizeInboxAccess, supervisesInbox } from '../lib/inboxAccess.js';
+import { authorizeInboxAccess, holdsInboxSeat, supervisesInbox } from '../lib/inboxAccess.js';
 import {
   announceManualAssignment,
   checkAssignmentTarget,
@@ -57,6 +57,13 @@ import {
   takeOverConversation,
 } from '../services/conversationAssignment.js';
 import { continueConversationThread, endConversationThread } from '../services/conversationLifecycle.js';
+import {
+  dropReplyJoin,
+  introduceOperatorBeforeReply,
+  lockConversationReplies,
+  publishReplyJoin,
+  type ReplyJoinRow,
+} from '../services/operatorReplyJoin.js';
 import { patchConversationMetadata } from '../services/conversationMetadata.js';
 import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
@@ -502,37 +509,64 @@ conversationsRouter.post('/send-message', async (req, res) => {
       replyTo = quoted.id;
     }
 
-    if (!inserted) {
-      const { data: row, error: insErr } = await sb
-        .from('conversation_messages')
-        .insert({
-          conversation_id: parsed.data.conversation_id,
-          body: messageBody,
-          sender_type: 'agent',
-          sender_id: auth.userId,
-          metadata: baseMetadata,
-          ...(replyTo ? { reply_to_message_id: replyTo } : {}),
-        })
-        .select(MESSAGE_COLUMNS)
-        .single();
-      if (insErr || !row) {
-        // Lost the race against a concurrent replay of the same key.
-        if (clientMessageId && /duplicate key|23505/i.test(insErr?.message || '')) {
-          const { data: prior } = await sb
-            .from('conversation_messages')
-            .select(MESSAGE_COLUMNS)
-            .eq('conversation_id', parsed.data.conversation_id)
-            .filter('metadata->>client_message_id', 'eq', clientMessageId)
-            .maybeSingle();
-          if (prior) { inserted = prior; duplicate = true; }
-        }
-        if (!inserted) {
-          return res.status(500).json({ error: insErr?.message || 'Insert failed' });
-        }
-      } else {
-        inserted = row;
+    // The visitor reads "X joined" right before X's first message after the
+    // AI (operatorReplyJoin.ts): the check, that line and the reply run
+    // under the conversation's lock, so two messages sent at once write one
+    // line, and the line is its own insert, strictly before the reply.
+    let join: ReplyJoinRow | null = null;
+    const releaseReplyLock = duplicate ? null : await lockConversationReplies(parsed.data.conversation_id);
+    try {
+      if (!duplicate) {
+        join = await introduceOperatorBeforeReply(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId: parsed.data.conversation_id,
+          userId: auth.userId,
+        });
       }
+      if (!inserted) {
+        const { data: row, error: insErr } = await sb
+          .from('conversation_messages')
+          .insert({
+            conversation_id: parsed.data.conversation_id,
+            body: messageBody,
+            sender_type: 'agent',
+            sender_id: auth.userId,
+            metadata: baseMetadata,
+            ...(replyTo ? { reply_to_message_id: replyTo } : {}),
+          })
+          .select(MESSAGE_COLUMNS)
+          .single();
+        if (insErr || !row) {
+          // Lost the race against a concurrent replay of the same key.
+          if (clientMessageId && /duplicate key|23505/i.test(insErr?.message || '')) {
+            const { data: prior } = await sb
+              .from('conversation_messages')
+              .select(MESSAGE_COLUMNS)
+              .eq('conversation_id', parsed.data.conversation_id)
+              .filter('metadata->>client_message_id', 'eq', clientMessageId)
+              .maybeSingle();
+            if (prior) { inserted = prior; duplicate = true; }
+          }
+          if (!inserted) {
+            // No reply, so no line announcing it.
+            if (join) await dropReplyJoin(config, join.id);
+            return res.status(500).json({ error: insErr?.message || 'Insert failed' });
+          }
+        } else {
+          inserted = row;
+        }
+      }
+      // A replay that lost the race: the original request wrote the message
+      // (and the line, if one was owed).
+      if (duplicate && join) {
+        await dropReplyJoin(config, join.id);
+        join = null;
+      }
+    } finally {
+      releaseReplyLock?.();
     }
+    // Awaited, so the line reaches the visitor before the reply's publish below.
+    if (join) await publishReplyJoin(config, parsed.data.workspace_id, join);
 
 
     // Phase 2 — Bind operator-uploaded attachment to this message + conversation.
@@ -577,8 +611,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // The first operator reply to an unassigned conversation claims it, the
     // way the apps' claim does (R-10): atomically, only while nobody has it,
     // so a colleague's list drops it at once instead of two people answering.
-    // A platform admin's reply (no workspace seat) claims nothing.
-    if (!duplicate && !auth.isAdmin && !(conv as { assigned_to?: string | null }).assigned_to) {
+    // A platform admin claims only when they hold an Inbox seat in this
+    // workspace (the owner answering in their own); one looking in from
+    // outside claims nothing, though the visitor still reads who joined.
+    if (
+      !duplicate
+      && !(conv as { assigned_to?: string | null }).assigned_to
+      && (!auth.isAdmin || await holdsInboxSeat(config, conv.workspace_id, auth.userId))
+    ) {
       await claimUnassigned(config, {
         workspaceId: conv.workspace_id,
         conversationId: conv.id,
@@ -1293,7 +1333,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 // it, or meanwhile).
 //
 //   to an operator  as the PATCH's assignee change (permissions, target,
-//                   atomic, the visitor's transfer line, the new operator's
+//                   atomic, the Inbox's transfer line, the new operator's
 //                   phone, the AI letting go);
 //   to a department the conversation leaves its operator (atomically), takes
 //                   the department, and is routed inside it now — the
@@ -1305,7 +1345,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 //                   asked for). Whoever held it is not offered it again for
 //                   this chat. The Inbox reads "X transferred this
 //                   conversation to <department>" (internal); the visitor
-//                   hears who joins.
+//                   reads who joined when that operator first writes.
 // Supervisors move anyone's conversation; everyone else only their own (or
 // takes an unassigned one themselves).
 // ═══════════════════════════════════════════════════════════════════

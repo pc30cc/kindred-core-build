@@ -7,7 +7,10 @@
  *   A  the Inbox's door: staff without an Inbox get 403 `inbox_not_allowed`
  *      (list, thread, reply, notes); "All conversations" for supervisors only.
  *   B  taking a conversation is atomic: two take-overs, two claims, two
- *      first replies at once — one wins, the other hears who has it (409).
+ *      first replies at once — one wins, the other hears who has it (409);
+ *      the visitor reads who joined right before that operator's first
+ *      message (operatorReplyJoin.ts), never at an assignment; a platform
+ *      admin's reply claims only when they hold an Inbox seat.
  *   C  moving one by hand: who may move whose, to whom (never staff, a
  *      suspended member or a non-member), 409 when it changed; an AI thread
  *      assigned to a person is theirs; an unassign routes again (auto: the
@@ -128,6 +131,29 @@ suite('who has a conversation, on a real database (278b)', () => {
   const systemKinds = async (cid: string) => (await q(
     `SELECT metadata FROM public.conversation_messages WHERE conversation_id = $1 AND sender_type = 'system' ORDER BY created_at`, [cid],
   )).map((r) => (r.metadata as Row).kind);
+  /** The thread in order: who wrote each row (an operator's id, `join:<id>`, a notice's kind, or the sender type). */
+  const thread = async (cid: string) => (await q(
+    `SELECT sender_type, sender_id, body, metadata, created_at FROM public.conversation_messages WHERE conversation_id = $1 ORDER BY created_at, id`, [cid],
+  )).map((r) => ({
+    who: r.sender_type === 'agent' ? String(r.sender_id)
+      : (r.metadata as Row | null)?.kind === 'routing_agent_joined' ? `join:${(r.metadata as Row).agent_id}`
+        : String((r.metadata as Row | null)?.kind ?? r.sender_type),
+    kind: (r.metadata as Row | null)?.kind ?? null,
+    body: r.body,
+    metadata: r.metadata as Row,
+  }));
+  const joinsOf = async (cid: string) => (await thread(cid)).filter((r) => r.kind === 'routing_agent_joined');
+  /** The row right before `user`'s first message is their join. */
+  const introducedFirst = async (cid: string, user: string) => {
+    const rows = await thread(cid);
+    const first = rows.findIndex((r) => r.who === user);
+    return first > 0 && rows[first - 1].who === `join:${user}`;
+  };
+  /** The AI answered: a new stretch begins. */
+  const aiAnswers = (cid: string) => q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'ai', 'سلام! چطور می‌تونم کمک کنم؟')`, [cid]);
+  /** The `message` envelopes the conversation channel received, in order. */
+  const publishedRows = (cid: string) => state.published.filter((p) => p.cid === cid && p.envelope.type === 'message')
+    .map((p) => p.envelope.payload as Row);
   const memberRow = async (user: string) => String((await one(`SELECT id FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, user])).id);
   const patch = (user: string, cid: string, body: Row) => request(app).patch(`/api/conversations/${cid}`).set(as(user)).send({ workspace_id: ws, ...body });
   const send = (user: string, cid: string, body = 'سلام، در خدمتم') => request(app).post('/api/conversations/send-message').set(as(user))
@@ -278,9 +304,12 @@ suite('who has a conversation, on a real database (278b)', () => {
     const winner = await assignee(cid);
     for (const r of results.filter((x) => x.status === 409)) expect(r.body).toEqual({ error: 'already_assigned', assigned_to: winner });
     expect((await request(app).post(`/api/conversations/${cid}/claim`).set(as(winner!)).send({ workspace_id: ws })).body).toEqual({ ok: true, assigned_to: winner });
-    // One join notice, one `assigned` event.
+    // One `assigned` event, and nothing for the visitor yet: they read who
+    // joined with the winner's first message.
     expect(await until(() => events(cid, 'assigned'), (e) => e.length >= 1)).toHaveLength(1);
-    expect((await systemKinds(cid)).filter((k) => k === 'routing_agent_joined')).toHaveLength(1);
+    expect((await systemKinds(cid)).filter((k) => k === 'routing_agent_joined')).toHaveLength(0);
+    expect((await send(winner!, cid)).status).toBe(200);
+    expect(await introducedFirst(cid, winner!)).toBe(true);
   });
 
   it('B3 the first reply claims an unassigned conversation, once, even when two operators reply at once', async () => {
@@ -291,6 +320,10 @@ suite('who has a conversation, on a real database (278b)', () => {
     expect([a, b]).toContain(winner);
     const assigned = await until(() => events(cid, 'assigned'), (e) => e.length >= 1);
     expect(assigned).toEqual([expect.objectContaining({ to: winner, method: 'first_reply' })]);
+    // Both wrote, so both were introduced, each right before their own message.
+    expect((await joinsOf(cid)).map((r) => r.metadata.agent_id).sort()).toEqual([a, b].sort());
+    expect(await introducedFirst(cid, a)).toBe(true);
+    expect(await introducedFirst(cid, b)).toBe(true);
     // A reply to a conversation somebody has claims nothing.
     await send(lead, cid, 'من هم هستم');
     await new Promise((r) => setTimeout(r, 150));
@@ -316,6 +349,89 @@ suite('who has a conversation, on a real database (278b)', () => {
     expect(await until(() => events(free, 'assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ to: a, method: 'take_over' })]);
   });
 
+  it('B5 the visitor reads who joined right before the first message: once per stretch after the AI, in order, live and stored', async () => {
+    const { visitorMessagePayload } = await import('../../../server/services/realtime/publish.js');
+    const cid = await conversation();
+    await aiAnswers(cid);
+    expect((await send(a, cid, 'سلام، علی هستم')).status).toBe(200);
+    const replay = { workspace_id: ws, conversation_id: cid, body: 'بررسی می‌کنم', client_message_id: `cm-${randomUUID()}` };
+    expect((await request(app).post('/api/conversations/send-message').set(as(a)).send(replay)).status).toBe(200);
+    // Stored: one line, named, before Ali's first message.
+    const joins = await joinsOf(cid);
+    expect(joins).toHaveLength(1);
+    expect(joins[0].metadata).toEqual({ kind: 'routing_agent_joined', agent_id: a, agent_name: 'Ali' });
+    expect(joins[0].body).toBe('Ali joined the conversation.');
+    expect((await thread(cid)).map((r) => r.who)).toEqual(['contact', 'ai', `join:${a}`, a, a]);
+    // Live: the line first, then the replies; the visitor's copy has no operator id.
+    const live = publishedRows(cid);
+    expect(live.map((m) => (m.metadata as Row).kind ?? m.sender_type)).toEqual(['routing_agent_joined', 'agent', 'agent']);
+    const visitorCopy = visitorMessagePayload(live[0]);
+    expect(visitorCopy.metadata).toEqual({ kind: 'routing_agent_joined', agent_name: 'Ali' });
+    expect(visitorCopy).not.toHaveProperty('sender_id');
+    // A replay of the same message adds nothing.
+    const replayed = await request(app).post('/api/conversations/send-message').set(as(a)).send(replay);
+    expect(replayed.body.duplicate).toBe(true);
+    expect(await thread(cid)).toHaveLength(5);
+    expect(publishedRows(cid)).toHaveLength(3);
+
+    // Bahar writes too: her own line, right before her message.
+    expect((await send(b, cid, 'من هم کمک می‌کنم')).status).toBe(200);
+    expect(await introducedFirst(cid, b)).toBe(true);
+    expect((await joinsOf(cid)).map((r) => r.metadata.agent_id)).toEqual([a, b]);
+    // Ali again in the same stretch: no second line.
+    await send(a, cid, 'ممنون بهار');
+    expect(await joinsOf(cid)).toHaveLength(2);
+
+    // The AI answers again, then Ali: a new stretch, a new line.
+    await aiAnswers(cid);
+    await send(a, cid, 'برگشتم');
+    const rows = await thread(cid);
+    expect(rows.slice(-3).map((r) => r.who)).toEqual(['ai', `join:${a}`, a]);
+
+    // Two different messages from Ali at once, after the AI: one line.
+    await aiAnswers(cid);
+    const both = await Promise.all([send(a, cid, 'یک'), send(a, cid, 'دو')]);
+    expect(both.map((r) => r.status)).toEqual([200, 200]);
+    const after = (await thread(cid)).slice(-4);
+    expect(after.map((r) => r.who)).toEqual(['ai', `join:${a}`, a, a]);
+
+    // A conversation the visitor has not written in (outreach): the operator opens it.
+    const outreach = randomUUID();
+    await q(`INSERT INTO public.conversations (id, workspace_id, status) VALUES ($1, $2, 'open')`, [outreach, ws]);
+    expect((await send(b, outreach, 'سلام، می‌تونم کمکتون کنم؟')).status).toBe(200);
+    expect((await thread(outreach)).map((r) => r.who)).toEqual([b]);
+  });
+
+  it('B6 a platform admin with an Inbox seat claims on reply; without one, no claim, but the visitor still reads who joined', async () => {
+    const { createSession } = await import('../../../server/services/auth/sessions.js');
+    const seated = randomUUID();
+    const outsider = randomUUID();
+    for (const [id, name] of [[seated, 'Sima'], [outsider, 'Omid']]) {
+      await q(`INSERT INTO public.profiles (id, email, full_name) VALUES ($1, $2, $3)`, [id, `p-${id.slice(0, 8)}@test.local`, name]);
+      await q(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'admin')`, [id]);
+      tokens[id] = (await createSession(config as never, { userId: id, email: `p-${id.slice(0, 8)}@test.local` })).token;
+    }
+    await q(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'agent')`, [ws, seated]);
+    try {
+      const mine = await conversation();
+      expect((await send(seated, mine, 'سلام، سیما هستم')).status).toBe(200);
+      expect(await until(() => assignee(mine), (v) => v === seated)).toBe(seated);
+      expect(await until(() => events(mine, 'assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ to: seated, method: 'first_reply' })]);
+      expect(await introducedFirst(mine, seated)).toBe(true);
+
+      const theirs = await conversation();
+      expect((await send(outsider, theirs, 'سلام، امید هستم')).status).toBe(200);
+      await new Promise((r) => setTimeout(r, 150));
+      expect(await assignee(theirs)).toBeNull();
+      expect(await events(theirs, 'assigned')).toEqual([]);
+      expect(await introducedFirst(theirs, outsider)).toBe(true);
+      expect((await joinsOf(theirs))[0].metadata).toMatchObject({ agent_id: outsider, agent_name: 'Omid' });
+    } finally {
+      await q(`DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, seated]);
+      await q(`DELETE FROM public.user_roles WHERE user_id = ANY($1::uuid[])`, [[seated, outsider]]);
+    }
+  });
+
   it('C1 who may move whose: an operator only their own (or takes an unassigned one); a supervisor anyone\'s', async () => {
     const bahars = await conversation({ assigned: b });
     expect((await patch(a, bahars, { assigned_to: a })).body).toEqual({ error: 'not_allowed' });
@@ -329,10 +445,14 @@ suite('who has a conversation, on a real database (278b)', () => {
     const moved = await patch(lead, bahars, { assigned_to: a });
     expect(moved.status).toBe(200);
     expect(moved.body.conversation).toMatchObject({ assigned_to: a });
-    // The visitor hears who is here now (a transfer, live), the timeline the move.
+    // The Inbox reads the move (internal), the timeline too; the visitor
+    // hears of Ali when he writes. Taking an unheld one wrote nothing.
     await until(() => systemKinds(bahars), (k) => k.includes('conversation_transferred'));
-    expect(state.published.some((p) => p.cid === bahars && (p.envelope.payload as Row).metadata
-      && ((p.envelope.payload as Row).metadata as Row).kind === 'conversation_transferred')).toBe(true);
+    expect((await thread(bahars)).find((r) => r.kind === 'conversation_transferred')!.metadata)
+      .toMatchObject({ internal: true, from_id: b, to_id: a, actor_id: lead });
+    expect(publishedRows(bahars)).toEqual([]);
+    await until(() => systemKinds(open), (k) => k.includes('conversation_transferred'));
+    expect(await systemKinds(open)).toEqual(['conversation_transferred']);
     expect(await until(() => events(bahars, 'assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ from: b, to: a, method: 'manual', actor_id: lead })]);
   });
 
@@ -375,13 +495,13 @@ suite('who has a conversation, on a real database (278b)', () => {
     expect(mine.map((r) => r.id)).toContain(cid);
   });
 
-  it('C4 an unassign routes again in auto mode, never back to whoever let it go; the visitor hears who joins (R-20)', async () => {
+  it('C4 an unassign routes again in auto mode, never back to whoever let it go; the next operator is introduced when they write (R-20)', async () => {
     state.presence.set(a, 'active');
     state.presence.set(b, 'active');
     const cid = await conversation({ assigned: a, meta: { routing_notice_sent: true } });
     expect((await patch(a, cid, { assigned_to: null, expected_assigned_to: a })).status).toBe(200);
     expect(await until(() => assignee(cid), (v) => v === b)).toBe(b);
-    expect(await systemKinds(cid)).toEqual(['conversation_unassigned', 'routing_agent_joined']);
+    expect(await systemKinds(cid)).toEqual(['conversation_unassigned']);
     expect((await one(`SELECT skip_user_ids FROM public.chat_routing_state WHERE conversation_id = $1`, [cid])).skip_user_ids).toEqual([a]);
     // Nobody else is here: it waits (the ticker retries), still never back to Ali.
     state.presence.delete(b);
@@ -417,7 +537,11 @@ suite('who has a conversation, on a real database (278b)', () => {
     const toSales = await transfer(b, alis, { department_id: sales });
     expect(toSales.status).toBe(200);
     expect(toSales.body.conversation).toMatchObject({ assigned_to: c, department_id: sales, department_name: 'Sales' });
-    expect(await systemKinds(alis)).toEqual(expect.arrayContaining(['conversation_transferred', 'routing_agent_joined']));
+    // Both transfers are the Inbox's; nobody is announced until they write.
+    const moves = await until(() => thread(alis), (rows) => rows.filter((r) => r.kind === 'conversation_transferred').length >= 2);
+    expect(moves.filter((r) => r.who !== 'contact').map((r) => [r.kind, r.metadata.internal])).toEqual([
+      ['conversation_transferred', true], ['conversation_transferred', true],
+    ]);
     const deptNotice = (await q(`SELECT metadata FROM public.conversation_messages WHERE conversation_id = $1 AND metadata->>'department_id' IS NOT NULL`, [alis]))[0].metadata as Row;
     expect(deptNotice).toMatchObject({ kind: 'conversation_transferred', internal: true, to_name: 'Sales', actor_name: 'Bahar' });
     expect(await until(() => events(alis, 'department_assigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ department_id: sales, department_name: 'Sales' })]);

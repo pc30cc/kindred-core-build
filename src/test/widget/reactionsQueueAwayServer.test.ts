@@ -610,17 +610,16 @@ describe('the place in the queue: routing, GET /queue and the pill agree', () =>
       [200, { position: 2, wait_minutes: null }], [200, { position: 1, wait_minutes: 4 }],
     ]);
 
-    // Mehdi claims it; routing tells the visitor who joined (the visitor's
-    // copy without his id). GET /queue now says not waiting, and the widget
-    // stops asking.
+    // Mehdi claims it and answers; his reply first tells the visitor who
+    // joined (the visitor's copy without his id). GET /queue now says not
+    // waiting, and the widget stops asking.
     conv.assigned_to = MEHDI;
-    conv.metadata = { ...(conv.metadata as Row), routing_notice_sent: false };
-    // A member of the team, here (routing announces only an operator who can answer).
-    state.db.tables.workspace_members = [...(state.db.tables.workspace_members || []), { workspace_id: WS, user_id: MEHDI, role: 'agent' }];
-    (await import('../../../server/services/calls/departments.js')).invalidateDepartmentCache(WS);
-    expect(await routeConversationToOperator(CONFIG, { workspaceId: WS, conversationId: cid })).toMatchObject({ outcome: 'already_assigned' });
-    const joined = onConversationChannel(cid, 'message')[1];
+    state.user = MEHDI;
+    const sent = await request('POST', '/api/conversations/send-message', JSON.stringify({ conversation_id: cid, workspace_id: WS, body: 'سلام، بررسی می‌کنم.' }));
+    expect(sent.status).toBe(200);
+    const [, joined, reply] = onConversationChannel(cid, 'message');
     expect(joined).toMatchObject({ metadata: { kind: 'routing_agent_joined', agent_name: 'مهدی' } });
+    expect(reply).toMatchObject({ sender_type: 'agent', body: 'سلام، بررسی می‌کنم.' });
     expect((joined.metadata as Row).agent_id).toBeUndefined();
     expect(state.published.find((p) => p.channel === INBOX && p.envelope.type === 'message' && (p.envelope.payload.metadata as Row).kind === 'routing_agent_joined')!
       .envelope.payload.metadata).toMatchObject({ agent_id: MEHDI });

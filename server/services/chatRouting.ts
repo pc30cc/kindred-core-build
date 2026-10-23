@@ -400,7 +400,7 @@ async function tagOutcome(
  * as `agent_name` was read as a name in every language ("a colleague به
  * گفتگو پیوست"); without a name each reader writes its own generic sentence.
  */
-async function resolveAgentDisplayName(config: ServerConfig, userId: string): Promise<string | null> {
+export async function resolveAgentDisplayName(config: ServerConfig, userId: string): Promise<string | null> {
   try {
     const sb = getServiceClient(config);
     const { data } = await sb.from('profiles').select('full_name').eq('id', userId).maybeSingle();
@@ -412,7 +412,7 @@ async function resolveAgentDisplayName(config: ServerConfig, userId: string): Pr
 }
 
 /** A join notice's stored body: the English fallback every system row has (readers write it from `metadata`). */
-function agentJoinedBody(name: string | null): string {
+export function agentJoinedBody(name: string | null): string {
   return name ? `${name} joined the conversation.` : 'A colleague joined the conversation.';
 }
 
@@ -897,9 +897,11 @@ function assignedOutcome(method: AssignmentMethod, mode: AssignmentMode): Routin
 /**
  * Tell everyone a routing assignment happened: the routing keys (and, for a
  * thread the AI held, that a person has it now — an assigned chat must not
- * stay hidden in the AI's queue), the visitor's "X joined", the inboxes, the
- * assignee's phone and the conversation's timeline (method: auto,
- * round_robin, last_agent, owner_fallback, timeout_reassign).
+ * stay hidden in the AI's queue), the inboxes, the assignee's phone and the
+ * conversation's timeline (method: auto, round_robin, last_agent,
+ * owner_fallback, timeout_reassign). Nothing in the thread: the visitor
+ * reads "X joined" with X's first message (operatorReplyJoin.ts), so it is
+ * never about someone who has not written, nor after what they wrote.
  */
 async function announceAssignment(
   config: ServerConfig,
@@ -920,12 +922,6 @@ async function announceAssignment(
     ...(aiHeld ? { ai_state: 'human_assigned', managed_by_ai: false, ai_managed_by_ai: false } : {}),
     ...(a.extraPatch || {}),
   });
-  const agentName = await resolveAgentDisplayName(config, a.userId);
-  await insertRoutingSystemMessage(
-    config, a.workspaceId, a.conversationId,
-    agentJoinedBody(agentName),
-    { kind: 'routing_agent_joined', agent_name: agentName, agent_id: a.userId },
-  );
   try {
     await publishOperatorEvent(config, {
       kind: 'conversation_updated',
@@ -953,23 +949,6 @@ async function announceAssignment(
     actorId: null,
     payload: { from: a.from, to: a.userId, method: a.method },
   });
-}
-
-/** Whether the assignee can answer right now: a member, not suspended, here (routing tiers). */
-async function assigneePresent(
-  config: ServerConfig,
-  workspaceId: string,
-  userId: string,
-  cache?: RoutingCache,
-): Promise<boolean> {
-  try {
-    const member = await resolveChatRoutingMember(config, workspaceId, userId);
-    if (!member || member.suspended) return false;
-    const presence = await presenceOf(config, workspaceId, [userId], cache);
-    return routingTierOf(presence.get(userId)) !== null;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -1043,19 +1022,13 @@ export async function routeConversationToOperator(
     }
 
     if (row.assigned_to) {
-      // Already assigned, so nobody is being routed — but the visitor has
-      // just been handed over from the AI and still needs to be told who
-      // they are now talking to, once per conversation (a second handoff
-      // does not repeat it) and only while that operator is actually here:
-      // "X joined" about someone who left hours ago would be a promise.
-      const firstRun = metadata.routing_notice_sent !== true;
-      if (firstRun && await assigneePresent(config, args.workspaceId, row.assigned_to, opts.cache)) {
-        const assignedName = await resolveAgentDisplayName(config, row.assigned_to);
-        await insertRoutingSystemMessage(
-          config, args.workspaceId, args.conversationId,
-          agentJoinedBody(assignedName),
-          { kind: 'routing_agent_joined', agent_name: assignedName, agent_id: row.assigned_to },
-        );
+      // Already assigned, so nobody is being routed and the thread says
+      // nothing: the visitor handed over from the AI reads "X joined" right
+      // before X's first message (operatorReplyJoin.ts), which is also when
+      // it is true. Written here it came after a message X had already sent,
+      // or named someone who never wrote. The outcome is still tagged once
+      // per conversation (a second handoff does not repeat it).
+      if (metadata.routing_notice_sent !== true) {
         await tagOutcome(
           config, args.workspaceId, args.conversationId, metadata,
           'already_assigned', { routing_notice_sent: true },
@@ -1706,10 +1679,11 @@ export async function skipForConversation(
  * to leave it with nobody, the visitor still reading "X joined"): auto and
  * round robin give it out, manual puts it back in the queue (once per
  * return, 276's stamp). `skipUserId`: whoever let it go is not offered it
- * again for this chat. The visitor is told what happens next once more ("Y
- * joined", or that they wait). Left alone: assigned again meanwhile, spam,
- * resolved or closed, or a thread the AI will answer (its handoff routes
- * it). Two at once share one run. Never throws; null when it did not route.
+ * again for this chat. The visitor is told once more when they wait; the
+ * next operator is introduced when they first write (operatorReplyJoin.ts).
+ * Left alone: assigned again meanwhile, spam, resolved or closed, or a
+ * thread the AI will answer (its handoff routes it). Two at once share one
+ * run. Never throws; null when it did not route.
  */
 export interface RerouteArgs {
   workspaceId: string;
@@ -1884,12 +1858,8 @@ export async function claimConversationManually(
     if (holder === args.userId) return { claimed: true, assignedTo: holder, alreadyHeld: true };
     return { claimed: false, assignedTo: holder };
   }
-  const agentName = await resolveAgentDisplayName(config, args.userId);
-  await insertRoutingSystemMessage(
-    config, args.workspaceId, args.conversationId,
-    agentJoinedBody(agentName),
-    { kind: 'routing_agent_joined', agent_name: agentName, agent_id: args.userId },
-  );
+  // The inboxes hear of it now; the visitor reads "X joined" with X's first
+  // message (operatorReplyJoin.ts), not at the claim.
   try {
     await publishOperatorEvent(config, {
       kind: 'conversation_updated',

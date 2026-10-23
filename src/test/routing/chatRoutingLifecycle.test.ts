@@ -260,9 +260,9 @@ describe('R-17 a reopened thread keeps its operator only when they could take it
       expect(res?.assignedTo, label).toBe(expected);
       expect(state.claims[0], label).toMatchObject({ p_method: 'auto', p_expected_assignee: null });
       expect(releasedEvents(), label).toEqual([expect.objectContaining({ payload: { from: ALI, to: null, method: 'reopen_release' } })]);
-      // Told again what happens: who joins.
+      // Nothing in the thread: whoever gets it is introduced when they first write.
       expect((state.db.tables.conversation_messages || []).filter((m) => m.conversation_id === c.id).map((m) => (m.metadata as Row).kind), label)
-        .toEqual(['routing_agent_joined']);
+        .toEqual([]);
     }
   });
 

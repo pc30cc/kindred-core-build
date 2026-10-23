@@ -14,11 +14,13 @@
  *     announced again. A conversation that never waited in the queue (taken
  *     by hand, or before 276) joins it, and the visitor is told so.
  *   auto / round robin: the next operator gets it — never the one who let it
- *     go — and the visitor reads who joined.
+ *     go — and is introduced to the visitor when they first write
+ *     (operatorReplyJoin.ts), not by the assignment.
  *   nothing: one the AI has again (it answers the next message; a handoff
  *     routes it), one marked as spam, one closed in the same PATCH, a
- *     transfer to a colleague. Two unassigns at once (a double click): the
- *     second is refused (409), so the return is announced once.
+ *     transfer to a colleague (the Inbox's line only). Two unassigns at once
+ *     (a double click): the second is refused (409), so the return is
+ *     announced once.
  *
  * The PATCH route and routing run for real against an in-memory data layer;
  * the trigger is its stand-in (`beforeUpdate`, the WHEN clause of
@@ -170,13 +172,13 @@ const visitorRows = (cid: string) => state.published.filter((p) => p.cid === cid
   .map((p) => (p.envelope.payload.metadata as Row | null)?.kind);
 /**
  * The PATCH's background work is done: an unassign's last step is its
- * routing (after the inbox's notice), a transfer's the notice reaching the
- * visitor. Waits for that, never for a fixed time.
+ * routing (after the inbox's notice), a transfer's its inbox notice. Waits
+ * for that, never for a fixed time.
  */
 async function settled(cid: string, routed: number) {
   await until(() => (routed
     ? state.routed.length >= routed && kinds(cid).includes('conversation_unassigned')
-    : visitorRows(cid).includes('conversation_transferred')));
+    : kinds(cid).includes('conversation_transferred')));
 }
 
 let triggerInstalled = true;
@@ -276,19 +278,20 @@ describe('the inbox hands a queued conversation back', () => {
     const cid = queuedConversation();
     await patch(cid, { assigned_to: null });
     await settled(cid, 1);
-    // Ali takes it (only a supervisor may give it to someone else).
+    // Ali takes it (only a supervisor may give it to someone else). The
+    // visitor hears of him when he writes, not now.
     state.userId = ALI;
     expect((await patch(cid, { assigned_to: ALI })).status).toBe(200);
-    await until(() => visitorRows(cid).includes('routing_agent_joined'));
+    await until(() => conv(cid).assigned_to === ALI);
     await patch(cid, { assigned_to: null });
     await settled(cid, 2);
     expect(queueRows(cid)).toBe(3);
-    expect(visitorRows(cid)).toEqual(['routing_in_queue', 'routing_agent_joined', 'routing_in_queue']);
+    expect(visitorRows(cid)).toEqual(['routing_in_queue', 'routing_in_queue']);
   });
 });
 
 describe('routed again in every mode (R-20)', () => {
-  it('auto: the next operator gets it, never the one who let it go; the visitor reads who joined', async () => {
+  it('auto: the next operator gets it, never the one who let it go; they are introduced when they write', async () => {
     state.db.tables.widget_settings = [{ workspace_id: WS, assignment_mode: 'auto', round_robin_cursor_user_id: null }];
     state.presence.set(SARA, 'active');
     state.presence.set(ALI, 'active');
@@ -298,7 +301,8 @@ describe('routed again in every mode (R-20)', () => {
     expect(state.routed).toEqual([{ outcome: 'assigned_auto', assignedTo: ALI }]);
     expect(skipped[cid]).toEqual([SARA]);
     expect(conv(cid)).toMatchObject({ assigned_to: ALI });
-    expect(visitorRows(cid)).toEqual(['routing_agent_joined']);
+    expect(visitorRows(cid)).toEqual([]);
+    expect(kinds(cid)).not.toContain('routing_agent_joined');
   });
 
   it('manual, a conversation that never waited in the queue (taken by hand): it joins the queue, and the visitor is told', async () => {
@@ -356,6 +360,9 @@ describe('nothing is routed', () => {
     await settled(cid, 0);
     expect(state.routed).toEqual([]);
     expect(queueRows(cid)).toBe(1);
-    expect(visitorRows(cid)).toEqual(['conversation_transferred']);
+    // The Inbox's line only: Ali is introduced to the visitor when he writes.
+    expect(visitorRows(cid)).toEqual([]);
+    const transfer = state.db.tables.conversation_messages!.find((m) => m.conversation_id === cid && (m.metadata as Row | null)?.kind === 'conversation_transferred');
+    expect(transfer?.metadata).toMatchObject({ internal: true, from_id: SARA, to_id: ALI, to_name: 'علی' });
   });
 });

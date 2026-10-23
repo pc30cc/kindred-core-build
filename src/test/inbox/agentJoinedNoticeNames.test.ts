@@ -1,5 +1,8 @@
 /**
- * The join notice routing writes names the operator who joined, or nobody.
+ * The join notice names the operator who joined, or nobody. Since
+ * 2026-10-23 the operator's reply writes it (operatorReplyJoin.ts, with
+ * routing's resolveAgentDisplayName), right before their first message;
+ * routing and a claim write none.
  *
  * chatRouting.resolveAgentDisplayName used to answer 'a colleague' for an
  * operator without a full name, and that English placeholder was stored as
@@ -21,7 +24,9 @@ const db = vi.hoisted(() => ({
   profiles: [] as Row[],
   inserted: [] as Row[],
   conversation: null as Row | null,
-  /** The assignee's presence as routing reads it (R-27: "joined" only while they are here). */
+  /** The thread the reply's check reads (newest first, as the query orders it). */
+  messages: [] as Row[],
+  /** The assignee's presence as routing reads it. */
   presence: 'active' as string,
 }));
 
@@ -59,7 +64,8 @@ vi.mock('../../../server/supabase.js', () => ({
           }
           return { data: { id: 'm1', created_at: 'now', seen_at: null, ...(pending || {}) }, error: null };
         },
-        then: (resolve: (r: { data: Row[]; error: null }) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+        then: (resolve: (r: { data: Row[]; error: null }) => unknown) =>
+          Promise.resolve({ data: table === 'conversation_messages' ? db.messages : [], error: null }).then(resolve),
       };
       return api;
     },
@@ -89,6 +95,7 @@ vi.mock('../../../server/services/calls/departments.js', async (orig) => ({
 }));
 
 const { routeConversationToOperator, claimConversationManually } = await import('../../../server/services/chatRouting.js');
+const { introduceOperatorBeforeReply } = await import('../../../server/services/operatorReplyJoin.js');
 const { createInvitation } = await import('../../../server/services/calls/invitations.js');
 
 const config = {} as never;
@@ -98,55 +105,70 @@ beforeEach(() => {
   db.profiles = [];
   db.inserted = [];
   db.conversation = null;
+  // The visitor wrote after the AI: the operator's reply owes a line.
+  db.messages = [
+    { id: 'm3', sender_type: 'contact', created_at: '2026-10-23T09:00:03Z' },
+    { id: 'm2', sender_type: 'ai', created_at: '2026-10-23T09:00:02Z' },
+    { id: 'm1', sender_type: 'contact', created_at: '2026-10-23T09:00:01Z' },
+  ];
   db.presence = 'active';
 });
 
 const joins = () => db.inserted.filter((r) => (r.metadata as Row | undefined)?.kind === 'routing_agent_joined');
 
-describe('routing\'s join notice', () => {
+describe('the reply\'s join notice', () => {
+  const reply = () => introduceOperatorBeforeReply(config, { workspaceId: 'ws1', conversationId: 'c1', userId: OP });
+
   it('an operator without a full name: no name stored, the generic English fallback body', async () => {
     db.profiles = [{ id: OP, full_name: null }];
-    const res = await claimConversationManually(config, { workspaceId: 'ws1', conversationId: 'c1', userId: OP });
-    expect(res.claimed).toBe(true);
+    expect(await reply()).not.toBeNull();
     expect(joins()).toHaveLength(1);
     const [row] = joins();
     expect(row.body).toBe('A colleague joined the conversation.');
     expect(row.metadata).toEqual({ kind: 'routing_agent_joined', agent_name: null, agent_id: OP });
+    expect(row).toMatchObject({ conversation_id: 'c1', sender_type: 'system' });
   });
 
   it('an operator with a full name: named, trimmed', async () => {
     db.profiles = [{ id: OP, full_name: '  سارا  ' }];
-    await claimConversationManually(config, { workspaceId: 'ws1', conversationId: 'c1', userId: OP });
+    await reply();
     const [row] = joins();
     expect(row.body).toBe('سارا joined the conversation.');
     expect(row.metadata).toEqual({ kind: 'routing_agent_joined', agent_name: 'سارا', agent_id: OP });
   });
 
-  it('the hand-over to an operator already holding the conversation says the same', async () => {
-    db.conversation = { id: 'c1', assigned_to: OP, metadata: {} };
-    db.profiles = [{ id: OP, full_name: '' }];
-    const res = await routeConversationToOperator(config, { workspaceId: 'ws1', conversationId: 'c1' });
-    expect(res.outcome).toBe('already_assigned');
-    const [row] = joins();
-    expect(row.body).toBe('A colleague joined the conversation.');
-    expect((row.metadata as Row).agent_name).toBeNull();
+  it('never stores an English placeholder as a name', async () => {
+    db.profiles = [];
+    await reply();
+    expect(joins()).toHaveLength(1);
+    expect(JSON.stringify(joins())).not.toMatch(/"agent_name":"a colleague"/i);
   });
 
-  it('says nothing about an operator who is not here (offline, or no panel open)', async () => {
-    db.conversation = { id: 'c1', assigned_to: OP, metadata: {} };
+  it('nothing when the operator already wrote after the AI', async () => {
     db.profiles = [{ id: OP, full_name: 'Sara' }];
-    for (const presence of ['offline', 'disconnected']) {
+    db.messages = [{ id: 'm4', sender_type: 'agent', sender_id: OP, created_at: '2026-10-23T09:00:04Z' }, ...db.messages];
+    expect(await reply()).toBeNull();
+    expect(joins()).toEqual([]);
+  });
+});
+
+describe('an assignment says nothing in the thread', () => {
+  it('a claim', async () => {
+    db.profiles = [{ id: OP, full_name: 'Sara' }];
+    const res = await claimConversationManually(config, { workspaceId: 'ws1', conversationId: 'c1', userId: OP });
+    expect(res.claimed).toBe(true);
+    expect(joins()).toEqual([]);
+  });
+
+  it('the hand-over to an operator already holding the conversation, here or not', async () => {
+    db.profiles = [{ id: OP, full_name: 'Sara' }];
+    for (const presence of ['active', 'offline', 'disconnected']) {
       db.presence = presence;
+      db.conversation = { id: 'c1', assigned_to: OP, metadata: {} };
       const res = await routeConversationToOperator(config, { workspaceId: 'ws1', conversationId: 'c1' });
       expect(res.outcome).toBe('already_assigned');
     }
     expect(joins()).toEqual([]);
-  });
-
-  it('never stores an English placeholder as a name', async () => {
-    db.profiles = [];
-    await claimConversationManually(config, { workspaceId: 'ws1', conversationId: 'c1', userId: OP });
-    expect(JSON.stringify(joins())).not.toMatch(/"agent_name":"a colleague"/i);
   });
 });
 

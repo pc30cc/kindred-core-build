@@ -16,7 +16,10 @@ import { isInternalMessage } from '../../../server/routes/widget.js';
  *     typed it.
  *   - A transfer between operators was marked internal, so the person who
  *     most needed to know that somebody new had arrived was the one person
- *     not told.
+ *     not told. Since 2026-10-23 they are told by the newcomer's own first
+ *     message: "X joined" right before it (operatorReplyJoin.ts), so the
+ *     transfer line itself is the Inbox's again (written at the transfer,
+ *     it named someone who had not written yet).
  *   - Being unassigned is genuinely internal: "nobody is handling you right
  *     now" helps no one.
  */
@@ -71,22 +74,23 @@ describe('the internal filter the comments always promised', () => {
   });
 });
 
-describe('a transfer is news for the visitor; an unassign is not', () => {
-  it('marks only the unassign internal', () => {
-    expect(ASSIGNMENT).toContain('internal: !a.to,');
-    // The blanket `internal: true` on both is what hid transfers.
-    const block = ASSIGNMENT.slice(
-      ASSIGNMENT.indexOf('const isJoin = !a.from'),
-      ASSIGNMENT.indexOf('const { data: noticeRow }'),
-    );
-    expect(block).not.toContain('internal: true,');
+describe('a transfer and an unassign are the Inbox\'s; the visitor hears from the newcomer', () => {
+  /** postAssignmentNotice, the notice of a hand-made assignee change. */
+  const notice = () => ASSIGNMENT.slice(
+    ASSIGNMENT.indexOf('async function postAssignmentNotice('),
+    ASSIGNMENT.indexOf('/**', ASSIGNMENT.indexOf('async function postAssignmentNotice(')),
+  );
+
+  it('marks both internal', () => {
+    expect(notice()).toContain('internal: true,');
+    expect(notice()).not.toContain('internal: !a.to');
   });
 
-  it('pushes a transfer to the widget in real time, like a join', () => {
-    expect(ASSIGNMENT).toContain('if (noticeRow && a.to) {');
+  it('publishes neither on the visitor\'s channel', () => {
+    expect(ASSIGNMENT).not.toContain('publishConversationEvent');
   });
 
-  it('reads a transfer as the next operator arriving, on the visitor side', () => {
+  it('a transfer row stored before still reads as the next operator arriving, on the visitor side', () => {
     // One row, two audiences: the inbox says who moved it, the widget says
     // who is here now.
     expect(RENDERER).toContain("m.metadata.kind === 'conversation_transferred'");
@@ -96,22 +100,25 @@ describe('a transfer is news for the visitor; an unassign is not', () => {
   });
 });
 
-describe('a handoff from the AI always names the human', () => {
-  it('announces the assignee even when nobody needed routing', () => {
-    // `already_assigned` returned early and said nothing, so a visitor handed
-    // over from the AI to an operator who already held the conversation was
-    // never told who they were now talking to.
+describe('a handoff from the AI names the human with their first message', () => {
+  it('the already-assigned branch writes no join (it came after the reply, or named someone who never wrote)', () => {
     const start = ROUTING.indexOf('if (row.assigned_to) {');
     const block = ROUTING.slice(start, ROUTING.indexOf("return { outcome: 'already_assigned'", start));
-    expect(block).toContain("kind: 'routing_agent_joined'");
-    expect(block).toContain('resolveAgentDisplayName(config, row.assigned_to)');
+    expect(block).not.toContain("kind: 'routing_agent_joined'");
+    expect(block).not.toContain('insertRoutingSystemMessage');
   });
 
-  it('says it once per conversation, not on every handoff', () => {
+  it('still tags the outcome once per conversation, not on every handoff', () => {
     const start = ROUTING.indexOf('if (row.assigned_to) {');
     const block = ROUTING.slice(start, ROUTING.indexOf("return { outcome: 'already_assigned'", start));
-    expect(block).toContain("metadata.routing_notice_sent !== true");
+    expect(block).toContain('metadata.routing_notice_sent !== true');
     expect(block).toContain('routing_notice_sent: true');
+  });
+
+  it('the reply writes the join, before the message, once per stretch after the AI', () => {
+    const JOIN = readFileSync('server/services/operatorReplyJoin.ts', 'utf8');
+    expect(JOIN).toContain("if (row.sender_type === 'ai') inStretch = false;");
+    expect(JOIN).toContain("kind: 'routing_agent_joined'");
   });
 });
 

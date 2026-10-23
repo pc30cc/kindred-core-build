@@ -430,7 +430,8 @@ suite('chat routing on a real database (278)', () => {
     expect(res).toEqual({ outcome: 'assigned_auto', assignedTo: b });
     expect(await assignee(cid)).toBe(b);
     expect(await assignedEvents(cid)).toEqual([{ actor: 'system', from: null, to: b, method: 'auto' }]);
-    expect(await systemRows(cid)).toEqual([expect.objectContaining({ kind: 'routing_agent_joined', agent_name: 'Bahar', agent_id: b })]);
+    // Nothing in the thread: Bahar is introduced to the visitor when she first writes.
+    expect(await systemRows(cid)).toEqual([]);
     // Nobody but staff is here: nobody gets it.
     state.presence.clear();
     for (const id of [admin, seo]) state.presence.set(id, 'active');
@@ -487,13 +488,14 @@ suite('chat routing on a real database (278)', () => {
       .toEqual({ outcome: 'no_eligible_agent', assignedTo: null });
     expect(await systemRows(cid)).toEqual([expect.objectContaining({ kind: 'routing_no_agent_available', reason: 'nobody_online' })]);
     expect((await one(`SELECT wait_reason FROM public.chat_routing_state WHERE conversation_id = $1`, [cid])).wait_reason).toBe('nobody_online');
-    // Bahar arrives; the next pass (once the retry is due) assigns it, the visitor is told once.
+    // Bahar arrives; the next pass (once the retry is due) assigns it. The
+    // visitor was told once, and reads who joined when Bahar writes.
     state.presence.set(b, 'active');
     await q(`UPDATE public.chat_routing_state SET waiting_retry_at = now() - interval '1 second' WHERE conversation_id = $1`, [cid]);
     const pass = await ticker.runChatRoutingOnce(config as never);
     expect(pass).toMatchObject({ waiting: 1, assigned: 1 });
     expect(await assignee(cid)).toBe(b);
-    expect((await systemRows(cid)).map((m) => m.kind)).toEqual(['routing_no_agent_available', 'routing_agent_joined']);
+    expect((await systemRows(cid)).map((m) => m.kind)).toEqual(['routing_no_agent_available']);
     // Everyone at capacity: the queue notice.
     await q(`UPDATE public.widget_settings SET default_max_concurrent_chats = 1 WHERE workspace_id = $1`, [ws]);
     const busy = await conversation(ws, { contact: await contact(ws) });
@@ -531,7 +533,7 @@ suite('chat routing on a real database (278)', () => {
     const st = await one(`SELECT skip_user_ids, wait_reason, waiting_since IS NOT NULL AS waiting, timeout_due_at FROM public.chat_routing_state WHERE conversation_id = $1`, [cid]);
     // Nobody but Ali is here, and he is passed over: nobody online.
     expect(st).toEqual({ skip_user_ids: [a], wait_reason: 'nobody_online', waiting: true, timeout_due_at: null });
-    expect((await systemRows(cid)).map((m) => m.kind)).toEqual(['routing_agent_joined', 'routing_no_agent_available']);
+    expect((await systemRows(cid)).map((m) => m.kind)).toEqual(['routing_no_agent_available']);
     const unassigned = await q(`SELECT payload FROM public.conversation_events WHERE conversation_id = $1 AND event_type = 'unassigned'`, [cid]);
     for (let i = 0; i < 60 && !unassigned.length; i++) {
       await new Promise((r) => setTimeout(r, 50));

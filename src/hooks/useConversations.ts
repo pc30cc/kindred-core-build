@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
-import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
+import { conversationsApi, newClientMessageId, type InboxUnread } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
 import { applyReactionToggle } from '../../shared/messageReactions';
 import { refreshConversations } from '@/hooks/inboxListCache';
@@ -180,6 +180,48 @@ export function useInboxTabCounts(workspaceId: string | undefined, scope: 'mine'
     refetchOnWindowFocus: false,
     queryFn: () => conversationsApi.getInboxTabCounts(workspaceId!, scope),
   });
+}
+
+/**
+ * The Inbox's unread number (owner request of 2026-10-23): this operator's
+ * open conversations, nobody's or theirs, with a visitor message nobody has
+ * read (GET /api/conversations/unread). The badge on Inbox in the sidebar,
+ * the Art shell and the bottom bar, and the tab title's "(n)", all share this
+ * entry. No poll: realtime refreshes it (useInboxListRealtime), and reading a
+ * chat drops it at once (dropInboxUnread).
+ */
+export function useInboxUnread(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['inbox-unread', workspaceId],
+    enabled: !!workspaceId,
+    staleTime: 15_000,
+    queryFn: () => conversationsApi.getInboxUnread(workspaceId!),
+  });
+}
+
+/**
+ * A conversation was read (by this operator, or by a colleague: the
+ * `conversation_seen` event): it leaves every cached unread number at once,
+ * and its rows in the cached lists show no unread count, without waiting for
+ * a refetch. A number past the ids it names (100) is left to its refetch.
+ */
+export function dropInboxUnread(qc: QueryClient, conversationId: string): void {
+  for (const [key, data] of qc.getQueriesData<InboxUnread>({ queryKey: ['inbox-unread'] })) {
+    if (!data || !Array.isArray(data.ids) || !data.ids.includes(conversationId)) continue;
+    qc.setQueryData<InboxUnread>(key, {
+      conversations: Math.max(0, (data.conversations || 0) - 1),
+      ids: data.ids.filter((id) => id !== conversationId),
+    });
+  }
+  type Row = { id?: string; unread_count?: number };
+  for (const [key, rows] of qc.getQueriesData<Row[]>({ queryKey: ['conversations'] })) {
+    if (!Array.isArray(rows)) continue;
+    const idx = rows.findIndex((r) => r?.id === conversationId);
+    if (idx < 0 || !rows[idx].unread_count) continue;
+    const patched = rows.slice();
+    patched[idx] = { ...rows[idx], unread_count: 0 };
+    qc.setQueryData(key, patched);
+  }
 }
 
 /**
@@ -469,11 +511,21 @@ export function useMarkConversationSeen() {
       const { count } = await conversationsApi.markSeen(conversationId);
       return count;
     },
+    // The Inbox badge drops the chat the moment it is opened; a read of the
+    // number still in flight would put it back, so it is cancelled first.
+    onMutate: async (conversationId) => {
+      await qc.cancelQueries({ queryKey: ['inbox-unread'] });
+      dropInboxUnread(qc, conversationId);
+    },
     onSuccess: (_count, conversationId) => {
       qc.invalidateQueries({ queryKey: ['messages', conversationId] });
     },
     onError: (err) => {
       console.warn('[seen] mark_conversation_seen failed', err);
+    },
+    // The server's number is the truth, also when the mark failed.
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['inbox-unread'] });
     },
   });
 }

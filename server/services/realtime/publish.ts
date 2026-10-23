@@ -282,7 +282,13 @@ export type OperatorEventKind =
   // The visitor read the conversation in the widget
   // (services/visitorReadReceipts.ts): `visitor_last_read_at`, for the
   // operator's "Seen". Operators only.
-  | 'visitor_read';
+  | 'visitor_read'
+  // A member read the visitor's messages (POST /:id/seen,
+  // services/inboxUnread.ts): `seen_at`, so every panel drops the chat from
+  // its unread number. Operators only, never on the conversation channel, no
+  // names. The native apps tolerate a kind they do not know: iOS re-reads its
+  // lists, Windows wakes its poll.
+  | 'conversation_seen';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

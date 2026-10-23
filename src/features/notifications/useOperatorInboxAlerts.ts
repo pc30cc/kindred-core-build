@@ -12,6 +12,7 @@
  *   - the chime and the banner for a visitor's message in a conversation that
  *     is this operator's to answer (passesScope);
  *   - the "assigned to you" alert;
+ *   - the Inbox's unread number in the tab title, "(3) …" (inboxTabTitle.ts);
  *   - the operator's notification preferences, read once, so all of them
  *     honour the settings without the Settings page having been opened.
  *
@@ -26,12 +27,14 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
+import { useInboxUnread } from '@/hooks/useConversations';
 import { fetchNotificationPrefs } from '@/lib/notifications-api';
 import { canSeeAllConversations, readStoredInboxScope } from '@/lib/inboxAccess';
 import { canUseInbox } from '../../../shared/chatRoles';
 import { useOperatorMessageChime } from './operatorMessageSound';
 import { useOperatorBrowserNotifications } from './operatorBrowserNotification';
 import { useOperatorAssignmentAlerts } from './operatorAssignmentAlert';
+import { useInboxTabTitle } from './inboxTabTitle';
 
 export function useOperatorInboxAlerts(workspaceId: string | undefined): void {
   const { t } = useTranslation();
@@ -50,6 +53,10 @@ export function useOperatorInboxAlerts(workspaceId: string | undefined): void {
   });
 
   useInboxListRealtime(ws);
+
+  // The same entry as the sidebar's Inbox badge; staff ask for nothing.
+  const { data: unread } = useInboxUnread(ws);
+  useInboxTabTitle(ws ? unread?.conversations ?? 0 : 0);
 
   const roleRef = useRef(role);
   roleRef.current = role;

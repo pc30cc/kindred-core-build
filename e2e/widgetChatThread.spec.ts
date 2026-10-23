@@ -167,12 +167,13 @@ async function linkKeepsActionsHidden(page: Page, en: boolean) {
   const mine = page.locator('[data-chat-messages] .msg.visitor').last();
   const actions = mine.locator('xpath=..').locator(':scope > .msg-actions');
   const state = () => actions.evaluate((g) => { const c = getComputedStyle(g); return `${c.opacity} ${c.pointerEvents}`; });
-  await mine.locator('.msg-link').hover();
-  await expect.poll(state).toBe('0 none');
-  await mine.locator('.msg-quote').hover();
-  await expect.poll(state).toBe('1 auto');
-  await mine.locator('.msg-link').hover();
-  await expect.poll(state).toBe('0 none');
+  // Each read hovers again: the thread is painted again as the server's
+  // answers come in, and a line drawn anew under a pointer that has not moved
+  // can stay unhovered until it moves (red on CI since #353, never locally).
+  const hovering = (part: string) => async () => { await mine.locator(part).hover(); return state(); };
+  await expect.poll(hovering('.msg-link')).toBe('0 none');
+  await expect.poll(hovering('.msg-quote')).toBe('1 auto');
+  await expect.poll(hovering('.msg-link')).toBe('0 none');
   // A key that moves into them still shows them (a keyboard on a tablet).
   await actions.locator('[data-msg-reply]').focus();
   await expect.poll(state).toBe('1 auto');

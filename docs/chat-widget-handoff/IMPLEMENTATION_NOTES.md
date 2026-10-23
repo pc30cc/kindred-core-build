@@ -199,6 +199,19 @@ Core file changed. Tests: `src/test/widget/presentation-t2.test.ts`, `src/test/w
   greeting (t2 `.hi`, t1 `.hx-hi`) is white on the hero's lightest stop, 3.27 to 3.90:1 there (Ink was 3.41 to 4.46):
   outside the seven points; a darker `--h1` partner or no glow under the greeting would lift it.
 
+## The thread starts at the top (owner, 2026-10-23)
+
+The boards anchor t1's and t2's thread to the message box (`.th` / `.thread { justify-content: flex-end }`, with a `.top`
+variant only for the welcome and away screens), so the AI's greeting or first answer sat at the bottom under an empty
+panel. The owner wants it at the top in every template, as `default` always was: t1 drops `.messages > .ban-row + *
+{ margin-top: auto }`, t2 drops `justify-content: flex-end` on `.messages`, and both skeletons follow
+(`.wy-sk-msgs`). The fade above the thread now ends at the scroll area's 14 px padding (30 / 34 px before), so a short
+thread's first line is not faded; a longer thread still shows its newest message right above the message box (Core
+pins the scroll, whatever the alignment). RESPOK's `t1-intl` / `t2-intl` share these rules. CSS only, no budget
+touched (`presentation-t1.css` and `presentation-t2.css` got smaller). Gate: `e2e/widgetThreadTop.spec.ts`, every
+template in both brands (harness states `chat-ai-intro`, `chat-ai-reply`, their `mobile-` variants, `chat-ai-thinking`
+and `chat-handover`).
+
 ## Rollout
 
 - Migration 275 is applied by hand on WebYar's database before the merge (CLAUDE.md); RESPOK's migrator applies it on

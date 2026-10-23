@@ -1119,8 +1119,11 @@ describe('t1: direction, people, the workspace', () => {
     const ban = t.querySelector('.messages > .ban.ban-row:first-child')!;
     expect(ban.querySelector('b')!.textContent).toBe('تیم ما الان آفلاین است');
     expect(T1_CSS).toMatch(/\.messages > \.ban-row \{ display: none;/);
-    // While away the thread starts under the banner, and a sent message reads «… · ارسال شد».
-    expect(T1_CSS).toContain(".wy-view-chat:has(.away) .ban-row + * { margin-top: 0; }");
+    // A sent message reads «… · ارسال شد» while away.
+    // The thread starts at the top, under the banner when it shows (owner,
+    // 2026-10-23): nothing pushes it, or its skeleton, to the bottom.
+    expect(T1_CSS).not.toMatch(/margin-top: auto/);
+    expect(T1_CSS).not.toMatch(/\.wy-sk-msgs \{[^}]*flex-end/);
     expect(T1_CSS).toContain(".wy-view-chat:has(.away) .msg-ticks[role='img']:not(.is-seen)::before { content: '· ' attr(aria-label); }");
   });
 

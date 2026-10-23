@@ -686,6 +686,11 @@ function chatAi(f: Fixture) {
   f.threads = { ...f.threads, 'c-ai': handoverThread().slice(0, 2) };
   f.assignedOperator = null;
 }
+/** The AI's answer alone in the thread, as its greeting is before the visitor writes. */
+function chatAiIntro(f: Fixture) {
+  chatAi(f);
+  f.threads = { ...f.threads, 'c-ai': handoverThread().slice(1, 2) };
+}
 /** Opens a thread once its rows are drawn and the line is up (no fixed wait). */
 async function openRows(page: Page, cid: string) {
   await inst(page, `i.__test.openConversation(${JSON.stringify(cid)});`);
@@ -1335,11 +1340,18 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await page.locator('.ai-thinking-row').waitFor();
     },
   },
+  // A short thread (the visitor's first message and the AI's answer): it
+  // starts at the top of the panel in every template (owner, 2026-10-23).
+  'chat-ai-reply': { setup: chatAi, drive: async ({ page }) => { await openRows(page, 'c-ai'); } },
+  // The AI's greeting alone, before the visitor writes.
+  'chat-ai-intro': { setup: chatAiIntro, drive: async ({ page }) => { await openRows(page, 'c-ai'); } },
   'help-open-empty': {
     home: true,
     setup: (f) => { chatOperator(f); f.kb = { categories: [], articles: [], search: {} }; },
     drive: async ({ page }) => { await inst(page, "i.setTab('help');"); await page.locator('.wy-view-kb:not(.wy-skeleton)').waitFor(); },
   },
+  'mobile-chat-ai-reply': { mobile: true, setup: chatAi, drive: async ({ page }) => { await openRows(page, 'c-ai'); } },
+  'mobile-chat-ai-intro': { mobile: true, setup: chatAiIntro, drive: async ({ page }) => { await openRows(page, 'c-ai'); } },
   'mobile-chat-operator': { mobile: true, setup: chatOperator, drive: async ({ page }) => { await openRows(page, 'c-op'); } },
   'mobile-chat-handover': { mobile: true, setup: chatHandover, drive: async ({ page }) => { await openRows(page, 'c-handover'); } },
   'mobile-chat-ai-thinking': {

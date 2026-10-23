@@ -771,6 +771,12 @@ describe('t2: direction, people, the workspace', () => {
     expect(r.chatHeaderHtml({ online: true })).not.toContain('st off');
     expect(T2_CSS).toMatch(/\.wy-view-chat:has\(\.st\.off\) \.messages > \.away \{ display: flex; \}/);
   });
+
+  it('starts the thread at the top, as default does (owner, 2026-10-23): nothing pushes it, or its skeleton, to the bottom', () => {
+    expect(T2_CSS).toMatch(/\n\.messages \{ display: flex; flex-direction: column; \}/);
+    expect(T2_CSS).not.toMatch(/\.messages[^{]*\{[^}]*justify-content: flex-end/);
+    expect(T2_CSS).not.toMatch(/\.wy-sk-msgs \{[^}]*flex-end/);
+  });
 });
 
 describe('t2: the chat bar names the workspace, the operator answering small under it (owner, 2026-10-18)', () => {

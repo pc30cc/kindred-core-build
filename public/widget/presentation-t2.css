@@ -626,13 +626,15 @@ a.wy-powered:hover { color: var(--ink-2); }
   display: flex;
   flex-direction: column;
   padding: 14px 14px 6px;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
 }
 .wy-chat-scroll > .messages { flex: 1 0 auto; }
 .wy-chat-scroll:has(> .welcome-only) { -webkit-mask-image: none; mask-image: none; }
-.messages { display: flex; flex-direction: column; justify-content: flex-end; }
-.messages.welcome-only { justify-content: flex-start; }
+/* The thread starts at the top, as in default (owner, 2026-10-23: the
+   handoff anchored it to the composer, so the AI's first answer sat at the
+   bottom under an empty panel); the fade above ends at the padding. */
+.messages { display: flex; flex-direction: column; }
 
 .msg-row {
   display: flex;
@@ -1168,10 +1170,9 @@ button.lnk2:not(:disabled):hover { color: var(--ink-2); }
 .away .it { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 12px; background: #fff; color: var(--ink-2); box-shadow: 0 0 0 1px var(--line); }
 .away > span:last-child { display: flex; flex-direction: column; font-size: 13.5px; font-weight: 700; line-height: 1.5; }
 .away small { font-size: 12px; font-weight: 500; color: var(--ink-3); }
-/* In the thread, while the bar says the team is away: first, top-aligned. */
+/* In the thread, while the bar says the team is away: first. */
 .messages > .away { display: none; margin: 0 0 16px; }
 .wy-view-chat:has(.st.off) .messages > .away { display: flex; }
-.wy-view-chat:has(.st.off) .messages { justify-content: flex-start; }
 .wy-view-chat:has(.st.off) .wy-chat-scroll { -webkit-mask-image: none; mask-image: none; }
 .wy-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px; font-size: 13px; color: var(--ink-3); text-align: center; }
 
@@ -1633,7 +1634,7 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .sk { display: flex; align-items: center; gap: 12px; padding: 12px; }
 .sk + .sk { opacity: .55; }
 .sk .tx { gap: 8px; }
-.wy-sk-msgs { gap: 10px; justify-content: flex-end; }
+.wy-sk-msgs { gap: 10px; }
 .wy-sk-msg { display: flex; align-items: flex-end; gap: 8px; }
 .wy-sk-msg.is-me { justify-content: flex-end; }
 [dir='rtl'] .wy-sk-msg { flex-direction: row-reverse; }

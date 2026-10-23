@@ -22,6 +22,12 @@ const db: Record<string, Row[]> = {};
 /** When set, the fake conversation_inbox_counters RPC answers with this row. */
 let inboxCounters: Row | null = null;
 const inboxCounterCalls: Row[] = [];
+/**
+ * When set, a read of conversation_messages takes its rows at once (as a real
+ * read takes its snapshot when it starts) but answers only when this settles.
+ */
+let holdMessageReads: Promise<void> | null = null;
+let heldMessageReads = 0;
 
 /** What every fake query settles with. */
 type Result = { data: unknown; error: null; count?: number };
@@ -169,6 +175,11 @@ function fakeClient() {
           }
           if (countMode) return resolve({ data: null, error: null, count: matched.length });
           if (rowLimit !== null) matched = matched.slice(0, rowLimit);
+          if (table === 'conversation_messages' && holdMessageReads) {
+            heldMessageReads += 1;
+            const taken = matched.map((r) => ({ ...r }));
+            return holdMessageReads.then(() => resolve({ data: taken, error: null }));
+          }
           return resolve({ data: matched, error: null });
         },
       };
@@ -275,6 +286,8 @@ let convOpen: string, convPending: string, convAutomated: string, convSpam: stri
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
+  holdMessageReads = null;
+  heldMessageReads = 0;
   convOpen = crypto.randomUUID();
   convPending = crypto.randomUUID();
   convAutomated = crypto.randomUUID();
@@ -471,6 +484,26 @@ describe('GET /api/conversations/unread — the Inbox badge', () => {
     const res = await unread();
     expect(res.json.conversations).toBe(4);
     expect(new Set(res.json.ids as string[])).toEqual(new Set([flooded, ...others]));
+  });
+
+  it('a read asked for after a chat was read never gets the answer of one that began before', async () => {
+    const read = chat();
+    say(read);
+    let release!: () => void;
+    holdMessageReads = new Promise((r) => { release = r; });
+    // A read (a realtime refresh) has taken its rows: the message is unread.
+    const before = unread();
+    await vi.waitFor(() => expect(heldMessageReads).toBe(1));
+    holdMessageReads = null;
+    // The operator opens the chat (POST /seen), and the panel asks again.
+    for (const m of db.conversation_messages) if (m.conversation_id === read) m.seen_at = '2026-10-23T10:00:00Z';
+    const after = unread();
+    // Time for it to reach the server while the first is still answering (it
+    // used to be handed that answer); the fixed code never waits for it.
+    await new Promise((r) => setTimeout(r, 200));
+    release();
+    expect((await before).json).toEqual({ conversations: 1, ids: [read] });
+    expect((await after).json).toEqual({ conversations: 0, ids: [] });
   });
 
   it('names at most 100 chats, the most recently active first, and counts every one', async () => {

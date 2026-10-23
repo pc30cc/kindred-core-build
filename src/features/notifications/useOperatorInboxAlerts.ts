@@ -37,7 +37,7 @@ import { useOperatorAssignmentAlerts } from './operatorAssignmentAlert';
 import { useInboxTabTitle } from './inboxTabTitle';
 
 export function useOperatorInboxAlerts(workspaceId: string | undefined): void {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
@@ -56,7 +56,7 @@ export function useOperatorInboxAlerts(workspaceId: string | undefined): void {
 
   // The same entry as the sidebar's Inbox badge; staff ask for nothing.
   const { data: unread } = useInboxUnread(ws);
-  useInboxTabTitle(ws ? unread?.conversations ?? 0 : 0);
+  useInboxTabTitle(ws ? unread?.conversations ?? 0 : 0, locale === 'fa');
 
   const roleRef = useRef(role);
   roleRef.current = role;

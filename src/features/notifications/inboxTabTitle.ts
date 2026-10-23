@@ -10,10 +10,16 @@
  * whenever the title changes (a MutationObserver on <head>); writing only
  * when the title differs from what it should be is what keeps the observer
  * from waking itself in a loop.
+ *
+ * In Persian the count is written with Persian digits, as every number in the
+ * panel is: the digits layer (lib/persian-digits) converts the page's body
+ * only, never the title.
  */
 import { useEffect } from 'react';
+import { toPersianDigits } from '@/lib/persian-digits';
 
-const PREFIX = /^\(\d+\+?\) /;
+/** Ours, in either digits (the language may change while it is up). */
+const PREFIX = /^\([0-9۰-۹]+\+?\) /;
 
 /** The title without this hook's prefix. */
 export function titleBase(title: string): string {
@@ -21,17 +27,18 @@ export function titleBase(title: string): string {
 }
 
 /** The title as it should read with `count` unread chats. */
-export function titleWithUnread(title: string, count: number): string {
+export function titleWithUnread(title: string, count: number, persianDigits = false): string {
   const base = titleBase(title);
   if (!(count > 0)) return base;
-  return `(${count > 99 ? '99+' : count}) ${base}`;
+  const n = count > 99 ? '99+' : String(count);
+  return `(${persianDigits ? toPersianDigits(n) : n}) ${base}`;
 }
 
-export function useInboxTabTitle(count: number): void {
+export function useInboxTabTitle(count: number, persianDigits = false): void {
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const apply = () => {
-      const next = titleWithUnread(document.title, count);
+      const next = titleWithUnread(document.title, count, persianDigits);
       if (document.title !== next) document.title = next;
     };
     apply();
@@ -44,5 +51,5 @@ export function useInboxTabTitle(count: number): void {
       const base = titleBase(document.title);
       if (document.title !== base) document.title = base;
     };
-  }, [count]);
+  }, [count, persianDigits]);
 }

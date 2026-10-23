@@ -23,7 +23,6 @@
  */
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { coalesce } from '../lib/inflight.js';
 import { isConversationLocked, resolveContactChatLocks } from './contactChatLocks.js';
 import { publishOperatorEvent } from './realtime/publish.js';
 
@@ -58,40 +57,41 @@ export function isChannelMenuEvent(meta: Record<string, unknown> | null | undefi
 }
 
 /**
- * This operator's unread number in one workspace. Concurrent identical
- * requests (the sidebar, the shell and a realtime refresh at the same moment)
- * share one read. Throws when the conversations cannot be read; an unreadable
- * read of messages counts what was found until then (and logs it).
+ * This operator's unread number in one workspace. Every request reads afresh,
+ * never sharing one already running (lib/inflight's coalesce): the panel asks
+ * again right after a write (POST /:id/seen, a visitor's message), and an
+ * answer read before that write would keep the chat just opened on the badge
+ * until the next event. The panel's own requests are already one per tab and
+ * throttled. Throws when the conversations cannot be read; an unreadable read
+ * of messages counts what was found until then (and logs it).
  */
-export function loadInboxUnread(
+export async function loadInboxUnread(
   config: ServerConfig,
   a: { workspaceId: string; userId: string },
 ): Promise<InboxUnread> {
-  return coalesce(`inbox_unread:${a.workspaceId}:${a.userId}`, async () => {
-    const sb = getServiceClient(config);
-    const [{ data, error }, locks] = await Promise.all([
-      sb
-        .from('conversations')
-        .select('id, created_at, updated_at')
-        .eq('workspace_id', a.workspaceId)
-        .eq('status', 'open')
-        .eq('is_spam', false)
-        .or('ai_state.is.null,ai_state.neq.ai_managed')
-        .or(`assigned_to.is.null,assigned_to.eq.${a.userId}`)
-        .order('updated_at', { ascending: false })
-        .limit(CONVERSATIONS_CAP),
-      resolveContactChatLocks(config, a.workspaceId),
-    ]);
-    if (error) throw new Error(error.message);
-    const open = ((data || []) as Array<{ id: string; created_at?: string | null; updated_at?: string | null }>)
-      .filter((c) => c.id && !isConversationLocked(locks, c));
-    if (open.length === 0) return { conversations: 0, ids: [] };
+  const sb = getServiceClient(config);
+  const [{ data, error }, locks] = await Promise.all([
+    sb
+      .from('conversations')
+      .select('id, created_at, updated_at')
+      .eq('workspace_id', a.workspaceId)
+      .eq('status', 'open')
+      .eq('is_spam', false)
+      .or('ai_state.is.null,ai_state.neq.ai_managed')
+      .or(`assigned_to.is.null,assigned_to.eq.${a.userId}`)
+      .order('updated_at', { ascending: false })
+      .limit(CONVERSATIONS_CAP),
+    resolveContactChatLocks(config, a.workspaceId),
+  ]);
+  if (error) throw new Error(error.message);
+  const open = ((data || []) as Array<{ id: string; created_at?: string | null; updated_at?: string | null }>)
+    .filter((c) => c.id && !isConversationLocked(locks, c));
+  if (open.length === 0) return { conversations: 0, ids: [] };
 
-    const waiting = await withUnreadVisitorMessage(sb, open.map((c) => c.id));
-    // In the conversations' own order (most recently active first).
-    const ids = open.map((c) => c.id).filter((id) => waiting.has(id));
-    return { conversations: ids.length, ids: ids.slice(0, UNREAD_IDS_CAP) };
-  });
+  const waiting = await withUnreadVisitorMessage(sb, open.map((c) => c.id));
+  // In the conversations' own order (most recently active first).
+  const ids = open.map((c) => c.id).filter((id) => waiting.has(id));
+  return { conversations: ids.length, ids: ids.slice(0, UNREAD_IDS_CAP) };
 }
 
 /**

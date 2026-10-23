@@ -20,14 +20,17 @@ const state = vi.hoisted(() => ({ settings: {} as Row, inserted: [] as Row[], cr
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    from: () => {
+    from: (table: string) => {
+      // c-1, the conversation a test names, is this workspace's and open.
+      let named = false;
       const api: Record<string, unknown> = {
-        select: () => api, eq: () => api, neq: () => api, is: () => api, order: () => api, limit: () => api, contains: () => api,
+        select: () => api, neq: () => api, is: () => api, order: () => api, limit: () => api, contains: () => api,
+        eq: (col: string, val: unknown) => { if (table === 'conversations' && col === 'id' && val === 'c-1') named = true; return api; },
         insert: (row: Row) => {
           state.created.push(row);
           return { select: () => ({ single: async () => ({ data: { id: 'c-new' }, error: null }) }), then: (r: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(r) };
         },
-        maybeSingle: async () => ({ data: null, error: null }),
+        maybeSingle: async () => ({ data: named ? { id: 'c-1' } : null, error: null }),
         then: (resolve: (r: { data: Row[]; error: null }) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
       };
       return api;

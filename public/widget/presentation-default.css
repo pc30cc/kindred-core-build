@@ -812,11 +812,13 @@ a.wy-powered:hover { color: var(--wy-text); }
   border-inline-start: 3px solid currentColor; padding-inline-start: 8px; font-size: 12px;
   opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* AI attribution now lives on the meta line, next to the time. */
-.msg-ai-badge {
-  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; line-height: 1;
-  padding: 2px 5px; border-radius: 9999px; background: rgba(31, 147, 255, 0.12); color: var(--wy-accent);
-}
+/* AI attribution: the sparkle on the meta line, next to the time. */
+.msg-ai-badge { display: inline-flex; color: var(--wy-accent); }
+/* The accent toward the text colour: a light brand colour (kept as it is for
+   the bubble, with dark ink) would draw the sparkle at ~1.5:1 on the thread;
+   mixed, it reaches 3:1 whatever the accent. Without color-mix() it inherits
+   the meta line's grey. */
+.msg-ai-badge { color: color-mix(in srgb, var(--wy-accent) 60%, var(--wy-text)); }
 .msg-sender { font-size: 10.5px; color: var(--wy-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Bubble line: the bubble plus its hover actions, sitting BESIDE the bubble

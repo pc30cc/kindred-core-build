@@ -6,7 +6,9 @@
  * keep it. Staff keep the team chat (direct messages between members): on
  * a page of its own (`/team-chat`), where an old link to the Inbox's
  * Colleagues tab takes them. A role that could not be read is no answer:
- * the Inbox shows, as the navigation offers it then.
+ * the Inbox shows, as the navigation offers it then. The Inbox tab's badge
+ * is its unread number (useInboxUnread), asked for once the role is known
+ * and never for staff.
  *
  * @vitest-environment jsdom
  */
@@ -23,7 +25,7 @@ const who = vi.hoisted(() => ({
   failed: false,
   /** The plan has the team chat (`inbox_team_chat`). */
   teamChat: false,
-  countsFor: [] as Array<string | undefined>,
+  unreadFor: [] as Array<string | undefined>,
   colleaguesFor: [] as Array<string | undefined>,
 }));
 const TEAM_CHAT_PLAN = { features: { inbox_team_chat: { value: true } } } as unknown as Parameters<typeof planAccessOf>[0];
@@ -40,7 +42,7 @@ vi.mock('@/hooks/useWorkspaceRole', () => ({
     : { data: who.role, isPending: who.pending, isSuccess: !who.pending }),
 }));
 vi.mock('@/hooks/useConversations', () => ({
-  useInboxCounts: (ws: string | undefined) => { who.countsFor.push(ws); return { data: { needs_human: 3 } }; },
+  useInboxUnread: (ws: string | undefined) => { who.unreadFor.push(ws); return { data: ws ? { conversations: 3, ids: [] } : undefined }; },
 }));
 vi.mock('@/hooks/useTeamChat', () => ({
   useColleagues: (ws: string | undefined) => { who.colleaguesFor.push(ws); return { data: ws ? { colleagues: [], total_unread: 2, me: 'u-1' } : undefined }; },
@@ -64,7 +66,7 @@ vi.mock('@/hooks/useWorkspaceSections', () => ({
 const { MobileBottomNav } = await import('@/components/layout/MobileBottomNav');
 const { RequireInboxAccess } = await import('@/components/inbox/RequireInboxAccess');
 
-beforeEach(() => { who.pending = false; who.failed = false; who.teamChat = false; who.countsFor = []; who.colleaguesFor = []; });
+beforeEach(() => { who.pending = false; who.failed = false; who.teamChat = false; who.unreadFor = []; who.colleaguesFor = []; });
 afterEach(cleanup);
 
 function bottomNav() {
@@ -73,26 +75,28 @@ function bottomNav() {
 }
 
 describe('the navigation', () => {
-  it('offers the Inbox to the chat team, with its count', () => {
+  it('offers the Inbox to the chat team, with its unread number', () => {
     who.role = 'support_agent';
     expect(bottomNav()).toContain('/acme/inbox');
-    expect(who.countsFor.at(-1)).toBe('ws-1');
+    expect(who.unreadFor.at(-1)).toBe('ws-1');
+    expect(document.querySelector('a[href="/acme/inbox"] [data-nav-count]')!.textContent).toBe('3');
   });
 
-  it('shows it while the role loads, but asks for its counts only once the role is known', () => {
+  it('shows it while the role loads, but asks for its unread number only once the role is known', () => {
     who.pending = true;
     who.role = undefined as unknown as string;
     expect(bottomNav()).toContain('/acme/inbox');
-    expect(who.countsFor.every((ws) => ws === undefined)).toBe(true);
+    expect(who.unreadFor.every((ws) => ws === undefined)).toBe(true);
+    expect(document.querySelector('a[href="/acme/inbox"] [data-nav-count]')).toBeNull();
   });
 
-  it('does not offer it to staff, and does not ask for its counts', () => {
+  it('does not offer it to staff, and does not ask for its unread number', () => {
     for (const role of ['analyst', 'billing', 'seo_manager', 'viewer']) {
       cleanup();
       who.role = role;
-      who.countsFor = [];
+      who.unreadFor = [];
       expect(bottomNav(), role).not.toContain('/acme/inbox');
-      expect(who.countsFor.every((ws) => ws === undefined), role).toBe(true);
+      expect(who.unreadFor.every((ws) => ws === undefined), role).toBe(true);
     }
   });
 });

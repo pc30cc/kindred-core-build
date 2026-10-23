@@ -110,7 +110,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `.gs-accent-brand` on each view root `.wy-view` and on `.panel-close` | View roots, close button | Hand-tuned brand-default overrides (`tokens.json` → `brandOverrides`): the brand colour and its hero, in the stylesheet (a skin gives its own) | Renderer (`accentTokens()`), when the accent is uncustomised; the brand's own colour chosen explicitly is matched by `[style*='--a:#0b7d6c;' i]` instead ([brief §5.2](../CLAUDE_CODE_BRIEF.md)) | T1, T2 |
 | `--on-a`, inline next to `--a` | View roots, close button | Text and icons on the accent | Renderer (`accentTokens()`): Ink on a light accent, else the stylesheet's white; the drafts' loader-set `--gs-on-primary` was not used ([brief §5.3](../CLAUDE_CODE_BRIEF.md)) | T1, T2 |
 | `.typing-row` (production class, unused today) | `div.msg-row.operator.is-last.typing-row[aria-hidden="true"]` > avatar + `div.msg.operator.typing-bubble > span.typing-dots` | Visible "operator is typing" row, last row of the thread | Renderer, from `view.operatorTyping` (§3); the sr-only `[data-typing-row]` keeps announcing | T1, T2 (WY1 §4.14, RP1 §4.15, WY2 §4.10, RP2 §4.11) |
-| `.msg-row.is-first` + `span.msg-sender-label` | First row of an operator-side run | Sender name above it, only where the team's side changes hands: another person than the last operator-side run, or a person after the AI. Never on the thread's first run (the bar names who answers); a day break, the visitor's messages or a system row do not bring it back (owner, 2026-10-18) | Renderer (from the group keys, PD:638-643; T2 `prevOp`, T1 `lastLabel`) | T1, T2 (RP1 §4.14, WY2 §4.9) |
+| ~~`span.msg-sender-label`~~ *(retired)* | First row of an operator-side run | No longer drawn (owner, 2026-10-23: no name over a run in any template; it replaced the 2026-10-18 rule "only where the team's side changes hands"). The server's join line (`routing_agent_joined`, drawn as `.msg-system-pill`) comes right before a person's first message and names them; `.msg-row.is-first` stays | — | — (was T1, T2: RP1 §4.14, WY2 §4.9) |
 | `.input-bar.is-locked` | Composer | Composer locked while the pre-chat card waits | Core (keeps the textarea disabled) | T1 (WY1 §4.16, RP1 §4.17) |
 | `.panel.wy-after-fab` | Panel | Delay the open by .2s when the launcher was on screen and drops first | Core or the loader | T1 (RP1 §6) |
 | `.wy-avatar-tile` | `span.wy-avatar` in the home hero | Logo tile look (48px, 15px radius) | Renderer | T1 (RP1 §4.3) |
@@ -415,7 +415,7 @@ Do not use these; they appeared in earlier drafts of the specs.
 | `fab.style` (`bubble`, `duo`, `agent`, `pill`; `open`, `thread`, `bubble`, `duo`, `headset`, `avatar`, `pill`) | `fab.icon` (`bubble`, `duo`, `avatar`, `headset`) + `fab.shape` (`pill`, `square`) + `logoDirection` | WY1 §5.24, §9; RP1 §9 |
 | `nextOpenLabel`, `availability.nextOpenLabel` | `availability.nextOpenAt` | WY1 §9, WY2 §9 |
 | `conversations[].agentName`, `.agentOnline` | `conversations[].operatorName`, `.operatorOnline` | WY1 §9 |
-| `span.msg-name` | `span.msg-sender-label` | RP1 §4.14, §9 |
+| `span.msg-name`, then `span.msg-sender-label` | none: no name over a run (owner, 2026-10-23); the join line before a person's first message names them | RP1 §4.14, §9 |
 | `button.tab` (bottom menu) | `button.wy-tab` | RP1 §4.12, §9 |
 | `navMode` class "on the panel root" | on each view root `.wy-view` | RP1 §4.12 |
 | `lg-*` "on the template root" | on `.shell` | RP2 §4.33 |

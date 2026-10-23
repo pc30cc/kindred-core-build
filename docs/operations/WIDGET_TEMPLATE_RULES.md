@@ -185,9 +185,11 @@ templates: `docs/operations/EDITIONS.md`.
   a download's progress, the emoji search), presentation-t1-x.js 4.8 KB and
   presentation-t2-x.js 5.9 KB (of 12 each; t1's emoji grid and its search
   field, t2's order card and articles tray, every late surface, out of the
-  first paint); the renderers keep their first-open budgets (t1 19.5 KB,
-  t2 20.0 KB (19,990 B) in the Iranian build, 19.4 / 19.8 KB in RESPOK's,
-  of 20: t2 has 10 B left, so its next surface goes in its extras).
+  first paint); the renderers keep their first-open budgets (on 2026-10-23,
+  after the names over runs went and the AI's badge became the sparkle: t1
+  19.6 KB (19,597 B), t2 20.0 KB (19,968 B) in the Iranian build, 19.5 /
+  19.8 KB (19,518 / 19,808 B) in RESPOK's, `default` 14.1 KB, of 20: t2 has
+  32 B left, so its next surface goes in its extras).
 - The emoji search's keywords (`public/widget/runtime-emoji.js`, ModuleLoader
   name `emoji`, `config.modules.emoji` for a template with `coreFeatures`):
   pure data (the renderer rules apply: no network, storage or host), the

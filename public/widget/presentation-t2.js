@@ -241,6 +241,8 @@
     copy: '<rect x="9" y="9" width="11" height="11" rx="2"/>' + P('M5 15V5a2 2 0 0 1 2-2h8'),
     retry: P('M21 12a9 9 0 1 1-3.1-6.8') + P('M21 4v5h-5'),
     doc: P('M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z') + P('M14 3v5h5'),
+    // The AI's mark under its replies: the sparkle of the instant answers (the extras' SPARK).
+    ai: P('M12 3.5c.6 3.9 2.6 5.9 6.5 6.5-3.9.6-5.9 2.6-6.5 6.5-.6-3.9-2.6-5.9-6.5-6.5 3.9-.6 5.9-2.6 6.5-6.5z') + P('M18.5 15.5v4M16.5 17.5h4'),
     play: '<path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z" fill="currentColor" stroke="none"/>',
     pause: '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" stroke="none"/>',
     down: P('M12 5v14M19 12l-7 7-7-7'),
@@ -958,7 +960,6 @@
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
-      var prevOp;
 
       msgs.forEach(function (m, idx) {
         var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
@@ -1001,18 +1002,15 @@
         }
 
         // Every operator run has its avatar beside its last bubble; earlier
-        // rows keep the column with a spacer.
+        // rows keep the column with a spacer. No name above a run (owner,
+        // 2026-10-23): the server's "X joined" line comes right before a
+        // person's first message.
         var avatarHtml = visitor ? ''
           : isLast ? msgAvatarHtml(m) : '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
-        // A person's name above their run only where the team's side changes
-        // hands (another person, or after the AI): the bar names who answers.
-        var label = (!visitor && isFirst && !isAi && m.senderType !== 'system' && m.senderName && prevOp != null && prevOp !== m.senderName)
-          ? '<span class="msg-sender-label">' + esc(m.senderName) + '</span>' : '';
-        if (!visitor && isFirst && m.senderType !== 'system') prevOp = isAi ? '' : m.senderName || '';
 
+        // The AI's sparkle, read as the word for the AI (owner, 2026-10-23).
         var aiMetaHtml = (isAi && isLast)
-          ? '<span class="msg-ai-badge" title="' + esc(tf('wyAiAssistant', 'AI assistant')) + '">' +
-              esc(tf('wyAiShort', 'AI')) + '</span>' +
+          ? '<span class="msg-ai-badge" role="img" aria-label="' + esc(tf('wyAiShort', 'AI')) + '">' + ico('ai', 13, 1.7) + '</span>' +
             (m.senderName ? '<span class="msg-sender">' + esc(m.senderName) + '</span>' : '')
           : '';
         var timeStr = failed ? '' : formatMsgTime(m.time);
@@ -1073,7 +1071,7 @@
 
         html += '<div class="msg-row ' + cls + (isLast ? ' is-last' : '') + (isFirst ? ' is-first' : '') +
           (failed ? ' is-failed' : '') + '">' + avatarHtml +
-          '<div class="msg-col">' + label + items + metaHtml + '</div>' +
+          '<div class="msg-col">' + items + metaHtml + '</div>' +
         '</div>';
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';

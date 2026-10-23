@@ -102,6 +102,21 @@ arriving at the same moment spread out instead of all landing on one person.
 
 **After assignment.**
 
+- **"X joined"** (owner, 2026-10-23): the visitor reads "X joined the
+  conversation" (fa "X به گفتگو پیوست") right before X's first message
+  after the AI, or before the first human answer in a chat the AI never
+  had. The operator's reply writes it (`POST
+  /api/conversations/send-message`, `server/services/operatorReplyJoin.ts`),
+  once per stretch since the AI's newest message; a colleague who writes
+  next gets their own line, someone who already wrote in that stretch none.
+  Nothing is written at an assignment (routing, a claim, Take over, a
+  transfer), so the line never names someone who has not written and never
+  comes after their message. A transfer is an Inbox-only line ("A
+  transferred this conversation to B", internal). A chat the operator
+  opens from the Visitors page gets no line: the visitor has not written
+  yet. A platform admin who holds an Inbox seat in the workspace claims an
+  unassigned chat on reply like any member; one without a seat claims
+  nothing, but the visitor still reads who joined.
 - **First-response timeout** (default 5 minutes, 0 = off, Auto and Round
   robin only): if the operator routing chose has not written in the chat by
   then, it goes to the next available operator (never back to them for that
@@ -252,7 +267,8 @@ before merging the code.
 6. **Ledger**: add each file with its UTC time to the migrations list in
    CLAUDE.md, and take it off the pending list there.
 7. Merge. After the backend deploys, a new chat with the AI off is assigned
-   at its first message and the visitor reads "X joined".
+   at its first message, and the visitor reads "X joined" when X first
+   writes.
 8. **After the backend of this release is live**, apply
    `283_offline_message_template_phone.sql` the same way (a folder with it
    alone; `migrate-database.sh` skips what the ledger has). It adds

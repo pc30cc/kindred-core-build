@@ -343,7 +343,8 @@ describe('who routing asks chat_route_claim for', () => {
     expect(state.claims).toEqual([expect.objectContaining({ p_candidates: [BAHAR], p_expected_assignee: ALI, p_method: 'timeout_reassign' })]);
     expect(res).toEqual({ outcome: 'assigned_auto', assignedTo: BAHAR });
     expect(state.events).toEqual([expect.objectContaining({ payload: { from: ALI, to: BAHAR, method: 'timeout_reassign' } })]);
-    expect(notices(c.id)).toEqual(['routing_agent_joined']);
+    // Nothing for the visitor yet: Bahar is introduced when she first writes.
+    expect(notices(c.id)).toEqual([]);
     // Nobody else can: it leaves Ali all the same and waits for the next
     // operator (in everyone's Unassigned list), and the visitor is told so.
     state.claims = [];

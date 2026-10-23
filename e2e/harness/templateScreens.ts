@@ -570,6 +570,7 @@ const EN = new Map<string, string>([
   ['کفش رانینگ، سایز ۴۲', 'Running shoes, size 42'], ['مرجوعی کفش', 'return shoes'], ['مرسی، مشکلم حل شد!', 'Thanks, that sorted it!'],
   ['خوشحالم که حل شد! روز خوبی داشته باشید.', 'Glad that’s sorted! Have a great day.'],
   ['سارا closed the conversation', 'Sara closed the conversation'], ['خوشحالم که حل شد!', 'Glad that’s sorted!'],
+  ['سارا joined the conversation.', 'Sara joined the conversation.'], ['مهدی joined the conversation.', 'Mehdi joined the conversation.'],
   ['آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲', 'New address: 12 Rosewood Ave, Apt 4'],
   ['می‌تونم آدرس تحویل رو تغییر بدم؟', 'Can I change the delivery address?'],
   ['سلام! چطور می‌تونیم کمکتون کنیم؟\nبرای اینکه سریع‌تر به نفر درست وصل بشید، موضوع رو انتخاب کنید:', 'Hi! How can we help?\nPick a topic so we can connect you with the right person faster:'],
@@ -640,17 +641,24 @@ const OPERATOR_THREAD: Msg[] = [
   withPhoto(sara(p4Id(5), 'ممنون! سفارش‌تون امروز صبح ارسال شد.', at(19, 44))),
   withPhoto(sara(p4Id(6), 'کد رهگیری: TR-2290-5531', at(19, 44))),
 ];
-/** The AI, then Sara (two runs), then Mehdi: who answers changes hands twice. */
+/** The server's line right before a person's first message after the AI or a colleague (2026-10-23). */
+const joined = (id: string, name: string, time: string): Msg => ({
+  id, role: 'system', sender_type: 'system', text: `${name} joined the conversation.`, time,
+  metadata: { kind: 'routing_agent_joined', agent_name: name },
+});
+/** The AI, then Sara (two runs), then Mehdi: who answers changes hands twice, each newcomer introduced by the join line. */
 const handoverThread = (): Msg[] => [
   visitor(p4Id(11), 'سلام، سفارش ۴۸۲۱۳ هنوز کد رهگیری نداره.', at(19, 30)),
   {
     id: p4Id(12), role: 'agent', sender_type: 'ai', sender_name: EN_FIXTURE ? 'Assistant' : 'دستیار', sender_avatar: null,
     text: 'ممنون علی! یکی از همکارهام تا چند دقیقه دیگه جواب می‌ده. سؤال‌تون رو بنویسید.', time: at(19, 30),
   },
+  joined(p4Id(18), 'سارا', at(19, 31)),
   sara(p4Id(13), 'سلام علی جان، ممنون که پیام دادید.', at(19, 31)),
   sara(p4Id(14), 'لطفاً شماره سفارش‌تون رو بفرستید.', at(19, 31)),
   visitor(p4Id(15), 'حتماً، شماره سفارش ۴۸۲۱۳ هست', at(19, 32)),
   sara(p4Id(16), 'ممنون! سفارش‌تون امروز صبح ارسال شد.', at(19, 33)),
+  joined(p4Id(19), 'مهدی', at(19, 40)),
   { ...sara(p4Id(17), 'کد رهگیری: TR-2290-5531', at(19, 40)), sender_name: 'مهدی' },
 ];
 const P4_OPEN: Conversation = {

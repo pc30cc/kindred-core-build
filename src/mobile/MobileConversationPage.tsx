@@ -48,6 +48,7 @@ import {
   useMarkConversationSeen,
 } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useKeepThreadSeen } from '@/features/notifications/keepThreadSeen';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView } from '@/components/inbox/MessageAttachmentView';
 import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
@@ -237,7 +238,9 @@ export default function MobileConversationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder.error]);
 
-  useInboxRealtime({ workspaceId: workspace?.id, conversationId });
+  // A visitor message arriving while the thread is on screen is read too.
+  const keepSeen = useKeepThreadSeen(conversationId, markSeen.mutate);
+  useInboxRealtime({ workspaceId: workspace?.id, conversationId, onMessage: keepSeen });
 
   // Mark the thread as read once on open.
   useEffect(() => {

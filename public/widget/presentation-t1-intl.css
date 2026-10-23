@@ -35,7 +35,7 @@
 .wy-view[dir='ltr'] .hx-q { margin-top: 4px; font-size: 25px; line-height: 1.2; letter-spacing: -.015em; }
 .gs-mobile-open .wy-view[dir='ltr'] .hx-q { font-size: 28px; }
 .wy-view[dir='ltr'] .ct { line-height: 1.35; }
-.wy-view[dir='ltr'] :is(.cs, .l1, .l2, .li, .msg-sender-label, .msg-meta) { line-height: 1.4; }
+.wy-view[dir='ltr'] :is(.cs, .l1, .l2, .li, .msg-meta) { line-height: 1.4; }
 .wy-view[dir='ltr'] :is(.msg, .note, .intro, .prechat-intro) { line-height: 1.5; }
 .wy-view[dir='ltr'] .art h1 { line-height: 1.3; letter-spacing: -.01em; }
 .wy-view[dir='ltr'] .kb-article-body, .wy-view[dir='ltr'] .kb-article-body ol > li { line-height: 1.65; }

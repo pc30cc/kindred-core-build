@@ -482,7 +482,7 @@ div.msg-row.(visitor or operator)[.is-last]
       div.msg.(visitor or operator)[.has-att or .has-att-only][.is-ai][.has-tail][style="background:<primaryColor>" (visitor)]
         [span.msg-quote] [span.msg-text] [attachment]
       [span.msg-actions > button.msg-act[data-msg-reply…] + button.msg-act[data-msg-copy]]     only when there is text
-    [div.msg-footline > div.msg-meta > [span.msg-ai-badge][span.msg-sender] [span.msg-time] [ticks / failed + retry]]   .is-last only
+    [div.msg-footline > div.msg-meta > [span.msg-ai-badge[role=img] > svg][span.msg-sender] [span.msg-time] [ticks / failed + retry]]   .is-last only
 ```
 
 - **Grouping.**
@@ -502,7 +502,7 @@ div.msg-row.(visitor or operator)[.is-last]
   - `seen` → double tick + `.is-seen` (accent);
   - any other status → single tick.
 - **Failed send.** Shown even when receipts are off: `span.msg-ticks.is-failed` "!" + `button.msg-retry-btn[data-msg-retry=<localId>]` (PD:676-685).
-- **AI messages.** The bubble gets `.is-ai`. The meta line gets `span.msg-ai-badge` ("AI", title "AI assistant") plus an optional `span.msg-sender` (PD:712-718).
+- **AI messages.** The bubble gets `.is-ai`. The meta line gets `span.msg-ai-badge` plus an optional `span.msg-sender` (PD:712-718). Since 2026-10-23 (owner) the badge is an icon, not the word: the sparkle (an `aria-hidden` SVG) with `role="img"`, `aria-label` "AI" (`wyAiShort`) and title "AI assistant" (`wyAiAssistant`); `span.msg-sender` is left out when the name is Core's stand-in for a nameless AI (that same "AI assistant"), so only a name the workspace gave the agent is printed. t1 and t2 draw the same badge, without the title.
 - **Quote.** `span.msg-quote` comes from `replyTo.text`/`replyTo.body` or from a leading `> ` block in the body (PD:596-615, 727-754).
 - **Links.** Core's `linkifyHtml` (PD:54-59) produces `a.msg-link[target=_blank][rel="noopener noreferrer nofollow"][dir=auto]`, labelled "Open link", styled as a pill with `::after '↗'` (CSS:704-763) `[snap]`.
 - **Typewriter reveal.** While revealing, the bubble carries `[data-typing-host][data-typing-active="1"]` and the text is `span.msg-text[data-typing-id]` (PD:735-749, 775).

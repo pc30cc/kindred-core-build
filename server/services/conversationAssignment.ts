@@ -15,10 +15,11 @@
  *            whoever the caller saw (409 `assignment_changed`), so two
  *            moves at once can never both land silently;
  *   told     the timeline (assigned / unassigned), the new operator's phone,
- *            the thread (the visitor's "X joined" or transfer line; an
- *            unassign stays in the Inbox), the AI (a thread it held is a
- *            person's now: human takeover, R-06), and a conversation that
- *            nobody has any more is routed again in every mode (R-20).
+ *            the Inbox's thread (a transfer or unassign line, never the
+ *            visitor's: they read "X joined" with X's first message,
+ *            operatorReplyJoin.ts), the AI (a thread it held is a person's
+ *            now: human takeover, R-06), and a conversation that nobody has
+ *            any more is routed again in every mode (R-20).
  */
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -26,7 +27,7 @@ import { isRoutableChatRole } from '../../shared/chatRoles.js';
 import { isSeatLocked } from '../lib/workspaceAuth.js';
 import { supervisesInbox } from '../lib/inboxAccess.js';
 import { recordAuditAndEvent } from './conversationEvents.js';
-import { buildMessageEnvelope, publishConversationEvent, publishOperatorEvent } from './realtime/publish.js';
+import { publishOperatorEvent } from './realtime/publish.js';
 import { notifyAssignment } from './push/index.js';
 import { markHumanTakeover } from './ai-agent/handoffState.js';
 
@@ -128,12 +129,13 @@ export async function compareAndAssign(
  * a transfer to an operator, a take): the timeline and the audit log
  * (`method`: manual, or as given), the new operator's phone, the AI (a thread
  * it held is the new operator's now — R-06: it stayed hidden in the AI's
- * queue while the AI kept answering), the thread's notice, and — handed
+ * queue while the AI kept answering), the Inbox's notice, and — handed
  * back to nobody — routing again
  * (rerouteConversation: the next operator in auto or round robin, the queue
  * in manual; whoever let it go is not offered it again). The notice and the
- * routing run in the background, in that order, so the thread reads "X
- * unassigned", then "Y joined". Never throws.
+ * routing run in the background, in that order, so the Inbox reads "X
+ * unassigned" first; the visitor reads the next operator's "joined" when
+ * that operator first writes. Never throws.
  */
 export async function announceManualAssignment(
   config: ServerConfig,
@@ -202,25 +204,27 @@ export async function announceManualAssignment(
 }
 
 /**
- * A notice inside the thread itself. Two genuinely different events share
- * it:
+ * A notice inside the thread itself, for the Inbox only. Two different
+ * events:
  *
- *   unassigned → assigned  is somebody JOINING. The visitor has been
- *     waiting and should be told who picked their conversation up, so this
- *     one is visitor-visible and uses the same `routing_agent_joined` kind
- *     that auto-routing emits.
+ *   unassigned → assigned  is somebody joining, and posts nothing here: the
+ *     visitor reads "X joined" right before X's first message
+ *     (operatorReplyJoin.ts), which is when it is true and where it reads
+ *     in order.
  *
- *   assigned → someone else, or → nobody, is a staffing move. A transfer is
- *     news for the visitor too — the next operator arriving is who they will
- *     be talking to, and the widget renders it as a join naming `to_name`.
- *     Being unassigned is not: "nobody is handling you right now" helps no
- *     one, so it stays inbox-only (`internal`; the widget filters it out of
- *     /poll and /history, and it is not published to the visitor).
+ *   assigned → someone else, or → nobody, is a staffing move: `internal`
+ *     (the widget filters it out of /poll and /history, and it is not
+ *     published on the conversation channel), so the Inbox shows who moved
+ *     it. A transfer used to reach the visitor as "B joined", about someone
+ *     who had not written yet; B's line now comes with B's first message.
+ *     Transfer rows stored before stay visible and still read as a join in
+ *     the widget.
  */
 async function postAssignmentNotice(
   config: ServerConfig,
   a: { workspaceId: string; conversationId: string; actorId: string; from: string | null; to: string | null },
 ): Promise<void> {
+  if (!a.from && a.to) return;
   try {
     const sb = getServiceClient(config);
     const ids = [a.actorId, a.from, a.to].filter((v): v is string => !!v);
@@ -237,53 +241,33 @@ async function postAssignmentNotice(
     const actorName = nameById.get(a.actorId) || null;
     const fromName = a.from ? (nameById.get(a.from) || null) : null;
     const toName = a.to ? (nameById.get(a.to) || null) : null;
-    const isJoin = !a.from && !!a.to;
-    const body = isJoin
-      ? `${toName || 'An operator'} joined the conversation.`
-      : toName
-        ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
-        : `${actorName || 'An operator'} unassigned this conversation`;
-    const metadata = isJoin
-      ? {
-        kind: 'routing_agent_joined',
-        agent_id: a.to,
-        agent_name: toName,
-        actor_id: a.actorId,
-        actor_name: actorName,
-      }
-      : {
+    const body = toName
+      ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
+      : `${actorName || 'An operator'} unassigned this conversation`;
+    const { error: insertError } = await sb.from('conversation_messages').insert({
+      conversation_id: a.conversationId,
+      sender_type: 'system',
+      body,
+      metadata: {
         kind: a.to ? 'conversation_transferred' : 'conversation_unassigned',
-        internal: !a.to,
+        internal: true,
         actor_id: a.actorId,
         actor_name: actorName,
         from_id: a.from,
         from_name: fromName,
         to_id: a.to,
         to_name: toName,
-      };
-    const { data: noticeRow } = await sb.from('conversation_messages').insert({
-      conversation_id: a.conversationId,
-      sender_type: 'system',
-      body,
-      metadata,
-    }).select('id, conversation_id, sender_type, body, created_at, metadata, seen_at').single();
-    // A join and a transfer are visitor-facing: they reach the widget in real
-    // time rather than waiting for a reload.
-    if (noticeRow && a.to) {
-      const row = noticeRow as { id: string; conversation_id: string; body: string; created_at: string | null; metadata?: Record<string, unknown> | null; seen_at?: string | null };
-      void publishConversationEvent(
-        config, a.workspaceId, a.conversationId,
-        buildMessageEnvelope({
-          id: row.id,
-          conversation_id: row.conversation_id,
-          sender_type: 'system',
-          body: row.body,
-          created_at: row.created_at,
-          metadata: row.metadata ?? metadata,
-          seen_at: row.seen_at ?? null,
-        }),
-      );
-    }
+      },
+    });
+    if (insertError) throw new Error(insertError.message);
+    // The line is written after the assignee change was announced, so an
+    // open thread re-reads its messages now, to show it live: operators only
+    // (the inbox channel), never the visitor's channel.
+    void publishOperatorEvent(
+      config,
+      { kind: 'timeline_event', conversation_id: a.conversationId, workspace_id: a.workspaceId, actor_id: a.actorId },
+      { skipConversationChannel: true },
+    ).catch(() => undefined);
   } catch (e) {
     console.warn('[conversation assignment] notice failed:', e instanceof Error ? e.message : e);
   }

@@ -47,7 +47,7 @@ import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-ag
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
-import { authorizeInboxAccess, supervisesInbox } from '../lib/inboxAccess.js';
+import { authorizeInboxAccess, holdsInboxSeat, supervisesInbox } from '../lib/inboxAccess.js';
 import {
   announceManualAssignment,
   checkAssignmentTarget,
@@ -57,6 +57,14 @@ import {
   takeOverConversation,
 } from '../services/conversationAssignment.js';
 import { continueConversationThread, endConversationThread } from '../services/conversationLifecycle.js';
+import {
+  dropReplyJoin,
+  introduceOperatorBeforeReply,
+  lockConversationReplies,
+  publishReplyJoin,
+  separateJoinFromReply,
+  type ReplyJoinRow,
+} from '../services/operatorReplyJoin.js';
 import { patchConversationMetadata } from '../services/conversationMetadata.js';
 import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
@@ -88,6 +96,7 @@ type MessageAttachment = {
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { publishVisitorSeen } from '../services/widget/visitorSeen.js';
+import { isChannelMenuEvent, loadInboxUnread, publishConversationSeen } from '../services/inboxUnread.js';
 import { wakeVisitorWidget } from '../services/widget/visitorWake.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
@@ -502,36 +511,66 @@ conversationsRouter.post('/send-message', async (req, res) => {
       replyTo = quoted.id;
     }
 
-    if (!inserted) {
-      const { data: row, error: insErr } = await sb
-        .from('conversation_messages')
-        .insert({
-          conversation_id: parsed.data.conversation_id,
-          body: messageBody,
-          sender_type: 'agent',
-          sender_id: auth.userId,
-          metadata: baseMetadata,
-          ...(replyTo ? { reply_to_message_id: replyTo } : {}),
-        })
-        .select(MESSAGE_COLUMNS)
-        .single();
-      if (insErr || !row) {
-        // Lost the race against a concurrent replay of the same key.
-        if (clientMessageId && /duplicate key|23505/i.test(insErr?.message || '')) {
-          const { data: prior } = await sb
-            .from('conversation_messages')
-            .select(MESSAGE_COLUMNS)
-            .eq('conversation_id', parsed.data.conversation_id)
-            .filter('metadata->>client_message_id', 'eq', clientMessageId)
-            .maybeSingle();
-          if (prior) { inserted = prior; duplicate = true; }
-        }
-        if (!inserted) {
-          return res.status(500).json({ error: insErr?.message || 'Insert failed' });
-        }
-      } else {
-        inserted = row;
+    // The visitor reads "X joined" right before X's first message after the
+    // AI (operatorReplyJoin.ts): the check, that line and the reply run
+    // under the conversation's lock, so two messages sent at once write one
+    // line, and the line is its own insert, strictly before the reply.
+    let join: ReplyJoinRow | null = null;
+    const releaseReplyLock = duplicate ? null : await lockConversationReplies(parsed.data.conversation_id);
+    try {
+      if (!duplicate) {
+        join = await introduceOperatorBeforeReply(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId: parsed.data.conversation_id,
+          userId: auth.userId,
+        });
       }
+      if (!inserted) {
+        const { data: row, error: insErr } = await sb
+          .from('conversation_messages')
+          .insert({
+            conversation_id: parsed.data.conversation_id,
+            body: messageBody,
+            sender_type: 'agent',
+            sender_id: auth.userId,
+            metadata: baseMetadata,
+            ...(replyTo ? { reply_to_message_id: replyTo } : {}),
+          })
+          .select(MESSAGE_COLUMNS)
+          .single();
+        if (insErr || !row) {
+          // Lost the race against a concurrent replay of the same key.
+          if (clientMessageId && /duplicate key|23505/i.test(insErr?.message || '')) {
+            const { data: prior } = await sb
+              .from('conversation_messages')
+              .select(MESSAGE_COLUMNS)
+              .eq('conversation_id', parsed.data.conversation_id)
+              .filter('metadata->>client_message_id', 'eq', clientMessageId)
+              .maybeSingle();
+            if (prior) { inserted = prior; duplicate = true; }
+          }
+          if (!inserted) {
+            // No reply, so no line announcing it.
+            if (join) await dropReplyJoin(config, join.id);
+            return res.status(500).json({ error: insErr?.message || 'Insert failed' });
+          }
+        } else {
+          inserted = row;
+        }
+      }
+      // A replay that lost the race: the original request wrote the message
+      // (and the line, if one was owed).
+      if (duplicate && join) {
+        await dropReplyJoin(config, join.id);
+        join = null;
+      }
+    } finally {
+      releaseReplyLock?.();
+    }
+    // Awaited, so the line reaches the visitor before the reply's publish below.
+    if (join) {
+      join = await separateJoinFromReply(config, join, (inserted as { created_at?: string | null } | null)?.created_at);
+      await publishReplyJoin(config, parsed.data.workspace_id, join);
     }
 
 
@@ -577,8 +616,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // The first operator reply to an unassigned conversation claims it, the
     // way the apps' claim does (R-10): atomically, only while nobody has it,
     // so a colleague's list drops it at once instead of two people answering.
-    // A platform admin's reply (no workspace seat) claims nothing.
-    if (!duplicate && !auth.isAdmin && !(conv as { assigned_to?: string | null }).assigned_to) {
+    // A platform admin claims only when they hold an Inbox seat in this
+    // workspace (the owner answering in their own); one looking in from
+    // outside claims nothing, though the visitor still reads who joined.
+    if (
+      !duplicate
+      && !(conv as { assigned_to?: string | null }).assigned_to
+      && (!auth.isAdmin || await holdsInboxSeat(config, conv.workspace_id, auth.userId))
+    ) {
       await claimUnassigned(config, {
         workspaceId: conv.workspace_id,
         conversationId: conv.id,
@@ -1293,7 +1338,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 // it, or meanwhile).
 //
 //   to an operator  as the PATCH's assignee change (permissions, target,
-//                   atomic, the visitor's transfer line, the new operator's
+//                   atomic, the Inbox's transfer line, the new operator's
 //                   phone, the AI letting go);
 //   to a department the conversation leaves its operator (atomically), takes
 //                   the department, and is routed inside it now — the
@@ -1305,7 +1350,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
 //                   asked for). Whoever held it is not offered it again for
 //                   this chat. The Inbox reads "X transferred this
 //                   conversation to <department>" (internal); the visitor
-//                   hears who joins.
+//                   reads who joined when that operator first writes.
 // Supervisors move anyone's conversation; everyone else only their own (or
 // takes an unassigned one themselves).
 // ═══════════════════════════════════════════════════════════════════
@@ -1733,13 +1778,10 @@ async function listConversationRows(
     for (const m of (msgs || [])) {
       if (!m.conversation_id) continue;
       // Channel menu/button taps are navigation, not conversation content:
-      // they must never drive the list preview or the unread badge. Older
-      // rows may carry the flag as a boolean, and menu taps written before
-      // the flag existed still carry `channel_menu_command`.
+      // they must never drive the list preview or the unread badge (the
+      // Inbox's unread number skips them by the same rule).
       const meta = (m.metadata || {}) as Record<string, unknown>;
-      const isMenuEvent =
-        String(meta.channel_menu_event ?? '') === 'true' || !!meta.channel_menu_command;
-      if (isMenuEvent) continue;
+      if (isChannelMenuEvent(meta)) continue;
 
       if (!lastByConv[m.conversation_id]) {
         // A system notice's body is written in the requesting operator's
@@ -1984,6 +2026,25 @@ conversationsRouter.get('/inbox-counts', async (req, res) => {
     });
   } catch (err) {
     console.error('[conversations inbox-counts] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ─── The Inbox's unread number ──────────────────────────────────────
+// How many of this operator's open conversations (nobody's or theirs) hold a
+// visitor message nobody has read: the badge on Inbox in every web
+// navigation and the tab title's "(n)" (services/inboxUnread.ts). Always the
+// operator's own scope, also for a supervisor watching "All".
+conversationsRouter.get('/unread', async (req, res) => {
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const workspaceId = String(req.query.workspace_id || '');
+    if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+    return res.json(await loadInboxUnread(config, { workspaceId, userId: auth.userId }));
+  } catch (err) {
+    console.error('[conversations unread] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
@@ -2421,6 +2482,10 @@ conversationsRouter.post('/:id/seen', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     // The visitor's ticks turn "seen" live (services/widget/visitorSeen.ts).
     void publishVisitorSeen(config, conv.workspace_id, conversationId, (data || []).map((r) => r.id as string), seenAt);
+    // And every operator's Inbox badge drops the chat (services/inboxUnread.ts).
+    if ((data || []).length > 0) {
+      void publishConversationSeen(config, { workspaceId: conv.workspace_id, conversationId, actorId: auth.userId, seenAt });
+    }
     return res.json({ ok: true, count: (data || []).length });
   } catch (err) {
     console.error('[conversations seen] error:', err);

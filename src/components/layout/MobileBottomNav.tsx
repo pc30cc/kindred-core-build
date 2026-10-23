@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Inbox, Radar, Users, Menu as MenuIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { useInboxCounts } from '@/hooks/useConversations';
+import { useInboxUnread } from '@/hooks/useConversations';
 import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { teamChatPageVisible } from '@/lib/planAccess';
@@ -25,8 +25,9 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const { workspace } = useActiveWorkspace();
   // Visitors is a plan section and the Inbox a role one: the tabs follow the sidebar's rules.
   const sections = useWorkspaceSections();
-  // Asked for once the role is known (staff without an Inbox get 403).
-  const { data: inboxCounts } = useInboxCounts(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
+  // The sidebar's Inbox badge: conversations with a visitor message nobody
+  // has read. Asked for once the role is known (staff without an Inbox get 403).
+  const { data: inboxUnread } = useInboxUnread(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
 
   const isActive = (subPath: string) => {
     const fullPath = wsPath(subPath);
@@ -34,7 +35,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
     return location.pathname.includes(subPath);
   };
 
-  const needsHuman = inboxCounts?.needs_human ?? 0;
+  const unreadChats = inboxUnread?.conversations ?? 0;
   // Staff have no Inbox; the team chat takes its tab.
   const teamChat = teamChatPageVisible(sections);
   const { data: teamChatDir } = useColleagues(teamChat ? workspace?.id : undefined);
@@ -42,7 +43,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const tabs: { key: string; icon: React.ElementType; onClick?: () => void; to?: string; active: boolean; badge?: number }[] = [
     { key: 'dashboard', icon: LayoutDashboard, to: wsPath(''), active: isActive('') },
     ...(sections.visible('inbox')
-      ? [{ key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman }]
+      ? [{ key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: unreadChats }]
       : []),
     ...(teamChat
       ? [{ key: 'teamChat', icon: Users, to: wsPath('/team-chat'), active: isActive('/team-chat'), badge: teamChatDir?.total_unread ?? 0 }]

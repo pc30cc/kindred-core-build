@@ -23,7 +23,7 @@ import {
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
-import { useInboxCounts, useInboxTabCounts } from '@/hooks/useConversations';
+import { useInboxCounts, useInboxTabCounts, useInboxUnread } from '@/hooks/useConversations';
 import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import type { AppSection } from '@/lib/planAccess';
@@ -90,6 +90,9 @@ export function useArtNav() {
   // (staff without one get 403 from its routes).
   const inboxData = sections.roleKnown && sections.visible('inbox');
   const { data: inboxCounts } = useInboxCounts(inboxData ? workspace?.id : undefined);
+  // The Inbox pill's badge, as the classic sidebar's: conversations with a
+  // visitor message nobody has read. Needs-human keeps its queue entry.
+  const { data: inboxUnread } = useInboxUnread(inboxData ? workspace?.id : undefined);
   const { plan } = sections;
 
   // Same query (and cache entry) as the sidebar's channel inboxes.
@@ -128,7 +131,7 @@ export function useArtNav() {
 
   const needsHuman = inboxCounts?.needs_human ?? 0;
   const primary = PRIMARY.filter(offered).map((entry) =>
-    entry.key === 'inbox' ? { ...toItem(entry), badge: needsHuman }
+    entry.key === 'inbox' ? { ...toItem(entry), badge: inboxUnread?.conversations ?? 0 }
       : entry.key === 'teamChat' ? { ...toItem(entry), badge: teamChatDir?.total_unread ?? 0 }
         : toItem(entry),
   );

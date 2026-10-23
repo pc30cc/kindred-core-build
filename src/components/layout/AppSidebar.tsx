@@ -31,7 +31,7 @@ import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialo
 import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
 import { useQuery } from '@tanstack/react-query';
 import { useBranding } from '@/hooks/useBranding';
-import { useInboxCounts } from '@/hooks/useConversations';
+import { useInboxCounts, useInboxUnread } from '@/hooks/useConversations';
 import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import {
@@ -50,13 +50,14 @@ import { pluginsApi } from '@/lib/plugins-api';
 import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
 import { useBridgeSettings } from '@/features/widget-bridge/hooks';
 
-/** Colorful icon chip shared by every sidebar entry. */
+/** Colorful icon chip shared by every sidebar entry; `dot` marks news on a collapsed rail. */
 function NavChip({
   icon: Icon,
   accent,
   active,
   collapsed,
-}: { icon: React.ElementType; accent: AiAccent; active: boolean; collapsed: boolean }) {
+  dot = false,
+}: { icon: React.ElementType; accent: AiAccent; active: boolean; collapsed: boolean; dot?: boolean }) {
   const a = AI_ACCENT[accent];
   return (
     <span
@@ -72,6 +73,7 @@ function NavChip({
     >
       {active && <span aria-hidden data-shell-decor className={cn('absolute inset-0 -z-10 rounded-xl blur-md opacity-60', a.glow)} />}
       <Icon className={collapsed ? 'h-[19px] w-[19px]' : 'h-[17px] w-[17px]'} strokeWidth={2} />
+      {dot && <span data-nav-dot aria-hidden className="absolute -top-0.5 -end-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-sidebar" />}
     </span>
   );
 }
@@ -121,7 +123,13 @@ export function AppSidebar({
   const sections = useWorkspaceSections();
   // Asked for once the role is known: the Inbox is shown while it loads, but
   // staff without one get 403 from its routes.
-  const { data: inboxCounts } = useInboxCounts(sections.roleKnown && sections.visible('inbox') ? workspace?.id : undefined);
+  const inboxData = sections.roleKnown && sections.visible('inbox');
+  const { data: inboxCounts } = useInboxCounts(inboxData ? workspace?.id : undefined);
+  // Conversations with a visitor message nobody has read: a count after
+  // Inbox, a dot on its chip when the rail is collapsed.
+  const { data: inboxUnread } = useInboxUnread(inboxData ? workspace?.id : undefined);
+  const unreadChats = inboxUnread?.conversations ?? 0;
+  const inboxLabel = unreadChats > 0 ? `${t('nav.inbox')} (${unreadChats} ${t('inbox.unread')})` : t('nav.inbox');
   const { plan } = sections;
   const entsReady = sections.ready;
   // The queues inside the inbox follow the same rules as the inbox's own tabs.
@@ -499,12 +507,14 @@ export function AppSidebar({
       {/* Inbox section — the owner, admins and the chat team only (shared/chatRoles.ts). */}
       {sections.visible('inbox') && (
       <div className="px-3 mt-2">
-        <NavTip label={t('nav.inbox')} enabled={collapsed}>
+        <NavTip label={inboxLabel} enabled={collapsed}>
         <Link
           to={wsPath('/inbox')}
           data-nav-item
+          data-nav-key="inbox"
           data-active={isActive('/inbox')}
           title={collapsed ? undefined : t('nav.inbox')}
+          aria-label={unreadChats > 0 ? inboxLabel : undefined}
           className={cn(
             'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
             isActive('/inbox')
@@ -513,8 +523,13 @@ export function AppSidebar({
             collapsed && 'justify-center px-0'
           )}
         >
-          <NavChip icon={Inbox} accent="emerald" active={isActive('/inbox')} collapsed={collapsed} />
-          {!collapsed && <span>{t('nav.inbox')}</span>}
+          <NavChip icon={Inbox} accent="emerald" active={isActive('/inbox')} collapsed={collapsed} dot={collapsed && unreadChats > 0} />
+          {!collapsed && <span className="flex-1">{t('nav.inbox')}</span>}
+          {!collapsed && unreadChats > 0 && (
+            <span data-nav-count className="ms-auto bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center tabular-nums">
+              {unreadChats > 99 ? '99+' : unreadChats}
+            </span>
+          )}
         </Link>
         </NavTip>
 

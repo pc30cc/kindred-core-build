@@ -42,7 +42,11 @@ export type OperatorEventKind =
   | 'message_reactions'
   // The visitor read the conversation: `visitor_last_read_at` (ISO), for the
   // operator's "Seen" (server/services/visitorReadReceipts.ts).
-  | 'visitor_read';
+  | 'visitor_read'
+  // A member read the visitor's messages: `seen_at` (ISO), so the Inbox's
+  // unread number drops the chat (server/services/inboxUnread.ts). Operators
+  // only, never on the conversation channel, no names.
+  | 'conversation_seen';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

@@ -88,6 +88,7 @@ function fakeClient() {
       // silently replaced the first, letting an ai_managed conversation into
       // the main queue in the fake but not in production.
       const orGroups: string[][] = [];
+      const sorts: Array<{ col: string; ascending: boolean }> = [];
       let countMode = false;
       const builder: QueryBuilder = {
         select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
@@ -105,7 +106,8 @@ function fakeClient() {
           if (m) filters.push((r) => ((r.metadata || {}) as Row)[m[1]] === val);
           return builder;
         },
-        order: () => builder,
+        // Applied, so an answer's order can be tested (the unread ids).
+        order(col: string, opts?: { ascending?: boolean }) { sorts.push({ col, ascending: opts?.ascending !== false }); return builder; },
         limit: () => builder,
         insert(payload: Row | Row[]) {
           const items = Array.isArray(payload) ? payload : [payload];
@@ -155,6 +157,13 @@ function fakeClient() {
           for (const group of orGroups) {
             matched = matched.filter((r) => group.some((c) => evalOrClause(r, c)));
           }
+          for (const { col, ascending } of [...sorts].reverse()) {
+            matched = [...matched].sort((a, b) => {
+              const x = String(a[col] ?? '');
+              const y = String(b[col] ?? '');
+              return (x < y ? -1 : x > y ? 1 : 0) * (ascending ? 1 : -1);
+            });
+          }
           if (countMode) return resolve({ data: null, error: null, count: matched.length });
           return resolve({ data: matched, error: null });
         },
@@ -192,13 +201,17 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
   },
   verifyOriginForMutation: () => true,
 }));
+const operatorEvents = vi.hoisted(() => [] as Array<{ payload: Record<string, unknown>; opts?: { skipConversationChannel?: boolean } }>);
 const conversationPublishes = vi.hoisted(() => [] as Array<{ conversationId: string; event: { type: string; payload: Record<string, unknown> } }>);
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishConversationEvent: async (_c: unknown, _w: string, conversationId: string, event: { type: string; payload: Record<string, unknown> }) => {
     conversationPublishes.push({ conversationId, event });
     return { ok: false, reason: 'not_configured' };
   },
-  publishOperatorEvent: async () => ({ ok: false }),
+  publishOperatorEvent: async (_c: unknown, payload: Record<string, unknown>, opts?: { skipConversationChannel?: boolean }) => {
+    operatorEvents.push({ payload, opts });
+    return { ok: false };
+  },
   buildMessageEnvelope: (m: unknown) => ({ type: 'message', payload: m }),
 }));
 vi.mock('../../../server/services/billing/conversationLimit.js', () => ({
@@ -384,6 +397,96 @@ describe('GET /api/conversations/inbox-counts and /inbox-tab-counts', () => {
   });
 });
 
+describe('GET /api/conversations/unread — the Inbox badge', () => {
+  const COLLEAGUE = crypto.randomUUID();
+  const unread = (token = 'member-token', workspaceId = WS) =>
+    call('GET', `/api/conversations/unread?workspace_id=${workspaceId}`, { token });
+  const say = (conversationId: string, extra: Row = {}) => {
+    db.conversation_messages.push({
+      id: crypto.randomUUID(), conversation_id: conversationId, sender_type: 'contact', body: 'hi',
+      seen_at: null, created_at: '2026-01-01T00:00:00Z', metadata: {}, ...extra,
+    });
+  };
+  const chat = (extra: Row = {}): string => {
+    const id = crypto.randomUUID();
+    db.conversations.push({ id, workspace_id: WS, status: 'open', is_spam: false, ai_state: null, assigned_to: null, updated_at: '2026-01-01T12:00:00Z', ...extra });
+    return id;
+  };
+
+  it('counts the open chats of the main queue, nobody\'s or mine, with a visitor message nobody has read', async () => {
+    const mine = chat({ assigned_to: MEMBER, ai_state: 'human_active', updated_at: '2026-01-07T00:00:00Z' });
+    say(convOpen);
+    say(convNeedsHuman);
+    say(mine);
+    say(mine); // a conversation, not its messages
+    const res = await unread();
+    expect(res.status).toBe(200);
+    // Most recently active first.
+    expect(res.json).toEqual({ conversations: 3, ids: [mine, convNeedsHuman, convOpen] });
+  });
+
+  it('leaves out the AI\'s, spam, a colleague\'s, the finished and the waiting ones, and another workspace\'s', async () => {
+    const colleagues = chat({ assigned_to: COLLEAGUE });
+    const resolved = chat({ status: 'resolved' });
+    const closed = chat({ status: 'closed' });
+    for (const id of [convAutomated, convSpam, convPending, convForeign, colleagues, resolved, closed]) say(id);
+    expect((await unread()).json).toEqual({ conversations: 0, ids: [] });
+  });
+
+  it('counts the operator\'s own scope also for a supervisor watching "All"', async () => {
+    // MEMBER is the owner: a colleague's chat is still not on their badge.
+    const colleagues = chat({ assigned_to: COLLEAGUE });
+    say(colleagues);
+    const res = await call('GET', `/api/conversations/unread?workspace_id=${WS}&scope=all`, { token: 'member-token' });
+    expect(res.json).toEqual({ conversations: 0, ids: [] });
+  });
+
+  it('leaves out what is read, menu taps, and the team\'s and the system\'s messages', async () => {
+    say(convOpen, { seen_at: '2026-01-01T00:01:00Z' });
+    say(convNeedsHuman, { metadata: { channel_menu_event: 'true' } });
+    const tapped = chat();
+    say(tapped, { metadata: { channel_menu_event: true } });
+    const command = chat();
+    say(command, { metadata: { channel_menu_command: '/start' } });
+    const answered = chat();
+    say(answered, { sender_type: 'agent' });
+    say(answered, { sender_type: 'system' });
+    say(answered, { sender_type: 'ai' });
+    expect((await unread()).json).toEqual({ conversations: 0, ids: [] });
+    // One real message among the taps: the chat counts.
+    say(convNeedsHuman);
+    expect((await unread()).json).toEqual({ conversations: 1, ids: [convNeedsHuman] });
+  });
+
+  it('names at most 100 chats, the most recently active first, and counts every one', async () => {
+    const many: string[] = [];
+    for (let i = 0; i < 120; i += 1) {
+      many.push(chat({ updated_at: new Date(Date.UTC(2026, 1, 1, 0, i)).toISOString() }));
+      say(many[i]);
+    }
+    const res = await unread();
+    expect(res.json.conversations).toBe(120);
+    expect(res.json.ids).toEqual(many.slice(-100).reverse());
+  });
+
+  it('is refused to a non-member, to the signed-out, and to staff without an Inbox', async () => {
+    say(convOpen);
+    expect((await unread('outsider-token')).status).toBe(403);
+    expect((await call('GET', `/api/conversations/unread?workspace_id=${WS}`)).status).toBe(401);
+    expect((await call('GET', '/api/conversations/unread', { token: 'member-token' })).status).toBe(400);
+    const member = db.workspace_members[0];
+    const role = member.role;
+    member.role = 'analyst';
+    try {
+      const staff = await unread();
+      expect(staff.status).toBe(403);
+      expect(staff.json.error).toBe('inbox_not_allowed');
+    } finally {
+      member.role = role;
+    }
+  });
+});
+
 describe('GET /api/conversations/:id/messages — authorization derives from the conversation, not a client-supplied workspace_id', () => {
   it('workspace member reads messages for their own conversation', async () => {
     db.conversation_messages.push({ id: crypto.randomUUID(), conversation_id: convOpen, sender_type: 'contact', body: 'hi', created_at: '2026-01-01T00:00:00Z' });
@@ -426,6 +529,28 @@ describe('POST /api/conversations/:id/seen', () => {
     await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
     await new Promise((r) => setTimeout(r, 20));
     expect(conversationPublishes.filter((p) => p.event.type === 'seen')).toHaveLength(0);
+  });
+
+  it('tells every operator\'s panel the chat was read, on the inbox channel only, and only when something was', async () => {
+    db.conversation_messages.push({ id: crypto.randomUUID(), conversation_id: convOpen, sender_type: 'contact', body: 'hi', seen_at: null, created_at: '2026-01-01T00:00:00Z' });
+    operatorEvents.length = 0;
+    await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
+    await vi.waitFor(() => expect(operatorEvents.filter((e) => e.payload.kind === 'conversation_seen')).toHaveLength(1));
+    const [seen] = operatorEvents.filter((e) => e.payload.kind === 'conversation_seen');
+    expect(seen.payload).toEqual({
+      kind: 'conversation_seen',
+      conversation_id: convOpen,
+      workspace_id: WS,
+      actor_id: MEMBER,
+      seen_at: db.conversation_messages[0].seen_at,
+    });
+    // Never on the conversation's channel, which the visitor's widget hears.
+    expect(seen.opts).toEqual({ skipConversationChannel: true });
+    // Read already: nothing to tell.
+    operatorEvents.length = 0;
+    await call('POST', `/api/conversations/${convOpen}/seen`, { token: 'member-token' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(operatorEvents.filter((e) => e.payload.kind === 'conversation_seen')).toHaveLength(0);
   });
 
   it('rejects marking a foreign-workspace conversation as seen', async () => {

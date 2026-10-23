@@ -88,6 +88,7 @@ type MessageAttachment = {
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { publishVisitorSeen } from '../services/widget/visitorSeen.js';
+import { isChannelMenuEvent, loadInboxUnread, publishConversationSeen } from '../services/inboxUnread.js';
 import { wakeVisitorWidget } from '../services/widget/visitorWake.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
@@ -1733,13 +1734,10 @@ async function listConversationRows(
     for (const m of (msgs || [])) {
       if (!m.conversation_id) continue;
       // Channel menu/button taps are navigation, not conversation content:
-      // they must never drive the list preview or the unread badge. Older
-      // rows may carry the flag as a boolean, and menu taps written before
-      // the flag existed still carry `channel_menu_command`.
+      // they must never drive the list preview or the unread badge (the
+      // Inbox's unread number skips them by the same rule).
       const meta = (m.metadata || {}) as Record<string, unknown>;
-      const isMenuEvent =
-        String(meta.channel_menu_event ?? '') === 'true' || !!meta.channel_menu_command;
-      if (isMenuEvent) continue;
+      if (isChannelMenuEvent(meta)) continue;
 
       if (!lastByConv[m.conversation_id]) {
         // A system notice's body is written in the requesting operator's
@@ -1984,6 +1982,25 @@ conversationsRouter.get('/inbox-counts', async (req, res) => {
     });
   } catch (err) {
     console.error('[conversations inbox-counts] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ─── The Inbox's unread number ──────────────────────────────────────
+// How many of this operator's open conversations (nobody's or theirs) hold a
+// visitor message nobody has read: the badge on Inbox in every web
+// navigation and the tab title's "(n)" (services/inboxUnread.ts). Always the
+// operator's own scope, also for a supervisor watching "All".
+conversationsRouter.get('/unread', async (req, res) => {
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const workspaceId = String(req.query.workspace_id || '');
+    if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+    return res.json(await loadInboxUnread(config, { workspaceId, userId: auth.userId }));
+  } catch (err) {
+    console.error('[conversations unread] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
@@ -2421,6 +2438,10 @@ conversationsRouter.post('/:id/seen', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     // The visitor's ticks turn "seen" live (services/widget/visitorSeen.ts).
     void publishVisitorSeen(config, conv.workspace_id, conversationId, (data || []).map((r) => r.id as string), seenAt);
+    // And every operator's Inbox badge drops the chat (services/inboxUnread.ts).
+    if ((data || []).length > 0) {
+      void publishConversationSeen(config, { workspaceId: conv.workspace_id, conversationId, actorId: auth.userId, seenAt });
+    }
     return res.json({ ok: true, count: (data || []).length });
   } catch (err) {
     console.error('[conversations seen] error:', err);

@@ -5,10 +5,11 @@
  * WebYar's site; t1-intl): the help bar, the visitor's bubble (its quote and
  * links too) and the text buttons read on any workspace colour; the bar
  * names the workspace with the operator answering small under it, a long
- * name ending in an ellipsis; a name over a run only where the team's side
- * changes hands; the typing and thinking rows' avatar sits on their bubble's
- * bottom; a message's actions show only on the line touched, hovered or
- * reached by a key; the emoji grid opens inside the message box.
+ * name ending in an ellipsis; no name over a run, the server's join line
+ * right before a newcomer's first bubble, and the AI's sparkle instead of
+ * its word (owner, 2026-10-23); the typing and thinking rows' avatar sits on
+ * their bubble's bottom; a message's actions show only on the line touched,
+ * hovered or reached by a key; the emoji grid opens inside the message box.
  *
  * Real browser (the template harness launches its own Chromium, the phone
  * states with touch); no running stack. Every wait is on a condition.
@@ -44,6 +45,30 @@ async function onStates(v: Variant, states: string[], check: (page: Page, state:
     rmSync(out, { recursive: true, force: true });
   }
   expect(checked).toEqual(states);
+}
+
+/** The visitor's join line, in the widget's words (runtime.js `routingAgentJoined`). */
+const joinedLine = (v: Variant, name: string) => (v.locale === 'fa' ? `${name} به گفتگو پیوست` : `${name} joined the conversation`);
+
+/**
+ * In the open thread: each system line with the author of the bubble right
+ * under it, the name labels over runs (none since 2026-10-23), and the AI's
+ * badge as drawn (its text, its svgs, how it is read).
+ */
+async function threadPeople(page: Page) {
+  return page.evaluate(() => {
+    const sh = document.getElementById('gs-host')!.shadowRoot!;
+    const box = sh.querySelector('[data-chat-messages]')!;
+    return {
+      joins: Array.from(box.querySelectorAll('.msg-row.system')).map((r) =>
+        [r.textContent!.trim(), r.nextElementSibling?.querySelector('[data-msg-reply-author]')?.getAttribute('data-msg-reply-author') ?? null]),
+      labels: Array.from(box.querySelectorAll('.msg-sender-label')).map((l) => l.textContent),
+      ai: Array.from(box.querySelectorAll('.msg-ai-badge')).map((b) => ({
+        text: b.textContent, svgs: b.querySelectorAll('svg[aria-hidden="true"]').length, role: b.getAttribute('role'),
+        label: b.getAttribute('aria-label'), shown: b.getBoundingClientRect().width > 0,
+      })),
+    };
+  });
 }
 
 // ─── WCAG 2 contrast of computed colours ────────────────────────────────
@@ -203,7 +228,7 @@ for (const v of VARIANTS) {
     });
   }
 
-  test(`${v.templateId}: the bar names the workspace, the operator small under it; a name only where the team's side changes hands`, async () => {
+  test(`${v.templateId}: the bar names the workspace, the operator small under it; no name over a run, the join line before each newcomer`, async () => {
     test.setTimeout(120_000);
     await onStates(v, ['mobile-chat-operator', 'mobile-chat-handover'], async (page, state) => {
       const seen = await page.evaluate(() => {
@@ -213,15 +238,19 @@ for (const v of VARIANTS) {
         return {
           title: nm.textContent, line: st.textContent, dot: !!st.querySelector('.ondot'),
           smaller: parseFloat(getComputedStyle(st).fontSize) < parseFloat(getComputedStyle(nm).fontSize),
-          labels: Array.from(sh.querySelectorAll('[data-chat-messages] .msg-sender-label')).map((l) => l.textContent),
         };
       });
       const answering = state === 'mobile-chat-operator' ? v.sara : v.mehdi;
-      expect(seen).toEqual({
-        title: v.workspace, line: answering, dot: true, smaller: true,
-        // Sara answers all along: no name; the AI → Sara → Mehdi: both, once.
-        labels: state === 'mobile-chat-operator' ? [] : [v.sara, v.mehdi],
-      });
+      expect(seen).toEqual({ title: v.workspace, line: answering, dot: true, smaller: true });
+      // Sara answers all along: no line; the AI → Sara → Mehdi: each one's
+      // join line right above their first bubble, and never a name over a run.
+      const people = await threadPeople(page);
+      expect(people.labels).toEqual([]);
+      expect(people.joins).toEqual(state === 'mobile-chat-operator' ? []
+        : [[joinedLine(v, v.sara), v.sara], [joinedLine(v, v.mehdi), v.mehdi]]);
+      // The AI's reply (handover only): the sparkle, read as the word for the AI.
+      expect(people.ai).toEqual(state === 'mobile-chat-operator' ? []
+        : [{ text: '', svgs: 1, role: 'img', label: v.locale === 'fa' ? 'هوش مصنوعی' : 'AI', shown: true }]);
     });
   });
 
@@ -440,8 +469,9 @@ for (const v of VARIANTS) {
 // ─── Template 1, where it had the same defects (owner, 2026-10-18) ──────
 // WebYar's site wears t1 (fa, #8B5CF6); t1-intl is its RESPOK skin (en,
 // #EF4444). The visitor's text and the help center's "start a chat" button
-// on the accent, the bar's names, the names over the runs and the thinking
-// row's avatar; the actions on a phone are a guard (t1 already showed them
+// on the accent, the bar's names, the join lines and the AI's sparkle (no
+// names over the runs since 2026-10-23) and the thinking row's avatar; the
+// actions on a phone are a guard (t1 already showed them
 // only on the line tapped) and the emoji grid was already in the box.
 const T1_VARIANTS: Variant[] = [
   { templateId: 't1', locale: 'fa', accent: '#8B5CF6', edition: 'iran', workspace: 'فروشگاه نیلوفر', sara: 'سارا', mehdi: 'مهدی' },
@@ -495,7 +525,7 @@ for (const v of T1_VARIANTS) {
     });
   }
 
-  test(`${v.templateId}: the bar names the workspace, the operator small under it; a name only where the team's side changes hands`, async () => {
+  test(`${v.templateId}: the bar names the workspace, the operator small under it; no name over a run, the join line before each newcomer`, async () => {
     test.setTimeout(120_000);
     await onStates(v, ['mobile-chat-operator', 'mobile-chat-handover'], async (page, state) => {
       const seen = await page.evaluate(() => {
@@ -505,14 +535,18 @@ for (const v of T1_VARIANTS) {
         return {
           title: hn.textContent, line: hs.textContent, dot: !!head.querySelector('.who .av .pr:not(.off)'),
           smaller: parseFloat(getComputedStyle(hs).fontSize) < parseFloat(getComputedStyle(hn).fontSize),
-          labels: Array.from(sh.querySelectorAll('[data-chat-messages] .msg-sender-label')).map((l) => l.textContent),
         };
       });
-      expect(seen).toEqual({
-        title: v.workspace, line: state === 'mobile-chat-operator' ? v.sara : v.mehdi, dot: true, smaller: true,
-        // Sara answers all along: no name; the AI → Sara → Mehdi: both, once.
-        labels: state === 'mobile-chat-operator' ? [] : [v.sara, v.mehdi],
-      });
+      expect(seen).toEqual({ title: v.workspace, line: state === 'mobile-chat-operator' ? v.sara : v.mehdi, dot: true, smaller: true });
+      // Sara answers all along: no line; the AI → Sara → Mehdi: each one's
+      // join line right above their first bubble, and never a name over a run.
+      const people = await threadPeople(page);
+      expect(people.labels).toEqual([]);
+      expect(people.joins).toEqual(state === 'mobile-chat-operator' ? []
+        : [[joinedLine(v, v.sara), v.sara], [joinedLine(v, v.mehdi), v.mehdi]]);
+      // The AI's reply (handover only): the sparkle, read as the word for the AI.
+      expect(people.ai).toEqual(state === 'mobile-chat-operator' ? []
+        : [{ text: '', svgs: 1, role: 'img', label: v.locale === 'fa' ? 'هوش مصنوعی' : 'AI', shown: true }]);
     });
   });
 

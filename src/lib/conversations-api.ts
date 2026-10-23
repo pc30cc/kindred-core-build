@@ -92,6 +92,16 @@ async function assignmentRequest(path: string, body: Record<string, unknown>): P
   return json;
 }
 
+/**
+ * The Inbox's unread number (GET /api/conversations/unread): this operator's
+ * open conversations, nobody's or theirs, with a visitor message nobody has
+ * read, and the first 100 of their ids, most recently active first.
+ */
+export interface InboxUnread {
+  conversations: number;
+  ids: string[];
+}
+
 export interface OperatorAttachmentInit {
   attachment_id: string;
   file_name: string;
@@ -424,6 +434,17 @@ export const conversationsApi = {
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Counts failed: ${res.status}`);
     return json;
+  },
+
+  async getInboxUnread(workspaceId: string): Promise<InboxUnread> {
+    const res = await fetch(`${API_BASE}/api/conversations/unread?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Unread failed: ${res.status}`);
+    // Normalized, so an answer of another shape shows no badge, never "NaN".
+    return {
+      conversations: Math.max(0, Number(json.conversations) || 0),
+      ids: Array.isArray(json.ids) ? json.ids.filter((id: unknown): id is string => typeof id === 'string') : [],
+    };
   },
 
   async getInboxTabCounts(workspaceId: string, scope: 'mine' | 'all' = 'mine'): Promise<Record<string, number>> {

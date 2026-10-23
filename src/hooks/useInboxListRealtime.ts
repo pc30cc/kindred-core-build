@@ -4,7 +4,10 @@
  * Subscribes to the operator-only channel `ws:<workspace_id>:inbox` and
  * patches the cached conversation list when conversation_updated /
  * _resolved / _reopened events arrive. Falls back to invalidation if the
- * payload doesn't match the expected shape.
+ * payload doesn't match the expected shape. The Inbox's unread number (the
+ * badge on Inbox, useInboxUnread) is re-read from the same pushes: a
+ * visitor's message, a status, assignee, AI or spam change, a reconnect; a
+ * `conversation_seen` drops the chat from it at once.
  *
  * Polling fallback: when the resolved provider is `polling`/`disabled`,
  * subscribe is a no-op. `['conversations', workspace_id]` has no refetch
@@ -28,6 +31,7 @@ import type {
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 import { isFirstSighting, refreshConversations } from '@/hooks/inboxListCache';
+import { dropInboxUnread } from '@/hooks/useConversations';
 import { laterReadMarker } from '@/lib/inboxSeen';
 
 interface ConversationCacheRow {
@@ -159,6 +163,11 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               invalidateThrottled(qc, ['conversations', workspaceId]);
               invalidateThrottled(qc, ['inbox-counts', workspaceId]);
             }
+            // The Inbox's unread number counts conversations with an unread
+            // visitor message: any visitor message can add one, also on a
+            // thread the lists already hold, so every one re-reads it
+            // (throttled). Team and system messages never do.
+            if (senderType === 'contact') invalidateThrottled(qc, ['inbox-unread', workspaceId]);
             // Surface to subscribers (e.g. notification chime).
             try {
               window.dispatchEvent(new CustomEvent('inbox:new-message', {
@@ -178,6 +187,14 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             } catch { /* noop */ }
 
             const kind = (payload as { kind?: string }).kind as string;
+            // Someone read the conversation (POST /:id/seen): it leaves the
+            // unread number and its row's count at once; the number is then
+            // read again. Nothing a list shows besides changes.
+            if (kind === 'conversation_seen') {
+              if (payload.conversation_id) dropInboxUnread(qc, payload.conversation_id);
+              invalidateThrottled(qc, ['inbox-unread', workspaceId]);
+              return;
+            }
             if (kind === 'visitor_read') {
               const readAt = (payload as { visitor_last_read_at?: unknown }).visitor_last_read_at;
               if (typeof readAt !== 'string' || !payload.conversation_id) return;
@@ -222,6 +239,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               refreshConversations(qc, workspaceId, [payload.conversation_id]);
               invalidateThrottled(qc, ['inbox-counts', workspaceId]);
               invalidateThrottled(qc, ['inbox-tab-counts', workspaceId]);
+              invalidateThrottled(qc, ['inbox-unread', workspaceId]);
               return;
             }
 
@@ -232,6 +250,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             if ((payload as { reason?: string }).reason === 'outbound_delivery_failed') {
               refreshConversations(qc, workspaceId, [payload.conversation_id]);
               invalidateThrottled(qc, ['inbox-counts', workspaceId]);
+              invalidateThrottled(qc, ['inbox-unread', workspaceId]);
               return;
             }
 
@@ -254,6 +273,9 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             }
             invalidateThrottled(qc, ['inbox-counts', workspaceId]);
             invalidateThrottled(qc, ['inbox-tab-counts', workspaceId]);
+            // Its status or assignee may have moved it in or out of the
+            // operator's unread number.
+            invalidateThrottled(qc, ['inbox-unread', workspaceId]);
           },
           onStatus: (status, info) => {
             if (status === 'error') rtWarn('inbox-list', 'status=error', { reason: info?.reason });
@@ -266,6 +288,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               void qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
               void qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
               void qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspaceId] });
+              void qc.invalidateQueries({ queryKey: ['inbox-unread', workspaceId] });
             }
           },
         });

@@ -151,6 +151,9 @@
       var replyToMessageId = opts.replyToMessageId || null;
       // { id, version, locale } of the Smart Engagement message answered (first message only).
       var smartRule = opts.smartRule || null;
+      // { locale } of the AI greeting drawn before this first message (the
+      // intro preview): the server stores its own copy before the message.
+      var aiIntro = opts.aiIntro || null;
       var onReply = opts.onReply;
       var onConversation = opts.onConversation;
       // Phase 7 — receives { conversationId, messageId } once the backend
@@ -225,6 +228,7 @@
           page_context: pageCtxOut || undefined,
           nudge_context: nudgeCtxOut || undefined,
           smart_rule: smartRule || undefined,
+          ai_intro: aiIntro || undefined,
         }),
       })
         .then(function (r) {
@@ -263,6 +267,12 @@
               messageId: data.message_id || null,
               // The rule's line stored before this message (smart_rule).
               openingMessage: data.opening_message || null,
+              // The server's own copy of the AI greeting (ai_intro).
+              introMessage: data.intro_message || null,
+              // The message went on in the visitor's live conversation, not
+              // the one asked for (one current conversation per visitor):
+              // the caller loads that thread.
+              continued: data.continued === true,
             });
           }
           if (data.reply && onReply) onReply(data.reply);
@@ -446,7 +456,8 @@
           .then(function (data) {
             if (stopped || !data) return;
             if (data.conversation_id && onConversation) {
-              onConversation(data.conversation_id);
+              // With its status: a fresh thread adopts only a live one.
+              onConversation(data.conversation_id, data.status || null);
             }
             if (onMessages && data.messages && data.messages.length > 0) {
               onMessages(data.messages);

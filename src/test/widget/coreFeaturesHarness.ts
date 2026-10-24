@@ -61,6 +61,8 @@ export interface RuntimeInstance {
     startNew: () => void;
     openConversation: (cid: string) => void;
     setConnectionState: (state: string) => void;
+    /** The thread list read again (its Retry). */
+    retryConversations: () => void;
     chatState: () => { drafts: Record<string, string>; aiThinking: boolean; freshIntent: boolean } & Dict;
   };
 }
@@ -137,6 +139,14 @@ export interface BootOptions {
   history?: Record<string, Array<Record<string, unknown>>>;
   /** A history answers after a tick, as the network does (default: at once). */
   asyncHistory?: boolean;
+  /** Keeps every history's answer until releaseHistory(). */
+  holdHistory?: boolean;
+  /**
+   * 'real': the shipped runtime-chat.js talks to the fake API (fetch), so
+   * `send`, `historyReads` and the emit* poll hooks do not apply; answer its
+   * requests with `api`. Default: a fake module.
+   */
+  chat?: 'real';
   /**
    * How POST /message answers (the chat module's callbacks, after a tick):
    * undefined (default) never answers, as before. `conversationId` goes to
@@ -212,6 +222,8 @@ export interface Harness {
   releaseLate: () => void;
   /** Answers the held thread list requests (`holdConversations`). */
   releaseConversations: () => void;
+  /** Answers the held history requests (`holdHistory`). */
+  releaseHistory: () => void;
   /** Answers the held runtime-emoji.js request (`emoji: 'hold'`). */
   releaseEmoji: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
@@ -270,6 +282,7 @@ export function boot(opts: BootOptions = {}): Harness {
   const events: Array<{ name: string; payload: unknown }> = [];
   if (opts.publicEvents) win.__gs_public_events = { emit: (name: string, payload: unknown) => { events.push({ name, payload }); } };
   const heldSearches: Array<() => void> = [];
+  const heldHistory: Array<() => void> = [];
 
   if (opts.hint) sessionStorage.setItem('gs:view:ws-test', JSON.stringify(opts.hint));
 
@@ -294,7 +307,8 @@ export function boot(opts: BootOptions = {}): Harness {
         messages: (opts.history || {})[o.conversationId] || [],
         assignedOperator: opts.assignedOperator ?? null,
       });
-      if (opts.asyncHistory) setTimeout(answer, 0); else answer();
+      if (opts.holdHistory) heldHistory.push(answer);
+      else if (opts.asyncHistory) setTimeout(answer, 0); else answer();
     },
     startPolling(o: { onMessages?: (msgs: unknown[]) => void; onConversation?: (cid: string, status?: string) => void }) {
       pollHook = o && o.onMessages ? o.onMessages : null;
@@ -302,6 +316,7 @@ export function boot(opts: BootOptions = {}): Harness {
       return { stop() {}, pollNow() {} };
     },
   };
+  if (opts.chat === 'real') new Function(read('public/widget/runtime-chat.js')).call(window);
   if (opts.realtime) {
     win.__gs_mod_rt_centrifugo = {
       create(_ctx: unknown, _resolved: unknown, hooks: DriverHooks) {
@@ -569,6 +584,7 @@ export function boot(opts: BootOptions = {}): Harness {
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
     releaseLate: () => { while (heldLate.length) heldLate.shift()!(); },
     releaseConversations: () => { while (heldConversations.length) heldConversations.shift()!(); },
+    releaseHistory: () => { while (heldHistory.length) heldHistory.shift()!(); },
     releaseEmoji: () => { while (heldEmoji.length) heldEmoji.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };

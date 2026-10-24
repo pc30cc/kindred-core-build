@@ -60,9 +60,16 @@
   // declares `closedNotice`. For any other (`default`, `intl`) such a row is
   // dropped where frames come in and where histories merge, so it never
   // reaches the stores, the renderer or the unread count; in no template is
-  // it an unread message, a toast or a chime.
+  // it an unread message, a toast or a chime. With one conversation (a
+  // renderer drawing a past bar) a resolve ends nothing for the visitor
+  // (owner, 2026-10-24), so the line an older backend wrote for one
+  // (metadata.status 'resolved') is dropped the same way.
   function closedRow(m) { return !!(m && m.metadata && m.metadata.kind === 'conversation_closed'); }
-  function hiddenRow(m) { return closedRow(m) && !((Presentation && Presentation.features) || {}).closedNotice; }
+  function hiddenRow(m) {
+    var p = Presentation || {};
+    return closedRow(m) && (!(p.features || {}).closedNotice ||
+      typeof p.pastBarHtml === 'function' && m.metadata.status === 'resolved');
+  }
 
   // The AI's built-in English name, the stored default of an agent the
   // owner never named (shared/systemMessages.ts DEFAULT_AI_AGENT_NAME). The
@@ -4648,6 +4655,38 @@
           return;
         }
       }
+      var p = parkedAt(localId);
+      if (p >= 0 && parked.msgs[p].status !== 'seen') parked.msgs[p] = Object.assign({}, parked.msgs[p], patch);
+    }
+
+    // One conversation: the visitor's messages of the conversation on
+    // screen that have not gone yet (waiting for the connection or an
+    // automatic resend, or on their way) while a past one is read in its
+    // place (history, read-only): kept here, never dropped and never sent
+    // from the past one, and back in their thread once it is (unpark).
+    // { cid, msgs, due }: `cid` null for a fresh thread until its first
+    // message is accepted; `due` the automatic resends that came meanwhile.
+    var parked = null;
+    function parkedIn(p, localId) {
+      for (var i = 0; p && i < p.msgs.length; i++) if (p.msgs[i].localId === localId) return i + 1;
+      return 0;
+    }
+    function parkedAt(localId) { return parkedIn(parked, localId) - 1; }
+
+    /**
+     * A thread's history is in: its rows in the server's order, then the
+     * visitor's own bubbles of this tab it does not hold yet (`own`, and any
+     * written while it loaded), in the order they were written.
+     */
+    function settleOwn(own) {
+      var all = chatStore.get().messages;
+      var got = all.filter(function (m) { return !m.localId; });
+      var rest = (own || []).concat(all.filter(function (m) { return m.localId; })).filter(function (m) {
+        return !got.some(function (g) {
+          return m.__id ? g.__id === m.__id : m.status !== 'failed' && g.sender === 'visitor' && g.body === m.body;
+        });
+      }).map(function (m) { return m.threadStart ? Object.assign({}, m, { threadStart: false }) : m; });
+      chatStore.set({ messages: got.concat(rest) });
     }
 
     /** The visitor's message that opened a new conversation under an ended one (see onConversation). */
@@ -4696,7 +4735,8 @@
      * ended): that thread, in its order, its earlier lines first. What was
      * on screen before this message goes (a greeting drawn for a fresh
      * thread, an ended one's lines); this message and any sent after it
-     * stay, unless the history already has them.
+     * (also while that history loads) stay, after its lines, unless the
+     * history already has them.
      */
     function continueIn(localId, onChange) {
       var cid = chatStore.get().conversationId;
@@ -4707,11 +4747,8 @@
       var mine = at < 0 ? [] : arr.slice(at).filter(function (m) { return m.localId; });
       chatStore.set({ messages: [], seenIds: {}, historyLoading: true });
       loadThread(cid, function () {
-        var got = chatStore.get().messages;
-        var rest = mine.filter(function (m) {
-          return !got.some(function (g) { return m.__id ? g.__id === m.__id : g.sender === 'visitor' && g.body === m.body; });
-        }).map(function (m) { return m.threadStart ? Object.assign({}, m, { threadStart: false }) : m; });
-        chatStore.set({ messages: got.concat(rest), historyLoading: false });
+        settleOwn(mine);
+        chatStore.set({ historyLoading: false });
         if (onChange) onChange();
       });
     }
@@ -4749,6 +4786,15 @@
       };
       var cbs = {
         onConversation: function (cid) {
+          // On its way while a past conversation took the screen (parked):
+          // its conversation is the one to come back to; the store and the
+          // transport stay on the past one until then.
+          if (parkedAt(localId) >= 0) {
+            if (cid && parked.cid && String(cid) !== String(parked.cid)) updateMessageByLocalId(localId, { threadStart: true });
+            if (cid) parked.cid = cid;
+            Util.activeHint(true);
+            return;
+          }
           // Thread established — disarm before anything else so a retry or
           // a follow-up message can never spawn a second thread, and so
           // history/polling may resume adopting this (now current) id.
@@ -4779,12 +4825,19 @@
             failReason: null,
             failText: null,
           }, onChange);
+          // Parked: its conversation's history brings the rest once it is back.
+          if (parkedAt(localId) >= 0) {
+            if (info && info.openingMessage && typeof ctx.smartOpened === 'function') ctx.smartOpened();
+            if (done) done();
+            return;
+          }
           if (info && info.openingMessage) { adoptOpeningMessage(localId, info.openingMessage); if (onChange) onChange(); }
           if (info && info.introMessage) { adoptOpeningMessage(localId, info.introMessage, true); if (onChange) onChange(); }
           if (info && info.continued) continueIn(localId, onChange);
           if (done) done();
         },
         onReply: function (reply) {
+          if (parkedAt(localId) >= 0) return;
           var ns = chatStore.get();
           var arr = ns.messages.slice();
           arr.push({ body: reply, sender: 'operator', time: new Date() });
@@ -4889,10 +4942,13 @@
     function findByLocalId(localId) {
       var arr = chatStore.get().messages;
       for (var i = 0; i < arr.length; i++) if (arr[i].localId === localId) return arr[i];
-      return null;
+      var p = parkedAt(localId);
+      return p < 0 ? null : parked.msgs[p];
     }
     function autoResend(localId, onChange, done) {
       var msg = findByLocalId(localId);
+      // Parked (a past conversation on screen): once its own is back.
+      if (msg && parkedAt(localId) >= 0) { parked.due[localId] = 1; msg = null; }
       if (!msg || msg.status !== 'failed' || !canSendNow()) { if (done) done(); return; }
       updateMessageByLocalId(localId, { status: 'sending', autoTries: (msg.autoTries || 0) + 1 }, onChange);
       attemptSend(localId, msg.body, msg.attachmentId, msg.departmentId, msg.replyToMessageId, onChange, done);
@@ -5296,11 +5352,52 @@
           messages: [],
           seenIds: {},
           aiThinking: false,
+          // A history still on its way (stale by the epoch now) holds no skeleton here.
+          historyLoading: false,
         });
         lastMergedNewAiMessage = null;
       },
       isForcingNewConversation: forcingNew,
-
+      /**
+       * One conversation: a past one takes the store's place, so the
+       * visitor's messages of the one on screen (`cid`, null for a fresh
+       * thread) that have not gone yet are kept aside (see `parked`).
+       */
+      park: function (cid) {
+        if (parked) return;
+        var own = chatStore.get().messages.filter(function (m) {
+          return m.sender === 'visitor' && m.localId && (m.status === 'failed' || m.status === 'sending');
+        });
+        if (own.length) parked = { cid: cid || null, msgs: own, due: {} };
+      },
+      /** What is parked: its conversation (null: a fresh thread's) and its last line, or null. */
+      parked: function () {
+        return parked && { cid: parked.cid, body: parked.msgs[parked.msgs.length - 1].body };
+      },
+      /**
+       * `cid`'s history is in (or a fresh thread is up, `cid` null): the
+       * messages parked for it come back after its lines and go on (the
+       * queue, the resends due meanwhile). A fresh thread's land in the
+       * current conversation (`current`), whichever it now is.
+       */
+      unpark: function (cid, current, onChange) {
+        if (!parked || (parked.cid ? String(parked.cid) !== String(cid || '') : !current)) return;
+        var p = parked;
+        parked = null;
+        settleOwn(p.msgs);
+        // One still on its way when the past one opened hears nothing back
+        // (the transport drops an older epoch's answers), and its history
+        // does not have it: it goes again, the same message (its key).
+        chatStore.set({
+          messages: chatStore.get().messages.map(function (m) {
+            return m.status === 'sending' && parkedIn(p, m.localId)
+              ? Object.assign({}, m, { status: 'failed', failReason: 'offline', failText: t('msgFailOffline') }) : m;
+          }),
+        });
+        if (onChange) onChange();
+        Object.keys(p.due).forEach(function (id) { autoResend(id, onChange); });
+        flushQueued(onChange);
+      },
 
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
       // What runtime-ext.js builds on (renderer features), in the order its
@@ -9328,6 +9425,8 @@
     }
 
     function switchTab(key) {
+      // One conversation: a past one read in the chat goes when the visitor does.
+      if (key !== 'chat' && pastInStore()) dropPast();
       syncViewChrome(key);
       if (shellStore.get().activeTab === key) { renderBody(); return; }
       shellStore.set({ activeTab: key });
@@ -9686,18 +9785,36 @@
     // destroy the badge that tells the visitor an operator replied.
     // `opts.past` (one conversation): a past one, read from history. Its
     // history is loaded and the transport left as it is, so the current
-    // conversation keeps its frames (unread, toast) meanwhile.
+    // conversation keeps its frames (unread, toast) meanwhile; that one's
+    // messages still on their way are parked (chatUI.park) until it is back.
+    // `opts.behind` (one conversation): restored behind another surface (no
+    // tab change, no read marker).
     function openConversation(conversationId, opts) {
       if (!conversationId) { startNewConversation(); return; }
       var markRead = !(opts && opts.markRead === false);
       var past = !!(opts && opts.past);
       var current = chatStore.get().conversationId;
+      // The past one on screen is now the one to write in (reopened meanwhile): it takes the transport.
+      if (current === conversationId && !past && pastInStore()) {
+        pastShown = null;
+        underCid = null;
+        try { transport.subscribeConversation(conversationId); } catch (_) {}
+      }
       if (current !== conversationId) {
+        var wasPast = pastInStore();
         // A past one is read with the transport left on the conversation it
         // was on; a past one on screen was never subscribed.
-        if (current && !past && String(current) !== String(pastShown)) {
+        if (current && !past && !wasPast) {
           try { if (transport && transport.unsubscribeConversation) transport.unsubscribeConversation(current); } catch (_) {}
         }
+        if (past && !wasPast) {
+          underCid = current || null;
+          chatUI.park(current);
+          // Nobody types in a past one (a typing row up for this one goes).
+          if (typingRow) typingRow.hidden = true;
+          ext('typing');
+        }
+        if (!past) underCid = null;
         pastShown = past ? conversationId : null;
         // P0-1/P0-3 — new active context. Anything still in flight for the
         // previous thread (history, intro, send) is now stale by epoch.
@@ -9719,17 +9836,22 @@
 
         try {
           chatUI.loadConversationHistory(conversationId, function () {
+            // What waited for this thread while a past one was read.
+            if (oneChat() && !past) {
+              var cur = currentConversation();
+              chatUI.unpark(conversationId, !!cur && String(cur.id) === String(conversationId), repaintChat);
+            }
             chatStore.set({ historyLoading: false });
             if (shellStore.get().activeTab === 'chat') renderBody();
-            // What goCurrent was asked to do once this thread is on screen.
-            var then = goThen && goThen.e === ConvEpoch.get() && goThen.f;
-            goThen = null;
-            if (then) then();
           }, past);
         } catch (_) { chatStore.set({ historyLoading: false }); }
       }
+      if (opts && opts.behind) return;
       if (markRead) markConversationRead(conversationId);
       switchTab('chat');
+      // The thread is on screen now, even with no tab change (from a past
+      // one): the replies counted for it meanwhile are seen.
+      if (oneChat()) seenInView();
     }
 
     // A thread restored into a CLOSED panel still owes its read marker; it
@@ -9763,6 +9885,7 @@
     var CHAT_GRACE_MS = 30 * 60000;
     var pastCid = null;
     var pastShown = null;    // the past conversation on screen (never subscribed)
+    var underCid = null;     // meanwhile, the conversation it took the place of (null: a fresh thread)
     var chatFrom = 'home';   // where the chat's back goes (home, help)
     var listFrom = 'home';   // where the history's back goes (home, help, chat)
     var listAt = 0;
@@ -9805,10 +9928,20 @@
       return !liveConv(c) && String(c.id) === String(heldCid) &&
         Date.now() < Math.max(Date.parse(m.endedAt || m.updatedAt) || 0, Number(heldAt) || 0) + CHAT_GRACE_MS;
     }
+    /** The store holds a past conversation (read in another's place, never subscribed). */
+    function pastInStore() {
+      return pastShown != null && String(chatStore.get().conversationId) === String(pastShown);
+    }
+    /** The conversation this tab writes in: the store's, or the one a past conversation took the place of. */
+    function ownCid() {
+      if (!pastInStore()) return chatStore.get().conversationId;
+      var pk = chatUI.parked();
+      return underCid || pk && pk.cid || null;
+    }
     function currentConversation() {
-      var cid = chatStore.get().conversationId;
+      var cid = ownCid();
       if (cid && String(cid) !== String(pastCid) && !convItem(cid)) {
-        var last = (chatStore.get().messages || []).filter(function (m) { return m.body; }).pop();
+        var last = pastInStore() ? chatUI.parked() : (chatStore.get().messages || []).filter(function (m) { return m.body; }).pop();
         return { id: cid, status: 'open', preview: last ? String(last.body) : '', unreadCount: 0, timeLabel: '' };
       }
       var items = convItems();
@@ -9816,11 +9949,15 @@
         items.filter(function (c) { return !liveConv(c) && repliesOf(c) > 0; })[0] ||
         items.filter(graceConv)[0] || null;
     }
-    /** History: every conversation but the current one, and none the visitor never wrote in. */
+    /**
+     * History: every conversation but the current one, and none the visitor
+     * never wrote in, unless it is live or holds an unseen answer (an
+     * operator's outreach): an answer is never out of reach.
+     */
     function pastConversations() {
       var cur = currentConversation();
       return convItems().filter(function (c) {
-        return metaOf(c).hasVisitorMessage !== false && !(cur && String(cur.id) === String(c.id));
+        return (metaOf(c).hasVisitorMessage !== false || liveConv(c) || repliesOf(c) > 0) && !(cur && String(cur.id) === String(c.id));
       });
     }
     function pastUnread() {
@@ -9831,7 +9968,7 @@
     }
     /** A live conversation, or an ended one with an unseen answer: the loader's `gs_active`. */
     function activeNow() {
-      var cid = chatStore.get().conversationId;
+      var cid = ownCid();
       return convItems().some(function (c) { return liveConv(c) || repliesOf(c) > 0; }) || !!cid && !convItem(cid);
     }
     /** Nothing is current: a fresh thread from the start, never the server's latest one adopted. */
@@ -9888,12 +10025,42 @@
         if (c) openConversation(c.id);
         // A fresh thread already up stays as it is (its greeting is not asked twice).
         else if (!chatStore.get().conversationId && chatUI.isForcingNewConversation()) switchTab('chat');
-        else startNewConversation();
+        else { leavePastStore(); startNewConversation(); chatUI.unpark(null, true, repaintChat); }
       } finally { introHold = false; }
       if (opts.noIntro) noIntroEpoch = ConvEpoch.get();
       if (!opts.then) return;
+      // Whichever path loads that thread's history (this one, its adoption, a
+      // `continued` answer): the subscriber below runs it once it is in.
       if (c && chatStore.get().historyLoading) goThen = { e: ConvEpoch.get(), f: opts.then };
       else opts.then();
+    }
+    chatStore.subscribe(function () {
+      if (!goThen || chatStore.get().historyLoading) return;
+      var g = goThen;
+      goThen = null;
+      if (g.e === ConvEpoch.get()) g.f();
+    });
+    function repaintChat() { if (shellStore.get().activeTab === 'chat') renderBody(); }
+    /** The store lets go of a past conversation (never subscribed: nothing to leave). */
+    function leavePastStore() {
+      if (!pastInStore()) return;
+      pastCid = null;
+      pastShown = null;
+      underCid = null;
+      chatStore.set({ conversationId: null });
+    }
+    /**
+     * A past conversation leaves the screen for another surface (back to
+     * the list, home, help, the panel closed): the current one, or a fresh
+     * thread, is the store's again behind it, so its frames, its adoption
+     * of an outreach and its parked messages carry on as anywhere else.
+     */
+    function dropPast() {
+      var c = currentConversation();
+      if (c) { pastCid = null; openConversation(c.id, { behind: true }); return; }
+      leavePastStore();
+      chatUI.startNewConversation();
+      chatUI.unpark(null, true, repaintChat);
     }
     function openHistory(from) {
       listFrom = from === 'chat' || from === 'help' ? from : 'home';
@@ -9902,7 +10069,7 @@
     /** The list as the server last gave it is refreshed on home, history and opening (a conversation started, answered or closed since). */
     function refreshListSoon(tab) {
       var st = conversationsStore.get() || {};
-      var cid = chatStore.get().conversationId;
+      var cid = ownCid();
       if (!oneChat() || !st.loaded || st.loading || st.error || Date.now() - listTry < 5000) return;
       if (Date.now() - listAt < 30000 && !(cid && !convItem(cid))) return;
       listTry = Date.now();
@@ -10800,6 +10967,8 @@
       launcherTyping(true);
       if (launcherTypingTimer) clearTimeout(launcherTypingTimer);
       launcherTypingTimer = setTimeout(function () { launcherTyping(false); }, 3500);
+      // The current conversation's typing is not drawn in a past one read meanwhile.
+      if (isPastChat()) return;
       // The event's typing operator (name, photo) for a visible typing row.
       ext('typing', 1, p);
       if (!typingRow || !typingLabel) return;
@@ -11091,7 +11260,9 @@
 
     // When the user switches to the chat tab while panel is open, clear unread.
     // The thread's replies the marker does not cover yet are read now too.
-    shellStore.subscribe(function (s) {
+    // (Also when the thread on screen changes without a tab change: openConversation.)
+    function seenInView() {
+      var s = shellStore.get();
       if (s.isOpen && s.activeTab === 'chat') {
         clearUnreadForActive();
         flushPendingRead();
@@ -11099,7 +11270,8 @@
         var cid = chatStore.get().conversationId;
         if (cid && readOwed[cid]) markSeenSoon(null, 0);
       }
-    });
+    }
+    shellStore.subscribe(seenInView);
     // One conversation: opening the panel, or coming back to the page with
     // it open, re-reads the list (a conversation started, answered or
     // closed since, an operator's outreach).
@@ -11241,6 +11413,9 @@
       },
       close: function () {
         if (!shellStore.get().isOpen) return false;
+        // A past conversation (read-only) is not what a reopen comes back
+        // to: its history list is, and the current one is behind it meanwhile.
+        if (pastInStore()) switchTab('list');
         // Capture any in-flight typed text before hiding
         syncDraftFromInput();
         shellStore.set({ isOpen: false });

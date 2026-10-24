@@ -14,8 +14,11 @@
  *    Else a fresh thread, armed from the start (force_new_conversation), and
  *    never the server's latest one adopted (/identity/history).
  *  - Every chat door lands on it; history is everything else the visitor
- *    wrote in, a closed one read-only (the composer, sends, quotes, files
- *    refused) with the transport left on the current one.
+ *    wrote in (and a live one or an unseen answer they did not), a closed
+ *    one read-only (the composer, sends, quotes, files refused) with the
+ *    transport left on the current one, whose unsent messages wait for it
+ *    and whose typing is not drawn there; leaving it puts the current one
+ *    (or a fresh thread) back behind whatever the visitor went to.
  *  - A fresh thread nobody wrote in takes a live conversation the server
  *    names (/poll, an answer's frame, the intro preview), never a closed one.
  *  - The AI greeting is a preview (no row) the first message carries; a
@@ -218,6 +221,32 @@ describe('the current conversation (rules 1-3), for t1 and a bare renderer', () 
   });
 });
 
+describe('the closed line: only a close draws it (a resolve ends nothing for the visitor)', () => {
+  const line = (id: string, cid: string, status: string, min: number): Row => ({
+    id, role: 'system', sender_type: 'system', text: 'سارا closed the conversation', time: ago(min), conversation_id: cid,
+    metadata: { kind: 'conversation_closed', status, agent_name: 'سارا', operator_name: 'سارا' },
+  });
+
+  it('t1: a line an older backend wrote for a resolve is not drawn, in a history or as a frame; one for a close is', async () => {
+    const h = start('t1', {
+      realtime: true,
+      conversations: [{ id: 'c-res', status: 'resolved' }],
+      history: { 'c-res': [visitor('v1', 'c-res', 'سؤال', 10), agent('a1', 'c-res', 'پاسخ', 9), line('s1', 'c-res', 'resolved', 8)] },
+    });
+    await flush(40);
+    expect(cid(h)).toBe('c-res');
+    expect(msgs(h).map((m) => m.__id)).toEqual(['v1', 'a1']);
+    h.emitMessages([line('s2', 'c-res', 'resolved', 0)]);
+    await flush(5);
+    expect(msgs(h).map((m) => m.__id)).toEqual(['v1', 'a1']);
+    expect(h.q('[data-chat-messages] .msg-day.cl')).toBeNull();
+    h.emitMessages([line('s3', 'c-res', 'closed', 0)]);
+    await flush(5);
+    expect(msgs(h).map((m) => m.__id)).toEqual(['v1', 'a1', 's3']);
+    expect(h.q('[data-chat-messages] .msg-day.cl')).not.toBeNull();
+  });
+});
+
 describe('every door lands on the current conversation', () => {
   const LIVE: ConversationSeed[] = [{ id: 'c-live', status: 'open' }, { id: 'c-past', status: 'closed' }];
   /** On home (a hint that names it), the current one taken behind it. */
@@ -309,6 +338,23 @@ describe('every door lands on the current conversation', () => {
     expect(msgs(h).map((m) => m.sender)).toEqual(['visitor', 'operator', 'visitor']);
   });
 
+  it('a topic tapped while the current one\'s history is still on its way (taken behind home) waits for it, then goes once', async () => {
+    seedHint({ tab: 'home', conversationId: null });
+    const h = start('topics', { holdHistory: true, conversations: [{ id: 'c-live', status: 'open' }] });
+    await flush(40);
+    await online(h);
+    expect([view(h), cid(h), h.runtime.__test.chatState().historyLoading]).toEqual(['home', 'c-live', true]);
+    click(h.q('[data-body] [data-topic]'));
+    await flush(10);
+    expect(sends(h)).toEqual([]);
+    h.releaseHistory();
+    await flush(20);
+    expect([view(h), cid(h)]).toEqual(['chat', 'c-live']);
+    expect(sends(h)).toHaveLength(1);
+    expect(sends(h)[0]).toMatchObject({ conversationId: 'c-live', forceNewConversation: false, text: 'پیگیری سفارش' });
+    expect(msgs(h).map((m) => m.sender)).toEqual(['visitor', 'operator', 'visitor']);
+  });
+
   it('with nothing current, a topic opens a fresh thread: force_new, and no AI greeting ahead of it', async () => {
     const h = start('topics', {
       conversations: [{ id: 'c-past', status: 'closed' }],
@@ -354,6 +400,26 @@ describe('every door lands on the current conversation', () => {
 });
 
 describe('history', () => {
+  it('an older live one the visitor never wrote in (an outreach) with an unseen answer is in it, counted', async () => {
+    seedHint({ tab: 'home', conversationId: null });
+    const h = start('t1', {
+      conversations: [
+        { id: 'c-mine', status: 'open', updatedAt: ago(1) },
+        { id: 'c-out', status: 'open', hasVisitorMessage: false, unreadCount: 1, unreadReplies: 1, updatedAt: ago(30) },
+        { id: 'c-gone', status: 'closed', hasVisitorMessage: false, unreadCount: 0, unreadReplies: 0, updatedAt: ago(60) },
+      ],
+    });
+    await flush(40);
+    expect(ids(homeVm(h).conversations)).toEqual(['c-mine']);
+    expect(homeVm(h)).toMatchObject({ pastCount: 1, pastUnread: 1 });
+    click(h.q('[data-body] .more[data-view="list"]'));
+    await flush(10);
+    expect(ids(listVm(h).conversations)).toEqual(['c-out']);
+    click(h.q('[data-conversation-open="c-out"]'));
+    await flush(10);
+    expect([cid(h), pastBar(h), composerShown(h)]).toEqual(['c-out', null, true]);
+  });
+
   it('everything but the current one and the conversations the visitor never wrote in; an older live one opens writable', async () => {
     seedHint({ tab: 'home', conversationId: null });
     const h = start('t1', {
@@ -432,17 +498,49 @@ describe('a past conversation is read-only and the current one keeps its transpo
       expect(h.unread[h.unread.length - 1]).toBe(1);
       expect(h.events.length).toBe(events + 1);
 
+      // While the panel is open on a past one, the answer shows on the
+      // launcher's badge and the page title (a toast only with the panel
+      // closed or on another tab).
+      expect(document.title).toMatch(/^\(1\)/);
+
       // Back to it: writable, its thread; nothing was left or joined meanwhile.
       click(h.q('[data-past-bar] [data-chat-current]'));
       await flush(20);
       expect(h.subscriptions.filter((x) => x !== '+c-live')).toEqual([]);
       expect([cid(h), composerShown(h), pastBar(h)]).toEqual(['c-live', true, null]);
+      // Its answer is on screen now (no tab changed): the badge and the title let go.
+      expect(h.unread[h.unread.length - 1]).toBe(0);
+      expect(document.title).not.toMatch(/^\(/);
       write(h, 'into the live one');
       await flush(10);
       expect(sends(h)).toHaveLength(1);
       expect(sends(h)[0]).toMatchObject({ conversationId: 'c-live', forceNewConversation: false });
     });
   }
+
+  it('t1: the current one\'s operator typing is not drawn in a past one', async () => {
+    const h = start('t1', {
+      realtime: true,
+      assignedOperator: { name: 'سارا', avatar: null, online: true },
+      conversations: [{ id: 'c-live', status: 'open' }, { id: 'c-past', status: 'closed' }],
+    });
+    await flush(40);
+    const typingShown = () => !h.q<HTMLElement>('[data-typing-row]')!.hidden || !!h.q('[data-chat-messages] .typing-row');
+    h.runtime.setTab('list');
+    await flush(10);
+    click(h.q('[data-conversation-open="c-past"]'));
+    await flush(20);
+    h.emitTyping({ actor: 'agent', name: 'سارا' });
+    await flush(5);
+    expect(pastBar(h)).not.toBeNull();
+    expect(typingShown()).toBe(false);
+    // In the current one it is.
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(20);
+    h.emitTyping({ actor: 'agent', name: 'سارا' });
+    await flush(5);
+    expect(typingShown()).toBe(true);
+  });
 
   it('t1: the past header has no presence and the ⋯ no sound', async () => {
     const h = start('t1', {
@@ -460,6 +558,152 @@ describe('a past conversation is read-only and the current one keeps its transpo
     expect((vm.operator as Row | null)?.online ?? null).toBeNull();
     expect(h.q('[data-chat-header] .pr')).toBeNull();
     expect(Array.from(h.shadow.querySelectorAll('[data-chat-menu-action]')).map((e) => e.getAttribute('data-chat-menu-action'))).not.toContain('sound');
+  });
+});
+
+describe('a look at a past conversation costs the current one nothing', () => {
+  const LIVE: ConversationSeed[] = [{ id: 'c-live', status: 'open' }, { id: 'c-past', status: 'closed' }];
+  async function readPast(h: Harness) {
+    h.runtime.setTab('list');
+    await flush(10);
+    click(h.q('[data-conversation-open="c-past"]'));
+    await flush(10);
+    expect([cid(h), pastBar(h) !== null]).toEqual(['c-past', true]);
+  }
+
+  for (const which of ['bare', 't1'] as const) {
+    it(`${which}: a message waiting for the connection goes once, back in its thread (${which === 'bare' ? 'the past bar' : 'back to the list'})`, async () => {
+      const h = start(which, { realtime: true, conversations: LIVE });
+      await flush(40);
+      h.runtime.__test.setConnectionState('reconnecting');
+      await flush(5);
+      write(h, 'منتظر اتصال');
+      await flush(5);
+      expect(msgs(h).find((m) => m.body === 'منتظر اتصال')).toMatchObject({ status: 'failed', failReason: 'offline' });
+      await readPast(h);
+      expect(msgs(h).some((m) => m.body === 'منتظر اتصال')).toBe(false);
+      if (which === 'bare') click(h.q('[data-past-bar] [data-chat-current]'));
+      else click(h.q('[data-chat-header] [data-view-back]'));
+      await flush(20);
+      expect(view(h)).toBe(which === 'bare' ? 'chat' : 'list');
+      await online(h);
+      await flush(20);
+      expect(sends(h).map((b) => [b.text, b.conversationId])).toEqual([['منتظر اتصال', 'c-live']]);
+      if (which === 't1') { h.runtime.setTab('chat'); await flush(10); }
+      expect(cid(h)).toBe('c-live');
+      expect(msgs(h).filter((m) => m.body === 'منتظر اتصال')).toHaveLength(1);
+      expect(msgs(h).map((m) => m.sender)).toEqual(['visitor', 'operator', 'visitor']);
+    });
+  }
+
+  it('the connection back while the past one is read: nothing goes from it, the message goes once its thread is back', async () => {
+    const h = start('bare', { realtime: true, conversations: LIVE });
+    await flush(40);
+    h.runtime.__test.setConnectionState('reconnecting');
+    await flush(5);
+    write(h, 'منتظر اتصال');
+    await flush(5);
+    await readPast(h);
+    await online(h);
+    await flush(10);
+    expect(sends(h)).toEqual([]);
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(20);
+    expect(sends(h).map((b) => [b.text, b.conversationId])).toEqual([['منتظر اتصال', 'c-live']]);
+  });
+
+  it('a message still on its way when the past one opened goes again with the same key, and is drawn once', async () => {
+    let answered = 0;
+    const h = start('bare', {
+      realtime: true,
+      conversations: LIVE,
+      send: () => ({ conversationId: 'c-live', messageId: 'm-' + ++answered }),
+    });
+    await flush(40);
+    await online(h);
+    write(h, 'در راه');
+    // The past one opens before the answer comes: that answer belongs to an older epoch.
+    h.runtime.setTab('list');
+    click(h.q('[data-conversation-open="c-past"]'));
+    await flush(10);
+    expect(cid(h)).toBe('c-past');
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(20);
+    const keys = sends(h).map((b) => b.clientMessageId);
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+    const mine = msgs(h).filter((m) => m.body === 'در راه');
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ status: 'sent', __id: 'm-2' });
+  });
+
+  it('a fresh thread\'s waiting first message comes back to a fresh thread and opens its conversation (force_new)', async () => {
+    const h = start('bare', { realtime: true, conversations: [{ id: 'c-past', status: 'closed' }] });
+    await flush(40);
+    h.runtime.__test.setConnectionState('reconnecting');
+    h.runtime.setTab('chat');
+    await flush(10);
+    write(h, 'اولین پیام');
+    await flush(5);
+    await readPast(h);
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(10);
+    await online(h);
+    await flush(10);
+    expect(sends(h)).toHaveLength(1);
+    expect(sends(h)[0]).toMatchObject({ text: 'اولین پیام', conversationId: null, forceNewConversation: true });
+  });
+
+  it('t1: back from a past one with nothing current: a live one the list shows later is taken (its transport)', async () => {
+    seedHint({ tab: 'home', conversationId: null });
+    const convs: ConversationSeed[] = [{ id: 'c-past', status: 'closed' }];
+    const h = start('t1', { realtime: true, conversations: convs });
+    await flush(40);
+    expect(cid(h)).toBeNull();
+    await readPast(h);
+    click(h.q('[data-chat-header] [data-view-back]'));
+    await flush(10);
+    click(h.q('[data-body] [data-view-back]'));
+    await flush(10);
+    expect(view(h)).toBe('home');
+    expect([cid(h), h.runtime.__test.chatState().freshIntent]).toEqual([null, true]);
+    convs.unshift({ id: 'c-new', status: 'open' });
+    h.runtime.__test.retryConversations();
+    await flush(20);
+    expect(ids(homeVm(h).conversations)).toEqual(['c-new']);
+    expect(cid(h)).toBe('c-new');
+    expect([...new Set(h.subscriptions)]).toEqual(['+c-new']);
+  });
+
+  it('the past one on screen reopened meanwhile (an operator\'s late reply) and now newest: it is the current one, with the transport', async () => {
+    const convs: ConversationSeed[] = [{ id: 'c-live', status: 'open', updatedAt: ago(5) }, { id: 'c-past', status: 'closed', updatedAt: ago(60) }];
+    const h = start('t1', { realtime: true, conversations: convs });
+    await flush(40);
+    await readPast(h);
+    convs.splice(0, 2, { id: 'c-past', status: 'open', updatedAt: ago(0) }, { id: 'c-live', status: 'open', updatedAt: ago(5) });
+    h.runtime.__test.retryConversations();
+    await flush(10);
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(10);
+    expect([cid(h), pastBar(h), composerShown(h)]).toEqual(['c-past', null, true]);
+    expect(h.subscriptions).toContain('+c-past');
+    h.runtime.setTab('home');
+    await flush(10);
+    expect(ids(homeVm(h).conversations)).toEqual(['c-past']);
+    expect(homeVm(h).pastCount).toBe(1);
+  });
+
+  it('the panel closed on a past one: the reopen shows the history, the current one behind it', async () => {
+    const h = start('t1', { realtime: true, conversations: LIVE });
+    await flush(40);
+    await readPast(h);
+    h.runtime.close();
+    await flush(10);
+    expect(cid(h)).toBe('c-live');
+    h.runtime.open();
+    await flush(10);
+    expect(view(h)).toBe('list');
+    expect(h.subscriptions.filter((x) => x !== '+c-live')).toEqual([]);
   });
 });
 
@@ -596,6 +840,29 @@ describe('the AI greeting before the conversation exists (the intro preview)', (
     expect(h.historyReads).toContain('c-live');
     // Its order: the earlier lines first, then the message just sent.
     expect(msgs(h).map((m) => m.__id)).toEqual(['x1', 'x2', 'm-v']);
+  });
+
+  it('continued: a message sent while that history loads stays after its lines, in the order written', async () => {
+    let n = 0;
+    const h = start('bare', {
+      conversations: [],
+      holdHistory: true,
+      history: { 'c-live': [visitor('x1', 'c-live', 'سؤال قبلی', 30), agent('x2', 'c-live', 'پاسخ قبلی', 29)] },
+      send: () => (++n === 1 ? { conversationId: 'c-live', messageId: 'm-1', continued: true } : { conversationId: 'c-live', messageId: 'm-2' }),
+    });
+    await flush(40);
+    await online(h);
+    h.runtime.setTab('chat');
+    await flush(10);
+    write(h, 'اول');
+    await flush(10);
+    expect(h.runtime.__test.chatState().historyLoading).toBe(true);
+    write(h, 'دوم');
+    await flush(10);
+    expect(sends(h)[1]).toMatchObject({ conversationId: 'c-live', text: 'دوم' });
+    h.releaseHistory();
+    await flush(10);
+    expect(msgs(h).map((m) => m.__id)).toEqual(['x1', 'x2', 'm-1', 'm-2']);
   });
 
   it('conversation_live: the visitor\'s live conversation (another tab\'s) is opened instead of a greeting', async () => {

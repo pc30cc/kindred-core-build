@@ -213,7 +213,8 @@ describe('t1: every hook the default renderer emits', () => {
     const d = (window as unknown as Record<string, { create: (env: Vm) => Renderer }>).__gs_presentation_default.create({
       t: (k: string) => k, escapeHtml, config: BASE_CONFIG, locale: 'fa', primaryColor: '#3B82F6',
     });
-    const r = make();
+    // With its extras, as Core hands them over after the first paint (the past bar is theirs).
+    const r = extended(make());
     const id = IDENTITY(['name', 'email', 'phone'], ['email']);
     const conv = { id: 'c', status: 'open', preview: 'p', unreadCount: 2, timeLabel: 't' };
     const qna = { questions: [{ question: 'a' }, { question: 'b' }, { question: 'c' }, { question: 'd' }], collapsedCount: 3 };
@@ -261,6 +262,8 @@ describe('t1: every hook the default renderer emits', () => {
       skeletonHtml: ['home', 'chat', 'list', 'help', 'article', 'prechat', 'articles']
         .map((v) => [v, { chatEnabled: true, composer: { voiceNotes: true, attachments: true, emoji: true } }]),
       connIndicatorHtml: [[]],
+      // One conversation: a past conversation's bar, with a current one and without (online, away).
+      pastBarHtml: [[{ current: true, online: true }], [{ current: false, online: true }], [{ current: false, online: false }]],
     };
     const drawn = (x: Renderer, name: string) => {
       const out = new Set<string>();

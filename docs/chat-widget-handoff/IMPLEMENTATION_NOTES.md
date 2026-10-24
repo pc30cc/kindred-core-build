@@ -262,6 +262,41 @@ touched (`presentation-t1.css` and `presentation-t2.css` got smaller). Gate: `e2
 template in both brands (harness states `chat-ai-intro`, `chat-ai-reply`, their `mobile-` variants, `chat-ai-thinking`
 and `chat-handover`).
 
+## Accepted differences (t2, one conversation) (2026-10-24)
+
+t2 with one current conversation per visitor: Core runs the mode for a renderer that draws a past bar
+(`pastBarHtml`, exported by t2 as a forwarder to its extras, contract v3), and t2 declares `pastChats` (its ⋯ draws
+the history item). Where t2 now departs from the template-2 boards:
+
+- **01·02 (home, a returning visitor):** no «گفتگوهای شما» row («۳ گفتگو، یکی باز است»). The continue row is the
+  current conversation whatever its status (live, or closed with an answer unseen: Core passes that one alone), and
+  the earlier ones are a quiet «گفتگوهای قبلی ‹» link under the rows (accent ink, at the rows' chevron end, a 44 px hit
+  area on phones), with their unseen answers' `.nb`. The rows stay at three, so a returning visitor now also gets the
+  track-order row. The retry row of a list that failed to load stays, titled «گفتگوهای شما».
+- **02·06 (a fresh thread's bar):** the storefront tile, the workspace's name and its reply time, as any thread
+  before someone answers; no three-face stack and no «گفتگوی جدید» (the welcome under it still shows the team). The
+  bar no longer changes at the first message, and the reply time fits beside the ⋯ a fresh thread now has (history).
+  t2's storefront tile (`.c4`) keeps its own colour (CONTRACT B.5).
+- **03·09 (conversations):** history, titled «گفتگوهای قبلی», its back to where it was opened (home, help, or the
+  chat's ⋯), with no floating «گفتگوی جدید» and no open/resolved pills (the order card keeps its `.pill`). The current
+  conversation is never in it; an older live one is, and opens writable. On a phone a titled bar (history, help) is
+  now as tall as a thread's (64 px), so back and close stay put between history and a past thread.
+- **The past bar (no board):** a closed conversation opened from history is read-only. The composer's box is locked
+  (the pre-chat's locked look) and says «این گفتگو به پایان رسیده و فقط خواندنی است» beside a lock, with «گفتگوی فعلی
+  ‹» where send sits; with nothing current, a «شروع گفتگو» / «پیغام بگذارید» button under the box (RESPOK: the flat
+  Ink fill, `.ro .btn`). The thread's bar shows who answered and when («مهدی · دیروز»), never a presence; its bubbles
+  offer no reply or heart; its ⋯ only the transcript; the rating card stays under its close within the server's
+  7-day window.
+- **The closed line's wording**, one for every template (CONTRACT B.2): «{name} گفتگو را به پایان رساند» / «گفتگو به
+  پایان رسید» (en '{name} ended the chat' / 'Chat ended', tr '{name} sohbeti sonlandırdı' / 'Sohbet sona erdi'). t2's
+  resolve wording is gone: a resolve draws no line (owner, 2026-10-24), and the server writes it for a close only.
+- **The ⋯:** «گفتگوهای قبلی» first (a clock), with its unseen answers' count, on any thread but a past one, a fresh
+  thread too.
+- **Bytes** (shipped, gzip 5, iran / respok): `presentation-t2.js` 19,950 / 19,788 → 19,765 / 19,599 (budget
+  20,000); `presentation-t2-x.js` 6,110 → 6,401 (12,000); `presentation-t2.css` 15,901 → 15,915 (18,000);
+  `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,841, t2-intl 38,808 →
+  38,634 (40,000). `loader.js` unchanged.
+
 ## Rollout
 
 - Migration 275 is applied by hand on WebYar's database before the merge (CLAUDE.md); RESPOK's migrator applies it on

@@ -141,8 +141,10 @@ describe('t2: registration', () => {
 describe('t2: every hook the default renderer emits', () => {
   const hooks = (src: string) => new Set((src.match(/data-[a-z0-9]+(?:-[a-z0-9]+)*(?=[\s="'>])/g) || []));
 
+  // The renderer's or its extras' (the past bar, the ⋯: presentation-t2-x.js).
   it('is emitted by t2 too', () => {
-    const missing = [...hooks(DEFAULT_SRC)].filter((h) => !hooks(T2_SRC).has(h));
+    const ours = hooks(T2_SRC + T2_X_SRC);
+    const missing = [...hooks(DEFAULT_SRC)].filter((h) => !ours.has(h));
     expect(missing).toEqual([]);
   });
 
@@ -176,10 +178,13 @@ describe('t2: every hook the default renderer emits', () => {
       x.kbHtml({ state: 'article', article: { title: 'A', contentHtml: '<p>x</p>' }, feedback: { enabled: true } }),
       x.kbHtml({ state: 'list', articles: [{ slug: 'a', title: 'A' }], categories: [] }),
       x.connIndicatorHtml(),
+      // One conversation: a past conversation's bar, both shapes (a renderer that draws one).
+      ...(typeof x.pastBarHtml === 'function' ? [x.pastBarHtml({ current: true, online: true }), x.pastBarHtml({ current: false, online: false })] : []),
     ].join('');
     const attrs = (html: string) => new Set((html.match(/\sdata-[a-z0-9-]+/g) || []).map((s) => s.trim()));
     const theirs = attrs(surfaces(d));
-    const ours = attrs(surfaces(r));
+    // With its extras, as Core hands them over after the first paint.
+    const ours = attrs(surfaces(withExtras(r)));
     expect([...theirs].filter((h) => !ours.has(h))).toEqual([]);
   });
 });
@@ -389,7 +394,7 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
     // Drawn by the extras (presentation-t2-x.js), tested below.
     closedNotice: () => {
       const h = parse(withExtras(r()).messagesHtml({ messages: [closedRow('c1', 'سارا')] }, undefined, {}));
-      expect(h.querySelector('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+      expect(h.querySelector('.msg-system-pill')!.textContent).toBe('سارا گفتگو را به پایان رساند');
     },
     csat: () => {
       const h = parse(withExtras(r()).messagesHtml({ messages: [closedRow('c1', 'سارا')] }, undefined, { csat: CSAT('c1') }));
@@ -398,6 +403,12 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
     chatMenu: () => {
       const h = parse(withExtras(r()).chatHeaderHtml({ online: true, isNew: false, menu: { open: false, items: [{ action: 'sound', on: true }] } }));
       expect(h.querySelector('[data-chat-menu-toggle][aria-haspopup="menu"]')).not.toBeNull();
+    },
+    // One conversation: the ⋯ offers the earlier ones; the past bar (extras) is tested below.
+    pastChats: () => {
+      const h = parse(withExtras(r()).chatHeaderHtml({ online: true, isNew: true, menu: { open: true, items: [{ action: 'history', n: 0 }] } }));
+      expect(h.querySelector('[data-chat-menu] [data-chat-menu-action="history"]')!.textContent).toBe('گفتگوهای قبلی');
+      expect(typeof r().pastBarHtml).toBe('function');
     },
     reactions: () => {
       const m = msg({ __id: UUID, metadata: { reactions: [{ emoji: HEART, count: 1, mine: true }] } });
@@ -536,11 +547,12 @@ describe('t2: numbers in the visitor\'s digits', () => {
     const home = r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true, kbEnabled: true,
       articles: Array.from({ length: 24 }, (_, i) => ({ slug: 's' + i, title: 't' })),
       categories: [{ name: 'سفارش' }, { name: 'ارسال' }, { name: 'مرجوعی' }],
-      conversations: [{ id: 'c', status: 'open', unreadCount: 2, preview: 'p', operatorName: 'سارا' }, { id: 'd', status: 'resolved' }, { id: 'e', status: 'resolved' }] });
+      conversations: [{ id: 'c', status: 'open', unreadCount: 2, preview: 'p', operatorName: 'سارا' }], pastCount: 2, pastUnread: 12 });
     const text = parse(home).textContent!;
     expect(text).toContain('۲۴ مقاله درباره سفارش، ارسال و مرجوعی');
-    expect(text).toContain('۳ گفتگو، یکی باز است');
-    expect(parse(home).querySelector('.nb')!.textContent).toBe('۲');
+    expect(parse(home).querySelector('.list .nb')!.textContent).toBe('۲');
+    // The earlier conversations' unseen answers, on the history link.
+    expect(parse(home).querySelector('.more .nb')!.textContent).toBe('۱۲');
     expect(text).not.toMatch(/[0-9]/);
     const results = r.kbHtml({ state: 'results', query: 'x', results: [{ slug: 'a', title: 'a' }, { slug: 'b', title: 'b' }, { slug: 'c', title: 'c' }] });
     expect(parse(results).querySelector('.cnt')!.textContent).toBe('۳ مقاله پیدا شد');
@@ -899,7 +911,8 @@ describe('t2: the thread and the composer after the owner\'s screenshots (2026-1
   });
 
   it('ends the sheen of every text button on the accent above its label, as on the bubble', () => {
-    for (const sel of ['.btn, .wy-btn-primary', '.fab']) expect(rule(T2_CSS, sel), sel).toContain('background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);');
+    // `.btn` is the past bar's button too (nothing current): the list's floating "new conversation" is gone.
+    for (const sel of ['.btn, .wy-btn-primary']) expect(rule(T2_CSS, sel), sel).toContain('background: linear-gradient(180deg, var(--a-hi), var(--a) 30%);');
     expect(T2_CSS).toContain('.wy-jump.has-new { background: linear-gradient(180deg, var(--a-hi), var(--a) 30%); color: var(--on-a); }');
     // Core's proactive message paints its button in the raw colour inline: the accent and its ink instead.
     expect(T2_CSS).toContain('.smart-msg .smart-cta { background: var(--a) !important; color: var(--on-a); }');
@@ -1018,15 +1031,16 @@ describe('t2: review fixes', () => {
     expect(make().prechatSummaryHtml({})).toBe('');
   });
 
-  it('says one article or conversation in English, never "1 articles" (fa and tr do not inflect)', () => {
+  it('says one article in English, never "1 articles" (fa and tr do not inflect); the earlier conversations count nothing', () => {
     const en = make({ locale: 'en' });
     const tile = (count: number) => parse(en.kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'N', count }] })).querySelector('small')!.textContent;
     expect(tile(1)).toBe('1 article');
     expect(tile(2)).toBe('2 articles');
     expect(parse(en.kbHtml({ state: 'results', query: 'x', results: [{ slug: 'a', title: 'x' }] })).querySelector('.cnt')!.textContent).toBe('1 article found');
-    const home = (conversations: Vm[]) => parse(en.homeHtml({ rtl: false, isOnline: true, chatEnabled: true, conversations })).textContent!;
-    expect(home([{ id: 'c1', status: 'open' }])).toContain('1 conversation, one open');
-    expect(home([{ id: 'c1', status: 'resolved' }, { id: 'c2', status: 'resolved' }])).toContain('2 conversations');
+    // One conversation: the current one is a row, the others a link that names them without a count.
+    const home = (pastCount: number) => parse(en.homeHtml({ rtl: false, isOnline: true, chatEnabled: true, conversations: [{ id: 'c1', status: 'open' }], pastCount }));
+    expect(home(1).querySelector('.more[data-view="list"]')!.textContent).toBe('Previous conversations');
+    expect(home(2).textContent).not.toMatch(/\d conversation/);
     expect(parse(make().kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'N', count: 1 }] })).querySelector('small')!.textContent).toBe('۱ مقاله');
   });
 
@@ -1102,14 +1116,15 @@ describe('t2: review fixes', () => {
 describe('t2: its extras (presentation-t2-x.js)', () => {
 
   it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
-    expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 2, create: create };");
-    expect(T2_SRC).toContain("mod.id !== 't2' || mod.v !== 2");
+    expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 3, create: create };");
+    expect(T2_SRC).toContain("mod.id !== 't2' || mod.v !== 3");
   });
 
   it('takes only its own file: another template\'s, another version or no module is refused', () => {
     const extend = make().extend as unknown as (m: unknown, dry?: boolean) => number;
     const mod = extrasModule();
-    for (const bad of [null, {}, { ...mod, id: 't1' }, { ...mod, v: 1 }, { ...mod, v: 3 }, { id: 't2', v: 2 }]) expect(extend(bad)).toBe(0);
+    // v2 is the extras before one conversation (no history item, no past bar).
+    for (const bad of [null, {}, { ...mod, id: 't1' }, { ...mod, v: 2 }, { ...mod, v: 4 }, { id: 't2', v: 3 }]) expect(extend(bad)).toBe(0);
     expect(extend(mod, true)).toBe(1);
     // Nothing was asked for before: taken, no repaint; taken again: the same.
     expect(extend(mod)).toBe(1);
@@ -1141,30 +1156,25 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
   it('the line names who closed it; without a name it names nobody (never the workspace as a person); in fa, en and tr', () => {
     const line = (name: string | null, locale = 'fa') =>
       thread(withExtras(make({ locale })), [closedRow('c1', name)]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
-    expect(line('سارا')).toBe('سارا گفتگو را بست');
-    expect(line(null)).toBe('گفتگو بسته شد');
-    expect(line('Sara', 'en')).toBe('Sara closed the conversation');
-    expect(line(null, 'en')).toBe('The conversation was closed');
-    expect(line('Sara', 'tr')).toBe('Sara sohbeti kapattı');
-    expect(line(null, 'tr')).toBe('Sohbet kapatıldı');
-    // A resolve by nobody named, too.
-    const resolved = (locale: string) => thread(withExtras(make({ locale })), [closedRow('c1', null, {
-      metadata: { kind: 'conversation_closed', by: 'system', status: 'resolved' },
-    })]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
-    expect(resolved('fa')).toBe('گفتگو حل‌شده اعلام شد');
-    expect(resolved('en')).toBe('The conversation was marked as resolved');
-    expect(resolved('tr')).toBe('Sohbet çözüldü olarak işaretlendi');
+    // One wording for every template (the past bar's «به پایان رسیده»).
+    expect(line('سارا')).toBe('سارا گفتگو را به پایان رساند');
+    expect(line(null)).toBe('گفتگو به پایان رسید');
+    expect(line('Sara', 'en')).toBe('Sara ended the chat');
+    expect(line(null, 'en')).toBe('Chat ended');
+    expect(line('Sara', 'tr')).toBe('Sara sohbeti sonlandırdı');
+    expect(line(null, 'tr')).toBe('Sohbet sona erdi');
   });
 
-  // V-12: a resolve is not a close (the visitor's next message continues
-  // the conversation), and the line says so.
-  it('a resolve reads as resolved, not closed; in fa, en and tr', () => {
+  // A resolve ends nothing for the visitor (owner, 2026-10-24): the server
+  // writes no line for one, and Core drops the line an older backend wrote
+  // (runtime.js hiddenRow), so no resolve wording is left here.
+  it('has no resolve wording: a row that still says resolved reads as the close it is drawn as', () => {
     const line = (locale: string) => thread(withExtras(make({ locale })), [closedRow('c1', 'Sara', {
       metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Sara', status: 'resolved' },
     })]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
-    expect(line('fa')).toBe('Sara گفتگو را حل‌شده اعلام کرد');
-    expect(line('en')).toBe('Sara marked the conversation as resolved');
-    expect(line('tr')).toBe('Sara sohbeti çözüldü olarak işaretledi');
+    expect(line('fa')).toBe('Sara گفتگو را به پایان رساند');
+    expect(line('en')).toBe('Sara ended the chat');
+    expect(T2_X_SRC).not.toMatch(/convResolved|حل‌شده|resolved/);
   });
 
   it('before the extras: no line, no card, and taking them asks Core for one repaint', () => {
@@ -1183,7 +1193,7 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
     const pills = Array.from(h.querySelectorAll('.msg-row.system'));
     // The card follows the line it answers.
     expect(pills[pills.length - 1].querySelector('[data-csat]')).not.toBeNull();
-    expect(pills[pills.length - 2].textContent).toBe('سارا گفتگو را بست');
+    expect(pills[pills.length - 2].textContent).toBe('سارا گفتگو را به پایان رساند');
   });
 
   it('a closed line that ends the thread stays last with its card: a row Core adds (the saved details) goes above it', () => {
@@ -1315,10 +1325,13 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
 
   it('carries its own copy in fa, en and tr, in key order (the registry\'s names)', () => {
     const keys = (/var COPY_KEYS = '([^']+)'/.exec(T2_X_SRC) || [])[1]!.split(' ');
-    for (const k of ['convClosedBy', 'csatTitle', 'csatSub', 'csat1', 'csat5', 'csatComment', 'csatSend', 'csatTranscript', 'csatTranscriptSent', 'moreOptions', 'menuSound']) {
+    for (const k of ['convClosedBy', 'convClosed', 'csatTitle', 'csatSub', 'csat1', 'csat5', 'csatComment', 'csatSend', 'csatTranscript', 'csatTranscriptSent', 'moreOptions', 'menuSound', 'pastClosed', 'pastCurrent']) {
       expect(keys, k).toContain(k);
     }
     expect(keys).not.toContain('menuEndConversation');
+    // A resolve draws no line (owner, 2026-10-24): its words are gone.
+    expect(keys).not.toContain('convResolvedBy');
+    expect(keys).not.toContain('convResolved');
     expect(new Set(keys).size).toBe(keys.length);
     for (const lang of ['fa', 'en', 'tr']) {
       const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T2_X_SRC) || [])[1]!.split('|');
@@ -1327,7 +1340,7 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
     }
     // Any other language reads English (a locale 'constructor' too).
     for (const locale of ['de', 'constructor']) {
-      expect(thread(withExtras(make({ locale })), [closedRow('c1', 'Sara')]).querySelector('.msg-system-pill')!.textContent).toBe('Sara closed the conversation');
+      expect(thread(withExtras(make({ locale })), [closedRow('c1', 'Sara')]).querySelector('.msg-system-pill')!.textContent).toBe('Sara ended the chat');
     }
   });
 
@@ -1650,6 +1663,151 @@ describe('t2: an AI answer\'s order card (02·04, extras, capability `orderCard`
   });
 });
 
+describe('t2: one current conversation per visitor (Core\'s mode for a renderer drawing the past bar)', () => {
+  const CORE_FA: Record<string, string> = { ...FA, homeStartChat: 'شروع گفتگو', homeLeaveMessage: 'پیغام بگذارید', wyContinueLast: 'ادامه آخرین گفتگو' };
+  const r = (locale = 'fa') => make({ locale, t: (k: string) => CORE_FA[k] ?? k });
+  const home = (vm: Vm, locale = 'fa') => parse(r(locale).homeHtml({ rtl: locale === 'fa', isOnline: true, chatEnabled: true, kbEnabled: true, ...vm }));
+  const conv = (over: Vm = {}): Vm => ({ id: 'c1', status: 'open', preview: 'سلام', operatorName: 'سارا', unreadCount: 0, timeLabel: 'دیروز', ...over });
+
+  it('home continues the conversation Core passes, whatever its status (an unseen answer in a closed one too)', () => {
+    for (const status of ['open', 'pending', 'resolved', 'closed']) {
+      const h = home({ conversations: [conv({ status, unreadCount: 1 })] });
+      const row = h.querySelector('.list > .r[data-conversation-open="c1"]')!;
+      expect(row.querySelector('.t1')!.textContent, status).toBe('ادامه گفتگو با سارا');
+      expect(row.querySelector('.t2x.u')!.textContent, status).toBe('سلام');
+      expect(row.querySelector('.end .nb')!.textContent, status).toBe('۱');
+    }
+    // Nothing current: no continue row (the ask field starts one).
+    expect(home({ conversations: [] }).querySelector('[data-conversation-open]')).toBeNull();
+    // Nameless (a stub of a conversation this tab started): Core's own words.
+    expect(home({ conversations: [conv({ operatorName: null })] }).querySelector('.r[data-conversation-open] .t1')!.textContent).toBe('ادامه آخرین گفتگو');
+  });
+
+  it('home has no «گفتگوهای شما» count row: a quiet «گفتگوهای قبلی» link under the rows, only with history', () => {
+    const h = home({ conversations: [conv()], pastCount: 3 });
+    expect(h.querySelector('.list [data-view="list"]')).toBeNull();
+    expect(h.textContent).not.toContain('گفتگوهای شما');
+    const link = h.querySelector('.wy-home-scroll > .list + button.more.cas[data-view="list"]')!;
+    expect(link.textContent).toBe('گفتگوهای قبلی');
+    expect(link.querySelector('svg.dirf')).not.toBeNull();
+    expect(link.querySelector('.nb')).toBeNull();
+    // An answer unseen there: its count on the link.
+    expect(home({ conversations: [], pastCount: 2, pastUnread: 3 }).querySelector('.more[data-view="list"] .nb')!.textContent).toBe('۳');
+    expect(home({ conversations: [conv()], pastCount: 0 }).querySelector('[data-view="list"]')).toBeNull();
+    expect(home({ conversations: [conv()] }).querySelector('[data-view="list"]')).toBeNull();
+    // Without a row card above it (chat and the help center off) it still leads to history.
+    expect(home({ chatEnabled: false, kbEnabled: false, pastCount: 1 }).querySelector('.wy-home-scroll > .more[data-view="list"]')).not.toBeNull();
+    expect(home({ pastCount: 1 }, 'en').querySelector('.more[data-view="list"]')!.textContent).toBe('Previous conversations');
+    expect(home({ pastCount: 1 }, 'tr').querySelector('.more[data-view="list"]')!.textContent).toBe('Önceki sohbetler');
+  });
+
+  it('home keeps the retry row when the list failed and nothing is current', () => {
+    const h = home({ conversations: [], conversationsError: true });
+    const retry = h.querySelector('.list > .r[data-home-action="conversations-retry"]')!;
+    expect(retry.querySelector('.t1')!.textContent).toBe('گفتگوهای شما');
+    expect(home({ conversations: [conv()], conversationsError: true }).querySelector('[data-home-action="conversations-retry"]')).toBeNull();
+  });
+
+  it('the list is history: «گفتگوهای قبلی», back where the visitor came from, no new-conversation door, no pills', () => {
+    const list = (vm: Vm) => parse(r().conversationListHtml({ chatEnabled: true, conversations: [conv({ status: 'closed' }), conv({ id: 'c2', status: 'open' })], ...vm }));
+    const h = list({ back: 'chat' });
+    expect(h.querySelector('.wy-head.bar .ttl')!.textContent).toBe('گفتگوهای قبلی');
+    expect(h.querySelector('.wy-head.bar [data-view-back="chat"]')).not.toBeNull();
+    expect(list({ back: 'help' }).querySelector('[data-view-back="help"]')).not.toBeNull();
+    expect(list({}).querySelector('[data-view-back="home"]')).not.toBeNull();
+    expect(h.querySelector('[data-home-action="chat"], .fab, .wy-fab, .pill, .pl')).toBeNull();
+    expect(Array.from(h.querySelectorAll('.inbox > .conv-row.ci[data-conversation-open]')).map((e) => e.getAttribute('data-conversation-open'))).toEqual(['c1', 'c2']);
+    expect(h.textContent).not.toMatch(/حل شده|باز/);
+    // The compact flag of older callers draws the same row.
+    expect(r().conversationRowHtml(conv(), true)).toBe(r().conversationRowHtml(conv()));
+    expect(parse(r('en').conversationListHtml({ conversations: [] })).querySelector('.ttl')!.textContent).toBe('Previous conversations');
+  });
+
+  it('the chat bar: back to `vm.back`; a fresh thread is the workspace with its reply time (no «گفتگوی جدید», no stack)', () => {
+    const bar = (vm: Vm) => parse(r().chatHeaderHtml({ online: true, typing: false, ...vm }));
+    expect(bar({ back: 'list' }).querySelector('[data-view-back="list"]')).not.toBeNull();
+    expect(bar({ back: 'help' }).querySelector('[data-view-back="help"]')).not.toBeNull();
+    expect(bar({}).querySelector('[data-view-back="home"]')).not.toBeNull();
+    const fresh = bar({ isNew: true });
+    expect(fresh.querySelector('.avs')).toBeNull();
+    expect(avatarFace(fresh.querySelector('.who > .av'))).toBe('workspace');
+    expect(fresh.querySelector('.nm')!.textContent).toBe('فروشگاه نیلوفر');
+    expect(fresh.textContent).not.toContain('گفتگوی جدید');
+    // The bar does not change at the first message.
+    expect(fresh.querySelector('.who')!.outerHTML).toBe(bar({ isNew: false }).querySelector('.who')!.outerHTML);
+  });
+
+  it('a past conversation\'s bar says who answered and when, never a presence (Core gives it none)', () => {
+    // What runtime-ext.js passes for one: online true, the operator's presence null.
+    const bar = (vm: Vm) => parse(r().chatHeaderHtml({ online: true, typing: false, past: true, when: 'دیروز', ...vm }));
+    const mahdi = bar({ operator: { name: 'مهدی', avatar: null, online: null } });
+    expect(mahdi.querySelector('.nm')!.textContent).toBe('فروشگاه نیلوفر');
+    expect(mahdi.querySelector('.st')!.textContent).toBe('مهدی · دیروز');
+    expect(mahdi.querySelector('.pr, .ondot, .st.off')).toBeNull();
+    expect(avatarFace(mahdi.querySelector('.who > .av'))).toBe('person');
+    const nobody = bar({ operator: null });
+    expect(nobody.querySelector('.st')!.textContent).toBe('دیروز');
+    expect(avatarFace(nobody.querySelector('.who > .av'))).toBe('workspace');
+    // No day known: the name alone.
+    expect(bar({ when: '', operator: { name: 'مهدی', online: null } }).querySelector('.st')!.textContent).toBe('مهدی');
+  });
+
+  it('the past bar (extras): the composer\'s box locked, the way to the current conversation where send sits', () => {
+    expect(r().pastBarHtml({ current: true })).toBe('');
+    const bar = (vm: Vm, locale = 'fa') => parse(withExtras(r(locale)).pastBarHtml(vm));
+    const go = bar({ current: true, online: true });
+    expect(go.querySelector('.ro[data-past-bar] > .box > p.lk > span')!.textContent).toBe('این گفتگو به پایان رسیده و فقط خواندنی است');
+    expect(go.querySelector('.ro > .box > p.lk > svg')).not.toBeNull();
+    const link = go.querySelector('.ro > .box > button.more[data-chat-current]')!;
+    expect(link.textContent).toBe('گفتگوی فعلی');
+    expect(link.querySelector('svg.dirf')).not.toBeNull();
+    expect(go.querySelector('.btn')).toBeNull();
+    // Nothing current: a button under the box, start one or (away) leave a message.
+    const start = bar({ current: false, online: true });
+    expect(start.querySelector('.box [data-chat-current]')).toBeNull();
+    expect(start.querySelector('.ro[data-past-bar] > button.btn[data-chat-current]')!.textContent).toBe('شروع گفتگو');
+    expect(bar({ current: false, online: false }).querySelector('[data-chat-current]')!.textContent).toBe('پیغام بگذارید');
+    expect(bar({}).querySelectorAll('[data-chat-current]')).toHaveLength(1);
+    const en = bar({ current: true }, 'en');
+    expect([en.querySelector('.lk span')!.textContent, en.querySelector('[data-chat-current]')!.textContent]).toEqual(['This chat has ended and is read-only', 'Current chat']);
+    const tr = bar({ current: true }, 'tr');
+    expect([tr.querySelector('.lk span')!.textContent, tr.querySelector('[data-chat-current]')!.textContent]).toEqual(['Bu sohbet sona erdi, yalnızca okunabilir', 'Güncel sohbet']);
+  });
+
+  it('the ⋯ offers the earlier conversations first, with their unseen answers', () => {
+    const menu = (items: Vm[], locale = 'fa') => parse(withExtras(r(locale)).chatHeaderHtml({ online: true, isNew: true, menu: { open: true, items } }));
+    const h = menu([{ action: 'history', n: 0 }, { action: 'sound', on: true }]);
+    const all = Array.from(h.querySelectorAll('[data-chat-menu] > [data-chat-menu-action]'));
+    expect(all.map((e) => e.getAttribute('data-chat-menu-action'))).toEqual(['history', 'sound']);
+    expect(all[0].getAttribute('role')).toBe('menuitem');
+    expect(all[0].getAttribute('tabindex')).toBe('-1');
+    expect(all[0].textContent).toBe('گفتگوهای قبلی');
+    expect(all[0].querySelector('svg')).not.toBeNull();
+    expect(all[0].querySelector('.sw, .nb')).toBeNull();
+    expect(menu([{ action: 'history', n: 120 }]).querySelector('[data-chat-menu-action="history"] .nb')!.textContent).toBe('۹۹+');
+    expect(menu([{ action: 'history', n: 2 }], 'en').querySelector('[data-chat-menu-action="history"]')!.textContent).toBe('Previous conversations2');
+    // Never drawn as the transcript (the item a v2 pack would have mistaken it for).
+    expect(h.querySelector('[data-chat-menu-action="transcript"]')).toBeNull();
+    expect(T2_CSS).toContain('.menu .nb { flex: none; }');
+  });
+
+  it('the stylesheet: the link, the past bar, no reply or heart in a past thread, nothing left of the FAB and the pills', () => {
+    expect(T2_CSS).toContain('.wy-view-chat:has(.ro) :is([data-msg-reply], [data-msg-react]) { display: none; }');
+    expect(T2_CSS).toMatch(/^\.more \{[^}]*color: var\(--a-ink\);[^}]*\}/m);
+    expect(T2_CSS).toMatch(/^\.ro \.box \{[^}]*background: var\(--paper\); box-shadow: 0 0 0 1px var\(--line\);/m);
+    // A 44px hit area on phones, as every small control.
+    expect(T2_CSS).toContain('.sfield .x, .more) { position: relative; }');
+    expect(T2_CSS).toContain('.sfield .x, .more)::after {');
+    expect(T2_CSS).toContain('.more:focus-visible { border-radius: 10px; }');
+    expect(T2_CSS).not.toMatch(/\.fab\b|conv-row-compact|^\.pl \{|t2-fab/m);
+    // The order card keeps its pill.
+    expect(T2_CSS).toMatch(/^\.pill \{/m);
+    expect(T2_CSS).toContain('.inbox { flex: 1; min-height: 0; padding: 8px 10px; }');
+    // On a phone history's bar is as tall as a past thread's: back and close stay put (e2e: widgetTemplateScreens).
+    expect(T2_CSS).toContain('.shell.gs-mobile-open .bar { height: auto; min-height: 64px; padding: 14px 10px 10px; }');
+  });
+});
+
 describe('t2: the track-order row (01·01, 01·03; `config.commerce.trackOrder`)', () => {
   const STORE = { commerce: { trackOrder: true } };
   const home = (vm: Vm, config: Vm = STORE, locale = 'fa') => parse(make({ locale, config, capabilities: SERVED })
@@ -1676,10 +1834,10 @@ describe('t2: the track-order row (01·01, 01·03; `config.commerce.trackOrder`)
     expect(home({ chatEnabled: false }).querySelector('[data-home-action="track-order"]')).toBeNull();
   });
 
-  it('keeps the rows at three: a returning visitor (01·02) has no room for it', () => {
+  it('keeps the rows at three: a returning visitor (01·02) keeps it too, the earlier conversations a link under them', () => {
     const conv = { id: 'c1', status: 'open', preview: 'سلام', operatorName: 'سارا' };
-    expect(rows(home({ conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'گفتگوهای شما', 'مرکز راهنما']);
-    expect(rows(home({ kbEnabled: false, conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'گفتگوهای شما', 'پیگیری سفارش']);
+    expect(rows(home({ conversations: [conv], pastCount: 2 }))).toEqual(['ادامه گفتگو با سارا', 'مرکز راهنما', 'پیگیری سفارش']);
+    expect(rows(home({ kbEnabled: false, conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'پیگیری سفارش']);
   });
 
   it('speaks en and tr', () => {
@@ -1826,6 +1984,11 @@ describe('t2-intl: the International edition\'s skin over t2 (presentation-t2-in
     expect(SKIN).toContain(".shell, .shell * { font-family: 'IRANSans', 'Figtree',");
     expect(SKIN).toMatch(/\.shell\[dir='ltr'\][^{]*\{\s*font-family: 'Figtree', 'IRANSans',/);
     expect(SKIN).not.toMatch(/@font-face|@import/);
+  });
+
+  it('paints the past bar\'s button in the flat Ink fill (the list\'s floating button is gone)', () => {
+    expect(SKIN).toContain('.msg.visitor, .has-draft .send-btn, .ro .btn, .csat .btn { background: var(--a); }');
+    expect(SKIN).not.toMatch(/\.fab\b/);
   });
 
   it('the renderer stays t2\'s: no RESPOK word, Signal colour or logo direction in presentation-t2.js', () => {

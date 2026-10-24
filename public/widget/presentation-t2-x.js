@@ -11,7 +11,7 @@
  * these surfaces is the template's own (presentation-t2.css).
  *
  * CONTRACT (docs/operations/WIDGET_TEMPLATE_RULES.md §1)
- *   window.__gs_mod_extras = { id: 't2', v: 2, create: function (H) { return { <surface>: fn, … }; } }
+ *   window.__gs_mod_extras = { id: 't2', v: 3, create: function (H) { return { <surface>: fn, … }; } }
  *   H = the renderer's helpers: esc, t, tf, L, digits, fmtNum, ico,
  *       avatarHtml, storeAvatarHtml, systemPillHtml, config, lang, fa.
  *   `id` is the RENDERER's (a skin over t2 wears this file too) and `v` the
@@ -20,10 +20,10 @@
  *   fallback) is refused. Change `v` here and in the renderer together
  *   whenever a surface's arguments or H change.
  *
- *   closedHtml(m, csat)   a `conversation_closed` row: the line «{name} closed
- *                         the conversation» (`metadata.agent_name`; without
- *                         one «The conversation was closed»), and under it
- *                         the rating card when Core
+ *   closedHtml(m, csat)   a `conversation_closed` row (a close: Core drops the line
+ *                         an older backend wrote for a resolve): «{name} ended
+ *                         the chat» (`metadata.agent_name`; without one «Chat
+ *                         ended»), and under it the rating card when Core
  *                         passes one for this row (`csat.closedId === m.__id`):
  *                           csat = { closedId, name, avatar, rating (1..5 | 0),
  *                                    comment, state, transcript }
@@ -35,7 +35,9 @@
  *                         [aria-pressed], [data-csat-comment], [data-csat-submit],
  *                         [data-csat-transcript].
  *   chatMenuHtml(menu)    the chat bar's ⋯ and its menu: menu = { open, items },
- *                         item { action: 'transcript', state, to } | { action: 'sound', on }.
+ *                         item { action: 'history', n } (one conversation, `pastChats`:
+ *                         the earlier ones, `n` their unseen answers) |
+ *                         { action: 'transcript', state, to } | { action: 'sound', on }.
  *                         Hooks: [data-chat-menu-toggle][aria-expanded],
  *                         [data-chat-menu][role=menu], [data-chat-menu-action].
  *   reactHtml(m)          a message's reactions under its bubble (feature `reactions`;
@@ -65,17 +67,21 @@
  *                         vm = { results: [{ slug, title, matches (words), readingMinutes }] },
  *                         two at most; '' for none. Hooks: [data-kb-suggest] (the tray),
  *                         [data-kb-action="open"][data-kb-slug] (a row).
+ *   pastBarHtml(vm)       a past conversation's bar in the composer's place (one
+ *                         conversation, `pastChats`): vm = { current (a current
+ *                         conversation exists), online }. Hooks: [data-past-bar],
+ *                         [data-chat-current] (to the current one, else a fresh thread).
  */
 (function () {
   'use strict';
 
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (the names of docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore orderTitle orderStepPlaced orderStepPreparing orderStepShipped orderStepDelivered orderArrives orderTrackPackage orderStatusPending orderStatusOnHold orderStatusProcessing orderStatusShipped orderStatusCompleted orderStatusCancelled orderStatusRefunded orderStatusFailed simpleInstantAnswers simpleAwayHere convResolvedBy convClosed convResolved csatTitleAny'.split(' ');
+  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore orderTitle orderStepPlaced orderStepPreparing orderStepShipped orderStepDelivered orderArrives orderTrackPackage orderStatusPending orderStatusOnHold orderStatusProcessing orderStatusShipped orderStatusCompleted orderStatusCancelled orderStatusRefunded orderStatusFailed simpleInstantAnswers simpleAwayHere convClosed csatTitleAny pastClosed pastCurrent'.split(' ');
   var DICT = {
-    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…|سفارش {number}|ثبت|آماده‌سازی|ارسال|تحویل|تحویل: {day}|پیگیری مرسوله|در انتظار پرداخت|در انتظار بررسی|در حال آماده‌سازی|ارسال شد|تکمیل شد|لغو شد|مسترد شد|ناموفق|پاسخ‌های آماده از مرکز راهنما|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.|{name} گفتگو را حل‌شده اعلام کرد|گفتگو بسته شد|گفتگو حل‌شده اعلام شد|گفتگوی شما چطور بود؟',
-    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…|Order {number}|Placed|Packed|Shipped|Delivered|Arrives {day}|Track package|Awaiting payment|On hold|Processing|Shipped|Completed|Cancelled|Refunded|Failed|Answers from the help center|Your message is saved. The reply will appear here, in this chat.|{name} marked the conversation as resolved|The conversation was closed|The conversation was marked as resolved|How was your chat?',
-    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…|Sipariş {number}|Alındı|Hazırlanıyor|Kargoda|Teslim edildi|Teslimat: {day}|Kargoyu takip et|Ödeme bekleniyor|Beklemede|Hazırlanıyor|Kargoya verildi|Tamamlandı|İptal edildi|İade edildi|Başarısız|Yardım merkezinden yanıtlar|Mesajınız kaydedildi. Yanıt burada, bu sohbette görünecek.|{name} sohbeti çözüldü olarak işaretledi|Sohbet kapatıldı|Sohbet çözüldü olarak işaretlendi|Sohbetiniz nasıldı?',
+    fa: '{name} گفتگو را به پایان رساند|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…|سفارش {number}|ثبت|آماده‌سازی|ارسال|تحویل|تحویل: {day}|پیگیری مرسوله|در انتظار پرداخت|در انتظار بررسی|در حال آماده‌سازی|ارسال شد|تکمیل شد|لغو شد|مسترد شد|ناموفق|پاسخ‌های آماده از مرکز راهنما|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.|گفتگو به پایان رسید|گفتگوی شما چطور بود؟|این گفتگو به پایان رسیده و فقط خواندنی است|گفتگوی فعلی',
+    en: '{name} ended the chat|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…|Order {number}|Placed|Packed|Shipped|Delivered|Arrives {day}|Track package|Awaiting payment|On hold|Processing|Shipped|Completed|Cancelled|Refunded|Failed|Answers from the help center|Your message is saved. The reply will appear here, in this chat.|Chat ended|How was your chat?|This chat has ended and is read-only|Current chat',
+    tr: '{name} sohbeti sonlandırdı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…|Sipariş {number}|Alındı|Hazırlanıyor|Kargoda|Teslim edildi|Teslimat: {day}|Kargoyu takip et|Ödeme bekleniyor|Beklemede|Hazırlanıyor|Kargoya verildi|Tamamlandı|İptal edildi|İade edildi|Başarısız|Yardım merkezinden yanıtlar|Mesajınız kaydedildi. Yanıt burada, bu sohbette görünecek.|Sohbet sona erdi|Sohbetiniz nasıldı?|Bu sohbet sona erdi, yalnızca okunabilir|Güncel sohbet',
   };
 
   // Icons this file adds (24px grid, as the renderer's ico()).
@@ -95,6 +101,9 @@
   ];
   var MORE = P('M5 12h.01M12 12h.01M19 12h.01');
   var BELL = P('M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15zM10 20.5h4');
+  // History (the earlier conversations): a clock turned back; a lock (a past conversation's bar).
+  var HIST = P('M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5') + P('M3.5 4v4.5H8') + P('M12 7.5V12l3 2');
+  var LOCK = '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/>' + P('M8 10.5V8a4 4 0 0 1 8 0v2.5');
   // The design's heart (filled by the stylesheet where it is given).
   var HEART_ICON = P('M12 20.5s-7.5-4.6-7.5-10.1A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8c0 5.5-7.5 10.1-7.5 10.1z');
   var HEART = '\u2764\uFE0F';
@@ -181,14 +190,12 @@
     }
 
     function closedHtml(m, csat) {
-      var md = (m && m.metadata) || {};
-      // A resolve is not a close: the visitor's next message continues this
-      // conversation (a closed one starts a new one), so the line says which.
-      // Without an operator's name (the system's close, or a profile with
-      // none) the sentence names nobody, as the join's generic one does.
-      var name = String(md.agent_name || '');
-      var resolved = md.status === 'resolved';
-      return H.systemPillHtml('', name ? XL(resolved ? 'convResolvedBy' : 'convClosedBy', { name: name }) : XL(resolved ? 'convResolved' : 'convClosed')) +
+      // Only a close ends a conversation for the visitor (a resolve draws no
+      // line, owner 2026-10-24), in the words the past bar uses. Without an
+      // operator's name (the system's close, or a profile with none) the
+      // sentence names nobody, as the join's generic one does.
+      var name = String(((m && m.metadata) || {}).agent_name || '');
+      return H.systemPillHtml('', name ? XL('convClosedBy', { name: name }) : XL('convClosed')) +
         (csat && csat.closedId === m.__id ? csatHtml(csat) : '');
     }
 
@@ -200,6 +207,10 @@
           !!menu.open + '" aria-label="' + label + '">' + svg(MORE, 20, 3) + '</button>' +
         '<div class="menu" role="menu" data-chat-menu aria-label="' + label + '"' + (menu.open ? '' : ' hidden') + '>' +
         items.map(function (it) {
+          if (it.action === 'history') {
+            return '<button type="button" role="menuitem" data-chat-menu-action="history" tabindex="-1">' + svg(HIST, 18, 1.8) +
+              '<span>' + esc(H.L('past')) + '</span>' + (it.n > 0 ? '<span class="nb">' + esc(it.n > 99 ? H.fmtNum(99) + '+' : H.fmtNum(it.n)) + '</span>' : '') + '</button>';
+          }
           if (it.action === 'sound') {
             return '<button type="button" role="menuitemcheckbox" aria-checked="' + !!it.on + '" data-chat-menu-action="sound" tabindex="-1">' +
               svg(BELL + (it.on ? '' : P('M4 4l16 16')), 18, 1.8) + '<span>' + esc(XL('menuSound')) + '</span><i class="sw" aria-hidden="true"></i></button>';
@@ -209,6 +220,19 @@
             (st === 'sending' || st === 'sent' || st === 'no' ? ' aria-disabled="true"' : '') + '>' +
             H.ico(st === 'sent' ? 'tick' : 'mail', 18, 1.8) + '<span>' + transcriptText(it) + '</span></button>';
         }).join('') + '</div></div>';
+    }
+
+    // A past conversation's bar, in the composer's place: the composer's box
+    // locked (the pre-chat's locked look), saying why, with the way to the
+    // current conversation where send sits; with none current, a button
+    // under it (start one, or leave a message while away).
+    function pastBarHtml(vm) {
+      vm = vm || {};
+      var cur = !!vm.current;
+      var go = '<button type="button" class="' + (cur ? 'more' : 'btn') + '" data-chat-current>' +
+        esc(cur ? XL('pastCurrent') : H.t(vm.online ? 'homeStartChat' : 'homeLeaveMessage')) + (cur ? H.ico('fwd', 16, 2.2, 'dirf') : '') + '</button>';
+      return '<div class="ro" data-past-bar><div class="box"><p class="lk">' + svg(LOCK, 16, 1.8) + '<span>' + esc(XL('pastClosed')) + '</span></p>' +
+        (cur ? go : '') + '</div>' + (cur ? '' : go) + '</div>';
     }
 
     // ── Reactions (`reactions`) ──
@@ -340,9 +364,9 @@
 
     return {
       closedHtml: closedHtml, chatMenuHtml: chatMenuHtml, reactHtml: reactHtml, reactBtnHtml: reactBtnHtml, awayReplyHtml: awayReplyHtml,
-      orderCardHtml: orderCardHtml, kbSuggestHtml: kbSuggestHtml,
+      orderCardHtml: orderCardHtml, kbSuggestHtml: kbSuggestHtml, pastBarHtml: pastBarHtml,
     };
   }
 
-  window.__gs_mod_extras = { id: 't2', v: 2, create: create };
+  window.__gs_mod_extras = { id: 't2', v: 3, create: create };
 })();

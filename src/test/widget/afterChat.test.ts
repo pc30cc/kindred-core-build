@@ -40,11 +40,15 @@ const agent = (id: string, text: string, min: number) =>
   ({ id, role: 'agent', sender_type: 'agent', sender_name: 'سارا', text, time: T(min), conversation_id: 'c1' });
 const visitorMsg = (id: string, text: string, min: number) =>
   ({ id, role: 'visitor', sender_type: 'contact', text, time: T(min), conversation_id: 'c1' });
-/** A closed row as /history and the realtime envelope carry it. */
-const closed = (id = 'cl1', min = 1) => ({
+/**
+ * A closed row as /history and the realtime envelope carry it: a close (the
+ * server writes the line for a close only, owner 2026-10-24); `status`
+ * 'resolved' is the line an older backend wrote for a resolve.
+ */
+const closed = (id = 'cl1', min = 1, status: 'closed' | 'resolved' = 'closed') => ({
   id, role: 'system', sender_type: 'system', text: 'سارا closed the conversation', body: 'سارا closed the conversation',
   time: T(min), conversation_id: 'c1', sender_name: 'سارا',
-  metadata: { kind: 'conversation_closed', by: 'agent', agent_id: 'u1', agent_name: 'سارا', operator_id: 'u1', operator_name: 'سارا', status: 'resolved' },
+  metadata: { kind: 'conversation_closed', by: 'agent', agent_id: 'u1', agent_name: 'سارا', operator_id: 'u1', operator_name: 'سارا', status },
 });
 const THREAD = [visitorMsg('m1', 'مرسی، مشکلم حل شد!', 5), agent('m2', 'خوشحالم که حل شد!', 4)];
 const CSAT_OK = {
@@ -53,14 +57,27 @@ const CSAT_OK = {
 };
 
 type Route = (url: string, body: Record<string, unknown> | null) => ApiAnswer | Promise<ApiAnswer> | undefined;
+/**
+ * The list's row for c1, as its thread has it: closed by the close it
+ * holds, its answer unseen (one conversation: the current one, rule 2, then
+ * held by this tab, rule 3), else live (open, or resolved by an older
+ * backend's line).
+ */
+function rowFor(messages: Array<Record<string, unknown>>) {
+  const close = messages.map((m) => m.metadata as { kind?: string; status?: string } | undefined)
+    .filter((md) => md && md.kind === 'conversation_closed').pop();
+  const status = close ? close.status || 'closed' : 'open';
+  return { id: 'c1', status, operatorName: 'سارا', operatorOnline: true, ...(status === 'closed' ? { unreadCount: 1, unreadReplies: 1 } : {}) };
+}
 /** Boots t2 (or t1) on thread c1 with the late pack in; `route` answers the after-chat routes. */
 async function thread(opts: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>> } = {}) {
   const route = opts.route || ((u: string) => (u.includes('/csat') ? { body: CSAT_OK } : undefined));
+  const messages = opts.messages || [...THREAD, closed()];
   const h = boot({
     renderer: 't2',
     realtime: true,
-    conversations: [{ id: 'c1', status: 'resolved', operatorName: 'سارا', operatorOnline: true }],
-    history: { c1: opts.messages || [...THREAD, closed()] },
+    conversations: [rowFor(messages)],
+    history: { c1: messages },
     assignedOperator: { name: 'سارا', avatar: null, online: true },
     identity: { identity_state: 'identified', contact: { name: 'علی', email: 'ali@example.com' } },
     api: (url, init) => {
@@ -143,8 +160,7 @@ describe('default never sees a closed row (no line, no count, no chime, no reque
   });
 
   it('t1 (`closedNotice`, one conversation per visitor) keeps a close as its day-divider line, and asks for no rating', async () => {
-    const close = closed();
-    const h = await thread({ renderer: 't1', messages: [...THREAD, { ...close, metadata: { ...close.metadata, status: 'closed' } }] });
+    const h = await thread({ renderer: 't1' });
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
     expect(h.q('[data-chat-messages] .msg-day.cl')!.textContent).toBe('سارا گفتگو را به پایان رساند');
     expect(h.q('[data-csat]')).toBeNull();
@@ -152,7 +168,7 @@ describe('default never sees a closed row (no line, no count, no chime, no reque
   });
 
   it('t1 drops the line an older backend wrote for a resolve (a resolve ends nothing for the visitor)', async () => {
-    const h = await thread({ renderer: 't1' });
+    const h = await thread({ renderer: 't1', messages: [...THREAD, closed('cl1', 1, 'resolved')] });
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2']);
     expect(h.q('[data-chat-messages] .msg-day.cl')).toBeNull();
     expect(csatGets(h)).toEqual([]);
@@ -163,7 +179,7 @@ describe('t2: the closed line and the rating card', () => {
   it('a thread that ends with a closed row: the line, one GET, the card (with the transcript link)', async () => {
     const h = await thread();
     const pills = Array.from(h.shadow.querySelectorAll('[data-chat-messages] .msg-system-pill')).map((p) => p.textContent);
-    expect(pills).toEqual(['سارا گفتگو را حل‌شده اعلام کرد']);
+    expect(pills).toEqual(['سارا گفتگو را به پایان رساند']);
     expect(csatGets(h)).toEqual(['https://api.test/api/widget/conversations/c1/csat?workspace_id=ws-test']);
     const card = h.q('[data-csat]')!;
     expect(card.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
@@ -245,7 +261,7 @@ describe('t2: the closed line and the rating card', () => {
   ] as const) {
     it(`no card when the server says ${why}: the line only`, async () => {
       const h = await thread({ route: (u) => (u.includes('/csat') ? { body: { ...CSAT_OK, ...over } } : undefined) });
-      expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
+      expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را به پایان رساند');
       expect(h.q('[data-csat]')).toBeNull();
     });
   }
@@ -291,7 +307,7 @@ describe('t2: the closed line and the rating card', () => {
     expect(h.q('[data-csat]')).toBeNull();
     h.emitMessages([closed('cl1', 0)]);
     await flush(20);
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را به پایان رساند');
     expect(h.q('[data-csat]')).not.toBeNull();
     expect(csatGets(h)).toHaveLength(1);
     // Away from the thread (where a reply would count): still no count, no event.
@@ -311,7 +327,7 @@ describe('t2: the closed line and the rating card', () => {
 
   it('the panel reopened, or the history reloaded: asked again', async () => {
     const h = await thread({
-      conversations: [{ id: 'c1', status: 'resolved' }, { id: 'c2' }],
+      conversations: [rowFor([closed()]), { id: 'c2' }],
       history: { c1: [...THREAD, closed()], c2: [agent('n1', 'سلام', 9)] },
     });
     expect(csatGets(h)).toHaveLength(1);

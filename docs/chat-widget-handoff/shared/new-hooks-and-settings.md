@@ -296,8 +296,8 @@ Core's table.
 | `simpleTrackOrder` | «پیگیری سفارش» | Track an order | Track-order row title (`data-home-action="track-order"`) |
 | `simpleTrackOrderSub` | «با شماره سفارش، وضعیت را همین‌جا ببینید» | See its status with your order number | Track-order row subtitle |
 | `simpleContinueWith` `{name}` | «ادامه گفتگو با {name}» | Continue with Sara | Continue row title (`conversations[].operatorName`) |
-| `simpleYourConversations` | «گفتگوهای شما» | Your conversations | Conversations row title and list bar title |
-| `simpleConversationsSub` `{n}` `{open}` | «{n} گفتگو، یکی باز است» | 3 conversations, 1 open | Conversations row subtitle (the Persian string fixes the open count at one; other counts not specified) |
+| `simpleYourConversations` | «گفتگوهای شما» | Your conversations | Conversations row title and list bar title. Since one conversation per visitor (2026-10-24): only the retry row of a list that failed; the list is «گفتگوهای قبلی» / Previous conversations, also home's link under the rows and the ⋯ item |
+| `simpleConversationsSub` `{n}` `{open}` | «{n} گفتگو، یکی باز است» | 3 conversations, 1 open | Conversations row subtitle (the Persian string fixes the open count at one; other counts not specified). Not drawn since one conversation per visitor (2026-10-24): the row is gone |
 
 ### 4.8 Template 2: conversation, email card and away
 
@@ -319,7 +319,8 @@ Core's table.
 | `simpleReplyToEmail` `{email}` | «پاسخ را به {email} می‌فرستیم.» | We’ll send the reply to ali@example.com. | Saved email card |
 | `simpleAutoReply` | «پاسخ خودکار» | Automatic reply | Meta under the auto reply |
 | `simpleAddMore` | «اگر چیزی اضافه دارید بنویسید…» | Add anything else… | Composer placeholder while away |
-| `convClosedBy` `{name}` | «{name} گفتگو را بست» | Sara closed the conversation | System line when the operator closes the conversation (`metadata.kind: "conversation_closed"`) |
+| `convClosedBy` `{name}` | «{name} گفتگو را به پایان رساند» | Sara ended the chat | System line when the operator closes the conversation (`metadata.kind: "conversation_closed"`); without a name `convClosed` «گفتگو به پایان رسید» / Chat ended. One wording for every template (2026-10-24); a resolve draws no line |
+| `pastClosed`, `pastCurrent` | «این گفتگو به پایان رسیده و فقط خواندنی است»، «گفتگوی فعلی» | This chat has ended and is read-only, Current chat | A past (closed) conversation's bar in the composer's place (`data-past-bar`, `data-chat-current`), every template |
 | `simpleReact` *(named here)* | «پسندیدن» | Like | The visitor's heart (`data-msg-react`): its `aria-label` (no `title` tooltip, as reply and copy) |
 | `simpleReactions` `{list}` *(named here)* | «واکنش‌ها: ❤️ ۱، 👍 ۲» | Reactions: ❤️ 1, 👍 2 | Reaction badge `aria-label`; `{list}` = "emoji count" pairs joined by the dictionary's separator («، » in Persian, ", " in English and Turkish) |
 
@@ -382,7 +383,7 @@ The rating card's other states reuse or add renderer copy (`csatThanks`, `csatRa
 | `wyConversations` | «پیام‌ها» | Messages | T1 Messages screen title; today «گفتگوها» / "Conversations". T2 uses `simpleYourConversations` |
 | `wyRecentConversations` | «پیام اخیر» | Recent message | T1 recent card caption; today «گفتگوهای اخیر» / "Recent conversations" |
 | `wyStartNew` | «ارسال پیام جدید» | Send us a message | T1 home CTA card and the Messages bottom button; today «گفتگوی جدید» |
-| `wyNewConversation` | «گفتگوی جدید» | New conversation | T1 new-conversation header; T2 header and list `.fab`. **Decided:** «گفتگوی جدید» for both templates (T2 boards say «گفتگوی تازه»: accepted copy difference) |
+| `wyNewConversation` | «گفتگوی جدید» | New conversation | T1 new-conversation header; T2 header and list `.fab`. **Decided:** «گفتگوی جدید» for both templates (T2 boards say «گفتگوی تازه»: accepted copy difference). Since one conversation per visitor (2026-10-24) T2 draws neither: a fresh thread's bar is the workspace, the list has no `.fab` |
 | `typeMsg` | «پیام خود را بنویسید…» | Write a message… | Composer placeholder; today "Type a message..." with three dots. **Decided:** «پیام خود را بنویسید…» for both templates (T2 boards say «پیامتان را بنویسید…»: accepted copy difference) |
 | `emojiPicker` | «شکلک‌ها» | Emoji | Emoji button label (closed state). **Decided:** «شکلک‌ها» everywhere, matching the dedicated emoji board 06 and its close label «بستن شکلک‌ها» (other boards say «ایموجی», production «شکلک»: accepted, it is an `aria-label`, not visible text) |
 | `attachFile` | «پیوست» | Attach a file | Attach button (`aria-label`); today «پیوست فایل» / "Attach file". **Decided:** "Attach a file" for both templates (T1 boards say "Attach") |

@@ -456,8 +456,10 @@ for (const v of VARIANTS) {
 
   test(`${v.templateId}: the text buttons on the accent read at 4.5:1 or more`, async () => {
     test.setTimeout(150_000);
-    /** Pre-chat's submit, the rating's, and "New conversation". */
-    const BUTTON: Record<string, string> = { 'prechat-form-error': '.btn[data-prechat-submit]', 't2-rating': '[data-csat-submit]', 't2-conversations': '.fab' };
+    /** Pre-chat's submit, the rating's, and a past conversation's «start a conversation» (nothing current). */
+    const BUTTON: Record<string, string> = {
+      'prechat-form-error': '.btn[data-prechat-submit]', 't2-rating': '[data-csat-submit]', 'one-17-past-thread-nothing-current': '[data-past-bar] .btn',
+    };
     await onStates(v, Object.keys(BUTTON), async (page, state) => {
       const button = page.locator(BUTTON[state]).first();
       await expect(button).toBeEnabled();

@@ -29,8 +29,14 @@
  * far as Core serves it (`env.capabilities`). The "closed the conversation"
  * line, the rating card under it, the chat bar's menu, a message's
  * reactions, the reply to a message left while away, an AI answer's order
- * card and the help articles offered while a first message is written are
- * drawn by the extras (presentation-t2-x.js) once Core handed them over.
+ * card, the help articles offered while a first message is written and a
+ * past conversation's bar are drawn by the extras (presentation-t2-x.js)
+ * once Core handed them over.
+ *
+ * One current conversation per visitor (Core's mode for a renderer that
+ * draws `pastBarHtml`): home continues the current one and links to the
+ * earlier ones («گفتگوهای قبلی», the list view); a closed one opened from
+ * there is read-only, the past bar in the composer's place.
  */
 (function () {
   'use strict';
@@ -69,8 +75,7 @@
       arts: '{n} مقاله',
       cont: 'ادامه گفتگو با {name}',
       convs: 'گفتگوهای شما',
-      convsOne: '{n} گفتگو، یکی باز است',
-      convsN: '{n} گفتگو',
+      past: 'گفتگوهای قبلی',
       online: 'آنلاین',
       typing: 'در حال نوشتن',
       away: 'آفلاین؛ پاسخ همین‌جا',
@@ -120,8 +125,7 @@
       arts: '{n} article{s}',
       cont: 'Continue with {name}',
       convs: 'Your conversations',
-      convsOne: '{n} conversation{s}, one open',
-      convsN: '{n} conversation{s}',
+      past: 'Previous conversations',
       online: 'Online',
       typing: 'Typing',
       away: "Offline; we'll reply here",
@@ -169,8 +173,7 @@
       arts: '{n} makale',
       cont: '{name} ile devam et',
       convs: 'Sohbetleriniz',
-      convsOne: '{n} sohbet, biri açık',
-      convsN: '{n} sohbet',
+      past: 'Önceki sohbetler',
       online: 'Çevrimiçi',
       typing: 'Yazıyor',
       away: 'Çevrimdışı; burada yanıtlarız',
@@ -232,7 +235,6 @@
     err: CIRCLE + P('M12 8v4.5M12 16h.01'),
     img: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.6"/>' + P('m20.5 16-5-5-8.5 8.5'),
     dl: P('M12 4v11M7 10l5 5 5-5M5 19.5h14'),
-    plus: P('M12 5v14M5 12h14'),
     moon: P('M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z'),
     sad: CIRCLE + EYES + P('M8.5 16.4c1-1.1 2.2-1.7 3.5-1.7s2.5.6 3.5 1.7'),
     meh: CIRCLE + EYES + P('M9 15.2h6'),
@@ -1228,28 +1230,30 @@
 
     /**
      * The chat bar (feature `chatHeader`: Core writes this into
-     * [data-chat-header] whenever what it shows changes). The person
-     * answering when there is one, the team for a new conversation, else the
-     * workspace; then typing, online, away or the reply time.
+     * [data-chat-header] whenever what it shows changes), back to `vm.back`.
+     * The person answering when there is one, else the workspace (a fresh
+     * thread too: its welcome shows the team); then typing, online, away or
+     * the reply time. A past conversation (`vm.past`, history) says who
+     * answered and when (`vm.when`); Core gives it no presence.
      */
     function chatHeaderHtml(vm) {
       vm = vm || {};
       var online = vm.online !== false;
       var op = vm.operator && vm.operator.name ? vm.operator : null;
-      var stack = !op && vm.isNew && online ? stackHtml(28) : '';
       var avatar = op ? avatarHtml(op.name, op.avatar, 40, { pr: op.online ? 'on' : (online ? '' : 'off') })
-        : stack || storeAvatarHtml(40, online ? '' : 'off');
+        : storeAvatarHtml(40, online ? '' : 'off');
       // Someone answering: the workspace on top, their name under it. The
       // line's words in a box of their own (a long name ends in an ellipsis,
       // the typing dots after it stay).
       var sub = op && workspaceName != op.name && workspaceName ? op.name : '';
-      var name = sub ? workspaceName : op ? op.name : stack ? tf('wyNewConversation', 'New conversation') : workspaceName;
+      var name = op && !sub ? op.name : workspaceName;
       var on = online && op && op.online && !vm.typing;
-      var line = sub || (vm.typing ? L('typing') : !online ? L('away') : on ? L('online') : replyTimeText(true));
+      var line = vm.past ? [sub, vm.when].filter(Boolean).join(' · ')
+        : sub || (vm.typing ? L('typing') : !online ? L('away') : on ? L('online') : replyTimeText(true));
       var st = line ? '<span class="st' + (vm.typing ? ' typ' : online ? '' : ' off') + '">' + (on ? '<i class="ondot"></i>' : '') +
         '<b>' + esc(line) + '</b>' + (vm.typing ? '<i></i><i></i><i></i>' : '') + '</span>' : '';
       // The menu (`vm.menu`) only once Core's late module drew it a list.
-      return backButtonHtml('home') + whoHtml(avatar, name, st) + (vm.menu ? chatMenuHtml(vm.menu) : '') +
+      return backButtonHtml(vm.back) + whoHtml(avatar, name, st) + (vm.menu ? chatMenuHtml(vm.menu) : '') +
         '<span class="cs" aria-hidden="true"></span>' +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
           '<span data-presence-dot></span>' +
@@ -1395,12 +1399,6 @@
     // ══════════════════════════════════════════════════════════════════
     // Home
     // ══════════════════════════════════════════════════════════════════
-    function openOf(list) {
-      return (list || []).filter(function (c) {
-        var st = String(c.status || '');
-        return st !== 'resolved' && st !== 'closed';
-      });
-    }
     function unreadBadgeHtml(n) {
       return n > 0 ? '<span class="nb" aria-label="' + esc(tf('wyUnread', 'Unread messages')) + '">' +
         esc(n > 99 ? fmtNum(99) + '+' : fmtNum(n)) + '</span>' : '';
@@ -1411,25 +1409,21 @@
         : storeAvatarHtml(size);
     }
 
-    /** One conversation: the person answering, the latest line, its state. */
-    function conversationRowHtml(c, compact) {
+    /**
+     * One conversation (a history row): the person answering, the latest
+     * line, its unseen answers. No open/resolved pill: history is the
+     * earlier conversations (the compact flag of older callers draws the same row).
+     */
+    function conversationRowHtml(c) {
       var unread = Number(c.unreadCount) || 0;
       var preview = c.preview || tf('wyNoPreview', '…');
       if (c.lastFromVisitor && c.preview) preview = tf('you', 'You') + ': ' + preview;
-      var timeHtml = c.timeLabel ? '<time>' + esc(digits(c.timeLabel)) + '</time>' : '';
-      if (compact) {
-        return '<button type="button" class="conv-row conv-row-compact" data-conversation-open="' + esc(c.id) + '">' +
-          '<span class="conv-preview">' + esc(preview) + '</span>' + unreadBadgeHtml(unread) + timeHtml +
-        '</button>';
-      }
-      var resolved = String(c.status || '') === 'resolved' || String(c.status || '') === 'closed';
       return '<button type="button" class="conv-row ci" data-conversation-open="' + esc(c.id) + '">' +
         convAvatarHtml(c, 44) +
         '<span class="tx">' +
-          '<span class="l1"><span class="nm">' + esc(c.operatorName || c.title || workspaceName) + '</span>' + timeHtml + '</span>' +
+          '<span class="l1"><span class="nm">' + esc(c.operatorName || c.title || workspaceName) + '</span>' +
+            (c.timeLabel ? '<time>' + esc(digits(c.timeLabel)) + '</time>' : '') + '</span>' +
           '<span class="l2' + (unread ? ' u' : '') + '"><em>' + esc(preview) + '</em>' + unreadBadgeHtml(unread) + '</span>' +
-          '<span class="pl"><span class="pill' + (resolved ? ' done' : '') + '">' +
-            esc(resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open')) + '</span></span>' +
         '</span>' +
       '</button>';
     }
@@ -1451,7 +1445,6 @@
       vm = vm || {};
       var online = !!vm.isOnline;
       var convs = vm.conversations || [];
-      var open = openOf(convs);
       var articles = vm.articles || [];
       var opts = config.templateOptions || {};
       var examples = (Array.isArray(opts.askExamples) ? opts.askExamples : []).filter(function (e) {
@@ -1506,12 +1499,14 @@
         : '';
 
       // Quiet rows, each only when it has something behind it (at most three):
-      // continue the open conversation, all conversations, the help center,
-      // track an order (a store that answers order questions: `config.commerce`;
-      // its first message is sent as a topic's, runtime-ext.js).
+      // continue the current conversation (Core passes it alone, whatever its
+      // status: live, or ended with an answer unseen), the help center, track
+      // an order (a store that answers order questions: `config.commerce`;
+      // its first message is sent as a topic's, runtime-ext.js). The earlier
+      // conversations are a quiet link under them (`vm.pastCount`).
       var rows = [];
       if (vm.chatEnabled) {
-        var latest = open[0];
+        var latest = convs[0];
         if (latest) {
           var unread = Number(latest.unreadCount) || 0;
           rows.push(rowHtml('data-conversation-open="' + esc(latest.id) + '"', convAvatarHtml(latest, 40),
@@ -1520,11 +1515,7 @@
             '<span class="end">' + (latest.timeLabel ? '<span>' + esc(digits(latest.timeLabel)) + '</span>' : '') + unreadBadgeHtml(unread) + '</span>',
             unread > 0));
         }
-        if (convs.length) {
-          var n = fmtNum(convs.length);
-          rows.push(rowHtml('data-view="list"', tileHtml('chat'), L('convs'),
-            open.length === 1 ? L('convsOne', { n: n }) : L('convsN', { n: n })));
-        } else if (vm.conversationsError) {
+        if (!convs.length && vm.conversationsError) {
           rows.push(rowHtml('data-home-action="conversations-retry"', tileHtml('chat'), L('convs'),
             tf('wyConversationsLoadError', t('convLoadError')), ico('retry', 18, 1.9, 'ch')));
         }
@@ -1546,13 +1537,17 @@
       return viewOpen('wy-view-home home-root', !!vm.rtl) +
         '<div class="wy-scroll wy-home-scroll">' + hero + ask + smart +
           (rows.length ? '<div class="list cas' + (ask ? '' : ' lift') + '" style="--i:5">' + rows.join('') + '</div>' : '') +
+          (vm.pastCount ? '<button type="button" class="more cas" style="--i:6" data-view="list">' + esc(L('past')) +
+            unreadBadgeHtml(vm.pastUnread) + ico('fwd', 16, 2.2, 'dirf') + '</button>' : '') +
         '</div>' +
         footerHtml() +
       '</div>';
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Conversation list
+    // Conversation list: the earlier conversations (history, «گفتگوهای
+    // قبلی»), back where the visitor came from (`vm.back`: home, help or the
+    // chat's ⋯). No "new conversation" door: the current one is home's.
     // ══════════════════════════════════════════════════════════════════
     function conversationListHtml(vm) {
       vm = vm || {};
@@ -1569,15 +1564,11 @@
         : (vm.loading
             ? skeletonConvRowsHtml(5)
             : (items.length
-                ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
+                ? items.map(conversationRowHtml).join('')
                 : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>'));
       return viewOpen('wy-view-list', !!vm.rtl) +
-        titleBarHtml(L('convs')) +
+        titleBarHtml(L('past'), vm.back) +
         '<div class="wy-scroll inbox wy-list-scroll">' + bodyHtml + '</div>' +
-        (vm.chatEnabled
-          ? '<button type="button" class="wy-fab fab" data-home-action="chat">' + ico('plus', 20, 2.2) +
-              '<span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></button>'
-          : '') +
         footerHtml() +
       '</div>';
     }
@@ -1927,7 +1918,7 @@
     }
     /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
     function extend(mod, dry) {
-      if (!mod || mod.id !== 't2' || mod.v !== 2 || typeof mod.create !== 'function') return 0;
+      if (!mod || mod.id !== 't2' || mod.v !== 3 || typeof mod.create !== 'function') return 0;
       if (dry) return 1;
       X = X || mod.create(H);
       var m = missed;
@@ -1939,6 +1930,8 @@
     function chatMenuHtml(menu) { return x('chatMenuHtml', [menu]); }
     // The help articles offered while a first message is written (runtime-late.js puts the tray in).
     function kbSuggestHtml(vm) { return x('kbSuggestHtml', [vm]); }
+    // A past conversation's bar in the composer's place (Core puts it in; drawing it is the one-conversation mode).
+    function pastBarHtml(vm) { return x('pastBarHtml', [vm]); }
 
     return {
 
@@ -1965,6 +1958,8 @@
         closedNotice: true,
         csat: true,
         chatMenu: true,
+        // One current conversation: the ⋯ offers the earlier ones (runtime-late.js).
+        pastChats: true,
         // A message's reactions and the message left while away
         // (runtime-late.js), as far as Core serves them.
         reactions: !!caps.reactions,
@@ -2007,6 +2002,7 @@
       kbLoadingHtml: kbLoadingHtml,
       kbArticleFeedbackHtml: kbArticleFeedbackHtml,
       kbSuggestHtml: kbSuggestHtml,
+      pastBarHtml: pastBarHtml,
 
       // Loading UX (optional presentation contract).
       skeletonHtml: skeletonHtml,

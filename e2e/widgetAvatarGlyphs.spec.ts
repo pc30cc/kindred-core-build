@@ -131,6 +131,8 @@ async function skeletonGlyphs(page: Page, templateId: string, rtl: boolean) {
 
 for (const v of VARIANTS) {
   const family = v.templateId === 'default' ? 'default' : 'tn';
+  // One conversation per visitor (t1, t2): history and a past thread too.
+  const history = /^t[12](-|$)/.test(v.templateId!);
   test(`${v.templateId}: every empty avatar paints its glyph (person or storefront), never a letter; skeletons none`, async () => {
     test.setTimeout(240_000);
     const out = mkdtempSync(path.join(os.tmpdir(), `avatar-glyphs-${v.templateId}-`));
@@ -139,7 +141,7 @@ for (const v of VARIANTS) {
     let skeletons: Awaited<ReturnType<typeof skeletonGlyphs>> = [];
     try {
       await renderTemplateScreens({
-        ...v, outDir: out, states: v.templateId!.startsWith('t1') ? [...STATES, 'one-07-history', 'one-08-past-thread'] : STATES,
+        ...v, outDir: out, states: history ? [...STATES, 'one-07-history', 'one-08-past-thread'] : STATES,
         beforeShot: async (page, state) => {
           const tiles = await emptyTiles(page, '.panel');
           expectPainted(tiles, `${v.templateId} ${state}`);
@@ -187,7 +189,7 @@ for (const v of VARIANTS) {
       expect(seen[state].filter((t) => /\blogo\b/.test(t.cls)), state).toHaveLength(1);
       expect(count(state, false), state).toBeGreaterThanOrEqual(oneChat && state === 'home-recent-chat' ? 1 : 3);
     }
-    if (oneChat) {
+    if (history) {
       // History: Mehdi and Reza are people, the AI's old conversation the storefront;
       // a past thread's bar is Mehdi, never a presence.
       expect(count('one-07-history', false, /conv-row/)).toBe(2);

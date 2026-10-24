@@ -106,6 +106,20 @@ describe('gs_active and the badge (live: open, pending, resolved; closed: its un
     expect(active()).toBe(true);
   });
 
+  it('a resolved one quiet for more than 48 h keeps no hint (still current), unless it holds an unseen answer', async () => {
+    const h = start('bare', { open: false, conversations: [{ id: 'c1', status: 'resolved', updatedAt: ago(49 * 60) }] });
+    await flush(40);
+    expect(active()).toBe(false);
+    h.runtime.open();
+    await flush(40);
+    expect(cid(h)).toBe('c1');
+
+    resetWindow();
+    start('bare', { open: false, conversations: [{ id: 'c1', status: 'resolved', updatedAt: ago(49 * 60), unreadCount: 1, unreadReplies: 1 }] });
+    await flush(40);
+    expect(active()).toBe(true);
+  });
+
   it('a closed one: only its answers count, and reading them clears the hint', async () => {
     const h = start('bare', { open: false, conversations: [{ id: 'c1', status: 'closed', unreadCount: 3, unreadReplies: 0 }] });
     await flush(40);

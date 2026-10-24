@@ -9978,10 +9978,17 @@
     function isPastChat() {
       return oneChat() && pastCid != null && String(chatStore.get().conversationId) === String(pastCid);
     }
-    /** A live conversation, or an ended one with an unseen answer: the loader's `gs_active`. */
+    /**
+     * A live conversation, or an ended one with an unseen answer: the loader's
+     * `gs_active`. A resolved one quiet for longer than the inactivity close
+     * allows (48 h at most) keeps no hint: it is still the visitor's, but no
+     * page needs the runtime booted for it until it is opened.
+     */
     function activeNow() {
       var cid = ownCid();
-      return convItems().some(function (c) { return liveConv(c) || repliesOf(c) > 0; }) || !!cid && !convItem(cid);
+      return convItems().some(function (c) {
+        return repliesOf(c) > 0 || liveConv(c) && (c.status !== 'resolved' || Date.now() - (Date.parse(metaOf(c).updatedAt) || 0) < 48 * 3600000);
+      }) || !!cid && !convItem(cid);
     }
     /** Nothing is current: a fresh thread from the start, never the server's latest one adopted. */
     function armFresh() {

@@ -131,12 +131,14 @@ describe('TemplateChoiceCard', () => {
     expect(def).toContain('Operator typing');
     expect(def).not.toContain('Place in the queue');
     expect(t1).toContain('Place in the queue');
-    // t1 draws the end-of-conversation line (one conversation per visitor), never a rating.
+    // default and t1 draw the end-of-conversation line (one conversation per visitor), never a rating.
+    expect(def).toContain('End-of-conversation line');
+    expect(def).not.toContain('Rating after a chat');
     expect(t1).toContain('End-of-conversation line');
     expect(t1).not.toContain('Rating after a chat');
     expect(templateVisitorFeatures('t2')).toEqual(['typing', 'closedLine', 'rating', 'reactions']);
     expect(templateVisitorFeatures('t2-intl')).toEqual(templateVisitorFeatures('t2'));
-    expect(templateVisitorFeatures('intl')).toEqual(['typing']);
+    expect(templateVisitorFeatures('intl')).toEqual(['typing', 'closedLine']);
     expect(templateVisitorFeatures('nope')).toEqual([]);
   });
 
@@ -273,8 +275,13 @@ describe('WidgetLivePreview — the effective template', () => {
     const doc = srcdoc({ view: 'list', templateId: 't1' });
     const p = payload(doc);
     expect(p.shellVm.activeTab).toBe('list');
+    // One conversation per visitor: the list is the history (finished ones,
+    // back home); home has nothing current (it starts one) and links to it.
     expect(p.listVm.conversations).toHaveLength(2);
-    expect(p.listVm.conversations[0]).toMatchObject({ status: 'open', unreadCount: 1 });
+    for (const c of p.listVm.conversations) expect(c).toMatchObject({ status: 'closed', unreadCount: 0 });
+    expect(p.listVm.back).toBe('home');
+    expect(p.homeVm.conversations).toEqual([]);
+    expect(p.homeVm).toMatchObject({ pastCount: p.listVm.conversations.length, pastUnread: 0 });
     expect(doc).toContain('R.conversationListHtml(GS_PREVIEW.listVm)');
     expect(doc).toContain("panel.setAttribute('data-view', GS_PREVIEW.shellVm.activeTab)");
   });
@@ -286,7 +293,7 @@ describe('WidgetLivePreview — the effective template', () => {
     const coreValues = (key: string) => [...core.matchAll(new RegExp(`\\b${key}: '([^']*)'`, 'g'))]
       .map((m) => m[1])
       .filter((v) => !v.startsWith('<'));
-    const keys = ['wyConversations', 'wyNoConversations', 'wyNewConversation', 'wyStatusOpen', 'wyStatusResolved', 'wyUnread', 'back'];
+    const keys = ['wyPastConversations', 'wyNoConversations', 'wyNewConversation', 'wyUnread', 'back'];
     for (const [index, language] of (['en', 'fa', 'tr'] as const).entries()) {
       // The frame paints with the runtime's own dictionary, which it loads.
       const page = new JSDOM(srcdoc({ settings: { widget_language: language }, view: 'list', templateId: 'default' }), { runScripts: 'outside-only' });
@@ -436,17 +443,19 @@ describe('WidgetLivePreview — a renderer\'s declared features, as Core reads t
 
   it('tabs / kbSearch / visitorName: Core\'s view-model fields, the current tab and the unread badge', () => {
     const features = { tabs: true, kbSearch: true, visitorName: true };
+    // The sample visitor's conversations have ended (one conversation per
+    // visitor): no answer waits, so the badge is there and hidden, as Core paints it.
     const home = paint('home', features);
-    expect(home.seen.home).toMatchObject({ unreadTotal: 1, hasSearch: true, visitorName: '' });
+    expect(home.seen.home).toMatchObject({ unreadTotal: 0, hasSearch: true, visitorName: '' });
     expect(home.current).toEqual(['home:page', 'list:false', 'help:false']);
-    expect(home.badge).toEqual({ text: '(1)', hidden: false });
+    expect(home.badge).toEqual({ text: '', hidden: true });
 
     const list = paint('list', features);
-    expect(list.seen.list).toMatchObject({ unreadTotal: 1 });
+    expect(list.seen.list).toMatchObject({ unreadTotal: 0 });
     expect(list.current).toEqual(['home:false', 'list:page', 'help:false']);
 
     const kb = paint('kb', features);
-    expect(kb.seen.kb).toMatchObject({ unreadTotal: 1, hasSearch: true });
+    expect(kb.seen.kb).toMatchObject({ unreadTotal: 0, hasSearch: true });
     expect(kb.current).toEqual(['home:false', 'list:false', 'help:page']);
   });
 });

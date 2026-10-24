@@ -350,12 +350,23 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     expect(card(h)).toBeNull();
   });
 
-  it('a default workspace: its close writes nothing, so its widget has nothing to draw or ask', async () => {
+  it('a default workspace (one conversation per visitor): its close writes the line, which default draws as a quiet divider, and asks nothing', async () => {
     state.template = 'default';
     const cid = answered();
-    expect(await recordConversationClosed(CONFIG, { workspaceId: WS, conversationId: cid, actorId: SARA, status: 'closed' })).toBeNull();
-    expect((await history(cid)).map((m) => m.sender_type)).toEqual(['contact', 'agent']);
-    expect(state.published).toEqual([]);
+    const closed = await closeFromInbox(cid);
+    const rows = await history(cid);
+    expect(rows.map((m) => (m.metadata as Row | null)?.kind || m.sender_type)).toEqual(['contact', 'agent', 'conversation_closed']);
+    expect(rows[2]).toMatchObject({ id: closed.id, metadata: { agent_name: 'سارا', status: 'closed' } });
+    // default has no rating option: the server rates nothing for it.
+    expect(await get(`/api/widget/conversations/${cid}/csat?workspace_id=${WS}`)).toMatchObject({ rateable: false });
+    received.length = 0;
+    const h = await widget(cid, { renderer: 'default', messages: rows });
+    await flush(20);
+    const lines = Array.prototype.map.call(h.shadow.querySelectorAll('[data-chat-messages] .msg-day span'), (e: Element) => e.textContent);
+    expect(lines).toContain('سارا گفتگو را به پایان رساند');
+    expect(card(h)).toBeNull();
+    // No late pack, so no request of the card's.
+    expect(sentTo('/csat')).toEqual([]);
   });
 });
 

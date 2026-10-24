@@ -109,19 +109,22 @@ describe('which templates build on the module', () => {
     }
   });
 
-  it('a descriptor\'s `closedNotice` (the server writes the closed line) is exactly its renderer\'s `features.closedNotice`', () => {
+  it('a descriptor\'s `closedNotice` (the server writes the closed line) is exactly its renderer\'s `closedNotice` (a feature, or top-level for default)', () => {
     const w = window as unknown as Record<string, unknown>;
     w.MediaRecorder = function () {};
     new Function(read('public/widget/presentation-registry.js')).call(window);
     const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t1', 't2', 't1-intl', 't2-intl']);
+    // Every template since one conversation per visitor (2026-10-24).
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(ids);
     for (const id of ids) {
       new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
-      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, boolean> } };
+      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { closedNotice?: boolean; features?: Record<string, boolean> } };
       const r = mod.create({ t: (k: string) => k, config: { templateId: id }, locale: 'fa' });
       const f = r.features || {};
-      expect(!!f.closedNotice, id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
+      // default declares no features (it never waits for runtime-ext.js): its flag is top-level.
+      expect(!!(r.closedNotice || f.closedNotice), id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
+      expect(!!r.closedNotice && !!r.features, `${id}: one place for the flag`).toBe(false);
       // The server rates (services/conversationRatings.ts csatEnabledFor) and
       // mails a transcript (visitorTranscript.ts) for the template's own
       // options: exactly the templates whose renderer draws the card (under
@@ -250,6 +253,8 @@ describe('loading the module', () => {
       renderer: named({ conversationOperator: true }),
       ext: 'hold',
       conversations: [{ id: 'c1', status: 'resolved', outbound: true, operatorName: 'سارا', operatorOnline: true }],
+      // On home: a live conversation (resolved is one) would otherwise be continued in the chat.
+      hint: { tab: 'home', conversationId: null },
     });
     await vi.advanceTimersByTimeAsync(1600);
     const first = h.lastCall('homeHtml')![0] as { conversations: Array<Record<string, unknown>> };
@@ -265,6 +270,8 @@ describe('loading the module', () => {
       renderer: named({ conversationOperator: true }),
       ext: 'hold',
       conversations: [{ id: 'c1', status: 'resolved', outbound: true, operatorName: 'سارا', operatorOnline: true }],
+      // On home: a live conversation (resolved is one) would otherwise be continued in the chat.
+      hint: { tab: 'home', conversationId: null },
     });
     await flush(20);
     h.releaseExt();

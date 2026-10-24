@@ -716,10 +716,11 @@ async function openRows(page: Page, cid: string) {
 }
 
 // ─── One conversation per visitor (the owner's decision, 2026-10-23) ─────
-// A renderer drawing the past bar (t1): home shows the current
-// conversation or the team card, the bar's middle tab opens it, the others
-// are history («گفتگوهای قبلی»), a closed one opened read-only. A resolved
-// one is still the visitor's (2026-10-24): only a close ends it. States `one-*`.
+// A renderer drawing the past bar (t1, default): home shows the current
+// conversation or the team card (t1's bar's middle tab, default's one
+// button opens it), the others are history («گفتگوهای قبلی»), a closed one
+// opened read-only. A resolved one is still the visitor's (2026-10-24):
+// only a close ends it. States `one-*` (the ⋯ ones are t1's and t2's).
 // They run on the designs' clock (`clock`): today 20:05 in Tehran, so the
 // thread's 19:42-20:03 has passed, a row from yesterday reads «دیروز» and
 // a line sent during the drive comes after the close, at 20:05.
@@ -779,7 +780,8 @@ function oneUnreadClosed(f: Fixture) {
   ];
 }
 async function oneHistory(page: Page) {
-  await page.locator('[data-body] .more[data-view="list"]').click();
+  // Home's way into history, whatever the template draws it as (never a tab).
+  await page.locator('[data-body] [data-view="list"]:not(.wy-tab)').first().click();
   await page.locator('[data-conversation-open]').first().waitFor();
   await pause(page, 200);
 }
@@ -806,9 +808,12 @@ function oneClosing(f: Fixture) {
 }
 async function oneClose(page: Page) {
   await openRows(page, 'c-sara');
+  // The line, as each template draws it: t1's `.cl`, default's quiet divider (`.msg-day`).
+  const lines = page.locator('[data-chat-messages] .cl, [data-chat-messages] .msg-day');
+  const before = await lines.count();
   await page.evaluate((row) => (window as unknown as { __gsMessage: (r: unknown[]) => void }).__gsMessage([row]),
     closedLine('o7', tx('سارا'), 'closed', at(20, 3), 'c-sara'));
-  await page.locator('[data-chat-messages] .cl').waitFor();
+  for (let i = 0; i < 60 && (await lines.count()) <= before; i++) await pause(page, 50);
   await pause(page, 300);
 }
 
@@ -1571,6 +1576,14 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     clock: ONE_NOW,
     setup: oneReturning,
     drive: async ({ page }) => { await online(page); await onePast(page, 'c-mahdi'); },
+  },
+  // Nothing current and the team away: the bar offers to leave a message.
+  'one-23-past-thread-away': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneReturning(f); AWAY(f); },
+    drive: async ({ page }) => { await onePast(page, 'c-mahdi'); },
   },
   // A live conversation the visitor has read: the card's chevron says where it goes.
   'one-19-home-live-read': {

@@ -252,15 +252,18 @@ describe('the closed line in the visitor\'s thread', () => {
     expect((await csat(cid)).body).toMatchObject({ closed_id: first!.id, rateable: true, operator: { name: 'Sara' } });
   });
 
-  it('a default workspace\'s close writes nothing: its thread is what it was', async () => {
+  it('a default workspace\'s close writes the line too (one conversation per visitor), and asks for no rating', async () => {
     state.template = 'default';
     const cid = conversation();
     message(cid, 'agent', 'hi', {}, 90_000);
     const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
-    expect(await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'closed' })).toBeNull();
+    const line = await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'closed' });
+    expect(line).not.toBeNull();
     const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=${cid}`);
-    expect((res.body.messages as Body[]).map((m) => m.sender_type)).toEqual(['agent']);
-    expect(state.published).toHaveLength(0);
+    expect((res.body.messages as Body[]).map((m) => m.sender_type)).toEqual(['agent', 'system']);
+    expect(state.published).toEqual([expect.objectContaining({ type: 'message' })]);
+    // default offers no rating option: nothing to rate under its line.
+    expect((await csat(cid)).body).toMatchObject({ closed_id: line!.id, rateable: false });
   });
 });
 

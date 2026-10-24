@@ -57,7 +57,8 @@
   }
   // The "closed the conversation" line (a visitor-visible system row,
   // metadata.kind 'conversation_closed') is drawn only by a renderer that
-  // declares `closedNotice`. For any other (`default`, `intl`) such a row is
+  // declares `closedNotice` (a feature, or at the top level for `default`,
+  // which declares no features). For any other such a row is
   // dropped where frames come in and where histories merge, so it never
   // reaches the stores, the renderer or the unread count; in no template is
   // it an unread message, a toast or a chime. With one conversation (a
@@ -67,7 +68,7 @@
   function closedRow(m) { return !!(m && m.metadata && m.metadata.kind === 'conversation_closed'); }
   function hiddenRow(m) {
     var p = Presentation || {};
-    return closedRow(m) && (!(p.features || {}).closedNotice ||
+    return closedRow(m) && (!(p.closedNotice || (p.features || {}).closedNotice) ||
       typeof p.pastBarHtml === 'function' && m.metadata.status === 'resolved');
   }
 
@@ -1264,9 +1265,14 @@
         teamLabel: 'Support team',
         onlineLabel: 'online',
         // default template surfaces
-        wyRecentConversations: 'Recent conversations',
-        wyViewConversations: 'View conversations',
-        wyConversations: 'Conversations',
+        // One conversation per visitor: home's caption and history link, the
+        // history's title, a past conversation's bar, the closed line.
+        wyYourConversation: 'Your conversation',
+        wyPastConversations: 'Previous conversations',
+        wyPastClosed: 'This chat has ended and is read-only',
+        wyCurrentChat: 'Current chat',
+        wyEndedBy: '{name} ended the chat',
+        wyEnded: 'Chat ended',
         wyNewConversation: 'New conversation',
         wyNoConversations: 'No conversations yet',
         wyNoPreview: 'No messages yet',
@@ -1282,7 +1288,7 @@
         wyStatusOpen: 'Open',
         wyStatusResolved: 'Resolved',
         wyContinueLast: 'Continue last conversation',
-        wyStartNew: 'New conversation',
+        wyContinue: 'Continue conversation',
         wyArticles: 'Articles',
         wyMoreArticles: 'More articles',
         wyArticlesSuggest: 'Suggested articles',
@@ -1514,9 +1520,12 @@
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
         // default template surfaces
-        wyRecentConversations: 'گفتگوهای اخیر',
-        wyViewConversations: 'مشاهده گفتگوها',
-        wyConversations: 'گفتگوها',
+        wyYourConversation: 'گفتگوی شما',
+        wyPastConversations: 'گفتگوهای قبلی',
+        wyPastClosed: 'این گفتگو به پایان رسیده و فقط خواندنی است',
+        wyCurrentChat: 'گفتگوی فعلی',
+        wyEndedBy: '{name} گفتگو را به پایان رساند',
+        wyEnded: 'گفتگو به پایان رسید',
         wyNewConversation: 'گفتگوی جدید',
         wyNoConversations: 'هنوز گفتگویی ندارید',
         wyNoPreview: 'هنوز پیامی نیست',
@@ -1532,7 +1541,7 @@
         wyStatusOpen: 'باز',
         wyStatusResolved: 'حل‌شده',
         wyContinueLast: 'ادامه آخرین گفتگو',
-        wyStartNew: 'گفتگوی جدید',
+        wyContinue: 'ادامه گفتگو',
         wyArticles: 'مقالات',
         wyMoreArticles: 'مقالات بیشتر',
         wyArticlesSuggest: 'مقالات پیشنهادی',
@@ -1761,9 +1770,12 @@
         teamLabel: 'Destek ekibi',
         onlineLabel: 'çevrimiçi',
         // default template surfaces
-        wyRecentConversations: 'Son sohbetler',
-        wyViewConversations: 'Sohbetleri gör',
-        wyConversations: 'Sohbetler',
+        wyYourConversation: 'Sohbetiniz',
+        wyPastConversations: 'Önceki sohbetler',
+        wyPastClosed: 'Bu sohbet sona erdi, yalnızca okunabilir',
+        wyCurrentChat: 'Güncel sohbet',
+        wyEndedBy: '{name} sohbeti sonlandırdı',
+        wyEnded: 'Sohbet sona erdi',
         wyNewConversation: 'Yeni sohbet',
         wyNoConversations: 'Henüz sohbet yok',
         wyNoPreview: 'Henüz mesaj yok',
@@ -1779,7 +1791,7 @@
         wyStatusOpen: 'Açık',
         wyStatusResolved: 'Çözüldü',
         wyContinueLast: 'Son sohbete devam et',
-        wyStartNew: 'Yeni sohbet',
+        wyContinue: 'Sohbete devam et',
         wyArticles: 'Makaleler',
         wyMoreArticles: 'Daha fazla makale',
         wyArticlesSuggest: 'Önerilen makaleler',

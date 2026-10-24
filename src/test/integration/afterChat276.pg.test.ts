@@ -7,7 +7,8 @@
  *   A1  an operator's close of a t2 workspace's widget conversation writes one
  *       visitor-visible `conversation_closed` row (the effective template read
  *       from the real widget snapshot), and none again until somebody speaks;
- *       a workspace whose effective template is `default` gets none;
+ *       a workspace whose effective template is `default` gets it too (one
+ *       conversation per visitor, 2026-10-24);
  *   A2  the rating: rateable only for the closure the thread ends with, once
  *       (the unique closure settles two tabs racing), with the timeline's
  *       `rated` event; Operator Activity counts it for the named operator;
@@ -18,7 +19,8 @@
  *   A4  before 276 (the tables renamed away) every read answers "nothing to
  *       rate" / unavailable and a write 503: the engine's 42P01 is recognised;
  *   A5  three closes of one conversation at once write one line; a workspace
- *       with no widget settings row gets none, t2 the catalog default or not.
+ *       with no widget settings row wears `default`, t2 the catalog default
+ *       or not.
  *
  * Driven by TEST_DATABASE_URL; skipped without it.
  */
@@ -150,7 +152,7 @@ suite('after-chat features on a real database (276)', () => {
     await chain?.drop();
   });
 
-  it('A1 the closed line: written once for a t2 workspace\'s widget conversation, never for a default one', async () => {
+  it('A1 the closed line: written once for a t2 workspace\'s widget conversation, and for a default one too', async () => {
     const { workspaceChatTemplate } = await import('../../../server/services/widget/configSnapshot.js');
     expect((await workspaceChatTemplate(config, ws)).id).toBe('t2');
 
@@ -172,15 +174,16 @@ suite('after-chat features on a real database (276)', () => {
     expect(await close(ws, cid)).not.toBeNull();
     expect(await closedRows(cid)).toHaveLength(2);
 
-    // The Super Admin turns t2 off: the default workspace wears `default`.
+    // The Super Admin turns t2 off: the default workspace wears `default`,
+    // which draws the line too since one conversation per visitor (2026-10-24).
     await q(`UPDATE public.widget_edition_settings SET chat_templates = $1::jsonb WHERE edition = 'iran'`,
       [JSON.stringify({ default: 'default', items: { t2: { enabled: false } } })]);
     resetCaches();
     expect((await workspaceChatTemplate(config, wsDefault)).id).toBe('default');
     const { cid: plain } = await conversation(wsDefault);
     await message(plain, 'agent', 'hi', sara);
-    expect(await close(wsDefault, plain)).toBeNull();
-    expect(await closedRows(plain)).toHaveLength(0);
+    expect(await close(wsDefault, plain)).not.toBeNull();
+    expect(await closedRows(plain)).toHaveLength(1);
     await q(`UPDATE public.widget_edition_settings SET chat_templates = $1::jsonb WHERE edition = 'iran'`,
       [JSON.stringify({ default: 't2', items: { t2: { enabled: true } } })]);
     resetCaches();
@@ -283,7 +286,8 @@ suite('after-chat features on a real database (276)', () => {
     expect(await closedRows(cid)).toHaveLength(1);
 
     // t2 is the catalog's default (A1 restored it), but this workspace has
-    // no widget_settings row: it serves no widget and gets no line.
+    // no widget_settings row: it wears the edition's `default`, never t2
+    // (whose line, since one conversation per visitor, default draws too).
     const bare = randomUUID();
     await q(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1, 'Bare', $2, $3)`, [bare, `ws-${bare.slice(0, 8)}`, owner]);
     resetCaches();
@@ -292,8 +296,8 @@ suite('after-chat features on a real database (276)', () => {
     expect(await workspaceChatTemplate(config, bare)).toMatchObject({ id: 'default', options: {} });
     const { cid: plain } = await conversation(bare);
     await message(plain, 'agent', 'hi', sara);
-    expect(await close(bare, plain)).toBeNull();
-    expect(await closedRows(plain)).toHaveLength(0);
+    expect(await close(bare, plain)).not.toBeNull();
+    expect(await closedRows(plain)).toHaveLength(1);
   });
 
   it('A4 before 276: nothing to rate, no transcript, and a 503 — the engine\'s missing-table error is recognised', async () => {

@@ -72,7 +72,6 @@
     var ICON = {
       back: '<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
       chevron: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
-      plus: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
       send: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
       attach: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l8.8-8.8a4 4 0 0 1 5.7 5.7l-8.8 8.8a2 2 0 0 1-2.8-2.8l8.1-8.1"/></svg>',
       emoji: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01" stroke-width="2.6"/></svg>',
@@ -80,6 +79,8 @@
       thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
       thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+      // A past conversation's composer, locked (pastBarHtml).
+      lock: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
       retry: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.1-6.8"/><path d="M21 4v5h-5"/></svg>',
       // Generic document glyph for a pending non-image attachment. An image
       // shows its own thumbnail instead.
@@ -643,6 +644,8 @@
     }
 
 
+    /** The `conversation_closed` line (this renderer's `closedNotice`). */
+    function closedKind(m) { return !!m && m.senderType === 'system' && !!m.metadata && m.metadata.kind === 'conversation_closed'; }
     function messagesHtml(s, extraRowHtml, view) {
       view = view || {};
       var typewriter = view.typewriter || null;
@@ -655,7 +658,8 @@
       var groupKeys = s.messages.map(function (m, i) {
         // A failed message is a run of its own, so its "not delivered" and
         // Retry stay on it when a later message goes through (as in t2).
-        var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+        // A system row (a line, a card) ends a run too.
+        var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v') : m.senderType === 'system' ? 's' + i : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         // A new calendar day always breaks the streak so the meta line (time +
         // ticks) closes the previous day's run; so does a new conversation.
         if (m.threadStart) thread++;
@@ -668,8 +672,16 @@
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
         // The visitor's message that opened a new conversation under an
-        // ended one (Core's `threadStart`).
-        if (m.threadStart) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
+        // ended one (Core's `threadStart`); right under the line that ended
+        // it, that line says enough.
+        if (m.threadStart && !(idx && closedKind(s.messages[idx - 1]))) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
+        // A close (a resolve draws none: it ends nothing for the visitor): a
+        // quiet line, as a day ends; nameless, the system closed it.
+        if (closedKind(m)) {
+          var by = String(m.metadata.agent_name || '');
+          html += '<div class="msg-day"><span>' + esc(by ? tf('wyEndedBy', '{name} ended the chat').replace('{name}', function () { return by; }) : tf('wyEnded', 'Chat ended')) + '</span></div>';
+          return;
+        }
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
 
           html += renderCallInvitationCard(m); return;
@@ -1173,11 +1185,15 @@
     // ══════════════════════════════════════════════════════════════════
     // Home (design §7)
     // ══════════════════════════════════════════════════════════════════
-    function conversationRowHtml(c, compact) {
-      var unread = Number(c.unreadCount) || 0;
-      var unreadHtml = unread > 0
+    /** An unread count's badge (a row's, the history link's); '' for none. */
+    function unreadBadgeHtml(n) {
+      n = Number(n) || 0;
+      return n > 0
         ? '<span class="conv-unread" aria-label="' + esc(tf('wyUnread', 'Unread messages')) + '">' +
-            esc(unread > 99 ? fmtNum(99) + '+' : fmtNum(unread)) + '</span>' : '';
+            esc(n > 99 ? fmtNum(99) + '+' : fmtNum(n)) + '</span>' : '';
+    }
+    function conversationRowHtml(c, compact) {
+      var unreadHtml = unreadBadgeHtml(c.unreadCount);
 
       var timeHtml = c.timeLabel ? '<span class="conv-time">' + esc(c.timeLabel) + '</span>' : '';
       if (compact) {
@@ -1186,9 +1202,8 @@
           unreadHtml + timeHtml +
         '</button>';
       }
-      // A closed conversation is over for the visitor as a resolved one is.
-      var resolved = /^(resolved|closed)$/.test(String(c.status || ''));
-      var statusLabel = resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open');
+      // A row of the history: who and when, the last line and its unread
+      // count. No open/resolved word: Core says which one is current.
       return '<button type="button" class="conv-row" data-conversation-open="' + esc(c.id) + '">' +
         identityAvatarHtml('sm') +
         '<span class="conv-main">' +
@@ -1198,8 +1213,6 @@
           '<span class="conv-line">' +
             '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' + unreadHtml +
           '</span>' +
-          '<span class="conv-status' + (resolved ? ' is-resolved' : '') + '">' +
-            '<span class="conv-status-dot" aria-hidden="true"></span>' + esc(statusLabel) + '</span>' +
         '</span>' +
       '</button>';
     }
@@ -1208,13 +1221,10 @@
       vm = vm || {};
       var rtl = !!vm.rtl;
       var online = !!vm.isOnline;
-      // P1 — Home shows at most 3 recent threads (design source of truth);
-      // the full list stays reachable via the conversations view.
-      var convs = (vm.conversations || []).slice(0, 3);
-      var hasThreads = convs.length > 0;
-      // A thread still going (Core's rule: open or pending). A resolved or
-      // closed one is not "continued": the CTA beside it starts a new one.
-      var unresolved = (vm.conversations || []).filter(function (c) { return c.status === 'open' || c.status === 'pending'; })[0];
+      // One conversation per visitor: Core passes the current one (live, an
+      // answer not seen yet, or this tab's just ended one) or none, how many
+      // are history (`pastCount`) and the answers unseen there (`pastUnread`).
+      var cur = (vm.conversations || [])[0];
       var articles = (vm.articles || []);
       // Design source of truth (renderVals(): showArticleChips true,
       // showArticlesButton false): article chips stay visible even when the
@@ -1241,14 +1251,16 @@
         ? '<section class="smart-home-card">' + smartSurfaceHtml(vm.smartSurface) + '</section>'
         : '';
 
-      var recentHtml = hasThreads
+      // The current conversation's row, and under it (or alone) the quiet
+      // way into history, with the answers unseen there.
+      var recentHtml = cur || vm.pastCount
         ? '<section class="home-section home-recent">' +
-            '<h3 class="home-section-title">' + esc(tf('wyRecentConversations', 'Recent conversations')) + '</h3>' +
-            convs.map(function (c) { return conversationRowHtml(c, true); }).join('') +
-            '<button type="button" class="home-link" data-view="list">' +
-              esc(tf('wyViewConversations', 'View conversations')) +
+            (cur ? '<h3 class="home-section-title">' + esc(tf('wyYourConversation', 'Your conversation')) + '</h3>' +
+              conversationRowHtml(cur, true) : '') +
+            (vm.pastCount ? '<button type="button" class="home-link" data-view="list">' +
+              esc(tf('wyPastConversations', 'Previous conversations')) + unreadBadgeHtml(vm.pastUnread) +
               '<span class="home-link-chevron" aria-hidden="true">' + ICON.chevron + '</span>' +
-            '</button>' +
+            '</button>' : '') +
           '</section>'
         : '';
 
@@ -1257,7 +1269,7 @@
       // background refresh failed but the earlier successful load's data is
       // still in the store), they render above instead — a transient
       // refresh failure must never blank a list the visitor already saw.
-      var convErrorHtml = (!hasThreads && vm.conversationsError)
+      var convErrorHtml = (!cur && !vm.pastCount && vm.conversationsError)
         ? '<section class="home-section home-conv-error">' +
             '<p class="home-conv-error-text">' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
             '<button type="button" class="home-link" data-home-action="conversations-retry">' +
@@ -1281,14 +1293,11 @@
         : '';
 
       var actions = '';
+      // ONE main button, to the current conversation (Core's goCurrent):
+      // continue it, else start one (or leave a message while away).
       if (vm.chatEnabled) {
-        if (unresolved) {
-          actions += '<button type="button" class="wy-btn wy-btn-primary" data-conversation-open="' + esc(unresolved.id) + '">' +
-            esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
-        }
-        actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
-          ' wy-btn-grow" data-home-action="chat">' + (unresolved ? '' : stackHtml) +
-          esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
+        actions += '<button type="button" class="wy-btn wy-btn-primary wy-btn-grow" data-home-action="chat">' +
+          (cur ? esc(tf('wyContinue', 'Continue conversation')) : stackHtml + esc(online ? t('homeStartChat') : t('homeLeaveMessage'))) +
           '</button>';
       }
       if (showArticlesButton) {
@@ -1320,8 +1329,21 @@
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Conversation list (design §8)
+    // Conversation list (design §8): the history
     // ══════════════════════════════════════════════════════════════════
+    // A past conversation (history, read-only), in the composer's place:
+    // the composer's pill locked, saying why, and the one way on, to the
+    // current conversation (or a new one: start, or leave a message while
+    // away). Core puts it before [data-input-bar], which it hides.
+    function pastBarHtml(vm) {
+      vm = vm || {};
+      return '<div class="wy-past" data-past-bar><span class="wy-past-text">' + ICON.lock +
+          esc(tf('wyPastClosed', 'This chat has ended and is read-only')) + '</span>' +
+        '<button type="button" class="home-link" data-chat-current>' +
+          esc(vm.current ? tf('wyCurrentChat', 'Current chat') : t(vm.online ? 'homeStartChat' : 'homeLeaveMessage')) +
+          '<span class="home-link-chevron" aria-hidden="true">' + ICON.chevron + '</span></button></div>';
+    }
+
     function conversationListHtml(vm) {
       vm = vm || {};
       var rtl = !!vm.rtl;
@@ -1344,13 +1366,11 @@
                 ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
                 : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>'));
       return '<div class="wy-view wy-view-list"' + (rtl ? ' dir="rtl"' : '') + '>' +
+        // Back to where the visitor came from (Core's); no way to a second
+        // conversation from here.
         '<div class="wy-head wy-head-list">' +
-          backButtonHtml('home') +
-          '<div class="wy-head-plain">' + esc(tf('wyConversations', 'Conversations')) + '</div>' +
-          (vm.chatEnabled
-            ? '<button type="button" class="wy-fab" data-home-action="chat" aria-label="' +
-                esc(tf('wyNewConversation', 'New conversation')) + '">' + ICON.plus + '</button>'
-            : '') +
+          backButtonHtml(vm.back) +
+          '<div class="wy-head-plain">' + esc(tf('wyPastConversations', 'Previous conversations')) + '</div>' +
         '</div>' +
         '<div class="wy-body-pad wy-list-body">' +
           '<div class="wy-scroll wy-list-scroll">' + bodyHtml + '</div>' + footerHtml() +
@@ -1549,7 +1569,6 @@
           '<span class="conv-main">' +
             '<span class="conv-line">' + skLine('44%', 11) + skLine('26px', 9) + '</span>' +
             '<span class="conv-line">' + skLine((62 + (i % 3) * 9) + '%', 10) + '</span>' +
-            '<span class="conv-line">' + skLine('48px', 8) + '</span>' +
           '</span>' +
         '</div>';
       }
@@ -1683,7 +1702,6 @@
         '<div class="wy-head wy-head-list">' +
           '<span class="wy-back wy-sk-back"></span>' +
           '<span class="wy-head-plain">' + skLine('92px', 13) + '</span>' +
-          (vm.chatEnabled === false ? '' : '<span class="wy-fab wy-sk-ico"></span>') +
         '</div>' +
         '<div class="wy-body-pad wy-list-body">' +
           '<div class="wy-scroll wy-list-scroll">' + skeletonConvRowsHtml(6) + '</div>' +
@@ -1766,6 +1784,10 @@
     return {
 
       id: 'default',
+      // It draws the `conversation_closed` line (Core keeps those rows for
+      // it). Never under `features`: this renderer declares none, so it
+      // never waits for or downloads runtime-ext.js.
+      closedNotice: true,
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
       homeHtml: homeHtml,
@@ -1785,6 +1807,8 @@
       // Generic contract extensions (template-agnostic surfaces).
       conversationListHtml: conversationListHtml,
       conversationRowHtml: conversationRowHtml,
+      // One conversation per visitor: Core's mode for a renderer drawing it.
+      pastBarHtml: pastBarHtml,
       // Knowledge Base surfaces
       kbHtml: kbHtml,
       kbSearchBarHtml: kbSearchBarHtml,

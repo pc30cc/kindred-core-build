@@ -142,7 +142,12 @@ describe('t2: every hook the default renderer emits', () => {
   const hooks = (src: string) => new Set((src.match(/data-[a-z0-9]+(?:-[a-z0-9]+)*(?=[\s="'>])/g) || []));
 
   it('is emitted by t2 too', () => {
-    const missing = [...hooks(DEFAULT_SRC)].filter((h) => !hooks(T2_SRC).has(h));
+    // default's past bar (one conversation per visitor): owed by t2 once it
+    // draws one (its pastBarHtml, whose markup its extras carry).
+    const t2 = make() as Record<string, unknown>;
+    const ours = new Set([...hooks(T2_SRC), ...hooks(T2_X_SRC)]);
+    const owed = (h: string) => typeof t2.pastBarHtml === 'function' || !/^data-(past-bar|chat-current)$/.test(h);
+    const missing = [...hooks(DEFAULT_SRC)].filter((h) => !ours.has(h) && owed(h));
     expect(missing).toEqual([]);
   });
 

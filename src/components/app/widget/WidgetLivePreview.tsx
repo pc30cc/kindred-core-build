@@ -556,21 +556,30 @@ export function WidgetLivePreview({
           : [{ name: operatorName || title, avatar: operatorAvatar || '', online: true }],
         articles: realArticles.map((a, i) => ({ title: a.title, slug: String(i) })),
         categories: [],
+        /* One conversation per visitor, as Core hands it over (runtime.js
+           renderHome): a returning visitor whose conversations have ended,
+           so home starts one (or leaves a message: who is online now, the
+           team's faces) and links to the history. A live one would be the
+           current conversation in place of that button. */
+        conversations: [],
+        pastCount: 2,
+        pastUnread: 0,
       },
-      /* The conversation list: two sample threads, one waiting for the
-         visitor (unread) and one closed. */
+      /* The history («Previous conversations»): two finished samples, the
+         team's last word and the visitor's; its back goes home. */
       listVm: {
         rtl,
         loading: false,
         error: false,
         chatEnabled,
+        back: 'home',
         conversations: [
           {
-            id: 'preview-1', status: 'open', preview: sample.operator, unreadCount: 1, timeLabel: sample.recent,
-            lastFromVisitor: false, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: true,
+            id: 'preview-1', status: 'closed', preview: sample.operator, unreadCount: 0, timeLabel: sample.recent,
+            lastFromVisitor: false, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: false,
           },
           {
-            id: 'preview-2', status: 'resolved', preview: sample.visitor, unreadCount: 0, timeLabel: sample.earlier,
+            id: 'preview-2', status: 'closed', preview: sample.visitor, unreadCount: 0, timeLabel: sample.earlier,
             lastFromVisitor: true, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: false,
           },
         ],
@@ -850,15 +859,16 @@ export function WidgetLivePreview({
     // runtime-ext.js), and the view-model fields Core adds for them: the unread total
     // of a bottom menu (tabs), the search field (kbSearch) and the visitor's
     // first name (visitorName; the preview has no contact, so empty, as Core
-    // without one). The default template declares none, so it gets the same
-    // view-models and the same pixels as before. What changed for every
+    // without one). The default template declares none, so it gets none of
+    // these fields. What changed for every
     // template, 'default' included, is the navigation: the Messages view
     // (list) and the frame following the renderer's own [data-view],
     // [data-view-back] and [data-conversation-open] hooks (gsBindTabs), as
     // the live widget does.
     function feat(name) { return !!(R.features && R.features[name]); }
     var unreadTotal = 0;
-    (GS_PREVIEW.listVm.conversations || []).forEach(function (c) { unreadTotal += Number(c.unreadCount) || 0; });
+    // The current conversation's and the history's (runtime-ext.js unreadTotal).
+    (GS_PREVIEW.homeVm.conversations || []).concat(GS_PREVIEW.listVm.conversations || []).forEach(function (c) { unreadTotal += Number(c.unreadCount) || 0; });
     var kbVms = [GS_PREVIEW.kbVm].concat(GS_PREVIEW.kbArticleVms || []);
     if (feat('tabs')) {
       GS_PREVIEW.homeVm.unreadTotal = unreadTotal;

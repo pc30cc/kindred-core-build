@@ -323,14 +323,6 @@
 .home-stack-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 
-.wy-fab {
-  width: 32px; height: 32px; border-radius: 9999px; background: var(--wy-accent); color: var(--wy-on-accent);
-  display: flex; align-items: center; justify-content: center; flex: none;
-  transition: transform 0.18s var(--wy-ease), filter 0.18s;
-}
-.wy-fab:hover { filter: brightness(1.06); transform: scale(1.06); }
-.wy-fab:active { transform: scale(0.94); }
-
 /* ─── Buttons ───────────────────────────────────────────────────────── */
 .wy-btn {
   box-sizing: border-box;
@@ -506,11 +498,8 @@ a.wy-powered:hover { color: var(--wy-text); }
 /* Wears the real `.input` class, so the pill is the real 46px tall; this
    only centres the placeholder bar inside it. */
 .wy-sk-input { display: flex; align-items: center; overflow: hidden; }
-/* Control placeholders keep the real button box and only swap the glyph.
-   `.wy-fab` is the exception that paints itself in the brand colour, so it
-   is neutralised here rather than shipping a solid accent dot in a skeleton. */
+/* Control placeholders keep the real button box and only swap the glyph. */
 .wy-sk-ico { pointer-events: none; }
-.wy-skeleton .wy-fab { background: #f0f0f3; color: transparent; }
 .wy-skeleton .prechat-field { display: flex; flex-direction: column; gap: 6px; }
 
 @keyframes wy-sk-shimmer { 100% { transform: translateX(100%); } }
@@ -587,10 +576,6 @@ a.wy-powered:hover { color: var(--wy-text); }
   box-shadow: 0 1px 3px rgba(31, 147, 255, 0.35);
   flex: none;
 }
-.conv-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--wy-faint); }
-.conv-status.is-resolved { color: var(--wy-faint); }
-.conv-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--wy-online); flex: none; }
-.conv-status.is-resolved .conv-status-dot { background: currentColor; }
 
 
 .wy-status { padding: 24px 8px; text-align: center; font-size: 13px; color: var(--wy-muted); }
@@ -1150,7 +1135,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 .ci-btn-ghost { background: var(--wy-hover-2); color: var(--wy-muted); }
 .ci-btn-ghost:hover { background: var(--wy-border); }
 .ci-err { font-size: 12px; color: #e5484d; }
-.ci-status-joined .ci-meta, .conv-status.is-resolved { color: var(--wy-faint); }
+.ci-status-joined .ci-meta { color: var(--wy-faint); }
 
 /* ─── In-panel call surface ──────────────────────────────────────────
    Core renders the call markup into `.body`; this is the stylesheet half.
@@ -1976,6 +1961,24 @@ a.wy-powered:hover { color: var(--wy-text); }
   .wy-view-chat .attach-btn,
   .wy-view-chat .emoji-btn { transition: none; }
 }
+
+/* A past conversation (history, read-only): the composer's pill, locked,
+   saying why, and the way on at its end (wrapping under the line when the
+   two do not fit side by side). */
+.wy-past {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 12px;
+  min-height: 50px; box-sizing: border-box; padding: 7px 14px; border-radius: 16px;
+  background: var(--wy-hover); box-shadow: 0 0 0 1px var(--wy-border);
+}
+.wy-past-text { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 20px; color: var(--wy-muted); }
+.wy-past-text svg { flex: none; }
+.wy-past .home-link { margin: 0; margin-inline-start: auto; padding: 6px 0; font-size: 13px; font-weight: 600; }
+/* Read, not answered: no quoting into a composer that is not there. */
+.wy-view-chat:has(.wy-past) [data-msg-reply] { display: none; }
+/* Home's way into history is a 44px target on phones; the text stays put. */
+.shell.gs-mobile-open .home-recent .home-link { padding-block: 12px; margin-block: -10px -12px; }
+/* Its count of answers not seen, the rows' badge, smaller. */
+.home-link .conv-unread { min-width: 18px; height: 18px; padding: 0 5px; font-size: 10.5px; margin-inline-start: 2px; }
 
 /* ─── Department picker (Core's, before a chat or a call) ───────────── */
 .dept-picker { display: flex; flex-direction: column; gap: 10px; padding: 20px; }

@@ -14,12 +14,15 @@ const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
 const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
-function loadPresentation() {
+/** The renderer's surfaces this file calls: view-model(s) in, HTML out. */
+type Renderer = Record<string, (...args: unknown[]) => string>;
+
+function loadPresentation(): Renderer {
   // eslint-disable-next-line no-new-func
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  const mod = (window as any).__gs_presentation_default;
+  const mod = (window as unknown as Record<string, { create: (env: Record<string, unknown>) => Renderer }>).__gs_presentation_default;
   return mod.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
@@ -61,7 +64,7 @@ const identity = {
 };
 
 describe('shell — non-visual infrastructure only', () => {
-  let r: any;
+  let r: Renderer;
   beforeAll(() => { r = loadPresentation(); });
 
   it('carries the view host and the lightbox, and nothing visual', () => {
@@ -77,17 +80,15 @@ describe('shell — non-visual infrastructure only', () => {
 });
 
 describe('every view renders exactly one header/footer', () => {
-  let r: any;
+  let r: Renderer;
   beforeAll(() => { r = loadPresentation(); });
 
   const homeVm = {
     rtl: false, isOnline: true, teamMembers: [], categories: [],
     articles: [{ slug: 'a', title: 'Alpha' }, { slug: 'b', title: 'Beta' }],
-    conversations: [
-      { id: 'c1', status: 'open', preview: 'one', timeLabel: '1m' },
-      { id: 'c2', status: 'open', preview: 'two', timeLabel: '2m' },
-      { id: 'c3', status: 'open', preview: 'three', timeLabel: '3m' },
-    ],
+    // One conversation per visitor: Core passes the current one, and how many are history.
+    conversations: [{ id: 'c1', status: 'open', preview: 'one', timeLabel: '1m' }],
+    pastCount: 2,
     kbEnabled: true, chatEnabled: true, primaryColor: '#3B82F6',
     welcomeMessage: 'Hi', smartSurface: null,
   };
@@ -97,9 +98,10 @@ describe('every view renders exactly one header/footer', () => {
     expect(c).toMatchObject({ headers: 1, footers: 1, composers: 0, inputs: 0, chatHeaders: 0 });
   });
 
-  it('Home: at most 3 recent conversations, chips stay visible alongside them', () => {
+  it('Home: the current conversation (one row), chips stay visible alongside it', () => {
     const el = dom(r.homeHtml(homeVm));
-    expect(el.querySelectorAll('.home-recent [data-conversation-open]').length).toBe(3);
+    expect(el.querySelectorAll('.home-recent [data-conversation-open]').length).toBe(1);
+    expect(el.querySelectorAll('.home-recent [data-view="list"]').length).toBe(1);
     expect(el.querySelectorAll('.home-chip[data-home-article]').length).toBe(2);
     // No duplicate "Articles" action button — chips are the only entry point.
     expect(el.querySelectorAll('.wy-actions [data-view="help"]').length).toBe(0);

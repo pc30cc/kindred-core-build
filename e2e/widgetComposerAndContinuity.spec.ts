@@ -140,8 +140,16 @@ test.describe('a live conversation continues in a brand-new tab', () => {
     ).toBeGreaterThan(1);
   });
 
-  test('a resolved thread still leaves the visitor on home', async ({ page }) => {
+  // A resolve takes it out of the operator's Inbox only (owner, 2026-10-24):
+  // still the visitor's conversation. Only a close ends it.
+  test('a resolved thread continues too', async ({ page }) => {
     await routeAll(page, { threads: { c1: thread('c1') }, statuses: { c1: 'resolved' } });
+    await boot(page);
+    await expect.poll(() => activeView(page), { timeout: 15_000 }).toBe('chat');
+  });
+
+  test('a closed thread leaves the visitor on home', async ({ page }) => {
+    await routeAll(page, { threads: { c1: thread('c1') }, statuses: { c1: 'closed' } });
     await boot(page);
     await page.waitForTimeout(3000);
     expect(await activeView(page)).toBe('home');

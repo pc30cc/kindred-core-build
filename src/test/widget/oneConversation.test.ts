@@ -1,11 +1,12 @@
 /**
  * One current conversation per visitor (owner, 2026-10-23/24), with the
  * SHIPPED runtime.js, runtime-ext.js and runtime-late.js and the real t1
- * renderer and extras, or a bare renderer (default's, with only a past bar
- * of its own) for Core alone (coreFeaturesHarness.ts).
+ * renderer and extras, or a bare renderer (default's, with a past bar of
+ * its own in place of default's) for Core alone (coreFeaturesHarness.ts).
  *
  * The mode is the renderer's: Core runs it for a renderer that draws a past
- * bar (`pastBarHtml`), never by a feature flag; default keeps the old model.
+ * bar (`pastBarHtml`), never by a feature flag; default draws one too, with
+ * no features (coreFeaturesDefaultInert.test.ts has default's own screens).
  *  - The current conversation, first of: one this tab started that the list
  *    does not know yet; the newest live one (open, pending, resolved: a
  *    resolve ends nothing for the visitor); the newest closed one with an
@@ -299,9 +300,14 @@ describe('every door lands on the current conversation', () => {
     expect(sends(h)).toEqual([]);
   });
 
-  it('bare: home\'s chat action, the list\'s, setTab(\'chat\')', async () => {
+  it('bare: home\'s chat action, setTab(\'chat\'), and a chat action a list draws', async () => {
     seedHint({ tab: 'home', conversationId: null });
-    const h = start('bare', { conversations: LIVE });
+    // default's history draws no way to a new conversation; one a template draws is Core's door too.
+    const listDoor: RendererFactory = (base, env) => ({
+      ...BARE(base, env),
+      conversationListHtml: (vm: unknown) => base.conversationListHtml(vm) + '<button type="button" data-home-action="chat">+</button>',
+    });
+    const h = boot({ renderer: listDoor, conversations: LIVE, history: { 'c-live': threadOf('c-live'), 'c-past': threadOf('c-past') } });
     await flush(40);
     for (const door of [() => click(h.q('[data-body] [data-home-action="chat"]')), () => h.runtime.setTab('chat')]) {
       h.runtime.setTab('home');
@@ -723,11 +729,12 @@ describe('a fresh thread: armed from the start, nothing adopted behind it', () =
     expect(sends(h)[0]).toMatchObject({ conversationId: null, forceNewConversation: true });
   });
 
-  it('default keeps the old model (no past bar, no one-conversation rules)', async () => {
+  it('default runs it too (its own past bar), without runtime-ext.js', async () => {
     const h = boot({ renderer: 'default', realtime: true, conversations: [{ id: 'c-old', status: 'closed' }] });
     await flush(40);
-    expect(h.historyReads).toContain('latest');
-    expect(h.runtime.__test.chatState().freshIntent).toBe(false);
+    expect(h.historyReads).toEqual([]);
+    expect(h.runtime.__test.chatState().freshIntent).toBe(true);
+    expect(h.scripts.filter((s) => /runtime-ext|runtime-late|-x\./.test(s))).toEqual([]);
   });
 
   it('/poll: a live conversation it names becomes the fresh thread (an outreach opens the panel); a closed one never', async () => {

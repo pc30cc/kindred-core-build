@@ -269,6 +269,16 @@ and `chat-handover`).
   simply run again. Every read tolerates it being absent (the catalog then reads as "only the edition default").
 - After the deploy, the Super Admin enables `t1` / `t2` in «قالب‌های ویجت»; workspace owners then see «قالب ویجت».
   On RESPOK, its Super Admin enables `t1-intl` / `t2-intl` (Widget templates) the same way.
+- One conversation per visitor in `default` and `intl` (the templates every workspace wears unless it chose
+  another) waits for the auto-close PR: ship them in its deploy or after it. A resolved conversation is live for the
+  visitor (owner, 2026-10-24), so Core keeps the loader's `gs_active` hint while the visitor has one
+  (`activeNow()`), and today nothing closes a resolved conversation: a visitor whose conversation the operator
+  resolved would then boot the runtime silently on every page view (identity, the list, the thread, the realtime
+  subscription) for as long as they come back within a day (the cookie's max-age, renewed by each list), and keep
+  the launcher under "hide the widget while away". `default` cleared the hint on a resolve before. The 24 h close
+  bounds it. Shipping earlier needs that bound in Core instead (a resolved row counts for `gs_active` only while
+  its `updatedAt` is under 24 h old, unseen answers still always). t1 has the same rule since its port, on the
+  workspaces that chose it.
 
 ## One conversation per visitor: server contract (2026-10-24)
 

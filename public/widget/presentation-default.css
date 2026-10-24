@@ -1973,10 +1973,13 @@ a.wy-powered:hover { color: var(--wy-text); }
 .wy-past-text { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 20px; color: var(--wy-muted); }
 .wy-past-text svg { flex: none; }
 .wy-past .home-link { margin: 0; margin-inline-start: auto; padding: 6px 0; font-size: 13px; font-weight: 600; }
-/* Read, not answered: no quoting into a composer that is not there. */
-.wy-view-chat:has(.wy-past) [data-msg-reply] { display: none; }
-/* Home's way into history is a 44px target on phones; the text stays put. */
-.shell.gs-mobile-open .home-recent .home-link { padding-block: 12px; margin-block: -10px -12px; }
+/* Read, not answered: no quoting into a composer that is not there; no
+   reply-time promise over it (the header's lines). */
+.wy-view-chat:has(.wy-past) :is([data-msg-reply], .wy-head-sub) { display: none; }
+/* On a phone the bar's way on and home's way into history are 44px targets
+   with the text where it was; home's starts at the row's edge, not over it. */
+.shell.gs-mobile-open :is(.wy-past, .home-recent) .home-link { box-sizing: border-box; min-height: 44px; padding-block: 12px; margin-block: -6px; }
+.shell.gs-mobile-open .home-recent .home-link { padding-block: 8px 15px; margin-block: -6px -15px; }
 /* Its count of answers not seen, the rows' badge, smaller. */
 .home-link .conv-unread { min-width: 18px; height: 18px; padding: 0 5px; font-size: 10.5px; margin-inline-start: 2px; }
 

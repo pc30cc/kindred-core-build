@@ -12,7 +12,9 @@
  *   - WidgetLivePreview: the effective template and its options reach the
  *     frame (config.templateOptions, as the bootstrap), the Messages view
  *     renders the conversation list, the frame navigates by [data-view] in
- *     Core's order (a named back or a conversation row first), and a
+ *     Core's order (a named back or a conversation row first), a history
+ *     row opens read-only in the frame for a renderer drawing the past bar
+ *     (one conversation per visitor), and a
  *     renderer that declares `tabs` / `kbSearch` / `visitorName` gets Core's
  *     view-model fields, its current tab and its unread badge (the default
  *     declares none: unchanged);
@@ -380,10 +382,11 @@ describe('WidgetLivePreview — the effective template', () => {
 describe('WidgetLivePreview — a renderer\'s declared features, as Core reads them', () => {
   type Vm = Record<string, unknown>;
   /** The frame's own script in a page of its own, painting with a stand-in renderer. */
-  function paint(view: 'home' | 'list' | 'kb', features?: Record<string, boolean>) {
+  function paint(view: 'home' | 'list' | 'kb', features?: Record<string, boolean>, prep?: (payload: Vm) => void) {
     const page = new JSDOM(srcdoc({ view, templateId: 't1' }), { runScripts: 'outside-only' });
     const inline = Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((s) => s.textContent).join('\n');
     page.window.eval(inline);
+    if (prep) prep((page.window as unknown as { GS_PREVIEW: Vm }).GS_PREVIEW);
     const seen: Record<string, Vm> = {};
     const R = {
       features,
@@ -457,6 +460,14 @@ describe('WidgetLivePreview — a renderer\'s declared features, as Core reads t
     const kb = paint('kb', features);
     expect(kb.seen.kb).toMatchObject({ unreadTotal: 0, hasSearch: true });
     expect(kb.current).toEqual(['home:false', 'list:false', 'help:page']);
+
+    // A current conversation with an answer not seen yet (Core's rule: an
+    // ended one holding one is current, never history): the badge, shown.
+    const answered = paint('list', features, (p) => {
+      (p.homeVm as Vm).conversations = [{ id: 'c1', status: 'closed', preview: 'Hi', unreadCount: 1, timeLabel: '1 min' }];
+    });
+    expect(answered.seen.list).toMatchObject({ unreadTotal: 1 });
+    expect(answered.badge).toEqual({ text: '(1)', hidden: false });
   });
 });
 
@@ -506,6 +517,52 @@ describe('WidgetLivePreview — the late surfaces, with the real renderers and e
       expect(doc.querySelector('.away-reply'), id).toBeNull();
       expect(doc.querySelector('[data-chat-messages]')!.textContent, id).toContain('Back soon');
       expect((doc.querySelector('[data-input-bar]') as HTMLElement).style.display, id).toBe('none');
+    }
+  });
+
+  it('a history row opens read-only in the frame (a renderer drawing the past bar: default, t1), back returns to the history', () => {
+    const core = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    const open = (id: 'default' | 't1') => {
+      const page = new JSDOM(srcdoc({ templateId: id, view: 'list', operatorName: 'Sara' }), { runScripts: 'outside-only' });
+      const w = page.window as unknown as Record<string, unknown> & { eval: (s: string) => void };
+      const sent: string[] = [];
+      // The frame's parent (itself here) hears its navigation.
+      w.postMessage = (data: { nav: string }) => { sent.push(data.nav); };
+      w.eval(core);
+      w.eval(Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((s) => s.textContent).join('\n'));
+      w.eval(readFileSync(resolve(process.cwd(), `public/widget/presentation-${id}.js`), 'utf8'));
+      if (id === 't1') w.eval(readFileSync(resolve(process.cwd(), 'public/widget/presentation-t1-x.js'), 'utf8'));
+      (w as unknown as { gsRenderPreview: (mod: unknown) => void }).gsRenderPreview(w[`__gs_presentation_${id}`]);
+      const doc = page.window.document as Document;
+      const click = (el: Element | null) => {
+        const ev = new page.window.MouseEvent('click', { bubbles: true, cancelable: true });
+        el!.dispatchEvent(ev);
+        return ev.defaultPrevented;
+      };
+      return { doc, sent, click, panel: doc.querySelector('.panel')! };
+    };
+    for (const id of ['default', 't1'] as const) {
+      const { doc, sent, click, panel } = open(id);
+      expect(doc.querySelectorAll('[data-conversation-open]').length, id).toBe(2);
+      expect(click(doc.querySelector('[data-conversation-open]')), id).toBe(true);
+      // The thread, its close, and the bar in the composer's place; nothing went to the parent.
+      expect(panel.getAttribute('data-view'), id).toBe('chat');
+      expect(doc.querySelector('[data-chat-messages]')!.textContent, id).toContain('Sara ended the chat');
+      expect((doc.querySelector('[data-input-bar]') as HTMLElement).style.display, id).toBe('none');
+      const bar = doc.querySelector('[data-composer-zone] [data-past-bar]')!;
+      expect(bar, id).not.toBeNull();
+      expect(bar.textContent, id).toContain('This chat has ended and is read-only');
+      // Nothing current in the sample: the bar starts one.
+      expect(bar.querySelector('[data-chat-current]')!.textContent, id).toContain('Start a conversation');
+      expect(sent, id).toEqual([]);
+      // The bar's button goes to the chat; back returns to the history.
+      expect(click(bar.querySelector('[data-chat-current]')), id).toBe(true);
+      expect(sent, id).toEqual(['chat']);
+      expect(click(doc.querySelector('[data-chat-header] [data-view-back]')), id).toBe(true);
+      expect(panel.getAttribute('data-view'), id).toBe('list');
+      expect(doc.querySelector('[data-past-bar]'), id).toBeNull();
+      expect(doc.querySelectorAll('[data-conversation-open]').length, id).toBe(2);
+      expect(sent, id).toEqual(['chat']);
     }
   });
 

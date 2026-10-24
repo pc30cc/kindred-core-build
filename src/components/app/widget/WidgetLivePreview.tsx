@@ -607,6 +607,19 @@ export function WidgetLivePreview({
         },
         { sender: 'visitor', senderType: 'visitor', body: sample.visitor, time: nowIso, status: 'seen' },
       ],
+      /* A history row opened (one conversation per visitor, a renderer
+         drawing the past bar): the same exchange, then its close, read-only. */
+      pastMessages: [
+        {
+          sender: 'operator', senderType: 'operator', body: sample.operator, time: earlierIso,
+          senderName: operatorName || title, senderAvatar: operatorAvatar || '',
+        },
+        { sender: 'visitor', senderType: 'visitor', body: sample.visitor, time: nowIso, status: 'seen' },
+        {
+          id: 'preview-closed', sender: 'operator', senderType: 'system', body: '', time: nowIso,
+          metadata: { kind: 'conversation_closed', agent_name: operatorName || title },
+        },
+      ],
       // The form as the server asks it: policy, plan, then the row (no row:
       // the policy's defaults, name and email required).
       prechat: previewPrechatForm(prechat, prechatPolicy, { planAllowsForm: prechatFormAllowed }),
@@ -1067,6 +1080,7 @@ export function WidgetLivePreview({
     gsBindSmart();
     gsBindTabs();
     gsBindArticles(R);
+    gsBindPast(R);
   }
 
   // Preview-only: let the operator open/close the widget exactly like a visitor.
@@ -1273,6 +1287,61 @@ export function WidgetLivePreview({
         parent.postMessage({ source: 'gs-widget-preview', nav: act === 'help' ? 'help' : 'chat' }, '*');
       }
     });
+  }
+
+  // Preview-only: one conversation per visitor (a renderer drawing
+  // pastBarHtml). A history row opens in the frame as Core opens a closed
+  // one: its thread and its close, read-only, the renderer's past bar in the
+  // composer's place (nothing current here: it starts one, or leaves a
+  // message while away); back returns to the history, the bar's button to
+  // the chat. In the capture phase, so gsBindTabs never takes these clicks.
+  function gsBindPast(R) {
+    var panel = document.querySelector('.panel');
+    var body = panel && panel.querySelector('[data-body]');
+    if (GS_SMART.enabled || GS_PREVIEW.view !== 'list' || typeof R.pastBarHtml !== 'function' || !body) return;
+    var listMarkup = body.innerHTML;
+    var open = false;
+    function feat(name) { return !!(R.features && R.features[name]); }
+    function openPast() {
+      body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
+      panel.setAttribute('data-view', 'chat');
+      var host = body.querySelector('[data-chat-messages]');
+      if (host) host.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.pastMessages }, '', {});
+      // The bar as Core paints it for a past thread (runtime-ext.js): back
+      // to the history, its day, no presence.
+      var head = body.querySelector('[data-chat-header]');
+      if (head && feat('chatHeader') && typeof R.chatHeaderHtml === 'function') {
+        var op = GS_PREVIEW.chatOperator;
+        head.innerHTML = R.chatHeaderHtml({
+          online: true, typing: false, isNew: false, operator: { name: op.name, avatar: op.avatar, online: null },
+          back: 'list', past: true, when: GS_PREVIEW.listVm.conversations[0].timeLabel,
+          pastCount: GS_PREVIEW.homeVm.pastCount, pastUnread: GS_PREVIEW.homeVm.pastUnread, menu: null,
+        });
+      }
+      var bar = body.querySelector('[data-input-bar]');
+      if (bar) {
+        bar.style.display = 'none';
+        bar.insertAdjacentHTML('beforebegin', R.pastBarHtml({ current: false, online: GS_PREVIEW.homeVm.isOnline }));
+      }
+      open = true;
+    }
+    document.addEventListener('click', function (e) {
+      var target = e.target && e.target.closest ? e.target : null;
+      if (!target) return;
+      if (!open && target.closest('[data-conversation-open]')) {
+        openPast();
+      } else if (open && target.closest('[data-view-back]')) {
+        body.innerHTML = listMarkup;
+        panel.setAttribute('data-view', 'list');
+        open = false;
+      } else if (open && target.closest('[data-chat-current]')) {
+        parent.postMessage({ source: 'gs-widget-preview', nav: 'chat' }, '*');
+      } else {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
   }
 
 </script>

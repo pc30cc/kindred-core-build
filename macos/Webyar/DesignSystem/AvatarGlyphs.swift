@@ -5,6 +5,10 @@ import SwiftUI
 // iPhone's (ios/Webyar/Sources/DesignSystem/Components/AvatarGlyphs.swift)
 // and the Mac's (macos/Webyar/DesignSystem/AvatarGlyphs.swift); keep the two
 // copies identical (src/test/native/avatarGlyphs.test.ts checks it).
+//
+// The source of truth for the paths is shared/avatarGlyphs.ts
+// (PERSON_SILHOUETTE and WORKSPACE_MARK). Change them there first, then
+// here: src/test/native/avatarGlyphs.test.ts fails until this copy matches.
 
 /// The two glyphs the whole product draws where there is no picture, on a
 /// 24 × 24 grid:
@@ -15,9 +19,10 @@ import SwiftUI
 ///   logo. Never its first letter.
 ///
 /// One design for the web panel, both website widgets and every native app,
-/// so they are not redrawn here: the strings are the canonical SVG paths in
-/// their expanded form (absolute commands, every number on its own), and
-/// `src/test/native/avatarGlyphs.test.ts` compares them with the canonical
+/// so they are not redrawn here: the strings are the paths of
+/// `shared/avatarGlyphs.ts` (the source of truth) in their expanded form
+/// (absolute commands, every number on its own), and
+/// `src/test/native/avatarGlyphs.test.ts` compares them with the shared
 /// ones point for point.
 ///
 /// Both are left–right symmetric, so they never mirror under right to left,
@@ -43,6 +48,21 @@ enum AvatarGlyph: Sendable {
         }
     }
 
+    /// `pathData` as drawing steps in the 24-unit box. Each glyph is read
+    /// once, on first use, and kept (a static `let` is set up lazily, once,
+    /// safely across threads), so drawing only scales and moves the steps.
+    var segments: [AvatarGlyphPath.Segment] {
+        switch self {
+        case .person: return Self.personSegments
+        case .workspace: return Self.workspaceSegments
+        }
+    }
+
+    private static let personSegments: [AvatarGlyphPath.Segment] =
+        AvatarGlyphPath.segments(AvatarGlyph.person.pathData)
+    private static let workspaceSegments: [AvatarGlyphPath.Segment] =
+        AvatarGlyphPath.segments(AvatarGlyph.workspace.pathData)
+
     /// How much of its tile the glyph's 24-unit box takes, centred: 62% for
     /// the person and 58% for the workspace, a little more on a chip of 24
     /// points or less so the figure stays legible.
@@ -59,7 +79,7 @@ enum AvatarGlyph: Sendable {
 /// end points, and the curves need no reading of which way "clockwise" runs
 /// in a flipped space.
 enum AvatarGlyphPath {
-    enum Segment: Equatable {
+    enum Segment: Equatable, Sendable {
         case move(CGPoint)
         case line(CGPoint)
         case quad(CGPoint, CGPoint)
@@ -180,7 +200,8 @@ enum AvatarGlyphPath {
 // MARK: - Drawing
 
 /// An `AvatarGlyph` as a shape: its 24-unit box scaled to the rect's
-/// shorter side and centred in it. Fill it with the tile's ink.
+/// shorter side and centred in it. Fill it with the tile's ink. The glyph's
+/// steps are read once (`AvatarGlyph.segments`); this only places them.
 struct AvatarGlyphShape: Shape {
     let glyph: AvatarGlyph
 
@@ -193,7 +214,7 @@ struct AvatarGlyphShape: Shape {
         }
 
         var path = Path()
-        for segment in AvatarGlyphPath.segments(glyph.pathData) {
+        for segment in glyph.segments {
             switch segment {
             case .move(let to):
                 path.move(to: map(to))

@@ -6,19 +6,22 @@
  * first letter. Visitors and contacts keep their own faces (OS mark, tinted
  * person) and are not checked here.
  *
- * The apps cannot import the web's modules, so each carries its own copy of
- * the two glyphs: the iPhone and Mac apps (one Swift file, kept identical),
- * Android (Compose path data), the Windows app (XAML path markup) and the
- * older Electron app in `windows/`. This holds every copy to the canonical
- * paths point for point, whatever form it is written in, and then checks
- * that the places a teammate or a workspace is drawn use them and that no
- * initials code has come back. What each app draws at run time is tested in
- * the app's own suite (AvatarGlyphsTest.kt, AvatarGlyphsTests.cs,
+ * The source of truth is `shared/avatarGlyphs.ts` (PERSON_SILHOUETTE and
+ * WORKSPACE_MARK). The apps cannot import the web's modules, so each carries
+ * its own copy of the two glyphs: the iPhone and Mac apps (one Swift file,
+ * kept identical), Android (Compose path data), the Windows app (XAML path
+ * markup) and the older Electron app in `windows/`. This holds every copy to
+ * the shared paths point for point, whatever form it is written in, so a
+ * change to the shared glyphs fails here until every copy follows. It then
+ * checks that the places a teammate or a workspace is drawn use them and
+ * that no initials code has come back. What each app draws at run time is
+ * tested in the app's own suite (AvatarGlyphsTest.kt, AvatarGlyphsTests.cs,
  * AvatarGlyphTests.swift).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { PERSON_SILHOUETTE, WORKSPACE_MARK } from '../../../shared/avatarGlyphs';
 import {
   PERSON_GLYPH as ELECTRON_PERSON,
   WORKSPACE_GLYPH as ELECTRON_WORKSPACE,
@@ -26,12 +29,10 @@ import {
   glyphBox,
 } from '../../../windows/src/renderer/src/components/avatarGlyphs';
 
-/** The platform's two glyphs, 24 × 24, as designed (fill currentColor, one path each). */
+/** The platform's two glyphs, 24 × 24 (fill currentColor, one path each), from the one source of truth. */
 const CANONICAL = {
-  person:
-    'M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 10.75c-4.6 0-8 2.3-8 5.25 0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-2.95-3.4-5.25-8-5.25z',
-  workspace:
-    'M6.6 3h10.8q.9 0 1.38.83L21.5 8.5A2.375 2.375 0 0 1 20.25 10.59v8.16A2.25 2.25 0 0 1 18 21H6a2.25 2.25 0 0 1-2.25-2.25v-8.16A2.375 2.375 0 0 1 2.5 8.5l2.72-4.67Q5.7 3 6.6 3zm-.85 7.71v8.04q0 .25.25.25h4v-2.75a2 2 0 0 1 4 0V19h4q.25 0 .25-.25v-8.04A2.375 2.375 0 0 1 16.75 8.5a2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-1.5 2.21z',
+  person: PERSON_SILHOUETTE,
+  workspace: WORKSPACE_MARK,
 } as const;
 
 type Segment = { cmd: 'M' | 'L' | 'Q' | 'C' | 'A' | 'Z'; args: number[] };

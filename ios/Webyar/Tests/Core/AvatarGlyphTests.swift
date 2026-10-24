@@ -4,9 +4,9 @@ import XCTest
 
 /// The platform's two avatar glyphs (`AvatarGlyphs.swift`): a teammate
 /// without a photo is the person glyph and a workspace without a logo the
-/// shop front, never letters. The paths are the canonical ones
-/// (`src/test/native/avatarGlyphs.test.ts` compares the strings); these
-/// check that they are read and drawn where they should be.
+/// shop front, never letters. The paths are those of `shared/avatarGlyphs.ts`,
+/// the source of truth (`src/test/native/avatarGlyphs.test.ts` compares the
+/// strings); these check that they are read and drawn where they should be.
 @MainActor
 final class AvatarGlyphTests: XCTestCase {
     private func box(_ glyph: AvatarGlyph, in rect: CGRect) -> CGRect {
@@ -44,12 +44,15 @@ final class AvatarGlyphTests: XCTestCase {
         XCTAssertEqual(person.filter { if case .curve = $0 { return true } else { return false } }.count, 4 + 4)
         XCTAssertEqual(person.filter { $0 == .close }.count, 2)
         XCTAssertEqual(person.first, .move(CGPoint(x: 12, y: 3)))
+        // Drawing uses the steps read once, which are a fresh read's.
+        XCTAssertEqual(AvatarGlyph.person.segments, person)
 
         let workspace = AvatarGlyphPath.segments(AvatarGlyph.workspace.pathData)
         // The outer contour and the one cut out of it.
         XCTAssertEqual(workspace.filter { $0 == .close }.count, 2)
         XCTAssertEqual(workspace.first, .move(CGPoint(x: 6.6, y: 3)))
         XCTAssertFalse(workspace.contains { if case .line(let to) = $0 { return to == .zero } else { return false } })
+        XCTAssertEqual(AvatarGlyph.workspace.segments, workspace)
     }
 
     func testAHalfCircleArcEndsExactlyWhereItWasAimed() {

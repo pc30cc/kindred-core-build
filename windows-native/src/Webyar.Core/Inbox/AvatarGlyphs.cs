@@ -7,12 +7,15 @@ namespace Webyar.Core.Inbox;
 /// owner set no logo (never its first letter).
 ///
 /// One design for the web panel, both website widgets and every native app,
-/// so these are not a redrawing: they are the canonical SVG paths in their
-/// expanded form (absolute commands, every number on its own), as XAML path
-/// markup, which <c>src/test/native/avatarGlyphs.test.ts</c> compares with the
-/// canonical ones point for point. <c>F1</c> is the nonzero rule SVG uses;
-/// no outline overlaps another, so either rule gives the same pixels. Both
-/// are left–right symmetric, so they never mirror under right to left.
+/// so these are not a redrawing: they are the paths of
+/// <c>shared/avatarGlyphs.ts</c> (PERSON_SILHOUETTE and WORKSPACE_MARK, the
+/// source of truth) in their expanded form (absolute commands, every number
+/// on its own), as XAML path markup. Change them there first, then here:
+/// <c>src/test/native/avatarGlyphs.test.ts</c> compares these with the shared
+/// ones point for point and fails until they match. <c>F1</c> is the nonzero
+/// rule SVG uses; no outline overlaps another, so either rule gives the same
+/// pixels. Both are left–right symmetric, so they never mirror under right
+/// to left.
 /// </summary>
 public static class AvatarGlyphs
 {

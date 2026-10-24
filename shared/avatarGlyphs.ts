@@ -16,6 +16,12 @@
  * public/widget/runtime-fab.css, public/call-widget/runtime.css and
  * public/call-widget/presentation-default-panel.css):
  * src/test/widget/avatarGlyphs.test.ts checks every copy against these paths.
+ *
+ * The native and desktop apps (the iPhone and Mac apps' Swift file, Android's
+ * Glyphs.kt, the Windows app's AvatarGlyphs.cs and the Electron app's
+ * windows/src/renderer/src/components/avatarGlyphs.ts) cannot import it
+ * either: src/test/native/avatarGlyphs.test.ts imports these two paths and
+ * holds each app's copy to them point for point.
  */
 
 /** A head (r 4.5 at 12, 7.5) over rounded shoulders (x 4 to 20, y 13.75 to 21). */

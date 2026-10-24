@@ -9,9 +9,11 @@
  *
  * One design for the web panel, both website widgets and every native app.
  * This package cannot import the web's modules, so the paths are copied here
- * character for character; `src/test/native/avatarGlyphs.test.ts` holds every
- * app to the canonical strings. Both are left–right symmetric, so they never
- * mirror under right to left.
+ * character for character from `shared/avatarGlyphs.ts` (PERSON_SILHOUETTE
+ * and WORKSPACE_MARK), the source of truth. Change them there first, then
+ * here: `src/test/native/avatarGlyphs.test.ts` holds every app's copy to the
+ * shared strings and fails until this one follows. Both are left–right
+ * symmetric, so they never mirror under right to left.
  */
 export const PERSON_GLYPH =
   'M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 10.75c-4.6 0-8 2.3-8 5.25 0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-2.95-3.4-5.25-8-5.25z'

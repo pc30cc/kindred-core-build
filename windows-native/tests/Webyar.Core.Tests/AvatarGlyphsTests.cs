@@ -7,7 +7,8 @@ namespace Webyar.Core.Tests;
 /// <summary>
 /// The platform's two avatar glyphs (AvatarGlyphs): a teammate without a
 /// photo is the person and a workspace without a logo the shop front, never
-/// letters. The strings themselves are compared with the canonical paths by
+/// letters. The strings themselves are compared with the paths of
+/// shared/avatarGlyphs.ts, the source of truth, by
 /// src/test/native/avatarGlyphs.test.ts; these pin what the app relies on
 /// when it draws them.
 /// </summary>

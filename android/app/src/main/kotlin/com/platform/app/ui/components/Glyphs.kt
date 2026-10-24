@@ -388,8 +388,11 @@ object Glyph {
  * the workspace's shop front (a workspace without a logo).
  *
  * One design for the web panel, both website widgets and every native app,
- * so the strings are the canonical SVG paths, character for character, not a
- * redrawing; `src/test/native/avatarGlyphs.test.ts` holds every app to them.
+ * so the strings are not a redrawing: they are copied character for character
+ * from `shared/avatarGlyphs.ts` (PERSON_SILHOUETTE and WORKSPACE_MARK), the
+ * source of truth. Change them there first, then here:
+ * `src/test/native/avatarGlyphs.test.ts` holds every app's copy to the shared
+ * paths and fails until this one follows.
  * Both are left–right symmetric, so they never mirror under right to left,
  * and no outline overlaps another, so either fill rule gives the same pixels.
  *

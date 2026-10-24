@@ -50,7 +50,6 @@
 .pr.off { background: #fff; box-shadow: inset 0 0 0 2.5px var(--away), 0 0 0 2.5px #fff; }
 .nb, .tic .nb { background: var(--sig-d); color: #fff; font-weight: 700; }
 .tic .nb { z-index: 1; }
-.tg.open { background: #FFEAE4; color: #A62A12; }
 .sh2 { background: #FFF1ED; color: #A62A12; }
 .fallback-status.ok { color: #A62A12; }
 .ra.stop { color: var(--sig-d); }
@@ -91,13 +90,13 @@
   background: currentColor; opacity: .1; pointer-events: none;
   -webkit-mask: var(--mk) 0 0 / 100% 100% no-repeat; mask: var(--mk) 0 0 / 100% 100% no-repeat;
 }
-.wy-tab[data-view='list'] .tic svg { display: none; }
-.wy-tab[data-view='list'] .tic::before, .wy-tab[aria-current='page'][data-view='list'] .tic::after {
+.wy-tab[data-view='chat'] .tic svg { display: none; }
+.wy-tab[data-view='chat'] .tic::before, .wy-tab[aria-current='page'][data-view='chat'] .tic::after {
   content: ''; position: absolute; inset: 0; background: currentColor;
   -webkit-mask: var(--tm) center / 100% no-repeat; mask: var(--tm) center / 100% no-repeat;
 }
-.wy-tab[aria-current='page'][data-view='list'] .tic::before { -webkit-mask-image: var(--tq); mask-image: var(--tq); }
-.wy-tab[aria-current='page'][data-view='list'] .tic::after { background: var(--tc); -webkit-mask-image: var(--ta); mask-image: var(--ta); }
+.wy-tab[aria-current='page'][data-view='chat'] .tic::before { -webkit-mask-image: var(--tq); mask-image: var(--tq); }
+.wy-tab[aria-current='page'][data-view='chat'] .tic::after { background: var(--tc); -webkit-mask-image: var(--ta); mask-image: var(--ta); }
 .nv-text .vb .tic::before, .nv-text .vb .tic::after { display: none; }
 
 /* ─── The greeting beside the launcher: the brand's avatar, the corner

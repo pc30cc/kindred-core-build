@@ -217,6 +217,13 @@ describe('V-12: the end of a conversation reads as such', () => {
       const rows = Array.from(h.shadow.querySelectorAll('[data-conversation-open]'));
       const closed = rows.find((r) => r.getAttribute('data-conversation-open') === 'c1')!;
       const open = rows.find((r) => r.getAttribute('data-conversation-open') === 'c2')!;
+      if (renderer === 't1') {
+        // One conversation per visitor: the list is history, never the current
+        // one (c2, the live one), with no open / resolved pill.
+        expect(open).toBeUndefined();
+        expect(closed.querySelector('.tg, .live')).toBeNull();
+        return;
+      }
       expect(closed.textContent).toContain('حل‌شده');
       expect(closed.textContent).not.toContain('باز');
       expect(closed.querySelector('.live')).toBeNull();

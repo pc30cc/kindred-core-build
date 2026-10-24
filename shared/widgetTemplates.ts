@@ -120,7 +120,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     fonts: 'presentation-default-fonts.css',
     coreFeatures: true,
     extras: 'presentation-t1-x.js',
-    closedNotice: false,
+    closedNotice: true,
     reactions: false,
   },
   t2: {
@@ -145,7 +145,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     fonts: 'presentation-default-fonts.css',
     coreFeatures: true,
     extras: 'presentation-t1-x.js',
-    closedNotice: false,
+    closedNotice: true,
     reactions: false,
   },
   't2-intl': {

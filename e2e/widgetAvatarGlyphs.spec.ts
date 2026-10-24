@@ -139,7 +139,7 @@ for (const v of VARIANTS) {
     let skeletons: Awaited<ReturnType<typeof skeletonGlyphs>> = [];
     try {
       await renderTemplateScreens({
-        ...v, outDir: out, states: STATES,
+        ...v, outDir: out, states: v.templateId!.startsWith('t1') ? [...STATES, 'one-07-history', 'one-08-past-thread'] : STATES,
         beforeShot: async (page, state) => {
           const tiles = await emptyTiles(page, '.panel');
           expectPainted(tiles, `${v.templateId} ${state}`);
@@ -160,7 +160,7 @@ for (const v of VARIANTS) {
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
-    expect(Object.keys(seen)).toEqual(STATES);
+    expect(Object.keys(seen).slice(0, STATES.length)).toEqual(STATES);
     const count = (state: string, workspace: boolean, where?: RegExp) =>
       seen[state].filter((t) => t.workspace === workspace && (!where || where.test(t.where))).length;
 
@@ -180,9 +180,19 @@ for (const v of VARIANTS) {
       return;
     }
     // The home: the hero's logo tile is the storefront, the team's tiles people.
+    // t1 (one conversation per visitor): with a conversation, home is its one
+    // card (the operator, a person); the team's stack is the first visit's.
+    const oneChat = v.templateId!.startsWith('t1');
     for (const state of ['home-first-visit', 'home-recent-chat']) {
       expect(seen[state].filter((t) => /\blogo\b/.test(t.cls)), state).toHaveLength(1);
-      expect(count(state, false), state).toBeGreaterThanOrEqual(3);
+      expect(count(state, false), state).toBeGreaterThanOrEqual(oneChat && state === 'home-recent-chat' ? 1 : 3);
+    }
+    if (oneChat) {
+      // History: Mehdi and Reza are people, the AI's old conversation the storefront;
+      // a past thread's bar is Mehdi, never a presence.
+      expect(count('one-07-history', false, /conv-row/)).toBe(2);
+      expect(count('one-07-history', true, /conv-row/)).toBe(1);
+      expect(count('one-08-past-thread', false, /\bwho\b/)).toBe(1);
     }
     // Mehdi (no photo) answering: the bar's tile and his lines' tiles are people.
     for (const state of ['chat-handover', 'mobile-chat-handover']) {

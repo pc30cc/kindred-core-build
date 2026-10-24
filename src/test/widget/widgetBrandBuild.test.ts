@@ -110,9 +110,9 @@ describe('the shipped files', () => {
       expect(win.__gs_smart_engine).toBeTruthy();
       expect(win.CallWidgetPresentations).toBeTruthy();
       // The late pack: each renderer's extras (handshake intact) and Core's late module.
-      for (const id of ['t1', 't2']) {
+      for (const [id, v] of [['t1', 3], ['t2', 2]] as const) {
         win.eval(shipped('public/widget', `presentation-${id}-x.js`, brand));
-        expect(win.__gs_mod_extras, `${id} (${brand})`).toMatchObject({ id, v: 2 });
+        expect(win.__gs_mod_extras, `${id} (${brand})`).toMatchObject({ id, v });
       }
       win.eval(shipped('public/widget', 'runtime-late.js', brand));
       expect(win.__gs_mod_late).toMatchObject({ v: 2 });

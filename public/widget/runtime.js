@@ -1822,7 +1822,7 @@
   // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
   function createTransport(ctx, transportStore, fsm, isPanelOpen) {
-    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [], seen: [] };
+    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [], seen: [], live: [] };
     function on(event, fn) {
       if (!subs[event]) return function () {};
       subs[event].push(fn);
@@ -2114,6 +2114,9 @@
           replyToMessageId: payload.replyToMessageId || null,
           departmentId: payload.departmentId || null,
           smartRule: payload.smartRule || null,
+          // The AI greeting on screen before the conversation exists ({ locale }):
+          // the server stores its own copy before this first message.
+          aiIntro: payload.aiIntro || null,
 
           text: payload.text,
           onConversation: function (cid) {
@@ -2210,22 +2213,25 @@
             return isPanelOpen && isPanelOpen() ? 4000 : 20000;
           },
           getConversationId: function () { return subscribedConversation; },
-          onConversation: function (cid) {
+          onConversation: function (cid, status) {
             // P0-B — while a fresh intent is armed the poll runs without a
             // cid, so the server answers with the visitor's PREVIOUS thread.
             // Adopting it here is exactly the resurrection bug; refuse.
-            if (freshIntentArmed() && !subscribedConversation) return;
+            if (freshIntentArmed() && !subscribedConversation) {
+              // One conversation: Core may take a live one.
+              emit('live', { conversationId: cid, status: status });
+              return;
+            }
             if (cid) subscribedConversation = cid;
           },
           onMessages: function (msgs) {
             markPollSuccess();
             if (freshIntentArmed() && !subscribedConversation) return;
             // P0-4 — a frame only reaches the view when the ACTIVE
-            // conversation owns it. Untargeted frames stay allowed.
-            var owned = (msgs || []).filter(function (m) {
-              return ConvEpoch.ownsFrame(frameConversationId(m));
-            });
-            if (owned.length) emit('message', { messages: owned });
+            // conversation owns it (emit's filter). Untargeted frames stay
+            // allowed; the others still count as unread (a thread read from
+            // history while the polled one gets a reply).
+            if (msgs && msgs.length) emit('message', { messages: msgs });
           },
 
 
@@ -3787,6 +3793,18 @@
           }
         }
 
+        // The server's copy of a greeting drawn from the intro preview (its
+        // row is written just before the visitor's first message) takes that
+        // bubble's place and time: never drawn twice.
+        if (m.metadata && m.metadata.source === 'ai_agent_intro') {
+          for (var li = 0; li < messages.length; li++) {
+            if (!messages[li].introLocal) continue;
+            messages[li] = Object.assign({}, messages[li], { __id: id, introLocal: false, metadata: m.metadata });
+            changed = true;
+            return;
+          }
+        }
+
         messages.push({
           body: text,
           sender: sender,
@@ -4644,8 +4662,9 @@
      * The Smart Engagement "Message inside the chat" the server stored as
      * this conversation's first line (POST /message `opening_message`): it
      * takes the place of the one drawn locally, above the visitor's answer.
+     * `intro`: the AI greeting's copy (`intro_message`) instead.
      */
-    function adoptOpeningMessage(localId, row) {
+    function adoptOpeningMessage(localId, row, intro) {
       if (!row || !row.id) return;
       mergeIncoming([row]);
       var arr = chatStore.get().messages.slice();
@@ -4660,7 +4679,41 @@
         arr.splice(mine, 0, moved);
         chatStore.set({ messages: arr });
       }
-      if (typeof ctx.smartOpened === 'function') ctx.smartOpened();
+      if (!intro && typeof ctx.smartOpened === 'function') ctx.smartOpened();
+    }
+
+    /** The greeting drawn from the intro preview (no row yet): POST /message's `ai_intro` ({ locale }), else null. */
+    function localIntroOf(msgs) {
+      for (var i = 0; i < (msgs || []).length; i++) {
+        if (msgs[i] && msgs[i].introLocal) return { locale: msgs[i].introLocale || ctx.locale || undefined };
+      }
+      return null;
+    }
+
+    /**
+     * The server put the message into the visitor's live conversation
+     * (`continued`: another tab or device holds it, or the one on screen had
+     * ended): that thread, in its order, its earlier lines first. What was
+     * on screen before this message goes (a greeting drawn for a fresh
+     * thread, an ended one's lines); this message and any sent after it
+     * stay, unless the history already has them.
+     */
+    function continueIn(localId, onChange) {
+      var cid = chatStore.get().conversationId;
+      if (!cid) return;
+      var arr = chatStore.get().messages;
+      var at = -1;
+      for (var i = 0; i < arr.length; i++) if (arr[i].localId === localId) { at = i; break; }
+      var mine = at < 0 ? [] : arr.slice(at).filter(function (m) { return m.localId; });
+      chatStore.set({ messages: [], seenIds: {}, historyLoading: true });
+      loadThread(cid, function () {
+        var got = chatStore.get().messages;
+        var rest = mine.filter(function (m) {
+          return !got.some(function (g) { return m.__id ? g.__id === m.__id : g.sender === 'visitor' && g.body === m.body; });
+        }).map(function (m) { return m.threadStart ? Object.assign({}, m, { threadStart: false }) : m; });
+        chatStore.set({ messages: got.concat(rest), historyLoading: false });
+        if (onChange) onChange();
+      });
     }
 
     /**
@@ -4673,6 +4726,9 @@
      * client_message_id contract in server/routes/widget.ts).
      */
     function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange, done) {
+      // A past conversation (history, read-only) takes nothing: no message,
+      // nor a queued, retried or automatic resend.
+      if (ctx.convNav && ctx.convNav.past()) { if (done) done(); return; }
       var s = chatStore.get();
       var req = {
         text: text,
@@ -4687,6 +4743,9 @@
         // The "Message inside the chat" this first message answers, if it
         // is on screen: the server stores the rule's text before it.
         smartRule: !s.conversationId && ctx.smartChatRule ? ctx.smartChatRule : null,
+        // The AI greeting on screen before the conversation exists (the
+        // intro preview): the server stores its own copy before this message.
+        aiIntro: !s.conversationId ? localIntroOf(s.messages) : null,
       };
       var cbs = {
         onConversation: function (cid) {
@@ -4721,6 +4780,8 @@
             failText: null,
           }, onChange);
           if (info && info.openingMessage) { adoptOpeningMessage(localId, info.openingMessage); if (onChange) onChange(); }
+          if (info && info.introMessage) { adoptOpeningMessage(localId, info.introMessage, true); if (onChange) onChange(); }
+          if (info && info.continued) continueIn(localId, onChange);
           if (done) done();
         },
         onReply: function (reply) {
@@ -4759,7 +4820,8 @@
       if (typeof avail.quota_full !== 'boolean') return false;
       var s = chatStore.get();
       if (s.conversationId) return false;
-      var rest = (s.messages || []).filter(function (m) { return m && m.localId !== localId; });
+      // The greeting drawn before any conversation (the intro preview) is no thread.
+      var rest = (s.messages || []).filter(function (m) { return m && m.localId !== localId && !m.introLocal; });
       if (rest.length) return false;
       ctx.__quotaFull = true;
       ctx.__quotaDraft = String(text || '');
@@ -4874,6 +4936,8 @@
     }
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment, replyToMessageId) {
+      // A past conversation (history, read-only) takes nothing, whatever sends.
+      if (ctx.convNav && ctx.convNav.past()) return;
       var s = chatStore.get();
       var messages = s.messages.slice();
       // Phase 7 — optimistic local id used to find this bubble later when
@@ -4961,6 +5025,30 @@
       return changed;
     }
 
+    /**
+     * Loads exactly `cid`'s history into the view. `readOnly`: a past
+     * conversation (history), which the transport never subscribes, so the
+     * current one keeps its live frames (unread, toast) meanwhile.
+     */
+    function loadThread(cid, onChange, readOnly) {
+      if (!cid) return;
+      var startEpoch = ConvEpoch.get();
+      transport.loadConversationHistory(cid, {
+        onResult: function (result) {
+          if (!ConvEpoch.valid(startEpoch)) return;
+          var active = ConvEpoch.activeId();
+          if (active && String(active) !== String(cid)) return;
+          // Explicit selection wins over any pending "new conversation".
+          ext('history', cid, result);
+          chatStore.set({ freshIntent: false, conversationId: cid });
+          if (!readOnly) transport.subscribeConversation(cid);
+          mergeIncoming(result.messages || []);
+          onChange();
+        },
+        onStale: function () { /* superseded selection — drop silently */ },
+      });
+    }
+
     function bootstrapHistory(onChange) {
       // P0-B — a fresh intent outranks any smart-continuation the server
       // would offer. Bail before the request so no old thread can be
@@ -4974,7 +5062,11 @@
           if (!ConvEpoch.valid(startEpoch) || forcingNew() || result.stale) return;
           if (result.conversationId) {
             // (`gs_active` follows the thread list's statuses: syncUnreadFromList.)
-            chatStore.set({ conversationId: result.conversationId });
+            // A greeting drawn for a fresh thread is not this thread's.
+            chatStore.set({
+              conversationId: result.conversationId,
+              messages: chatStore.get().messages.filter(function (m) { return !m.introLocal; }),
+            });
             transport.subscribeConversation(result.conversationId);
           }
           if (mergeIncoming(result.messages || [])) onChange();
@@ -5175,24 +5267,7 @@
       // P0-C / P0-3 — explicit thread selection. Loads exactly `cid`, never
       // lets the server pick a different conversation, and drops its own
       // response if the visitor moved to another context meanwhile.
-      loadConversationHistory: function (cid, onChange) {
-        if (!cid) return;
-        var startEpoch = ConvEpoch.get();
-        transport.loadConversationHistory(cid, {
-          onResult: function (result) {
-            if (!ConvEpoch.valid(startEpoch)) return;
-            var active = ConvEpoch.activeId();
-            if (active && String(active) !== String(cid)) return;
-            // Explicit selection wins over any pending "new conversation".
-            ext('history', cid, result);
-            chatStore.set({ freshIntent: false, conversationId: cid });
-            transport.subscribeConversation(cid);
-            if (mergeIncoming(result.messages || [])) onChange();
-            else onChange();
-          },
-          onStale: function () { /* superseded selection — drop silently */ },
-        });
-      },
+      loadConversationHistory: loadThread,
       mergeIncoming: mergeIncoming,
       startTypewriter: startTypewriter,
       /** Re-arm "follow the newest message" — see resetScrollAnchor. */
@@ -7004,7 +7079,7 @@
         if (!raw) return null;
         var p = JSON.parse(raw);
         if (!p || typeof p !== 'object') return null;
-        return { tab: p.tab || null, conversationId: p.conversationId || null };
+        return { tab: p.tab || null, conversationId: p.conversationId || null, held: p.held || null, heldAt: Number(p.heldAt) || 0 };
       } catch (_) { return null; }
     }
     function __viewSaveHint(tab, conversationId) {
@@ -7013,10 +7088,16 @@
         sessionStorage.setItem(__VIEW_SS_KEY, JSON.stringify({
           tab: tab || 'home',
           conversationId: conversationId || null,
+          // One conversation: the one this tab first showed as current, and
+          // when (an ended one stays current a while; written once, never per render).
+          held: heldCid || undefined,
+          heldAt: heldAt || undefined,
         }));
       } catch (_) {}
     }
     var __viewHint = __viewLoadHint() || {};
+    var heldCid = __viewHint.held;
+    var heldAt = __viewHint.heldAt;
     // Whether THIS tab has a stored surface at all. "No hint" (a brand-new
     // tab) and "a hint that says home" are different facts: the second one
     // is the visitor having deliberately left the chat, and must be obeyed.
@@ -7082,7 +7163,11 @@
     // the visitor is actually on. Both stores feed it: leaving the chat
     // surface, or starting a new conversation, rewrites the hint on its own.
     function __persistViewHint() {
-      __viewSaveHint(shellStore.get().activeTab, chatStore.get().conversationId);
+      // A past conversation (history, read-only) is never saved as the chat
+      // to come back to: a reload would reopen it as the current, writable one.
+      var past = isPastChat();
+      var tab = shellStore.get().activeTab;
+      __viewSaveHint(past && tab === 'chat' ? 'list' : tab, past ? null : chatStore.get().conversationId);
     }
     shellStore.subscribe(__persistViewHint);
     chatStore.subscribe(__persistViewHint);
@@ -7120,7 +7205,10 @@
       if (cs.phase !== 'idle') view = 'call';
       return {
         widgetOpen: !!ss.isOpen,
-        conversationActive: !!cst.conversationId,
+        // One conversation: the thread on screen (never a past one), or a
+        // current one that is live or holds an unseen reply; a visitor with
+        // only history (nothing adopted any more) is not in a conversation.
+        conversationActive: oneChat() ? !!cst.conversationId && !isPastChat() || activeNow() : !!cst.conversationId,
         visitorTyping: !!visitorTypingFlag,
         callActive: cs.phase !== 'idle',
         prechatOpen: prechatOpenNow,
@@ -7264,6 +7352,12 @@
       helpShown: function () { return shellStore.get().activeTab === 'help'; },
       onSwitchToChat: function () {
         if (!chatEnabled) return;
+        // One conversation: help's "chat with us" is that one (or a fresh thread).
+        if (oneChat()) {
+          goCurrent();
+          if (msgInput && !isPastChat()) { try { msgInput.focus(); } catch (_) {} }
+          return;
+        }
         shellStore.set({ activeTab: 'chat' });
         // Sync tab UI + body without requiring user click. The tab listener
         // takes care of class toggling but only fires on user click; do it
@@ -7537,6 +7631,8 @@
         if (!el) return;
         if (el.hasAttribute('data-msg-reply')) {
           ev.preventDefault();
+          // A past conversation (history) is read, not answered.
+          if (isPastChat()) return;
           setPendingQuote({
             id: el.getAttribute('data-msg-reply') || '',
             text: el.getAttribute('data-msg-reply-text') || '',
@@ -8046,6 +8142,8 @@
       // reads correctly as `cfg.attachments` to decide whether to render
       // the attach button at all).
       var attachCfg = (ctx.config && ctx.config.attachments) || {};
+      // Nothing is attached to a past conversation (history, read-only).
+      if (isPastChat()) return;
       var allowed = (attachCfg.allowedMimes || []);
       var maxBytes = (attachCfg.maxSizeMb || 10) * 1024 * 1024;
       // Voice notes go through this same upload function but are a SEPARATE
@@ -8250,7 +8348,7 @@
       if (recTimerEl) recTimerEl.textContent = fmtRecordTime(Date.now() - recordStartedAt);
     }
     function startRecording() {
-      if (recordingActive || !micBtn) return;
+      if (recordingActive || !micBtn || isPastChat()) return;
       if (attachmentStore.get().status !== 'idle') return; // one pending attachment at a time
       if (emojiPickerEl) emojiPickerEl.hidden = true;
       navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
@@ -8599,7 +8697,8 @@
       setDraftFor(currentDraftKey(), msgInput.value);
     }
     function restoreDraftToInput() {
-      if (!msgInput) return;
+      // A past conversation (history) has no composer to fill.
+      if (!msgInput || isPastChat()) return;
       var d = getDraftFor(currentDraftKey());
       if (msgInput.value !== d) msgInput.value = d;
       try { syncComposerDraftState(); } catch (_) {}
@@ -8732,7 +8831,7 @@
 
     // ─── Send handler ───
     function trySend() {
-      if (!msgInput) return;
+      if (!msgInput || isPastChat()) return;
       var text = msgInput.value.trim();
       var att = attachmentStore.get();
       var hasReadyAttach = att.status === 'ready' && att.attachmentId;
@@ -9036,6 +9135,12 @@
         return;
       }
       if (ext('noIntro')) return;
+      // A conversation the visitor opens with their own words (goCurrent's
+      // `noIntro`) is not greeted ahead of them.
+      if (introHold || noIntroEpoch === ConvEpoch.get()) return;
+      // A greeting opens a NEW conversation: never one that exists.
+      var cur = chatStore.get() || {};
+      if (cur.conversationId && !(ConvEpoch.isFresh() || cur.freshIntent === true)) return;
       var key = aiIntroKey();
       if (__aiIntroKeys[key]) {
 
@@ -9065,6 +9170,10 @@
           force_new_conversation: forceNew || undefined,
           session_id: sessionId || undefined,
           locale: ctx.locale || undefined,
+          // Draw it, write nothing: the server stores its own copy before
+          // the visitor's first message (POST /message `ai_intro`). An older
+          // backend answers as it always did (its row, adopted below).
+          preview: true,
         }),
       })
 
@@ -9086,7 +9195,9 @@
             return;
           }
           if (!resp || resp.sent !== true) {
-
+            // One conversation: the visitor's live one (another tab or
+            // device started it) is this thread, never a second one.
+            if (resp && resp.reason === 'conversation_live' && adoptLive(resp.conversationId, 'open')) return;
             // Adopt conversationId even on already_sent so the next message
             // lands in the same conversation. This is a REAL fresh thread id
             // when force_new_conversation was requested, so it also disarms
@@ -9100,6 +9211,10 @@
           if (!resp.body) return;
           try {
             var s = chatStore.get();
+            // The preview's greeting (no row yet) is a fresh thread's, before
+            // the visitor writes: after that, it would land under their words.
+            var local = resp.preview === true;
+            if (local && (s.conversationId || (s.messages || []).some(function (m) { return m && m.sender === 'visitor'; }))) return;
             // Adopt the (possibly newly-created) conversationId so the
             // visitor's first message goes into the same conversation.
             var patch = {};
@@ -9139,7 +9254,11 @@
               time: new Date(),
               __id: localId,
               status: null,
-              metadata: { source: resp.messageId ? 'ai_agent_intro' : 'ai_agent_intro_local' },
+              // Drawn from the preview: POST /message carries `ai_intro`, and
+              // the server's copy takes this bubble's place (mergeIncoming).
+              introLocal: local || undefined,
+              introLocale: local ? (ctx.locale || null) : undefined,
+              metadata: { source: resp.messageId || local ? 'ai_agent_intro' : 'ai_agent_intro_local' },
             });
             // Mark as seen so the inevitable poll/history echo of the same
             // messageId does not duplicate the bubble.
@@ -9338,7 +9457,7 @@
         id: c.id,
         status: c.status,
         preview: preview,
-        unreadCount: Number(c.unreadCount) || 0,
+        unreadCount: badgeOf(c),
         timeLabel: relativeTimeLabel(c.lastMessageAt || c.updatedAt),
       };
       ext('conv', vm, c);
@@ -9441,12 +9560,14 @@
           // (whenever it happens) starts again from the base 15s delay,
           // never resuming from wherever the count left off.
           conversationsConsecutiveFailures = 0;
+          listAt = Date.now();
           if (conversationsRetryTimer) { clearTimeout(conversationsRetryTimer); conversationsRetryTimer = null; }
           if (conversationsVisibilityHandler) {
             document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
             conversationsVisibilityHandler = null;
           }
           var rows = data && data.conversations ? data.conversations : [];
+          noteConvMeta(rows);
           conversationsStore.set({
             loaded: true,
             loading: false,
@@ -9499,6 +9620,7 @@
           body: JSON.stringify({ workspace_id: ctx.workspaceId }),
         }).then(function () {
           var cs = conversationsStore.get();
+          if (convMeta[conversationId]) convMeta[conversationId].unreadReplies = 0;
           conversationsStore.set({
             items: (cs.items || []).map(function (c) {
               return c.id === conversationId ? Object.assign({}, c, { unreadCount: 0 }) : c;
@@ -9562,14 +9684,21 @@
     // visitor has seen it. Boot-time resume into a closed panel needs that:
     // silently clearing the unread marker on every page navigation would
     // destroy the badge that tells the visitor an operator replied.
+    // `opts.past` (one conversation): a past one, read from history. Its
+    // history is loaded and the transport left as it is, so the current
+    // conversation keeps its frames (unread, toast) meanwhile.
     function openConversation(conversationId, opts) {
       if (!conversationId) { startNewConversation(); return; }
       var markRead = !(opts && opts.markRead === false);
+      var past = !!(opts && opts.past);
       var current = chatStore.get().conversationId;
       if (current !== conversationId) {
-        if (current) {
+        // A past one is read with the transport left on the conversation it
+        // was on; a past one on screen was never subscribed.
+        if (current && !past && String(current) !== String(pastShown)) {
           try { if (transport && transport.unsubscribeConversation) transport.unsubscribeConversation(current); } catch (_) {}
         }
+        pastShown = past ? conversationId : null;
         // P0-1/P0-3 — new active context. Anything still in flight for the
         // previous thread (history, intro, send) is now stale by epoch.
         ConvEpoch.bump('open_conversation', { conversationId: conversationId });
@@ -9584,13 +9713,19 @@
           aiThinking: false,
           historyLoading: true,
         });
-        try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
+        if (!past) {
+          try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
+        }
 
         try {
           chatUI.loadConversationHistory(conversationId, function () {
             chatStore.set({ historyLoading: false });
             if (shellStore.get().activeTab === 'chat') renderBody();
-          });
+            // What goCurrent was asked to do once this thread is on screen.
+            var then = goThen && goThen.e === ConvEpoch.get() && goThen.f;
+            goThen = null;
+            if (then) then();
+          }, past);
         } catch (_) { chatStore.set({ historyLoading: false }); }
       }
       if (markRead) markConversationRead(conversationId);
@@ -9609,7 +9744,204 @@
       markConversationRead(cid);
     }
 
-
+    // ─── One current conversation (a renderer drawing `pastBarHtml`) ───
+    // The visitor writes in ONE conversation, the current one, the first of:
+    //   (0) one this tab started that the list does not know yet;
+    //   (1) the newest live one: open, pending or resolved (a resolve takes
+    //       it out of the operator's Inbox only; owner, 2026-10-24);
+    //   (2) the newest closed one with an answer they have not seen;
+    //   (3) the closed one this tab showed as current (`heldCid`, the
+    //       per-tab hint), for half an hour after it ended or was first shown;
+    // else a fresh thread (no row until its first message, which goes with
+    // force_new_conversation). Every other conversation the visitor wrote
+    // in is history: the list view, where an older live one opens writable
+    // and a closed one read-only (`pastCid`), the composer's place taken by
+    // the renderer's `pastBarHtml`. Nothing offers a second, parallel
+    // conversation. The mode is the renderer's (it draws the past bar),
+    // never a feature flag: a renderer without one keeps the old model.
+    function oneChat() { return !!Presentation && typeof Presentation.pastBarHtml === 'function'; }
+    var CHAT_GRACE_MS = 30 * 60000;
+    var pastCid = null;
+    var pastShown = null;    // the past conversation on screen (never subscribed)
+    var chatFrom = 'home';   // where the chat's back goes (home, help)
+    var listFrom = 'home';   // where the history's back goes (home, help, chat)
+    var listAt = 0;
+    var listTry = 0;
+    // Per conversation, from the list: endedAt, unreadReplies, hasVisitorMessage, updatedAt.
+    var convMeta = {};
+    var goWait = null;       // goCurrent's options while the list is on its way
+    var goThen = null;       // { e: epoch, f }: run once that thread's history is in
+    var introHold = false;   // goCurrent({ noIntro }) under way
+    var noIntroEpoch = -1;
+    function convItems() { return ((conversationsStore && conversationsStore.get()) || {}).items || []; }
+    function convItem(id) {
+      return convItems().filter(function (c) { return String(c.id) === String(id); })[0] || null;
+    }
+    function metaOf(c) { return convMeta[c.id] || {}; }
+    /** What the rules read of each row (no view-model keys), with an older backend's fallbacks. */
+    function noteConvMeta(rows) {
+      convMeta = {};
+      rows.forEach(function (c) {
+        if (!c || !c.id) return;
+        convMeta[c.id] = {
+          endedAt: c.endedAt !== undefined ? c.endedAt : c.status === 'closed' ? c.updatedAt : null,
+          unreadReplies: Number(c.unreadReplies != null ? c.unreadReplies : c.unreadCount) || 0,
+          hasVisitorMessage: c.hasVisitorMessage !== false,
+          updatedAt: c.updatedAt || null,
+        };
+      });
+    }
+    /** Live for the visitor: only a close ends a conversation. */
+    function liveConv(c) { return !!c && /^(open|pending|resolved)$/.test(c.status); }
+    /** The team's (or the AI's) answers the visitor has not seen; an older backend: every unread row. */
+    function repliesOf(c) { var r = metaOf(c).unreadReplies; return Number(r != null ? r : c.unreadCount) || 0; }
+    /** A row's unread count (badge, list): a live one's every unread row, an ended one's answers only. */
+    function badgeOf(c) {
+      return Number(oneChat() && !liveConv(c) && c.unreadReplies != null ? c.unreadReplies : c.unreadCount) || 0;
+    }
+    /** Rule 3: this tab's ended one, half an hour after it ended or was first shown here. */
+    function graceConv(c) {
+      var m = metaOf(c);
+      return !liveConv(c) && String(c.id) === String(heldCid) &&
+        Date.now() < Math.max(Date.parse(m.endedAt || m.updatedAt) || 0, Number(heldAt) || 0) + CHAT_GRACE_MS;
+    }
+    function currentConversation() {
+      var cid = chatStore.get().conversationId;
+      if (cid && String(cid) !== String(pastCid) && !convItem(cid)) {
+        var last = (chatStore.get().messages || []).filter(function (m) { return m.body; }).pop();
+        return { id: cid, status: 'open', preview: last ? String(last.body) : '', unreadCount: 0, timeLabel: '' };
+      }
+      var items = convItems();
+      return items.filter(liveConv)[0] ||
+        items.filter(function (c) { return !liveConv(c) && repliesOf(c) > 0; })[0] ||
+        items.filter(graceConv)[0] || null;
+    }
+    /** History: every conversation but the current one, and none the visitor never wrote in. */
+    function pastConversations() {
+      var cur = currentConversation();
+      return convItems().filter(function (c) {
+        return metaOf(c).hasVisitorMessage !== false && !(cur && String(cur.id) === String(c.id));
+      });
+    }
+    function pastUnread() {
+      return pastConversations().reduce(function (n, c) { return n + repliesOf(c); }, 0);
+    }
+    function isPastChat() {
+      return oneChat() && pastCid != null && String(chatStore.get().conversationId) === String(pastCid);
+    }
+    /** A live conversation, or an ended one with an unseen answer: the loader's `gs_active`. */
+    function activeNow() {
+      var cid = chatStore.get().conversationId;
+      return convItems().some(function (c) { return liveConv(c) || repliesOf(c) > 0; }) || !!cid && !convItem(cid);
+    }
+    /** Nothing is current: a fresh thread from the start, never the server's latest one adopted. */
+    function armFresh() {
+      if (chatStore.get().conversationId || ConvEpoch.isFresh()) return;
+      ConvEpoch.bump('fresh_start', { fresh: true });
+      chatStore.set({ freshIntent: true });
+    }
+    /**
+     * A fresh thread the visitor has not written in takes the live
+     * conversation the server names (an operator's outreach, the visitor's
+     * own from another tab or device): its history, the transport on it.
+     * Never an ended one.
+     */
+    function adoptLive(cid, status) {
+      var s = chatStore.get();
+      if (!oneChat() || !cid || !liveConv({ status: status }) || s.conversationId || !chatUI.isForcingNewConversation() ||
+        s.messages.some(function (m) { return m.sender === 'visitor'; })) return false;
+      chatStore.set({ freshIntent: false, conversationId: cid, messages: [], seenIds: {}, historyLoading: true });
+      transport.subscribeConversation(cid);
+      chatUI.loadConversationHistory(cid, function () {
+        chatStore.set({ historyLoading: false });
+        renderBody();
+      });
+      return true;
+    }
+    function adoptCurrent() {
+      var c = currentConversation();
+      if (liveConv(c)) adoptLive(c.id, c.status);
+    }
+    /**
+     * Every "chat" door (the tab, home's card and button, help, Smart, the
+     * past bar): the current conversation, else a fresh thread. `opts`:
+     * `noIntro` (no AI greeting ahead of the visitor's own words) and
+     * `then` (once that thread is on screen). Before the list is in, it
+     * waits for it, once.
+     */
+    function goCurrent(opts) {
+      opts = opts || {};
+      var tab = shellStore.get().activeTab;
+      if (tab === 'home' || tab === 'help') chatFrom = tab;
+      pastCid = null;
+      if (!chatEnabled) { openHistory(tab); return; }
+      var st = conversationsStore.get() || {};
+      if (!st.loaded && !st.error) {
+        // A door pressed meanwhile never drops what the visitor wrote (`then`).
+        if (!goWait || opts.then) goWait = opts;
+        if (!st.loading) loadConversations();
+        return;
+      }
+      var c = currentConversation();
+      introHold = !!opts.noIntro;
+      try {
+        if (c) openConversation(c.id);
+        // A fresh thread already up stays as it is (its greeting is not asked twice).
+        else if (!chatStore.get().conversationId && chatUI.isForcingNewConversation()) switchTab('chat');
+        else startNewConversation();
+      } finally { introHold = false; }
+      if (opts.noIntro) noIntroEpoch = ConvEpoch.get();
+      if (!opts.then) return;
+      if (c && chatStore.get().historyLoading) goThen = { e: ConvEpoch.get(), f: opts.then };
+      else opts.then();
+    }
+    function openHistory(from) {
+      listFrom = from === 'chat' || from === 'help' ? from : 'home';
+      switchTab('list');
+    }
+    /** The list as the server last gave it is refreshed on home, history and opening (a conversation started, answered or closed since). */
+    function refreshListSoon(tab) {
+      var st = conversationsStore.get() || {};
+      var cid = chatStore.get().conversationId;
+      if (!oneChat() || !st.loaded || st.loading || st.error || Date.now() - listTry < 5000) return;
+      if (Date.now() - listAt < 30000 && !(cid && !convItem(cid))) return;
+      listTry = Date.now();
+      loadConversations(function () { if (shellStore.get().activeTab === tab) renderBody(); });
+    }
+    /** The conversation this tab first shows as current (the panel open) is held: written once (rule 3). */
+    function holdShown() {
+      var cid = chatStore.get().conversationId;
+      var sh = shellStore.get();
+      var cur = oneChat() && cid && sh.isOpen && sh.activeTab === 'chat' && !isPastChat() && currentConversation();
+      if (!cur || String(cur.id) !== String(cid) || String(cid) === String(heldCid)) return;
+      heldCid = cid;
+      heldAt = Date.now();
+      __persistViewHint();
+    }
+    conversationsStore.subscribe(function (s) {
+      if (!oneChat() || s.loading) return;
+      if (s.loaded) {
+        Util.activeHint(activeNow());
+        // A live one the list now shows (another tab's, an outreach) is a fresh thread's.
+        adoptCurrent();
+      }
+      if (!s.loaded && !s.error) return;
+      var o = goWait;
+      goWait = null;
+      if (o) goCurrent(o);
+    });
+    // What runtime-ext.js and runtime-late.js read (the chat bar's back and ⋯):
+    // only in this mode, so they test for it.
+    if (oneChat()) ctx.convNav = {
+      goCurrent: goCurrent,
+      openHistory: openHistory,
+      past: isPastChat,
+      pastCount: function () { return pastConversations().length; },
+      pastUnread: pastUnread,
+      back: function () { return isPastChat() ? 'list' : chatFrom; },
+      // A past thread's day (its row's time label), for its header.
+      when: function () { var c = isPastChat() && convItem(pastCid); return c ? c.timeLabel || '' : ''; },
+    };
 
     // Generic navigation is PANEL-LEVEL event delegation: any view the
     // presentation layer renders — now or later — gets [data-view],
@@ -9652,6 +9984,13 @@
             if (handled) return;
             backTarget = back.getAttribute('data-view-back-fallback') || 'home';
           }
+          // One conversation: Core decides where back goes (whatever the
+          // renderer's markup names): the chat to where it was opened from,
+          // a past thread to the history, the history to where it was
+          // opened from (the current conversation when that was the chat).
+          var atTab = oneChat() && shellStore.get().activeTab;
+          if (atTab === 'chat') { if (isPastChat()) openHistory(listFrom); else switchTab(chatFrom); return; }
+          if (atTab === 'list') { if (listFrom === 'chat') goCurrent(); else switchTab(listFrom); return; }
           switchTab(backTarget);
           return;
         }
@@ -9659,13 +9998,26 @@
         var open = trigger(target, '[data-conversation-open]');
         if (open) {
           try { ev.preventDefault(); } catch (_) {}
-          openConversation(open.getAttribute('data-conversation-open'));
+          var openId = open.getAttribute('data-conversation-open');
+          if (oneChat()) {
+            // The current conversation opens as itself and an older live one
+            // writable; a closed one is history, read-only.
+            var cur = currentConversation();
+            var from = shellStore.get().activeTab;
+            pastCid = cur && String(cur.id) === String(openId) || liveConv(convItem(openId)) ? null : openId;
+            if (!pastCid && (from === 'home' || from === 'help')) chatFrom = from;
+          }
+          openConversation(openId, { past: !!pastCid });
           return;
         }
+        if (oneChat() && trigger(target, '[data-chat-current]')) { goCurrent(); return; }
         var view = trigger(target, '[data-view]');
         if (view) {
           try { ev.preventDefault(); } catch (_) {}
-          switchTab(view.getAttribute('data-view'));
+          var viewKey = view.getAttribute('data-view');
+          if (oneChat() && viewKey === 'chat') { goCurrent(); return; }
+          if (oneChat() && viewKey === 'list') { openHistory(shellStore.get().activeTab); return; }
+          switchTab(viewKey);
         }
       });
     }
@@ -9690,20 +10042,22 @@
     function renderConversationList() {
       if (!body) return;
       var cs = conversationsStore.get();
-      body.innerHTML = Presentation.conversationListHtml
-        ? Presentation.conversationListHtml({
-            rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
-            loading: cs.loading && !cs.loaded,
-            conversations: cs.items,
-            error: !!cs.error,
-            chatEnabled: chatEnabled,
-          })
-        : '';
+      var listVm = {
+        rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
+        loading: cs.loading && !cs.loaded,
+        conversations: cs.items,
+        error: !!cs.error,
+        chatEnabled: chatEnabled,
+      };
+      // One conversation: the list is history (never the current one), its
+      // back where the visitor came from.
+      if (oneChat()) { listVm.conversations = pastConversations(); listVm.back = listFrom; }
+      body.innerHTML = Presentation.conversationListHtml ? Presentation.conversationListHtml(listVm) : '';
       bindViewHooks(body);
       // Every "start a chat" control of the view (one in the shipped
       // `default`; a template may draw more).
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (newBtn) {
-        newBtn.addEventListener('click', function () { startNewConversation(); });
+        newBtn.addEventListener('click', function () { if (oneChat()) goCurrent(); else startNewConversation(); });
       });
       var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
       if (retryBtn) {
@@ -9719,7 +10073,7 @@
       var pState = presenceStore.get();
       var kbState = kbStore.get() || {};
       var convState = conversationsStore.get() || {};
-      body.innerHTML = Presentation.homeHtml({
+      var homeVm = {
         rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
         isOnline: pState.status === 'online' && pState.liveChatEnabled !== false,
         teamMembers: teamMembers,
@@ -9734,7 +10088,16 @@
         welcomeMessage: welcomeMessage,
         showTeamAvatars: config.showTeamAvatars !== false,
         smartSurface: smartSurface,
-      });
+      };
+      // One conversation: home shows the current one (or none), how many are
+      // history and the answers unseen there.
+      if (oneChat()) {
+        var cur = currentConversation();
+        homeVm.conversations = cur ? [cur] : [];
+        homeVm.pastCount = pastConversations().length;
+        homeVm.pastUnread = pastUnread();
+      }
+      body.innerHTML = Presentation.homeHtml(homeVm);
       bindViewHooks(body);
       Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (ctaBtn) {
         ctaBtn.addEventListener('click', function () {
@@ -9743,7 +10106,8 @@
           // new message", "Start chat" under a finished thread): it starts
           // one, never reopening an old thread's history (a live thread has
           // its own "continue" control). With no thread at all it simply
-          // opens the chat.
+          // opens the chat. With one conversation, it is that one (or a fresh thread).
+          if (oneChat()) { goCurrent(); return; }
           var hasThread = ((conversationsStore.get() || {}).items || []).length > 0;
           if (hasThread) { startNewConversation(); return; }
           chatStore.set({ conversationId: chatStore.get().conversationId });
@@ -9977,6 +10341,7 @@
         // A renderer feature may wait for more (the visitor's name).
         if (ext('wait')) { renderLoading('home'); return; }
         renderHome();
+        refreshListSoon('home');
 
         if (kbEnabled && !kbStore.get().loaded) {
           kbUI.ensure(function () {
@@ -9999,6 +10364,7 @@
           return;
         }
         renderConversationList();
+        refreshListSoon('list');
         return;
       }
 
@@ -10010,6 +10376,26 @@
           renderLoading('chat');
           return;
         }
+
+        // A closed conversation opened from history is read-only: its
+        // messages, and the renderer's bar (the way to the current one) in
+        // the composer's place. Nothing can be sent from it (attemptSend).
+        var pastBar = chatQ('[data-past-bar]');
+        if (pastBar && pastBar.parentNode) pastBar.parentNode.removeChild(pastBar);
+        if (isPastChat()) {
+          if (inputBar) {
+            var pp = presenceStore.get();
+            inputBar.style.display = 'none';
+            inputBar.insertAdjacentHTML('beforebegin', Presentation.pastBarHtml({
+              current: !!currentConversation(),
+              online: pp.status === 'online' && pp.liveChatEnabled !== false,
+            }));
+          }
+          chatUI.renderChat(mountChatFrame() || body);
+          return;
+        }
+        // The current one, first shown: it stays current a while after it ends.
+        holdShown();
 
         // Phase 8H — department gate (chat). Multi mode shows a lightweight
         // selector BEFORE pre-chat. Single mode auto-binds in resolver.
@@ -10169,6 +10555,16 @@
       // threads without those frames ever entering the active chat store.
       var incoming = (payload && payload.messages) || [];
       var allIncoming = (payload && payload.allMessages) || incoming;
+      // One conversation: a fresh thread nobody wrote in takes the
+      // conversation an answer of the team's comes in (an operator's
+      // outreach; an answer reopens a closed one). A frame carries no
+      // status, so a system row (a close) never does.
+      if (oneChat() && !chatStore.get().conversationId) {
+        for (var fi = 0; fi < allIncoming.length; fi++) {
+          var fm = allIncoming[fi] || {};
+          if (/^(agent|ai)$/.test(fm.sender_type || fm.role) && adoptLive(fm.conversation_id, 'open')) break;
+        }
+      }
       var changed = chatUI.mergeIncoming(incoming);
 
       // Word-by-word reveal only for a message that just arrived live over
@@ -10362,11 +10758,15 @@
         // pick (its latest continuable thread) is only for a visitor with
         // none open, else another thread's messages would merge into this
         // one and the next message would go there.
+        // One conversation: a past one is reloaded read-only, and with none
+        // on screen nothing is adopted (the current one comes from the list).
         var activeCid = chatStore.get().conversationId;
-        if (activeCid) chatUI.loadConversationHistory(activeCid, repaint);
-        else chatUI.bootstrapHistory(repaint);
+        if (activeCid) chatUI.loadConversationHistory(activeCid, repaint, isPastChat());
+        else if (!oneChat()) chatUI.bootstrapHistory(repaint);
       }
     });
+    // A live conversation /poll names while a fresh thread waits for its first message.
+    transport.on('live', function (e) { adoptLive(e.conversationId, e.status); });
     transport.on('connectionstate', function (e) {
       Util.log('connection state →', e.state);
     });
@@ -10494,6 +10894,9 @@
       for (var i = 0; i < items.length; i++) {
         if (String(items[i].id) === __resume.target) {
           var status = String(items[i].status || '');
+          // One conversation: resolved is live too, and a closed one is still
+          // this tab's while an answer in it is unseen or within its grace.
+          if (oneChat()) return liveConv(items[i]) || repliesOf(items[i]) > 0 || graceConv(items[i]);
           return status === 'open' || status === 'pending';
         }
       }
@@ -10530,7 +10933,8 @@
       // proof, so an unverifiable list means "stay on home" here — unlike
       // the hint path, where it means "do not evict them".
       if (!st.loaded) return null;
-      var live = (st.items || []).filter(function (c) {
+      // One conversation: the current one (rules 1 and 2; a new tab holds none).
+      var live = oneChat() ? currentConversation() : (st.items || []).filter(function (c) {
         var status = String(c.status || '');
         return status === 'open' || status === 'pending';
       })[0];
@@ -10574,6 +10978,11 @@
         renderBody();
       }
 
+      // One conversation: the server's latest thread (/identity/history) is
+      // never adopted. A fresh thread is armed (its first message goes with
+      // force_new_conversation); a live current one a hint kept the visitor
+      // out of is taken behind that surface (its frames, its toasts).
+      if (oneChat()) { armFresh(); adoptCurrent(); return; }
       if (contextualNeedsPrechat() || !canLoadHistory) return;
       chatUI.bootstrapHistory(function () {
         if (shellStore.get().activeTab === 'chat') renderBody();
@@ -10618,10 +11027,13 @@
     // the preview beside it; the thread the visitor has open in view counts
     // none, and a live count already higher is kept. The list also keeps the
     // loader's `gs_active` hint: set while a thread is open or pending, so
-    // the next page view boots this runtime silently (loader.js).
+    // the next page view boots this runtime silently (loader.js). One
+    // conversation: while one is live (resolved too) or an ended one holds an
+    // unseen answer, kept on every change of the list (its subscriber), and
+    // an ended one's count is its answers only (badgeOf).
     var __previewedKey = 'gs:previewed:' + (ctx.workspaceId || '');
     function syncUnreadFromList(rows) {
-      Util.activeHint(rows.some(function (c) { return c && (c.status === 'open' || c.status === 'pending'); }));
+      if (!oneChat()) Util.activeHint(rows.some(function (c) { return c && (c.status === 'open' || c.status === 'pending'); }));
       var sh = shellStore.get();
       // The thread on screen, or the one this page is reopening (the view hint).
       var activeCid = chatStore.get().conversationId || __resumeConversationId;
@@ -10634,7 +11046,7 @@
       var newest = null;
       rows.forEach(function (c) {
         if (c && c.id && Number(c.unreadCount) > 0) readOwed[c.id] = 1;
-        var n = c && c.id && !(viewing && c.id === activeCid) ? (Number(c.unreadCount) || 0) : 0;
+        var n = c && c.id && !(viewing && c.id === activeCid) ? badgeOf(c) : 0;
         if (n <= 0) return;
         per[c.id] = Math.max(n, per[c.id] || 0);
         if (!c.outbound && (!newest || String(c.lastMessageAt || '') > String(newest.lastMessageAt || ''))) newest = c;
@@ -10683,9 +11095,18 @@
       if (s.isOpen && s.activeTab === 'chat') {
         clearUnreadForActive();
         flushPendingRead();
+        holdShown();
         var cid = chatStore.get().conversationId;
         if (cid && readOwed[cid]) markSeenSoon(null, 0);
       }
+    });
+    // One conversation: opening the panel, or coming back to the page with
+    // it open, re-reads the list (a conversation started, answered or
+    // closed since, an operator's outreach).
+    var listSawOpen = false;
+    shellStore.subscribe(function (s) {
+      if (s.isOpen && !listSawOpen) refreshListSoon(s.activeTab);
+      listSawOpen = !!s.isOpen;
     });
     // Replies that came while the page was in the background counted as
     // unread (transport.on('message')): the visitor coming back to the open
@@ -10695,6 +11116,7 @@
       document.addEventListener('visibilitychange', function () {
         if (document.hidden) return;
         var sh = shellStore.get();
+        if (sh.isOpen) refreshListSoon(sh.activeTab);
         if (!sh.isOpen || sh.activeTab !== 'chat') return;
         var cid = chatStore.get().conversationId;
         clearUnreadForActive();
@@ -10855,7 +11277,8 @@
       setTab: function (key, articleSlug) {
         var target = key === 'kb' ? 'help' : key;
         if (!target) return;
-        switchTab(target);
+        if (target === 'chat' && oneChat()) goCurrent();
+        else switchTab(target);
         if (articleSlug && kbUI && kbUI.openArticle) {
           try { kbUI.openArticle(articleSlug); } catch (_) {}
         }
@@ -10882,7 +11305,8 @@
           // the locally drawn one goes (smartOpened).
           ctx.smartChatRule = surface.id ? { id: String(surface.id), locale: ctx.locale || null } : null;
           ctx.smartOpened = clearSmartSurface;
-          switchTab('chat');
+          if (oneChat()) goCurrent();
+          else switchTab('chat');
           renderSmartDock();
         } else if (surface.mode === 'announcement') {
           renderSmartAnnounce();

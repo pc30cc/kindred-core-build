@@ -391,10 +391,11 @@ const T2_OPEN: Conversation = {
   id: 'c-live', status: 'open', preview: 'خواهش می‌کنم! کار دیگری هست که کمک کنم؟',
   unreadCount: 2, lastMessageAt: ago(10), operatorName: 'سارا', operatorOnline: true,
 };
+/** The live one, then two closed ones (history: one conversation per visitor, a close ends one). */
 const T2_CONVERSATIONS: Conversation[] = [
   T2_OPEN,
-  { id: 'c-mahdi', status: 'resolved', preview: 'مبلغ به حسابتان برگشت داده شد.', unreadCount: 0, lastMessageAt: at(15, 20, 1), operatorName: 'مهدی' },
-  { id: 'c-reza', status: 'resolved', preview: 'ممنون از راهنمایی سریعتان!', unreadCount: 0, outbound: true, lastMessageAt: at(11, 5, 5), operatorName: 'رضا' },
+  { id: 'c-mahdi', status: 'closed', preview: 'مبلغ به حسابتان برگشت داده شد.', unreadCount: 0, lastMessageAt: at(15, 20, 1), operatorName: 'مهدی' },
+  { id: 'c-reza', status: 'closed', preview: 'ممنون از راهنمایی سریعتان!', unreadCount: 0, outbound: true, lastMessageAt: at(11, 5, 5), operatorName: 'رضا' },
 ];
 const T2_THREADS: Record<string, Msg[]> = {
   'c-live': [
@@ -479,16 +480,17 @@ const T2_CLOSED: Msg[] = [
   sara('r2', 'خوشحالم که حل شد! روز خوبی داشته باشید.', at(21, 13)),
   {
     id: 'r3', role: 'system', sender_type: 'system', text: 'سارا closed the conversation', time: at(21, 14),
-    metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_name: 'سارا', status: 'resolved' },
+    metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_name: 'سارا', status: 'closed' },
   },
 ];
 const AFTER_CHAT = {
   closed_id: 'r3', rateable: true, rating: null, operator: { name: 'سارا', avatar: null },
   transcript: { available: true, to: 'a•••@example.com' },
 };
+/** Closed while the visitor was away, Sara's last line unseen: their current conversation (one conversation, rule 2). */
 const t2Closed = (f: Fixture) => {
   t2Live(f);
-  f.conversations = [{ ...T2_OPEN, id: 'c-closed', status: 'resolved', preview: 'خوشحالم که حل شد!', unreadCount: 0 }];
+  f.conversations = [{ ...T2_OPEN, id: 'c-closed', status: 'closed', preview: 'خوشحالم که حل شد!', unreadCount: 1 }];
   f.threads = { ...f.threads, 'c-closed': T2_CLOSED };
   f.csat = AFTER_CHAT;
 };
@@ -716,10 +718,11 @@ async function openRows(page: Page, cid: string) {
 }
 
 // ─── One conversation per visitor (the owner's decision, 2026-10-23) ─────
-// A renderer drawing the past bar (t1): home shows the current
-// conversation or the team card, the bar's middle tab opens it, the others
-// are history («گفتگوهای قبلی»), a closed one opened read-only. A resolved
-// one is still the visitor's (2026-10-24): only a close ends it. States `one-*`.
+// A renderer drawing the past bar (t1, t2): home shows the current
+// conversation (t1: or the team card, the bar's middle tab opens it; t2:
+// its continue row), the others are history («گفتگوهای قبلی»), a closed
+// one opened read-only. A resolved one is still the visitor's
+// (2026-10-24): only a close ends it. States `one-*` (t2's own: `t2-one-*`).
 // They run on the designs' clock (`clock`): today 20:05 in Tehran, so the
 // thread's 19:42-20:03 has passed, a row from yesterday reads «دیروز» and
 // a line sent during the drive comes after the close, at 20:05.
@@ -808,7 +811,8 @@ async function oneClose(page: Page) {
   await openRows(page, 'c-sara');
   await page.evaluate((row) => (window as unknown as { __gsMessage: (r: unknown[]) => void }).__gsMessage([row]),
     closedLine('o7', tx('سارا'), 'closed', at(20, 3), 'c-sara'));
-  await page.locator('[data-chat-messages] .cl').waitFor();
+  // t1's divider, t2's system pill.
+  await page.locator('[data-chat-messages] .cl, [data-chat-messages] .msg-system-pill').first().waitFor();
   await pause(page, 300);
 }
 
@@ -1600,6 +1604,23 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     clock: ONE_NOW,
     setup: (f) => { oneLive(f); f.conversations[2] = { ...f.conversations[2], unreadCount: 1 }; },
     drive: async ({ page }) => { await openRows(page, 'c-sara'); await openMenu(page); },
+  },
+  // t2: a past thread within the rating window keeps its card (usable), the bar under it.
+  't2-one-past-thread-csat': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.csat = { closed_id: 'p4', rateable: true, rating: null, operator: { name: 'مهدی', avatar: null }, transcript: { available: true, to: 'a•••@example.com' } }; },
+    drive: async ({ page }) => { await onePast(page, 'c-mahdi'); await page.locator('[data-csat]').waitFor(); await pause(page, 900); },
+  },
+  // t2: a past thread's ⋯ (the transcript only).
+  't2-one-past-thread-menu': {
+    mobile: true,
+    home: true,
+    keepFocus: true,
+    clock: ONE_NOW,
+    setup: oneLive,
+    drive: async ({ page }) => { await onePast(page, 'c-mahdi'); await openMenu(page); },
   },
   // A fresh thread's ⋯: history and the sound (no transcript before a message).
   'one-18-fresh-thread-menu': {

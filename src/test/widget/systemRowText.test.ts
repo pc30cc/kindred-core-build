@@ -102,8 +102,8 @@ describe('the thread list: a system row previews in the visitor\'s language', ()
           config: { locale },
           api: listApi(KINDS.map((k) => listRow('c-' + k, ROWS[k]))),
         });
-        // t1 (one conversation per visitor, `pastChats`): home shows the current one only (the newest live).
-        const want = Object.fromEntries((renderer === 't1' ? KINDS.slice(0, 1) : KINDS).map((k) => ['c-' + k, EXPECTED[locale][k]]));
+        // t1 and t2 (one conversation per visitor, `pastChats`): home shows the current one only (the newest live).
+        const want = Object.fromEntries((renderer !== 'default' ? KINDS.slice(0, 1) : KINDS).map((k) => ['c-' + k, EXPECTED[locale][k]]));
         await vi.waitFor(() => expect(previews(h, 'homeHtml')).toEqual(want));
       });
     }

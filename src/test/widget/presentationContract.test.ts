@@ -174,27 +174,93 @@ describe('widget presentation — default renderer contract', () => {
     expect(html).toContain('data-home-article="a"');
   });
 
-  it('surfaces recent conversations and the list entry point on home', () => {
-    const html = r.homeHtml({
-      rtl: false, isOnline: true, teamMembers: [], categories: [], articles: [],
+  // One conversation per visitor: Core passes home the current one (or
+  // none) and how many are history; the list is the history. (`t` echoes
+  // keys, so the renderer's own English fallbacks show.)
+  const homeVm = (over: Record<string, unknown>) => ({
+    rtl: false, isOnline: true, teamMembers: [], categories: [], articles: [],
+    conversations: [], kbEnabled: false, chatEnabled: true, primaryColor: '#3B82F6',
+    welcomeMessage: 'Hi', smartSurface: null, ...over,
+  });
+  const doc = (html: string) => new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+
+  it('home: the current conversation, its one door, and the quiet link into history', () => {
+    const html = r.homeHtml(homeVm({
       conversations: [{ id: 'c1', status: 'open', preview: 'hello there', unreadCount: 2, timeLabel: '5m' }],
-      kbEnabled: false, chatEnabled: true, primaryColor: '#3B82F6',
-      welcomeMessage: 'Hi', smartSurface: null,
-    });
+      pastCount: 1, pastUnread: 3,
+    }));
+    const d = doc(html);
     expect(html).toContain('data-conversation-open="c1"');
     expect(html).toContain('hello there');
-    expect(html).toContain('data-view="list"');
+    expect(d.querySelector('.home-section-title')!.textContent).toBe('Your conversation');
+    expect(d.querySelector('.home-link[data-view="list"]')!.textContent).toBe('Previous conversations3');
+    // ONE main button, to it: never a second, parallel conversation.
+    const doors = d.querySelectorAll('[data-home-action="chat"]');
+    expect(doors).toHaveLength(1);
+    expect(doors[0].textContent).toBe('Continue conversation');
+    expect(d.querySelectorAll('.wy-btn')).toHaveLength(1);
+    // No unseen answer in history: no count on the link.
+    const quiet = doc(r.homeHtml(homeVm({ conversations: [{ id: 'c1', status: 'open' }], pastCount: 2, pastUnread: 0 })));
+    expect(quiet.querySelector('.home-link[data-view="list"] .conv-unread')).toBeNull();
   });
 
-  it('renders the conversation list view', () => {
+  it('home: with nothing current, start (or leave a message) and the link alone; with no history, no link', () => {
+    const returning = doc(r.homeHtml(homeVm({ pastCount: 2 })));
+    expect(returning.querySelector('[data-conversation-open]')).toBeNull();
+    expect(returning.querySelector('.home-section-title')).toBeNull();
+    expect(returning.querySelector('[data-view="list"]')).not.toBeNull();
+    expect(returning.querySelector('[data-home-action="chat"]')!.textContent).toBe('homeStartChat');
+    const away = doc(r.homeHtml(homeVm({ isOnline: false, pastCount: 0 })));
+    expect(away.querySelector('[data-view="list"]')).toBeNull();
+    expect(away.querySelector('.home-recent')).toBeNull();
+    expect(away.querySelector('[data-home-action="chat"]')!.textContent).toBe('homeLeaveMessage');
+  });
+
+  it('renders the conversation list view: the history, back where Core says, no new-conversation door, no status words', () => {
     const html = r.conversationListHtml({
-      rtl: false, loading: false, chatEnabled: true,
-      conversations: [{ id: 'c9', status: 'resolved', preview: 'thanks', unreadCount: 0, timeLabel: '2d' }],
+      rtl: false, loading: false, chatEnabled: true, back: 'help',
+      conversations: [{ id: 'c9', status: 'closed', preview: 'thanks', unreadCount: 0, timeLabel: '2d' }],
     });
-    expect(html).toContain('data-view-back="home"');
+    const d = doc(html);
+    expect(html).toContain('data-view-back="help"');
     expect(html).toContain('data-conversation-open="c9"');
-    expect(html).toContain('data-home-action="chat"');
+    expect(d.querySelector('.wy-head-plain')!.textContent).toBe('Previous conversations');
+    expect(html).not.toContain('data-home-action="chat"');
+    expect(html).not.toMatch(/wyStatus(Open|Resolved)|conv-status/);
+    expect(r.conversationListHtml({ conversations: [] })).toContain('data-view-back="home"');
     expect(r.conversationListHtml({ conversations: [] })).toContain('wy-empty');
+  });
+
+  it('pastBarHtml: the composer locked, why, and the one way on', () => {
+    const cur = doc(r.pastBarHtml({ current: true, online: true }));
+    const bar = cur.querySelector('div[data-past-bar]')!;
+    expect(bar.querySelector('svg')).not.toBeNull();
+    expect(bar.querySelector('.wy-past-text')!.textContent).toBe('This chat has ended and is read-only');
+    const go = bar.querySelectorAll('button[data-chat-current]');
+    expect(go).toHaveLength(1);
+    expect(go[0].textContent).toBe('Current chat');
+    expect(doc(r.pastBarHtml({ current: false, online: true })).querySelector('[data-chat-current]')!.textContent).toBe('homeStartChat');
+    expect(doc(r.pastBarHtml({ current: false, online: false })).querySelector('[data-chat-current]')!.textContent).toBe('homeLeaveMessage');
+  });
+
+  it('the closed line: a quiet divider, by name or the system\'s; the next conversation under it needs no second one', () => {
+    const t = new Date().toISOString();
+    const closed = (name: string | null) => ({ __id: 'x' + name, sender: 'operator', senderType: 'system', body: '', time: t,
+      metadata: { kind: 'conversation_closed', agent_name: name, status: 'closed' } });
+    const html = r.messagesHtml({ messages: [
+      { __id: 'm1', sender: 'operator', senderName: 'Sara', body: 'bye', time: t },
+      closed('Sara'),
+      { __id: 'm2', sender: 'visitor', body: 'one more', time: t, threadStart: true },
+    ] }, '', {});
+    const lines = Array.from(doc(html).querySelectorAll('.msg-day span')).map((e) => e.textContent);
+    // The day, the close; no «New conversation» right under it.
+    expect(lines.slice(1)).toEqual(['Sara ended the chat']);
+    // The operator's run ends at the line: its time is on her bubble.
+    expect(doc(html).querySelectorAll('.msg-meta')).toHaveLength(2);
+    const nameless = doc(r.messagesHtml({ messages: [closed(null)] }, '', {}));
+    expect(Array.from(nameless.querySelectorAll('.msg-day span')).map((e) => e.textContent).pop()).toBe('Chat ended');
+    expect(r.closedNotice).toBe(true);
+    expect(r.features).toBeUndefined();
   });
 
   it('renders the message list and honours the typewriter/qna view state', () => {

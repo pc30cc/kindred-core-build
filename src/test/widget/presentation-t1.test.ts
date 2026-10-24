@@ -205,7 +205,8 @@ describe('t1: every hook the default renderer emits', () => {
   };
 
   it('in the source, or drawn once rendered', () => {
-    const ours = new Set([...hooks(T1_SRC), ...attrs(surfaces(make()))]);
+    // The past bar's markup is in the extras (pastBarHtml forwards to them).
+    const ours = new Set([...hooks(T1_SRC), ...hooks(T1_X_SRC), ...attrs(surfaces(make()))]);
     expect([...hooks(DEFAULT_SRC)].filter((h) => !ours.has(h))).toEqual([]);
   });
 
@@ -213,7 +214,7 @@ describe('t1: every hook the default renderer emits', () => {
     const d = (window as unknown as Record<string, { create: (env: Vm) => Renderer }>).__gs_presentation_default.create({
       t: (k: string) => k, escapeHtml, config: BASE_CONFIG, locale: 'fa', primaryColor: '#3B82F6',
     });
-    // With its extras, as Core hands them over after the first paint (the past bar is theirs).
+    // With its extras: what default draws itself (the past bar), t1 draws through them.
     const r = extended(make());
     const id = IDENTITY(['name', 'email', 'phone'], ['email']);
     const conv = { id: 'c', status: 'open', preview: 'p', unreadCount: 2, timeLabel: 't' };
@@ -249,6 +250,8 @@ describe('t1: every hook the default renderer emits', () => {
       smartSurfaceHtml: [[{ title: 't', body: 'b', ctaLabel: 'c' }]],
       conversationListHtml: [[{ conversations: [conv], chatEnabled: true }], [{ conversations: [], error: true, chatEnabled: true }], [{ loading: true }]],
       conversationRowHtml: [[conv, true], [conv, false]],
+      // One conversation: a past conversation's bar, with a current one and without (online, away).
+      pastBarHtml: [[{ current: true, online: true }], [{ current: false, online: true }], [{ current: false, online: false }]],
       kbHtml: [[{ state: 'article', article: { title: 'A', contentHtml: '<p>x</p>' }, feedback: { enabled: true } }],
         [{ state: 'list', articles: [{ slug: 'a', title: 'A' }], categories: [] }], [{ state: 'results', query: 'x', results: [{ slug: 'r', title: 'R' }] }],
         [{ state: 'results', query: 'x', results: [] }], [{ state: 'searching' }]],
@@ -262,8 +265,6 @@ describe('t1: every hook the default renderer emits', () => {
       skeletonHtml: ['home', 'chat', 'list', 'help', 'article', 'prechat', 'articles']
         .map((v) => [v, { chatEnabled: true, composer: { voiceNotes: true, attachments: true, emoji: true } }]),
       connIndicatorHtml: [[]],
-      // One conversation: a past conversation's bar, with a current one and without (online, away).
-      pastBarHtml: [[{ current: true, online: true }], [{ current: false, online: true }], [{ current: false, online: false }]],
     };
     const drawn = (x: Renderer, name: string) => {
       const out = new Set<string>();

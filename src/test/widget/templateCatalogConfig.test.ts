@@ -293,7 +293,7 @@ describe('the catalog in the platform snapshot', () => {
 describe('workspaceChatTemplate: the server\'s view of the template a workspace wears', () => {
   const effective = async () => snapshotMod.workspaceChatTemplate(config, WS);
 
-  it('is GET /config\'s template and options, with the descriptor (closedNotice on t2, and on t1 since one conversation per visitor)', async () => {
+  it('is GET /config\'s template and options, with the descriptor (closedNotice on every template since one conversation per visitor)', async () => {
     await fresh((t) => { withCatalog()(t); choose('t2', { csat: false })(t); });
     const tpl = await effective();
     const b = await body();
@@ -313,7 +313,7 @@ describe('workspaceChatTemplate: the server\'s view of the template a workspace 
     await fresh((t) => { withCatalog()(t); choose('t2')(t); }, { deny: ['widget_appearance'] });
     const plan = await effective();
     expect(plan.id).toBe('default');
-    expect(plan.descriptor?.closedNotice).toBe(false);
+    expect(plan.descriptor?.id).toBe('default');
     await fresh((t) => { withCatalog(CATALOG, 'international')(t); choose('t2')(t); }, { edition: 'international' });
     expect((await effective()).id).toBe('intl');
   });
@@ -331,9 +331,9 @@ describe('workspaceChatTemplate: the server\'s view of the template a workspace 
     // snapshot's few seconds), or it has none: not taken for t2.
     await fresh((t) => { withCatalog(t2Default)(t); choose('default')(t); }, { failing: new Set(['widget_settings']) });
     const unreadable = await effective();
-    expect(unreadable).toEqual({ id: 'default', descriptor: expect.objectContaining({ id: 'default', closedNotice: false }), options: {} });
+    expect(unreadable).toEqual({ id: 'default', descriptor: expect.objectContaining({ id: 'default', script: 'presentation-default.js' }), options: {} });
     await fresh((t) => { withCatalog(t2Default)(t); t.widget_settings.length = 0; });
-    expect((await effective()).descriptor?.closedNotice).toBe(false);
+    expect((await effective()).descriptor?.id).toBe('default');
     await fresh((t) => {
       withCatalog(t2Default, 'international')(t);
       t.widget_settings.length = 0;

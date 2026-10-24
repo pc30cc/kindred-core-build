@@ -3,16 +3,17 @@
  * The visitor-visible closed line (server/services/conversationClosedNotice.ts):
  *
  *   - an operator's close (status `closed`) of a WIDGET conversation of a
- *     workspace whose effective template draws it (t2) writes ONE system row
+ *     workspace whose effective template draws it (every template since one
+ *     conversation per visitor, 2026-10-24) writes ONE system row
  *     {kind: 'conversation_closed', by, agent_*, operator_*, status} and
  *     publishes it like a message;
  *   - a resolve writes nothing, neither the inbox's PATCH nor "Send &
  *     resolve" (owner, 2026-10-24: resolved is still live for the visitor,
  *     whose next message reopens it); closing a resolved one later does;
- *   - `default`, `intl` and `t1` workspaces get no row at all (their visitors'
- *     threads, lists and unread counts stay exactly as they were), and
- *     neither does a Telegram, Bale, WhatsApp, Instagram, email or platform
- *     support conversation;
+ *   - so `default`, `intl` and `t1` workspaces get it too (their renderers
+ *     draw it), while a Telegram, Bale, WhatsApp, Instagram, email or
+ *     platform support conversation never does, nor a workspace whose
+ *     template cannot be read;
  *   - never twice in a row: close → reopen → close with nothing said in
  *     between keeps the one line (a system notice in between does not count;
  *     the line an older server wrote on a resolve is not one);
@@ -207,25 +208,29 @@ describe('the closed line on a template that draws it', () => {
   });
 });
 
-describe('no new row anywhere else', () => {
-  // Every template follows its descriptor: the line where it draws one
-  // (closedNotice), nothing at all where it does not.
+describe('every template draws it (one conversation per visitor)', () => {
   for (const [template, descriptor] of Object.entries(CHAT_WIDGET_TEMPLATES)) {
-    it(`a ${template} workspace: ${descriptor.closedNotice ? 'the line' : 'nothing written, nothing published'}`, async () => {
+    it(`a ${template} workspace: the one row, published`, async () => {
+      expect(descriptor.closedNotice).toBe(true);
       state.templates[WS] = template;
       const cid = conversation();
       message(cid, 'agent');
-      if (descriptor.closedNotice) {
-        expect(await close(cid)).not.toBeNull();
-        expect(closedRows(cid)).toHaveLength(1);
-        return;
-      }
-      expect(await close(cid)).toBeNull();
-      expect(closedRows(cid)).toHaveLength(0);
-      expect(state.db.inserts).toHaveLength(0);
-      expect(state.published).toHaveLength(0);
+      expect(await close(cid)).not.toBeNull();
+      expect(closedRows(cid)).toHaveLength(1);
+      expect(state.published).toHaveLength(1);
     });
   }
+});
+
+describe('no new row anywhere else', () => {
+  it('a workspace whose template cannot be read: nothing written, nothing published', async () => {
+    state.templateFails = true;
+    const cid = conversation();
+    message(cid, 'agent');
+    expect(await close(cid)).toBeNull();
+    expect(state.db.inserts).toHaveLength(0);
+    expect(state.published).toHaveLength(0);
+  });
 
   for (const channel of ['telegram', 'bale', 'whatsapp', 'instagram', 'email', 'platform_support']) {
     it(`a ${channel} conversation of a t2 workspace: nothing written`, async () => {
@@ -345,17 +350,17 @@ describe('never fails or holds up the operator', () => {
     await vi.waitFor(() => expect(closedRows(direct)).toHaveLength(1));
   });
 
-  it('PATCH answers 200 whether the line can be written or not, and writes none for a default workspace', async () => {
+  it('PATCH answers 200 whether the line can be written or not, and writes it for a default workspace', async () => {
     const cid = conversation();
     state.templateFails = true;
     expect((await patch(cid, { workspace_id: WS, status: 'closed' })).status).toBe(200);
     state.templateFails = false;
     state.templates[WS] = 'default';
     const other = conversation();
+    message(other, 'agent');
     expect((await patch(other, { workspace_id: WS, status: 'closed' })).status).toBe(200);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(closedRows(other)).toHaveLength(1));
     expect(closedRows(cid)).toHaveLength(0);
-    expect(closedRows(other)).toHaveLength(0);
   });
 
   it('neither "Send & resolve" nor "Send & wait" writes the line', async () => {

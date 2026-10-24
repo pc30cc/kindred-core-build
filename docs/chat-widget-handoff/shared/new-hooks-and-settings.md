@@ -89,6 +89,8 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `data-prechat-step-input`, `data-prechat-step-submit`, `data-prechat-step-skip` *(named here)* | The step's input, its submit button, the skip link of an optional step | Answer, submit, skip | Enter (not while composing) or the button submits; skip answers nothing and moves on. Not `data-prechat-skip`, which skips the whole pre-chat | T1 |
 | `data-ph-away` *(named here)* | The automated reply row (`.away-reply`, `awayReplyHtml`), its value the away placeholder (`simpleAddMore`) | Placeholder while away with a thread | Core (runtime-late.js) gives the composer that placeholder while the row is on screen and the team is away, and its own back after | T2 |
 | `data-fb-skip` *(named here)* | «نه ممنون» in the T2 away email card, drawn only when the email is not required | Leave no email | Core marks the card skipped (no request) and puts the focus in the composer | T2 |
+| `data-past-bar` *(named here)* | The root of `pastBarHtml(vm)` (a `div`), inserted by Core before `[data-input-bar]` | A past (closed) conversation opened from history, read-only, in the composer's place | Core removes it on every chat render, hides `[data-input-bar]` while it is up and refuses every send from it (one conversation per visitor, 2026-10-24) | every template (default: `.wy-past`) |
+| `data-chat-current` *(named here)* | The past bar's one button | The way on: the current conversation, else a new one | Click goes to the current conversation (Core's goCurrent), else starts a fresh thread (or the leave-a-message path while away) | every template |
 
 ### 2.2 New values of existing hooks
 
@@ -147,6 +149,9 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | chat frame (T1, T2) | `assignedOperator` | `{ name, avatar, online }` | Chat header identity, presence and typing look. While an operator answers, the title is the workspace's name (`config.workspaceName`) and the operator's name the small line under it: T2 keeps its online dot, typing dots and grey away line there, and a long name ends in "…" (`.st b`); T1 (`.hn` / `.hs`) shows the name only. No workspace name, or the same name twice: the operator's name is the title (owner, 2026-10-18) | Workspace avatar, name and `replyTimeText` (production) |
 | messages: the `view` argument of `messagesHtml` (PD:630-796) (T1, T2) | `view.operatorTyping` | `{ name, avatar }`, absent when nobody types | Visible typing row (`.typing-row`, §2.3) and its "{name} is typing…" meta (T1). Core already knows from `setOperatorTyping` | No visible row; the sr-only `[data-typing-row]` still announces |
 | messages: the `view` argument of `messagesHtml` (T2) | `view.csat` *(named here)* | `{ closedId, name, avatar, rating, comment, state, transcript }`; `state` `ask` / `sending` / `done` / `error` / `gone`; `transcript` null or `{ state, to }` with `state` `idle` / `sending` / `sent` / `failed` / `no` | The rating card under the `conversation_closed` row whose id is `closedId` (runtime-late.js, from `GET …/csat`, §6) | No card: the closed line only |
+| home (every template) | `pastCount`, `pastUnread` *(named here)* | numbers | One conversation per visitor: how many conversations are history, and the team's answers unseen there. `conversations` then holds the current one only (or none). default: the quiet «گفتگوهای قبلی ›» link (`.home-link[data-view="list"]`) with the rows' unread badge; t1/t2 their own | No history link |
+| list (every template) | `back` *(named here)* | `home` / `help` / `chat` | Where the history's back goes (Core decides it anyway) | `home` |
+| past bar (every template) | `pastBarHtml(vm)`, `vm = { current, online }` *(named here)* | booleans | `current`: a current conversation exists (button `wyCurrentChat`); else `online` picks `homeStartChat` or `homeLeaveMessage` | Without the function the renderer keeps the old model (every conversation writable, no history) |
 | chat frame (T1, T2) | `menu` in the `chatHeaderHtml` view model *(named here)* | `{ open, items }`, items `{ action: 'transcript', state, to }` and `{ action: 'sound', on }` | The ⋯ menu (`data-chat-menu*`, §2.1); null on a new conversation or with no item | No ⋯ button |
 | chat frame (T1) | `prechat` in the `chatHeaderHtml` view model *(named here)*, only for a renderer declaring the feature `prechatHeader` | boolean (runtime-ext.js) | The thread asks for the visitor's details (the card, the steps), or is the conversation they were given in (the saved details, then the thread while no AI answers it, until another conversation is opened): with no operator assigned, T1 draws the workspace with its lead's face (the first online team member), never "new conversation", and runtime-late.js gives it no ⋯ menu; an assigned operator stays the header's, with the menu; away, or nobody listed online, the workspace tile (boards 08·a-c) | The header as before (false without the feature: T2 does not declare it, so its header is not repainted for it) |
 | config `availability` (T1, T2) | `availability.nextOpenAt` | ISO 8601 date-time | `{time}` in `homeBackAt`, `awayBannerSub`, `simpleAwayBackAt`, `simpleAwaySub`; the day part of the T2 away note | `replyTimeText(false)` / `homeReplySlow`; drop the "back at" part |
@@ -403,6 +408,21 @@ The rating card's other states reuse or add renderer copy (`csatThanks`, `csatRa
 | `kbSwitchToChat` (or `wyTalkToSupport`) | «با تیم پشتیبانی گفتگو کنید» | Chat with our support team | T1 ask card line, now shown always; both T1 specs name the same two candidates (PD:1416 decides) |
 | `dismiss` *(loader)* | «بستن پیام» | Dismiss message | Greeting close (`aria-label`); today «بستن» / "Dismiss". **Decided:** «بستن پیام», matching the English (T1 boards say «بستن اعلان») |
 
+### 4.14 One conversation per visitor (2026-10-24, Core's dictionary, default and intl)
+
+| Key | Persian | English | Turkish | Where used |
+|---|---|---|---|---|
+| `wyYourConversation` | «گفتگوی شما» | Your conversation | Sohbetiniz | default home caption over the current conversation's row |
+| `wyPastConversations` | «گفتگوهای قبلی» | Previous conversations | Önceki sohbetler | default home link into history and the history's title |
+| `wyContinue` | «ادامه گفتگو» | Continue conversation | Sohbete devam et | default home's one button while a conversation is current (`wyContinueLast` stays, t2's) |
+| `wyPastClosed` | «این گفتگو به پایان رسیده و فقط خواندنی است» | This chat has ended and is read-only | Bu sohbet sona erdi, yalnızca okunabilir | default past bar (t1/t2 say the same from their extras) |
+| `wyCurrentChat` | «گفتگوی فعلی» | Current chat | Güncel sohbet | default past bar button while a conversation is current |
+| `wyEndedBy` `{name}`, `wyEnded` | «{name} گفتگو را به پایان رساند» / «گفتگو به پایان رسید» | {name} ended the chat / Chat ended | {name} sohbeti sonlandırdı / Sohbet sona erdi | default's closed line (the system's, nameless) |
+
+Retired from Core's dictionary (default was their only user): `wyStartNew`, `wyRecentConversations`,
+`wyViewConversations`, `wyConversations`. The rows for them in §4.13 describe T1 copy that T1 now draws from its
+own extras.
+
 ---
 
 ## 5. Superseded names
@@ -475,13 +495,16 @@ The widget calls these only from Core's lazy modules (`public/widget/runtime-ext
 for a template that declares the feature; `default` and `intl` never do.
 
 **Template descriptor** (`shared/widgetTemplates.ts`): `closedNotice` — the renderer draws the `conversation_closed`
-line and its rating card (t2 only; must equal the renderer's `features.closedNotice`). The server writes the line only
+line (every template since one conversation per visitor, 2026-10-24; the rating card under it is t2's only; must equal
+the renderer's `closedNotice`: `features.closedNotice`, or top-level for `default`, which declares no features). The
+server writes the line only
 for a workspace whose **effective** template has it (`server/services/widget/configSnapshot.ts`
 `workspaceChatTemplate`: the catalog, the plan, the choice — the same answer `GET /config` gives; a workspace whose
 widget settings cannot be read counts as wearing the edition's own `default` / `intl`).
 
-**Renderer features and Core capabilities**: a renderer's `features.closedNotice` keeps `conversation_closed` rows
-(runtime.js drops them, before the stores and notify, for a renderer without it); `features.csat` (the rating card,
+**Renderer features and Core capabilities**: a renderer's `closedNotice` (feature or top-level) keeps
+`conversation_closed` rows (runtime.js drops them, before the stores and notify, for a renderer without it, and the line
+an older backend wrote for a resolve for a renderer drawing a past bar); `features.csat` (the rating card,
 `view.csat`, §3) and `features.chatMenu` (the ⋯ menu, the header's `menu`, §3) are run by runtime-late.js.
 `env.capabilities.csat` and `env.capabilities.chatMenu` are true since the API below exists.
 

@@ -488,11 +488,12 @@ describe('emptyQna and topics', () => {
     expect(sentText(h)!.text).toBe('مرجوعی کالا');
   });
 
-  it('a topic on home starts a NEW conversation whose first message is the label, with no AI greeting ahead of it', async () => {
+  it('a topic on home (only an ended conversation behind) starts a NEW conversation whose first message is the label, with no AI greeting ahead of it', async () => {
     const h = boot({
       renderer: featureRenderer(),
       config: { aiAgent: { visitorFacing: true, providerReady: true, introCapable: true, suppressGreeting: true } },
-      conversations: [{ id: 'c-old' }],
+      // Closed: a live one would be the current conversation the topic goes into (oneConversation.test.ts).
+      conversations: [{ id: 'c-old', status: 'closed' }],
       hint: { tab: 'home', conversationId: null },
     });
     await flush(20);
@@ -557,8 +558,8 @@ describe('homeAsk', () => {
     expect(h.q('[data-home-ask]')).not.toBe(fresh);
   });
 
-  it('Enter (not Shift+Enter) sends the draft as the first message of a new conversation', async () => {
-    const h = boot({ renderer: featureRenderer(), conversations: [{ id: 'c-old' }], hint: { tab: 'home', conversationId: null } });
+  it('Enter (not Shift+Enter) sends the draft as the first message of a new conversation (only an ended one behind)', async () => {
+    const h = boot({ renderer: featureRenderer(), conversations: [{ id: 'c-old', status: 'closed' }], hint: { tab: 'home', conversationId: null } });
     await flush(20);
     h.runtime.__test.setConnectionState('online');
     const ask = h.q<HTMLTextAreaElement>('[data-home-ask]')!;

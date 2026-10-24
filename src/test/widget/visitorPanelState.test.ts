@@ -105,12 +105,19 @@ describe('V-07: replies that came while the visitor was on another page', () => 
     expect(h.unread.every((n) => n === 0)).toBe(true);
   });
 
-  it('with no open or pending thread the hint goes', async () => {
+  it('with no live thread (only a closed one, every answer seen) the hint goes', async () => {
     document.cookie = 'gs_active=1; path=/';
-    const h = boot({ open: false, conversations: [{ id: 'c1', status: 'resolved' }] });
+    const h = boot({ open: false, conversations: [{ id: 'c1', status: 'closed' }] });
     await flush(40);
     expect(h.unread.every((n) => n === 0)).toBe(true);
     expect(document.cookie).not.toContain('gs_active=1');
+  });
+
+  it('a resolved thread is still live for the visitor (owner, 2026-10-24): the hint stays', async () => {
+    document.cookie = 'gs_active=1; path=/';
+    boot({ open: false, conversations: [{ id: 'c1', status: 'resolved' }] });
+    await flush(40);
+    expect(document.cookie).toContain('gs_active=1');
   });
 
   it('a runtime booted with the panel closed never takes the page\'s focus', async () => {
@@ -209,7 +216,7 @@ describe('V-07: what the visitor read where it landed is read for the server too
 
 describe('V-12: the end of a conversation reads as such', () => {
   for (const renderer of ['default', 't1'] as const) {
-    it(`${renderer}: a closed conversation is listed as resolved, never open (no live dot)`, async () => {
+    it(`${renderer}: a closed conversation is listed as over (history, no status pill), never open (no live dot)`, async () => {
       const h = boot({ renderer, conversations: [{ id: 'c1', status: 'closed' }, { id: 'c2', status: 'open' }] });
       await flush(40);
       h.runtime.setTab('list');
@@ -217,17 +224,12 @@ describe('V-12: the end of a conversation reads as such', () => {
       const rows = Array.from(h.shadow.querySelectorAll('[data-conversation-open]'));
       const closed = rows.find((r) => r.getAttribute('data-conversation-open') === 'c1')!;
       const open = rows.find((r) => r.getAttribute('data-conversation-open') === 'c2')!;
-      if (renderer === 't1') {
-        // One conversation per visitor: the list is history, never the current
-        // one (c2, the live one), with no open / resolved pill.
-        expect(open).toBeUndefined();
-        expect(closed.querySelector('.tg, .live')).toBeNull();
-        return;
-      }
-      expect(closed.textContent).toContain('حل‌شده');
-      expect(closed.textContent).not.toContain('باز');
-      expect(closed.querySelector('.live')).toBeNull();
-      expect(open.textContent).toContain('باز');
+      // One conversation per visitor (both draw a past bar): the list is
+      // history, never the current one (c2, the live one), with no open /
+      // resolved word or pill.
+      expect(open).toBeUndefined();
+      expect(closed.querySelector('.tg, .live, .conv-status')).toBeNull();
+      expect(closed.textContent).not.toMatch(/حل‌شده|باز/);
     });
 
     it(`${renderer}: a message that opens a new conversation under an ended one comes after a divider`, async () => {

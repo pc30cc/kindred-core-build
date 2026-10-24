@@ -1,9 +1,9 @@
 /**
  * A conversation whose last message is an attachment is not an empty one.
  *
- * The visitor sends a photo, goes back to the widget's home screen, and the
- * recent-conversations row says «هنوز پیامی نیست» — "no messages yet" — about
- * the conversation they were just in. The row previews the message BODY, and
+ * The visitor sends a photo, and later the conversation's row (home's card,
+ * the history's list) said «هنوز پیامی نیست» — "no messages yet" — about
+ * the conversation they were in. The row previews the message BODY, and
  * an attachment-only message has none.
  *
  * Real browser because the fix spans the shipped runtime's own localization:
@@ -14,18 +14,20 @@ import { boot, resolveChromium, routeAll, thread } from './harness/widgetHarness
 
 test.use({ launchOptions: { executablePath: resolveChromium() } });
 
-/** Open the widget on home, with one conversation shaped by the server row. */
+/** Open the widget's conversation list (the history), with one conversation shaped by the server row. */
 async function openHome(page: Page, row: Record<string, unknown>) {
   await routeAll(page, {
     threads: { c1: thread('c1') },
-    // Resolved on purpose: a LIVE thread takes the visitor straight into the
-    // chat view (new-tab continuity), and the recent-conversations list this
-    // spec is about only renders on home.
-    statuses: { c1: 'resolved' },
+    // Closed on purpose: a LIVE thread (open, pending or resolved) takes the
+    // visitor straight into the chat view (new-tab continuity); a closed one
+    // is history (one conversation per visitor), where its row is listed.
+    statuses: { c1: 'closed' },
     // An attachment-only last message: the server sends no preview text.
     conversationRows: { c1: { preview: '', ...row } },
   });
   await boot(page, {});
+  await expect.poll(() => page.locator('[data-body] .home-link[data-view="list"]').count(), { timeout: 15_000 }).toBe(1);
+  await page.locator('[data-body] .home-link[data-view="list"]').click();
   await expect.poll(async () => page.locator('.conv-preview').count(), { timeout: 15_000 })
     .toBeGreaterThan(0);
 }

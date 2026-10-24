@@ -92,6 +92,19 @@ function previews(h: Harness, surface: 'homeHtml' | 'conversationListHtml'): Rec
   const vms = ((args && (args[0] as { conversations?: Vm[] }).conversations) || []) as Vm[];
   return Object.fromEntries(vms.map((c) => [c.id, c.preview]));
 }
+/** The renderer runs one conversation per visitor (it draws a past bar): home shows the current one only. */
+function oneChat(renderer: string): boolean {
+  const mod = (window as unknown as Record<string, { create: (env: Record<string, unknown>) => Record<string, unknown> } | undefined>)[`__gs_presentation_${renderer}`];
+  return !!mod && typeof mod.create({ t: (k: string) => k, config: {}, locale: 'fa' }).pastBarHtml === 'function';
+}
+/** Every row's preview: home's current one and the history's (one conversation per visitor). */
+async function everyPreview(h: Harness, n: number): Promise<Record<string, string>> {
+  h.runtime.setTab('home');
+  await vi.waitFor(() => expect(h.lastCall('homeHtml')).toBeDefined());
+  h.runtime.setTab('list');
+  await vi.waitFor(() => expect(Object.keys({ ...previews(h, 'homeHtml'), ...previews(h, 'conversationListHtml') })).toHaveLength(n));
+  return { ...previews(h, 'homeHtml'), ...previews(h, 'conversationListHtml') };
+}
 
 describe('the thread list: a system row previews in the visitor\'s language', () => {
   for (const locale of ['fa', 'en', 'tr'] as const) {
@@ -101,9 +114,10 @@ describe('the thread list: a system row previews in the visitor\'s language', ()
           renderer,
           config: { locale },
           api: listApi(KINDS.map((k) => listRow('c-' + k, ROWS[k]))),
+          hint: { tab: 'home', conversationId: null },
         });
-        // t1 and t2 (one conversation per visitor, `pastChats`): home shows the current one only (the newest live).
-        const want = Object.fromEntries((renderer !== 'default' ? KINDS.slice(0, 1) : KINDS).map((k) => ['c-' + k, EXPECTED[locale][k]]));
+        // One conversation per visitor (a renderer drawing a past bar): home shows the current one only (the newest live).
+        const want = Object.fromEntries((oneChat(renderer) ? KINDS.slice(0, 1) : KINDS).map((k) => ['c-' + k, EXPECTED[locale][k]]));
         await vi.waitFor(() => expect(previews(h, 'homeHtml')).toEqual(want));
       });
     }
@@ -117,11 +131,11 @@ describe('the thread list: a system row previews in the visitor\'s language', ()
     expect(h.body.textContent).not.toContain('support queue');
   });
 
-  it('the list view gets the same previews (default, fa)', async () => {
+  it('the list view gets the same previews (default, fa): the history, every row but the current one', async () => {
     const h = boot({ renderer: 'default', api: listApi(KINDS.map((k) => listRow('c-' + k, ROWS[k]))) });
     await flush(20);
     h.runtime.setTab('list');
-    const want = Object.fromEntries(KINDS.map((k) => ['c-' + k, EXPECTED.fa[k]]));
+    const want = Object.fromEntries(KINDS.slice(1).map((k) => ['c-' + k, EXPECTED.fa[k]]));
     await vi.waitFor(() => expect(previews(h, 'conversationListHtml')).toEqual(want));
   });
 
@@ -136,15 +150,16 @@ describe('the thread list: a system row previews in the visitor\'s language', ()
         listRow('c-long', { preview: 'Call ended', systemKind: 'call_ended', systemMeta: { ended_by: 'visitor', duration_seconds: 3725 } }),
         listRow('c-sys', { preview: 'Call ended', systemKind: 'call_ended', systemMeta: { duration_seconds: 5 } }),
       ]),
+      hint: { tab: 'home', conversationId: null },
     });
-    await vi.waitFor(() => expect(previews(h, 'homeHtml')).toEqual({
+    expect(await everyPreview(h, 6)).toEqual({
       'c-join': 'یکی از همکاران به گفتگو پیوست',
       'c-invite': 'به یک تماس صوتی دعوت شده‌اید',
       'c-failed': 'تماس برقرار نشد',
       'c-zero': 'تماس برقرار نشد',
       'c-long': 'شما تماس را پایان دادید · مدت تماس ۰۱:۰۲:۰۵',
       'c-sys': 'تماس پایان یافت · مدت تماس ۰۰:۰۵',
-    }));
+    });
   });
 
   it('rows without systemKind (any other message, an older server) are handed over as before', async () => {
@@ -157,9 +172,9 @@ describe('the thread list: a system row previews in the visitor\'s language', ()
         // A kind this Core cannot write keeps the server's preview.
         listRow('c-new', { preview: 'Something new', systemKind: 'something_new', systemMeta: {} }),
       ]),
+      hint: { tab: 'home', conversationId: null },
     });
-    await vi.waitFor(() => expect(Object.keys(previews(h, 'homeHtml'))).toHaveLength(4));
-    const p = previews(h, 'homeHtml');
+    const p = await everyPreview(h, 4);
     expect(p['c-text']).toBe('سفارشتان ارسال شد.');
     expect(p['c-photo']).toBe('شما یک تصویر ارسال کردید');
     expect(p['c-old']).toBe('Your message is in the support queue.');

@@ -48,8 +48,17 @@ function jsonResponse(payload: unknown, ok = true, status = 200) {
   };
 }
 
+/** The runtime instance this file drives (its test hook included). */
+interface Runtime {
+  open: () => void;
+  close: () => void;
+  __test?: { retryConversations?: () => void };
+}
+/** The window, with the globals the widget reads and publishes. */
+const win = window as unknown as Record<string, unknown>;
+
 interface Harness {
-  runtime: any;
+  runtime: Runtime;
   shadow: ShadowRoot;
   bodyText: () => string;
   conversationsCallCount: () => number;
@@ -60,7 +69,7 @@ interface Harness {
 function boot(conversationsHandler: (callIndex: number) => ReturnType<typeof jsonResponse>): Harness {
   let conversationsCalls = 0;
 
-  (window as any).__gs_mod_chat = {
+  win.__gs_mod_chat = {
     sendMessage() {},
     loadHistory() {},
     loadConversationHistory() {},
@@ -70,15 +79,16 @@ function boot(conversationsHandler: (callIndex: number) => ReturnType<typeof jso
   // ModuleLoader injects a <script src>; jsdom never fetches it, so fire
   // onload ourselves — the module global is already in place above.
   const realAppend = document.head.appendChild.bind(document.head);
-  vi.spyOn(document.head, 'appendChild').mockImplementation(((node: any) => {
-    if (node && node.tagName === 'SCRIPT') {
-      setTimeout(() => { if (typeof node.onload === 'function') node.onload(); }, 0);
+  vi.spyOn(document.head, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
+    const script = node as unknown as HTMLScriptElement;
+    if (script && script.tagName === 'SCRIPT') {
+      setTimeout(() => { if (typeof script.onload === 'function') script.onload(new Event('load')); }, 0);
       return node;
     }
     return realAppend(node);
-  }) as any);
+  });
 
-  (window as any).fetch = vi.fn((url: string) => {
+  win.fetch = vi.fn((url: string) => {
     const u = String(url);
     if (u.includes('/api/widget/conversations') && !u.includes('/read')) {
       const idx = conversationsCalls++;
@@ -106,7 +116,7 @@ function boot(conversationsHandler: (callIndex: number) => ReturnType<typeof jso
   const launcher = document.createElement('button');
   shadow.appendChild(launcher);
 
-  const runtime = (window as any).__gs_runtime.init(
+  const runtime = (win.__gs_runtime as { init: (c: Record<string, unknown>, s: Record<string, unknown>) => Runtime }).init(
     {
       workspaceId: 'ws-test',
       _apiBase: 'https://api.test',
@@ -141,16 +151,20 @@ let harness: Harness | null = null;
 beforeEach(() => {
   vi.useRealTimers();
   document.body.innerHTML = '';
-  for (const key of Object.keys(window as any)) {
-    if (key.startsWith('__gs')) delete (window as any)[key];
+  for (const key of Object.keys(win)) {
+    if (key.startsWith('__gs')) delete win[key];
   }
-  (window as any).__GS_WIDGET_TEST_HOOKS__ = true;
+  win.__GS_WIDGET_TEST_HOOKS__ = true;
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  // An earlier test's runtime keeps listening on the shared document, and an
+  // open one re-reads its list when the page comes back (one conversation
+  // per visitor), through the next test's fetch: closed, it stays quiet.
+  try { harness?.runtime.close(); } catch { /* a test that never booted */ }
   harness = null;
 });
 

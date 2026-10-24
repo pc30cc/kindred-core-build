@@ -53,7 +53,8 @@ describe('P0-B — a fresh intent can never resurrect the old conversation', () 
     // the POLLING callback specifically (the one paired with markPollSuccess).
     const pollIdx = runtime.indexOf('getConversationId: function () { return subscribedConversation; }');
     expect(pollIdx).toBeGreaterThan(-1);
-    const idx = runtime.indexOf('onConversation: function (cid)', pollIdx);
+    // (Its second parameter is the conversation's status, /poll's.)
+    const idx = runtime.indexOf('onConversation: function (cid', pollIdx);
     expect(idx).toBeGreaterThan(-1);
     const body = runtime.slice(idx, idx + 600);
     expect(body).toMatch(/freshIntentArmed\(\) && !subscribedConversation/);

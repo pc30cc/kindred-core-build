@@ -3,7 +3,7 @@
  *
  * A template of the Iranian edition, offered next to `default` (the Super
  * Admin enables it and names it; the id is neutral and never shown): a
- * brand-gradient hero with floating cards, a bottom menu (Home, Messages,
+ * brand-gradient hero with floating cards, a bottom menu (Home, Chat,
  * Help), a single-box composer and an operator-side pre-chat card.
  * Registered under `window.__gs_presentation_t1` and resolved through
  * `presentation-registry.js`.
@@ -32,11 +32,11 @@
 
   // Copy this template adds (Core's own keys are read through `t`): one
   // '|'-separated string per language, in the order of COPY_KEYS.
-  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk at'.split(' ');
+  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent type typing typingNow delivered retry b kb mb now teamOf connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk at'.split(' ');
   var DICT = {
-    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را همین‌جا در گفتگو می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|تا تیم ما بداند با چه کسی گفتگو می‌کند.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ همین‌جا|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید|{d} ساعت {time}',
-    en: 'Messages|Help|Widget sections|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; you will see the reply here, in this chat.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Connect to support|Before we start, introduce yourself|So our team knows who they are talking to.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply here|Our team is offline right now|Type your question…|Articles: {n}|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team|{time} {d}',
-    tr: 'Mesajlar|Yardım|Widget bölümleri|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı burada, bu sohbette göreceksiniz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Ekibimiz kiminle konuştuğunu bilsin diye.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · yanıt burada|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun|{d} {time}',
+    fa: 'گفتگو|راهنما|بخش‌های ویجت|گفتگوهای قبلی|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را همین‌جا در گفتگو می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|گفتگوی شما|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|تا تیم ما بداند با چه کسی گفتگو می‌کند.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ همین‌جا|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید|{d} ساعت {time}',
+    en: 'Chat|Help|Widget sections|Previous conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; you will see the reply here, in this chat.|Search help|Your answer may be in our help|Your conversation|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Connect to support|Before we start, introduce yourself|So our team knows who they are talking to.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply here|Our team is offline right now|Type your question…|Articles: {n}|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team|{time} {d}',
+    tr: 'Sohbet|Yardım|Widget bölümleri|Önceki sohbetler|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı burada, bu sohbette göreceksiniz.|Yardımda ara|Yanıtınız yardımda olabilir|Sohbetiniz|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Ekibimiz kiminle konuştuğunu bilsin diye.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · yanıt burada|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun|{d} {time}',
   };
 
 
@@ -144,7 +144,7 @@
   var TAB = {
     home: ['M3.75 11.3c0-.95.42-1.85 1.15-2.46l5.18-4.36a3 3 0 0 1 3.84 0l5.18 4.36c.73.61 1.15 1.51 1.15 2.46v6.2a3.25 3.25 0 0 1-3.25 3.25H7a3.25 3.25 0 0 1-3.25-3.25z',
       '<path class="td tf" d="M9.75 20.6v-3.6a2.25 2.25 0 0 1 4.5 0v3.6"/>'],
-    list: ['M12 3.75c4.56 0 8.25 3.27 8.25 7.3s-3.69 7.3-8.25 7.3c-1.1 0-2.15-.19-3.11-.54l-3.63 1.38a.6.6 0 0 1-.79-.71l.83-3.05C4.36 14.15 3.75 12.66 3.75 11.05 3.75 7.02 7.44 3.75 12 3.75Z',
+    chat: ['M12 3.75c4.56 0 8.25 3.27 8.25 7.3s-3.69 7.3-8.25 7.3c-1.1 0-2.15-.19-3.11-.54l-3.63 1.38a.6.6 0 0 1-.79-.71l.83-3.05C4.36 14.15 3.75 12.66 3.75 11.05 3.75 7.02 7.44 3.75 12 3.75Z',
       '<path class="td tf" fill="currentColor" stroke="none" d="M8.5 9.9l1.2 1.2-1.2 1.2-1.2-1.2zM12 9.9l1.2 1.2-1.2 1.2-1.2-1.2zM15.5 9.9l1.2 1.2-1.2 1.2-1.2-1.2z"/>'],
     help: ['M12 6.6C10.5 5.4 8.4 4.75 6 4.75c-.97 0-1.75.78-1.75 1.75v10.25c0 .97.78 1.75 1.75 1.75 2.4 0 4.5.65 6 1.85 1.5-1.2 3.6-1.85 6-1.85.97 0 1.75-.78 1.75-1.75V6.5c0-.97-.78-1.75-1.75-1.75-2.4 0-4.5.65-6 1.85Z',
       '<path class="td" d="M12 6.6v13.5"/>'],
@@ -396,13 +396,13 @@
       function tab(view, key) {
         var g = TAB[view];
         return '<button type="button" class="wy-tab" data-view="' + view + '" aria-current="' + (active === view ? 'page' : 'false') +
-          '" aria-labelledby="wt-' + view + (view === 'list' ? ' wt-n' : '') + '"><span class="tic">' +
+          '" aria-labelledby="wt-' + view + (view === 'chat' ? ' wt-n' : '') + '"><span class="tic">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="tb" d="' + g[0] + '"/>' + g[1] + '</svg>' +
-          (view === 'list' ? '<span class="nb" id="wt-n" data-tab-badge' + (n ? '' : ' hidden') + '>' + (n ? fmtBadge(n) : '') + '</span>' : '') +
+          (view === 'chat' ? '<span class="nb" id="wt-n" data-tab-badge' + (n ? '' : ' hidden') + '>' + (n ? fmtBadge(n) : '') + '</span>' : '') +
           '</span><span class="tl" id="wt-' + view + '">' + esc(view === 'home' ? t('home') : L(key)) + '</span></button>';
       }
       return '<nav class="wy-tabs ' + NAV_STYLE + '" aria-label="' + esc(L('nav')) + '">' +
-        tab('home', 'home') + tab('list', 'msgs') + tab('help', 'help') + '</nav>';
+        tab('home', 'home') + tab('chat', 'msgs') + tab('help', 'help') + '</nav>';
     }
     function liveHtml(on) { return '<span class="live' + (on ? '' : ' off') + '"></span>'; }
     function chevHtml() { return svg(D.chev, 18, 2, 'ch mir'); }
@@ -692,7 +692,7 @@
     function isSystemRow(m) {
       var k = m.senderType === 'system' && m.metadata && m.metadata.kind;
       return k === 'call_invitation' || k === 'call_ended' || k === 'routing_agent_joined' ||
-        k === 'conversation_transferred' || k === 'routing_no_agent_available' || k === 'routing_in_queue';
+        k === 'conversation_transferred' || k === 'routing_no_agent_available' || k === 'routing_in_queue' || k === 'conversation_closed';
     }
 
     function messagesHtml(s, extraRowHtml, view) {
@@ -722,11 +722,11 @@
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
         // A new conversation opened under an ended one.
-        if (m.threadStart) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
+        if (m.threadStart && !(idx && msgs[idx - 1].metadata && msgs[idx - 1].metadata.kind === 'conversation_closed')) html += '<div class="msg-day"><span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></div>';
         if (isSystemRow(m)) {
           var kind = m.metadata.kind;
           // The queued row Core gives the visitor's place (`view.queue`, by the extras).
-          html += kind === 'call_invitation' ? renderCallInvitationCard(m)
+          html += kind === 'conversation_closed' ? x('closedHtml', [m]) : kind === 'call_invitation' ? renderCallInvitationCard(m)
             : kind === 'call_ended' ? renderCallEndedRow(m) : view.queue && view.queue.at === idx ? x('queueRowHtml', [view.queue]) : renderRoutingOutcomeRow(m);
           return;
         }
@@ -956,15 +956,16 @@
 
     /**
      * The chat header (feature `chatHeader`; Core repaints it into
-     * [data-chat-header] when what it shows changes): a new conversation
-     * names itself; an assigned operator shows their face and presence, the
+     * [data-chat-header] when what it shows changes): back to `vm.back`; an
+     * assigned operator shows their face and presence, the
      * workspace's name and theirs small under it (owner, 2026-10-18; theirs
      * as the title without a workspace name or when the two are one);
      * otherwise the workspace and its status line. While the thread
      * asks for the visitor's details, or is the one they were given in
      * (`vm.prechat`, feature `prechatHeader`, 08·a-c), and no operator is
      * assigned, the workspace with its lead's face (an online one), as the
-     * questions show it.
+     * questions show it. A past conversation (`vm.past`, history) shows who
+     * answered and when (`vm.when`), never a presence.
      */
     function chatHeaderHtml(vm) {
       vm = vm || {};
@@ -972,11 +973,12 @@
       var op = vm.operator && vm.operator.name ? vm.operator : null;
       var online = !!vm.online;
       var who = !op && pre && online && lead();
-      var status = online ? onlineLine() : L('awayEmail');
-      return (online ? '' : '<i class="away" hidden></i>') + backButtonHtml('home') + (vm.isNew && !pre
-        ? whoHtml('', tf('wyNewConversation', 'New conversation'), workspaceName)
-        : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : who && who.online ? avatarHtml(who, 's40', true) : wsAvatar('s40', online),
-          workspaceName || (op ? op.name : ''), op && workspaceName && workspaceName != op.name ? op.name : status)) +
+      // A fresh thread says the reply time once, in its welcome (`.wel`; the pre-chat has none).
+      var status = online ? vm.isNew && !pre ? L('online') : onlineLine() : L('awayEmail');
+      var sub = op && workspaceName && workspaceName != op.name && op.name;
+      // A past one (history): who answered and when, no presence.
+      return (online ? '' : '<i class="away" hidden></i>') + backButtonHtml(vm.back) + whoHtml(op ? avatarHtml(op, 's40', vm.past ? null : op.online != null ? !!op.online && online : online) : who && who.online ? avatarHtml(who, 's40', true) : wsAvatar('s40', vm.past ? null : online),
+          workspaceName || (op ? op.name : ''), vm.past ? [sub, vm.when].filter(Boolean).join(' · ') : sub || status) +
         // The menu (`vm.menu`) only once Core's late module drew it a list.
         (vm.menu ? x('chatMenuHtml', [vm.menu]) : '') +
         '<div class="presence sr-only" data-presence aria-live="polite"><span data-presence-dot></span>' +
@@ -1115,17 +1117,15 @@
       return '<div class="' + cls + '"><p>' + esc(t('convLoadError')) + '</p>' +
         '<button type="button" class="more" data-home-action="conversations-retry">' + esc(t('convRetry')) + '</button></div>';
     }
+    /** A conversation's avatar, name, time and preview (home card, history row). */
+    function convInner(c, size) {
+      return convAvatar(c, size) + '<span class="lx"><span class="l1"><span class="nm">' + esc(convName(c)) + '</span>' +
+        (c.timeLabel ? '<span class="tm-s">' + esc(c.timeLabel) + '</span>' : '') + '</span>' + previewHtml(c) + '</span>';
+    }
     /** One conversation (the compact flag of older callers draws the same row). */
     function conversationRowHtml(c) {
       c = c || {};
-      // Closed is over for the visitor as resolved is (no live dot).
-      var resolved = /^(resolved|closed)$/.test(c.status);
-      return '<button type="button" class="li conv-row" data-conversation-open="' + esc(c.id) + '">' + convAvatar(c, 's44') +
-        '<span class="lx"><span class="l1"><span class="nm">' + esc(convName(c)) + '</span>' +
-          (c.timeLabel ? '<span class="tm-s">' + esc(c.timeLabel) + '</span>' : '') + '</span>' + previewHtml(c) +
-          '<span class="tg ' + (resolved ? 'done' : 'open') + '">' + (resolved ? '' : '<span class="live"></span>') +
-            esc(resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open')) + '</span>' +
-        '</span></button>';
+      return '<button type="button" class="li conv-row" data-conversation-open="' + esc(c.id) + '">' + convInner(c, 's44') + '</button>';
     }
 
     function homeHtml(vm) {
@@ -1150,21 +1150,8 @@
       var cards = '';
       if (recent) {
         cards += '<button type="button" class="cd rc" data-conversation-open="' + esc(recent.id) + '">' +
-          '<span class="cap">' + esc(L('recent')) + '</span>' +
-          '<span class="rrow">' + convAvatar(recent, 's40') + '<span class="lx">' +
-            '<span class="l1"><span class="nm">' + esc(convName(recent)) + '</span>' +
-              (recent.timeLabel ? '<span class="tm-s">' + esc(recent.timeLabel) + '</span>' : '') + '</span>' +
-            previewHtml(recent) + '</span></span>' +
-        '</button>';
-        if (NAV_MODE === 'none') {
-          cards += '<button type="button" class="more" data-view="list">' + esc(L('all')) + svg(D.chev, 16, 2.2, 'mir') + '</button>';
-        }
-        if (vm.chatEnabled) {
-          cards += '<button type="button" class="cd cta" data-home-action="chat">' + stackHtml(people, 's28', !online) +
-            '<span class="lx"><span class="ct">' + esc(online ? L('newMsg') : t('homeLeaveMessage')) + '</span>' +
-              '<span class="cs">' + liveHtml(online) + esc(online ? replyText() || L('online') : awayLine(nextOpen)) + '</span></span>' +
-            '<span class="ra" aria-hidden="true">' + SEND + '</span></button>';
-        }
+          '<span class="cap">' + (online && recent.status != 'closed' ? liveHtml(1) : '') + esc(L('recent')) + '</span><span class="rrow">' + convInner(recent, 's40') +
+          (Number(recent.unreadCount) ? '' : chevHtml()) + '</span></button>';
       } else if (vm.chatEnabled) {
         cards += '<div class="cd team"><div class="tm">' + stackHtml(people, 's36', !online) +
             '<span class="lx"><span class="ct">' + esc(online ? L('team') : L('away')) + '</span>' +
@@ -1173,12 +1160,16 @@
           '<button type="button" class="btn btn-p" data-home-action="chat">' + esc(online ? t('homeStartChat') : t('homeLeaveMessage')) + SEND + '</button>' +
         '</div>';
       }
+      if (vm.pastCount) {
+        cards += '<button type="button" class="more" data-view="list">' + esc(L('all')) +
+          (vm.pastUnread ? '<span class="nb">' + esc(fmtBadge(vm.pastUnread)) + '</span>' : '') + svg(D.chev, 16, 2.2, 'mir') + '</button>';
+      }
       if (!convs.length && vm.conversationsError) cards += convErrorHtml('cd home-conv-error');
       if (vm.smartSurface && vm.smartSurface.mode === 'home_card') {
         cards += '<section class="smart-home-card cd">' + smartSurfaceHtml(vm.smartSurface) + '</section>';
       }
       if (vm.kbEnabled) {
-        var rows = (vm.articles || []).slice(0, !online ? 2 : recent ? 3 : 4);
+        var rows = (vm.articles || []).slice(0, online || recent ? 4 : 2);
         var ph = online ? L('search') : L('searchAway');
         cards += '<div class="cd hc">' +
           '<label class="sr">' + svg(D.search, 18, 1.9) +
@@ -1205,11 +1196,9 @@
         : vm.loading ? skeletonConvRowsHtml(3)
         : items.length ? '<div class="ls">' + items.map(function (c) { return conversationRowHtml(c); }).join('') + '</div>'
         : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>';
-      return viewRoot('wy-view-list', 'nv-' + NAV_MODE) +
-        titleRowHtml(L('msgs'), 'wy-head-list') +
-        '<div class="wy-scroll wy-list-scroll">' + bodyHtml + '</div>' +
-        (vm.chatEnabled ? '<div class="cta-w"><button type="button" class="btn btn-p" data-home-action="chat">' + esc(L('newMsg')) + SEND + '</button></div>' : '') +
-        footerHtml() + navHtml('list', vm.unreadTotal) +
+      return viewRoot('wy-view-list') +
+        '<div class="ttl wy-head wy-head-list">' + backButtonHtml(vm.back) + '<h2>' + esc(L('all')) + '</h2></div>' +
+        '<div class="wy-scroll wy-list-scroll">' + bodyHtml + '</div>' + footerHtml() +
       '</div>';
     }
 
@@ -1427,7 +1416,7 @@
     }
     /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
     function extend(mod, dry) {
-      if (!mod || mod.id !== 't1' || mod.v !== 2 || typeof mod.create !== 'function') return 0;
+      if (!mod || mod.id !== 't1' || mod.v !== 3 || typeof mod.create !== 'function') return 0;
       if (dry) return 1;
       X = X || mod.create(H);
       var m = missed;
@@ -1446,7 +1435,7 @@
     var features = {
       tabs: true, kbSearch: true, kbCategories: true, kbArticleMeta: true, operatorTyping: true, chatHeader: true, prechatHeader: true,
       emptyQna: true, topics: true, prechatOperator: true, prechatSummary: true, recSend: true, vnRate: true,
-      clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true,
+      clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true, closedNotice: true, pastChats: true,
       prechatSteps: !!caps.prechatSteps, queuePosition: !!caps.queuePosition, awayThread: !!caps.awayThread,
       emojiSearch: !!caps.emojiSearch, dlProgress: !!caps.dlProgress, kbAuthor: !!caps.kbAuthor,
     };
@@ -1475,6 +1464,7 @@
       // The pre-chat one question at a time (the extras' surfaces).
       prechatStepsHtml: function (vm) { return x('prechatStepsHtml', [vm]); },
       prechatStepBoxHtml: function (vm) { return x('prechatStepBoxHtml', [vm]); },
+      pastBarHtml: function (vm) { return x('pastBarHtml', [vm]); },
       contactFallbackHtml: contactFallbackHtml,
       smartSurfaceHtml: smartSurfaceHtml,
       conversationListHtml: conversationListHtml,

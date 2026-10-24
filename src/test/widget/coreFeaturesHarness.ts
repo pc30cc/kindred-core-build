@@ -51,11 +51,18 @@ interface PresentationModule { id?: string; create: (env: Dict) => Renderer; pre
 export interface RuntimeInstance {
   open: () => boolean;
   close: () => boolean;
+  isOpen: () => boolean;
   setTab: (key: string, articleSlug?: string) => void;
+  /** Smart Engagement's panel surface (false: refused, e.g. while a conversation is active). */
+  showSmart: (surface: Record<string, unknown>) => boolean;
   __test: {
+    /** Core's send path itself (chatUI.sendMessage), whatever the composer shows. */
+    send: (text: string) => void;
     startNew: () => void;
     openConversation: (cid: string) => void;
     setConnectionState: (state: string) => void;
+    /** The thread list read again (its Retry). */
+    retryConversations: () => void;
     chatState: () => { drafts: Record<string, string>; aiThinking: boolean; freshIntent: boolean } & Dict;
   };
 }
@@ -77,6 +84,15 @@ export interface ApiAnswer { status?: number; body?: unknown; raw?: unknown }
 
 export interface Call { surface: string; args: unknown[] }
 
+/** What POST /message answered, as runtime-chat.js hands it to the runtime. */
+export interface SendAnswer {
+  conversationId?: string;
+  messageId?: string;
+  continued?: boolean;
+  introMessage?: Record<string, unknown> | null;
+  openingMessage?: Record<string, unknown> | null;
+}
+
 export interface ConversationSeed {
   id: string;
   status?: string;
@@ -85,6 +101,12 @@ export interface ConversationSeed {
   operatorName?: string | null;
   operatorAvatar?: string | null;
   operatorOnline?: boolean;
+  /** The list's one-conversation fields; left out (an older backend) when not given. */
+  unreadReplies?: number;
+  endedAt?: string | null;
+  hasVisitorMessage?: boolean;
+  /** Default: now. */
+  updatedAt?: string;
 }
 
 export interface BootOptions {
@@ -115,6 +137,22 @@ export interface BootOptions {
   holdConversations?: boolean;
   /** Messages of a thread when its history loads. */
   history?: Record<string, Array<Record<string, unknown>>>;
+  /** A history answers after a tick, as the network does (default: at once). */
+  asyncHistory?: boolean;
+  /** Keeps every history's answer until releaseHistory(). */
+  holdHistory?: boolean;
+  /**
+   * 'real': the shipped runtime-chat.js talks to the fake API (fetch), so
+   * `send`, `historyReads` and the emit* poll hooks do not apply; answer its
+   * requests with `api`. Default: a fake module.
+   */
+  chat?: 'real';
+  /**
+   * How POST /message answers (the chat module's callbacks, after a tick):
+   * undefined (default) never answers, as before. `conversationId` goes to
+   * onConversation; the rest to onAccepted (runtime-chat.js's shape).
+   */
+  send?: (o: Dict) => SendAnswer | undefined;
   assignedOperator?: Record<string, unknown> | null;
   identity?: Record<string, unknown>;
   kb?: { categories?: unknown[]; articles?: unknown[]; article?: Record<string, unknown> };
@@ -153,6 +191,10 @@ export interface Harness {
   lastCall: (surface: string) => unknown[] | undefined;
   fetches: string[];
   posts: Array<{ url: string; body: Dict }>;
+  /** The chat module's history reads, in order: 'latest' (loadHistory, /identity/history) or a thread's id. */
+  historyReads: string[];
+  /** The realtime driver's channel changes (`realtime: true`), in order: '+<cid>' subscribed, '-<cid>' left. */
+  subscriptions: string[];
   /** An operator's typing event (`realtime: true`); the payload defaults to `{ actor: 'agent' }`. */
   emitTyping: (payload?: Dict) => void;
   /** A `message_reactions` event, as the drivers hand it to the runtime (`realtime: true`). */
@@ -165,6 +207,8 @@ export interface Harness {
   emitReconnect: () => void;
   /** A /poll answer with these messages (without `realtime`: the polling transport). */
   emitPoll: (messages: Array<Record<string, unknown>>) => void;
+  /** A /poll answer's conversation id and its status (onConversation; without `realtime`). */
+  emitPollConversation: (cid: string, status?: string) => void;
   /** Every count Core gave the launcher's badge (shell.setUnread). */
   unread: number[];
   /** The public bus's events (`publicEvents: true`). */
@@ -178,6 +222,8 @@ export interface Harness {
   releaseLate: () => void;
   /** Answers the held thread list requests (`holdConversations`). */
   releaseConversations: () => void;
+  /** Answers the held history requests (`holdHistory`). */
+  releaseHistory: () => void;
   /** Answers the held runtime-emoji.js request (`emoji: 'hold'`). */
   releaseEmoji: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
@@ -222,6 +268,8 @@ export function boot(opts: BootOptions = {}): Harness {
   const calls: Call[] = [];
   const fetches: string[] = [];
   const posts: Array<{ url: string; body: Dict }> = [];
+  const historyReads: string[] = [];
+  const subscriptions: string[] = [];
   let capturedEnv: Dict = {};
   let typingHook: ((e: unknown) => void) | null = null;
   let messageHook: ((e: { messages: unknown[] }) => void) | null = null;
@@ -229,30 +277,46 @@ export function boot(opts: BootOptions = {}): Harness {
   let seenHook: ((p: unknown) => void) | null = null;
   let reconnectHook: (() => void) | null = null;
   let pollHook: ((msgs: unknown[]) => void) | null = null;
+  let pollConvHook: ((cid: string, status?: string) => void) | null = null;
   const unread: number[] = [];
   const events: Array<{ name: string; payload: unknown }> = [];
   if (opts.publicEvents) win.__gs_public_events = { emit: (name: string, payload: unknown) => { events.push({ name, payload }); } };
   const heldSearches: Array<() => void> = [];
+  const heldHistory: Array<() => void> = [];
 
   if (opts.hint) sessionStorage.setItem('gs:view:ws-test', JSON.stringify(opts.hint));
 
   win.__gs_mod_chat = {
     sendMessage(o: Dict) {
       posts.push({ url: 'chat:sendMessage', body: o });
+      const a = opts.send ? opts.send(o) : undefined;
+      if (!a) return;
+      setTimeout(() => {
+        if (a.conversationId) (o.onConversation as (cid: string) => void)(a.conversationId);
+        (o.onAccepted as (info: Dict) => void)({
+          conversationId: a.conversationId || null, messageId: a.messageId || null, openingMessage: a.openingMessage || null,
+          introMessage: a.introMessage || null, continued: a.continued === true,
+        });
+      }, 0);
     },
-    loadHistory(o: ChatModuleCall) { o.onResult({ conversationId: null, messages: [] }); },
+    loadHistory(o: ChatModuleCall) { historyReads.push('latest'); o.onResult({ conversationId: null, messages: [] }); },
     loadConversationHistory(o: ChatModuleCall) {
-      o.onResult({
+      historyReads.push(o.conversationId);
+      const answer = () => o.onResult({
         conversationId: o.conversationId,
         messages: (opts.history || {})[o.conversationId] || [],
         assignedOperator: opts.assignedOperator ?? null,
       });
+      if (opts.holdHistory) heldHistory.push(answer);
+      else if (opts.asyncHistory) setTimeout(answer, 0); else answer();
     },
-    startPolling(o: { onMessages?: (msgs: unknown[]) => void }) {
+    startPolling(o: { onMessages?: (msgs: unknown[]) => void; onConversation?: (cid: string, status?: string) => void }) {
       pollHook = o && o.onMessages ? o.onMessages : null;
+      pollConvHook = o && o.onConversation ? o.onConversation : null;
       return { stop() {}, pollNow() {} };
     },
   };
+  if (opts.chat === 'real') new Function(read('public/widget/runtime-chat.js')).call(window);
   if (opts.realtime) {
     win.__gs_mod_rt_centrifugo = {
       create(_ctx: unknown, _resolved: unknown, hooks: DriverHooks) {
@@ -264,8 +328,8 @@ export function boot(opts: BootOptions = {}): Harness {
         return {
           connect() { if (hooks.onConnectionState) hooks.onConnectionState('connected'); },
           disconnect() {},
-          subscribeConversation() {},
-          unsubscribeConversation() {},
+          subscribeConversation(cid: string) { subscriptions.push('+' + cid); },
+          unsubscribeConversation(cid: string) { subscriptions.push('-' + cid); },
           sendTyping() {},
           getCapabilities() { return { supportsTyping: true }; },
           hasCapability(k: string) { return k === 'supportsTyping'; },
@@ -375,11 +439,14 @@ export function boot(opts: BootOptions = {}): Harness {
           preview: 'preview ' + c.id,
           unreadCount: c.unreadCount || 0,
           outbound: !!c.outbound,
-          updatedAt: new Date().toISOString(),
-          lastMessageAt: new Date().toISOString(),
+          updatedAt: c.updatedAt || new Date().toISOString(),
+          lastMessageAt: c.updatedAt || new Date().toISOString(),
           operatorName: c.operatorName ?? null,
           operatorAvatar: c.operatorAvatar ?? null,
           operatorOnline: !!c.operatorOnline,
+          ...(c.unreadReplies !== undefined ? { unreadReplies: c.unreadReplies } : {}),
+          ...(c.endedAt !== undefined ? { endedAt: c.endedAt } : {}),
+          ...(c.hasVisitorMessage !== undefined ? { hasVisitorMessage: c.hasVisitorMessage } : {}),
         })),
       });
       if (opts.holdConversations) return new Promise((res) => heldConversations.push(() => res(answer())));
@@ -501,12 +568,15 @@ export function boot(opts: BootOptions = {}): Harness {
     },
     fetches,
     posts,
+    historyReads,
+    subscriptions,
     emitTyping: (payload?: Dict) => { if (typingHook) typingHook({ payload: payload || { actor: 'agent' } }); },
     emitReaction: (payload: Dict) => { if (reactionHook) reactionHook(payload); },
     emitMessages: (messages) => { if (messageHook) messageHook({ messages }); },
     emitSeen: (payload: Dict) => { if (seenHook) seenHook(payload); },
     emitReconnect: () => { if (reconnectHook) reconnectHook(); },
     emitPoll: (messages) => { if (pollHook) pollHook(messages); },
+    emitPollConversation: (cid, status) => { if (pollConvHook) pollConvHook(cid, status); },
     unread,
     events,
     releaseKbSearch: () => { while (heldSearches.length) heldSearches.shift()!(); },
@@ -514,6 +584,7 @@ export function boot(opts: BootOptions = {}): Harness {
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
     releaseLate: () => { while (heldLate.length) heldLate.shift()!(); },
     releaseConversations: () => { while (heldConversations.length) heldConversations.shift()!(); },
+    releaseHistory: () => { while (heldHistory.length) heldHistory.shift()!(); },
     releaseEmoji: () => { while (heldEmoji.length) heldEmoji.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };

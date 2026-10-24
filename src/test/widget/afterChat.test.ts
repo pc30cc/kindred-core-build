@@ -5,10 +5,12 @@
  * t1 / t2 renderers and extras (coreFeaturesHarness.ts).
  *
  *  - runtime.js keeps a `conversation_closed` row only for a renderer that
- *    declares `closedNotice` (t2): `default` (and t1) never get it, from a
+ *    declares `closedNotice` (t1, t2): `default` never gets it, from a
  *    history or a realtime frame, in the store, the renderer, the unread
  *    count or the page's public `message` event (the toast and chime gate);
- *    with t2 it is drawn but never counted as unread.
+ *    with t1 and t2 it is drawn but never counted as unread. t1 (one
+ *    conversation per visitor) draws a close only: the row an older backend
+ *    wrote for a resolve is dropped like default's.
  *  - runtime-late.js asks GET …/csat once when the thread ends with a closed
  *    row (again when the panel reopens or the history reloads), shows the
  *    card only when the server says rateable (or rated), and only with the
@@ -140,10 +142,19 @@ describe('default never sees a closed row (no line, no count, no chime, no reque
     expect(h.fetches.some((u) => /\/csat|\/transcript/.test(u))).toBe(false);
   });
 
-  it('t1 (no `closedNotice`) drops it too, and asks for no rating', async () => {
+  it('t1 (`closedNotice`, one conversation per visitor) keeps a close as its day-divider line, and asks for no rating', async () => {
+    const close = closed();
+    const h = await thread({ renderer: 't1', messages: [...THREAD, { ...close, metadata: { ...close.metadata, status: 'closed' } }] });
+    expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
+    expect(h.q('[data-chat-messages] .msg-day.cl')!.textContent).toBe('سارا گفتگو را به پایان رساند');
+    expect(h.q('[data-csat]')).toBeNull();
+    expect(csatGets(h)).toEqual([]);
+  });
+
+  it('t1 drops the line an older backend wrote for a resolve (a resolve ends nothing for the visitor)', async () => {
     const h = await thread({ renderer: 't1' });
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2']);
-    expect(h.q('[data-csat]')).toBeNull();
+    expect(h.q('[data-chat-messages] .msg-day.cl')).toBeNull();
     expect(csatGets(h)).toEqual([]);
   });
 });

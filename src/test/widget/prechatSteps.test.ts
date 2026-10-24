@@ -302,7 +302,8 @@ describe('the chat bar while the details are asked, and on the saved details', (
   }
 
   it('steps: the store with its lead\'s face, on the saved details and after the first message, until an operator answers (08·c)', async () => {
-    const h = start({ config: ONLINE });
+    // The first message makes the conversation (a fresh thread takes no frame before it).
+    const h = start({ config: ONLINE, send: () => ({ conversationId: 'c-new', messageId: 'm-v1' }) });
     await toChat(h);
     expect(bar2(h)).toEqual(STORE);
     await answer(h, 'Ali');
@@ -378,7 +379,9 @@ describe('the chat bar while the details are asked, and on the saved details', (
   it('the saved details stay with their conversation: another one shows neither them nor the lead', async () => {
     const h = start({
       config: ONLINE,
-      conversations: [{ id: 'c1', operatorName: 'مهدی', operatorOnline: true }],
+      // Closed: one conversation per visitor, so the chat tab opens a fresh one
+      // (a resolved one would still be the visitor's current conversation).
+      conversations: [{ id: 'c1', status: 'closed', operatorName: 'مهدی', operatorOnline: true }],
       history: { c1: [mahdi('m1', 'c1')] },
     });
     await toChat(h);

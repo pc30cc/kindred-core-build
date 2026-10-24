@@ -131,6 +131,8 @@ describe('TemplateChoiceCard', () => {
     expect(def).toContain('Operator typing');
     expect(def).not.toContain('Place in the queue');
     expect(t1).toContain('Place in the queue');
+    // t1 draws the end-of-conversation line (one conversation per visitor), never a rating.
+    expect(t1).toContain('End-of-conversation line');
     expect(t1).not.toContain('Rating after a chat');
     expect(templateVisitorFeatures('t2')).toEqual(['typing', 'closedLine', 'rating', 'reactions']);
     expect(templateVisitorFeatures('t2-intl')).toEqual(templateVisitorFeatures('t2'));

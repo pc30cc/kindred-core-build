@@ -116,3 +116,97 @@ test('t1: the closed emoji picker takes no room once the late pack is in', async
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+// One conversation per visitor (t1, the owner's decision of 2026-10-23): every
+// one-* state renders on the phone (the desktop one in the panel), and each
+// screen holds what the decision draws: the bar's middle tab is «گفتگو»,
+// home shows one conversation door, history is a barless pushed screen whose
+// back and close sit where a thread's do, a past thread is read-only, and a
+// close is a line under which the visitor simply writes on.
+test('t1: one conversation per visitor (the one-* states)', async () => {
+  test.setTimeout(300_000);
+  const out = mkdtempSync(path.join(os.tmpdir(), 'screens-t1-one-'));
+  const facts: Record<string, Record<string, unknown>> = {};
+  const states = Object.keys(SCREEN_STATES).filter((s) => s.startsWith('one-'));
+  try {
+    const files = await renderTemplateScreens({
+      templateId: 't1',
+      outDir: out,
+      states,
+      beforeShot: async (page, state) => {
+        facts[state] = await page.evaluate(() => {
+          const sr = document.getElementById('gs-host')!.shadowRoot!;
+          const q = (sel: string) => sr.querySelector(sel) as HTMLElement | null;
+          const at = [q('.panel [data-view-back]'), q('.panel-close')].map((e) => {
+            if (!e || !e.offsetParent) return null;
+            const r = e.getBoundingClientRect();
+            return [Math.round(r.x), Math.round(r.y)];
+          });
+          const bar = q('[data-input-bar]');
+          const hint = q('[data-chat-messages] .cl-h');
+          return {
+            view: q('.panel')!.getAttribute('data-view'),
+            badge: q('.wy-tab[data-view="chat"] [data-tab-badge]:not([hidden])')?.textContent ?? null,
+            tabs: !!q('.wy-tabs'),
+            caption: q('.cd.rc .cap')?.textContent ?? null,
+            team: !!q('.cd.team'),
+            more: q('[data-body] .more[data-view="list"]')?.textContent ?? null,
+            moreBadge: q('[data-body] .more[data-view="list"] .nb')?.textContent ?? null,
+            menuBadge: q('[data-chat-menu-action="history"] .nb')?.textContent ?? null,
+            newCard: !!q('.cd.cta:not(.ask)'),
+            rows: Array.prototype.map.call(sr.querySelectorAll('.wy-view-list [data-conversation-open]'), (e: Element) => e.getAttribute('data-conversation-open')).join(','),
+            pills: sr.querySelectorAll('.tg').length,
+            closed: q('[data-chat-messages] .msg-day.cl')?.textContent ?? null,
+            hint: !!hint && getComputedStyle(hint).display !== 'none',
+            newDivider: Array.prototype.filter.call(sr.querySelectorAll('[data-chat-messages] .msg-day'), (e: Element) => /گفتگوی جدید/.test(e.textContent || '')).length,
+            composer: !!bar && bar.style.display !== 'none',
+            pastBar: q('[data-past-bar]')?.textContent ?? null,
+            pastButton: !!q('[data-past-bar] .btn'),
+            headerDot: !!q('[data-chat-header] .who .pr'),
+            headerSub: q('[data-chat-header] .hs')?.textContent ?? null,
+            menu: Array.prototype.map.call(sr.querySelectorAll('[data-chat-menu-action]'), (e: Element) => e.getAttribute('data-chat-menu-action')).join(','),
+            back: at[0],
+            close: at[1],
+          };
+        });
+      },
+    });
+    expect(files).toHaveLength(states.length);
+    for (const file of files) {
+      const desk = file.endsWith('one-10-home-live-desktop.png');
+      expect(pngSize(file), path.basename(file)).toEqual(desk ? { w: 800, h: 1440 } : { w: 780, h: 1688 });
+    }
+    const f = facts;
+    // Home: one door; the tab carries the badge; history a link away.
+    expect(f['one-01-home-first-visit']).toMatchObject({ view: 'home', team: true, more: null, newCard: false, badge: null });
+    expect(f['one-02-home-live']).toMatchObject({ caption: 'گفتگوی شما', team: false, more: 'گفتگوهای قبلی', moreBadge: null, newCard: false, badge: '۲' });
+    // Resolved is not ended for the visitor: still their conversation.
+    expect(f['one-20-home-resolved']).toMatchObject({ caption: 'گفتگوی شما', team: false, more: 'گفتگوهای قبلی' });
+    // An unseen answer in history: the link and the ⋯ item count it.
+    expect(f['one-21-home-history-unread']).toMatchObject({ caption: 'گفتگوی شما', more: 'گفتگوهای قبلی۱', moreBadge: '۱' });
+    expect(f['one-22-thread-menu-history-unread']).toMatchObject({ menu: 'history,transcript,sound', menuBadge: '۱' });
+    expect(f['one-03-home-returning']).toMatchObject({ caption: null, team: true, more: 'گفتگوهای قبلی', newCard: false });
+    expect(f['one-04-home-unread-closed']).toMatchObject({ caption: 'گفتگوی شما', badge: '۱' });
+    // The thread's ⋯ offers history; a fresh thread's too.
+    expect(f['one-05-thread-menu-open'].menu).toBe('history,transcript,sound');
+    expect(f['one-18-fresh-thread-menu'].menu).toBe('history,sound');
+    // A close while the visitor reads: the line, its hint, the composer; writing goes on under it.
+    expect(f['one-06-thread-closed-line']).toMatchObject({ closed: 'سارا گفتگو را به پایان رساند', hint: true, composer: true });
+    expect(f['one-11-thread-write-after-close']).toMatchObject({ closed: 'سارا گفتگو را به پایان رساند', hint: false, composer: true, newDivider: 0 });
+    // History: no bar, no pills, finished ones only; back and close where the thread has them.
+    expect(f['one-07-history']).toMatchObject({ view: 'list', tabs: false, pills: 0, rows: 'c-mahdi,c-reza,c-ai-old' });
+    expect(f['one-07-history'].back).toEqual(f['one-08-past-thread'].back);
+    expect(f['one-07-history'].close).toEqual(f['one-08-past-thread'].close);
+    // A past thread: read-only, who and when, no presence; its way to the current one.
+    expect(f['one-08-past-thread']).toMatchObject({
+      composer: false, pastButton: false, headerDot: false, headerSub: 'مهدی · دیروز', menu: 'transcript',
+      pastBar: 'این گفتگو به پایان رسیده و فقط خواندنی استگفتگوی فعلی',
+    });
+    expect(f['one-16-past-thread-no-line']).toMatchObject({ composer: false, closed: null, headerSub: 'رضا · ۵ روز پیش' });
+    expect(f['one-17-past-thread-nothing-current']).toMatchObject({ composer: false, pastButton: true });
+    // A fresh thread's header: the store and «آنلاین» (its welcome says the reply time).
+    expect(f['one-09-fresh-thread']).toMatchObject({ view: 'chat', headerSub: 'آنلاین', composer: true });
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});

@@ -293,7 +293,7 @@ describe('the catalog in the platform snapshot', () => {
 describe('workspaceChatTemplate: the server\'s view of the template a workspace wears', () => {
   const effective = async () => snapshotMod.workspaceChatTemplate(config, WS);
 
-  it('is GET /config\'s template and options, with the descriptor (closedNotice only on t2)', async () => {
+  it('is GET /config\'s template and options, with the descriptor (closedNotice on t2, and on t1 since one conversation per visitor)', async () => {
     await fresh((t) => { withCatalog()(t); choose('t2', { csat: false })(t); });
     const tpl = await effective();
     const b = await body();
@@ -302,7 +302,7 @@ describe('workspaceChatTemplate: the server\'s view of the template a workspace 
     expect(tpl.options).toMatchObject({ csat: false, transcriptEmail: false });
     expect(tpl.descriptor?.closedNotice).toBe(true);
     await fresh((t) => { withCatalog()(t); choose('t1')(t); });
-    expect((await effective()).descriptor?.closedNotice).toBe(false);
+    expect((await effective()).descriptor?.closedNotice).toBe(true);
   });
 
   it('no catalog, a disabled choice, a plan without the Appearance editor, the International edition: never t2', async () => {

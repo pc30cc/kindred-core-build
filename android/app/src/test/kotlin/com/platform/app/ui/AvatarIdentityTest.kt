@@ -2,80 +2,23 @@ package com.platform.app.ui
 
 import com.platform.app.ui.components.djb2
 import com.platform.app.ui.components.flagEmoji
-import com.platform.app.ui.components.initialsOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The three pure functions behind an avatar.
+ * The two pure functions behind a visitor's avatar.
  *
- * Worth testing on their own because all three are **cross-platform
- * contracts** rather than local details: the same contact has to come out the
- * same colour and the same two letters in the web inbox, on iOS and here. A
- * change that looks like a tidy-up — Kotlin's own `hashCode` instead of djb2,
- * `split(" ")` without filtering empties — silently recolours every face in
- * the product, and nothing on screen would say so.
+ * Worth testing on their own because both are **cross-platform contracts**
+ * rather than local details: the same contact has to come out the same
+ * colour, and the same flag, in the web inbox, on iOS and here. A change that
+ * looks like a tidy-up — Kotlin's own `hashCode` instead of djb2 — silently
+ * recolours every face in the product, and nothing on screen would say so.
+ *
+ * There are no initials to test: no avatar in this app draws letters, for a
+ * visitor, a teammate or a workspace (AvatarGlyphsTest).
  */
 class AvatarIdentityTest {
-
-    // MARK: - Initials
-
-    @Test fun `two words give one letter each`() {
-        assertEquals("MH", initialsOf("Maryam Hosseini"))
-    }
-
-    @Test fun `one word gives its first two letters`() {
-        assertEquals("SA", initialsOf("Sara"))
-    }
-
-    @Test fun `a single character does not ask for a second`() {
-        assertEquals("X", initialsOf("x"))
-    }
-
-    @Test fun `nothing at all is a question mark, not a crash`() {
-        assertEquals("?", initialsOf(""))
-    }
-
-    /**
-     * The case this rule exists for. «بازدیدکننده 4ZTK» is a generated
-     * label — a word and an opaque code — not a first name and a surname.
-     * One letter from each would give «ب4»: two scripts in one circle,
-     * telling no two visitors apart, on every anonymous row in a Persian
-     * inbox.
-     */
-    @Test
-    fun `an anonymous visitor shows its code, not a letter from each script`() {
-        assertEquals("4Z", initialsOf("بازدیدکننده 4ZTK"))
-        assertEquals("JV", initialsOf("بازدیدکننده JVA3"))
-        assertEquals("WR", initialsOf("بازدیدکننده WRRJ"))
-        assertEquals("73", initialsOf("بازدیدکننده 73F8"))
-    }
-
-    /** Narrow on purpose: a real name in any script is untouched. */
-    @Test
-    fun `a real name keeps a letter from each part`() {
-        assertEquals("زک", initialsOf("زهرا کریمی"))
-        assertEquals("MH", initialsOf("Maryam Hosseini"))
-        // Persian given name, Latin surname — two parts of one real name, and
-        // the second is too short to be a visitor code anyway.
-        assertEquals("رA", initialsOf("رضا A"))
-        assertEquals("?", initialsOf("   "))
-    }
-
-    @Test fun `runs of spaces do not produce a blank initial`() {
-        // The naive split yields ["Ali", "", "", "Rezaei"]; taking parts[1]
-        // there is an empty string and `first()` on it throws.
-        assertEquals("AR", initialsOf("Ali    Rezaei"))
-    }
-
-    @Test fun `a Persian name keeps its own letters`() {
-        assertEquals("مح", initialsOf("مریم حسینی"))
-    }
-
-    @Test fun `leading and trailing space is not a word`() {
-        assertEquals("EY", initialsOf("  Emre Yılmaz  "))
-    }
 
     // MARK: - Colour
 

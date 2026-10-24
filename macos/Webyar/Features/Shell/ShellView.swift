@@ -287,9 +287,9 @@ struct WorkspaceHeader: View {
             }
         } label: {
             HStack(spacing: 10) {
-                logo
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                // The workspace's logo, or the platform's workspace glyph: never the product's
+                // own mark, which says nothing about which workspace this is.
+                WorkspaceMark(logoURL: app.workspace?.logoUrl, size: 28)
                 Text(app.workspace?.name.isEmpty == false ? app.workspace!.name : s["appName"])
                     .appFont(14, .semibold)
                     .lineLimit(1)
@@ -306,15 +306,6 @@ struct WorkspaceHeader: View {
         .glassCard(12, interactive: true)
         .help(s["switchWorkspace"])
         .simultaneousGesture(TapGesture().onEnded { Task { await app.refreshWorkspaces() } })
-    }
-
-    @ViewBuilder private var logo: some View {
-        // Whatever link the server gives (the provider's CDN or a path on the API), resolved as every picture is.
-        if let url = app.workspace?.logoUrl, let u = app.client.absolute(url) {
-            RemoteImage(url: u) { Image("BrandMark").resizable() }
-        } else {
-            Image("BrandMark").resizable()
-        }
     }
 }
 
@@ -441,8 +432,8 @@ private struct AccountMenu: View {
             if app.workspaces.count > 1 {
                 heading(s["workspace"])
                 ForEach(app.workspaces) { w in
-                    AccountMenuRow(title: w.name.isEmpty ? (w.slug ?? w.id) : w.name, icon: "building.2", tint: Palette.text2,
-                                   checked: w.id == app.workspace?.id) {
+                    AccountMenuRow(title: w.name.isEmpty ? (w.slug ?? w.id) : w.name, tint: Palette.text2,
+                                   checked: w.id == app.workspace?.id, isWorkspace: true, logoURL: w.logoUrl) {
                         close()
                         Task { await app.requestSwitchWorkspace(w) }
                     }
@@ -482,15 +473,19 @@ private struct AccountMenu: View {
 
 private struct AccountMenuRow: View {
     let title: String
-    let icon: String
+    var icon: String = ""
     let tint: Color
     let checked: Bool
     var textTint: Color? = nil
+    /// A workspace: its logo, or the platform's workspace glyph, where the icon goes.
+    var isWorkspace = false
+    var logoURL: String? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            AccountMenuRowLabel(title: title, icon: icon, tint: tint, checked: checked, textTint: textTint)
+            AccountMenuRowLabel(title: title, icon: icon, tint: tint, checked: checked, textTint: textTint,
+                                isWorkspace: isWorkspace, logoURL: logoURL)
         }
         .buttonStyle(AccountMenuRowStyle())
     }
@@ -498,17 +493,26 @@ private struct AccountMenuRow: View {
 
 private struct AccountMenuRowLabel: View {
     let title: String
-    let icon: String
+    var icon: String = ""
     let tint: Color
     let checked: Bool
     var textTint: Color? = nil
+    var isWorkspace = false
+    var logoURL: String? = nil
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: icon == "circle.fill" ? 8 : 13, weight: .medium))
-                .foregroundStyle(tint)
-                .frame(width: 20)
+            Group {
+                if isWorkspace {
+                    // Never the workspace's first letter: its logo, else the shop front.
+                    WorkspaceMark(logoURL: logoURL, size: 18)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: icon == "circle.fill" ? 8 : 13, weight: .medium))
+                        .foregroundStyle(tint)
+                }
+            }
+            .frame(width: 20)
             Text(title).appFont(13).foregroundStyle(textTint ?? Palette.text).lineLimit(1)
             Spacer(minLength: 8)
             if checked {

@@ -54,11 +54,8 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Border Width="28" Height="28" CornerRadius="8">
-                        <Border.Background>
-                            <ImageBrush x:Name="WorkspaceLogo" Stretch="UniformToFill" />
-                        </Border.Background>
-                    </Border>
+                    <!-- Its logo, or the platform's workspace glyph: never the product's own mark. -->
+                    <controls:WorkspaceMark x:Name="WorkspaceLogo" Size="28" VerticalAlignment="Center" />
                     <TextBlock x:Name="WorkspaceName" Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" MaxWidth="130" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                     <FontIcon x:Name="WorkspaceChevron" Grid.Column="2" Glyph="&#xE70D;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
                 </Grid>

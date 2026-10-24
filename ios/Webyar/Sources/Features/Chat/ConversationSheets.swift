@@ -69,7 +69,7 @@ struct TransferSheet: View {
 
     private func row(title: String, subtitle: String?, avatar: String?, isCurrent: Bool) -> some View {
         HStack(spacing: Theme.Space.md) {
-            Avatar(name: title, imageURL: avatar, size: Theme.Size.avatarSmall + 4)
+            Avatar(name: title, imageURL: avatar, size: Theme.Size.avatarSmall + 4, subject: .member)
 
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(title)

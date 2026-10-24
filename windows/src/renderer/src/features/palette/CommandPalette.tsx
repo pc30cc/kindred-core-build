@@ -17,7 +17,7 @@ interface Item {
   title: string
   subtitle?: string
   icon?: LucideIcon
-  avatar?: { name: string; url?: string | null }
+  avatar?: { name: string; url?: string | null; kind: 'visitor' | 'person' }
   run: () => void
 }
 
@@ -65,7 +65,7 @@ export function CommandPalette() {
             group: t('tabInbox'),
             title: contactName(c.contacts, language),
             subtitle: conversationPreview(c, language),
-            avatar: { name: contactName(c.contacts, language), url: c.contacts?.avatar_url },
+            avatar: { name: contactName(c.contacts, language), url: c.contacts?.avatar_url, kind: 'visitor' },
             run: close(() => s.openConversation(c.id)),
           }))
         : []
@@ -75,7 +75,7 @@ export function CommandPalette() {
           group: t('colleagues'),
           title: colleagueName(c),
           subtitle: c.email ?? undefined,
-          avatar: { name: colleagueName(c), url: c.avatar_url },
+          avatar: { name: colleagueName(c), url: c.avatar_url, kind: 'person' },
           run: close(() => s.openColleague(c.user_id)),
         }))
       : []
@@ -135,7 +135,7 @@ export function CommandPalette() {
                   className={cx('flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-start', i === index ? 'bg-brand-soft' : '')}
                 >
                   {item.avatar ? (
-                    <Avatar name={item.avatar.name} imageURL={item.avatar.url} size={30} />
+                    <Avatar name={item.avatar.name} imageURL={item.avatar.url} size={30} kind={item.avatar.kind} />
                   ) : item.icon ? (
                     <span className="flex size-[30px] items-center justify-center rounded-lg bg-elevated text-fg-2">
                       <item.icon className="size-4" />

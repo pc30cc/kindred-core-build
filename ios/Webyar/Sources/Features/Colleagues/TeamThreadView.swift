@@ -467,10 +467,11 @@ private struct TeamMessageRow: View {
                     Avatar(
                         name: appState.session.user?.displayName ?? "—",
                         imageURL: appState.myAvatarURL,
-                        size: size
+                        size: size,
+                        subject: .member
                     )
                 } else {
-                    Avatar(name: colleague.displayName, imageURL: colleague.avatarURL, size: size)
+                    Avatar(name: colleague.displayName, imageURL: colleague.avatarURL, size: size, subject: .member)
                 }
             } else {
                 Color.clear

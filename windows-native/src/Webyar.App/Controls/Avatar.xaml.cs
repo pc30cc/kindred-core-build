@@ -18,7 +18,8 @@ namespace Webyar.App.Controls;
 /// A person, drawn as the Mac app's AvatarView draws them: their photo; else
 /// their operating system's logo on that OS's gradient; else a grey disc with
 /// a person in it, softly tinted by a hash of the name. Operators show their
-/// photo or the grey disc with a person; the AI its sparkle. Never initials.
+/// photo or the grey disc with the platform's person glyph (AvatarGlyphs);
+/// the AI its sparkle. Never initials. A workspace is a WorkspaceMark.
 ///
 /// While the photo is on its way — or while the page still waits to learn
 /// who this is (<see cref="IsPending"/>) — the avatar is a pulsing skeleton,
@@ -143,9 +144,10 @@ public sealed partial class Avatar : UserControl
         }
         else if (Kind is "operator")
         {
-            // No initials anywhere: an operator without a photo is the grey disc with a person.
+            // No initials anywhere: an operator without a photo is the grey disc with the
+            // platform's person glyph, the one the web panel, the widgets and the other apps draw.
             Disc.Fill = Palette.Resource("ElevatedBrush");
-            ShowIcon(PersonGlyph, size * 0.46, Palette.Resource("Text3Brush"));
+            ShowPath(AvatarGlyphs.PersonPath, Palette.Resource("Text3Brush"), size * AvatarGlyphs.PersonBox(size));
         }
         else if (AvatarArt.For(DisplayName, Email, Os) is { Os: not AvatarOs.None } art)
         {
@@ -184,6 +186,15 @@ public sealed partial class Avatar : UserControl
         IconGlyph.FontSize = fontSize;
         IconGlyph.Foreground = foreground;
         IconGlyph.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>One of the platform's avatar glyphs (AvatarGlyphs), centred, its 24-unit box <paramref name="box"/> pixels across.</summary>
+    private void ShowPath(string markup, Brush fill, double box)
+    {
+        GlyphCanvas.Children.Clear();
+        GlyphCanvas.Children.Add(new Path { Data = Geometry(markup), Fill = fill });
+        GlyphBox.Width = GlyphBox.Height = Math.Round(box);
+        GlyphBox.Visibility = Visibility.Visible;
     }
 
     private void StartPulse()

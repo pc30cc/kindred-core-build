@@ -17,9 +17,21 @@ import androidx.compose.ui.unit.dp
  *
  * Paths are Material Symbols' own, on the 24-unit grid every Material icon
  * uses, so these sit at the same optical weight as the ones that did make the
- * cut.
+ * cut — except [Person] and [Workspace], which are the platform's own.
  */
 object Glyph {
+
+    /**
+     * The platform's person: an operator or a teammate with no photo, the
+     * operator included. Never initials. See [AvatarGlyphPaths].
+     */
+    val Person: ImageVector by lazy { vector("Person", AvatarGlyphPaths.PERSON) }
+
+    /**
+     * The platform's workspace mark, a shop front: a workspace whose owner set
+     * no logo. Never its first letter. See [AvatarGlyphPaths].
+     */
+    val Workspace: ImageVector by lazy { vector("Workspace", AvatarGlyphPaths.WORKSPACE) }
 
     /** A microphone. Voice notes, and nothing else so far. */
     val Mic: ImageVector by lazy {
@@ -368,4 +380,26 @@ object Glyph {
                 fill = SolidColor(Color.Black),
             )
         }.build()
+}
+
+/**
+ * The two glyphs the whole product draws where there is no picture, on a
+ * 24 × 24 grid: the person (an operator or a teammate without a photo) and
+ * the workspace's shop front (a workspace without a logo).
+ *
+ * One design for the web panel, both website widgets and every native app,
+ * so the strings are the canonical SVG paths, character for character, not a
+ * redrawing; `src/test/native/avatarGlyphs.test.ts` holds every app to them.
+ * Both are left–right symmetric, so they never mirror under right to left,
+ * and no outline overlaps another, so either fill rule gives the same pixels.
+ *
+ * Their box takes 62% (person) or 58% (workspace) of the avatar, a little
+ * more on a chip of 24dp or less: [personBox], [workspaceBox].
+ */
+internal object AvatarGlyphPaths {
+    const val PERSON =
+        "M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 10.75c-4.6 0-8 2.3-8 5.25 0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-2.95-3.4-5.25-8-5.25z"
+
+    const val WORKSPACE =
+        "M6.6 3h10.8q.9 0 1.38.83L21.5 8.5A2.375 2.375 0 0 1 20.25 10.59v8.16A2.25 2.25 0 0 1 18 21H6a2.25 2.25 0 0 1-2.25-2.25v-8.16A2.375 2.375 0 0 1 2.5 8.5l2.72-4.67Q5.7 3 6.6 3zm-.85 7.71v8.04q0 .25.25.25h4v-2.75a2 2 0 0 1 4 0V19h4q.25 0 .25-.25v-8.04A2.375 2.375 0 0 1 16.75 8.5a2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-1.5 2.21z"
 }

@@ -427,8 +427,7 @@ public sealed partial class ShellPage : Page
         var s = Host.Strings;
         var current = Host.Workspace;
         WorkspaceName.Text = current?.Name is { Length: > 0 } wn ? wn : s["appName"];
-        WorkspaceLogo.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-            current?.LogoUrl is { } logo && logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? new Uri(logo) : new Uri(AppPaths.Icon));
+        WorkspaceLogo.LogoUrl = current?.LogoUrl;
         // Always clickable: the list is fetched again each time it opens, so a
         // workspace joined elsewhere (on the web, by an invitation) shows up here.
         var many = Host.Workspaces.Count > 1;

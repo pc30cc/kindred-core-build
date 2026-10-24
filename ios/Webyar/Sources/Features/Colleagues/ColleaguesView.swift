@@ -109,7 +109,8 @@ struct ColleagueRow: View {
             Avatar(
                 name: colleague.displayName,
                 imageURL: colleague.avatarURL,
-                size: Theme.Size.avatarSmall
+                size: Theme.Size.avatarSmall,
+                subject: .member
             )
 
             VStack(alignment: .leading, spacing: 2) {

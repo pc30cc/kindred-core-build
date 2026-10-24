@@ -100,7 +100,8 @@ struct SettingsView: View {
                         Avatar(
                             name: profile?.fullName ?? appState.session.user?.displayName ?? "—",
                             imageURL: profile?.avatarURL,
-                            size: Theme.Size.avatarMedium + 6
+                            size: Theme.Size.avatarMedium + 6,
+                            subject: .member
                         )
 
                         VStack(alignment: .leading, spacing: Theme.Space.xxs) {

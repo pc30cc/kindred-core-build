@@ -17,7 +17,8 @@ struct Avatar: View {
     let name: String
     let imageURL: String?
     var size: CGFloat = Theme.Size.avatarMedium
-    /// A person, or a workspace's logo — which decides the silhouette.
+    /// A visitor or contact, a teammate (`.member`), or a workspace's logo
+    /// (`.organisation`) — which decides the silhouette.
     var subject: AvatarSkeleton.Subject = .person
 
     /// Something is being done to this picture right now — a new one being

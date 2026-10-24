@@ -99,27 +99,25 @@ const csatGets = (h: ReturnType<typeof boot>) => h.fetches.filter((u) => /\/conv
 const posts = (h: ReturnType<typeof boot>, path: string) => h.posts.filter((p) => p.url.endsWith('/conversations/c1/' + path));
 const active = (h: ReturnType<typeof boot>) => h.shadow.activeElement as HTMLElement | null;
 
-describe('default never sees a closed row (no line, no count, no chime, no request)', () => {
-  it('from a history: dropped before the store and the renderer; nothing late is asked for', async () => {
+describe('default (one conversation per visitor): a real close is its quiet line; a resolve is nothing; never a rating or a late pack', () => {
+  it('from a history: the close drawn as the line, nothing late is asked for', async () => {
     const h = boot({
       renderer: 'default',
-      conversations: [{ id: 'c1' }],
+      conversations: [{ id: 'c1', status: 'closed' }],
       history: { c1: [...THREAD, closed()] },
     });
     await flush(20);
     h.runtime.__test.openConversation('c1');
     await flush(30);
     const msgs = h.runtime.__test.chatState().messages as Array<Record<string, unknown>>;
-    expect(msgs.map((m) => m.__id)).toEqual(['m1', 'm2']);
-    const drawn = h.calls.filter((c) => c.surface === 'messagesHtml')
-      .flatMap((c) => ((c.args[0] as { messages: Array<Record<string, unknown>> }).messages || []).map((m) => m.__id));
-    expect(drawn).not.toContain('cl1');
+    expect(msgs.map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
+    expect(h.q('[data-chat-messages]')!.textContent).toContain('سارا گفتگو را به پایان رساند');
     expect(h.q('[data-chat-messages]')!.textContent).not.toContain('closed the conversation');
     expect(h.fetches.some((u) => /\/csat|\/transcript/.test(u))).toBe(false);
     expect(h.scripts.some((s) => /runtime-late|runtime-ext|-x\./.test(s))).toBe(false);
   });
 
-  it('from a realtime frame: no message, no unread, no public `message` event (the toast and chime gate)', async () => {
+  it('a resolve line an older backend wrote: dropped (no line, no unread, no public `message` event)', async () => {
     const h = boot({ renderer: 'default', realtime: true, publicEvents: true, conversations: [{ id: 'c1' }], history: { c1: THREAD } });
     await flush(20);
     h.runtime.__test.openConversation('c1');
@@ -127,7 +125,7 @@ describe('default never sees a closed row (no line, no count, no chime, no reque
     h.runtime.setTab('home');
     await flush();
     const unreadBefore = h.unread.length ? h.unread[h.unread.length - 1] : 0;
-    h.emitMessages([closed()]);
+    h.emitMessages([closed('cl1', 1, 'resolved')]);
     await flush(10);
     expect((h.runtime.__test.chatState().messages as unknown[]).length).toBe(2);
     expect(h.events.filter((e) => e.name === 'message')).toEqual([]);
@@ -139,26 +137,21 @@ describe('default never sees a closed row (no line, no count, no chime, no reque
     expect(h.unread[h.unread.length - 1]).toBe(unreadBefore + 1);
   });
 
-  it('from a /poll answer (no realtime): no message, no unread, no public `message` event', async () => {
+  it('a close arriving by /poll (no realtime): the line joins the thread, no rating is asked for', async () => {
     const h = boot({ renderer: 'default', publicEvents: true, conversations: [{ id: 'c1' }], history: { c1: THREAD } });
     await flush(20);
     h.runtime.__test.openConversation('c1');
     await flush(30);
-    h.runtime.setTab('home');
-    await flush();
-    const unreadBefore = h.unread.length ? h.unread[h.unread.length - 1] : 0;
     h.emitPoll([closed()]);
     await flush(10);
-    expect((h.runtime.__test.chatState().messages as unknown[]).length).toBe(2);
-    expect(h.events.filter((e) => e.name === 'message')).toEqual([]);
-    expect(h.unread.length ? h.unread[h.unread.length - 1] : 0).toBe(unreadBefore);
-    // The same answer with a real reply does count (the test can see it).
-    h.emitPoll([agent('m3', 'سلام دوباره', 0)]);
-    await flush(10);
-    expect(h.events.filter((e) => e.name === 'message')).toHaveLength(1);
+    expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
+    expect(h.q('[data-chat-messages]')!.textContent).toContain('سارا گفتگو را به پایان رساند');
     expect(h.fetches.some((u) => /\/csat|\/transcript/.test(u))).toBe(false);
   });
 
+});
+
+describe('t1 and t2: a real close kept, an older backend\'s resolve line dropped', () => {
   it('t1 (`closedNotice`, one conversation per visitor) keeps a close as its day-divider line, and asks for no rating', async () => {
     const h = await thread({ renderer: 't1' });
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);

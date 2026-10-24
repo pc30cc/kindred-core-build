@@ -32,8 +32,9 @@ function table(name: string) {
   const filters: Array<(c: Conversation) => boolean> = [];
   const found = () => (name === 'conversations' ? store.conversations.filter((c) => filters.every((f) => f(c))) : []);
   const b = {
-    select: () => b, order: () => b, limit: () => b, is: () => b, in: () => b, not: () => b, update: () => b,
+    select: () => b, order: () => b, limit: () => b, is: () => b, not: () => b, or: () => b, update: () => b,
     eq: (col: string, val: unknown) => { filters.push((c) => (c as unknown as Row)[col] === val); return b; },
+    in: (col: string, vals: unknown[]) => { filters.push((c) => vals.includes((c as unknown as Row)[col])); return b; },
     neq: (col: string, val: unknown) => { filters.push((c) => (c as unknown as Row)[col] !== val); return b; },
     contains: (_col: string, val: Row) => { filters.push((c) => Object.entries(val).every(([k, v]) => c.metadata[k] === v)); return b; },
     maybeSingle: async (): Promise<Result> => ({ data: found()[0] ?? null, error: null }),

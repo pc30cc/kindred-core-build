@@ -715,12 +715,23 @@ async function releaseIfSeatLocked(
 // ─── Who gets it ──────────────────────────────────────────────────────────
 
 /**
+ * How many of the contact's other conversations last-agent routing looks
+ * through for a person who handled one. With a fresh conversation after
+ * every close (one current conversation per visitor, 2026-10-24), an
+ * AI-only or greeting-only one between two visits is common, and must not
+ * hide the operator from before it.
+ */
+const PREVIOUS_CONVERSATIONS_SCANNED = 5;
+
+/**
  * "The same operator as before" (last-agent routing): the operator already
- * writing in this conversation (the last one who replied in it), else the
- * assignee of the contact's most recent other conversation active within
- * the window, else the last operator who replied in that one. Null when
- * there is none. Uses conversations_contact_recent_idx and the messages'
- * (conversation, sender type, time) index.
+ * writing in this conversation (the last one who replied in it), else, among
+ * the contact's PREVIOUS_CONVERSATIONS_SCANNED most recent other
+ * conversations active within the window, newest first, the first one a
+ * person handled: its assignee, else the last operator who replied in it.
+ * Conversations only the AI (or its greeting) answered are passed over. Null
+ * when there is none. Uses conversations_contact_recent_idx and the
+ * messages' (conversation, sender type, time) index.
  */
 export async function findPreviousOperator(
   config: ServerConfig,
@@ -755,11 +766,14 @@ export async function findPreviousOperator(
     .neq('id', conversation.id)
     .gte('updated_at', since)
     .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const row = prev as { id?: string; assigned_to?: string | null } | null;
-  if (!row?.id) return null;
-  return row.assigned_to || await lastReplier(row.id);
+    .limit(PREVIOUS_CONVERSATIONS_SCANNED);
+  for (const row of ((prev || []) as Array<{ id?: string; assigned_to?: string | null }>)) {
+    if (!row?.id) continue;
+    // lastReplier reads only a person's replies (sender 'agent'), never the AI's.
+    const who = row.assigned_to || await lastReplier(row.id);
+    if (who) return who;
+  }
+  return null;
 }
 
 interface PickArgs {
@@ -1372,17 +1386,24 @@ export async function aiWillAnswer(
  *   - an operator who left the workspace, was suspended, lost the Inbox or
  *     whose seat the plan paused no longer holds it (R-03).
  * A conversation that loses its operator so is routed like any other.
+ *
+ * `quiet`: the visitor was already told how they will be answered (the away
+ * thread's card, whose first message POST /api/widget/offline-messages adds
+ * to their live conversation), so routing posts no "nobody is online" or
+ * queue notice for this message (routing_notice_sent, as routeOfflineCapture).
+ * Only when routing runs: a thread the AI answers keeps its notices for the
+ * AI's handoff.
  */
 export function routeHumanBoundConversation(
   config: ServerConfig,
-  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean },
+  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean; quiet?: boolean },
 ): Promise<RouteResult | null> {
   return coalesce(`route-human:${args.workspaceId}:${args.conversationId}`, () => routeHumanBoundConversationNow(config, args));
 }
 
 async function routeHumanBoundConversationNow(
   config: ServerConfig,
-  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean },
+  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean; quiet?: boolean },
 ): Promise<RouteResult | null> {
   try {
     const { data } = await getServiceClient(config)
@@ -1444,6 +1465,9 @@ async function routeHumanBoundConversationNow(
     if (metadata.routing_pending === true && !prechatWaitOver(metadata)) return null;
     if (aiAnswers === null) aiAnswers = await aiWillAnswer(config, args.workspaceId, metadata, args.platformAiOff);
     if (aiAnswers) return null;
+    if (args.quiet === true && metadata.routing_notice_sent !== true) {
+      await patchConversationMetadata(config, args.conversationId, { routing_notice_sent: true }, args.workspaceId);
+    }
     if (await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId)) {
       await deferRoutingForPrechat(config, args.workspaceId, args.conversationId);
       return { outcome: 'routing_deferred', assignedTo: null };

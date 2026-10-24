@@ -11,6 +11,7 @@ import { resolveVisitorGeo } from '../geo/index.js';
 import { countryNameFromCode, flagEmojiFromCountryCode, precisionRank } from '../geo/countryNames.js';
 import { insertContactWithVisitorCode, backfillVisitorCode } from './visitorCode.js';
 import { toAsciiDigits } from '../phoneVerification/phone.js';
+import { findLiveVisitorConversation } from './visitorConversations.js';
 import {
   findContactByProvenIdentifiers,
   isContactIdentityConflict,
@@ -418,69 +419,29 @@ async function repointVisitorToContact(
 }
 
 /**
- * Smart history continuation: returns the most recent conversation if it falls
- * within the workspace's continue window; otherwise returns null (caller starts fresh).
+ * Smart history continuation (GET /identity/history): the visitor's live
+ * conversation — open, pending or resolved (one current conversation per
+ * visitor, owner 2026-10-24: visitorConversations.ts) — of the contact their
+ * sessions are linked to (a proven one included, so a verified visitor goes
+ * on in their open thread on another device) or of the sessions themselves,
+ * the newest by updated_at, whatever its age. Never a closed one, another
+ * channel's conversation or an unanswered greeting: a visitor whose thread
+ * has ended starts afresh, and the widget lists the old one under «گفتگوهای
+ * قبلی». Null when there is none.
  */
 export async function findContinuableConversation(
   supabase: SupabaseClient,
   workspaceId: string,
   visitorId: string,
   contactId: string | null,
-  windowHours: number
 ): Promise<{ id: string; updatedAt: string } | null> {
-  const cutoff = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
-
-  // Prefer contact-based lookup (more reliable across devices)
-  if (contactId) {
-    // For identified contacts, ALWAYS continue the most recent open/pending
-    // thread regardless of the workspace continue-window. The window is a
-    // privacy/UX guard for anonymous returns — once we've identified the
-    // visitor (email/phone), they are the same person and should land back
-    // in the same conversation. This prevents the inbox from accumulating
-    // a new conversation per visit for the same contact.
-    const { data: openConv } = await supabase
-      .from('conversations')
-      .select('id, updated_at, status')
-      .eq('workspace_id', workspaceId)
-      .eq('contact_id', contactId)
-      .in('status', ['open', 'pending'])
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (openConv) return { id: openConv.id, updatedAt: openConv.updated_at };
-
-    // No open thread → fall back to the most recent (any status) within window
-    // so a recently resolved chat can still be resumed if the window allows.
-    const { data } = await supabase
-      .from('conversations')
-      .select('id, updated_at, status')
-      .eq('workspace_id', workspaceId)
-      .eq('contact_id', contactId)
-      .gte('updated_at', cutoff)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (data) return { id: data.id, updatedAt: data.updated_at };
-  }
-
-  // Fallback to visitor-session-based lookup for purely anonymous returns
   const { data: sessions } = await supabase
     .from('visitor_sessions')
     .select('id')
     .eq('workspace_id', workspaceId)
-    .eq('visitor_id', visitorId);
-  const sessionIds = (sessions || []).map((s: { id: string }) => s.id);
-  if (sessionIds.length === 0) return null;
-
-  const { data: conv } = await supabase
-    .from('conversations')
-    .select('id, updated_at')
-    .eq('workspace_id', workspaceId)
-    .in('visitor_session_id', sessionIds)
-    .gte('updated_at', cutoff)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return conv ? { id: conv.id, updatedAt: conv.updated_at } : null;
+    .eq('visitor_id', visitorId)
+    .limit(50);
+  const sessionIds = ((sessions || []) as Array<{ id: string }>).map((s) => s.id).filter(Boolean);
+  const live = await findLiveVisitorConversation(supabase, workspaceId, { visitorId, sessionIds, contactId });
+  return live ? { id: live.id, updatedAt: live.updatedAt || '' } : null;
 }

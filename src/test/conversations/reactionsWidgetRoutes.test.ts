@@ -334,7 +334,7 @@ describe('/poll and /history: unchanged for reactions, and no operator account i
     });
     message(cid, 'system', {
       body: 'Ali closed the conversation',
-      metadata: { kind: 'conversation_closed', by: 'agent', agent_id: ALI, agent_name: 'Ali', operator_id: SARA, operator_name: 'Sara', status: 'resolved' },
+      metadata: { kind: 'conversation_closed', by: 'agent', agent_id: ALI, agent_name: 'Ali', operator_id: SARA, operator_name: 'Sara', status: 'closed' },
     });
     message(cid, 'system', { body: 'call', sender_id: ALI, metadata: { kind: 'call_ended', call_session_id: 'c1', ended_by: 'operator', duration_seconds: 5 } });
     return reply;
@@ -373,7 +373,7 @@ describe('/poll and /history: unchanged for reactions, and no operator account i
         kind: 'conversation_transferred', internal: false, actor_name: 'Ali', from_name: 'Ali', to_name: 'Sara',
       });
       expect(byKind.conversation_closed, path).toEqual({
-        kind: 'conversation_closed', by: 'agent', agent_name: 'Ali', operator_name: 'Sara', status: 'resolved',
+        kind: 'conversation_closed', by: 'agent', agent_name: 'Ali', operator_name: 'Sara', status: 'closed',
       });
       expect(byKind.call_ended, path).toEqual({ kind: 'call_ended', call_session_id: 'c1', ended_by: 'operator', duration_seconds: 5 });
       // The operator's reply keeps its name and its own metadata.

@@ -42,6 +42,7 @@ import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { visitorSystemPreview, type VisitorSystemPreview } from '../../shared/systemMessages.js';
+import { isResolveClosedLine } from '../services/widget/visitorConversations.js';
 
 export const widgetAttachmentsRouter = Router();
 
@@ -492,16 +493,18 @@ export async function enrichMessagesWithAttachments<T extends { id?: string; met
 /**
  * Canonical visitor-message-visibility predicate — the ONE place that
  * decides whether a message's metadata marks it as something a visitor
- * must never see (currently: internal staffing/assignment/system notices,
- * written with `metadata.internal === true` — see server/routes/
- * conversations.ts's transfer notice). Every accessor that might expose a
- * message (or a preview of one) to the widget — enrichMessagesWithSender's
- * /poll+/history filter, and enrichMessagesWithReplyTo below — shares this
- * one rule instead of maintaining independent copies that can drift.
+ * must never see: internal staffing/assignment/system notices, written with
+ * `metadata.internal === true` (see server/routes/conversations.ts's
+ * transfer notice), and the closed line an older server wrote on "Resolve"
+ * (isResolveClosedLine: resolved is live for the visitor, 2026-10-24). Every
+ * accessor that might expose a message (or a preview of one) to the widget —
+ * enrichMessagesWithSender's /poll+/history filter, /identity/history, the
+ * conversation list, and enrichMessagesWithReplyTo below — shares this one
+ * rule instead of maintaining independent copies that can drift.
  */
 export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
   const meta = (metadata && typeof metadata === 'object') ? metadata as Record<string, unknown> : null;
-  return !(meta && meta.internal === true);
+  return !(meta && (meta.internal === true || isResolveClosedLine(meta)));
 }
 
 /**

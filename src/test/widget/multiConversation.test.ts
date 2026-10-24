@@ -121,13 +121,15 @@ describe('P0-E/F — the AI intro is thread-scoped and understands force-new', (
     expect(body).toMatch(/delete __aiIntroKeys\[key\]/);
   });
 
-  it('server intro skips BOTH reuse lookups when force-new is requested', () => {
+  it('server intro (an older widget\'s, without preview) never mints a second conversation while one is live, force-new or not', () => {
+    // One current conversation per visitor (2026-10-24): force-new is
+    // ignored while the visitor has a live conversation, a greeting-only one
+    // included; behaviour in src/test/widget/oneLiveConversation.test.ts.
     expect(intro).toMatch(/forceNewConversation\?: boolean/);
-    expect(intro).toMatch(/const forceNew = input\.forceNewConversation === true/);
-    expect(intro).toMatch(/let conversationId = forceNew \? null : \(input\.conversationId \|\| null\)/);
-    // session-id reuse and visitor-id reuse are both gated.
-    const gated = intro.match(/if \(!forceNew && !conversationId && input\.(visitorSessionId|visitorId)\)/g) || [];
-    expect(gated.length).toBe(2);
+    expect(intro).not.toMatch(/const forceNew = input\.forceNewConversation === true/);
+    expect(intro).toMatch(/findLiveVisitorConversation\(sb, input\.workspaceId, await scope\(\), \{ includeUnansweredGreeting: true \}\)/);
+    // The preview (the widget's chat open) writes nothing.
+    expect(intro).toMatch(/if \(input\.preview === true\) \{/);
   });
 });
 
@@ -144,11 +146,14 @@ describe('P0-G — one canonical visitor-facing AI gate', () => {
   });
 
   it('the widget message route delegates instead of re-reading platform flags', () => {
-    const idx = widgetRoute.indexOf('let platformAiOff = false');
+    // One verdict for POST /message and the away thread's append (platformAiVerdict).
+    const idx = widgetRoute.indexOf('async function platformAiVerdict');
     expect(idx).toBeGreaterThan(-1);
-    const body = widgetRoute.slice(idx, idx + 1200);
+    const body = widgetRoute.slice(idx, idx + 700);
     expect(body).toMatch(/isAutoAnswerAllowedForWorkspace\(config, workspaceId\)/);
     // Fail-closed: an error must not leave the visitor talking to nobody.
-    expect(body).toMatch(/platformAiOff = true;[\s\S]*auto_answer_guard_error/);
+    expect(body).toMatch(/catch \{\s*return \{ off: true, reason: 'auto_answer_guard_error' \}/);
+    const route = widgetRoute.slice(widgetRoute.indexOf("widgetRouter.post('/message'"));
+    expect(route).toMatch(/const \{ off: platformAiOff, reason: platformAiOffReason \} = await platformAiVerdict\(config, workspaceId\)/);
   });
 });

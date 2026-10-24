@@ -158,7 +158,21 @@ export function createInMemoryWidgetDb(): InMemoryWidgetDb {
         return b;
       },
       filter: (col, op, val) => { if (op === 'eq') preds.push((r) => readPath(r, col) === val); return b; },
-      or: () => b,
+      // `a.eq.x,b.in.(y,z),c.is.null`: any of the terms, as PostgREST reads it.
+      or: (expr) => {
+        const terms: Pred[] = [];
+        for (const m of String(expr ?? '').matchAll(/(\w+)\.(eq|neq|is|in)\.(\([^)]*\)|[^,]*)/g)) {
+          const [, col, op, raw] = m;
+          if (op === 'in') {
+            const vals = raw.replace(/^\(|\)$/g, '').split(',').filter(Boolean);
+            terms.push((r) => vals.includes(str(r[col])));
+          } else if (op === 'is') terms.push((r) => r[col] == null);
+          else if (op === 'eq') terms.push((r) => str(r[col]) === raw);
+          else terms.push((r) => str(r[col]) !== raw);
+        }
+        preds.push((r) => terms.some((p) => p(r)));
+        return b;
+      },
       order: (col, opts) => { orderBy = { col, asc: opts?.ascending !== false }; return b; },
       limit: (n) => { limitN = n; return b; },
       range: () => b,

@@ -184,9 +184,9 @@ function message(cid: string, sender_type: string, body: string, metadata: Row =
   });
   return id;
 }
-/** The inbox's close: what PATCH /api/conversations/:id runs for a resolved widget conversation. */
+/** The inbox's close: what PATCH /api/conversations/:id runs when a widget conversation is closed. */
 async function closeFromInbox(cid: string): Promise<{ id: string; payload: Record<string, unknown> }> {
-  const row = await recordConversationClosed(CONFIG, { workspaceId: WS, conversationId: cid, actorId: SARA, status: 'resolved' });
+  const row = await recordConversationClosed(CONFIG, { workspaceId: WS, conversationId: cid, actorId: SARA, status: 'closed' });
   expect(row).not.toBeNull();
   const envelope = state.published[state.published.length - 1];
   expect(envelope.type).toBe('message');
@@ -213,7 +213,7 @@ async function widget(cid: string, opts: BootOptions & { messages?: Array<Record
     renderer: 't2',
     realtime: true,
     config: { workspaceId: WS },
-    conversations: [{ id: cid, status: 'resolved', operatorName: 'سارا', operatorOnline: true }],
+    conversations: [{ id: cid, status: 'closed', operatorName: 'سارا', operatorOnline: true }],
     history: { [cid]: opts.messages || await history(cid) },
     identity: { identity_state: 'identified', contact: { name: 'علی', email: 'ali.r@example.com' } },
     api,
@@ -259,12 +259,12 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     // The envelope carries what the widget reads: the kind, who closed it, who it rates.
     expect(closed.payload).toMatchObject({
       id: closed.id, conversation_id: cid, role: 'system', sender_type: 'system',
-      metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_id: SARA, operator_name: 'سارا', status: 'resolved' },
+      metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_id: SARA, operator_name: 'سارا', status: 'closed' },
     });
     h.emitMessages([closed.payload]);
     await until(() => card(h));
 
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
     expect(sentTo('/csat').map((r) => [r.method, r.path])).toEqual([['GET', `/api/widget/conversations/${cid}/csat?workspace_id=${WS}`]]);
     expect(card(h)!.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
     expect(card(h)!.querySelector('[data-csat-transcript]')).not.toBeNull();
@@ -314,7 +314,7 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     expect(rows.filter((m) => (m.metadata as Row | null)?.kind === 'conversation_closed').map((m) => m.id)).toEqual([closed.id]);
     h.emitPoll(rows);
     await until(() => card(h));
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
   });
 
   it('a system notice after the line (a transfer, a join): the server still rates that closure, and the widget draws its card', async () => {
@@ -346,14 +346,14 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     const h = await widget(cid);
     await until(() => sentTo('/csat').length === 1);
     await flush(20);
-    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را حل‌شده اعلام کرد');
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
     expect(card(h)).toBeNull();
   });
 
   it('a default workspace: its close writes nothing, so its widget has nothing to draw or ask', async () => {
     state.template = 'default';
     const cid = answered();
-    expect(await recordConversationClosed(CONFIG, { workspaceId: WS, conversationId: cid, actorId: SARA, status: 'resolved' })).toBeNull();
+    expect(await recordConversationClosed(CONFIG, { workspaceId: WS, conversationId: cid, actorId: SARA, status: 'closed' })).toBeNull();
     expect((await history(cid)).map((m) => m.sender_type)).toEqual(['contact', 'agent']);
     expect(state.published).toEqual([]);
   });

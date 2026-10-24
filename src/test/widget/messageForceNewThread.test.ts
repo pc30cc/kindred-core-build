@@ -7,7 +7,10 @@
  *   V-04  "+ New conversation" (force_new_conversation) never lands in the
  *         visitor's open thread; a lost-response retry of that first message
  *         (same client_message_id) finds the NEW thread; without the flag the
- *         visitor continues the open one, as before.
+ *         visitor continues the open one, as before. For a request without
+ *         a signed visitor: a signed visitor's force-new joins their live
+ *         conversation since 2026-10-24 (one current conversation per
+ *         visitor, oneLiveConversation.test.ts).
  *   V-31  contact details a site passed with identify() that are not usable
  *         (an email that is not one, a phone over 30 characters) are left
  *         out instead of refusing the message; usable ones still arrive.
@@ -201,7 +204,11 @@ beforeEach(() => {
   store.contactCalls = [];
 });
 
-describe('V-04: "+ New conversation" for a returning visitor', () => {
+// These requests carry no signed visitor (no dvsid cookie or credential
+// header), so the one-current-conversation guard has nobody to look for: a
+// signed visitor's force-new joins their live conversation and starts a new
+// one only once it is closed (src/test/widget/oneLiveConversation.test.ts).
+describe('V-04: "+ New conversation" for a returning visitor (no signed visitor)', () => {
   it('never lands in the open thread, and a retry of its first message finds the new one', async () => {
     const open = await send({ message: 'the old thread', client_message_id: 'cmid-old-1' });
     expect(open.status).toBe(200);

@@ -95,7 +95,7 @@ suite('after-chat features on a real database (276)', () => {
     `SELECT id, body, metadata FROM public.conversation_messages WHERE conversation_id = $1 AND metadata->>'kind' = 'conversation_closed'`, [cid],
   );
   const close = (wsId: string, cid: string) =>
-    closedNotice.recordConversationClosed(config, { workspaceId: wsId, conversationId: cid, actorId: ali, status: 'resolved' });
+    closedNotice.recordConversationClosed(config, { workspaceId: wsId, conversationId: cid, actorId: ali, status: 'closed' });
 
   beforeAll(async () => {
     chain = await createFullChainDatabase(DSN!, `afterchat276_${Date.now()}`);
@@ -163,7 +163,7 @@ suite('after-chat features on a real database (276)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].body).toBe('Ali closed the conversation');
     expect(rows[0].metadata).toEqual({
-      kind: 'conversation_closed', by: 'agent', agent_id: ali, agent_name: 'Ali', operator_id: sara, operator_name: 'Sara', status: 'resolved',
+      kind: 'conversation_closed', by: 'agent', agent_id: ali, agent_name: 'Ali', operator_id: sara, operator_name: 'Sara', status: 'closed',
     });
     expect(published.filter((p) => p.cid === cid).map((p) => p.envelope.type)).toEqual(['message']);
     expect(await close(ws, cid)).toBeNull();

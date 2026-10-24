@@ -201,14 +201,16 @@ async function refuseLockedConversation(
  *     the one the operator writes in, back in the Open lists.
  * Only while it still has that status, on the timeline (`reopened`) and in
  * every inbox. The operator continues the thread, so routing does not
- * re-examine who has it when the visitor answers. Never throws (a reply
- * already went out). True when it reopened it.
+ * re-examine who has it when the visitor answers — unless `continueThread`
+ * is false (the outreach, which decides that once it knows who holds it).
+ * Never throws (a reply already went out). True when it reopened it.
  */
 async function reopenForOperator(
   config: ServerConfig,
   a: {
     workspaceId: string; conversationId: string; actorId: string; messageId: string | null;
     from: 'closed' | 'resolved'; reason: 'operator_replied' | 'visitor_outreach'; source: 'composer' | 'visitor_outreach';
+    continueThread?: boolean;
   },
 ): Promise<boolean> {
   try {
@@ -240,7 +242,9 @@ async function reopenForOperator(
       changes: { status: { from: a.from, to: 'open' } },
       updated_at: (data as { updated_at?: string }).updated_at,
     });
-    await continueConversationThread(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+    if (a.continueThread !== false) {
+      await continueConversationThread(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+    }
     void onSupportConversationChanged(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
     return true;
   } catch (err) {
@@ -875,44 +879,97 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
       ? await resolveVisitorConversationScope(sb, parsed.data.workspace_id, String(session.visitor_id))
       : { visitorId: '', sessionIds: [], contactId: null };
     if (!scope.sessionIds.includes(String(session.id))) scope.sessionIds.push(String(session.id));
-    const existing = await findLiveVisitorConversation(sb, parsed.data.workspace_id, scope)
+    let existing = await findLiveVisitorConversation(sb, parsed.data.workspace_id, scope)
       ?? await findLiveVisitorConversation(sb, parsed.data.workspace_id, scope, { includeUnansweredGreeting: true });
+    // A chat the plan locked (no activity within its data_retention_days) is
+    // not continued: reaching out would move its updated_at and so unlock
+    // what the plan hides, which every operator write refuses (403
+    // conversation_locked). The outreach starts a new conversation instead,
+    // as it did for a resolved one before 2026-10-24 (the visitor's newest
+    // live one, so the widget makes it current). Not a 403: the web panel
+    // and the apps open whatever id this answers, and a refusal would leave
+    // the operator no way to reach a returning visitor at all.
+    if (existing && (await conversationLockedNow(config, parsed.data.workspace_id, { id: existing.id, updated_at: existing.updatedAt })).locked) {
+      existing = null;
+    }
 
     // The operator reaching out is who the visitor's answer goes to (R-29):
     // a conversation they start is theirs, and so is the visitor's live one
-    // when nobody has it yet (taken atomically, as a claim).
+    // when nobody has it yet (taken atomically, as a claim), or when it was
+    // resolved (its operator's thread is over).
     const owner = auth.isAdmin ? null : auth.userId;
     if (existing?.id) {
+      const workspaceId = parsed.data.workspace_id;
       // Resolved is only out of the Inbox: reaching out continues it, so it
-      // is open again, in the operator's lists (reopenForOperator).
+      // is open again, in the operator's lists (reopenForOperator). Whether
+      // the visitor's answer looks at who has it again is decided below,
+      // once that is known.
       const reopened = existing.status === 'resolved' && await reopenForOperator(config, {
-        workspaceId: parsed.data.workspace_id,
+        workspaceId,
         conversationId: existing.id,
         actorId: auth.userId,
         messageId: null,
         from: 'resolved',
         reason: 'visitor_outreach',
         source: 'visitor_outreach',
+        continueThread: false,
       });
       let holder = existing.assignedTo;
       let claimed = false;
+      let taken = false;
       if (owner && !holder) {
         claimed = await claimUnassigned(config, {
-          workspaceId: parsed.data.workspace_id,
+          workspaceId,
           conversationId: existing.id,
           actorId: owner,
           method: 'manual',
           source: 'visitor_outreach',
         });
         if (claimed) holder = owner;
+      } else if (owner && holder !== owner && reopened) {
+        // A resolve leaves its operator on the conversation, but their thread
+        // is over: the one reaching out is who the visitor's answer goes to,
+        // as the new conversation this outreach made before was theirs. Only
+        // while it is still with whoever had it (compare-and-set), told as a
+        // hand-made assignment (the timeline, the Inbox's transfer line, both
+        // operators' lists).
+        const moved = await compareAndAssign(config, { workspaceId, conversationId: existing.id, from: holder, to: owner });
+        taken = 'row' in moved;
+        if ('row' in moved) {
+          void announceManualAssignment(config, {
+            workspaceId,
+            conversationId: existing.id,
+            actorId: owner,
+            from: holder,
+            to: owner,
+            // The takeover below names them.
+            aiState: null,
+            source: 'visitor_outreach',
+            ipAddress: getClientIp(req),
+            stamp: String(moved.row.updated_at ?? Date.now()),
+          });
+          publishAssigneeChange(config, { workspaceId, conversationId: existing.id, actorId: owner, from: holder, to: owner, updatedAt: moved.row.updated_at });
+          void onSupportConversationChanged(config, { workspaceId, conversationId: existing.id });
+          holder = owner;
+        } else if ('conflict' in moved) {
+          holder = moved.assignedTo;
+        }
       }
+      // Reopened and now the operator's who reaches out: theirs to continue,
+      // so the visitor's answer does not re-examine who has it. With anyone
+      // else on it (a platform admin reaching out without a seat, a colleague
+      // who got there first), routing's thread-end stamp stays, and the
+      // visitor's answer looks at that holder again
+      // (chatRouting.ts keepsReopenedConversation).
+      const continues = reopened && !!holder && holder === owner;
+      if (continues) await continueConversationThread(config, { workspaceId, conversationId: existing.id });
       // A thread the AI held is the operator's now, as POST /:id/claim
       // makes it: out of the AI's lane, the AI stops. A reopened one is its
       // operator's to continue, as an operator's reopen (PATCH) makes it:
       // the resolve reset the AI's state, and the AI must not answer over
-      // them.
+      // them (one taken from its operator names who has it now).
       const aiState = existing.aiState;
-      if (holder && ((claimed && aiState === 'ai_managed') || (reopened && aiState !== 'human_active'))) {
+      if (holder && ((claimed && aiState === 'ai_managed') || (continues && (taken || aiState !== 'human_active')))) {
         await markHumanTakeover(config, {
           workspaceId: parsed.data.workspace_id,
           conversationId: existing.id,

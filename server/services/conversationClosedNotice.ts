@@ -32,9 +32,13 @@
  *   - the thread has moved on since the last such line: a close right after a
  *     reopen with nothing said in between reuses the line already there (and
  *     its rating card), see latestClosedRow. A line an older server wrote on
- *     a resolve is not one: the close writes its own. Two closes of one
- *     conversation at once are written one after the other in this process
- *     (`writing`), so they too leave one line.
+ *     a resolve is not one: the close writes its own. When the visitor
+ *     already rated that resolve line and nothing was said since, it was
+ *     this same closure for them: the new line carries that rating
+ *     (`rated_line_id`, conversationRatings.ts), so no second card asks and
+ *     CSAT counts one rating. Two closes of one conversation at once are
+ *     written one after the other in this process (`writing`), so they too
+ *     leave one line.
  *
  * Never throws and is never awaited by the operator's request: the status
  * change is already saved, this is its echo.
@@ -85,8 +89,22 @@ export function latestClosedRow<T extends ConversationRow>(rowsNewestFirst: T[])
   return null;
 }
 
-/** latestClosedRow over the conversation's newest rows (a failed read is none). */
-export async function readLatestClosedRow(sb: ServiceClient, conversationId: string): Promise<ConversationRow | null> {
+/**
+ * The line an older server wrote on "Resolve" (isResolveClosedLine) that the
+ * thread still ends with, by the same rule as latestClosedRow, or null.
+ */
+export function latestResolveLine<T extends ConversationRow>(rowsNewestFirst: T[]): T | null {
+  for (const row of rowsNewestFirst) {
+    const meta = metaOf(row);
+    if (meta.internal === true) continue;
+    if (row.sender_type !== 'system') return null;
+    if (isResolveClosedLine(meta)) return row;
+  }
+  return null;
+}
+
+/** The conversation's newest rows, newest first (the ones latestClosedRow reads). */
+async function readRecentRows(sb: ServiceClient, conversationId: string): Promise<ConversationRow[]> {
   const { data, error } = await sb
     .from('conversation_messages')
     .select('id, sender_type, body, created_at, metadata')
@@ -94,7 +112,23 @@ export async function readLatestClosedRow(sb: ServiceClient, conversationId: str
     .order('created_at', { ascending: false })
     .limit(RECENT_ROWS);
   if (error) throw error;
-  return latestClosedRow((data || []) as ConversationRow[]);
+  return (data || []) as ConversationRow[];
+}
+
+/** latestClosedRow over the conversation's newest rows (a failed read is none). */
+export async function readLatestClosedRow(sb: ServiceClient, conversationId: string): Promise<ConversationRow | null> {
+  return latestClosedRow(await readRecentRows(sb, conversationId));
+}
+
+/** Whether the visitor rated this closed line (unreadable, or before migration 276: no). */
+async function lineWasRated(sb: ServiceClient, conversationId: string, closedId: string): Promise<boolean> {
+  const { data, error } = await sb
+    .from('conversation_ratings')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .eq('closed_message_id', closedId)
+    .maybeSingle();
+  return !error && !!data;
 }
 
 // A widget conversation: no channel recorded, or the widget's own.
@@ -155,7 +189,12 @@ async function writeClosedLine(
     const template = await workspaceChatTemplate(config, input.workspaceId);
     if (!template.descriptor?.closedNotice) return null;
 
-    if (await readLatestClosedRow(sb, input.conversationId)) return null;
+    const recent = await readRecentRows(sb, input.conversationId);
+    if (latestClosedRow(recent)) return null;
+    // The closure the visitor rated under an older server's resolve line,
+    // nothing said since: this line keeps that rating.
+    const resolveLine = latestResolveLine(recent);
+    const ratedLineId = resolveLine && await lineWasRated(sb, input.conversationId, resolveLine.id) ? resolveLine.id : null;
 
     const operatorId = (conv.assigned_to as string | null) || input.actorId || null;
     const people = await resolveOperatorIdentities(config, sb, [input.actorId, operatorId]);
@@ -169,6 +208,7 @@ async function writeClosedLine(
       operator_id: operatorId,
       operator_name: operatorName,
       status: input.status,
+      ...(ratedLineId ? { rated_line_id: ratedLineId } : {}),
     };
     const { data: row, error } = await sb
       .from('conversation_messages')

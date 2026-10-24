@@ -34,7 +34,8 @@ interface FakeQuery {
 function builder(table: string): FakeQuery {
   const filters: Array<(r: Row) => boolean> = [];
   let max = Infinity;
-  const rows = () => (db.tables[table] || []).filter((r) => filters.every((f) => f(r))).slice(0, max);
+  let skip = 0;
+  const rows = () => (db.tables[table] || []).filter((r) => filters.every((f) => f(r))).slice(skip, skip + max);
   const self = () => b;
   const b: FakeQuery = {
     select: self,
@@ -42,6 +43,7 @@ function builder(table: string): FakeQuery {
     in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return b; },
     is: self, not: self, or: self, contains: self, order: self, filter: self,
     limit: (n: number) => { max = n; return b; },
+    range: (from: number, to: number) => { skip = from; max = to - from + 1; return b; },
     maybeSingle: async () => ({ data: rows()[0] || null, error: null }),
     single: async () => ({ data: rows()[0] || null, error: null }),
     then: (resolve) => Promise.resolve({ data: rows(), error: null as null }).then(resolve),

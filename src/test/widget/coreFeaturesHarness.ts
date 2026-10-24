@@ -209,6 +209,8 @@ export interface Harness {
   emitPoll: (messages: Array<Record<string, unknown>>) => void;
   /** A /poll answer's conversation id and its status (onConversation; without `realtime`). */
   emitPollConversation: (cid: string, status?: string) => void;
+  /** The conversation the next /poll names (null: none, so the server answers with the visitor's live one). */
+  pollConversationId: () => string | null;
   /** Every count Core gave the launcher's badge (shell.setUnread). */
   unread: number[];
   /** The public bus's events (`publicEvents: true`). */
@@ -278,6 +280,7 @@ export function boot(opts: BootOptions = {}): Harness {
   let reconnectHook: (() => void) | null = null;
   let pollHook: ((msgs: unknown[]) => void) | null = null;
   let pollConvHook: ((cid: string, status?: string) => void) | null = null;
+  let pollCidHook: (() => string | null) | null = null;
   const unread: number[] = [];
   const events: Array<{ name: string; payload: unknown }> = [];
   if (opts.publicEvents) win.__gs_public_events = { emit: (name: string, payload: unknown) => { events.push({ name, payload }); } };
@@ -310,9 +313,10 @@ export function boot(opts: BootOptions = {}): Harness {
       if (opts.holdHistory) heldHistory.push(answer);
       else if (opts.asyncHistory) setTimeout(answer, 0); else answer();
     },
-    startPolling(o: { onMessages?: (msgs: unknown[]) => void; onConversation?: (cid: string, status?: string) => void }) {
+    startPolling(o: { onMessages?: (msgs: unknown[]) => void; onConversation?: (cid: string, status?: string) => void; getConversationId?: () => string | null }) {
       pollHook = o && o.onMessages ? o.onMessages : null;
       pollConvHook = o && o.onConversation ? o.onConversation : null;
+      pollCidHook = o && o.getConversationId ? o.getConversationId : null;
       return { stop() {}, pollNow() {} };
     },
   };
@@ -577,6 +581,7 @@ export function boot(opts: BootOptions = {}): Harness {
     emitReconnect: () => { if (reconnectHook) reconnectHook(); },
     emitPoll: (messages) => { if (pollHook) pollHook(messages); },
     emitPollConversation: (cid, status) => { if (pollConvHook) pollConvHook(cid, status); },
+    pollConversationId: () => (pollCidHook ? pollCidHook() || null : null),
     unread,
     events,
     releaseKbSearch: () => { while (heldSearches.length) heldSearches.shift()!(); },

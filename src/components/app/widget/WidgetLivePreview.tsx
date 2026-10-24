@@ -39,7 +39,7 @@ import {
   RESPOK_LAUNCHER_OPEN_GLYPH,
 } from '../../../../shared/respokLauncher';
 
-/** `list` is the conversation list (a bottom menu's Messages). */
+/** `list` is the history: the visitor's previous conversations («گفتگوهای قبلی»). */
 export type PreviewView = 'home' | 'list' | 'chat' | 'prechat' | 'offline' | 'kb';
 
 /** Lifecycle a smart action walks through inside the scenario studio. */
@@ -874,7 +874,7 @@ export function WidgetLivePreview({
     // first name (visitorName; the preview has no contact, so empty, as Core
     // without one). The default template declares none, so it gets none of
     // these fields. What changed for every
-    // template, 'default' included, is the navigation: the Messages view
+    // template, 'default' included, is the navigation: the history view
     // (list) and the frame following the renderer's own [data-view],
     // [data-view-back] and [data-conversation-open] hooks (gsBindTabs), as
     // the live widget does.

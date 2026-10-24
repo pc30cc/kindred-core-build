@@ -110,8 +110,21 @@ describe('widget template catalog copy', () => {
     }
   });
 
-  it('the Messages preview view is named in every locale', () => {
+  it('the history preview view is named in every locale, as the widget titles it', () => {
     for (const locale of [en, fa, tr]) expect(locale.widgetPage.preview.view.list).toBeTruthy();
+    expect([en, fa, tr].map((l) => l.widgetPage.preview.view.list)).toEqual(['Previous conversations', 'گفتگوهای قبلی', 'Önceki sohbetler']);
+  });
+
+  it('t1\'s description names its bottom menu as the renderer draws it (its COPY: msgs, help)', () => {
+    const src = readFileSync(resolve(process.cwd(), 'public/widget/presentation-t1.js'), 'utf8');
+    for (const [code, locale] of [['en', en], ['fa', fa], ['tr', tr]] as const) {
+      const [msgs, help] = src.match(new RegExp(`\\n\\s*${code}: '([^']*)'`))![1].split('|');
+      for (const id of ['t1', 't1-intl'] as const) {
+        const text = (locale.widgetCatalog.descriptions as Record<string, string>)[id];
+        expect(text, `${code} ${id}`).toContain(msgs);
+        expect(text, `${code} ${id}`).toContain(help);
+      }
+    }
   });
 
   it.each(files)('no hard-coded visible copy in %s', (path) => {

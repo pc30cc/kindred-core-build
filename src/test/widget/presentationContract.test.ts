@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 
 /**
  * Widget Presentation Architecture — contract guard.
@@ -353,6 +353,15 @@ describe('widget core — no markup left behind', () => {
     expect(/class="messages"/.test(RUNTIME)).toBe(false);
     expect(/class="prechat /.test(RUNTIME)).toBe(false);
     expect(/class="conv-row/.test(RUNTIME)).toBe(false);
+  });
+
+  it('keeps no word only a retired surface drew (one conversation per visitor: no status pills, no "start new")', () => {
+    const renderers = readdirSync('public/widget').filter((f) => /^(presentation|runtime)-[a-z0-9-]+\.js$/.test(f))
+      .map((f) => readFileSync(`public/widget/${f}`, 'utf8'));
+    for (const key of ['wyStartNew', 'wyRecentConversations', 'wyViewConversations', 'wyConversations', 'wyStatusOpen', 'wyStatusResolved']) {
+      expect(RUNTIME, key).not.toMatch(new RegExp(`\\b${key}\\s*:`));
+      for (const src of renderers) expect(src, key).not.toMatch(new RegExp(`['"]${key}['"]`));
+    }
   });
 
   it('mounts the template through the registry', () => {

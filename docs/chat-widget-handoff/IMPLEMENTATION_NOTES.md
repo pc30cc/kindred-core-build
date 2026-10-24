@@ -294,8 +294,8 @@ the history item). Where t2 now departs from the template-2 boards:
 - **The ⋯:** «گفتگوهای قبلی» first (a clock), with its unseen answers' count, on any thread but a past one, a fresh
   thread too.
 - **The dashboard's live preview** (`WidgetLivePreview.tsx`) builds its samples as Core does for a renderer drawing a
-  past bar (t1 and t2): home continues the unread sample and links to history, and the Messages view is history, the
-  closed sample alone, back home. A renderer without one gets the samples as before.
+  past bar (t1 and t2): home continues the unread sample and links to history, and the list view is history
+  («گفتگوهای قبلی»), the closed sample alone, back home. A renderer without one gets the samples as before.
 - **Bytes** (shipped, gzip 5, iran / respok): `presentation-t2.js` 19,950 / 19,788 → 19,764 / 19,599 (budget
   20,000); `presentation-t2-x.js` 6,110 → 6,401 (12,000); `presentation-t2.css` 15,901 → 15,896 (18,000);
   `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,821, t2-intl 38,808 →
@@ -308,16 +308,36 @@ the history item). Where t2 now departs from the template-2 boards:
   simply run again. Every read tolerates it being absent (the catalog then reads as "only the edition default").
 - After the deploy, the Super Admin enables `t1` / `t2` in «قالب‌های ویجت»; workspace owners then see «قالب ویجت».
   On RESPOK, its Super Admin enables `t1-intl` / `t2-intl` (Widget templates) the same way.
-- One conversation per visitor in `default` and `intl` (the templates every workspace wears unless it chose
-  another) waits for the auto-close PR: ship them in its deploy or after it. A resolved conversation is live for the
-  visitor (owner, 2026-10-24), so Core keeps the loader's `gs_active` hint while the visitor has one
-  (`activeNow()`), and today nothing closes a resolved conversation: a visitor whose conversation the operator
-  resolved would then boot the runtime silently on every page view (identity, the list, the thread, the realtime
-  subscription) for as long as they come back within a day (the cookie's max-age, renewed by each list), and keep
-  the launcher under "hide the widget while away". `default` cleared the hint on a resolve before. The 24 h close
-  bounds it. Shipping earlier needs that bound in Core instead (a resolved row counts for `gs_active` only while
-  its `updatedAt` is under 24 h old, unseen answers still always). t1 has the same rule since its port, on the
-  workspaces that chose it.
+- **One conversation per visitor ships in this PR for every template**, `default` and `intl` included (the templates
+  every workspace wears unless it chose another): they draw a past bar, so Core runs the mode for them with no
+  switch (contract B.1), and the merge's deploy (WebYar's 24/25, RESPOK's 32/33) turns it on for every workspace at
+  once. There is no migration. The inactivity close (auto-close) is the next PR, right after this one. Shipping
+  first is safe because:
+  - Few visitors are concerned: on 2026-10-24 WebYar had 47 live widget conversations and RESPOK 2.
+  - The loader's hint is bounded. A resolved conversation is live for the visitor (owner, 2026-10-24), so Core keeps
+    the loader's `gs_active` hint while the visitor has one (`activeNow()`), and nothing closes a resolved
+    conversation yet. Without a bound, a visitor whose conversation was resolved would boot the runtime silently on
+    every page view (identity, the list, the thread, the realtime subscription) and keep the launcher under "hide
+    the widget while away", as long as they came back within a day (the cookie's max-age, renewed by each list).
+    `default` cleared the hint on a resolve before. Core now counts a resolved row for `gs_active` only while its
+    `updatedAt` is under 48 h old, the owner's maximum inactivity window (an unseen answer still always counts).
+    After that the conversation is still the visitor's current one, but no page boots the runtime for it until the
+    visitor opens the widget.
+  - What changes for the visitor until auto-close lands: a resolved conversation, however old, is their current
+    conversation (rule 1, and `findLiveVisitorConversation` has no age limit). Opening the widget shows it
+    («گفتگوی شما», «ادامه گفتگو» in `default`), and their next message goes into it and reopens it. Before, the
+    widget resumed a conversation (`/identity/history`) only within its 720 h window, and past it `default` started
+    a new thread. This follows the owner's rule (a resolve ends nothing for the visitor), and the next PR closes
+    these conversations.
+- **The auto-close PR must:**
+  - close (status `closed`) every conversation where nothing has been exchanged for the inactivity window, the
+    resolved ones this PR leaves current included (a sweep on its first run), and write the `threadEndPatch` stamps
+    (`endedAt` reads them), its own `closed_reason` and the visitor's closed line (`recordConversationClosed`, only
+    on `closed`). The next visit then starts fresh, and the closed conversation is in «گفتگوهای قبلی»;
+  - bring the star rating after the closed line to `t1` and `default` (contract B.3), with
+    `templateVisitorFeatures` listing 'rating' only where the csat option exists;
+  - make a message that races the close reopen that conversation (the TODO in `liveConversationForNextMessage`);
+  - keep `activeNow()`'s 48 h bound: no window is longer.
 
 ## One conversation per visitor: server contract (2026-10-24)
 

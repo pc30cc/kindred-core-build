@@ -492,12 +492,13 @@ button.cd:hover {
 .msg-day { display: flex; align-items: center; gap: 10px; margin: 4px 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
 .msg-day::before, .msg-day::after { content: ''; flex: 1; min-width: 16px; height: 1px; background: var(--line); }
 /* A close (t1-x closedHtml): the day divider with a tick, and
-   its hint only while it ends the thread and the composer is there. */
+   its hint only while it ends the thread and the composer is there.
+   A past (read-only) thread has neither the hint nor the quote button. */
 .cl span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); text-align: center; }
 .cl svg { color: var(--ok); }
 .cl-h { display: none; margin: -6px 0 14px; font-size: 12.5px; line-height: 1.7; color: var(--ink-3); text-align: center; }
 .messages > .cl-h:last-child { display: block; }
-.wy-view-chat:has(.ro) .cl-h { display: none; }
+.wy-view-chat:has(.ro) :is(.cl-h, [data-msg-reply]) { display: none; }
 .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 86%; animation: wy-msg-in .24s var(--ease) both; }
 .msg-row.no-enter { animation: none; }
 @keyframes wy-msg-in { from { opacity: 0; transform: translateY(6px); } }

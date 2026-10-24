@@ -1,21 +1,21 @@
 // @vitest-environment node
 /**
- * The widget's team and the agent face's letter (shared/widgetTeam.ts), the
- * one rule GET /config and the dashboard's picker and preview follow:
+ * The widget's team (shared/widgetTeam.ts), the one rule GET /config and the
+ * dashboard's preview follow:
  *
  *   - the first four members to join (`created_at`, then the user id),
  *     whatever order the rows come in; an unreadable stamp joins last;
  *   - the stack's name is the member's own; without one (or with nothing
  *     that shows) the widget's word for an operator in its language, never
  *     an English «Operator» on a Persian or Turkish widget;
- *   - the letter: online first, the first character that shows of the
- *     stack's names (as t1's lead face draws it), else the workspace's name.
+ *   - no letter: the agent's face is a person's silhouette (owner,
+ *     2026-10-24), so the module picks none.
  */
 import { describe, expect, it } from 'vitest';
+import * as widgetTeam from '../../../shared/widgetTeam';
 import {
   WIDGET_TEAM_NAME_FALLBACK,
   WIDGET_TEAM_SIZE,
-  agentFaceInitial,
   isWidgetTeamMember,
   onlineFirst,
   widgetTeamMembers,
@@ -102,21 +102,7 @@ describe('names and the letter', () => {
     expect(team.map((m) => m.id)).toEqual([1, 2, 3, 4]);
   });
 
-  it('the letter: the first online member\'s stack name, the placeholder included; else the workspace', () => {
-    expect(agentFaceInitial([{ name: 'Reza', online: false }, { name: 'سارا', online: true }], 'Acme')).toBe('س');
-    // A nameless operator leads: their stack name's letter, in the widget's language.
-    expect(agentFaceInitial([{ name: widgetTeamName(null, 'fa'), online: true }, { name: 'Reza', online: true }], 'Acme')).toBe('ا');
-    expect(agentFaceInitial([{ name: widgetTeamName(null, 'tr'), online: true }], 'Acme')).toBe('O');
-    expect(agentFaceInitial([], 'Acme')).toBe('A');
-    expect(agentFaceInitial([], null)).toBe('');
-  });
-
-  it('the letter is a character that shows: a mark before a name (an RLM, a ZWNJ) is passed over', () => {
-    expect(agentFaceInitial([{ name: '\u200fسارا', online: true }], 'Acme')).toBe('س');
-    expect(agentFaceInitial([{ name: '\ufeffSara', online: true }], 'Acme')).toBe('S');
-    expect(agentFaceInitial([{ name: '\u200c', online: true }, { name: 'Reza', online: true }], 'Acme')).toBe('R');
-    expect(agentFaceInitial([{ name: '\u200e\u00a0', online: true }], '\u202bنیلوفر')).toBe('ن');
-    // A whole code point, as before.
-    expect(agentFaceInitial([{ name: '👩‍💻 Sara', online: true }], 'Acme')).toBe('👩');
+  it('no letter: the agent\'s face is a silhouette, so nothing here picks an initial (not even the workspace\'s)', () => {
+    expect(Object.keys(widgetTeam).filter((k) => /initial|letter/i.test(k))).toEqual([]);
   });
 });

@@ -6,7 +6,8 @@
  * workspace they belong to with its plan, operators and this month's usage.
  * Only the support team sees it; the site user never does.
  */
-import { Building2, UserRound } from 'lucide-react';
+import { UserRound } from 'lucide-react';
+import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { CLIENT_PLATFORM_NAMES, resolveClientPlatform } from './clientPlatform';
@@ -122,7 +123,7 @@ export function SupportRequesterCard({ meta }: { meta: RequesterCardMeta }) {
               return (
                 <div key={ws.id ?? index} className="rounded-xl border border-border/60 p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <WorkspaceGlyph className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-sm font-medium">{ws.name}</span>
                     {ws.role && (
                       <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">

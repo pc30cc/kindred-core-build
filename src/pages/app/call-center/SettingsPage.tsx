@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { WorkspaceMark } from '@/components/ui/workspace-mark';
 import { useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
@@ -395,7 +396,14 @@ export default function CallCenterSettingsPage() {
         <div className="flex items-center gap-3">
           {s.avatar_url
             ? <img src={s.avatar_url} alt="" className="h-12 w-12 rounded-full object-cover border" />
-            : <div className="h-12 w-12 shrink-0 rounded-full border bg-muted flex items-center justify-center text-center px-1 text-muted-foreground text-[9px] leading-tight break-words">{t('callCenter.settingsPage.noAvatar')}</div>}
+            : (
+              <WorkspaceMark
+                role="img"
+                aria-label={t('callCenter.settingsPage.noAvatar')}
+                title={t('callCenter.settingsPage.noAvatar')}
+                className="h-12 w-12 rounded-full border bg-muted text-muted-foreground"
+              />
+            )}
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onAvatar} />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>{t('callCenter.settingsPage.upload')}</Button>
           {s.avatar_url && (
@@ -1021,7 +1029,7 @@ function previewOperators(members: readonly WorkspaceMember[] | undefined) {
     .map((m) => {
       const own = (m.full_name || '').trim();
       const name = own && launcherInitial([own]) ? own : null;
-      return { name, initial: launcherInitial([name]), avatar_url: null };
+      return { name, avatar_url: null };
     });
 }
 

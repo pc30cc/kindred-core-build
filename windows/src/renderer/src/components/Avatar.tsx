@@ -3,6 +3,7 @@ import * as flags from 'country-flag-icons/string/3x2'
 import { siAndroid, siApple, siLinux } from 'simple-icons'
 import { Monitor, Sparkles } from 'lucide-react'
 import { cx } from '@/lib/cx'
+import { PERSON_GLYPH, WORKSPACE_GLYPH, avatarFace, glyphBox, type AvatarKind } from './avatarGlyphs'
 
 const PALETTE = ['#3b7af2', '#7c4ddb', '#0ea5a4', '#e5484d', '#f76b15', '#30a46c', '#d6409f', '#0091ff', '#8e4ec6', '#12a594']
 
@@ -12,6 +13,7 @@ function hash(s: string): number {
   return Math.abs(h)
 }
 
+/** A visitor's letters. Visitors only: a teammate or a workspace never gets them (`avatarFace`). */
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean)
   if (words.length === 0) return '?'
@@ -54,6 +56,16 @@ export function Flag({ code, width = 16 }: { code: string; width?: number }) {
   )
 }
 
+/** One of the platform's avatar glyphs, centred at its share of the tile, in the tile's ink. */
+function Glyph({ glyph, size }: { glyph: 'person' | 'workspace'; size: number }) {
+  const box = Math.round(size * glyphBox(glyph, size))
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" style={{ width: box, height: box }} data-avatar-glyph={glyph}>
+      <path d={glyph === 'person' ? PERSON_GLYPH : WORKSPACE_GLYPH} />
+    </svg>
+  )
+}
+
 export function Avatar({
   name,
   imageURL,
@@ -62,6 +74,7 @@ export function Avatar({
   countryCode,
   status,
   square,
+  kind = 'visitor',
   className,
 }: {
   name: string
@@ -72,19 +85,34 @@ export function Avatar({
   /** A presence dot, for the operator's own avatar. */
   status?: 'online' | 'offline' | null
   square?: boolean
+  /**
+   * Whose face this is, which decides what stands in for a missing picture:
+   * a visitor's letters; for a teammate (`person`: an operator, a colleague,
+   * the operator themself) the platform's person glyph; for a workspace the
+   * platform's shop front, on a rounded square. Never letters for those two.
+   */
+  kind?: AvatarKind
   className?: string
 }) {
   const [failed, setFailed] = useState(false)
   const color = PALETTE[hash(name) % PALETTE.length]
   const showImage = imageURL && !failed && /^(https:|blob:|data:)/.test(imageURL)
+  const face = avatarFace(kind, Boolean(showImage))
   const badge = Math.max(14, Math.round(size * 0.38))
+  const tile = square || kind === 'workspace'
   return (
     <div className={cx('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div
-        className={cx('flex size-full items-center justify-center overflow-hidden font-semibold text-white', square ? 'rounded-[28%]' : 'rounded-full')}
+        className={cx('flex size-full items-center justify-center overflow-hidden font-semibold text-white', tile ? 'rounded-[28%]' : 'rounded-full')}
         style={{ background: showImage ? 'var(--elevated)' : `linear-gradient(135deg, ${color}, ${color}cc)`, fontSize: size * 0.38 }}
       >
-        {showImage ? <img src={imageURL!} alt="" className="size-full object-cover" onError={() => setFailed(true)} draggable={false} /> : initials(name)}
+        {face === 'picture' ? (
+          <img src={imageURL!} alt="" className="size-full object-cover" onError={() => setFailed(true)} draggable={false} />
+        ) : face === 'letters' ? (
+          initials(name)
+        ) : (
+          <Glyph glyph={face} size={size} />
+        )}
       </div>
       {os && size >= 28 && (
         <span

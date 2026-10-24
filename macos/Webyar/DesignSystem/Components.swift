@@ -68,8 +68,8 @@ private struct SelectableRow: ViewModifier {
 /// Windows app's Avatar control) so a visitor looks the same everywhere:
 /// their photo; else their operating system's logo on that OS's gradient;
 /// else a disc with a person in it, tinted by a hash of the name. Operators
-/// show their photo or the grey disc with a person; the AI its sparkles.
-/// Never initials.
+/// show their photo or the grey disc with the platform's person glyph
+/// (`member`); the AI its sparkles. Never initials.
 struct AvatarView: View {
     enum Kind { case visitor, `operator`, ai }
 
@@ -116,8 +116,9 @@ struct AvatarView: View {
             Circle().fill(Palette.aiSoft)
                 .overlay(Image(systemName: "sparkles").font(.system(size: size * 0.45, weight: .semibold)).foregroundStyle(Palette.ai))
         case .operator:
-            // No initials anywhere: an operator without a photo is the grey disc with a person.
-            Self.skeleton(size: size)
+            // No initials anywhere: an operator without a photo is the grey disc with the
+            // platform's person glyph.
+            Self.member(size: size)
         case .visitor where AvatarArt.osOf(os) == .none:
             // Nor for visitors: without their device's logo, a disc tinted by their name.
             Self.skeleton(size: size, seed: [name, email].compactMap { $0 }.first { !$0.isEmpty })
@@ -142,6 +143,14 @@ struct AvatarView: View {
                     .font(.system(size: size * 0.46))
                     .foregroundStyle(tint.map { $0.opacity(0.85) } ?? Palette.text3.opacity(0.8))
             }
+    }
+
+    /// A teammate with no photo, the operator included: the grey disc with the platform's
+    /// person glyph (AvatarGlyphs.swift), the figure the web panel, the website widgets and
+    /// the other apps draw for someone on the team.
+    static func member(size: CGFloat) -> some View {
+        Circle().fill(Palette.elevated)
+            .overlay { AvatarGlyphView(glyph: .person, side: size, ink: Palette.text3.opacity(0.8)) }
     }
 
     @ViewBuilder private func osGlyph(_ os: AvatarOs) -> some View {
@@ -187,6 +196,71 @@ struct AvatarView: View {
             .frame(width: d, height: d)
             .offset(x: 1, y: 1)
         }
+    }
+}
+
+/// A workspace's face: the logo its owner set; else, while that loads, if it fails, or
+/// when there is none, the platform's workspace glyph (a shop front, AvatarGlyphs.swift)
+/// in the brand's ink on its soft tile. Never the workspace's first letter.
+struct WorkspaceMark: View {
+    var logoURL: String?
+    var size: CGFloat = 28
+
+    @Environment(AppModel.self) private var app
+    @State private var logo: NSImage?
+    @State private var shownURL: URL?
+
+    var body: some View {
+        let url = resolved
+        ZStack {
+            if let logo, url != nil, shownURL == url {
+                // On a plain card, not over the glyph: a logo with see-through corners must
+                // not show a shop front behind it.
+                Palette.surface
+                Image(nsImage: logo)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else {
+                Self.glyphTile(size: size)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+        .accessibilityHidden(true)
+        // Through the shared picture cache, as RemoteImage loads every picture.
+        .task(id: url) {
+            guard let url else {
+                logo = nil
+                return
+            }
+            if let hit = ImageStore.shared.cached(url) {
+                logo = hit
+                shownURL = url
+                return
+            }
+            let loaded = await ImageStore.shared.image(url)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.15)) {
+                logo = loaded
+                shownURL = url
+            }
+        }
+    }
+
+    /// Whatever link the server gives (the provider's CDN or a path on the API), resolved as
+    /// every picture is.
+    private var resolved: URL? {
+        guard let logoURL, !logoURL.isEmpty else { return nil }
+        return app.client.absolute(logoURL)
+    }
+
+    /// The glyph on its tile, with no logo over it.
+    static func glyphTile(size: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(Palette.brandSoft)
+            .overlay { AvatarGlyphView(glyph: .workspace, side: size, ink: Palette.brand) }
+            .frame(width: size, height: size)
     }
 }
 

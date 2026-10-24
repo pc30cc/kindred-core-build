@@ -1,15 +1,15 @@
 /**
- * The live preview's team stack and the launcher picker's letter, by the
- * rule GET /config uses (shared/widgetTeam.ts), so the dashboard shows the
- * people and the agent face's letter a visitor will see: the first four
- * members to join among those who receive chats, under the name visitors read (the widget's
- * word for an operator in its language without one, never an email), online
- * by customer availability (manual status and schedule, as the widget's
- * green dots, not connection state).
+ * The live preview's team stack, by the rule GET /config uses
+ * (shared/widgetTeam.ts), so the dashboard shows the people a visitor will
+ * see: the first four members to join among those who receive chats, under
+ * the name visitors read (the widget's word for an operator in its language
+ * without one, never an email), online by customer availability (manual
+ * status and schedule, as the widget's green dots, not connection state).
+ * The agent's face is a person's silhouette, never a letter.
  */
 import type { WorkspaceMember } from '@/hooks/useWorkspaceMembers';
 import type { OperatorPresence } from '@/hooks/useTeamPresence';
-import { agentFaceInitial, isWidgetTeamMember, widgetTeamMembers, widgetTeamName } from '../../../../shared/widgetTeam';
+import { isWidgetTeamMember, widgetTeamMembers, widgetTeamName } from '../../../../shared/widgetTeam';
 
 export interface PreviewTeamMember {
   /** The stack's name in the page's widget language. */
@@ -39,9 +39,4 @@ export function previewTeam(
     avatar: m.avatar_url,
     online: availableToVisitors(byUser.get(m.user_id)),
   }));
-}
-
-/** The agent face's letter for that team, as /config picks `fab.initial`. */
-export function previewAgentInitial(team: readonly PreviewTeamMember[], workspaceName: string | null | undefined): string {
-  return agentFaceInitial(team, workspaceName);
 }

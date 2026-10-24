@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeCallWidgets, flush, mountCallWidget, widgetSource, type Locale, type Mounted } from './mountCallWidget';
+import { avatarFace, avatarFaces } from '../widget/avatarFace';
 
 afterEach(() => closeCallWidgets());
 
@@ -105,8 +106,8 @@ describe('the nine styles (board 01) and what they draw', () => {
 
   it('card leaves out an available operator with neither a name nor a photo (an empty face says nothing)', () => {
     const m = launcher('card', { presence: { any_available: true, operators: [TEAM[0], { name: null, initial: '', avatar_url: null }, TEAM[1]] } });
-    expect(m.qa('.ln-r .avs .av').map((a) => a.className)).toEqual(['av c1', 'av c2']);
-    expect(text(m.q('.ln-r .avs .av.c1'))).toBe('S');
+    expect(m.qa('.ln-r .avs .av').map((a) => a.className)).toEqual(['av c1 sil', 'av c2']);
+    expect(avatarFace(m.q('.ln-r .avs .av.c1'))).toBe('person');
     expect(m.q('.ln-r .avs .av.c2 img')!.getAttribute('src')).toBe(TEAM[1].avatar_url);
   });
 
@@ -127,8 +128,9 @@ describe('the nine styles (board 01) and what they draw', () => {
     const btn = top(m);
     expect(btn.matches('button.ln.ln-r.ccw-launcher-btn')).toBe(true);
     const avs = m.qa('.ln-r .avs .av');
-    expect(avs.map((a) => a.className)).toEqual(['av c1', 'av c2', 'av c3']);
-    expect(text(avs[0])).toBe('S');
+    // Without a photo, the person silhouette (.sil), never the initial (owner, 2026-10-24).
+    expect(avs.map((a) => a.className)).toEqual(['av c1 sil', 'av c2', 'av c3 sil']);
+    expect(avatarFaces(avs)).toEqual(['person', 'photo', 'person']);
     expect(avs[1].querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/m.png');
     expect(m.q('.ln-r .avs')!.getAttribute('aria-hidden')).toBe('true');
     expect(text(m.q('.ln-r .tx b'))).toBe('Talk to our team');
@@ -190,7 +192,7 @@ describe('the nine styles (board 01) and what they draw', () => {
     expect(btn.getAttribute('aria-label')).toBe('Open the call widget');
   });
 
-  it('operator_face (L8): the first operator\'s photo (or initial), the pulse ring, the phone badge; the label names them, no x', () => {
+  it('operator_face (L8): the first operator\'s photo (or silhouette), the pulse ring, the phone badge; the label names them, no x', () => {
     const photo = launcher('operator_face', { presence: { any_available: true, operators: [TEAM[1], TEAM[0]] } });
     expect(top(photo).className).toBe('ln-f');
     expect(photo.q('.ln-f .fp.ccw-launcher-btn .pic img')!.getAttribute('src')).toBe('https://cdn.example/m.png');
@@ -200,9 +202,10 @@ describe('the nine styles (board 01) and what they draw', () => {
     expect(text(photo.q('.ln-f .lbl small'))).toBe('Mehdi Karimi');
     expect(photo.q('.ln-f .lbl .x')).toBeNull();
     expect(photo.q('.ln-f .fp')!.getAttribute('aria-label')).toBe('Open the call widget');
-    const initial = launcher('operator_face', { presence: { any_available: true, operators: [TEAM[0]] } });
-    expect(initial.q('.ln-f .pic .av.c1')!.textContent).toBe('S');
-    expect(initial.q('.ln-f .pic img')).toBeNull();
+    const silhouette = launcher('operator_face', { presence: { any_available: true, operators: [TEAM[0]] } });
+    expect(silhouette.q('.ln-f .pic .av.c1.sil')).not.toBeNull();
+    expect(avatarFace(silhouette.q('.ln-f .pic .av.c1'))).toBe('person');
+    expect(silhouette.q('.ln-f .pic img')).toBeNull();
   });
 
   it('operator_face without a named operator is round_label; so is a 6f8af41 bootstrap', () => {

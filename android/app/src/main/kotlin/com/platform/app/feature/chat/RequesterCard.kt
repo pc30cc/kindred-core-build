@@ -1,11 +1,15 @@
 package com.platform.app.feature.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Person
@@ -29,7 +33,9 @@ import com.platform.app.i18n.Format
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.StrAndroid
 import com.platform.app.ui.A11y
+import com.platform.app.ui.components.Glyph
 import com.platform.app.ui.components.bidiContent
+import com.platform.app.ui.components.workspaceBox
 import com.platform.app.ui.design.Radius
 import com.platform.app.ui.design.Space
 import kotlinx.serialization.json.JsonArray
@@ -259,6 +265,22 @@ private fun WorkspaceBlock(ws: RequesterCard.Workspace, language: Language) {
     ) {
         Column(Modifier.padding(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // The platform's workspace mark on a brand-tinted tile, as the
+                // iOS and Windows cards draw it.
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Glyph.Workspace,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(30.dp * workspaceBox(30.dp)),
+                    )
+                }
+                Spacer(Modifier.width(Space.sm))
                 Text(
                     ws.name,
                     style = MaterialTheme.typography.labelLarge.bidiContent(),

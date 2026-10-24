@@ -25,6 +25,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { boot, flush, resetWindow } from './coreFeaturesHarness';
 import { DEFAULT_AI_AGENT_NAME } from '../../../shared/systemMessages';
+import { avatarFace } from './avatarFace';
 
 beforeEach(() => { vi.useRealTimers(); resetWindow(); });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -124,8 +125,37 @@ describe('a nameless AI reply followed by a system line', () => {
     });
     const avatar = h.panel.querySelector('.msg-row.operator .msg-avatar:not(.msg-avatar-spacer)')!;
     expect(avatar).not.toBeNull();
-    expect(avatar.textContent).toBe('ف');
+    expect(avatar.classList.contains('c4')).toBe(true);
+    expect(avatarFace(avatar)).toBe('workspace');
   });
+
+  // The AI is not a person: without a logo of its own it speaks under the
+  // workspace's storefront, never a silhouette and never its name's letter
+  // (owner, 2026-10-24); its logo, when set, stays its own.
+  for (const renderer of ['t1', 't2'] as const) {
+    it(`${renderer}: an AI named by the owner, without a logo, wears the workspace's storefront; with one, its logo`, async () => {
+      const h = await thread(renderer, 'نیلو', 'fa', {
+        aiAgent: { visitorFacing: false, providerReady: false, introCapable: false, agentName: 'نیلو' },
+      });
+      const avatar = h.panel.querySelector('.msg-row.operator .msg-avatar:not(.msg-avatar-spacer)')!;
+      expect(avatar.classList.contains('c4')).toBe(true);
+      expect(avatarFace(avatar)).toBe('workspace');
+      resetWindow();
+      const logo = 'https://cdn.test/ai.png';
+      const withLogo = boot({
+        renderer,
+        config: { locale: 'fa', aiAgent: { visitorFacing: false, providerReady: false, introCapable: false, agentName: 'نیلو', agentLogoUrl: logo } },
+        conversations: [{ id: 'c1' }],
+        history: { c1: history('نیلو').map((m) => (m.id === 'a1' ? { ...m, sender_avatar: logo } : m)) },
+      });
+      await flush(20);
+      withLogo.runtime.__test.openConversation('c1');
+      await vi.waitFor(() => expect(withLogo.panel.querySelector('.msg-ai-badge')).not.toBeNull());
+      const own = withLogo.panel.querySelector('.msg-row.operator .msg-avatar:not(.msg-avatar-spacer)')!;
+      expect(avatarFace(own)).toBe('photo');
+      expect(own.querySelector('img')!.getAttribute('src')).toBe(logo);
+    });
+  }
 });
 
 describe('the built-in name off the thread: a live reply, its toast and the intro', () => {

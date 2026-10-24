@@ -10,7 +10,7 @@ import {
   Bot, Settings, Rocket, Search, Package, LayoutDashboard,
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
-  Clock, UserCog, Building2, HelpCircle, Sparkles,
+  Clock, UserCog, HelpCircle, Sparkles,
   AlertCircle, Check, Ban, Lock, Minus,
   PhoneCall, Radar, BarChart3,
   PanelLeftClose, PanelLeftOpen,
@@ -18,14 +18,13 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { WorkspaceMark } from '@/components/ui/workspace-mark';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
@@ -224,8 +223,6 @@ export function AppSidebar({
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
-
   // Close menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -298,14 +295,12 @@ export function AppSidebar({
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
-  const userAvatarUrl = (profile?.avatar_url as string | null | undefined) || '';
   const companyName = workspace?.name || profile?.company_name || platformName || 'Workspace';
   // Show the actual workspace domain (from workspace_domains), with sane fallbacks
   // so newly-created workspaces still display something meaningful.
   const workspaceDomain =
     wsPrimaryDomain || profile?.website_domain || workspace?.slug || '';
   const workspaceIconUrl = (branding?.logo_url as string | null | undefined) || '';
-  const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (
     <>
@@ -351,13 +346,11 @@ export function AppSidebar({
             'hover:bg-sidebar-accent/50',
           )}
         >
-          <div data-shell="workspace-mark" className="relative w-9 h-9 rounded-xl bg-brand flex items-center justify-center shrink-0 overflow-hidden shadow-glow">
-            {workspaceIconUrl ? (
-              <ImageWithSkeleton src={workspaceIconUrl} className="h-full w-full object-cover" />
-            ) : (
-              <Building2 className="h-[18px] w-[18px] text-primary-foreground" strokeWidth={2.25} />
-            )}
-          </div>
+          <WorkspaceMark
+            data-shell="workspace-mark"
+            logoUrl={workspaceIconUrl}
+            className="h-9 w-9 rounded-xl bg-brand text-primary-foreground shadow-glow"
+          />
           {!collapsed && (
             <>
               <div className="min-w-0 text-start flex-1">
@@ -384,9 +377,10 @@ export function AppSidebar({
                     isCurrentWs ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent'
                   )}
                 >
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 ring-1 ring-primary/20">
-                    <Building2 className="h-4 w-4 text-primary-foreground" strokeWidth={2.25} />
-                  </div>
+                  <WorkspaceMark
+                    logoUrl={ws.logo_url}
+                    className="h-8 w-8 rounded-xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground ring-1 ring-primary/20"
+                  />
                   <div className="min-w-0 flex-1 text-start">
                     <p className="text-[13px] font-medium truncate">{ws.name}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{ws.slug}</p>

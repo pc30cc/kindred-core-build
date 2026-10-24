@@ -36,7 +36,7 @@ win. WebYar (Iranian edition) was implemented first, on 2026-10-17; RESPOK (Inte
 | Round 3-4 features (server) | reactions `server/services/messageReactions.ts`; the queue's place `server/services/chatRouting.ts` (search `queueReturnToAnnounce`) and 276's triggers; the away thread `server/routes/widget.ts` (search `client_message_id`); the order card `server/services/ai-agent/commerce-tools/orderCard.ts` (written by `server/services/ai-agent/responder.ts`, search `order_status`); the track-order flag `server/services/widget/configSnapshot.ts` (search `getStoreOrders`); instant answers `server/services/knowledge-base/widgetSuggest.ts` (route `server/routes/widgetKbSuggest.ts`, limits `server/services/widget/security.ts`, search `kb_suggest`); the KB author `server/routes/kb.ts` (search `articleAuthorName`) and `server/routes/knowledgeBase.ts` (search `resolveArticleAuthor`), the editor's select `src/pages/app/knowledge/ArticleEditorPage.tsx` (search `data-kb-author`) |
 | After-chat features (server) | the closed line `server/services/conversationClosedNotice.ts` (written only for a template whose descriptor has `closedNotice`, search `closedNotice`), the rating `server/services/conversationRatings.ts`, the transcript by email `server/services/visitorTranscript.ts`, their widget routes in `server/routes/widget.ts` (search `/conversations/:id/csat`), migration `database/migrations/276_widget_chat_features.sql`; the inbox line in `shared/systemMessageText.ts` (re-exported as `src/lib/systemMessageText.ts`; search `conversation_closed`), the timeline in `src/components/inbox/timelineMeta.tsx` (search `transcript_emailed`), satisfaction in Operator Activity (`server/routes/operatorActivity.ts`, search `ratingsByOperator`). Names: `shared/new-hooks-and-settings.md` §6 |
 | System messages in the reader's language (every template) | the kinds and the visitor's metadata `shared/systemMessages.ts` (search `visitorSystemPreview`), the list's fields `server/routes/widget.ts` (search `systemKind`), Core's sentence `public/widget/runtime.js` (search `systemRowText`); the operator's sentence `shared/systemMessageText.ts`, written by the server for the operator APIs, the apps and the e-mails in `server/services/operatorSystemText.ts` (search `withOperatorSystemBody`) in the operator's language (`server/services/operatorLocale.ts`, search `operatorLocaleFrom`). Names: `shared/new-hooks-and-settings.md` §6 |
-| The team and the agent face's letter | `shared/widgetTeam.ts` (search `agentFaceInitial`): the first four members to join among those who receive chats (`isWidgetTeamMember`: owner or team role, not suspended, receiving chats, seat not paused; staff never), online first, a member without a name of their own named in the widget's language; read by `/config` (`server/services/widget/configSnapshot.ts`, search `agentFaceInitial`) and every dashboard preview (`src/components/app/widget/previewTeam.ts`) |
+| The team (and the agent's face: a person's silhouette, never a letter, owner 2026-10-24) | `shared/widgetTeam.ts` (search `widgetTeamMembers`): the first four members to join among those who receive chats (`isWidgetTeamMember`: owner or team role, not suspended, receiving chats, seat not paused; staff never), online first, a member without a name of their own named in the widget's language; read by `/config` (`server/services/widget/configSnapshot.ts`, search `widgetTeamName`; no `fab.initial`) and every dashboard preview (`src/components/app/widget/previewTeam.ts`). The glyphs: `shared/avatarGlyphs.ts` |
 | Screens for visual QA | `e2e/harness/templateScreens.ts` (`--template t1 --out <dir>`, `--list` for the states, design demo data) |
 
 Template options (merged: code defaults → Super Admin defaults → workspace): t1 `navStyle` (`vb` default, `va`, `vc`,
@@ -76,8 +76,9 @@ paint:
   four members to join among those who receive chats, a member without a name of their own named by the widget's word for an operator in its
   language, «اپراتور» / "Operatör" / "Operator"; one rule for /config and the dashboard, `shared/widgetTeam.ts`,
   never an email; the letter is a character that shows, never an RLM or a ZWNJ);
-  the loader puts `fx fx-<icon> fx-<shape>` (`fx-off` while the team is away) on the launcher, the pill's text in
-  `data-fx` and the letter in `data-fi`; the bubble's dots take the kit's second colour on its own ground; the
+  the loader puts `fx fx-<icon> fx-<shape>` (`fx-off` while the team is away) on the launcher and the pill's text in
+  `data-fx` (the letter in `data-fi` until 2026-10-24: the face is now a person's silhouette, see "Avatars without a
+  photo or a logo"); the bubble's dots take the kit's second colour on its own ground; the
   dashboard's picker and live preview draw the same), and RESPOK's `t1-intl` / `t2-intl` (below), with the logo
   direction's loader and server parts (`lg-thread` / `lg-open`, the Open button and lockup);
 - after round 5 (2026-10-18): the inbox's unassign posts the visitor's queue row at once (`routeQueueReturn`), help
@@ -198,6 +199,55 @@ Core file changed. Tests: `src/test/widget/presentation-t2.test.ts`, `src/test/w
   `opacity: .01` under `@media (hover: none)` in t1 and t2 (t1 on webyar.ai is the quickest place to try). The home
   greeting (t2 `.hi`, t1 `.hx-hi`) is white on the hero's lightest stop, 3.27 to 3.90:1 there (Ink was 3.41 to 4.46):
   outside the seven points; a darker `--h1` partner or no glow under the greeting would lift it.
+
+## Avatars without a photo or a logo (owner, 2026-10-24)
+
+An operator or a team member without a photo is a person silhouette, and the workspace without a logo is a storefront,
+in every template, never a letter. The AI keeps its sparkle badge and its own logo; without a logo it speaks under the
+workspace's storefront, never a person (t1 did so already for the built-in name, t2 for its thinking row). Visitors are
+not concerned. The two glyphs are the platform's (`shared/avatarGlyphs.ts`: one path each in a 24-unit box,
+symmetric, so they need no mirroring in RTL).
+
+Two decisions the owner sees (owner, 2026-10-24):
+
+- **The AI without a logo of its own wears the workspace's storefront** in t1 and t2 (the bar, its runs, the
+  thinking row), named or not; its sparkle badge stays. With `agentLogoUrl` it wears that logo. Never a person,
+  never its name's letter.
+- **The launcher's agent face is always the person silhouette**, also when the team is empty (no one receives chats
+  yet): it no longer falls back to the workspace's letter, and it never shows the storefront.
+
+- The renderers emit the avatar tile empty, with the same element, classes and tone as before and `aria-hidden`. The
+  stylesheets draw the glyph as a mask of the tile's ink: `background: currentColor` with
+  `mask: var(--wy-person) | var(--wy-workspace)` (and the `-webkit-` twin). The URIs are in Core's `runtime.css`
+  (`:host, :root`), one copy for every template and the operator preview. The glyph box is 62% of a person's tile
+  (68% at 24 px) and 58% of the workspace's (62% at 24 px).
+- t1: `avatarHtml`, `wsAvatar` and the hero `.logo`, with `initialOf` gone (−111 B). An AI without
+  `agentLogoUrl` goes to `wsAvatar` (`botPerson`).
+- t2: `avatarHtml` (so `storeAvatarHtml` too) and the hero `.logo`, with `initialOf` gone (−18 B net). The AI's run
+  takes the workspace's tile unless it has its own picture (`msgAvatarHtml`). Skeletons stay plain tiles: the
+  home skeleton's `.logo` has no `aria-hidden`, and the bar's placeholder in the chat and pre-chat skeletons
+  (`skWhoHtml`, `.av.skc`) is left out of the glyph rule (`.av:not(.has-img):not(.skc)`). t1's and `default`'s
+  skeleton circles are `.wy-sk-circle`, never an avatar tile.
+- `default`: the workspace's `.wy-avatar` (header, list rows, article head) shows the storefront. Operators without a
+  photo still get no avatar layer, as before.
+- Core's smart row (`smartOperatorAvatarHtml`, every template): `msg-avatar av s28 c1`, the person, or `c4`, the
+  storefront, when the team is empty.
+- The launcher's agent face (`runtime-fab.css`) is the silhouette in `#8A3410` on its `#FCE3D4` disc, a background
+  layer with the ink baked in (no mask), `LAUNCHER_GLYPHS.face`. The loader no longer writes `data-fi`, −5 B.
+  /config still sends `fab.initial` for loaders and launcher stylesheets cached before the change; the server can
+  drop it a release later.
+- Guards: `src/test/widget/avatarGlyphs.test.ts` boots every template on the shipped runtime (home, the thread list,
+  a thread with operators and a named AI, an article's author, Core's smart row) and fails on any letter in an
+  avatar. It also checks that every copy of a glyph is the platform's. Tests read a tile with
+  `src/test/widget/avatarFace.ts`. `e2e/widgetAvatarGlyphs.spec.ts` checks in Chromium that the glyph is actually
+  painted (`default`, t1, t2 in fa; t1-intl, t2-intl in en): every empty tile's `::before` has a box and the right
+  glyph as its mask (the person, or the storefront for the workspace and the AI), no tile holds a letter, Core's
+  smart row is the person, and the renderers' chat and pre-chat skeletons paint no glyph.
+- Bytes (shipped gzip, iran / respok; no budget raised): `presentation-t2.js` 19,950 / 19,788 (19,968 / 19,808
+  before), `presentation-t1.js` 19,486 / 19,406 (19,597 / 19,518), `presentation-default.js` 14,086 (14,108),
+  `presentation-t2.css` 15,901 (15,807; 15,895 before the skeleton fix), `presentation-t1.css` 14,759 (14,682), `presentation-default.css`
+  12,622 (12,528), `runtime-fab.css` 1,220 (1,186), `loader.js` 23,959 / 23,442 (23,964 / 23,449), Core's
+  `runtime.css` 903 (529, no budget). First open of 40,000: t2 37,006, t2-intl 38,802, t1 35,406, t1-intl 37,432.
 
 ## The thread starts at the top (owner, 2026-10-23)
 

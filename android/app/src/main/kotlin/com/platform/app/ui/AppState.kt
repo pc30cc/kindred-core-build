@@ -129,8 +129,8 @@ class AppState(
      *
      * Separate from [session] because the login response's `user` has no
      * avatar in it — `GET /api/account/me` is the only endpoint that carries
-     * one. Without it, an operator who has set a photo on the web sees only
-     * their initials on the phone.
+     * one. Without it, an operator who has set a photo on the web sees the
+     * platform's person glyph on the phone instead of their photo.
      */
     private val _avatarUrl = MutableStateFlow<String?>(null)
     val avatarUrl: StateFlow<String?> = _avatarUrl.asStateFlow()

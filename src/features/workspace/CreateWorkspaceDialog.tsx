@@ -7,7 +7,8 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { Label } from '@/components/ui/label';
-import { Building2, Globe, Loader2, Lock, Sparkles, ArrowUpRight } from 'lucide-react';
+import { Globe, Loader2, Lock, Sparkles, ArrowUpRight } from 'lucide-react';
+import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { useCreateWorkspace, useAccount } from '@/hooks/useWorkspace';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
@@ -56,8 +57,8 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
       onOpenChange(false);
 
       navigate(newWs?.slug ? `/${newWs.slug}` : '/app');
-    } catch (err: any) {
-      const msg = String(err?.message || '');
+    } catch (err) {
+      const msg = String((err as Error | null)?.message || '');
       if (msg === 'email_verification_required') {
         toast.error(t('workspaceCreate.verifyRequired'), {
           description: t('workspaceCreate.verifyRequiredDesc'),
@@ -81,7 +82,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
         <div className="relative px-6 pt-6 pb-5 bg-gradient-to-b from-primary/10 to-transparent border-b border-border/60">
           <div className="flex items-start gap-3">
             <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0 shadow-sm">
-              <Building2 className="h-5 w-5" />
+              <WorkspaceGlyph className="h-5 w-5" />
             </div>
             <DialogHeader className="space-y-1 text-start">
               <DialogTitle className="text-base font-semibold">{t('workspaceCreate.title')}</DialogTitle>
@@ -147,7 +148,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
               <div className="space-y-2">
                 <Label htmlFor="ws-name">{t('workspaceCreate.nameLabel')}</Label>
                 <div className="relative">
-                  <Building2 className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <WorkspaceGlyph className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                   <Input
                     id="ws-name"
                     placeholder={t('workspaceCreate.namePlaceholder')}

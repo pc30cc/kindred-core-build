@@ -21,6 +21,7 @@ import {
   removeWorkspaceIcon,
 } from '@/lib/account-api';
 import { cn } from '@/lib/utils';
+import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 
 type ContactInfo = {
   phone?: string;
@@ -178,27 +179,40 @@ export default function SettingsGeneralPage() {
 
         {/* Icon */}
         <div className="flex items-start gap-6">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className={cn(
-              'group relative h-20 w-20 rounded-full overflow-hidden border-2 border-dashed border-border',
-              'flex items-center justify-center bg-muted/30 hover:bg-muted/60 transition-colors',
-              uploading && 'opacity-60 cursor-wait',
+          {/* Without an icon: the workspace icon visitors and the team see in
+              its place (never its letter), with an upload badge. */}
+          <div className="relative h-20 w-20 shrink-0">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              aria-label={t('workspaceInfo.uploadImage')}
+              className={cn(
+                'group relative h-20 w-20 rounded-full overflow-hidden border-2 border-dashed border-border',
+                'flex items-center justify-center bg-muted/30 hover:bg-muted/60 transition-colors',
+                uploading && 'opacity-60 cursor-wait',
+              )}
+            >
+              {iconUrl ? (
+                <img src={iconUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <WorkspaceGlyph className="text-muted-foreground" />
+              )}
+              {uploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/60">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </button>
+            {!iconUrl && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -bottom-0.5 -end-0.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow-sm"
+              >
+                <ImagePlus className="h-3.5 w-3.5" />
+              </span>
             )}
-          >
-            {iconUrl ? (
-              <img src={iconUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <ImagePlus className="h-6 w-6 text-muted-foreground" />
-            )}
-            {uploading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/60">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            )}
-          </button>
+          </div>
           <div className="flex-1 space-y-2">
             <div className="text-sm font-medium text-foreground">{t('workspaceInfo.icon')}</div>
             <div className="text-xs text-muted-foreground">{t('workspaceInfo.iconHint')}</div>

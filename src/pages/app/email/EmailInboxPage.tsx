@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
@@ -17,6 +18,7 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { usePanelTheme } from '@/themes/usePanelTheme';
 import { isArtFamilyTheme } from '../../../../shared/panelThemes';
+import { PERSON_SILHOUETTE } from '../../../../shared/avatarGlyphs';
 import { personTone } from '@/components/inbox/personTone';
 import readerFont400 from '@/assets/fonts/iransans-400.woff2?url';
 import readerFont500 from '@/assets/fonts/iransans-500.woff2?url';
@@ -507,6 +509,7 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** A correspondent (a contact) in the classic reader: their own look, not the team's silhouette. */
 const PERSON_PATH = 'M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z';
 const TINTS = ['#e0565b', '#e0913a', '#2f9e6a', '#2f86d6', '#6a5ae0', '#c450b8'];
 
@@ -553,7 +556,8 @@ function bodyHtml(m: EmailMessageView, t: (k: string) => string): string {
 /**
  * Art's reader (`readerDocument`'s `art`): the message on its own sheet that
  * ends where the text ends, the earlier messages' count in the locale's
- * digits and their senders as initials in the person's tone.
+ * digits and their senders as initials in the person's tone (our own
+ * mailbox's as the person silhouette, never initials).
  */
 type ArtReader = { css: string };
 
@@ -574,6 +578,8 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
     '.av{flex:none;position:relative;width:30px;height:30px;border-radius:50%;background:#eef1f5;display:flex;align-items:center;justify-content:center;overflow:hidden}',
     '.av i{position:absolute;inset:0;border-radius:50%;opacity:.24}',
     '.av svg{position:relative;width:46%;height:46%;opacity:.85}',
+    // Our own mailbox's sender: the person silhouette at its share of the tile.
+    '.av[data-us] svg{width:62%;height:62%}',
     '.who{flex:none;max-width:40%;font-weight:600;font-size:13px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.sn{flex:1;min-width:0;font-size:12.5px;color:#6b7485;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     'details[open] .sn{visibility:hidden}',
@@ -600,9 +606,16 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
       const snippet = decodeEntities(m.snippet || m.textBody || '').replace(/\s+/g, ' ').trim();
       out.push(
         '<details><summary>',
-        art
-          ? `<span class="av" data-tone="${avatarToneOf(m.fromAddress)}">${escapeHtml(initialsOf(m.fromAddress))}</span>`
-          : `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
+        // Our own mailbox's messages wear the person silhouette, never
+        // initials (owner, 2026-10-24); a correspondent (a contact) keeps
+        // their own look: initials in Art, the classic reader's person.
+        m.direction === 'outbound'
+          ? art
+            ? `<span class="av" data-us="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${PERSON_SILHOUETTE}"/></svg></span>`
+            : `<span class="av" data-us="1"><i style="background:${tint}"></i><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="${tint}" d="${PERSON_SILHOUETTE}"/></svg></span>`
+          : art
+            ? `<span class="av" data-tone="${avatarToneOf(m.fromAddress)}">${escapeHtml(initialsOf(m.fromAddress))}</span>`
+            : `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
         `<span class="who" dir="auto">${escapeHtml(from.name)}</span>`,
         `<span class="sn" dir="auto">${escapeHtml(snippet)}</span>`,
         `<span class="dt">${escapeHtml(formatListDate(m.sentAt, locale))}</span>`,
@@ -630,7 +643,12 @@ function LatestMessageHeader({ message }: { message: EmailMessageView }) {
   return (
     <div data-email="message-header" className="flex items-start gap-3 border-b border-border px-4 py-3">
       <Avatar className="h-9 w-9 shrink-0">
-        <AvatarFallback data-avatar-tone={avatarToneOf(message.fromAddress)} className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
+        {message.direction === 'outbound' ? (
+          // Sent from our own mailbox: the person silhouette, never initials.
+          <OperatorAvatarFallback />
+        ) : (
+          <AvatarFallback data-avatar-tone={avatarToneOf(message.fromAddress)} className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
+        )}
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -692,6 +710,9 @@ function artReaderCss(): string {
     `summary:hover{background:${token('--muted')}}`,
     `.av{background:${token('--muted')};color:${token('--muted-foreground')};font-size:11px;font-weight:600;letter-spacing:.02em}`,
     ...tones,
+    // Our side: the clay tint of the panel's operator avatar.
+    `.av[data-us]{background:${token('--primary', dark ? 0.16 : 0.1)};color:${token('--primary')}}`,
+    '.av[data-us] svg{opacity:1}',
     `.who{color:${token('--foreground')}}`,
     `.file{color:${token('--foreground')};background:${token('--muted')};border-radius:9999px;padding:4px 12px}`,
     `.file:hover{background:${token('--accent')}}`,

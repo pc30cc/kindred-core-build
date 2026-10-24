@@ -1160,7 +1160,6 @@
     if (fxUrl) {
       launcherEl.className += " fx fx-" + fab.icon + " fx-" + fab.shape + (away ? " fx-off" : "");
       launcherEl.setAttribute("data-fx", fab.label || "");
-      launcherEl.setAttribute("data-fi", fab.initial || "");
       launcherEl.dir = /^fa/.test(config.locale) ? "rtl" : "ltr";
       if (!shadowRoot.querySelector("link[data-gs-fab]")) {
         var fxLink = document.createElement("link");

@@ -44,6 +44,8 @@ export interface Workspace {
   widget_locale: string;
   created_at: string;
   updated_at: string;
+  /** Its logo (workspace_branding), as GET /api/workspaces resolves it; null without one. */
+  logo_url?: string | null;
 }
 
 export interface WorkspaceMember {

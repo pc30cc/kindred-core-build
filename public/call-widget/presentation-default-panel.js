@@ -94,6 +94,7 @@
     function fd() { return C.formData || (C.formData = {}); }
     function id(prefix) { uid += 1; return 'ccw-' + prefix + uid; }
     function fa() { return C.locale === 'fa'; }
+    /** The visitor's own initial (their contact card); people on the team and the business never get a letter. */
     function initial(name) {
       var ch = Array.from(String(name || '').trim())[0] || '';
       return ch.toUpperCase();
@@ -151,8 +152,9 @@
       var name = c.display_name || t('support');
       var dot = el('i', { class: 'dot' });
       var st = document.createTextNode('');
-      var lg = el('span', { class: 'lg', 'aria-hidden': 'true' }, [
-        c.avatar_url ? el('img', { src: c.avatar_url, alt: '' }) : initial(name),
+      // The business's logo, else its storefront glyph (panel css), never its first letter.
+      var lg = el('span', { class: c.avatar_url ? 'lg' : 'lg ws', 'aria-hidden': 'true' }, [
+        c.avatar_url ? el('img', { src: c.avatar_url, alt: '' }) : null,
       ]);
       var node = el('header', { class: 'hd' }, [
         lg,
@@ -574,9 +576,9 @@
     function duration(ctrl) {
       return ctrl.endedDuration > 0 ? t('call_duration') + ' ' + H.fmtClock(ctrl.endedDuration * 1000) : '';
     }
+    /** The operator: the person silhouette (.sil) once named, a headset before (D34); never a letter. */
     function opAvatar(cls) {
-      var name = opName();
-      return el('span', { class: 'av ' + cls + ' c1', 'aria-hidden': 'true' }, [name ? initial(name) : svg('headset', cls === 's52' ? 22 : 20, 1.8)]);
+      return el('span', { class: 'av ' + cls + ' c1' + (opName() ? ' sil' : ''), 'aria-hidden': 'true' }, [opName() ? null : svg('headset', cls === 's52' ? 22 : 20, 1.8)]);
     }
 
     function rating(ctrl) {
@@ -944,15 +946,23 @@
     function sbox(kids, cls) { return el('div', { class: 'sb' + (cls ? ' ' + cls : '') }, kids); }
     function ldots() { return el('span', { class: 'ldots', 'aria-hidden': 'true' }, [el('i'), el('i'), el('i')]); }
     function orbOf(cls, kids) { return el('div', { class: 'orb ' + cls, 'aria-hidden': 'true' }, kids); }
-    /** An operator's face: the initial, or a headset when no name is known (D34). */
+    /**
+     * An operator's face: the person silhouette (`.sil`, drawn by the
+     * stylesheets) once a name is known, a headset before (D34); never a
+     * letter (owner, 2026-10-24). Rebuilt only when that changes.
+     */
     function faceOf(node, size) {
       var shown = null;
       return {
         set: function (name) {
-          var k = name ? initial(name) : '';
-          if (k !== shown) { shown = k; node.replaceChildren(k || svg('headset', size, 1.7)); }
+          var k = !!name;
+          if (k !== shown) {
+            shown = k;
+            toggle(node, 'sil', k);
+            if (k) node.replaceChildren(); else node.replaceChildren(svg('headset', size, 1.7));
+          }
         },
-        clear: function () { shown = null; },
+        clear: function () { shown = null; toggle(node, 'sil', false); },
       };
     }
     function endCall() { C.cancelCall(); }

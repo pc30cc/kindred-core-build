@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Building2, Check, ChevronsUpDown, ExternalLink, Lock, Plus, UserPlus } from 'lucide-react';
+import { Check, ChevronsUpDown, ExternalLink, Lock, Plus, UserPlus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
-import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
+import { WorkspaceMark } from '@/components/ui/workspace-mark';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,23 +18,18 @@ import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity'
 import { useArtWorkspace } from './useArtWorkspace';
 import { artMenuContent, artMenuItem, artMenuLabel } from './styles';
 
-/** The workspace's logo, or a building on a clay tile. */
+/** The workspace's logo, or the workspace icon on a clay tile (never its letter). */
 function ArtWorkspaceMark({ logoUrl, className }: { logoUrl: string; className?: string }) {
   return (
-    <span
+    <WorkspaceMark
       data-shell="workspace-mark"
+      logoUrl={logoUrl}
       className={cn(
-        'relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground',
+        'rounded-xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground',
         'shadow-[inset_0_1px_0_hsl(0_0%_100%/0.2),0_1px_2px_0_hsl(var(--art-shadow)/0.18)]',
         className,
       )}
-    >
-      {logoUrl ? (
-        <ImageWithSkeleton src={logoUrl} className="h-full w-full object-cover" />
-      ) : (
-        <Building2 className="h-[18px] w-[18px]" strokeWidth={2.1} />
-      )}
-    </span>
+    />
   );
 }
 
@@ -96,9 +91,7 @@ export function ArtWorkspaceSwitcher({
                 onSelect={() => navigate(`/${ws.slug}`)}
                 className={cn(artMenuItem, 'py-1.5', current && 'bg-primary/[0.07]')}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.625rem] bg-primary/10 text-[13px] font-semibold text-primary">
-                  {ws.name.charAt(0).toUpperCase()}
-                </span>
+                <WorkspaceMark logoUrl={ws.logo_url} className="h-8 w-8 rounded-[0.625rem] bg-primary/10 text-primary" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13.5px] font-medium">{ws.name}</span>
                   <span className="block truncate text-xs text-muted-foreground" dir="ltr">{ws.slug}</span>

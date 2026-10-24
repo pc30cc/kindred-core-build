@@ -20,6 +20,8 @@ import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { toast } from '@/lib/toast';
 import WorkspaceBillingSummary from '@/components/admin/WorkspaceBillingSummary';
+import { OperatorAvatar } from '@/components/ui/operator-avatar';
+import { WorkspaceMark } from '@/components/ui/workspace-mark';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
@@ -183,9 +185,7 @@ export default function AdminWorkspacesPage() {
                 >
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Building2 className="h-4 w-4 text-primary" />
-                      </div>
+                      <WorkspaceMark className="h-8 w-8 rounded-lg bg-primary/10 text-primary" />
                       <span>{w.name}</span>
                     </div>
                   </TableCell>
@@ -282,6 +282,10 @@ function WorkspaceDetailView({
   }
 
   const ws = detail.workspace;
+  // The row's own URL when somebody pasted one (a stored logo has only a key here).
+  const pastedLogo = typeof detail.branding?.logo_url === 'string' && /^https?:\/\//i.test(detail.branding.logo_url)
+    ? detail.branding.logo_url
+    : null;
 
   return (
     <div className="space-y-6">
@@ -291,9 +295,7 @@ function WorkspaceDetailView({
           <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
         </Button>
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-            <Building2 className="h-5 w-5 text-primary" />
-          </div>
+          <WorkspaceMark logoUrl={pastedLogo} className="h-10 w-10 rounded-xl bg-primary/10 text-primary" />
           <div className="min-w-0">
             <h1 className="text-xl font-bold truncate">{ws?.name}</h1>
             <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{ws?.slug}</code>
@@ -346,11 +348,7 @@ function WorkspaceDetailView({
                 className="flex items-center justify-between rounded-lg border px-3 py-2 w-full text-start hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="text-xs font-semibold text-primary">
-                      {(m.full_name || m.email || '?').charAt(0).toUpperCase()}
-                    </span>
-                  </div>
+                  <OperatorAvatar className="h-8 w-8" tone="tint" />
                   <div>
                     <p className="text-sm font-medium">{m.full_name || '—'}</p>
                     <p className="text-xs text-muted-foreground">{m.email}</p>
@@ -537,11 +535,7 @@ function MemberDetailDialog({ member, onClose }: { member: WorkspaceMember | nul
           <div className="space-y-4">
             {/* Avatar & name header */}
             <div className="flex items-center gap-4 pb-2">
-              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <span className="text-xl font-bold text-primary">
-                  {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-                </span>
-              </div>
+              <OperatorAvatar src={p.avatar_url} alt={p.full_name || p.email || ''} className="h-14 w-14" tone="tint" />
               <div className="min-w-0 flex-1">
                 <p className="text-lg font-semibold truncate">{p.full_name || '—'}</p>
                 <p className="text-sm text-muted-foreground truncate">{p.email}</p>

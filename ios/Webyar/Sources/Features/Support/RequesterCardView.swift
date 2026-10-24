@@ -222,9 +222,9 @@ private struct WorkspacePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: Theme.Space.sm) {
-                Image(systemName: "building.2.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.brand)
+                // The platform's workspace glyph, the one every app draws for
+                // a workspace (AvatarGlyphs.swift).
+                AvatarGlyphView(glyph: .workspace, side: 30, ink: Theme.Palette.brand)
                     .frame(width: 30, height: 30)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.Palette.brand.opacity(0.12)))
                 Text(workspace.name)

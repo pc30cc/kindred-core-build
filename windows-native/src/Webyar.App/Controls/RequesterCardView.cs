@@ -251,9 +251,9 @@ public sealed partial class RequesterCardView : ContentControl
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         top.ColumnDefinitions.Add(new ColumnDefinition());
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var tile = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(10), Background = Palette.Resource("BrandSoftBrush") };
-        tile.Child = new FontIcon { Glyph = "", FontSize = 15, Foreground = Palette.Resource("BrandBrush") };
-        top.Children.Add(tile);
+        // The platform's workspace glyph on the brand's soft tile (WorkspaceMark): the card
+        // carries no logo, so it is the shop front every app draws for a workspace.
+        top.Children.Add(new WorkspaceMark { Size = 34, VerticalAlignment = VerticalAlignment.Center });
         var names = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var wsName = Text(ws.Name, 14, "TextBrush", semibold: true);

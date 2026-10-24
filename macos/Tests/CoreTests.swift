@@ -26,14 +26,6 @@ final class CoreTests: XCTestCase {
         let test = AvatarArt.make(name: nil, email: "test@test.com", os: nil)
         XCTAssertEqual(test.from, Hsl(192, 78, 56))
         XCTAssertEqual(test.to, Hsl(220, 78, 44))
-        XCTAssertEqual(test.initials, "TE")
-    }
-
-    func testInitialsFollowTheWeb() {
-        XCTAssertEqual(AvatarArt.initialsOf(name: "مجتبی داودی", email: nil), "مد")
-        XCTAssertEqual(AvatarArt.initialsOf(name: "مجتبی", email: nil), "مج")
-        XCTAssertEqual(AvatarArt.initialsOf(name: nil, email: nil), "?")
-        XCTAssertEqual(AvatarArt.initialsOf(name: "a", email: nil), "A")
     }
 
     func testHslToRgb() {
@@ -53,12 +45,6 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Display.visitorName(name: "Visitor", code: "4ZTK", fallbackId: nil, city: "Karaj", region: "Tehran", countryCode: "IR", fa),
                        "بازدیدکننده از استان \u{2068}Tehran\u{2069} · \u{2068}4ZTK\u{2069}")
         XCTAssertEqual(Display.legacyCode("3f483f7d-91e2-425e-ba80-b11a814f2f36"), "WE0A")
-    }
-
-    func testInitialsForAvatars() {
-        XCTAssertEqual(Display.initials("مجتبی داودی"), "مد")
-        XCTAssertEqual(Display.initials("Visitor 4ZTK"), "V4")
-        XCTAssertEqual(Display.initials("بازدیدکننده 4ZTK"), "ب")
     }
 
     func testPreviews() {

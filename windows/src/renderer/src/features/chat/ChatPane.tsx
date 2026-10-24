@@ -421,7 +421,7 @@ function MessageRow({
       </div>
       {outgoing && (
         <div className="w-8 shrink-0">
-          {endsRun && (ai ? <AIAvatar size={30} /> : <Avatar name={m.sender_name ?? '—'} imageURL={m.sender_avatar} size={30} />)}
+          {endsRun && (ai ? <AIAvatar size={30} /> : <Avatar name={m.sender_name ?? '—'} imageURL={m.sender_avatar} size={30} kind="person" />)}
         </div>
       )}
     </div>

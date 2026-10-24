@@ -566,7 +566,8 @@ struct MessageRow: View {
                     Avatar(
                         name: message.senderName ?? "—",
                         imageURL: message.senderAvatar,
-                        size: Theme.Size.avatarSmall - 4
+                        size: Theme.Size.avatarSmall - 4,
+                        subject: .member
                     )
                 } else {
                     Avatar(

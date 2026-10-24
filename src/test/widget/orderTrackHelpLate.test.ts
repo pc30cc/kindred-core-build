@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { boot, click, flush, resetWindow, typeInto, type BootOptions } from './coreFeaturesHarness';
+import { avatarFace } from './avatarFace';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
@@ -132,7 +133,7 @@ describe('an article\'s author', () => {
       const vm = h.lastCall('kbHtml')![0] as { article: Record<string, unknown> };
       expect(vm.article.author).toBe('سارا');
       expect(h.q('.am')!.textContent).toContain('سارا');
-      expect(h.q('.am .av')!.textContent).toBe('س');
+      expect(avatarFace(h.q('.am .av'))).toBe('person');
     });
   }
 

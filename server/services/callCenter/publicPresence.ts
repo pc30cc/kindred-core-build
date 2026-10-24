@@ -11,9 +11,10 @@
  *   - `operators` only for `card` and `operator_face`
  *     (shared/callLauncherStyles.ts `callLauncherNeedsPresence`): at most 3
  *     available operators in the chat team's order (the order they joined the
- *     workspace, shared/widgetTeam.ts), each `{name, initial, avatar_url}`.
- *     `name` is the profile's own name or null, never an e-mail or any part
- *     of one; `avatar_url` the user's own avatar or null. No id, role, count
+ *     workspace, shared/widgetTeam.ts), each `{name, avatar_url}`. `name`
+ *     is the profile's own name or null, never an e-mail or any part of
+ *     one; `avatar_url` the user's own avatar or null (the widget then draws
+ *     the person silhouette, never a letter). No id, role, count
  *     or status beyond "available": the bootstrap is public (its Origin can
  *     be forged).
  *
@@ -33,9 +34,9 @@ import { createStorageUrlResolver, hydrateUserAvatars } from '../storage/urlReso
 import { widgetTeamMembers } from '../../../shared/widgetTeam.js';
 import { launcherInitial } from '../../../shared/launcherStyles.js';
 
+/** An operator as the call widget draws them: their photo, else the person silhouette (never a letter). */
 export interface PublicCallOperator {
   name: string | null;
-  initial: string;
   avatar_url: string | null;
 }
 
@@ -157,7 +158,7 @@ async function loadPresence(
       operators: shown.map((id) => {
         const p = byId.get(id);
         const name = operatorOwnName(p?.full_name);
-        return { name, initial: launcherInitial([name]), avatar_url: p?.avatar_url ?? null };
+        return { name, avatar_url: p?.avatar_url ?? null };
       }),
     },
     userIds: shown.map((id) => id.toLowerCase()),

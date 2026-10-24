@@ -36,6 +36,7 @@ import { z } from 'zod';
 import { callbackMatchesSearch, callbackReference, type CallbackRequest } from '@/lib/call-center-api';
 import { INTL_BRAND } from '../../../shared/internationalMode';
 import { CALL_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
+import { avatarFace, avatarFaces } from '../widget/avatarFace';
 
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 
@@ -386,8 +387,9 @@ describe('settings chain: dashboard → PUT → bootstrap → widget (Iranian ed
     const m = visit(body);
     expect(launcherOf(m)!.classList.contains('left')).toBe(true);
     expect(m.q('.ln-r.ccw-launcher-btn')).not.toBeNull();
-    // card draws the available operators by name (presence is sent for it).
-    expect(m.qa('.ln-r .avs .av').map((a) => a.textContent)).toEqual(['S', 'R']);
+    // card draws the available operators (presence is sent for it): a
+    // silhouette each without a photo, never their initials.
+    expect(avatarFaces(m.qa('.ln-r .avs .av'))).toEqual(['person', 'person']);
   });
 
   it('a placement stored in any older spelling reaches the dashboard and the widget as its placement', async () => {
@@ -409,7 +411,7 @@ describe('settings chain: dashboard → PUT → bootstrap → widget (Iranian ed
     }
   });
 
-  it('presence: names and initials only for card and operator_face, "anyone available" for every style; an operator going away reaches the widget through the presence memo', async () => {
+  it('presence: names only (never an initial) for card and operator_face, "anyone available" for every style; an operator going away reaches the widget through the presence memo', async () => {
     const plain = await bootstrap();
     expect(plain.presence).toEqual({ any_available: true });
 
@@ -418,16 +420,17 @@ describe('settings chain: dashboard → PUT → bootstrap → widget (Iranian ed
     const face = await bootstrap();
     expect(face.presence).toEqual({
       any_available: true,
-      operators: [{ name: 'Sara Ahmadi', initial: 'S', avatar_url: null }, { name: 'Reza Karimi', initial: 'R', avatar_url: null }],
+      operators: [{ name: 'Sara Ahmadi', avatar_url: null }, { name: 'Reza Karimi', avatar_url: null }],
     });
     // Nothing that names a user: no id, no e-mail.
     const text = JSON.stringify(face);
     for (const id of [OWNER, A, B, C]) expect(text).not.toContain(id);
     expect(text).not.toMatch(/@|sara@|reza@/);
     const m = visit(face);
-    // operator_face: the first named operator's initial (no photo) and name.
+    // operator_face: the first named operator's silhouette (no photo; the
+    // presence's `initial` is not drawn) and name.
     expect(m.q('.ln-f > button.fp.ccw-launcher-btn')).not.toBeNull();
-    expect(m.q('.ln-f .pic .av.c1')!.textContent).toBe('S');
+    expect(avatarFace(m.q('.ln-f .pic .av.c1'))).toBe('person');
     expect(m.q('.ln-f .lbl small')!.textContent).toBe('Sara Ahmadi');
 
     // Both operators step away at the console: the next page view says nobody is available.
@@ -646,7 +649,7 @@ describe('each brand\'s shipped files (minified, the other brand\'s kit stripped
     expect(status).toBe(200);
     const m = visit(await bootstrap(), { shipped: brand });
     expect(m.q('.ln-r.ccw-launcher-btn')).not.toBeNull();
-    expect(m.qa('.ln-r .avs .av').map((a) => a.textContent)).toEqual(['S', 'R']);
+    expect(avatarFaces(m.qa('.ln-r .avs .av'))).toEqual(['person', 'person']);
     m.open();
     expect(m.screenId()).toBe('home');
     // The credit of this edition: WebYar's mark (the Iran kit) or the International lockup, never the other's.

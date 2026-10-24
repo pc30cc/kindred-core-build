@@ -67,6 +67,31 @@ sees them). The desktop apps' side of that is
 `docs/call-widget-handoff/desktop-transfer-handover.patch`, for their next
 release.
 
+## Avatars: a silhouette or the workspace mark, never a letter (owner, 2026-10-24)
+
+An operator or team member without a photo shows the platform's person
+silhouette, and a workspace without a logo shows the workspace (storefront)
+mark: never initials or a first letter, on every surface (chat widget, call
+widget, web panel, the native apps) and in every new design or change. The
+two glyphs live once in `shared/avatarGlyphs.ts`; the guards are
+`src/test/widget/avatarGlyphs.test.ts`, `src/test/layout/noLetterAvatars.test.tsx`
+and `src/test/native/avatarGlyphs.test.ts`. Visitors and contacts in the
+operator panel keep their own look.
+
+## The knowledge base on the owner's Mac (owner, 2026-10-24)
+
+`~/Desktop/WebYar-RESPOK/knowledge-base` on `rass-MacBook-Pro-7.local` (inside
+the iCloud folder `WebYar-RESPOK`) is the project's lasting memory: the
+owner's decisions (`00-decisions/DECISIONS.md`), the roadmap (`01-roadmap`),
+research, evaluations, designs with their screenshots, reports, security
+fixes and the deploy log. After every step (a decision, a design, a PR merged
+and deployed) update it, in Persian for the owner. Text goes through Desktop
+Commander's `write_file`; images go through a temporary commit on your
+designated branch (only while no PR is open from it) that the Mac fetches
+(`git -C ~/Desktop/WebYar-RESPOK/code/kindred-core-build fetch --depth 1 origin <branch>`,
+then `git archive FETCH_HEAD knowledge-base | tar -x -C ~/Desktop/WebYar-RESPOK/`),
+after which the branch is reset. Never write a secret there.
+
 ## Chat routing
 
 Who may receive and answer chats is `shared/chatRoles.ts` only: the owner and

@@ -25,7 +25,8 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { invitationErrorKey } from '@/features/invitations/errors';
 import { formatDateTime } from '@/lib/date';
 import { useRequestIdBook } from '@/features/invitations/requestIds';
-import { Loader2, CheckCircle2, XCircle, Building2, ShieldAlert, LogIn, Clock } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, ShieldAlert, LogIn, Clock } from 'lucide-react';
+import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 
 type Purpose = 'email_claim' | 'manual_handoff';
 
@@ -474,7 +475,7 @@ export default function InvitePage() {
   const header = (
     <CardHeader className="space-y-3">
       <div className="flex items-center gap-3">
-        <Building2 className="h-6 w-6 text-primary" />
+        <WorkspaceGlyph className="h-6 w-6 text-primary" />
         <div>
           <CardTitle>{preview?.workspace_name}</CardTitle>
           <CardDescription>

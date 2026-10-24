@@ -14,9 +14,10 @@
  */
 import type { CSSProperties, ReactNode } from 'react';
 import * as RadioGroupPrimitive from '@radix-ui/react-radio-group';
-import { Check, Phone, Video, User } from 'lucide-react';
+import { Check, Phone, Video } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { OperatorSilhouette } from '@/components/ui/avatar-glyphs';
 import { CALL_LAUNCHER_STYLES, normalizeCallLauncherStyle, type CallLauncherStyle } from '../../../../shared/callLauncherStyles';
 
 export interface CallLauncherStylePickerProps {
@@ -130,7 +131,7 @@ export function CallLauncherStylePicker({ value, onChange, accent, international
         <span className="relative">
           <span data-accent className="flex h-10 w-10 items-center justify-center rounded-full p-0.5 shadow-md" style={fill}>
             <span className="flex h-full w-full items-center justify-center rounded-full" style={{ background: '#FCE3D4', color: '#8A3410' }}>
-              <User className="h-4 w-4" strokeWidth={2.2} />
+              <OperatorSilhouette />
             </span>
           </span>
           <span aria-hidden className="absolute bottom-0 end-0 h-2.5 w-2.5 rounded-full border-2 border-white" style={{ background: LIVE }} />

@@ -107,17 +107,17 @@
     // from config/view-model.
     function identityAvatarHtml(size) {
       // Logo explicitly disabled by the workspace => render NO avatar layer at
-      // all (no initial-letter fallback circle behind it).
+      // all (no workspace tile behind it).
       if (config && config.showLogo === false) return '';
       var logo = (config && config.logoUrl) ? String(config.logoUrl) : '';
-      var brand = workspaceName;
       var cls = 'wy-avatar wy-avatar-' + (size || 'md');
       if (logo) {
-        return '<span class="' + cls + ' has-img"><img src="' + esc(logo) + '" alt="' + esc(brand) +
+        return '<span class="' + cls + ' has-img"><img src="' + esc(logo) + '" alt="' + esc(workspaceName) +
           '" loading="lazy" decoding="async" /></span>';
       }
-      var initial = (brand.trim().charAt(0) || 'W').toUpperCase();
-      return '<span class="' + cls + '" aria-hidden="true">' + esc(initial) + '</span>';
+      // No logo: the workspace's storefront glyph on the accent tile, drawn
+      // by the stylesheet (never the name's first letter, owner 2026-10-24).
+      return '<span class="' + cls + '" aria-hidden="true"></span>';
     }
 
 

@@ -32,7 +32,10 @@ import {
 import { adminGetUserDeletionStatus, waitForUserDeletion } from '@/lib/adminUserDeletion';
 import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
 import { useEdition } from '@/hooks/useEdition';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
+import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
+import { WorkspaceMark } from '@/components/ui/workspace-mark';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';
 import { toast } from '@/lib/toast';
@@ -187,9 +190,7 @@ export default function AdminUsersPage() {
                     <div className="flex items-center gap-3">
                       <Avatar className="w-8 h-8 shrink-0">
                         {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
-                        <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                          {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-                        </AvatarFallback>
+                        <OperatorAvatarFallback className="bg-primary/10 text-primary ring-0" />
                       </Avatar>
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{p.full_name || '—'}</p>
@@ -476,9 +477,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             <div className="relative shrink-0">
               <Avatar className="w-16 h-16 ring-2 ring-background shadow-sm">
                 {p.avatar_url ? <AvatarImage src={p.avatar_url} alt={p.full_name || p.email || ''} /> : null}
-                <AvatarFallback className="bg-primary/15 text-xl font-bold text-primary">
-                  {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
-                </AvatarFallback>
+                <OperatorAvatarFallback className="bg-primary/15 text-primary ring-0" />
               </Avatar>
               {p.avatar_url && (
                 <button
@@ -853,9 +852,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             {detail.workspaces?.map((ws) => (
               <div key={ws.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Building2 className="h-4 w-4 text-primary" />
-                  </div>
+                  <WorkspaceMark className="h-8 w-8 rounded-lg bg-primary/10 text-primary" />
                   <div>
                     <p className="text-sm font-medium">{ws.name}</p>
                     <code className="text-xs text-muted-foreground bg-muted px-1 py-0.5 rounded">{ws.slug}</code>
@@ -1167,7 +1164,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
     <div className="rounded-lg border p-3 space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
-          <Building2 className="h-4 w-4 text-primary shrink-0" />
+          <WorkspaceGlyph className="h-4 w-4 text-primary" />
           <span className="text-sm font-medium truncate">{workspace.name}</span>
           <code className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded">{workspace.slug}</code>
         </div>

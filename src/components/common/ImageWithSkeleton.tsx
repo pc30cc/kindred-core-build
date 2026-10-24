@@ -4,7 +4,8 @@
  * Project rule: no image slot ever renders empty — avatars, workspace logos
  * and icon tiles show a pulsing placeholder while the network fetch is in
  * flight, then cross-fade to the real image. On error the skeleton is dropped
- * so the caller's own fallback (initials, icon) shows through.
+ * so the caller's own fallback (a glyph, an icon) shows through; `onFail`
+ * tells the caller, for a fallback drawn only then.
  */
 import { useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,6 +15,8 @@ export interface ImageWithSkeletonProps
   extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'onLoad' | 'onError'> {
   /** Extra classes for the pulsing placeholder layer. */
   skeletonClassName?: string;
+  /** Called once the image fails to load. */
+  onFail?: () => void;
 }
 
 export function ImageWithSkeleton({
@@ -21,6 +24,7 @@ export function ImageWithSkeleton({
   skeletonClassName,
   src,
   alt = '',
+  onFail,
   ...rest
 }: ImageWithSkeletonProps) {
   const [state, setState] = useState<'loading' | 'loaded' | 'error'>('loading');
@@ -38,7 +42,10 @@ export function ImageWithSkeleton({
         alt={alt}
         className={cn(className, 'transition-opacity duration-200', state === 'loaded' ? 'opacity-100' : 'opacity-0')}
         onLoad={() => setState('loaded')}
-        onError={() => setState('error')}
+        onError={() => {
+          setState('error');
+          onFail?.();
+        }}
       />
     </>
   );

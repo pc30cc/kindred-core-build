@@ -14,6 +14,21 @@
   contain: layout style;
 }
 
+/* The two avatar glyphs every template draws (owner, 2026-10-24): a person
+   without a photo (an operator, a team member) is this silhouette and a
+   workspace without a logo is this storefront, never a letter. One copy for
+   every chat template, here in Core's stylesheet (the loader refuses to open
+   the panel without it): a renderer emits the avatar empty and its
+   stylesheet paints the glyph as a mask of the tile's ink,
+   `background: currentColor; mask: var(--wy-person) center / contain`.
+   The paths are shared/avatarGlyphs.ts's (avatarGlyphs.test.ts checks each
+   copy). `:root` is the operator preview's frame, `:host` the widget's
+   shadow root. */
+:host, :root {
+  --wy-person: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 10.75c-4.6 0-8 2.3-8 5.25 0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-2.95-3.4-5.25-8-5.25z'/%3E%3C/svg%3E");
+  --wy-workspace: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Cpath d='M6.6 3h10.8q.9 0 1.38.83L21.5 8.5A2.375 2.375 0 0 1 20.25 10.59v8.16A2.25 2.25 0 0 1 18 21H6a2.25 2.25 0 0 1-2.25-2.25v-8.16A2.375 2.375 0 0 1 2.5 8.5l2.72-4.67Q5.7 3 6.6 3zm-.85 7.71v8.04q0 .25.25.25h4v-2.75a2 2 0 0 1 4 0V19h4q.25 0 .25-.25v-8.04A2.375 2.375 0 0 1 16.75 8.5a2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-1.5 2.21z'/%3E%3C/svg%3E");
+}
+
 /* Internal reset — scoped to the shadow root only */*,
 *::before,
 *::after{

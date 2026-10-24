@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// What stands where a face will be: a silhouette — head and shoulders — in
-/// the skeleton's greys.
+/// What stands where a face will be: a silhouette in the skeleton's greys —
+/// head and shoulders, or a shop front for a workspace.
 ///
 /// It is the only thing an avatar shows in place of a picture, whether the
 /// picture is on its way or there is none. It replaced initials, which were
@@ -14,11 +14,22 @@ import SwiftUI
 /// The silhouette is the same shape in both cases, so a picture that turns
 /// out not to exist costs nothing to look at: the sweep stops and the shape
 /// stays. A picture that does arrive fades in over it (`RemoteImage`).
+///
+/// A teammate and a workspace get the platform's own glyphs
+/// (`AvatarGlyph`): the same person and the same shop front the web panel,
+/// the website widgets and the other apps draw, so a colleague without a
+/// photo, or a workspace without a logo, looks the same everywhere.
 struct AvatarSkeleton: View {
-    /// Who the picture is of, which decides the figure: a person's head and
-    /// shoulders, or a building for a workspace's logo.
+    /// Who the picture is of, which decides the figure.
     enum Subject {
+        /// A visitor or a contact: head and shoulders, like the system's own
+        /// contact placeholder.
         case person
+        /// Someone on the team, the operator included: the platform's person
+        /// glyph. Never initials.
+        case member
+        /// A workspace's logo: the platform's workspace glyph, a shop front.
+        /// Never the workspace's first letter.
         case organisation
     }
 
@@ -62,10 +73,10 @@ struct AvatarSkeleton: View {
                     .offset(y: side * 0.46)
             }
             .foregroundStyle(figureFill)
+        case .member:
+            AvatarGlyphView(glyph: .person, side: side, ink: figureFill)
         case .organisation:
-            Image(systemName: "building.2.fill")
-                .font(.system(size: side * 0.40))
-                .foregroundStyle(figureFill)
+            AvatarGlyphView(glyph: .workspace, side: side, ink: figureFill)
         }
     }
 

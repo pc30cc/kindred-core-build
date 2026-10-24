@@ -19,6 +19,7 @@ import {
   callRoutes, closeCallWidgets, fakeApi, flush, mountCallWidget, settle, widgetSource,
   type ApiAnswer, type ApiRequest, type CallServerState, type Engine, type FakeAudioContext, type Mounted, type MountOptions,
 } from './mountCallWidget';
+import { avatarFace } from '../widget/avatarFace';
 
 afterEach(() => closeCallWidgets());
 
@@ -295,11 +296,21 @@ describe('the light screens draw what their state holds', () => {
     expect(m.q('[data-screen="precall"] [data-error]')!.textContent).toBe('Account ID: Required');
   });
 
-  it('the D34 name: no operator name → the role, a headset in place of an initial', () => {
+  it('the D34 name: no operator name → the role, a headset in place of the silhouette', () => {
     const m = opened({ locale: 'en', legacy: false });
     m.set({ state: 'ended', endedCallId: 'c1', endedDuration: 0, operatorName: null });
     expect(m.q('[data-screen="rating"] .sumc small')!.textContent).toBe('Operator');
     expect(m.q('[data-screen="rating"] .sumc .av svg')).not.toBeNull();
+    expect(m.q('[data-screen="rating"] .sumc .av.sil')).toBeNull();
+  });
+
+  it('a named operator on the rating and thanks screens: the silhouette on their tile, never their initial', () => {
+    const m = opened({ locale: 'fa', legacy: false });
+    m.set({ state: 'ended', endedCallId: 'c1', endedDuration: 64, operatorName: 'سارا رضایی' });
+    expect(avatarFace(m.q('[data-screen="rating"] .sumc .av.s52.c1'))).toBe('person');
+    m.set({ ratingSubmitted: true, ratingValue: 4 });
+    expect(m.screenId()).toBe('thanks');
+    expect(avatarFace(m.q('[data-screen="thanks"] .sumc .av.s44.c1'))).toBe('person');
   });
 
   it('compact density is the root\'s', () => {
@@ -419,6 +430,8 @@ describe('05 / 06 the queue', () => {
     expect(shown(s.querySelector('.qc'))).toBe(true);
     expect(s.querySelector('.qc .ql2')!.getAttribute('aria-hidden')).toBe('true');
     expect(s.querySelectorAll('.qc .ql2 .pp')).toHaveLength(2);
+    // The people ahead are plain dots: no face (runtime.css draws the person on .sil only).
+    expect(s.querySelectorAll('.qc .ql2 .sil')).toHaveLength(0);
     expect(text(s.querySelector('.qc .ql2 .me'))).toBe('شما');
     expect([...s.querySelectorAll('.qs > span')].filter(shown).map((x) => [text(x.querySelector('small')), text(x.querySelector('b'))]))
       .toEqual([['جایگاه در صف', '۳'], ['زمان تقریبی', 'حدود ۳ دقیقه']]);
@@ -608,7 +621,8 @@ describe('07 joining and the connecting family', () => {
     expect(text(s.querySelector('.pill'))).toBe('متصل، در انتظار اپراتور');
     expect(s.querySelector('.orb')!.classList.contains('op')).toBe(true);
     expect(s.querySelector('.orb')!.classList.contains('breathe')).toBe(true);
-    expect(text(s.querySelector('.orb .core'))).toBe('س');
+    expect(avatarFace(s.querySelector('.orb .core'))).toBe('person');
+    expect(s.querySelector('.orb .core.sil')).not.toBeNull();
     expect(text(s.querySelector('.who-c .nm'))).toBe(SARA);
     expect(text(s.querySelector('.who-c .rl'))).toBe('اپراتور');
     const ctm = s.querySelector('.who-c .ctm.mut')!;
@@ -629,6 +643,8 @@ describe('07 joining and the connecting family', () => {
     expect(m.screenId()).toBe('joining');
     expect(s.querySelector('.orb')!.classList.contains('spin')).toBe(true);
     expect(s.querySelector('.orb .core svg')).not.toBeNull();
+    // The phone spins alone: no silhouette under it.
+    expect(s.querySelector('.orb .core.sil')).toBeNull();
     expect(text(s.querySelector('.ctm.mut'))).toBe(m.ctrl.t(key).replace(/…$/, ''));
     // Nothing is muted before the microphone was ever asked for.
     expect(s.querySelector('[data-action="mute"]')!.getAttribute('aria-pressed')).toBe('false');
@@ -783,7 +799,7 @@ describe('10 transfer · 11 reconnect · 12 microphone · the failures', () => {
     const s = m.screen()!;
     expect(m.screenId()).toBe('transfer');
     expect(text(s.querySelector('.pill'))).toBe('در تماس');
-    expect(text(s.querySelector('.xf .av'))).toBe('س');
+    expect(avatarFace(s.querySelector('.xf .av'))).toBe('person');
     expect(s.querySelector('.xf')!.getAttribute('aria-hidden')).toBe('true');
     expect([...s.querySelectorAll('.xf .ar svg')].every((x) => x.classList.contains('dirf'))).toBe(true);
     expect(s.querySelectorAll('.xf .ar svg')).toHaveLength(3);
@@ -793,7 +809,7 @@ describe('10 transfer · 11 reconnect · 12 microphone · the failures', () => {
     expect(text(s.querySelector('.ctm'))).toBe('۳:۰۵');
     m.set({ transferring: false, operatorName: 'رضا احمدی' });
     expect(m.screenId()).toBe('voice');
-    expect(text(m.q('[data-screen="voice"] .orb .core'))).toBe('ر');
+    expect(avatarFace(m.q('[data-screen="voice"] .orb .core'))).toBe('person');
   });
 
   it('11: the reconnecting banner, the dimmed face, the time running in the muted chip', () => {
@@ -895,6 +911,7 @@ describe('D23 · D34 on the stage', () => {
     live(m, { operatorName: null });
     const s = m.screen()!;
     expect(s.querySelector('.orb .core svg')).not.toBeNull();
+    expect(s.querySelector('.orb .core.sil')).toBeNull();
     expect(shown(s.querySelector('.who-c .nm'))).toBe(false);
     expect(text(s.querySelector('.who-c .rl'))).toBe('Operator');
     m.media({ video: true });
@@ -1128,12 +1145,12 @@ describe('the minimised call', () => {
     expect(shown(se2.querySelector('.tx small'))).toBe(false);
   });
 
-  it('Sf: a voice call in the launcher: initial, first name, time, mute and end; its level bars are the engine\'s, every render', () => {
+  it('Sf: a voice call in the launcher: silhouette, first name, time, mute and end; its level bars are the engine\'s, every render', () => {
     const m = staged('fa');
     live(m);
     m.click('[data-screen="voice"] .dock [data-action="minimize"]');
     const sf = wrap(m).querySelector('.mc')!;
-    expect(text(sf.querySelector('.av'))).toBe('س');
+    expect(avatarFace(sf.querySelector('.av'))).toBe('person');
     expect(text(sf.querySelector('.tx b'))).toBe('سارا');
     expect(text(sf.querySelector('.tx small'))).toBe('۲:۱۴');
     const bars = [...sf.querySelectorAll('.wvs i')];
@@ -1677,7 +1694,7 @@ describe('the engine\'s round-3 fields, end to end (the real runtime, a fake ser
     c.pollOnce();
     await settle();
     expect(m.screenId()).toBe('transfer');
-    expect(m.q('[data-screen="transfer"] .xf .av')!.textContent).toBe('S');
+    expect(avatarFace(m.q('[data-screen="transfer"] .xf .av'))).toBe('person');
     expect(m.q('[data-screen="transfer"] .ctm')!.textContent).toBe('2:14');
     room.leave('op-a');
     await settle();

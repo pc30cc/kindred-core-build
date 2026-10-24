@@ -508,21 +508,27 @@
   var MAX_DELAY = 2147483647;
   /** A picture the server named: http(s) or a path on the page's origin; anything else is not drawn. */
   function picUrl(u) { return typeof u === 'string' && /^(https?:\/\/|\/(?!\/))/i.test(u) ? u : null; }
-  /** The operators presence names (card, operator_face): at most three, each with a face (an initial or a photo). */
+  /**
+   * The operators presence names (card, operator_face): at most three, each
+   * with a name or a photo. Without a photo the face is the person
+   * silhouette (`.sil`, runtime.css), never a letter (owner, 2026-10-24).
+   */
   function operators() {
     var pr = boot().presence;
     return (pr && Array.isArray(pr.operators) ? pr.operators : []).filter(function (o) {
-      return !!o && typeof o === 'object' && !!(initialOf(o) || picUrl(o.avatar_url));
+      return !!o && typeof o === 'object' && !!(named(o) || picUrl(o.avatar_url));
     }).slice(0, 3);
   }
-  function initialOf(o) {
-    return (o.initial && String(o.initial)) || Array.from(String(o.name || '').trim())[0] || '';
-  }
+  function named(o) { return typeof o.name === 'string' && !!o.name.trim(); }
   /** The first operator with a name (operator_face draws them; without one it is round_label). */
   function faceOp() {
     var list = operators();
-    for (var i = 0; i < list.length; i++) if (typeof list[i].name === 'string' && list[i].name.trim()) return list[i];
+    for (var i = 0; i < list.length; i++) if (named(list[i])) return list[i];
     return null;
+  }
+  /** A face: the photo, else the silhouette on the tone's tile. */
+  function face(cls, src) {
+    return el('span', { class: 'av ' + cls + (src ? '' : ' sil') }, src ? [el('img', { src: src, alt: '' })] : null);
   }
   /**
    * The style drawn: unknown → round_label; mobile_bar on phones only (the
@@ -659,8 +665,7 @@
       var ops = operators();
       return main('ln ln-r' + off, [
         ops.length ? el('span', { class: 'avs', 'aria-hidden': 'true' }, ops.map(function (o, i) {
-          var src = picUrl(o.avatar_url);
-          return el('span', { class: 'av c' + (i + 1) }, [src ? el('img', { src: src, alt: '' }) : initialOf(o)]);
+          return face('c' + (i + 1), picUrl(o.avatar_url));
         })) : null,
         el('span', { class: 'tx' }, [
           el('b', {}, [tr(online ? 'talk_to_team' : offT)]),
@@ -687,7 +692,7 @@
       var op = faceOp();
       var photo = picUrl(op.avatar_url);
       var fp = main('fp', [
-        el('span', { class: 'pic' }, [photo ? el('img', { src: photo, alt: '' }) : el('span', { class: 'av c1' }, [initialOf(op)])]),
+        el('span', { class: 'pic' }, [photo ? el('img', { src: photo, alt: '' }) : face('c1')]),
         online ? el('i', { class: 'ring2' }) : null,
         el('span', { class: 'pb' }, [svg(ic, 14, 2.2)]),
       ], name);

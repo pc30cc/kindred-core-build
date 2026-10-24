@@ -53,7 +53,7 @@ import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
 import type { WidgetSettings } from '@/types/models';
 import { chatTemplateOptionKeys } from '../../../shared/chatTemplateCatalog';
 import { launcherChoiceFields, type LauncherStyleChoice } from '../../../shared/launcherStyles';
-import { previewAgentInitial, previewTeam } from '@/components/app/widget/previewTeam';
+import { previewTeam } from '@/components/app/widget/previewTeam';
 
 /** Any column the appearance form may edit through `setField`. */
 type WidgetField = keyof WidgetSettings & string;
@@ -366,11 +366,6 @@ function WidgetPageContent() {
   const chooseLauncher = (choice: LauncherStyleChoice) => {
     for (const [field, value] of launcherChoiceFields(choice, live?.widget_template_options)) setField(field, value, 0);
   };
-  /** The agent face's letter, as /config picks it: the first operator (online first) with a name, else the workspace. */
-  const launcherLetter = previewAgentInitial(
-    previewTeamMembers,
-    typeof live?.brand_name === 'string' ? live.brand_name : workspace?.name,
-  );
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
@@ -874,7 +869,6 @@ function WidgetPageContent() {
                       icon={capAllowed('widget_launcher_icon') ? live?.fab_icon : 'chat'}
                       label={capAllowed('widget_launcher_label') ? live?.fab_label : ''}
                       primaryColor={ownColor ?? widgetOwnColor(branding?.primary_color)}
-                      initial={launcherLetter}
                       widgetLocale={effectiveLocale}
                       international={isInternational}
                       logoDirection={chatTemplateOptionKeys(previewTemplate.id).includes('logoDirection')

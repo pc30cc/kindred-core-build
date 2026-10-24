@@ -1285,8 +1285,6 @@
         wyReceivedVideo: 'You received a video',
         wyReceivedFile: 'You received a file',
         wyLoading: 'Loading…',
-        wyStatusOpen: 'Open',
-        wyStatusResolved: 'Resolved',
         wyContinueLast: 'Continue last conversation',
         wyContinue: 'Continue conversation',
         wyArticles: 'Articles',
@@ -1538,8 +1536,6 @@
         wyReceivedVideo: 'یک ویدیو دریافت کردید',
         wyReceivedFile: 'یک فایل دریافت کردید',
         wyLoading: 'در حال بارگذاری…',
-        wyStatusOpen: 'باز',
-        wyStatusResolved: 'حل‌شده',
         wyContinueLast: 'ادامه آخرین گفتگو',
         wyContinue: 'ادامه گفتگو',
         wyArticles: 'مقالات',
@@ -1788,8 +1784,6 @@
         wyReceivedVideo: 'Bir video aldınız',
         wyReceivedFile: 'Bir dosya aldınız',
         wyLoading: 'Yükleniyor…',
-        wyStatusOpen: 'Açık',
-        wyStatusResolved: 'Çözüldü',
         wyContinueLast: 'Son sohbete devam et',
         wyContinue: 'Sohbete devam et',
         wyArticles: 'Makaleler',
@@ -2212,6 +2206,7 @@
     function startPolling() {
       if (manuallyClosed) return;
       var generation = connectionGeneration;
+      var polledStatus = null; // the polled conversation's, as /poll last gave it
       ensureChatModule(function (mod) {
         if (manuallyClosed || generation !== connectionGeneration || !mod || !mod.startPolling) return;
         if (pollingHandle && pollingHandle.stop) pollingHandle.stop();
@@ -2233,6 +2228,7 @@
           },
           getConversationId: function () { return subscribedConversation; },
           onConversation: function (cid, status) {
+            polledStatus = status;
             // P0-B — while a fresh intent is armed the poll runs without a
             // cid, so the server answers with the visitor's PREVIOUS thread.
             // Adopting it here is exactly the resurrection bug; refuse.
@@ -2249,8 +2245,15 @@
             // P0-4 — a frame only reaches the view when the ACTIVE
             // conversation owns it (emit's filter). Untargeted frames stay
             // allowed; the others still count as unread (a thread read from
-            // history while the polled one gets a reply).
-            if (msgs && msgs.length) emit('message', { messages: msgs });
+            // history while the polled one gets a reply). /poll names its
+            // conversation at the top only (onConversation, just before):
+            // each row is stamped with it, so a past conversation read
+            // meanwhile (never polled) never takes the polled one's rows,
+            // and its status goes along (a closed one is never adopted).
+            var pc = subscribedConversation;
+            if (msgs && msgs.length) emit('message', { status: polledStatus, messages: msgs.map(function (m) {
+              return m && pc && !frameConversationId(m) ? Object.assign({}, m, { conversation_id: pc }) : m;
+            }) });
           },
 
 
@@ -9828,6 +9831,9 @@
         }
         if (!past) underCid = null;
         pastShown = past ? conversationId : null;
+        // From a read-only thread to a writable one or back: the chat's
+        // skeleton until its history is in, never the other one's lines.
+        if (past !== wasPast) usableByView.chat = false;
         // P0-1/P0-3 — new active context. Anything still in flight for the
         // previous thread (history, intro, send) is now stale by epoch.
         ConvEpoch.bump('open_conversation', { conversationId: conversationId });
@@ -10060,9 +10066,13 @@
       if (g.e === ConvEpoch.get()) g.f();
     });
     function repaintChat() { if (shellStore.get().activeTab === 'chat') renderBody(); }
-    /** The store lets go of a past conversation (never subscribed: nothing to leave). */
+    /**
+     * The store lets go of a past conversation (never subscribed) for a fresh
+     * thread: the conversation it took the place of, no longer current, is left.
+     */
     function leavePastStore() {
       if (!pastInStore()) return;
+      if (underCid) { try { transport.unsubscribeConversation(underCid); } catch (_) {} }
       pastCid = null;
       pastShown = null;
       underCid = null;
@@ -10556,6 +10566,10 @@
 
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading('chat'); return; }
+        // A past one's bar is drawn again on each of its passes, and goes at
+        // once on any other (its skeleton below while the next one loads).
+        var pastBar = chatQ('[data-past-bar]');
+        if (pastBar && pastBar.parentNode) pastBar.parentNode.removeChild(pastBar);
         // Opening an existing thread: hold the chat skeleton until that
         // conversation's history lands, instead of painting an empty thread.
         if (chatStore.get().historyLoading && !(chatStore.get().messages || []).length) {
@@ -10565,9 +10579,9 @@
 
         // A closed conversation opened from history is read-only: its
         // messages, and the renderer's bar (the way to the current one) in
-        // the composer's place. Nothing can be sent from it (attemptSend).
-        var pastBar = chatQ('[data-past-bar]');
-        if (pastBar && pastBar.parentNode) pastBar.parentNode.removeChild(pastBar);
+        // the composer's place. Nothing can be sent from it (attemptSend),
+        // and the current one's quote waits for it, out of sight.
+        if (replyPreviewEl) replyPreviewEl.hidden = !pendingQuote || isPastChat();
         if (isPastChat()) {
           if (inputBar) {
             var pp = presenceStore.get();
@@ -10743,12 +10757,13 @@
       var allIncoming = (payload && payload.allMessages) || incoming;
       // One conversation: a fresh thread nobody wrote in takes the
       // conversation an answer of the team's comes in (an operator's
-      // outreach; an answer reopens a closed one). A frame carries no
-      // status, so a system row (a close) never does.
+      // outreach; an answer reopens a closed one). A realtime frame carries
+      // no status, so a system row (a close) never does; a /poll answer
+      // gives its conversation's, and a closed one's old answers never do.
       if (oneChat() && !chatStore.get().conversationId) {
         for (var fi = 0; fi < allIncoming.length; fi++) {
           var fm = allIncoming[fi] || {};
-          if (/^(agent|ai)$/.test(fm.sender_type || fm.role) && adoptLive(fm.conversation_id, 'open')) break;
+          if (/^(agent|ai)$/.test(fm.sender_type || fm.role) && adoptLive(fm.conversation_id, payload.status || 'open')) break;
         }
       }
       var changed = chatUI.mergeIncoming(incoming);

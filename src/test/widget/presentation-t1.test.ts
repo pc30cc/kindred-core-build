@@ -807,6 +807,8 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(past.querySelector('.who .pr')).toBeNull();
       expect(past.querySelector('.hs')!.textContent).toBe('مهدی · دیروز');
       expect(parse(r().chatHeaderHtml({ online: true, operator: { name: 'مهدی', online: true } })).querySelector('.who .pr')).not.toBeNull();
+      // A past thread's bubbles keep copy, never the quote (Core refuses it there): no dead control.
+      expect(T1_CSS).toContain('.wy-view-chat:has(.ro) :is(.cl-h, [data-msg-reply]) { display: none; }');
     },
   };
 
@@ -1958,6 +1960,9 @@ describe('t1-intl: the International edition\'s skin over t1 (presentation-t1-in
       expect(SKIN.match(new RegExp(`${v}: url\\("data:image/svg\\+xml,`, 'g'))?.length, v).toBe(2);
     }
     expect(SKIN).toContain('.lg-open .wy-view, .lg-open .smart-nudge {');
+    // The Chat tab's active pair is worn: home's bar stays up, its Chat tab
+    // current (runtime-ext's markActiveTab), while that conversation loads.
+    expect(SKIN).toContain(".wy-tab[aria-current='page'][data-view='chat'] .tic::after { background: var(--tc);");
     for (const m of SKIN.matchAll(/url\(\s*["']?([^"')\s]+)/g)) expect(m[1].startsWith('data:'), m[1]).toBe(true);
     // The watermark only while the platform is credited.
     expect(SKIN).toContain('.wy-view:has(.wy-powered) .hx::before');

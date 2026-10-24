@@ -424,7 +424,9 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
     `[data-chat-current]` goes to the current conversation (`current`), else
     starts one (`online`) or leaves a message. Core refuses every send,
     quote, draft, file and voice from it; the stylesheet hides the quote
-    button there too;
+    button there too. Core also hides `[data-reply-preview]` there (a quote
+    picked in the current one is back with it), and paints the chat's
+    skeleton while a switch between a read-only and a writable thread loads;
   - the `conversation_closed` line on a real close (descriptor and renderer
     `closedNotice`: `features.closedNotice`, or top-level for `default`),
     worded `{name} ended the chat` / `Chat ended` in every template

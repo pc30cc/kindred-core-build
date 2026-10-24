@@ -56,7 +56,10 @@ describe('P0-B — a fresh intent can never resurrect the old conversation', () 
     // (Its second parameter is the conversation's status, /poll's.)
     const idx = runtime.indexOf('onConversation: function (cid', pollIdx);
     expect(idx).toBeGreaterThan(-1);
-    const body = runtime.slice(idx, idx + 600);
+    // Bounded by the callbacks themselves (up to the poll's onTick), not a byte count.
+    const end = runtime.indexOf('onTick:', idx);
+    expect(end).toBeGreaterThan(idx);
+    const body = runtime.slice(idx, end);
     expect(body).toMatch(/freshIntentArmed\(\) && !subscribedConversation/);
     // Same guard on the message channel, otherwise old messages stream in
     // even though the cid was refused.

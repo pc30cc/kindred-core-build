@@ -725,6 +725,133 @@ describe('a look at a past conversation costs the current one nothing', () => {
     expect(view(h)).toBe('list');
     expect(h.subscriptions.filter((x) => x !== '+c-live')).toEqual([]);
   });
+
+  it('polling: the current one\'s /poll rows (no conversation id on them, as /poll sends them) stay out of a past one; its answer counts', async () => {
+    const h = start('bare', { conversations: LIVE });
+    await flush(40);
+    await online(h);
+    h.runtime.setTab('chat');
+    await flush(10);
+    expect(cid(h)).toBe('c-live');
+    // /poll names its conversation once, at the top; its rows name none.
+    const poll = (rows: Row[]) => {
+      h.emitPollConversation('c-live', 'open');
+      h.emitPoll(rows.map((r) => { const o = { ...r }; delete o.conversation_id; return o; }));
+    };
+    poll(threadOf('c-live'));
+    await flush(5);
+    await readPast(h);
+    const past = msgs(h).map((m) => m.__id);
+    expect(past).toEqual(['c-past-v', 'c-past-a']);
+    const unread = h.unread[h.unread.length - 1] || 0;
+    poll([...threadOf('c-live'), agent('m-new', 'c-live', 'پاسخ تازه', 0)]);
+    await flush(10);
+    expect([cid(h), msgs(h).map((m) => m.__id)]).toEqual(['c-past', past]);
+    expect(h.body.textContent).not.toContain('پاسخ تازه');
+    expect(h.unread[h.unread.length - 1]).toBe(unread + 1);
+  });
+
+  for (const realtime of [true, false]) {
+    it(`back from a past one to a fresh thread: the conversation it took the place of (closed meanwhile) is left (${realtime ? 'realtime' : 'polling'})`, async () => {
+      seedHint({ tab: 'home', conversationId: null });
+      const convs: ConversationSeed[] = [{ id: 'c-live', status: 'open', updatedAt: ago(5) }, { id: 'c-past', status: 'closed', updatedAt: ago(500) }];
+      const h = start('bare', { realtime, conversations: convs });
+      await flush(40);
+      await online(h);
+      expect(cid(h)).toBe('c-live');
+      await readPast(h);
+      if (!realtime) expect(h.pollConversationId()).toBe('c-live');
+      // The operator closes it meanwhile; this tab never showed it (no grace).
+      convs.splice(0, 1, { id: 'c-live', status: 'closed', updatedAt: ago(120), endedAt: ago(120) });
+      h.runtime.__test.retryConversations();
+      await flush(10);
+      click(h.q('[data-past-bar] [data-chat-current]'));
+      await flush(10);
+      expect([cid(h), h.runtime.__test.chatState().freshIntent]).toEqual([null, true]);
+      // Off its channel; the poll names nothing, so the server answers with a live one, if any.
+      if (realtime) expect(h.subscriptions[h.subscriptions.length - 1]).toBe('-c-live');
+      else expect(h.pollConversationId()).toBeNull();
+    });
+  }
+
+  it('polling: a conversation the poll stayed on, closed by now, is never taken by a fresh thread from its old answers', async () => {
+    const h = start('bare', { conversations: [{ id: 'c-past', status: 'closed' }] });
+    await flush(40);
+    await online(h);
+    h.runtime.setTab('chat');
+    await flush(10);
+    expect([cid(h), h.runtime.__test.chatState().freshIntent]).toEqual([null, true]);
+    await readPast(h);
+    // Meanwhile /poll (naming nothing) answers with an operator's outreach, its rows with no id on them.
+    const outreach = { id: 'o-a', role: 'agent', sender_type: 'agent', sender_name: 'سارا', text: 'سلام از ما', time: ago(1) };
+    h.emitPollConversation('c-out', 'open');
+    h.emitPoll([outreach]);
+    await flush(10);
+    expect([cid(h), msgs(h).some((m) => m.__id === 'o-a')]).toEqual(['c-past', false]);
+    expect(h.pollConversationId()).toBe('c-out');
+    // The list does not know it yet: back to a fresh thread, and the outreach is closed by then.
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(10);
+    expect(cid(h)).toBeNull();
+    h.emitPollConversation('c-out', 'closed');
+    h.emitPoll([outreach]);
+    await flush(10);
+    expect([cid(h), h.runtime.__test.chatState().freshIntent]).toEqual([null, true]);
+    // Live, its answer is taken (an answer reopens it).
+    h.emitPollConversation('c-out', 'open');
+    h.emitPoll([outreach, { ...outreach, id: 'o-b', text: 'هنوز اینجاییم', time: ago(0) }]);
+    await flush(10);
+    expect(cid(h)).toBe('c-out');
+  });
+
+  it('back to the current one: the past bar and the past lines go at once, its skeleton until its history is in', async () => {
+    const h = start('bare', { realtime: true, holdHistory: true, conversations: LIVE });
+    await flush(40);
+    h.releaseHistory();
+    await flush(10);
+    await online(h);
+    h.runtime.setTab('list');
+    await flush(10);
+    click(h.q('[data-conversation-open="c-past"]'));
+    await flush(10);
+    h.releaseHistory();
+    await flush(10);
+    expect([cid(h), pastBar(h) !== null, composerShown(h)]).toEqual(['c-past', true, false]);
+    expect(h.body.textContent).toContain('سؤال در c-past');
+    click(h.q('[data-past-bar] [data-chat-current]'));
+    await flush(10);
+    expect([cid(h), h.runtime.__test.chatState().historyLoading]).toEqual(['c-live', true]);
+    expect(pastBar(h)).toBeNull();
+    expect(h.body.textContent).not.toContain('سؤال در c-past');
+    // No composer left hidden on screen meanwhile: the chat's skeleton holds the place.
+    expect(h.body.querySelector('[data-input-bar]')).toBeNull();
+    h.releaseHistory();
+    await flush(10);
+    expect([pastBar(h), composerShown(h)]).toEqual([null, true]);
+    expect(h.body.textContent).toContain('سؤال در c-live');
+  });
+
+  for (const which of ['bare', 't1'] as const) {
+    it(`${which}: a quote picked in the current one is not shown in a past one, and is back with it`, async () => {
+      const h = start(which, { realtime: true, conversations: LIVE });
+      await flush(40);
+      await online(h);
+      h.runtime.setTab('chat');
+      await flush(10);
+      const quote = () => h.q<HTMLElement>('[data-reply-preview]')!;
+      click(h.q('[data-chat-messages] [data-msg-reply="c-live-a"]'));
+      expect(quote().hidden).toBe(false);
+      await readPast(h);
+      expect(quote().hidden).toBe(true);
+      click(h.q('[data-past-bar] [data-chat-current]'));
+      await flush(20);
+      expect([cid(h), quote().hidden]).toEqual(['c-live', false]);
+      write(h, 'با نقل قول');
+      await flush(10);
+      expect(sends(h)).toHaveLength(1);
+      expect(sends(h)[0]).toMatchObject({ conversationId: 'c-live', replyToMessageId: 'c-live-a' });
+    });
+  }
 });
 
 describe('a fresh thread: armed from the start, nothing adopted behind it', () => {

@@ -401,7 +401,7 @@ The rating card's other states reuse or add renderer copy (`csatThanks`, `csatRa
 | `prechatTitle` | «مشخصات شما» | Your details | T1 form card title only (its `aria-label` is `prechatCardLabel`, the intro title `prechatIntroTitle`) |
 | `wyArticleHelpful` | «این مقاله مفید بود؟» | Was this article helpful? | T1 rating question; Persian today «آیا این مقاله مفید بود؟». T2 uses `kbDidThisHelp` |
 | `wyHelpfulYes`, `wyHelpfulNo` | «بله» / «نه» | Yes / No | T1 rating buttons and the outer T2 faces; today «مفید بود», «مفید نبود» / "Helpful", "Not helpful" |
-| `wyStatusOpen`, `wyStatusResolved` | «باز» · «حل شده» | Open / Resolved | Status tags. **Decided:** «حل شده» (a status adjective) for both templates (T2 boards say «حل شد»: accepted copy difference) |
+| `wyStatusOpen`, `wyStatusResolved` | «باز» · «حل شده» | Open / Resolved | Status tags. **Decided:** «حل شده» (a status adjective) for both templates (T2 boards say «حل شد»: accepted copy difference). **Retired 2026-10-24** (§4.14): no template draws status pills |
 | `routingInQueue` `{n}` `{min}` | «نفر ۲ در صف · حدود ۳ دقیقه» | 2nd in line · about 3 minutes | T1 queue pill (`view.queue`, §3); new placeholders, in the T1 dictionary: Core's own `routingInQueue` (no placeholders) stays as it is for `default` |
 | `routingInQueuePosition` `{n}` *(named here)* | «نفر ۲ در صف» | 2nd in line | T1 queue pill while there is no wait estimate (fewer than 3 measured claims, or more than 180 minutes) |
 | `you` + ": " | «شما:» | You: | Preview prefix when the visitor sent the last message (`lastFromVisitor`), both templates; a composition, no new key |
@@ -421,7 +421,9 @@ The rating card's other states reuse or add renderer copy (`csatThanks`, `csatRa
 
 Retired from Core's dictionary (default was their only user): `wyStartNew`, `wyRecentConversations`,
 `wyViewConversations`, `wyConversations`. The rows for them in §4.13 describe T1 copy that T1 now draws from its
-own extras.
+own extras. Also retired: `wyStatusOpen` and `wyStatusResolved`, since no template draws an open or resolved pill any
+more (history rows have none, and a resolve ends nothing for the visitor). `presentationContract.test.ts` keeps all
+six out of Core and every renderer.
 
 ---
 

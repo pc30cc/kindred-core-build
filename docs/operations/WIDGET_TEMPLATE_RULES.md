@@ -338,7 +338,7 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   `mask: var(--wy-person)` / `var(--wy-workspace)` (with `-webkit-mask`),
   whose URIs live once in Core's `runtime.css`. Not a byte of JS
   (`src/test/widget/avatarGlyphs.test.ts` boots every template and fails
-  on a letter). The call widget: `.pp` (the person, `runtime.css`) and
+  on a letter). The call widget: `.sil` (the person, `runtime.css`) and
   `.lg.ws` (the business, the panel's stylesheet).
 - Two things every chat template draws for Core: a failed visitor message's
   `failText` (why it was not sent, in the visitor's language: no connection

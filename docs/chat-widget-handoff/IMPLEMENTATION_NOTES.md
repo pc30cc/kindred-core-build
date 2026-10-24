@@ -208,6 +208,14 @@ workspace's storefront, never a person (t1 did so already for the built-in name,
 not concerned. The two glyphs are the platform's (`shared/avatarGlyphs.ts`: one path each in a 24-unit box,
 symmetric, so they need no mirroring in RTL).
 
+Two decisions the owner sees (owner, 2026-10-24):
+
+- **The AI without a logo of its own wears the workspace's storefront** in t1 and t2 (the bar, its runs, the
+  thinking row), named or not; its sparkle badge stays. With `agentLogoUrl` it wears that logo. Never a person,
+  never its name's letter.
+- **The launcher's agent face is always the person silhouette**, also when the team is empty (no one receives chats
+  yet): it no longer falls back to the workspace's letter, and it never shows the storefront.
+
 - The renderers emit the avatar tile empty, with the same element, classes and tone as before and `aria-hidden`. The
   stylesheets draw the glyph as a mask of the tile's ink: `background: currentColor` with
   `mask: var(--wy-person) | var(--wy-workspace)` (and the `-webkit-` twin). The URIs are in Core's `runtime.css`
@@ -216,8 +224,10 @@ symmetric, so they need no mirroring in RTL).
 - t1: `avatarHtml`, `wsAvatar` and the hero `.logo`, with `initialOf` gone (−111 B). An AI without
   `agentLogoUrl` goes to `wsAvatar` (`botPerson`).
 - t2: `avatarHtml` (so `storeAvatarHtml` too) and the hero `.logo`, with `initialOf` gone (−18 B net). The AI's run
-  takes the workspace's tile unless it has its own picture (`msgAvatarHtml`). The home skeleton's `.logo` has no
-  `aria-hidden`, so it stays a plain tile.
+  takes the workspace's tile unless it has its own picture (`msgAvatarHtml`). Skeletons stay plain tiles: the
+  home skeleton's `.logo` has no `aria-hidden`, and the bar's placeholder in the chat and pre-chat skeletons
+  (`skWhoHtml`, `.av.skc`) is left out of the glyph rule (`.av:not(.has-img):not(.skc)`). t1's and `default`'s
+  skeleton circles are `.wy-sk-circle`, never an avatar tile.
 - `default`: the workspace's `.wy-avatar` (header, list rows, article head) shows the storefront. Operators without a
   photo still get no avatar layer, as before.
 - Core's smart row (`smartOperatorAvatarHtml`, every template): `msg-avatar av s28 c1`, the person, or `c4`, the
@@ -229,10 +239,13 @@ symmetric, so they need no mirroring in RTL).
 - Guards: `src/test/widget/avatarGlyphs.test.ts` boots every template on the shipped runtime (home, the thread list,
   a thread with operators and a named AI, an article's author, Core's smart row) and fails on any letter in an
   avatar. It also checks that every copy of a glyph is the platform's. Tests read a tile with
-  `src/test/widget/avatarFace.ts`.
+  `src/test/widget/avatarFace.ts`. `e2e/widgetAvatarGlyphs.spec.ts` checks in Chromium that the glyph is actually
+  painted (`default`, t1, t2 in fa; t1-intl, t2-intl in en): every empty tile's `::before` has a box and the right
+  glyph as its mask (the person, or the storefront for the workspace and the AI), no tile holds a letter, Core's
+  smart row is the person, and the renderers' chat and pre-chat skeletons paint no glyph.
 - Bytes (shipped gzip, iran / respok; no budget raised): `presentation-t2.js` 19,950 / 19,788 (19,968 / 19,808
   before), `presentation-t1.js` 19,486 / 19,406 (19,597 / 19,518), `presentation-default.js` 14,086 (14,108),
-  `presentation-t2.css` 15,895 (15,807), `presentation-t1.css` 14,759 (14,682), `presentation-default.css`
+  `presentation-t2.css` 15,901 (15,807; 15,895 before the skeleton fix), `presentation-t1.css` 14,759 (14,682), `presentation-default.css`
   12,622 (12,528), `runtime-fab.css` 1,220 (1,186), `loader.js` 23,959 / 23,442 (23,964 / 23,449), Core's
   `runtime.css` 903 (529, no budget). First open of 40,000: t2 37,006, t2-intl 38,802, t1 35,406, t1-intl 37,432.
 

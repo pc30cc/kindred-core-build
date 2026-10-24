@@ -329,9 +329,10 @@
 .c4 { background: #EBE1FA; color: #57309A; }
 /* No photo: a person is the silhouette and the workspace (c4, the hero's
    logo tile without its image) its storefront, in the tile's ink, never a
-   letter (owner, 2026-10-24; the glyphs are runtime.css's). The home
-   skeleton's .logo carries no aria-hidden, so it stays a plain tile. */
-.av:not(.has-img)::before,
+   letter (owner, 2026-10-24; the glyphs are runtime.css's). Skeletons
+   stay plain tiles: the header's .av.skc is excluded, and the home
+   skeleton's .logo carries no aria-hidden. */
+.av:not(.has-img):not(.skc)::before,
 .logo[aria-hidden]::before {
   content: '';
   width: 62%;

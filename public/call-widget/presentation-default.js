@@ -511,7 +511,7 @@
   /**
    * The operators presence names (card, operator_face): at most three, each
    * with a name or a photo. Without a photo the face is the person
-   * silhouette (`.pp`, runtime.css), never a letter (owner, 2026-10-24).
+   * silhouette (`.sil`, runtime.css), never a letter (owner, 2026-10-24).
    */
   function operators() {
     var pr = boot().presence;
@@ -528,7 +528,7 @@
   }
   /** A face: the photo, else the silhouette on the tone's tile. */
   function face(cls, src) {
-    return el('span', { class: 'av ' + cls + (src ? '' : ' pp') }, src ? [el('img', { src: src, alt: '' })] : null);
+    return el('span', { class: 'av ' + cls + (src ? '' : ' sil') }, src ? [el('img', { src: src, alt: '' })] : null);
   }
   /**
    * The style drawn: unknown → round_label; mobile_bar on phones only (the

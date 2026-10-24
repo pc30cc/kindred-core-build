@@ -81,7 +81,7 @@ Each was final for the build; the ones the owner may revisit are repeated under 
 | D31 | Turkish written for every new or changed string; listed below for review | Not blocking |
 | D32 | A video call without the operator's picture shows the voice layout with a 4-button dock and the self-view | Composed, not drawn |
 | D33 | Error screen title = `controller.error` (fallback `unknown`) | No `error_prefix` |
-| D34 | No operator name: a headset glyph, the role label only; Sf / `.vtop` / 13 / 14 use `operator_label`. A named operator without a photo is the person silhouette (`.pp`), never an initial (owner, 2026-10-24) | Names come only from `full_name` (D27) |
+| D34 | No operator name: a headset glyph, the role label only; Sf / `.vtop` / 13 / 14 use `operator_label`. A named operator without a photo is the person silhouette (`.sil`), never an initial (owner, 2026-10-24) | Names come only from `full_name` (D27) |
 | D35 | An outcome reached while minimised (ended, error, a failure, the microphone refused) opens the panel once, focus not moved (when the bar that goes held it, the outcome's heading takes it), the outcome announced; transfers and reconnecting keep the bar; ending from Sf/Sg opens the rating | A visitor never loses a call silently |
 | D36 | `in_call` precedence: failure family → microphone refused → reconnecting → transferring → live (08 / 09 / D32, + camera banner) → joining family | One screen per render |
 | D37 | `config.avatar_url` online: `round` and `round_label` wear the logo and flip to the call face on hover/focus; offline wins | Board 03 Sc |
@@ -200,14 +200,15 @@ Applied in `e2e/harness/callReferenceOverrides.css` or masked:
     drawn in either brand (owner, 2026-10-21): the reference hides it too (`callReferenceOverrides.css`); it sat last
     with `margin-top: auto`, so nothing above it moves. Its strings, styles and two icons are gone.
 
-14. Faces (owner, 2026-10-24): an operator without a photo is the person silhouette (`.pp`: card L4, operator_face's
+14. Faces (owner, 2026-10-24): an operator without a photo is the person silhouette (`.sil`: card L4, operator_face's
     `.pic`, the orb's core on 07/08/11, 10's `.xf`, 13/14's summary, Sf), and the business without a logo the
     storefront (`.lg.ws`, Respok's panels: WebYar's fixture wears the board's own «ف» tile as its logo). The boards
     draw letters there: each such face is masked (`FACE_MASKS` and the `.lg` mask in
     `e2e/harness/callScreensFixture.ts`); its box stays probed. The visitor's own contact card (05-03) keeps its
     initial. The glyphs are the platform's (`shared/avatarGlyphs.ts`): the person in `runtime.css`
-    (`--ccw-person`, 4,794 of 4,900 B), the storefront in the panel's stylesheet (10,353 of 10,800 B); the core
-    lost `initialOf` (9,797 B), the panel module grew by 15–20 B (16,900 iran / 17,317 respok).
+    (`--ccw-person`, 4,795 of 4,900 B), the storefront in the panel's stylesheet (10,354 of 10,800 B); the core
+    lost `initialOf` (9,798 B), the panel module grew by 15–20 B (16,902 iran / 17,319 respok). The face class is
+    `.sil`, not the handoff's `.pp`: `.pp` is the queue line's dots (the people ahead, 06), which stay plain dots.
 
 Respok only: launcher tails as drawn; 14's summary centred as drawn; `.inl` renders 13.5px.
 

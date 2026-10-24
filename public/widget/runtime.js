@@ -3695,7 +3695,7 @@
           // Realtime can beat /poll or /history. Older/reconnecting publishers
           // may deliver the message before public operator identity is present;
           // the later enriched copy has the same canonical id and used to be
-          // discarded wholesale, leaving the fallback initial forever. Merge
+          // discarded wholesale, leaving the stand-in name forever. Merge
           // identity forward without replacing an already-known value.
           var incomingSenderName = aiOwnName(senderTypeRaw, m.sender_name)
             || (m.metadata && typeof m.metadata === 'object' ? aiOwnName(senderTypeRaw, m.metadata.agent_name) : null)
@@ -5816,8 +5816,10 @@
         if (img.parentNode) img.parentNode.replaceChild(name, img);
       }, true);
     } catch (_) { /* noop */ }
-    // The renderers draw the AI from it (t1's avatar): the built-in name is
-    // no name (aiOwnName), so the AI wears the workspace's tile, not an "A".
+    // The built-in name is no name (aiOwnName): nothing labels the AI with
+    // it. The AI's face never comes from a name: without a logo of its own
+    // it wears the workspace's storefront (t1, t2; its sparkle badge stays),
+    // never a letter (owner, 2026-10-24).
     if (config.aiAgent && config.aiAgent.agentName && !aiOwnName('ai', config.aiAgent.agentName)) {
       config.aiAgent.agentName = null;
     }

@@ -576,9 +576,9 @@
     function duration(ctrl) {
       return ctrl.endedDuration > 0 ? t('call_duration') + ' ' + H.fmtClock(ctrl.endedDuration * 1000) : '';
     }
-    /** The operator: the person silhouette (.pp) once named, a headset before (D34); never a letter. */
+    /** The operator: the person silhouette (.sil) once named, a headset before (D34); never a letter. */
     function opAvatar(cls) {
-      return el('span', { class: 'av ' + cls + ' c1' + (opName() ? ' pp' : ''), 'aria-hidden': 'true' }, [opName() ? null : svg('headset', cls === 's52' ? 22 : 20, 1.8)]);
+      return el('span', { class: 'av ' + cls + ' c1' + (opName() ? ' sil' : ''), 'aria-hidden': 'true' }, [opName() ? null : svg('headset', cls === 's52' ? 22 : 20, 1.8)]);
     }
 
     function rating(ctrl) {
@@ -947,7 +947,7 @@
     function ldots() { return el('span', { class: 'ldots', 'aria-hidden': 'true' }, [el('i'), el('i'), el('i')]); }
     function orbOf(cls, kids) { return el('div', { class: 'orb ' + cls, 'aria-hidden': 'true' }, kids); }
     /**
-     * An operator's face: the person silhouette (`.pp`, drawn by the
+     * An operator's face: the person silhouette (`.sil`, drawn by the
      * stylesheets) once a name is known, a headset before (D34); never a
      * letter (owner, 2026-10-24). Rebuilt only when that changes.
      */
@@ -958,11 +958,11 @@
           var k = !!name;
           if (k !== shown) {
             shown = k;
-            toggle(node, 'pp', k);
+            toggle(node, 'sil', k);
             if (k) node.replaceChildren(); else node.replaceChildren(svg('headset', size, 1.7));
           }
         },
-        clear: function () { shown = null; toggle(node, 'pp', false); },
+        clear: function () { shown = null; toggle(node, 'sil', false); },
       };
     }
     function endCall() { C.cancelCall(); }

@@ -338,7 +338,7 @@
 .orb.ringing .core svg { animation: cc-wiggle 2.4s ease-in-out infinite; }
 .orb.spin .core::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; border: 2.5px solid transparent; border-top-color: var(--glow); border-inline-end-color: color-mix(in oklab, var(--glow) 40%, transparent); animation: cc-spin 1.1s linear infinite; }
 .orb.op .core { background: #FCE3D4; color: #8A3410; }
-.orb .core.pp::before { width: 50%; height: 50%; }
+.orb .core.sil::before { width: 50%; height: 50%; }
 .orb .halo { position: absolute; inset: 38px; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in oklab, var(--glow) 62%, transparent) 55%, transparent); animation: cc-halo 1.8s ease-in-out infinite alternate; }
 .orb .halo + .halo { animation-duration: 2.3s; animation-delay: -.8s; opacity: .7; }
 .orb.breathe .core { animation: cc-breathe 2.6s ease-in-out infinite; }

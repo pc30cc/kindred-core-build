@@ -90,9 +90,10 @@
 .ccw-panel { position: fixed; visibility: hidden; opacity: 0; pointer-events: none; }
 
 /* ---------- avatars (launchers and panel) ----------
-   An operator without a photo (.pp) is the person silhouette in the tile's
+   An operator without a photo (.sil) is the person silhouette in the tile's
    ink, never a letter (owner, 2026-10-24); only the visitor's own card
-   keeps its initial. */
+   keeps its initial. Not `.pp`: that is the queue line's dots (the people
+   ahead, as the handoff names them), which carry no face. */
 .av { position: relative; display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; font-size: 13px; font-weight: 700; line-height: 1; }
 .av.s28 { width: 28px; height: 28px; font-size: 11px; }
 .av.s30 { width: 30px; height: 30px; font-size: 12px; }
@@ -103,7 +104,7 @@
 .avs { display: flex; flex: none; }
 .avs .av { margin-inline-start: -9px; box-shadow: 0 0 0 2.5px #fff; }
 .avs .av:first-child { margin-inline-start: 0; }
-.pp::before { content: ""; width: 62%; height: 62%; background: currentColor; -webkit-mask: var(--ccw-person) center / contain no-repeat; mask: var(--ccw-person) center / contain no-repeat; }
+.sil::before { content: ""; width: 62%; height: 62%; background: currentColor; -webkit-mask: var(--ccw-person) center / contain no-repeat; mask: var(--ccw-person) center / contain no-repeat; }
 
 /* ---------- the launcher's place, and its leaving and return ---------- */
 .ccw-launcher-wrap {

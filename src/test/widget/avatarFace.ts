@@ -10,7 +10,7 @@
  *   - 'workspace' for the storefront: the reserved tile (.c4), the home
  *     logo tile, the call panel's header (.lg.ws), `default`'s .wy-avatar;
  *   - 'person' for the silhouette: any other empty person tile (.av, the
- *     call widget's .pp);
+ *     call widget's .sil);
  *   - null when there is no tile.
  */
 export function avatarFace(el: Element | null | undefined): string | null {
@@ -20,7 +20,7 @@ export function avatarFace(el: Element | null | undefined): string | null {
   if (el.querySelector('img')) return 'photo';
   if (el.querySelector('svg')) return 'icon';
   if (el.matches('.c4, .logo, .lg.ws, .wy-avatar')) return 'workspace';
-  if (el.matches('.av, .pp')) return 'person';
+  if (el.matches('.av, .sil')) return 'person';
   return 'empty';
 }
 

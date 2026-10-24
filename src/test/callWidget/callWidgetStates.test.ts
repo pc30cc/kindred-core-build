@@ -301,7 +301,7 @@ describe('the light screens draw what their state holds', () => {
     m.set({ state: 'ended', endedCallId: 'c1', endedDuration: 0, operatorName: null });
     expect(m.q('[data-screen="rating"] .sumc small')!.textContent).toBe('Operator');
     expect(m.q('[data-screen="rating"] .sumc .av svg')).not.toBeNull();
-    expect(m.q('[data-screen="rating"] .sumc .av.pp')).toBeNull();
+    expect(m.q('[data-screen="rating"] .sumc .av.sil')).toBeNull();
   });
 
   it('a named operator on the rating and thanks screens: the silhouette on their tile, never their initial', () => {
@@ -430,6 +430,8 @@ describe('05 / 06 the queue', () => {
     expect(shown(s.querySelector('.qc'))).toBe(true);
     expect(s.querySelector('.qc .ql2')!.getAttribute('aria-hidden')).toBe('true');
     expect(s.querySelectorAll('.qc .ql2 .pp')).toHaveLength(2);
+    // The people ahead are plain dots: no face (runtime.css draws the person on .sil only).
+    expect(s.querySelectorAll('.qc .ql2 .sil')).toHaveLength(0);
     expect(text(s.querySelector('.qc .ql2 .me'))).toBe('شما');
     expect([...s.querySelectorAll('.qs > span')].filter(shown).map((x) => [text(x.querySelector('small')), text(x.querySelector('b'))]))
       .toEqual([['جایگاه در صف', '۳'], ['زمان تقریبی', 'حدود ۳ دقیقه']]);
@@ -620,7 +622,7 @@ describe('07 joining and the connecting family', () => {
     expect(s.querySelector('.orb')!.classList.contains('op')).toBe(true);
     expect(s.querySelector('.orb')!.classList.contains('breathe')).toBe(true);
     expect(avatarFace(s.querySelector('.orb .core'))).toBe('person');
-    expect(s.querySelector('.orb .core.pp')).not.toBeNull();
+    expect(s.querySelector('.orb .core.sil')).not.toBeNull();
     expect(text(s.querySelector('.who-c .nm'))).toBe(SARA);
     expect(text(s.querySelector('.who-c .rl'))).toBe('اپراتور');
     const ctm = s.querySelector('.who-c .ctm.mut')!;
@@ -642,7 +644,7 @@ describe('07 joining and the connecting family', () => {
     expect(s.querySelector('.orb')!.classList.contains('spin')).toBe(true);
     expect(s.querySelector('.orb .core svg')).not.toBeNull();
     // The phone spins alone: no silhouette under it.
-    expect(s.querySelector('.orb .core.pp')).toBeNull();
+    expect(s.querySelector('.orb .core.sil')).toBeNull();
     expect(text(s.querySelector('.ctm.mut'))).toBe(m.ctrl.t(key).replace(/…$/, ''));
     // Nothing is muted before the microphone was ever asked for.
     expect(s.querySelector('[data-action="mute"]')!.getAttribute('aria-pressed')).toBe('false');
@@ -909,7 +911,7 @@ describe('D23 · D34 on the stage', () => {
     live(m, { operatorName: null });
     const s = m.screen()!;
     expect(s.querySelector('.orb .core svg')).not.toBeNull();
-    expect(s.querySelector('.orb .core.pp')).toBeNull();
+    expect(s.querySelector('.orb .core.sil')).toBeNull();
     expect(shown(s.querySelector('.who-c .nm'))).toBe(false);
     expect(text(s.querySelector('.who-c .rl'))).toBe('Operator');
     m.media({ video: true });

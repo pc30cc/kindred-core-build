@@ -1,6 +1,6 @@
 /**
  * The owner's rule (2026-10-24) in the call widget: an operator without a
- * photo is the person silhouette (`.pp`, drawn by runtime.css) and the
+ * photo is the person silhouette (`.sil`, drawn by runtime.css) and the
  * business without a logo its storefront (`.lg.ws`, the panel's
  * stylesheet), never a letter. Before an operator's name is known the face
  * is still the headset (D34); the visitor's own contact card keeps its
@@ -90,6 +90,6 @@ describe('the guard: no letter for an operator or the business in the call widge
     expect(m.screen()!.querySelector('.lg.ws')).toBeNull();
     live(m, { operatorName: null });
     expect(avatarFace(m.screen()!.querySelector('.orb .core'))).toBe('icon');
-    expect(m.screen()!.querySelector('.orb .core.pp')).toBeNull();
+    expect(m.screen()!.querySelector('.orb .core.sil')).toBeNull();
   });
 });

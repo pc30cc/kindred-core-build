@@ -28,8 +28,11 @@ import {
   Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Loader2,
   AlertTriangle, Wifi, WifiOff, RefreshCw, ShieldCheck, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import type { LocalParticipant, Participant, Room, Track, TrackPublication } from 'livekit-client';
+import { OperatorSilhouette } from '@/components/ui/avatar-glyphs';
 import { useTranslation } from '@/i18n';
 import { consoleErrorMessage } from '@/features/calls/callLabels';
+import { remoteTileFace } from '@/features/calls/remoteTileFace';
 
 export interface OperatorConnectInfo {
   supported: boolean;
@@ -91,6 +94,22 @@ function fmtDur(sec: number): string {
 
 interface DeviceOpt { deviceId: string; label: string }
 
+/**
+ * The SDK is the self-hosted build loadLiveKitClient() puts on the page; its
+ * types come from the npm package (`import type`: nothing of it is bundled
+ * here). That build need not be the package's version, so the console also
+ * reads the names older builds used, optional here.
+ */
+type LiveKitModule = typeof import('livekit-client');
+type SdkTrack = Track & { trackSid?: string };
+type SdkParticipant = Participant & { tracks?: Map<string, TrackPublication> };
+type SdkLocalParticipant = LocalParticipant & { switchActiveDevice?: Room['switchActiveDevice'] };
+
+/** What a thrown value says about itself (an Error, a DOMException or anything else). */
+function thrown(e: unknown): { name?: string; message?: string } {
+  return e && typeof e === 'object' ? (e as { name?: string; message?: string }) : {};
+}
+
 export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const {
     callId, callType, connect, token, visitorName,
@@ -133,8 +152,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const [showDevices, setShowDevices] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
 
-  const roomRef = useRef<any>(null);
-  const lkRef = useRef<any>(null);
+  const roomRef = useRef<Room | null>(null);
+  const lkRef = useRef<LiveKitModule | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteContainerRef = useRef<HTMLDivElement | null>(null);
   // Map of trackSid -> attached HTMLElements
@@ -208,7 +227,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   }, [refreshDevices]);
 
   // ── Track helpers ─────────────────────────────────────────
-  const detachTrack = useCallback((track: any) => {
+  const detachTrack = useCallback((track: SdkTrack) => {
     try {
       const sid = track?.sid || track?.trackSid || '';
       const els = attachedElsRef.current.get(sid);
@@ -226,7 +245,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     setHasRemoteVideo(stillVideo);
   }, []);
 
-  const attachTrack = useCallback((track: any, participant: any) => {
+  const attachTrack = useCallback((track: SdkTrack, participant: Participant) => {
     try {
       const sid = track?.sid || track?.trackSid || `${participant?.identity || 'p'}-${track?.kind}-${Date.now()}`;
       // Avoid duplicate attach
@@ -262,7 +281,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const startMicAnalyser = useCallback((mediaStream: MediaStream) => {
     stopMicAnalyser();
     try {
-      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const Ctx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctx) return;
       const ctx = new Ctx();
       const src = ctx.createMediaStreamSource(mediaStream);
@@ -299,12 +318,12 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     setErrorCode(null);
 
     (async () => {
-      let LK: any;
+      let LK: LiveKitModule;
       try {
         LK = await loadLiveKitClient();
         lkRef.current = LK;
-      } catch (e: any) {
-        if (!cancelled) fail(e?.message || 'livekit_client_load_failed');
+      } catch (e: unknown) {
+        if (!cancelled) fail(thrown(e).message || 'livekit_client_load_failed');
         return;
       }
       if (cancelled) return;
@@ -320,32 +339,32 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       const RoomEvent = LK.RoomEvent;
 
       // Try to detect device-switch support
-      const lp = room.localParticipant;
-      const supportsSwitch = !!(lp?.switchActiveDevice || LK?.LocalParticipant?.prototype?.switchActiveDevice);
+      const lp: SdkLocalParticipant = room.localParticipant;
+      const supportsSwitch = !!(lp?.switchActiveDevice || (LK?.LocalParticipant?.prototype as SdkLocalParticipant | undefined)?.switchActiveDevice);
       setDeviceSwitchSupported(!!supportsSwitch);
 
-      const handleParticipantTracks = (participant: any) => {
+      const handleParticipantTracks = (participant: SdkParticipant) => {
         try {
           const pubs = participant.trackPublications || participant.tracks;
           if (!pubs?.forEach) return;
-          pubs.forEach((pub: any) => {
+          pubs.forEach((pub) => {
             if (pub?.track && pub?.isSubscribed !== false) attachTrack(pub.track, participant);
           });
         } catch { /* noop */ }
       };
 
-      room.on(RoomEvent.TrackSubscribed, (track: any, _pub: any, participant: any) => {
+      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
         attachTrack(track, participant);
       });
-      room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
         detachTrack(track);
       });
-      room.on(RoomEvent.ParticipantConnected, (p: any) => {
+      room.on(RoomEvent.ParticipantConnected, (p) => {
         setRemoteIdentities((cur) => Array.from(new Set([...cur, p?.identity || 'remote'])));
         setPhase((cur) => (cur === 'waiting_for_visitor' || cur === 'connecting' ? 'visitor_connected' : cur));
         handleParticipantTracks(p);
       });
-      room.on(RoomEvent.ParticipantDisconnected, (p: any) => {
+      room.on(RoomEvent.ParticipantDisconnected, (p) => {
         // Detach any remaining tracks attached for this participant
         const id = p?.identity;
         attachedElsRef.current.forEach((els, sid) => {
@@ -365,11 +384,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           setPhase((cur) => (cur === 'visitor_connected' ? 'visitor_disconnected' : cur));
         }
       });
-      room.on(RoomEvent.ActiveSpeakersChanged, (speakers: any[]) => {
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         const remote = speakers?.some((s) => s?.identity && s.identity !== room.localParticipant?.identity);
         setRemoteSpeaking(!!remote);
       });
-      room.on(RoomEvent.Disconnected, (reason?: any) => {
+      room.on(RoomEvent.Disconnected, (reason) => {
         if (cancelled) return;
         const r = String(reason || '').toLowerCase();
         if (r.includes('expired') || r.includes('token')) {
@@ -387,14 +406,14 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       room.on(RoomEvent.Reconnecting, () => { if (!cancelled) setPhase('reconnecting'); });
       room.on(RoomEvent.Reconnected, () => {
         if (cancelled) return;
-        const remotes: any[] = Array.from(room.remoteParticipants?.values?.() || []);
+        const remotes: SdkParticipant[] = Array.from(room.remoteParticipants?.values?.() || []);
         const ids = remotes.map((p) => p?.identity).filter(Boolean) as string[];
         setRemoteIdentities(ids);
         // Re-attach any already-published remote tracks safely (attachTrack dedupes by sid).
         remotes.forEach((p) => {
           try {
             const pubs = p.trackPublications || p.tracks;
-            pubs?.forEach?.((pub: any) => {
+            pubs?.forEach?.((pub) => {
               if (pub?.track && pub?.isSubscribed !== false) attachTrack(pub.track, p);
             });
           } catch { /* noop */ }
@@ -402,7 +421,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         setPhase(ids.length > 0 ? 'visitor_connected' : 'waiting_for_visitor');
       });
       if (RoomEvent.ConnectionQualityChanged) {
-        room.on(RoomEvent.ConnectionQualityChanged, (q: any, p: any) => {
+        room.on(RoomEvent.ConnectionQualityChanged, (q, p) => {
           if (p?.identity !== room.localParticipant?.identity) return;
           const v = String(q || '').toLowerCase();
           if (v.includes('excellent')) setQuality('excellent');
@@ -414,10 +433,10 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       setPhase('connecting');
       try {
         await room.connect(activeConnect.server_url!, activeToken!);
-      } catch (e: any) {
+      } catch (e: unknown) {
         precaptured.dispose();
         if (cancelled) return;
-        const msg = String(e?.message || '').toLowerCase();
+        const msg = String(thrown(e).message || '').toLowerCase();
         if (msg.includes('expired') || msg.includes('invalid token') || msg.includes('unauthorized')) {
           setPhase('token_expired');
           setErrorCode('token_expired');
@@ -437,13 +456,13 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           setMicOn(true);
           // Start analyser on local mic mediaStream
           try {
-            const pubs = Array.from(room.localParticipant.audioTrackPublications?.values?.() || []) as any[];
+            const pubs = Array.from(room.localParticipant.audioTrackPublications?.values?.() || []);
             const t = pubs[0]?.track || pubs[0]?.audioTrack;
             const ms = t?.mediaStream || (t?.mediaStreamTrack ? new MediaStream([t.mediaStreamTrack]) : null);
             if (ms) startMicAnalyser(ms);
           } catch { /* noop */ }
-        } catch (e: any) {
-          if (e?.name === 'NotAllowedError') return false;
+        } catch (e: unknown) {
+          if (thrown(e).name === 'NotAllowedError') return false;
         }
         return true;
       };
@@ -451,12 +470,12 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         try {
           const pub = await publishPrecaptured(room, precaptured, 'video', LK.Track.Source.Camera);
           if (!pub) await room.localParticipant.setCameraEnabled(true, selectedCam ? { deviceId: selectedCam } : undefined);
-          const vpub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0] as any;
+          const vpub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0];
           const t = vpub?.track || vpub?.videoTrack;
           if (t && localVideoRef.current) t.attach(localVideoRef.current);
           setCamOn(true);
-        } catch (e: any) {
-          if (e?.name === 'NotAllowedError') setCamOn(false);
+        } catch (e: unknown) {
+          if (thrown(e).name === 'NotAllowedError') setCamOn(false);
         }
       };
       const [micOk] = await Promise.all([micStep(), wantVideo ? camStep() : Promise.resolve()]);
@@ -469,9 +488,9 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       if (cancelled) return;
 
       // Determine initial post-connect phase based on existing remotes
-      const existingRemotes: any[] = Array.from(room.remoteParticipants?.values?.() || []);
+      const existingRemotes: SdkParticipant[] = Array.from(room.remoteParticipants?.values?.() || []);
       existingRemotes.forEach((p) => handleParticipantTracks(p));
-      setRemoteIdentities(existingRemotes.map((p: any) => p.identity).filter(Boolean));
+      setRemoteIdentities(existingRemotes.map((p) => p.identity).filter(Boolean));
       setPhase(existingRemotes.length > 0 ? 'visitor_connected' : 'waiting_for_visitor');
       setStartedAt(Date.now());
     })();
@@ -507,14 +526,14 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       await room.localParticipant.setCameraEnabled(next);
       setCamOn(next);
       if (next) {
-        const pub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0] as any;
+        const pub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0];
         const t = pub?.track || pub?.videoTrack;
         if (t && localVideoRef.current) t.attach(localVideoRef.current);
       } else if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
-    } catch (e: any) {
-      if (e?.name === 'NotAllowedError') fail('camera_permission_denied');
+    } catch (e: unknown) {
+      if (thrown(e).name === 'NotAllowedError') fail('camera_permission_denied');
     }
   }, [camOn, fail]);
 
@@ -523,7 +542,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     const room = roomRef.current; if (!room) return;
     try {
       if (room.switchActiveDevice) await room.switchActiveDevice('audioinput', deviceId);
-      else if (room.localParticipant?.switchActiveDevice) await room.localParticipant.switchActiveDevice('audioinput', deviceId);
+      else if ((room.localParticipant as SdkLocalParticipant)?.switchActiveDevice) await (room.localParticipant as SdkLocalParticipant).switchActiveDevice('audioinput', deviceId);
       else setDeviceSwitchSupported(false);
     } catch { setDeviceSwitchSupported(false); }
   }, []);
@@ -532,7 +551,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     const room = roomRef.current; if (!room) return;
     try {
       if (room.switchActiveDevice) await room.switchActiveDevice('videoinput', deviceId);
-      else if (room.localParticipant?.switchActiveDevice) await room.localParticipant.switchActiveDevice('videoinput', deviceId);
+      else if ((room.localParticipant as SdkLocalParticipant)?.switchActiveDevice) await (room.localParticipant as SdkLocalParticipant).switchActiveDevice('videoinput', deviceId);
       else setDeviceSwitchSupported(false);
     } catch { setDeviceSwitchSupported(false); }
   }, []);
@@ -636,6 +655,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const phaseLabel: string = t(`callCenter.console.phase.${phase}` as never);
   const qualityLabel: string = t(`callCenter.console.quality.${quality}` as never);
 
+  // The remote tile: the visitor's initial, never a team member's (a
+  // transfer, a supervision); only team members there: the silhouette.
+  const remoteFace = remoteTileFace(visitorName, remoteIdentities);
+  const remoteFaceNode = 'glyph' in remoteFace ? <OperatorSilhouette /> : remoteFace.letter;
+
   const qualityColor = quality === 'excellent' ? 'text-success'
     : quality === 'good' ? 'text-success/80'
     : quality === 'poor' ? 'text-warning' : 'text-call-stage-foreground/60';
@@ -692,11 +716,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           <>
             {!hasRemoteVideo && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 pointer-events-none">
-                <div className={cn(
+                <div data-console="remote-face" className={cn(
                   'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
                   remoteSpeaking ? 'bg-success/35 ring-2 ring-success/60 scale-105' : 'bg-call-stage-muted',
                 )}>
-                  {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
+                  {remoteFaceNode}
                 </div>
                 <div className="text-sm text-call-stage-foreground/80">
                   {phase === 'waiting_for_visitor' && t('callCenter.console.waitingVisitorJoin')}
@@ -721,12 +745,12 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           // ── Voice-only professional layout ─────────────────────
           <div className="flex items-center gap-5">
             <div className="relative">
-              <div className={cn(
+              <div data-console="remote-face" className={cn(
                 'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
                 'bg-gradient-to-br from-primary/30 to-success/20 ring-1 ring-call-stage-foreground/20',
                 remoteSpeaking && 'ring-2 ring-success/80 shadow-[0_0_24px_-4px_rgba(16,185,129,0.55)]',
               )}>
-                {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
+                {remoteFaceNode}
               </div>
               {remoteSpeaking && (
                 <>

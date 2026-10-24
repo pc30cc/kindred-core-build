@@ -509,6 +509,8 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** A correspondent (a contact) in the classic reader: their own look, not the team's silhouette. */
+const PERSON_PATH = 'M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z';
 const TINTS = ['#e0565b', '#e0913a', '#2f9e6a', '#2f86d6', '#6a5ae0', '#c450b8'];
 
 function tintOf(raw: string): string {
@@ -575,7 +577,9 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
     'summary:hover{background:#eef2f8}',
     '.av{flex:none;position:relative;width:30px;height:30px;border-radius:50%;background:#eef1f5;display:flex;align-items:center;justify-content:center;overflow:hidden}',
     '.av i{position:absolute;inset:0;border-radius:50%;opacity:.24}',
-    '.av svg{position:relative;width:62%;height:62%;opacity:.85}',
+    '.av svg{position:relative;width:46%;height:46%;opacity:.85}',
+    // Our own mailbox's sender: the person silhouette at its share of the tile.
+    '.av[data-us] svg{width:62%;height:62%}',
     '.who{flex:none;max-width:40%;font-weight:600;font-size:13px;color:#0f1729;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.sn{flex:1;min-width:0;font-size:12.5px;color:#6b7485;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     'details[open] .sn{visibility:hidden}',
@@ -603,12 +607,15 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
       out.push(
         '<details><summary>',
         // Our own mailbox's messages wear the person silhouette, never
-        // initials (owner, 2026-10-24); a correspondent keeps theirs in Art.
-        art
-          ? m.direction === 'outbound'
+        // initials (owner, 2026-10-24); a correspondent (a contact) keeps
+        // their own look: initials in Art, the classic reader's person.
+        m.direction === 'outbound'
+          ? art
             ? `<span class="av" data-us="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${PERSON_SILHOUETTE}"/></svg></span>`
-            : `<span class="av" data-tone="${avatarToneOf(m.fromAddress)}">${escapeHtml(initialsOf(m.fromAddress))}</span>`
-          : `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="${tint}" d="${PERSON_SILHOUETTE}"/></svg></span>`,
+            : `<span class="av" data-us="1"><i style="background:${tint}"></i><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="${tint}" d="${PERSON_SILHOUETTE}"/></svg></span>`
+          : art
+            ? `<span class="av" data-tone="${avatarToneOf(m.fromAddress)}">${escapeHtml(initialsOf(m.fromAddress))}</span>`
+            : `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
         `<span class="who" dir="auto">${escapeHtml(from.name)}</span>`,
         `<span class="sn" dir="auto">${escapeHtml(snippet)}</span>`,
         `<span class="dt">${escapeHtml(formatListDate(m.sentAt, locale))}</span>`,

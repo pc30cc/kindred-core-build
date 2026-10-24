@@ -42,7 +42,10 @@ answer it (the AI is off by default; `suggest_only` never answers;
 `auto_reply_when_offline` answers only while nobody is online). When the AI
 does answer, the chat is routed when it hands over. A message left in the
 widget's leave-a-message form is routed too (no visitor notice: the form
-confirmed it), waiting for the ticker when nobody can take it. If the
+confirmed it), waiting for the ticker when nobody can take it. The away
+thread's first message while the visitor has a live conversation joins that
+one as its next message: routed (or left to the AI that answers it) like any
+other, again with no notice, since the away card told the visitor. If the
 visitor is asked the pre-chat form (the form they actually get: the Super
 Admin's policy, the plan and the workspace's own, timing not "never"; never
 on a channel), routing waits for it, once per conversation, and routes
@@ -53,12 +56,17 @@ stands rather than Manual.
 
 **Who gets it**, in this order:
 
-1. **The same operator as before** ("last-agent routing"): if the contact had
-   another conversation in the last N days (default 30) and its operator (its
-   assignee, else the last operator who wrote in it) still receives chats, is
-   online and active (not away), is under their maximum and belongs to the
-   chosen department, they get it straight away. Otherwise routing goes on at
-   once; it never waits for them. Not in Manual mode.
+1. **The same operator as before** ("last-agent routing"): the most recent
+   of the contact's other conversations in the last N days (default 30),
+   among their five most recent, that a person handled; its operator (its
+   assignee, else the last operator who wrote in it). Conversations only the
+   AI answered, or that hold only the AI's greeting, are passed over: with a
+   fresh conversation after every close (one current conversation per
+   visitor, 2026-10-24) they often lie between two visits. If that operator
+   still receives chats, is online and active (not away), is under their
+   maximum and belongs to the chosen department, they get it straight away.
+   Otherwise routing goes on at once; it never waits for them. Not in Manual
+   mode.
 2. **The chosen department's operators** who receive chats and are available.
    If none is available, the whole team, unless the Super Admin turned "Use
    the general pool" off (then the chat waits for the department). No
@@ -112,7 +120,7 @@ arriving at the same moment spread out instead of all landing on one person.
   Nothing is written at an assignment (routing, a claim, Take over, a
   transfer), so the line never names someone who has not written and never
   comes after their message. A transfer is an Inbox-only line ("A
-  transferred this conversation to B", internal). A chat the operator
+  transferred this conversation to B", internal). A new chat the operator
   opens from the Visitors page gets no line: the visitor has not written
   yet. A platform admin who holds an Inbox seat in the workspace claims an
   unassigned chat on reply like any member; one without a seat claims
@@ -139,6 +147,18 @@ arriving at the same moment spread out instead of all landing on one person.
   nobody holds; a thread its operator keeps (or reopens by hand) is a human
   takeover, and the AI, in either auto mode, never answers a conversation an
   operator holds.
+- **Reaching out** (Visitors → Start chat, `POST
+  /api/conversations/start-from-visitor`, R-29): the operator writes in the
+  visitor's live conversation (open, pending or resolved), never a second
+  one beside it; with none, a new one, theirs. The operator reaching out is
+  who the visitor's answer goes to: an unassigned one becomes theirs (a
+  claim), and a resolved one is reopened and taken from whoever resolved it
+  (method `manual`, source `visitor_outreach`, with the Inbox's transfer
+  line), theirs to continue, so the visitor's answer is not routed again. A
+  platform admin reaching out takes nothing: the reopened chat keeps its
+  operator, who is looked at again, as for any reopen, when the visitor
+  answers. A chat the plan locked (past its retention) is never continued:
+  the outreach starts a new conversation.
 - **Phones**: a customer message in an unassigned chat reaches those whose
   push scope is "All conversations"; "Assigned to me" (`push_scope`
   `assigned`, the wording of the phone and desktop apps) is their own

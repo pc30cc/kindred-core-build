@@ -262,6 +262,45 @@ touched (`presentation-t1.css` and `presentation-t2.css` got smaller). Gate: `e2
 template in both brands (harness states `chat-ai-intro`, `chat-ai-reply`, their `mobile-` variants, `chat-ai-thinking`
 and `chat-handover`).
 
+## Accepted differences (t2, one conversation) (2026-10-24)
+
+t2 with one current conversation per visitor: Core runs the mode for a renderer that draws a past bar
+(`pastBarHtml`, exported by t2 as a forwarder to its extras, contract v3), and t2 declares `pastChats` (its ⋯ draws
+the history item). Where t2 now departs from the template-2 boards:
+
+- **01·02 (home, a returning visitor):** no «گفتگوهای شما» row («۳ گفتگو، یکی باز است»). The continue row is the
+  current conversation whatever its status (live, or closed with an answer unseen: Core passes that one alone), and
+  the earlier ones are a quiet «گفتگوهای قبلی ‹» link under the rows (accent ink, at the rows' chevron end, a 44 px hit
+  area on phones), with their unseen answers' `.nb`. The rows stay at three, so a returning visitor now also gets the
+  track-order row. The retry row of a list that failed to load stays, titled «گفتگوهای شما».
+- **02·06 (a fresh thread's bar):** the storefront tile, the workspace's name and its reply time, as any thread
+  before someone answers; no three-face stack and no «گفتگوی جدید» (the welcome under it still shows the team). The
+  bar no longer changes at the first message, and the reply time fits beside the ⋯ a fresh thread now has (history).
+  t2's storefront tile (`.c4`) keeps its own colour (CONTRACT B.5).
+- **03·09 (conversations):** history, titled «گفتگوهای قبلی», its back to where it was opened (home, help, or the
+  chat's ⋯), with no floating «گفتگوی جدید» and no open/resolved pills (the order card keeps its `.pill`). The current
+  conversation is never in it; an older live one is, and opens writable. On a phone a titled bar (history, help) is
+  now as tall as a thread's (64 px), so back and close stay put between history and a past thread. Its loading rows
+  are a history row's height (68 px; they had kept the pill line's 96 px).
+- **The past bar (no board):** a closed conversation opened from history is read-only. The composer's box is locked
+  (the pre-chat's locked look) and says «این گفتگو به پایان رسیده و فقط خواندنی است» beside a lock, with «گفتگوی فعلی
+  ‹» where send sits; with nothing current, a «شروع گفتگو» / «پیغام بگذارید» button under the box (RESPOK: the flat
+  Ink fill, `.ro .btn`). The thread's bar shows who answered and when («مهدی · دیروز»), never a presence; its bubbles
+  offer no reply or heart; its ⋯ only the transcript; the rating card stays under its close within the server's
+  7-day window.
+- **The closed line's wording**, one for every template (CONTRACT B.2): «{name} گفتگو را به پایان رساند» / «گفتگو به
+  پایان رسید» (en '{name} ended the chat' / 'Chat ended', tr '{name} sohbeti sonlandırdı' / 'Sohbet sona erdi'). t2's
+  resolve wording is gone: a resolve draws no line (owner, 2026-10-24), and the server writes it for a close only.
+- **The ⋯:** «گفتگوهای قبلی» first (a clock), with its unseen answers' count, on any thread but a past one, a fresh
+  thread too.
+- **The dashboard's live preview** (`WidgetLivePreview.tsx`) builds its samples as Core does for a renderer drawing a
+  past bar (t1 and t2): home continues the unread sample and links to history, and the list view is history
+  («گفتگوهای قبلی»), the closed sample alone, back home. A renderer without one gets the samples as before.
+- **Bytes** (shipped, gzip 5, iran / respok): `presentation-t2.js` 19,950 / 19,788 → 19,764 / 19,599 (budget
+  20,000); `presentation-t2-x.js` 6,110 → 6,401 (12,000); `presentation-t2.css` 15,901 → 15,896 (18,000);
+  `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,821, t2-intl 38,808 →
+  38,615 (40,000). `loader.js` unchanged.
+
 ## Rollout
 
 - Migration 275 is applied by hand on WebYar's database before the merge (CLAUDE.md); RESPOK's migrator applies it on
@@ -269,3 +308,117 @@ and `chat-handover`).
   simply run again. Every read tolerates it being absent (the catalog then reads as "only the edition default").
 - After the deploy, the Super Admin enables `t1` / `t2` in «قالب‌های ویجت»; workspace owners then see «قالب ویجت».
   On RESPOK, its Super Admin enables `t1-intl` / `t2-intl` (Widget templates) the same way.
+- **One conversation per visitor ships in this PR for every template**, `default` and `intl` included (the templates
+  every workspace wears unless it chose another): they draw a past bar, so Core runs the mode for them with no
+  switch (contract B.1), and the merge's deploy (WebYar's 24/25, RESPOK's 32/33) turns it on for every workspace at
+  once. There is no migration. The inactivity close (auto-close) is the next PR, right after this one. Shipping
+  first is safe because:
+  - Few visitors are concerned: on 2026-10-24 WebYar had 47 live widget conversations and RESPOK 2.
+  - The loader's hint is bounded. A resolved conversation is live for the visitor (owner, 2026-10-24), so Core keeps
+    the loader's `gs_active` hint while the visitor has one (`activeNow()`), and nothing closes a resolved
+    conversation yet. Without a bound, a visitor whose conversation was resolved would boot the runtime silently on
+    every page view (identity, the list, the thread, the realtime subscription) and keep the launcher under "hide
+    the widget while away", as long as they came back within a day (the cookie's max-age, renewed by each list).
+    `default` cleared the hint on a resolve before. Core now counts a resolved row for `gs_active` only while its
+    `updatedAt` is under 48 h old, the owner's maximum inactivity window (an unseen answer still always counts).
+    After that the conversation is still the visitor's current one, but no page boots the runtime for it until the
+    visitor opens the widget.
+  - What changes for the visitor until auto-close lands: a resolved conversation, however old, is their current
+    conversation (rule 1, and `findLiveVisitorConversation` has no age limit). Opening the widget shows it
+    («گفتگوی شما», «ادامه گفتگو» in `default`), and their next message goes into it and reopens it. Before, the
+    widget resumed a conversation (`/identity/history`) only within its 720 h window, and past it `default` started
+    a new thread. This follows the owner's rule (a resolve ends nothing for the visitor), and the next PR closes
+    these conversations.
+- **The auto-close PR must:**
+  - close (status `closed`) every conversation where nothing has been exchanged for the inactivity window, the
+    resolved ones this PR leaves current included (a sweep on its first run), and write the `threadEndPatch` stamps
+    (`endedAt` reads them), its own `closed_reason` and the visitor's closed line (`recordConversationClosed`, only
+    on `closed`). The next visit then starts fresh, and the closed conversation is in «گفتگوهای قبلی»;
+  - bring the star rating after the closed line to `t1` and `default` (contract B.3), with
+    `templateVisitorFeatures` listing 'rating' only where the csat option exists;
+  - make a message that races the close reopen that conversation (the TODO in `liveConversationForNextMessage`);
+  - keep `activeNow()`'s 48 h bound: no window is longer.
+
+## One conversation per visitor: server contract (2026-10-24)
+
+The owner's rule: for the visitor a conversation is **live** while it is open, pending or resolved, and **ended** only
+once it is closed. "Resolve" and "Send & resolve" take it out of the operator's Inbox only; the visitor's next message
+reopens it (conversationLifecycle.ts). The server keeps the rule in one module,
+`server/services/widget/visitorConversations.ts`: the visitor is the signed visitor id (the dvsid cookie or the
+credential header, never a body field), their scope is exactly what GET /conversations lists (their visitor_sessions
+rows and the contact whose metadata carries the id), and their live conversation is the newest live widget row by
+`updated_at` that is not an unanswered greeting (`findLiveVisitorConversation`; another channel's conversation of the
+same contact never counts). The widget section of these notes describes how Core uses what follows.
+
+- **GET /api/widget/conversations**: every row gains `endedAt` (closed only: `metadata.routing_thread_ended_at`, else
+  `ai_thread_reset_at`, else `updated_at`; null while live), `unreadReplies` (an operator's or the AI's answers after
+  the read marker, `needsReply.ts isQualifiedCustomerFacingAnswer`; never the greeting, a system or bot row) and
+  `hasVisitorMessage`. Unanswered greetings (an older widget's intro row the visitor never answered and no person
+  touched) and other channels' rows are not listed. `unreadCount` is unchanged (the launcher's badge). 30 rows are read
+  so 20 remain after hiding.
+- **POST /api/widget/message**: the request takes `ai_intro: { locale? }` (lenient: anything else is dropped) and a
+  lenient `reply_to_message_id` (a value that is not a UUID, such as the local id of a greeting not yet stored, is
+  dropped instead of refusing the message with a 400). The answer may carry `continued: true` and `intro_message`.
+  - `force_new_conversation`, and a named conversation that is closed or not the visitor's, go to the visitor's live
+    conversation (`continued: true`; nothing is created, no quota spent), else to a new one, never to an older one
+    by identity. The decision is `liveConversationForNextMessage`, with a TODO for the auto-close PR: a message
+    racing an inactivity close (`closed_reason`) should reopen that conversation.
+  - A named resolved conversation is written into (it reopens), unless a newer open or pending one of the visitor's
+    exists: then that one, `continued: true`.
+  - Ownership of a named conversation, identity reuse and the contact use the signed visitor id alone (a body
+    `visitor_id` proves nothing, and a body `session_id`, which only older widgets send, counts for the session match,
+    the new conversation's session link, the contact's session and the analytics only once it is found to be one of
+    the signed visitor's own sessions; GET /poll and GET /history ignore the query ones the same way);
+    the creation lock is `visitor:<id>`. Two first messages
+    of a new thread at the very same instant (two fresh tabs, nothing live) can still make two conversations: the
+    guard runs outside the RPC's lock. A live-only contact match inside `ensure_active_conversation` would close it
+    (SQL, a candidate for migration 284).
+  - With `ai_intro`, on the request that creates the conversation and only without `smart_rule` or `nudge_context`,
+    the greeting passes the intro's own gates again (`resolveIntroGreeting`), the conversation is created with
+    `p_metadata { channel_thread_key, ai_state: 'ai_managed', source: 'ai_agent_intro' }` (never `managed_by_ai`),
+    and the server's copy of the greeting is stored just before the visitor's row (`storeIntroBeforeFirstMessage`:
+    the row, the intro log, the run), echoed as `intro_message` (the message payload the visitor gets everywhere).
+    A retry (`created: false`) stores nothing. The greeting still counts as one of the AI's replies, as the one the
+    intro used to write at chat open did.
+- **POST /api/widget/ai-agent/intro** with `preview: true` writes nothing and answers `{ sent: true, preview: true,
+  body, agentName, agentLogoUrl, conversationId: null, messageId: null }`, `{ sent: false, reason }` (a gate, or
+  `conversation_limit_*` at a full quota), or `{ sent: false, reason: 'conversation_live', conversationId }`. Without
+  `preview` (Cores before this release, time-boxed about two weeks; remove it with the Inbox's intro-only filter in
+  `routes/conversations.ts`) it writes as before, but only into a named conversation that is the visitor's and live,
+  else their live one (a greeting-only one included), and creates one only when there is none, force-new or not.
+- **GET /api/widget/poll** without a usable conversation id answers only the signed visitor's live conversation
+  (never an ended one), with its `status`. **GET /identity/history** (`findContinuableConversation`) is live-only too,
+  whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` stays until migration 284).
+- **POST /api/widget/offline-messages**, the away thread's first message (`client_message_id`): while the visitor has
+  a live conversation it is written there as that conversation's next visitor message (lifecycle, the platform-off
+  restore, routing, the AI's turn, push, the owners' mail; routing posts no notice for it, `quiet`, since the away
+  card already told the visitor) and the answer carries `continued: true` and that `conversation_id`. The
+  leave-a-message form still makes a conversation of its own.
+- **The closed line** (`conversationClosedNotice.ts`) is written only when the new status is `closed` (from any
+  status, a resolved one too); never on a resolve or "Send & resolve". t2's rating card follows it, so it now appears
+  only after a real close. A resolved conversation closed later is stamped again (`endConversationThread`), so its
+  `endedAt` is the close. The lines an older server wrote on a resolve (`metadata.status: 'resolved'`, t2) are no
+  longer handed to the widget (`isVisitorVisibleMessageMeta`: /poll, /history, /identity/history, the list), and
+  `latestClosedRow` passes over them, so neither a rating card nor a later close goes by one: that close writes its
+  own line. When the visitor had rated such a line and nothing was said since, the close is that same closure for
+  them: its line carries the rating (`metadata.rated_line_id`), so the card shows it as given and CSAT keeps one
+  rating. The Inbox still shows them.
+- **Visitors → Start chat** (`POST /api/conversations/start-from-visitor`) reuses the visitor's live conversation
+  (the widget's scope: every session of the visitor id and their contact; else an unanswered greeting of theirs),
+  never a second one beside it. A resolved one is reopened for the operator (`reopened`, reason `visitor_outreach`)
+  and is theirs to continue: claimed when nobody has it, and taken from whoever resolved it (a compare-and-set,
+  announced as a manual assignment with `source: visitor_outreach`); a human takeover, so the AI does not answer over
+  them, and the visitor's answer stays with them. A platform admin reaching out takes nothing: the conversation keeps
+  its operator and routing's thread-end stamp, so the visitor's answer looks at that operator again, as for any
+  reopen. A chat the plan locked (past `data_retention_days`) is never continued, since that would unlock it: a new
+  conversation is created (not a 403: the web panel and the apps open whatever id the route answers).
+- **The Inbox's main queue** `status=resolved` lists resolved and closed (as its tab count and the desktop console),
+  for iOS, windows-native, Electron and the web mobile inbox, which ask for `resolved` alone.
+- **The live conversation and the list read in windows**: `findLiveVisitorConversation` and GET /conversations leave
+  other channels' rows out in SQL (`WIDGET_CHANNEL_FILTER`) and pass over unanswered greetings window after window
+  (the list 30 rows at a time, three windows at most; the finder 10 at a time, as far down), so a pile of a contact's
+  email or Telegram threads or of an older widget's greeting-only rows never hides the visitor's live conversation.
+- **Last-agent routing** (`findPreviousOperator`) looks through the contact's five most recent other conversations
+  for the first one a person handled, passing over AI-only and greeting-only ones.
+- For the auto-close PR: the inactivity close must write the `threadEndPatch` stamps (`endedAt` reads them) and its
+  own `closed_reason`; `liveConversationForNextMessage` is where a racing message reopens it.

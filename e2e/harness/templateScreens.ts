@@ -145,9 +145,15 @@ interface Fixture {
   conversations: Conversation[];
   threads: Record<string, Msg[]>;
   assignedOperator: Record<string, unknown> | null;
+  /** A thread's own assigned operator (history), by conversation; else `assignedOperator`. */
+  operators?: Record<string, Record<string, unknown> | null>;
   qna: string[];
   /** POST /api/widget/message answers 500 (a send that fails). */
   messageFails?: boolean;
+  /** GET /api/widget/conversations answers 500 (the list failed). */
+  conversationsFail?: boolean;
+  /** GET /api/widget/conversations never answers (the list loading). */
+  conversationsHang?: boolean;
   /**
    * A state's own help center (categories, articles, search answers, article
    * body, the articles' author with meta=1); default the shared one.
@@ -218,6 +224,8 @@ interface StateSpec {
   drive?: (c: Ctx) => Promise<void>;
   /** Shoot with the focus the drive left (a design drawn focused); default blurred. */
   keepFocus?: boolean;
+  /** The page's clock starts here (ISO) and runs on: relative times and live lines agree with the fixture. */
+  clock?: string;
 }
 
 const inst = (page: Page, js: string) => page.evaluate(`(function(i){ ${js} })(window.__inst)`);
@@ -383,10 +391,11 @@ const T2_OPEN: Conversation = {
   id: 'c-live', status: 'open', preview: 'خواهش می‌کنم! کار دیگری هست که کمک کنم؟',
   unreadCount: 2, lastMessageAt: ago(10), operatorName: 'سارا', operatorOnline: true,
 };
+/** The live one, then two closed ones (history: one conversation per visitor, a close ends one). */
 const T2_CONVERSATIONS: Conversation[] = [
   T2_OPEN,
-  { id: 'c-mahdi', status: 'resolved', preview: 'مبلغ به حسابتان برگشت داده شد.', unreadCount: 0, lastMessageAt: at(15, 20, 1), operatorName: 'مهدی' },
-  { id: 'c-reza', status: 'resolved', preview: 'ممنون از راهنمایی سریعتان!', unreadCount: 0, outbound: true, lastMessageAt: at(11, 5, 5), operatorName: 'رضا' },
+  { id: 'c-mahdi', status: 'closed', preview: 'مبلغ به حسابتان برگشت داده شد.', unreadCount: 0, lastMessageAt: at(15, 20, 1), operatorName: 'مهدی' },
+  { id: 'c-reza', status: 'closed', preview: 'ممنون از راهنمایی سریعتان!', unreadCount: 0, outbound: true, lastMessageAt: at(11, 5, 5), operatorName: 'رضا' },
 ];
 const T2_THREADS: Record<string, Msg[]> = {
   'c-live': [
@@ -471,16 +480,17 @@ const T2_CLOSED: Msg[] = [
   sara('r2', 'خوشحالم که حل شد! روز خوبی داشته باشید.', at(21, 13)),
   {
     id: 'r3', role: 'system', sender_type: 'system', text: 'سارا closed the conversation', time: at(21, 14),
-    metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_name: 'سارا', status: 'resolved' },
+    metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'سارا', operator_name: 'سارا', status: 'closed' },
   },
 ];
 const AFTER_CHAT = {
   closed_id: 'r3', rateable: true, rating: null, operator: { name: 'سارا', avatar: null },
   transcript: { available: true, to: 'a•••@example.com' },
 };
+/** Closed while the visitor was away, Sara's last line unseen: their current conversation (one conversation, rule 2). */
 const t2Closed = (f: Fixture) => {
   t2Live(f);
-  f.conversations = [{ ...T2_OPEN, id: 'c-closed', status: 'resolved', preview: 'خوشحالم که حل شد!', unreadCount: 0 }];
+  f.conversations = [{ ...T2_OPEN, id: 'c-closed', status: 'closed', preview: 'خوشحالم که حل شد!', unreadCount: 1 }];
   f.threads = { ...f.threads, 'c-closed': T2_CLOSED };
   f.csat = AFTER_CHAT;
 };
@@ -580,6 +590,15 @@ const EN = new Map<string, string>([
   ['سؤالتان به تیم رسید؛ معمولاً در چند دقیقه پاسخ می‌دهیم.', 'Got it, the team has your question and usually replies within minutes.'],
   ['سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟', 'Hi, when will size 42 of these shoes be back in stock?'],
   ['سفارشتان تحویل داده شده است.', 'Your order has been delivered.'], ['این سفارش لغو شده است.', 'This order has been cancelled.'],
+  // One conversation per visitor (states one-*).
+  ['عالیه، خیلی ممنون 🙏', 'Perfect, thank you! 🙏'], ['سلام، کفش رو مرجوع کردم. مبلغش کی برمی‌گرده؟', 'Hi, I returned the shoes. When will I get my refund?'],
+  ['سلام! بسته به انبار رسید و بررسی شد.', 'Hi! The parcel reached our warehouse and has been checked.'],
+  ['سایز ۴۲ این مدل موجود است و فردا ارسال می‌شود.', 'Size 42 of this model is in stock and ships tomorrow.'],
+  ['لینک پیگیری مرسوله رو براتون فرستادم. روز خوبی داشته باشید!', 'I’ve sent you the tracking link. Have a great day!'],
+  ['نه، ممنون. همه‌چیز عالی بود.', 'No, thanks. Everything was great.'],
+  ['خوشحالم که کمک کردم. روز خوبی داشته باشید! 🌸', 'Happy to help. Have a great day! 🌸'],
+  ['مهدی closed the conversation', 'Mehdi closed the conversation'],
+  ['راستی، فاکتور سفارش رو هم می‌خواستم.', 'Oh, and could I have the invoice for my order too?'],
 ]);
 /** Objects swapped whole: their words are marked, so a word-for-word swap would not match them. */
 const EN_SWAPS = new Map<unknown, unknown>([
@@ -607,7 +626,7 @@ function english<T>(v: T): T {
 function international(f: Fixture, locale: string, direction: 'thread' | 'open') {
   if (locale !== 'fa') {
     if (!f.kb) f.kb = { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: ARTICLE_BODY };
-    for (const key of ['config', 'identity', 'conversations', 'threads', 'assignedOperator', 'qna', 'kb', 'suggest', 'csat', 'reactions'] as const) {
+    for (const key of ['config', 'identity', 'conversations', 'threads', 'assignedOperator', 'operators', 'qna', 'kb', 'suggest', 'csat', 'reactions'] as const) {
       (f as unknown as Record<string, unknown>)[key] = english(f[key]);
     }
     // A localized line the runtime reads in the visitor's language.
@@ -696,6 +715,109 @@ async function openRows(page: Page, cid: string) {
   await inst(page, `i.__test.openConversation(${JSON.stringify(cid)});`);
   await page.locator('[data-chat-messages] .msg-row').first().waitFor();
   await online(page);
+}
+
+// ─── One conversation per visitor (the owner's decision, 2026-10-23) ─────
+// A renderer drawing the past bar (t1, t2, default): home shows the
+// current conversation (t1: or the team card, the bar's middle tab opens it;
+// t2: its continue row; default: its one button), the others are history
+// («گفتگوهای قبلی»), a closed one opened read-only. A resolved one is still
+// the visitor's (2026-10-24): only a close ends it. States `one-*` (the ⋯
+// ones are t1's and t2's; t2's own: `t2-one-*`).
+// They run on the designs' clock (`clock`): today 20:05 in Tehran, so the
+// thread's 19:42-20:03 has passed, a row from yesterday reads «دیروز» and
+// a line sent during the drive comes after the close, at 20:05.
+const ONE_NOW = at(20, 5);
+const ONE_LIVE_THREAD: Msg[] = [
+  visitor('o1', 'سلام، کد رهگیری سفارشم هنوز نیومده.', at(19, 42)),
+  sara('o2', 'سلام علی جان! سفارش‌تون امروز صبح ارسال شد. کد رهگیری: TR-2290-5531', at(19, 54)),
+  visitor('o3', 'عالیه، خیلی ممنون 🙏', at(19, 58)),
+  sara('o4', 'خواهش می‌کنم! کار دیگه‌ای هست که بتونم کمکتون کنم؟', at(20, 0)),
+];
+const mahdi = (id: string, text: string, time: string, extra: Msg = {}): Msg => ({ ...sara(id, text, time, extra), sender_name: 'مهدی' });
+const reza = (id: string, text: string, time: string, extra: Msg = {}): Msg => ({ ...sara(id, text, time, extra), sender_name: 'رضا' });
+const closedLine = (id: string, name: string | null, status: 'closed' | 'resolved', time: string, cid?: string): Msg => ({
+  id, role: 'system', sender_type: 'system', text: `${name || 'Someone'} closed the conversation`, time,
+  metadata: { kind: 'conversation_closed', by: name ? 'agent' : 'system', agent_name: name, operator_name: name, status },
+  ...(cid ? { conversation_id: cid } : {}),
+});
+/** Mehdi's closed conversation (yesterday), its close recorded. */
+const ONE_PAST_THREAD: Msg[] = [
+  visitor('p1', 'سلام، کفش رو مرجوع کردم. مبلغش کی برمی‌گرده؟', at(15, 2, 1)),
+  mahdi('p2', 'سلام! بسته به انبار رسید و بررسی شد.', at(15, 18, 1)),
+  mahdi('p3', 'مبلغ بازگشتی به حساب‌تون واریز شد.', at(15, 20, 1)),
+  closedLine('p4', 'مهدی', 'closed', at(15, 21, 1)),
+];
+/** Reza's (five days ago), closed before t1 drew closes: no line. */
+const ONE_OLD_THREAD: Msg[] = [
+  visitor('q1', 'سلام، فاکتور سفارش ۴۸۲۱۳ را می‌خواستم.', at(10, 52, 5)),
+  reza('q2', 'این هم فاکتور سفارشتان.', at(11, 2, 5), { attachment: MEDIA.pdf }),
+  visitor('q3', 'ممنون از راهنمایی سریع‌تون!', at(11, 5, 5)),
+];
+const ONE_PAST: Conversation[] = [
+  { id: 'c-mahdi', status: 'closed', preview: 'مبلغ بازگشتی به حساب‌تون واریز شد.', unreadCount: 0, lastMessageAt: at(15, 20, 1), operatorName: 'مهدی' },
+  { id: 'c-reza', status: 'closed', preview: 'ممنون از راهنمایی سریع‌تون!', unreadCount: 0, outbound: true, lastMessageAt: at(11, 5, 5), operatorName: 'رضا' },
+  { id: 'c-ai-old', status: 'closed', preview: 'سایز ۴۲ این مدل موجود است و فردا ارسال می‌شود.', unreadCount: 0, lastMessageAt: at(18, 40, 12), operatorName: null },
+];
+/** A returning visitor (علی): the live conversation with Sara (2 unread), three finished ones. */
+function oneLive(f: Fixture) {
+  f.identity = RETURNING;
+  f.conversations = [{ ...RECENT, lastMessageAt: at(20, 0) }, ...ONE_PAST];
+  f.threads = { ...f.threads, 'c-sara': ONE_LIVE_THREAD, 'c-mahdi': ONE_PAST_THREAD, 'c-reza': ONE_OLD_THREAD };
+  f.operators = { 'c-mahdi': { name: 'مهدی', avatar: null, online: true }, 'c-reza': { name: 'رضا', avatar: null, online: true } };
+  // The ⋯ offers the transcript (a conversation the server can mail).
+  f.csat = { closed_id: null, rateable: false, rating: null, operator: null, transcript: { available: true, to: 'a•••@example.com' } };
+}
+/** Only finished conversations: the next chat starts fresh, history is a tap away. */
+function oneReturning(f: Fixture) {
+  oneLive(f);
+  f.conversations = [...ONE_PAST];
+}
+/** The conversation Sara closed while the visitor was away, her last reply unseen. */
+function oneUnreadClosed(f: Fixture) {
+  oneLive(f);
+  f.conversations = [
+    { ...RECENT, status: 'closed', unreadCount: 1, operatorOnline: false, lastMessageAt: at(17, 55),
+      preview: 'لینک پیگیری مرسوله رو براتون فرستادم. روز خوبی داشته باشید!' },
+    ...ONE_PAST,
+  ];
+}
+async function oneHistory(page: Page) {
+  // Home's way into history, whatever the template draws it as (never a tab).
+  await page.locator('[data-body] [data-view="list"]:not(.wy-tab)').first().click();
+  await page.locator('[data-conversation-open]').first().waitFor();
+  await pause(page, 200);
+}
+/** History straight from Core (states the doors cannot reach in a fixture: empty, loading, failed). */
+async function oneHistoryView(page: Page) {
+  await inst(page, "i.setTab('list');");
+  await pause(page, 500);
+}
+async function onePast(page: Page, cid: string) {
+  await oneHistory(page);
+  await page.locator(`[data-conversation-open="${cid}"]`).click();
+  await page.locator('[data-chat-messages] .msg-row').first().waitFor();
+  await page.locator('[data-past-bar]').waitFor();
+  await pause(page, 300);
+}
+/** Sara closes while the visitor reads (06): the line arrives live, the composer stays. */
+function oneClosing(f: Fixture) {
+  oneLive(f);
+  f.threads['c-sara'] = [
+    ...ONE_LIVE_THREAD,
+    visitor('o5', 'نه، ممنون. همه‌چیز عالی بود.', at(20, 1)),
+    sara('o6', 'خوشحالم که کمک کردم. روز خوبی داشته باشید! 🌸', at(20, 2)),
+  ];
+}
+async function oneClose(page: Page) {
+  await openRows(page, 'c-sara');
+  // The line, as each template draws it: t1's `.cl`, t2's system pill, default's quiet divider (`.msg-day`).
+  const lines = page.locator('[data-chat-messages] .cl, [data-chat-messages] .msg-system-pill, [data-chat-messages] .msg-day');
+  const before = await lines.count();
+  await page.evaluate((row) => (window as unknown as { __gsMessage: (r: unknown[]) => void }).__gsMessage([row]),
+    closedLine('o7', tx('سارا'), 'closed', at(20, 3), 'c-sara'));
+  for (let i = 0; i < 60 && (await lines.count()) <= before; i++) await pause(page, 50);
+  await pause(page, 300);
 }
 
 export const SCREEN_STATES: Record<string, StateSpec> = {
@@ -1381,6 +1503,151 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     },
     drive: async ({ page }) => { await openRows(page, 'c-op'); },
   },
+  // One conversation per visitor (t1): the screens of the 2026-10-23 decision.
+  'one-01-home-first-visit': { mobile: true, home: true, clock: ONE_NOW },
+  'one-02-home-live': { mobile: true, home: true, clock: ONE_NOW, setup: oneLive },
+  'one-03-home-returning': { mobile: true, home: true, clock: ONE_NOW, setup: oneReturning },
+  'one-04-home-unread-closed': { mobile: true, home: true, clock: ONE_NOW, setup: oneUnreadClosed },
+  'one-05-thread-menu-open': {
+    mobile: true,
+    keepFocus: true,
+    clock: ONE_NOW,
+    setup: oneLive,
+    drive: async ({ page }) => { await openRows(page, 'c-sara'); await openMenu(page); },
+  },
+  'one-06-thread-closed-line': { mobile: true, clock: ONE_NOW, setup: oneClosing, drive: async ({ page }) => { await oneClose(page); } },
+  'one-07-history': { mobile: true, home: true, clock: ONE_NOW, setup: oneLive, drive: async ({ page }) => { await oneHistory(page); } },
+  'one-08-past-thread': { mobile: true, home: true, clock: ONE_NOW, setup: oneLive, drive: async ({ page }) => { await onePast(page, 'c-mahdi'); } },
+  'one-09-fresh-thread': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: oneReturning,
+    drive: async ({ page }) => {
+      await online(page);
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 500);
+    },
+  },
+  'one-10-home-live-desktop': { home: true, clock: ONE_NOW, setup: oneLive },
+  // The visitor writes under the close: the next conversation, right there.
+  'one-11-thread-write-after-close': {
+    mobile: true,
+    clock: ONE_NOW,
+    setup: oneClosing,
+    drive: async ({ page }) => {
+      await oneClose(page);
+      const input = page.locator('[data-msg-input]');
+      await input.fill(tx('راستی، فاکتور سفارش رو هم می‌خواستم.'));
+      await input.press('Enter');
+      await pause(page, 900);
+    },
+  },
+  'one-12-home-live-away': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); AWAY(f); f.conversations[0] = { ...f.conversations[0], operatorOnline: false }; },
+  },
+  'one-13-history-empty': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversations = []; },
+    drive: async ({ page }) => { await oneHistoryView(page); },
+  },
+  'one-14-history-error': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversationsFail = true; },
+    drive: async ({ page }) => { await oneHistoryView(page); },
+  },
+  'one-15-history-loading': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversationsHang = true; },
+    drive: async ({ page }) => { await oneHistoryView(page); },
+  },
+  // Closed before t1 drew closes: no line; the bar alone says it.
+  'one-16-past-thread-no-line': { mobile: true, home: true, clock: ONE_NOW, setup: oneLive, drive: async ({ page }) => { await onePast(page, 'c-reza'); } },
+  // Nothing current: the bar offers to start one.
+  'one-17-past-thread-nothing-current': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: oneReturning,
+    drive: async ({ page }) => { await online(page); await onePast(page, 'c-mahdi'); },
+  },
+  // Nothing current and the team away: the bar offers to leave a message.
+  'one-23-past-thread-away': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneReturning(f); AWAY(f); },
+    drive: async ({ page }) => { await onePast(page, 'c-mahdi'); },
+  },
+  // A live conversation the visitor has read: the card's chevron says where it goes.
+  'one-19-home-live-read': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversations[0] = { ...f.conversations[0], unreadCount: 0 }; },
+  },
+  // A resolved conversation is still the visitor's current one: the card, no line.
+  'one-20-home-resolved': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversations[0] = { ...f.conversations[0], status: 'resolved' }; },
+  },
+  // An answer in an earlier conversation (Reza's), unseen: the history link
+  // and the ⋯ item carry its count.
+  'one-21-home-history-unread': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversations[2] = { ...f.conversations[2], unreadCount: 1 }; },
+  },
+  'one-22-thread-menu-history-unread': {
+    mobile: true,
+    keepFocus: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.conversations[2] = { ...f.conversations[2], unreadCount: 1 }; },
+    drive: async ({ page }) => { await openRows(page, 'c-sara'); await openMenu(page); },
+  },
+  // t2: a past thread within the rating window keeps its card (usable), the bar under it.
+  't2-one-past-thread-csat': {
+    mobile: true,
+    home: true,
+    clock: ONE_NOW,
+    setup: (f) => { oneLive(f); f.csat = { closed_id: 'p4', rateable: true, rating: null, operator: { name: 'مهدی', avatar: null }, transcript: { available: true, to: 'a•••@example.com' } }; },
+    drive: async ({ page }) => { await onePast(page, 'c-mahdi'); await page.locator('[data-csat]').waitFor(); await pause(page, 900); },
+  },
+  // t2: a past thread's ⋯ (the transcript only).
+  't2-one-past-thread-menu': {
+    mobile: true,
+    home: true,
+    keepFocus: true,
+    clock: ONE_NOW,
+    setup: oneLive,
+    drive: async ({ page }) => { await onePast(page, 'c-mahdi'); await openMenu(page); },
+  },
+  // A fresh thread's ⋯: history and the sound (no transcript before a message).
+  'one-18-fresh-thread-menu': {
+    mobile: true,
+    home: true,
+    keepFocus: true,
+    clock: ONE_NOW,
+    setup: oneReturning,
+    drive: async ({ page }) => {
+      await online(page);
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 500);
+      await openMenu(page);
+    },
+  },
 };
 
 // ─── The fake widget API ────────────────────────────────────────────────
@@ -1404,6 +1671,7 @@ function silentWav(seconds = 14): Buffer {
 /** A realtime driver that only exists to emit the operator's typing. */
 const FAKE_DRIVER = `window.__gs_mod_rt_centrifugo = { create: function (ctx, resolved, hooks) {
   window.__gsTyping = function (p) { hooks.onTyping({ payload: p || { actor: 'agent' } }); };
+  window.__gsMessage = function (rows) { hooks.onMessage({ messages: rows }); };
   return {
     connect: function () { hooks.onConnectionState('online'); },
     disconnect: function () {},
@@ -1487,6 +1755,8 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
       return json({ ok: true, to: (fixture.csat as { transcript?: { to?: string } } | undefined)?.transcript?.to || 'a•••@example.com' });
     }
     if (p.includes('/api/widget/conversations')) {
+      if (fixture.conversationsFail) return json({ error: 'Internal error' }, 500);
+      if (fixture.conversationsHang) return new Promise<void>(() => undefined);
       return json({
         conversations: fixture.conversations.map((c) => ({
           id: c.id, status: c.status, preview: c.preview, unreadCount: c.unreadCount, outbound: !!c.outbound,
@@ -1500,7 +1770,8 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
     if (p.includes('/api/widget/identity/prechat')) return json({ ok: true, contact_id: 'contact-1' });
     if (p.includes('/api/widget/history')) {
       const cid = url.searchParams.get('conversation_id') || '';
-      return json({ messages: fixture.threads[cid] || [], assigned_operator: fixture.assignedOperator });
+      const ops = fixture.operators || {};
+      return json({ messages: fixture.threads[cid] || [], assigned_operator: cid in ops ? ops[cid] : fixture.assignedOperator });
     }
     if (p.includes('/api/widget/poll')) return json({ conversation_id: null, messages: [] });
     if (p.endsWith('/api/widget/message') && method === 'POST') {
@@ -1639,6 +1910,7 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
       page.on('pageerror', (e) => console.log(`[${name}] pageerror: ${e.message}`));
       page.on('request', (r) => { if (r.url().includes('/api/')) console.log(`[${name}] ${r.method()} ${r.url()}`); });
     }
+    if (spec.clock) await page.clock.install({ time: spec.clock });
     await routeApi(page, fixture, tpl.fonts, locale);
     await page.addInitScript(([ws, home]) => {
       const w = window as unknown as Record<string, unknown>;

@@ -143,7 +143,7 @@
 .panel[data-view='home'] .panel-close { top: 24px; inset-inline-end: 20px; background: var(--on-a-sf); color: var(--on-a); }
 .panel[data-view='home'] .panel-close:hover { background: rgba(255, 255, 255, .25); }
 .panel[data-view='home'] .panel-close:focus-visible { outline-color: var(--on-a); }
-.panel[data-view='list'] .panel-close, .panel[data-view='help'] .panel-close { top: 14px; inset-inline-end: 12px; }
+.panel[data-view='help'] .panel-close { top: 14px; inset-inline-end: 12px; }
 .panel[data-view='help']:has(.wy-head-article) .panel-close { top: 16px; inset-inline-end: 10px; }
 
 /* ─── Shared pieces ─────────────────────────────────────────────────── */
@@ -162,7 +162,7 @@
 .c1 { background: #FCE3D4; color: #8A3410; }
 .c2 { background: #DCE6FB; color: #1C4A92; }
 .c3 { background: #D2EEDF; color: #145E39; }
-.c4 { background: #EBE1FA; color: #57309A; }
+.c4 { background: var(--a-2); color: var(--a-ink); }
 /* No photo: a person is the silhouette and the workspace (c4, the hero's
    logo tile) its storefront, in the tile's ink, never a letter (owner,
    2026-10-24; the glyphs are runtime.css's). Larger at 24px, so it reads. */
@@ -283,16 +283,15 @@ button.cd:hover {
   display: grid; place-items: center; flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
   background: var(--a); color: var(--on-a); font-size: 11px; font-weight: 700; line-height: 1;
 }
-.tg { display: inline-flex; align-items: center; gap: 5px; height: 20px; margin-top: 5px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 700; }
-.tg.open { background: #E7F4E9; color: #0F6B37; }
-.tg .live { width: 6px; height: 6px; box-shadow: none; }
-.tg.done { background: var(--bg-2); color: var(--ink-3); }
 .more {
   display: flex; align-items: center; align-self: flex-end; gap: 2px; height: 30px; margin: -6px 2px -4px;
   padding-inline: 8px 4px; border-radius: 9px; font-size: 12.5px; font-weight: 700; color: var(--a-ink);
   transition: background-color .15s;
 }
 .more:hover { background: var(--bg-2); }
+/* Unseen answers in the history (the home link, the ⋯ item). */
+.more .nb { margin-inline-start: 4px; }
+.menu .nb { flex: none; min-width: 20px; }
 
 /* ─── Bottom menu: four bar styles × five label modes ─────────────────── */
 .wy-tabs { position: relative; z-index: 3; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; flex: none; }
@@ -363,7 +362,10 @@ button.cd:hover {
 .nv-text .vb .tic .nb { position: static; box-shadow: none; }
 .ttl .bk { display: none; }
 .nv-none .ttl { padding-inline-start: 8px; }
-.nv-none .ttl .bk { display: grid; }
+.nv-none .ttl .bk, .wy-head-list .bk { display: grid; }
+/* History (one conversation): pushed like a thread, so its back, title and
+   close sit where the thread's do, over the same hairline. */
+.ttl.wy-head-list { position: relative; z-index: 2; height: 68px; padding-inline-start: 10px; box-shadow: 0 1px 0 var(--line); }
 
 /* ─── Keyboard focus: Core's ring (runtime.css) in a colour that reads on
    white, around each control's own shape (Core's rule sets 6px corners). */
@@ -457,6 +459,7 @@ button.cd:hover {
 }
 .bd { position: relative; z-index: 2; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; margin-top: -56px; padding: 0 14px 10px; }
 .cd.rc { padding: 12px 14px 14px; }
+.rc .cap { display: flex; align-items: center; gap: 7px; }
 .cd.hc, .cd.lc { padding: 12px 14px 4px; }
 .hc .ls { margin-top: 4px; }
 /* No articles under it: as much room below the field as above (4 + 8 = 12). */
@@ -487,7 +490,15 @@ button.cd:hover {
 .wy-view-chat:has(.away) .msg-ticks[role='img']:not(.is-seen)::before { content: '· ' attr(aria-label); }
 .wy-view-chat:has(.away) .wy-chat-scroll { -webkit-mask-image: none; mask-image: none; }
 .msg-day { display: flex; align-items: center; gap: 10px; margin: 4px 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
-.msg-day::before, .msg-day::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.msg-day::before, .msg-day::after { content: ''; flex: 1; min-width: 16px; height: 1px; background: var(--line); }
+/* A close (t1-x closedHtml): the day divider with a tick, and
+   its hint only while it ends the thread and the composer is there.
+   A past (read-only) thread has neither the hint nor the quote button. */
+.cl span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); text-align: center; }
+.cl svg { color: var(--ok); }
+.cl-h { display: none; margin: -6px 0 14px; font-size: 12.5px; line-height: 1.7; color: var(--ink-3); text-align: center; }
+.messages > .cl-h:last-child { display: block; }
+.wy-view-chat:has(.ro) :is(.cl-h, [data-msg-reply]) { display: none; }
 .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 86%; animation: wy-msg-in .24s var(--ease) both; }
 .msg-row.no-enter { animation: none; }
 @keyframes wy-msg-in { from { opacity: 0; transform: translateY(6px); } }
@@ -742,8 +753,8 @@ button.cd:hover {
 @keyframes t1-swap { from { opacity: 0; transform: rotate(90deg); } }
 .input-bar:not(.has-draft) .send-btn.solo { background: #EEF0F3; color: #AEB3BE; box-shadow: none; }
 .cmp-lock { display: none; }
-.is-locked .cbox { flex-direction: row; padding: 13px 14px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
-.is-locked .cmp-lock { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-3); }
+.is-locked .cbox, .ro .cbox { flex-direction: row; padding: 13px 14px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
+.is-locked .cmp-lock, .ro .cmp-lock { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-3); }
 .is-locked .input-row, .is-locked .att-preview, .is-locked .epk { display: none !important; }
 .reply-preview {
   display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border-radius: 12px;
@@ -835,6 +846,16 @@ button.cd:hover {
 .prechat-fields { display: flex; flex-direction: column; gap: 16px; }
 .prechat-spacer { flex: 1; }
 .fm-end { display: flex; flex-direction: column; gap: 10px; }
+/* A past conversation's bar (t1-x pastBarHtml): the composer locked, in its
+   own shape (the line where one types, the link where send sits), so the
+   bottom keeps its height; with nothing current, the button under it. */
+.ro { display: flex; flex-direction: column; gap: 10px; }
+.ro .cbox { flex-direction: column; align-items: stretch; padding-bottom: 10px; }
+.ro .cbox:focus-within { box-shadow: inset 0 0 0 1px var(--line); }
+.ro .cmp-lock { line-height: 1.6; }
+.ro .cmp-lock svg { flex: none; }
+.ro .cmp-lock:only-child { margin-bottom: 3px; }
+.ro .more { margin: 0; margin-inline-end: -6px; height: 36px; }
 .intro, .ban {
   display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-radius: 16px; background: var(--bg);
   box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; line-height: 1.75; color: var(--ink-2);
@@ -947,8 +968,8 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 /* ─── Messages (all conversations) ─────────────────────────────────── */
 .wy-list-scroll { flex: 1; min-height: 0; padding: 0 16px; }
 .li.conv-row { align-items: flex-start; padding-block: 12px; }
-.cta-w { flex: none; padding: 8px 16px 0; }
 .wy-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 16px; font-size: 13px; text-align: center; color: var(--ink-3); }
+.wy-empty .more { align-self: center; }
 .sk { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
 .sk .lx { display: flex; flex-direction: column; gap: 8px; }
 
@@ -1241,10 +1262,13 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
   .gs-mobile-open .panel-close svg { width: 22px; height: 22px; }
   .gs-mobile-open .panel-close { top: calc(env(safe-area-inset-top, 0px) + 22px); }
   .gs-mobile-open .panel[data-view='home'] .panel-close { top: calc(env(safe-area-inset-top, 0px) + 24px); }
-  .gs-mobile-open .panel[data-view='list'] .panel-close, .gs-mobile-open .panel[data-view='help'] .panel-close { top: calc(env(safe-area-inset-top, 0px) + 10px); }
+  .gs-mobile-open .panel[data-view='help'] .panel-close { top: calc(env(safe-area-inset-top, 0px) + 10px); }
   .gs-mobile-open .hx { padding: calc(env(safe-area-inset-top, 0px) + 22px) 20px 86px; }
   .gs-mobile-open .hx-q { font-size: 29px; }
   .gs-mobile-open .hd { height: auto; padding: 22px 10px 10px; padding-inline-end: 58px; }
+  .gs-mobile-open .wy-head-list { height: auto; padding-block: 22px 10px; }
+  .gs-mobile-open .more[data-view] { height: 44px; margin-block: -13px -11px; }
+  .gs-mobile-open .ro .more { height: 44px; margin-block: 0; }
   .gs-mobile-open .hd .s40 { width: 44px; height: 44px; font-size: 16px; }
   .gs-mobile-open .hn { font-size: 16px; }
   .gs-mobile-open .hs { font-size: 12.5px; }

@@ -65,7 +65,8 @@ describe('the track-order row', () => {
 
   it('starts a conversation whose first message is «پیگیری سفارشم», once', async () => {
     preload('t2');
-    const h = boot({ renderer: 't2', config: STORE, conversations: [{ id: 'c-old', status: 'resolved' }] });
+    // An earlier conversation, closed (history: one conversation, nothing current).
+    const h = boot({ renderer: 't2', config: STORE, conversations: [{ id: 'c-old', status: 'closed' }] });
     await flush(40);
     h.runtime.__test.setConnectionState('online');
     await flush(5);

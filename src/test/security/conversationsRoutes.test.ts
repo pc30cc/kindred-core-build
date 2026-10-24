@@ -356,6 +356,25 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
     expect(ids).toEqual([convPending]);
   });
 
+  it('status=resolved is the finished tab: resolved and closed, for the apps that ask for resolved alone', async () => {
+    const convResolved = crypto.randomUUID();
+    const convClosed = crypto.randomUUID();
+    db.conversations.push(
+      { id: convResolved, workspace_id: WS, status: 'resolved', is_spam: false, ai_state: null, assigned_to: null, updated_at: '2026-01-07T00:00:00Z' },
+      { id: convClosed, workspace_id: WS, status: 'closed', is_spam: false, ai_state: null, assigned_to: null, updated_at: '2026-01-08T00:00:00Z' },
+      { id: crypto.randomUUID(), workspace_id: WS, status: 'closed', is_spam: true, ai_state: null, assigned_to: null, updated_at: '2026-01-09T00:00:00Z' },
+    );
+    const ids = async (query: string) => {
+      const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main&${query}`, { token: 'member-token' });
+      expect(res.status).toBe(200);
+      return (res.json.conversations as Array<{ id: string }>).map((c) => c.id).sort();
+    };
+    expect(await ids('status=resolved')).toEqual([convResolved, convClosed].sort());
+    expect(await ids('status=resolved,closed')).toEqual([convResolved, convClosed].sort());
+    expect(await ids('status=closed')).toEqual([convClosed]);
+    expect(await ids('status=open')).toEqual([convOpen, convNeedsHuman].sort());
+  });
+
   it('rejects a non-member (tenant isolation)', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'outsider-token' });
     expect(res.status).toBe(403);

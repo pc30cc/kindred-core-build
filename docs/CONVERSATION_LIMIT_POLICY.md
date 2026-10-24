@@ -8,12 +8,13 @@ into existing conversations remain ungated by design._
 
 | Route | Traffic | Creates conv row? | Enforcement |
 |---|---|---|---|
-| `POST /api/widget/message` (`server/routes/widget.ts`, line ~1251) | Visitor / public widget | Yes — only when `!convId` after all reuse fallbacks | **GATED** on the creation branch |
-| `POST /api/widget/offline-messages` (`server/routes/widget.ts`, line ~2297) | Visitor / public widget | Yes — always inserts a new conversation | **GATED** |
-| `POST /api/conversations/start-from-visitor` (`server/routes/conversations.ts`, line ~378) | Operator, authenticated workspace member | Sometimes — only when no open/pending conversation is reused | **GATED** on the creation branch (after the reuse short-circuit) |
+| `POST /api/widget/message` (`server/routes/widget.ts`, line ~1251) | Visitor / public widget | Yes — only when `!convId` after all reuse fallbacks; never while the visitor has a live (open, pending, resolved) conversation, `force_new_conversation` included (the message goes there, `continued: true`) | **GATED** on the creation branch |
+| `POST /api/widget/offline-messages` (`server/routes/widget.ts`, line ~2297) | Visitor / public widget | Yes — a new conversation, except the away thread's first message while the visitor has a live conversation (appended there, `continued: true`) | **GATED** |
+| `POST /api/conversations/start-from-visitor` (`server/routes/conversations.ts`, line ~378) | Operator, authenticated workspace member | Sometimes — only when the visitor has no live (open, pending, resolved) conversation to reuse (a resolved one is reopened), or the live one is locked by the plan's retention (never continued, since that would unlock it) | **GATED** on the creation branch (after the reuse short-circuit) |
 | `POST /api/conversations/send-message` | Operator | No — replies into an existing conversation | NEVER gated by `max_conversations` |
 | Existing-conversation branch of `POST /api/widget/message` | Visitor / public widget | No — reuses an open thread | NEVER gated by `max_conversations` |
-| `services/ai-agent/intro.ts` (internal) | Server-side AI intro | Yes | **GATED** via the transport-free `checkMaxConversationsAllowance()` |
+| `POST /api/widget/ai-agent/intro` with `preview: true` (`services/ai-agent/intro.ts`) | Visitor / public widget (chat open, since 2026-10-24) | No — writes nothing; the greeting is stored by the first `POST /api/widget/message` (`ai_intro`), whose creation branch is the gated one | Not drawn at cap: answers `conversation_limit_*` via `checkMaxConversationsAllowance()` |
+| `services/ai-agent/intro.ts`, legacy (no `preview`, older widgets, time-boxed) | Server-side AI intro | Yes — only when the visitor has no live conversation (a greeting-only one is reused) | **GATED** via the transport-free `checkMaxConversationsAllowance()` |
 
 ## How enforcement is wired
 
@@ -71,6 +72,16 @@ if (!allowance.allowed) return { sent: false, reason: `conversation_limit_${allo
 Same entitlement RPC, same `usage_counters` resolver, fail-closed on an
 unreadable entitlement or unreadable usage. The intro is simply not sent
 when the workspace is at cap; nothing is inserted.
+
+Since 2026-10-24 (one current conversation per visitor) the widget's chat
+open asks for a preview (`preview: true`): nothing is written, so a chat
+opened and left is no conversation and is not counted. The same allowance
+check runs there (a read), so no greeting is drawn at a full quota, where
+the first message would get the 403 and the widget switches to the
+leave-a-message form. The conversation, and the count, come with the
+visitor's first `POST /api/widget/message`, which stores the greeting just
+before their message (`ai_intro`). Only older widgets (no `preview`) still
+write at chat open, and only when the visitor has no live conversation.
 
 ## Edge cases / future work
 - The shared `usage_counters.conversations_count` increment is owned

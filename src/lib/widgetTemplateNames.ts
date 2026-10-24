@@ -7,6 +7,7 @@
  */
 import type { TranslationKey } from '@/i18n';
 import { CHAT_WIDGET_TEMPLATES, type ChatWidgetTemplateId } from '../../shared/widgetTemplates';
+import { chatTemplateOptionKeys } from '../../shared/chatTemplateCatalog';
 
 type Translate = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
@@ -39,7 +40,9 @@ export function templateVisitorFeatures(id: string): TemplateVisitorFeature[] {
   const out: TemplateVisitorFeature[] = ['typing'];
   // The place in the queue is Template 1's (runtime-late.js `queuePosition`, its extras).
   if (d.script === 'presentation-t1.js') out.push('queuePlace');
-  if (d.closedNotice) out.push('closedLine', 'rating');
+  if (d.closedNotice) out.push('closedLine');
+  // A rating card under it only where the template offers one (its `csat` option; t1 draws the line alone).
+  if (d.closedNotice && chatTemplateOptionKeys(id).includes('csat')) out.push('rating');
   if (d.reactions) out.push('reactions');
   return out;
 }

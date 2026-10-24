@@ -8,7 +8,8 @@
  * AI's queue — out of the Inbox, with no notification — while nobody
  * answered it. Now the intro is not sent then (reason `operators_online`):
  * the visitor gets the widget's ordinary greeting and the conversation is the
- * team's. Offline, the AI greets as before.
+ * team's. Offline, the AI greets as before. The widget's preview (chat open
+ * since 2026-10-24) keeps the same gate and writes nothing either way.
  *
  * maybeSendIntro runs for real; the data layer, the gates, availability and
  * the message insert are fakes.
@@ -24,7 +25,7 @@ vi.mock('../../../server/supabase.js', () => ({
       // c-1, the conversation a test names, is this workspace's and open.
       let named = false;
       const api: Record<string, unknown> = {
-        select: () => api, neq: () => api, is: () => api, order: () => api, limit: () => api, contains: () => api,
+        select: () => api, neq: () => api, is: () => api, in: () => api, or: () => api, order: () => api, limit: () => api, contains: () => api,
         eq: (col: string, val: unknown) => { if (table === 'conversations' && col === 'id' && val === 'c-1') named = true; return api; },
         insert: (row: Row) => {
           state.created.push(row);
@@ -88,6 +89,17 @@ describe('the intro in "auto-reply when operators are offline"', () => {
     expect(result).toMatchObject({ sent: true, conversationId: 'c-new' });
     expect(state.created[0]).toMatchObject({ metadata: expect.objectContaining({ ai_state: 'ai_managed' }) });
     expect(state.inserted).toHaveLength(1);
+  });
+
+  it('the preview keeps the gate: operators_online with the team online, the greeting offline; nothing written', async () => {
+    state.teamOnline = true;
+    expect(await maybeSendIntro(CONFIG, { workspaceId: 'ws-1', locale: 'fa', preview: true })).toEqual({ sent: false, reason: 'operators_online' });
+    state.teamOnline = false;
+    const result = await maybeSendIntro(CONFIG, { workspaceId: 'ws-1', locale: 'fa', preview: true });
+    expect(result).toMatchObject({ sent: true, preview: true, conversationId: null, messageId: null });
+    expect(result.body).toBeTruthy();
+    expect(state.created).toEqual([]);
+    expect(state.inserted).toEqual([]);
   });
 
   it('the other auto modes greet whatever the team does', async () => {

@@ -8,9 +8,14 @@
  * the visitor actually ends up looking at, plus the real fetch calls made
  * on their behalf.
  *
- * The rule under test: as long as the thread is still live (`open` or
- * `pending` per the server's own list), every reload lands back in THAT
- * thread. A terminal thread (`resolved` / `closed`) sends them home.
+ * The rule under test: as long as the thread is still live (`open`,
+ * `pending` or `resolved` per the server's own list: a resolve takes it out
+ * of the operator's Inbox only, owner 2026-10-24), every reload lands back
+ * in THAT thread. A closed one sends them home. `default` runs the one
+ * conversation per visitor model (it draws a past bar): the live one is the
+ * visitor's current conversation even without a hint, and nothing asks the
+ * server for "my latest thread" (src/test/widget/oneConversation.test.ts
+ * has the rest of that model).
  *
  * @vitest-environment jsdom
  */
@@ -245,12 +250,12 @@ describe('reload lands back in a live conversation', () => {
 });
 
 describe('a closed conversation sends the visitor home', () => {
-  it('does not restore a resolved thread', async () => {
+  it('a resolved thread is still the visitor\'s: it is restored', async () => {
     seedHint('chat', 'conv-A');
     const h = boot({ conversations: [{ id: 'conv-A', status: 'resolved' }], open: true });
     await flush();
-    expect(h.explicitHistoryLoads()).toEqual([]);
-    expect(h.bodyText()).not.toContain('reply inside conv-A');
+    expect(h.explicitHistoryLoads()).toEqual(['conv-A']);
+    expect(h.bodyText()).toContain('reply inside conv-A');
   });
 
   it('does not restore a closed thread', async () => {
@@ -260,11 +265,11 @@ describe('a closed conversation sends the visitor home', () => {
     expect(h.explicitHistoryLoads()).toEqual([]);
   });
 
-  it('does not restore a thread the visitor no longer has', async () => {
+  it('does not restore a thread the visitor no longer has: their live one is the current conversation', async () => {
     seedHint('chat', 'conv-GONE');
     const h = boot({ conversations: [{ id: 'conv-A', status: 'open' }], open: true });
     await flush();
-    expect(h.explicitHistoryLoads()).toEqual([]);
+    expect(h.explicitHistoryLoads()).toEqual(['conv-A']);
   });
 });
 
@@ -281,11 +286,20 @@ describe('a live conversation continues in a brand-new tab', () => {
 
   it('stays on home when every thread is closed', async () => {
     const h = boot({
-      conversations: [{ id: 'conv-A', status: 'resolved' }, { id: 'conv-B', status: 'closed' }],
+      conversations: [{ id: 'conv-A', status: 'closed' }, { id: 'conv-B', status: 'closed' }],
       open: true,
     });
     await flush();
     expect(h.explicitHistoryLoads()).toEqual([]);
+  });
+
+  it('a resolved one among them is still live: it is the one continued', async () => {
+    const h = boot({
+      conversations: [{ id: 'conv-A', status: 'resolved' }, { id: 'conv-B', status: 'closed' }],
+      open: true,
+    });
+    await flush();
+    expect(h.explicitHistoryLoads()).toEqual(['conv-A']);
   });
 
   it('stays on home when the thread list could not be loaded', async () => {
@@ -298,19 +312,22 @@ describe('a live conversation continues in a brand-new tab', () => {
 });
 
 describe('only the chat surface is restored', () => {
-  it('a visitor who navigated back to home still gets home', async () => {
+  it('a visitor who navigated back to home still gets home (their live one behind it)', async () => {
     seedHint('home', 'conv-A');
     const h = boot({ conversations: [{ id: 'conv-A', status: 'open' }], open: true });
     await flush();
-    expect(h.explicitHistoryLoads()).toEqual([]);
+    expect(h.shadow.querySelector('.panel')!.getAttribute('data-view')).toBe('home');
+    expect(h.bodyText()).not.toContain('reply inside conv-A');
+    // The current conversation, loaded behind home for its frames and its door.
+    expect(h.explicitHistoryLoads()).toEqual(['conv-A']);
   });
 
   it('a first-ever visit is untouched by any of this', async () => {
     const h = boot({ conversations: [], open: true });
     await flush();
     expect(h.explicitHistoryLoads()).toEqual([]);
-    // Cold boot still runs the normal smart-continuation path.
-    expect(h.smartContinuationCalls()).toBe(1);
+    // A fresh thread from the start: the server's latest thread is never asked for.
+    expect(h.smartContinuationCalls()).toBe(0);
   });
 });
 

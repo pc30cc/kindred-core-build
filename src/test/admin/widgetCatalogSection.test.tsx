@@ -319,7 +319,7 @@ describe('WidgetCatalogSection', () => {
       const dialog = await screen.findByRole('dialog');
       const describedBy = dialog.getAttribute('aria-describedby');
       expect(describedBy).toBeTruthy();
-      expect(document.getElementById(describedBy!)?.textContent).toBe('A coloured home with cards and a bottom menu: Home, Messages, Help');
+      expect(document.getElementById(describedBy!)?.textContent).toBe('A coloured home with cards and a bottom menu: Home, Chat, Help');
       await waitFor(() => expect(document.querySelector('iframe')).not.toBeNull());
       expect(warn.mock.calls.some((c) => String(c[0]).includes('Description'))).toBe(false);
     } finally {

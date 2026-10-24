@@ -169,7 +169,7 @@ function conversation(contact: Row | null = { email: 'ali.r@example.com' }, fiel
     (state.db.tables.contacts ||= []).push({ id: contactId, workspace_id: WS, metadata: { visitor_id: 'visitor-1' }, ...contact });
   }
   (state.db.tables.conversations ||= []).push({
-    id, workspace_id: WS, status: 'resolved', assigned_to: SARA, contact_id: contactId, visitor_session_id: null,
+    id, workspace_id: WS, status: 'closed', assigned_to: SARA, contact_id: contactId, visitor_session_id: null,
     metadata: { visitor_id: 'visitor-1' }, ...fields,
   });
   return id;
@@ -183,7 +183,7 @@ function message(cid: string, sender_type: string, body = 'hi', extra: Row = {},
 }
 function closed(cid: string, msAgo = 30_000): string {
   return message(cid, 'system', 'Ali closed the conversation', {
-    metadata: { kind: 'conversation_closed', by: 'agent', agent_id: ALI, agent_name: 'Ali', operator_id: SARA, operator_name: 'Sara (then)', status: 'resolved' },
+    metadata: { kind: 'conversation_closed', by: 'agent', agent_id: ALI, agent_name: 'Ali', operator_id: SARA, operator_name: 'Sara (then)', status: 'closed' },
   }, msAgo);
 }
 /** A chat Sara answered and closed: the usual rateable thread. */
@@ -226,7 +226,7 @@ describe('the closed line in the visitor\'s thread', () => {
     message(cid, 'agent', 'سلام، بفرمایید', {}, 90_000);
     message(cid, 'system', 'Ali unassigned this conversation', { metadata: { kind: 'conversation_unassigned', internal: true } }, 80_000);
     const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
-    const first = await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'resolved' });
+    const first = await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'closed' });
     expect(first).not.toBeNull();
     // Closed again with nothing said: no second line.
     expect(await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'closed' })).toBeNull();
@@ -242,7 +242,7 @@ describe('the closed line in the visitor\'s thread', () => {
       // the visitor (realtime/publish.ts visitorMessageMetadata).
       expect(lines[0], path).toMatchObject({
         id: first!.id, role: 'system', sender_type: 'system', text: 'Ali closed the conversation',
-        metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Ali', operator_name: 'Sara', status: 'resolved' },
+        metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Ali', operator_name: 'Sara', status: 'closed' },
       });
       expect(Object.keys(lines[0].metadata).sort(), path).toEqual(['agent_name', 'by', 'kind', 'operator_name', 'status']);
       // The newest row, and the inbox-only notice is not there.
@@ -252,15 +252,18 @@ describe('the closed line in the visitor\'s thread', () => {
     expect((await csat(cid)).body).toMatchObject({ closed_id: first!.id, rateable: true, operator: { name: 'Sara' } });
   });
 
-  it('a default workspace\'s close writes nothing: its thread is what it was', async () => {
+  it('a default workspace\'s close writes the line too (one conversation per visitor), and asks for no rating', async () => {
     state.template = 'default';
     const cid = conversation();
     message(cid, 'agent', 'hi', {}, 90_000);
     const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
-    expect(await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'resolved' })).toBeNull();
+    const line = await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'closed' });
+    expect(line).not.toBeNull();
     const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=${cid}`);
-    expect((res.body.messages as Body[]).map((m) => m.sender_type)).toEqual(['agent']);
-    expect(state.published).toHaveLength(0);
+    expect((res.body.messages as Body[]).map((m) => m.sender_type)).toEqual(['agent', 'system']);
+    expect(state.published).toEqual([expect.objectContaining({ type: 'message' })]);
+    // default offers no rating option: nothing to rate under its line.
+    expect((await csat(cid)).body).toMatchObject({ closed_id: line!.id, rateable: false });
   });
 });
 

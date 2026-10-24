@@ -53,6 +53,7 @@ const FA: Record<string, string> = {
   wyStatusOpen: 'باز', wyStatusResolved: 'حل شده', prechatOptional: 'اختیاری', intro: 'سلام! چطور کمکتان کنیم؟',
   msgFailed: 'ارسال نشد', msgSeen: 'دیده شد', msgSent: 'ارسال شد', back: 'بازگشت', close: 'بستن',
   homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم', convLoadError: 'گفتگوها بارگذاری نشد', convRetry: 'تلاش دوباره',
+  csBackToChat: 'بازگشت به گفتگو',
 };
 
 const BASE_CONFIG: Vm = {
@@ -204,7 +205,8 @@ describe('t1: every hook the default renderer emits', () => {
   };
 
   it('in the source, or drawn once rendered', () => {
-    const ours = new Set([...hooks(T1_SRC), ...attrs(surfaces(make()))]);
+    // The past bar's markup is in the extras (pastBarHtml forwards to them).
+    const ours = new Set([...hooks(T1_SRC), ...hooks(T1_X_SRC), ...attrs(surfaces(make()))]);
     expect([...hooks(DEFAULT_SRC)].filter((h) => !ours.has(h))).toEqual([]);
   });
 
@@ -212,7 +214,8 @@ describe('t1: every hook the default renderer emits', () => {
     const d = (window as unknown as Record<string, { create: (env: Vm) => Renderer }>).__gs_presentation_default.create({
       t: (k: string) => k, escapeHtml, config: BASE_CONFIG, locale: 'fa', primaryColor: '#3B82F6',
     });
-    const r = make();
+    // With its extras: what default draws itself (the past bar), t1 draws through them.
+    const r = extended(make());
     const id = IDENTITY(['name', 'email', 'phone'], ['email']);
     const conv = { id: 'c', status: 'open', preview: 'p', unreadCount: 2, timeLabel: 't' };
     const qna = { questions: [{ question: 'a' }, { question: 'b' }, { question: 'c' }, { question: 'd' }], collapsedCount: 3 };
@@ -247,6 +250,8 @@ describe('t1: every hook the default renderer emits', () => {
       smartSurfaceHtml: [[{ title: 't', body: 'b', ctaLabel: 'c' }]],
       conversationListHtml: [[{ conversations: [conv], chatEnabled: true }], [{ conversations: [], error: true, chatEnabled: true }], [{ loading: true }]],
       conversationRowHtml: [[conv, true], [conv, false]],
+      // One conversation: a past conversation's bar, with a current one and without (online, away).
+      pastBarHtml: [[{ current: true, online: true }], [{ current: false, online: true }], [{ current: false, online: false }]],
       kbHtml: [[{ state: 'article', article: { title: 'A', contentHtml: '<p>x</p>' }, feedback: { enabled: true } }],
         [{ state: 'list', articles: [{ slug: 'a', title: 'A' }], categories: [] }], [{ state: 'results', query: 'x', results: [{ slug: 'r', title: 'R' }] }],
         [{ state: 'results', query: 'x', results: [] }], [{ state: 'searching' }]],
@@ -470,34 +475,54 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
     tabs: () => {
       const home = parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, unreadTotal: 3 }));
       const tabs = Array.from(home.querySelectorAll('nav.wy-tabs > button.wy-tab[data-view]'));
-      expect(tabs.map((b) => b.getAttribute('data-view'))).toEqual(['home', 'list', 'help']);
+      // One conversation per visitor: the middle tab is the door to it («گفتگو»), its badge the answer waiting.
+      expect(tabs.map((b) => b.getAttribute('data-view'))).toEqual(['home', 'chat', 'help']);
       expect(tabs.map((b) => b.getAttribute('aria-current'))).toEqual(['page', 'false', 'false']);
-      const badge = home.querySelector('[data-view="list"] [data-tab-badge]')!;
+      const badge = home.querySelector('[data-view="chat"] [data-tab-badge]')!;
       expect(badge.textContent).toBe('۳');
       expect(badge.hasAttribute('hidden')).toBe(false);
       expect(parse(r().homeHtml({ rtl: true })).querySelector('[data-tab-badge]')!.hasAttribute('hidden')).toBe(true);
       // Each tab is named by its label (hidden in some modes) and, for
-      // Messages, the badge Core patches in place (runtime-ext.js paintTabBadges):
+      // the conversation, the badge Core patches in place (runtime-ext.js paintTabBadges):
       // the name follows the patch, it is not frozen at render time.
-      expect(['home', 'list', 'help'].map((v) => tabName(home, v))).toEqual(['خانه', 'پیام‌ها ۳', 'راهنما']);
+      expect(['home', 'chat', 'help'].map((v) => tabName(home, v))).toEqual(['خانه', 'گفتگو ۳', 'راهنما']);
       badge.textContent = '';
       badge.setAttribute('hidden', '');
-      expect(tabName(home, 'list')).toBe('پیام‌ها');
+      expect(tabName(home, 'chat')).toBe('گفتگو');
       badge.textContent = '۹۹+';
-      expect(tabName(home, 'list')).toBe('پیام‌ها ۹۹+');
+      expect(tabName(home, 'chat')).toBe('گفتگو ۹۹+');
       const ids = Array.from(home.querySelectorAll('[id]')).map((e) => e.id);
       expect(new Set(ids).size).toBe(ids.length);
-      expect(parse(r().conversationListHtml({})).querySelector('[data-view="list"]')!.getAttribute('aria-current')).toBe('page');
+      // History («گفتگوهای قبلی») is a pushed screen: no bar, its back where the visitor came from.
+      const hist = parse(r().conversationListHtml({}));
+      expect(hist.querySelector('nav')).toBeNull();
+      expect(hist.querySelector('.ttl.wy-head-list [data-view-back="home"]')).not.toBeNull();
+      expect(hist.querySelector('.ttl h2')!.textContent).toBe('گفتگوهای قبلی');
+      expect(parse(r().conversationListHtml({ back: 'chat' })).querySelector('[data-view-back="chat"]')).not.toBeNull();
       expect(parse(r().kbHtml({ state: 'list' })).querySelector('[data-view="help"]')!.getAttribute('aria-current')).toBe('page');
       // Style and label mode come from the workspace's template options.
       const vd = parse(make({ config: { templateOptions: { navStyle: 'vd', navMode: 'icon' } } }).homeHtml({ rtl: true }));
       expect(vd.querySelector('nav.wy-tabs.vd')).not.toBeNull();
       expect(vd.firstElementChild!.classList.contains('nv-icon')).toBe(true);
-      // Without a menu, the home links to all conversations itself.
+      // Home links to the earlier conversations (any menu mode, only when there are some).
       const none = parse(make({ config: { templateOptions: { navMode: 'none' } } })
-        .homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', preview: 'p' }] }));
+        .homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', preview: 'p' }], pastCount: 2 }));
       expect(none.querySelector('nav')).toBeNull();
-      expect(none.querySelector('.wy-home-scroll [data-view="list"]')).not.toBeNull();
+      expect(none.querySelector('.wy-home-scroll .more[data-view="list"]')!.textContent).toBe('گفتگوهای قبلی');
+      expect(parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, pastCount: 1 })).querySelector('.team ~ .more[data-view="list"]')).not.toBeNull();
+      // An answer unseen there: its count on the link, none without one.
+      expect(none.querySelector('.more[data-view="list"] .nb')).toBeNull();
+      const unseen = parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, pastCount: 2, pastUnread: 3 }));
+      expect(unseen.querySelector('.more[data-view="list"] .nb')!.textContent).toBe('۳');
+      // A resolved conversation is still the visitor's (its live dot with the team online); a closed one has none.
+      const capOf = (status: string) => parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', status, preview: 'p' }] })).querySelector('.rc .cap .live');
+      expect(capOf('resolved')).not.toBeNull();
+      expect(capOf('closed')).toBeNull();
+      expect(parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', preview: 'p' }] })).querySelector('[data-view="list"]:not(.wy-tab)')).toBeNull();
+      // One door to the conversation: the card, never a second «new message» one.
+      const cur = parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', preview: 'p' }] }));
+      expect(cur.querySelector('.rc .cap')!.textContent).toBe('گفتگوی شما');
+      expect(cur.querySelectorAll('[data-home-action="chat"], .cd.cta').length).toBe(0);
     },
     kbSearch: () => {
       const h = parse(r().kbHtml({ state: 'list', query: '', articles: [] }));
@@ -567,7 +592,11 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ همین‌جا');
       expect(away.querySelector('.away[hidden]')).not.toBeNull();
       expect(avatarFace(away.querySelector('.who .av.c4'))).toBe('workspace');
-      expect(parse(r().chatHeaderHtml({ online: true, isNew: true })).querySelector('.hn')!.textContent).toBe('گفتگوی جدید');
+      // A fresh thread shows the team as any thread before an operator joins (no «گفتگوی جدید» title).
+      expect(parse(r().chatHeaderHtml({ online: true, isNew: true })).querySelector('.hn')!.textContent).toBe('فروشگاه نیلوفر');
+      // Back goes where Core says the visitor came from (home, help; history for a past thread).
+      expect(parse(r().chatHeaderHtml({ online: true })).querySelector('[data-view-back="home"]')).not.toBeNull();
+      expect(parse(r().chatHeaderHtml({ online: true, back: 'list' })).querySelector('[data-view-back="list"]')).not.toBeNull();
       // Core rewrites the header: nothing it binds once may live in there.
       for (const html of [h.innerHTML, away.innerHTML]) {
         expect(parse(html).querySelector('[data-chat-jump],[data-escalate-btn],[data-msg-input],[data-chat-messages]')).toBeNull();
@@ -690,7 +719,8 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       const ws = parse(r().conversationRowHtml({ id: 'c', status: 'resolved', preview: 'x' }, false));
       expect(ws.querySelector('.l1 .nm')!.textContent).toBe('فروشگاه نیلوفر');
       expect(avatarFace(ws.querySelector('.av.c4'))).toBe('workspace');
-      expect(ws.querySelector('.tg.done')!.textContent).toBe('حل شده');
+      // History rows are all finished: no open / resolved pill.
+      expect(ws.querySelector('.tg')).toBeNull();
     },
     chatMenu: () => {
       // The ⋯ comes with the extras and only for a list Core passes (`vm.menu`).
@@ -730,6 +760,55 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       const h = parse(r().kbArticleHtml({ article: { title: 't', author: 'سارا', readingMinutes: 2, contentHtml: '' } }));
       expect(h.querySelector('.am')!.textContent).toBe('سارا·۲ دقیقه مطالعه');
       expect(avatarFace(h.querySelector('.am .av'))).toBe('person');
+    },
+    // A close or a resolve (one wording), drawn as t1's day divider with a tick, and the hint under it.
+    closedNotice: () => {
+      const closed = (md: Record<string, unknown>) => msg({ sender: 'operator', senderType: 'system', body: '', metadata: { kind: 'conversation_closed', ...md } });
+      const line = (md: Record<string, unknown>) => parse(extended(r()).messagesHtml({ messages: [closed(md)] }, '', {}));
+      const named = line({ agent_name: 'سارا', status: 'closed' });
+      expect(named.querySelector('.msg-day.cl span')!.textContent).toBe('سارا گفتگو را به پایان رساند');
+      expect(named.querySelector('.msg-day.cl + p.cl-h')!.textContent).toBe('سؤال دیگری دارید؟ همین‌جا بنویسید.');
+      expect(line({ agent_name: 'مهدی', status: 'resolved' }).querySelector('.cl span')!.textContent).toBe('مهدی گفتگو را به پایان رساند');
+      expect(line({ status: 'closed' }).querySelector('.cl span')!.textContent).toBe('گفتگو به پایان رسید');
+      expect(line({ status: 'resolved' }).querySelector('.cl span')!.textContent).toBe('گفتگو به پایان رسید');
+      // A long name wraps inside the hairlines, which keep a minimum.
+      expect(T1_CSS).toContain('min-width: 16px; height: 1px;');
+      // Never a bubble; the next conversation under it gets no second marker.
+      const next = parse(extended(r()).messagesHtml({ messages: [closed({ agent_name: 'سارا' }), msg({ sender: 'visitor', senderType: 'contact', threadStart: true })] }, '', {}));
+      expect(next.querySelectorAll('.msg-day.cl').length).toBe(1);
+      expect(next.textContent).not.toContain('گفتگوی جدید');
+      expect(T1_CSS).toContain('.messages > .cl-h:last-child { display: block; }');
+    },
+    // One conversation: history is read-only, its bar (the composer locked, in its shape) leads
+    // to the current one; the ⋯ offers history; a past thread's header shows who and when, no presence.
+    pastChats: () => {
+      expect(r().pastBarHtml({ current: true })).toBe('');
+      const bar = (vm: Record<string, unknown>) => parse(extended(r()).pastBarHtml(vm));
+      const go = bar({ current: true, online: true });
+      expect(go.querySelector('[data-past-bar].ro > .cbox > .cmp-lock > span')!.textContent).toBe('این گفتگو به پایان رسیده و فقط خواندنی است');
+      // A link where send sits, never the send glyph; no button while a conversation is current.
+      const link = go.querySelector('.cbox > button.more[data-chat-current]')!;
+      expect(link.textContent).toBe('گفتگوی فعلی');
+      expect(link.querySelector('svg.mir')).not.toBeNull();
+      expect(go.querySelector('.btn')).toBeNull();
+      const start = bar({ current: false, online: true });
+      expect(start.querySelector('.cbox [data-chat-current]')).toBeNull();
+      expect(start.querySelector('[data-past-bar] > button.btn.btn-p[data-chat-current]')!.textContent).toBe('شروع گفتگو');
+      expect(bar({ current: false, online: false }).querySelector('[data-chat-current]')!.textContent).toBe(FA.homeLeaveMessage);
+      const h = parse(extended(r()).chatHeaderHtml({ online: true, menu: { open: true, items: [{ action: 'history' }, { action: 'sound', on: true }] } }));
+      const item = h.querySelector('[data-chat-menu] > [data-chat-menu-action="history"][role="menuitem"]')!;
+      expect(item.textContent).toBe('گفتگوهای قبلی');
+      expect(item.querySelector('.nb')).toBeNull();
+      // Unseen answers there: their count on the item.
+      const counted = parse(extended(r()).chatHeaderHtml({ online: true, menu: { open: true, items: [{ action: 'history', n: 120 }] } }));
+      expect(counted.querySelector('[data-chat-menu-action="history"] .nb')!.textContent).toBe('۹۹+');
+      expect(T1_CSS).toContain('.menu .nb { flex: none; min-width: 20px; }');
+      const past = parse(r().chatHeaderHtml({ online: true, past: true, when: 'دیروز', operator: { name: 'مهدی', online: true } }));
+      expect(past.querySelector('.who .pr')).toBeNull();
+      expect(past.querySelector('.hs')!.textContent).toBe('مهدی · دیروز');
+      expect(parse(r().chatHeaderHtml({ online: true, operator: { name: 'مهدی', online: true } })).querySelector('.who .pr')).not.toBeNull();
+      // A past thread's bubbles keep copy, never the quote (Core refuses it there): no dead control.
+      expect(T1_CSS).toContain('.wy-view-chat:has(.ro) :is(.cl-h, [data-msg-reply]) { display: none; }');
     },
   };
 
@@ -803,7 +882,7 @@ describe('t1: skeletons wear the real surfaces', () => {
       ['wy-view-chat', 'hd', 'who', 'hn', 'hs', 'wy-chat-scroll-host', 'wy-chat-scroll', 'composer-zone', 'cmp', 'input-bar', 'input-wrap', 'cbox',
         'input-row', 'input', 'mic-btn', 'attach-btn', 'emoji-btn', 'pw']],
     ['list', () => r().skeletonHtml('list', { rtl: true }), () => r().conversationListHtml({ conversations: [{ id: 'c' }], chatEnabled: true }),
-      ['wy-view-list', 'ttl', 'wy-head-list', 'wy-list-scroll', 'cta-w', 'btn-p', 'wy-tabs', 'pw']],
+      ['wy-view-list', 'ttl', 'wy-head-list', 'bk', 'wy-list-scroll', 'pw']],
     ['help', () => r().skeletonHtml('help', { rtl: true }), () => r().kbHtml({ state: 'list', articles: [{ slug: 'a', title: 'A' }] }),
       ['wy-view-kb', 'kb-top', 'ttl', 'kb-search', 'wy-kb-scroll', 'kb-res', 'cd', 'ls', 'li', 'wy-tabs', 'pw']],
     ['article', () => r().skeletonHtml('article', { rtl: true }),
@@ -875,7 +954,7 @@ describe('t1: numbers in the visitor\'s digits', () => {
       articles: [{ slug: 'a', title: 'زمان ارسال' }], conversations: [{ id: 'c', status: 'open', unreadCount: 2, preview: 'p', operatorName: 'سارا' }] }));
     expect(home.querySelector('.rc .nb')!.textContent).toBe('۲');
     expect(home.querySelector('[data-tab-badge]')!.textContent).toBe('۱۲');
-    expect(tabName(home, 'list')).toBe('پیام‌ها ۱۲');
+    expect(tabName(home, 'chat')).toBe('گفتگو ۱۲');
     expect(home.textContent).not.toMatch(/[0-9]/);
     const more = parse(r.qnaChipsHtml({ questions: [{ question: 'a' }, { question: 'b' }, { question: 'c' }, { question: 'd' }, { question: 'e' }] }));
     expect(more.querySelector('.qna-more-count')!.textContent).toBe('+۲');
@@ -996,6 +1075,12 @@ describe('t1: accent tokens', () => {
 });
 
 describe('t1: direction, people, the workspace', () => {
+  it('the workspace tile wears the brand tint, and its storefront stays a mask in the tile\'s ink', () => {
+    // Both halves, so a later merge cannot drop either (t1 polish, approved 2026-10-24; the avatar rule).
+    expect(T1_CSS).toContain('.c4 { background: var(--a-2); color: var(--a-ink); }');
+    expect(T1_CSS).toMatch(/\.av\.c4:not\(\.has-img\)::before,\s*\.logo:not\(\.has-img\)::before \{[^}]*mask-image: var\(--wy-workspace\)/);
+  });
+
   it('writes dir on every view root (rtl for fa, ltr otherwise)', () => {
     expect(parse(make().homeHtml({ rtl: true })).firstElementChild!.getAttribute('dir')).toBe('rtl');
     expect(parse(make({ locale: 'en' }).kbHtml({ rtl: false })).firstElementChild!.getAttribute('dir')).toBe('ltr');
@@ -1157,7 +1242,6 @@ describe('t1: the workspace\'s reply-time note', () => {
     return {
       header: text(r.chatHeaderHtml({ online: true, operator: null, isNew: false }), '.hs'),
       team: text(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true }), '.team .cs'),
-      cta: text(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', preview: 'p' }] }), '.cta .cs'),
       welcome: text(r.emptyHtml({}), '.wel p.on'),
     };
   };
@@ -1178,11 +1262,11 @@ describe('t1: the workspace\'s reply-time note', () => {
 
   it('a written note replaces the template\'s own everywhere', () => {
     const n = 'معمولاً تا ۲ ساعت';
-    expect(lines(n)).toEqual({ header: 'آنلاین · ' + n, team: 'آنلاین · ' + n, cta: n, welcome: n });
+    expect(lines(n)).toEqual({ header: 'آنلاین · ' + n, team: 'آنلاین · ' + n, welcome: n });
   });
 
   it('a cleared note (\'\') is left out, never replaced by a default (migration 069: \'\' hides the line)', () => {
-    const online = { header: 'آنلاین', team: 'آنلاین', cta: 'آنلاین', welcome: 'آنلاین' };
+    const online = { header: 'آنلاین', team: 'آنلاین', welcome: 'آنلاین' };
     expect(lines('')).toEqual(online);
     expect(lines('   ')).toEqual(online);
   });
@@ -1201,7 +1285,7 @@ describe('t1: the workspace\'s reply-time note', () => {
 
   it('a note never written reads the template\'s copy (Core\'s longer one in the welcome)', () => {
     expect(lines(null)).toEqual({
-      header: 'آنلاین · پاسخ در چند دقیقه', team: 'آنلاین · پاسخ در چند دقیقه', cta: 'پاسخ در چند دقیقه', welcome: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
+      header: 'آنلاین · پاسخ در چند دقیقه', team: 'آنلاین · پاسخ در چند دقیقه', welcome: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
     });
   });
 });
@@ -1387,6 +1471,7 @@ describe('t1: its own copy', () => {
       'prechatStepEmailInvalid', 'prechatStepEmailExample', 'prechatPhonePhLocal', 'prechatPhoneHint', 'prechatStepSubmit',
       'routingInQueue', 'routingInQueuePosition', 'awayAutoReply', 'fallbackEmailLabel', 'fallbackEmailFormLabel', 'saveEmail',
       'msgAutomated', 'awayRecorded', 'awayReplyTo', 'awayHere',
+      'convEndedBy', 'convEnded', 'closedHint', 'pastClosed', 'pastCurrent',
     ]);
     for (const lang of ['fa', 'en', 'tr']) {
       const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T1_X_SRC) || [])[1]!.split('|');
@@ -1445,15 +1530,15 @@ describe('t1: the platform\'s marks stay in the Iranian edition\'s build', () =>
 
 describe('t1: its extras (presentation-t1-x.js)', () => {
   it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
-    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 2, create: create };");
-    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 2");
+    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 3, create: create };");
+    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 3");
   });
 
   it('takes only its own file: another template\'s, another version or no module is refused', () => {
     const r = make();
     const extend = r.extend as unknown as (m: unknown, dry?: boolean) => number;
     const mod = EXTRAS();
-    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 1 }, { ...mod, v: 3 }, { id: 't1', v: 2 }]) expect(extend(bad)).toBe(0);
+    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 2 }, { ...mod, v: 4 }, { id: 't1', v: 3 }]) expect(extend(bad)).toBe(0);
     // Nothing taken: the grid is still the mark.
     expect(r.emojiPickerHtml()).toBe('<i data-emoji hidden></i>');
     // A dry run says yes and takes nothing.
@@ -1875,6 +1960,9 @@ describe('t1-intl: the International edition\'s skin over t1 (presentation-t1-in
       expect(SKIN.match(new RegExp(`${v}: url\\("data:image/svg\\+xml,`, 'g'))?.length, v).toBe(2);
     }
     expect(SKIN).toContain('.lg-open .wy-view, .lg-open .smart-nudge {');
+    // The Chat tab's active pair is worn: home's bar stays up, its Chat tab
+    // current (runtime-ext's markActiveTab), while that conversation loads.
+    expect(SKIN).toContain(".wy-tab[aria-current='page'][data-view='chat'] .tic::after { background: var(--tc);");
     for (const m of SKIN.matchAll(/url\(\s*["']?([^"')\s]+)/g)) expect(m[1].startsWith('data:'), m[1]).toBe(true);
     // The watermark only while the platform is credited.
     expect(SKIN).toContain('.wy-view:has(.wy-powered) .hx::before');

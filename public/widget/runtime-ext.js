@@ -243,6 +243,21 @@
         // is the renderer's to put first.
         prechat: feat('prechatHeader') && (prechatShown || prechatEpoch === ConvEpoch.get() && !deriveChatTabState().aiOwnsThread),
       };
+      // One conversation (Core's ctx.convNav): where back goes, a read-only
+      // past thread (its day, and no presence: it is read, not followed),
+      // how many are history and their unseen answers (the ⋯ offers them).
+      var nav = ctx.convNav;
+      if (nav) {
+        vm.back = nav.back();
+        vm.past = nav.past();
+        vm.when = nav.when();
+        vm.pastCount = nav.pastCount();
+        vm.pastUnread = nav.pastUnread();
+        if (vm.past) {
+          vm.online = true;
+          if (vm.operator) vm.operator = Object.assign({}, vm.operator, { online: null });
+        }
+      }
       var sig = JSON.stringify(vm);
       if (sig === chatHeaderSignature) return;
       chatHeaderSignature = sig;
@@ -434,28 +449,34 @@
       startConversationWith(text);
     }
     // A conversation the visitor opens with their own words (the home ask
-    // field, a topic chip): a new thread, the text sent through the one send
-    // path (identity, connection and pre-chat gates included; a gate keeps
-    // it as the composer draft), and no AI greeting for that thread, which
-    // would otherwise land ahead of the question it is answering. Away (the
+    // field, a topic chip): a new thread (one conversation: the current one,
+    // else a fresh thread), the text sent through the one send path
+    // (identity, connection and pre-chat gates included; a gate keeps it as
+    // the composer draft), and no AI greeting for that thread, which would
+    // otherwise land ahead of the question it is answering. Away (the
     // leave-a-message form owns the tab), the text pre-fills that form.
     var introSuppressedEpoch = 0;
     function startConversationWith(text) {
       text = String(text || '').trim();
       if (!text || !chatEnabled) return;
-      try { if (chatUI.startNewConversation) chatUI.startNewConversation(); } catch (_) {}
-      try { ctx.__handoffRequested = false; } catch (_) {}
-      introSuppressedEpoch = ConvEpoch.get();
-      var away = deriveChatTabState().name === 'OFFLINE_CONTACT';
-      if (away) ctx.__quotaDraft = text;
-      else {
-        setDraftFor(currentDraftKey(), text);
-        // Through Core's own draft path, so a gate that keeps the text
-        // shows it as a draft (send button, height), not a bare value.
-        restoreDraftToInput();
+      function go() {
+        try { ctx.__handoffRequested = false; } catch (_) {}
+        introSuppressedEpoch = ConvEpoch.get();
+        var away = deriveChatTabState().name === 'OFFLINE_CONTACT';
+        if (away) ctx.__quotaDraft = text;
+        else {
+          setDraftFor(currentDraftKey(), text);
+          // Through Core's own draft path, so a gate that keeps the text
+          // shows it as a draft (send button, height), not a bare value.
+          restoreDraftToInput();
+        }
+        switchTab('chat');
+        if (!away) trySend();
       }
-      switchTab('chat');
-      if (!away) trySend();
+      // Core picks the thread (it may wait for the list), greets none, then this.
+      if (ctx.convNav) { ctx.convNav.goCurrent({ noIntro: true, then: go }); return; }
+      try { if (chatUI.startNewConversation) chatUI.startNewConversation(); } catch (_) {}
+      go();
     }
     wrap('homeHtml', function (orig, vm) {
       if (feat('visitorName')) {
@@ -871,6 +892,8 @@
       lateTaking = {};
       try {
         if (late && late.v === LATE_V && typeof late.create === 'function' && P.extend(extras, true)) {
+          // What the extras declare (their surfaces' capabilities) is the late module's to read.
+          api.extras = extras;
           late.create(api);
           r = P.extend(extras);
         }

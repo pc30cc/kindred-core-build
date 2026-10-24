@@ -15,6 +15,7 @@ import {
   CHAT_TEMPLATE_PRECHAT_MODES,
   canonicalChatTemplateId,
   chatTemplateOptionDefaults,
+  chatTemplateOptionKeys,
   chatTemplatePickerShown,
   cleanChatTemplateCatalogInput,
   cleanTemplateOptionsInput,
@@ -367,10 +368,11 @@ describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMod
       .toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2' });
   });
 
-  it('only Template 2 (and the International skin over it) draws the closed line (descriptor closedNotice): the server writes it for no other workspace', () => {
+  it('every template draws the closed line (descriptor closedNotice, one conversation per visitor), and only Template 2 rates under it', () => {
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2', 't2-intl']);
-    // That it is the renderer's own features.closedNotice: runtimeExt.test.ts.
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(ids);
+    expect(ids.filter((id) => chatTemplateOptionKeys(id).includes('csat'))).toEqual(['t2', 't2-intl']);
+    // That it is the renderer's own closedNotice: runtimeExt.test.ts.
   });
 });
 

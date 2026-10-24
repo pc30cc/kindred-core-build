@@ -23,8 +23,9 @@
  *   V-25  the AI's word-by-word reveal does not move under reduced motion
  *         and ends within 4 s however long the reply;
  *   V-18  a reconnect reloads the thread on screen, never the server's pick;
- *   V-15  the home "new" CTA starts a new conversation beside any earlier
- *         thread; default's "continue" offers only a live one;
+ *   V-15  the home CTA goes to the visitor's one current conversation
+ *         (continue a live one), else starts a fresh one beside a finished
+ *         thread: never a second, parallel one;
  *   V-31  identify() fills the pre-chat form; an invalid email is left out;
  *   I-03  a `seen` envelope turns exactly those bubbles' ticks to seen.
  *
@@ -324,24 +325,29 @@ describe('V-15: the home CTA does what it says', () => {
     expect(h.runtime.__test.chatState().conversationId).toBeNull();
   });
 
-  it('a live thread is offered to continue, and the CTA beside it starts a new one', async () => {
+  it('a live thread is the one door: «continue» opens it, never a parallel one', async () => {
     const h = boot({ conversations: [{ id: 'c-live', status: 'pending' }] });
     await flush(40);
     // A live thread opens the chat; the visitor goes back to the home.
     h.runtime.setTab('home');
     await flush(10);
     expect(h.body.querySelector('[data-conversation-open="c-live"]')).not.toBeNull();
-    click(h.body.querySelector('[data-home-action="chat"]'));
+    const doors = h.body.querySelectorAll('[data-home-action="chat"]');
+    expect(doors).toHaveLength(1);
+    expect(doors[0].textContent).toBe('ادامه گفتگو');
+    click(doors[0]);
     await flush(10);
-    expect(h.runtime.__test.chatState().freshIntent).toBe(true);
+    expect(h.panel.getAttribute('data-view')).toBe('chat');
+    expect(h.runtime.__test.chatState()).toMatchObject({ conversationId: 'c-live', freshIntent: false });
   });
 
-  it('with no thread at all it opens the chat (nothing to start over from)', async () => {
+  it('with no thread at all it opens the chat on a fresh thread (its first message starts one)', async () => {
     const h = boot({ conversations: [] });
     await flush(40);
     click(h.body.querySelector('[data-home-action="chat"]'));
     await flush(10);
-    expect(h.runtime.__test.chatState().freshIntent).toBe(false);
+    expect(h.panel.getAttribute('data-view')).toBe('chat');
+    expect(h.runtime.__test.chatState()).toMatchObject({ conversationId: null, freshIntent: true });
   });
 });
 

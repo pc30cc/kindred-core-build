@@ -248,7 +248,8 @@ describe('widget ingest wiring', () => {
   });
 
   it('a closed thread passed by the client forces a new conversation', () => {
-    expect(src).toContain("if (conv.status === 'closed') convId = null;");
+    // Left, never revived: the visitor's live conversation, else a new one.
+    expect(src).toMatch(/if \(conv\.status === 'closed'\) \{\s*convId = null;\s*namedUnusable = true;/);
   });
 
   it('continuity lookups exclude closed threads', () => {

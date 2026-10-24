@@ -206,16 +206,25 @@ describe('header lines match the header that replaces them', () => {
     expect(chatSkeleton()).toContain('wy-head-sub');
   });
 
-  it('the list skeleton carries the title box and the new-conversation control', () => {
+  it('the list skeleton carries the title box and, like the history it stands for, no new-conversation control', () => {
     const R = renderer();
     const real = R.conversationListHtml({ rtl: true, chatEnabled: true, conversations: [], loading: false });
     const skel = R.skeletonHtml('list', { rtl: true, chatEnabled: true });
-    for (const cls of ['wy-head-plain', 'wy-fab']) {
-      expect(real).toContain(cls);
-      expect(skel).toContain(cls);
-    }
-    // …and drops the control when chat is off, like the real header.
-    expect(R.skeletonHtml('list', { rtl: true, chatEnabled: false })).not.toContain('wy-fab');
+    expect(real).toContain('wy-head-plain');
+    expect(skel).toContain('wy-head-plain');
+    expect(real).not.toContain('wy-fab');
+    expect(skel).not.toContain('wy-fab');
+  });
+
+  it('the list skeleton\'s rows have the real rows\' two lines (no status line)', () => {
+    const R = renderer();
+    const parse = (html: string) => new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+    const real = parse(R.conversationListHtml({ rtl: true, chatEnabled: true, loading: false,
+      conversations: [{ id: 'c', status: 'closed', preview: 'p', unreadCount: 1, timeLabel: 't' }] }));
+    const skel = parse(R.skeletonHtml('list', { rtl: true, chatEnabled: true }));
+    expect(real.querySelectorAll('.conv-row .conv-main > *')).toHaveLength(2);
+    const first = skel.querySelector('.conv-row .conv-main')!;
+    expect(first.children).toHaveLength(2);
   });
 });
 

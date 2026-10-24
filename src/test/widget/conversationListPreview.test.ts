@@ -35,7 +35,8 @@ interface FakeQuery {
 function builder(table: string): FakeQuery {
   const filters: Array<(r: Row) => boolean> = [];
   let max = Infinity;
-  const rows = () => (db.tables[table] || []).filter((r) => filters.every((f) => f(r))).slice(0, max);
+  let skip = 0;
+  const rows = () => (db.tables[table] || []).filter((r) => filters.every((f) => f(r))).slice(skip, skip + max);
   const self = () => b;
   const b: FakeQuery = {
     select: self,
@@ -43,6 +44,7 @@ function builder(table: string): FakeQuery {
     in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return b; },
     is: self, not: self, or: self, contains: self, order: self, filter: self,
     limit: (n: number) => { max = n; return b; },
+    range: (from: number, to: number) => { skip = from; max = to - from + 1; return b; },
     maybeSingle: async () => ({ data: rows()[0] || null, error: null }),
     single: async () => ({ data: rows()[0] || null, error: null }),
     then: (resolve) => Promise.resolve({ data: rows(), error: null as null }).then(resolve),
@@ -104,10 +106,10 @@ const msg = (conversation_id: string, created_at: string, sender_type: string, b
 
 beforeEach(() => {
   db.tables = {
-    visitor_sessions: [{ id: 'sess-1', workspace_id: WS, visitor_id: 'visitor-1' }],
+    visitor_sessions: [{ id: '99999999-9999-4999-8999-999999999999', workspace_id: WS, visitor_id: 'visitor-1' }],
     contacts: [],
     conversations: [
-      { id: 'c1', workspace_id: WS, status: 'open', updated_at: '2026-10-17T10:00:00Z', assigned_to: null, visitor_session_id: 'sess-1' },
+      { id: 'c1', workspace_id: WS, status: 'open', updated_at: '2026-10-17T10:00:00Z', assigned_to: null, visitor_session_id: '99999999-9999-4999-8999-999999999999' },
     ],
     widget_conversation_reads: [{ workspace_id: WS, visitor_id: 'visitor-1', conversation_id: 'c1', last_read_at: '2026-10-17T09:00:00Z' }],
     conversation_messages: [],
@@ -145,7 +147,7 @@ describe('GET /api/widget/conversations — preview and unread', () => {
 
   it('pins default\'s answer otherwise: visible system rows (a join) still preview and count, the shape is unchanged', async () => {
     db.tables.conversations.push(
-      { id: 'c2', workspace_id: WS, status: 'resolved', updated_at: '2026-10-16T10:00:00Z', assigned_to: OP, visitor_session_id: 'sess-1' },
+      { id: 'c2', workspace_id: WS, status: 'resolved', updated_at: '2026-10-16T10:00:00Z', assigned_to: OP, visitor_session_id: '99999999-9999-4999-8999-999999999999' },
     );
     db.tables.conversation_messages = [
       msg('c1', '2026-10-17T09:31:00Z', 'system', 'Sara joined the conversation.', { kind: 'routing_agent_joined', agent_id: OP, agent_name: 'Sara' }),
@@ -157,6 +159,9 @@ describe('GET /api/widget/conversations — preview and unread', () => {
       {
         id: 'c1', status: 'open', updatedAt: '2026-10-17T10:00:00Z', preview: 'Sara joined the conversation.',
         attachmentKind: null, outbound: false, unreadCount: 2, lastMessageAt: '2026-10-17T09:31:00Z',
+        // One current conversation per visitor (conversationListOneConversation.test.ts):
+        // the AI's answer is a reply, the join notice is not.
+        endedAt: null, unreadReplies: 1, hasVisitorMessage: true,
         // A system row also says which it is, so the widget writes it in the
         // visitor's language (conversationListSystemPreview.test.ts).
         systemKind: 'routing_agent_joined', systemMeta: { agent_name: 'Sara' },
@@ -164,6 +169,8 @@ describe('GET /api/widget/conversations — preview and unread', () => {
       {
         id: 'c2', status: 'resolved', updatedAt: '2026-10-16T10:00:00Z', preview: `${'x'.repeat(119)}…`,
         attachmentKind: null, outbound: false, unreadCount: 1, lastMessageAt: '2026-10-16T09:00:00Z',
+        // Resolved is still live for the visitor: no end.
+        endedAt: null, unreadReplies: 1, hasVisitorMessage: false,
       },
     ]);
   });

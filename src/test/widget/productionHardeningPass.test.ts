@@ -99,8 +99,9 @@ describe('visitor message send idempotency (server/routes/widget.ts)', () => {
 });
 
 describe('visitor reply-to-message — real persisted relationship', () => {
-  it('accepts reply_to_message_id on POST /message', () => {
-    expect(widgetRoute).toContain('reply_to_message_id: z.string().uuid().optional().nullable()');
+  it('accepts reply_to_message_id on POST /message (a value that is no message id is dropped, never a 400)', () => {
+    // Behaviour: src/test/widget/oneLiveConversation.test.ts (the local id of a greeting not yet stored).
+    expect(widgetRoute).toMatch(/reply_to_message_id: z\.preprocess\([\s\S]{0,200}?z\.string\(\)\.uuid\(\)\.optional\(\)\.nullable\(\),/);
   });
 
   it('validates the reply target belongs to the SAME conversation before ever storing it (no cross-conversation leak)', () => {
@@ -379,7 +380,8 @@ describe('fresh-conversation lost-response retry — creation-idempotency fix', 
   it('reuses the EXISTING p_match_thread_key mechanism (already proven for channel-bridge conversations) rather than inventing a new one', () => {
     expect(widgetRoute).toContain('const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;');
     expect(widgetRoute).toContain('p_match_thread_key: widgetThreadKey,');
-    expect(widgetRoute).toContain("p_metadata: widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {},");
+    // The key rides on every creation; a greeted one also carries the AI's state (ai_intro).
+    expect(widgetRoute).toContain('...(widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {}),');
   });
 
   it('the namespaced key can never collide with a real external channel thread key', () => {
@@ -395,7 +397,7 @@ describe('fresh-conversation lost-response retry — creation-idempotency fix', 
     expect(body).toContain("var localId = 'local_' + Date.now() + '_' + Math.random()");
   });
 
-  it('the lock key also prefers client_message_id, so retries of the same compose serialize against each other instead of racing', () => {
-    expect(widgetRoute).toContain('const lockKey = clientMessageId ||');
+  it('the lock key is the signed visitor (then client_message_id), so retries of the same compose, and two first messages of one visitor, serialize instead of racing', () => {
+    expect(widgetRoute).toMatch(/const lockKey = \(signedVisitorId \? `visitor:\$\{signedVisitorId\}` : null\)\s*\|\| clientMessageId \|\|/);
   });
 });

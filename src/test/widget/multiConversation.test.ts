@@ -53,9 +53,13 @@ describe('P0-B — a fresh intent can never resurrect the old conversation', () 
     // the POLLING callback specifically (the one paired with markPollSuccess).
     const pollIdx = runtime.indexOf('getConversationId: function () { return subscribedConversation; }');
     expect(pollIdx).toBeGreaterThan(-1);
-    const idx = runtime.indexOf('onConversation: function (cid)', pollIdx);
+    // (Its second parameter is the conversation's status, /poll's.)
+    const idx = runtime.indexOf('onConversation: function (cid', pollIdx);
     expect(idx).toBeGreaterThan(-1);
-    const body = runtime.slice(idx, idx + 600);
+    // Bounded by the callbacks themselves (up to the poll's onTick), not a byte count.
+    const end = runtime.indexOf('onTick:', idx);
+    expect(end).toBeGreaterThan(idx);
+    const body = runtime.slice(idx, end);
     expect(body).toMatch(/freshIntentArmed\(\) && !subscribedConversation/);
     // Same guard on the message channel, otherwise old messages stream in
     // even though the cid was refused.
@@ -121,13 +125,15 @@ describe('P0-E/F — the AI intro is thread-scoped and understands force-new', (
     expect(body).toMatch(/delete __aiIntroKeys\[key\]/);
   });
 
-  it('server intro skips BOTH reuse lookups when force-new is requested', () => {
+  it('server intro (an older widget\'s, without preview) never mints a second conversation while one is live, force-new or not', () => {
+    // One current conversation per visitor (2026-10-24): force-new is
+    // ignored while the visitor has a live conversation, a greeting-only one
+    // included; behaviour in src/test/widget/oneLiveConversation.test.ts.
     expect(intro).toMatch(/forceNewConversation\?: boolean/);
-    expect(intro).toMatch(/const forceNew = input\.forceNewConversation === true/);
-    expect(intro).toMatch(/let conversationId = forceNew \? null : \(input\.conversationId \|\| null\)/);
-    // session-id reuse and visitor-id reuse are both gated.
-    const gated = intro.match(/if \(!forceNew && !conversationId && input\.(visitorSessionId|visitorId)\)/g) || [];
-    expect(gated.length).toBe(2);
+    expect(intro).not.toMatch(/const forceNew = input\.forceNewConversation === true/);
+    expect(intro).toMatch(/findLiveVisitorConversation\(sb, input\.workspaceId, await scope\(\), \{ includeUnansweredGreeting: true \}\)/);
+    // The preview (the widget's chat open) writes nothing.
+    expect(intro).toMatch(/if \(input\.preview === true\) \{/);
   });
 });
 
@@ -144,11 +150,14 @@ describe('P0-G — one canonical visitor-facing AI gate', () => {
   });
 
   it('the widget message route delegates instead of re-reading platform flags', () => {
-    const idx = widgetRoute.indexOf('let platformAiOff = false');
+    // One verdict for POST /message and the away thread's append (platformAiVerdict).
+    const idx = widgetRoute.indexOf('async function platformAiVerdict');
     expect(idx).toBeGreaterThan(-1);
-    const body = widgetRoute.slice(idx, idx + 1200);
+    const body = widgetRoute.slice(idx, idx + 700);
     expect(body).toMatch(/isAutoAnswerAllowedForWorkspace\(config, workspaceId\)/);
     // Fail-closed: an error must not leave the visitor talking to nobody.
-    expect(body).toMatch(/platformAiOff = true;[\s\S]*auto_answer_guard_error/);
+    expect(body).toMatch(/catch \{\s*return \{ off: true, reason: 'auto_answer_guard_error' \}/);
+    const route = widgetRoute.slice(widgetRoute.indexOf("widgetRouter.post('/message'"));
+    expect(route).toMatch(/const \{ off: platformAiOff, reason: platformAiOffReason \} = await platformAiVerdict\(config, workspaceId\)/);
   });
 });

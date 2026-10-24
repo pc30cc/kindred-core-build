@@ -363,8 +363,8 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   - a visitor message with `threadStart: true` opened a new conversation
     under one that had ended (closed): the template draws a "New
     conversation" divider before it (`wyNewConversation`) and starts a new
-    run there; a template that draws the closed line (`closedNotice`, t2)
-    may leave it out;
+    run there; a template that draws the closed line (`closedNotice`) may
+    leave it out right under that line (default and t1 do);
   - the panel's `lang` (the widget's language) and its readable accent:
     `--gs-primary-aa` (the colour the loader put on the shell, the kit's in
     place of the uncustomised one, darkened until white on it reaches
@@ -400,6 +400,40 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
     next page when its scroller nears the end, and the place in the list
     stays across the repaint; a category (`kbCategories`) shows the server's
     count and its own articles (`kbStore.catArticles`), read when opened.
+- One conversation per visitor (owner, 2026-10-23/24; Core's rules in
+  `docs/chat-widget-handoff/IMPLEMENTATION_NOTES.md`). The mode is the
+  renderer's capability, never a feature flag: Core runs it for a renderer
+  that exports `pastBarHtml(vm)` (`typeof Presentation.pastBarHtml ===
+  'function'`), so `default` and `intl` get it while declaring no
+  `features` (they still never download runtime-ext.js or a late pack).
+  Every chat template exports it: `default` draws its own markup, t1 and t2
+  forward it to their extras (`x('pastBarHtml', [vm])`; the extras contract
+  is then v3: `closedHtml(m)` and `pastBarHtml(vm)` among its surfaces, so a
+  renderer refuses extras of an older version). What such a renderer gets:
+  - home: `conversations` holds the current conversation only (or none),
+    `pastCount` how many are history and `pastUnread` the answers unseen
+    there; every `[data-home-action="chat"]` goes to the current one (Core's
+    goCurrent), so a template draws ONE such door, never a second, parallel
+    «new conversation»; `[data-view="list"]` opens the history;
+  - the list is the history (`back` is where the visitor came from; no
+    new-conversation control, no open/resolved words: Core decides what is
+    current); a closed row opens read-only, an older live one writable;
+  - a read-only past conversation: Core removes any `[data-past-bar]` on
+    every chat render, hides `[data-input-bar]` and puts
+    `pastBarHtml({ current, online })` right before it; its
+    `[data-chat-current]` goes to the current conversation (`current`), else
+    starts one (`online`) or leaves a message. Core refuses every send,
+    quote, draft, file and voice from it; the stylesheet hides the quote
+    button there too. Core also hides `[data-reply-preview]` there (a quote
+    picked in the current one is back with it), and paints the chat's
+    skeleton while a switch between a read-only and a writable thread loads;
+  - the `conversation_closed` line on a real close (descriptor and renderer
+    `closedNotice`: `features.closedNotice`, or top-level for `default`),
+    worded `{name} ended the chat` / `Chat ended` in every template
+    (default: Core's `wyEndedBy`, `wyEnded`; t1 and t2 the same words from
+    their extras); a resolve draws none (it ends nothing for the visitor);
+  - a menu that draws the history item declares `features.pastChats`
+    (t1, t2: runtime-late.js reads it; `default` has no menu).
 - Call widget: the presentation (the core and the panel module) never calls
   the network or storage; the runtime never touches the DOM
   (`src/test/callWidgetPresentationContract.test.ts`).

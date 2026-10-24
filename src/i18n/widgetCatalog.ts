@@ -12,11 +12,11 @@
 export const widgetCatalogEn = {
   names: { default: 'Familiar', intl: 'Familiar', t1: 'Turquoise', t2: 'Breeze', 't1-intl': 'Classic', 't2-intl': 'Simple' },
   descriptions: {
-    default: 'A greeting with recent conversations, help articles and a button to start a chat',
-    intl: 'A greeting with recent conversations, help articles and a button to start a chat',
-    t1: 'A coloured home with cards and a bottom menu: Home, Messages, Help',
+    default: 'A greeting, the visitor\'s conversation, help articles and one button to start or continue the chat',
+    intl: 'A greeting, the visitor\'s conversation, help articles and one button to start or continue the chat',
+    t1: 'A coloured home with cards and a bottom menu: Home, Chat, Help',
     t2: 'No bottom menu; visitors type their question right on the home screen',
-    't1-intl': 'A coloured home with cards and a bottom menu: Home, Messages, Help',
+    't1-intl': 'A coloured home with cards and a bottom menu: Home, Chat, Help',
     't2-intl': 'No bottom menu; visitors type their question right on the home screen',
   },
   languages: { fa: 'Persian', en: 'English', tr: 'Turkish' },
@@ -118,11 +118,11 @@ export const widgetCatalogEn = {
 export const widgetCatalogFa: typeof widgetCatalogEn = {
   names: { default: 'آشنا', intl: 'آشنا', t1: 'فیروزه', t2: 'نسیم', 't1-intl': 'کلاسیک', 't2-intl': 'ساده' },
   descriptions: {
-    default: 'خوشامد با گفتگوهای اخیر، مقاله‌های راهنما و دکمهٔ شروع گفتگو',
-    intl: 'خوشامد با گفتگوهای اخیر، مقاله‌های راهنما و دکمهٔ شروع گفتگو',
-    t1: 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، پیام‌ها، راهنما',
+    default: 'خوشامد با گفتگوی بازدیدکننده، مقاله‌های راهنما و یک دکمه برای شروع یا ادامهٔ گفتگو',
+    intl: 'خوشامد با گفتگوی بازدیدکننده، مقاله‌های راهنما و یک دکمه برای شروع یا ادامهٔ گفتگو',
+    t1: 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، گفتگو، راهنما',
     t2: 'بدون منوی پایین؛ بازدیدکننده سؤالش را همان‌جا روی صفحه خانه می‌نویسد',
-    't1-intl': 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، پیام‌ها، راهنما',
+    't1-intl': 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، گفتگو، راهنما',
     't2-intl': 'بدون منوی پایین؛ بازدیدکننده سؤالش را همان‌جا روی صفحه خانه می‌نویسد',
   },
   languages: { fa: 'فارسی', en: 'انگلیسی', tr: 'ترکی' },
@@ -224,11 +224,11 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
 export const widgetCatalogTr: typeof widgetCatalogEn = {
   names: { default: 'Tanıdık', intl: 'Tanıdık', t1: 'Turkuaz', t2: 'Esinti', 't1-intl': 'Klasik', 't2-intl': 'Sade' },
   descriptions: {
-    default: 'Karşılama, son konuşmalar, yardım makaleleri ve sohbet başlatma düğmesi',
-    intl: 'Karşılama, son konuşmalar, yardım makaleleri ve sohbet başlatma düğmesi',
-    t1: 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Mesajlar, Yardım',
+    default: 'Karşılama, ziyaretçinin sohbeti, yardım makaleleri ve sohbeti başlatan ya da sürdüren tek düğme',
+    intl: 'Karşılama, ziyaretçinin sohbeti, yardım makaleleri ve sohbeti başlatan ya da sürdüren tek düğme',
+    t1: 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Sohbet, Yardım',
     t2: 'Alt menü yok; ziyaretçi sorusunu doğrudan ana sayfaya yazar',
-    't1-intl': 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Mesajlar, Yardım',
+    't1-intl': 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Sohbet, Yardım',
     't2-intl': 'Alt menü yok; ziyaretçi sorusunu doğrudan ana sayfaya yazar',
   },
   languages: { fa: 'Farsça', en: 'İngilizce', tr: 'Türkçe' },

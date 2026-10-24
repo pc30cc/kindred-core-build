@@ -22,7 +22,10 @@
  *   chatMenu   the chat bar's ⋯ (`vm.menu` for `chatHeaderHtml`): the
  *              transcript by email, when the server offers it, and the
  *              notification sounds on/off (Core's `uiPrefsStore.soundEnabled`,
- *              remembered for this visitor in localStorage `gs:sound:<workspace>`)
+ *              remembered for this visitor in localStorage `gs:sound:<workspace>`);
+ *              one conversation (Core's `ctx.convNav`, the renderer's or its
+ *              extras' `pastChats`): the earlier ones first, with their
+ *              unseen answers (`n`), also on a fresh thread, never in one
  *   reactions  a message's reactions (`metadata.reactions` for
  *              `messagesHtml`, `view.react`): GET …/conversations/:id/reactions
  *              when a thread shows (again after 60 s and after a reconnect),
@@ -121,6 +124,9 @@
     var root = panel.getRootNode();
     var csatOn = api.feat('csat');
     var menuOn = api.feat('chatMenu');
+    // One conversation (Core's ctx.convNav), with a ⋯ that draws the
+    // history item (the renderer's `pastChats`, or its extras').
+    var histOn = !!ctx.convNav && (api.feat('pastChats') || !!(api.extras && api.extras.pastChats));
     function opts() { return config.templateOptions || {}; }
     function active() { return root.activeElement; }
 
@@ -338,17 +344,22 @@
     }
     function menuVm(vm) {
       var cid = chatStore.get().conversationId;
-      if (!menuOn || !header || !vm || vm.isNew || !cid) return null;
+      // One conversation (`pastChats`): the earlier ones, first, from any
+      // thread but a past one (a fresh thread too).
+      var hist = histOn && vm && !vm.past ? Number(vm.pastCount) || 0 : 0;
+      var thread = !!cid && !(vm && vm.isNew);
+      if (!menuOn || !header || !vm || !thread && !hist) return null;
       // Not while the bar stands for the team after a pre-chat, nobody
       // assigned yet (`vm.prechat`, boards 08·a-c draw no ⋯).
       if (vm.prechat && !(vm.operator && vm.operator.name)) return null;
-      var items = [];
-      var c = convFor(cid);
-      // Without the sound item only the transcript could fill the menu: ask now.
-      if (!soundAllowed && opts().transcriptEmail !== false) ask(cid);
-      var tr = transcriptVm(c);
+      var items = hist ? [{ action: 'history', n: Number(vm.pastUnread) || 0 }] : [];
+      var c = thread && convFor(cid);
+      // Without the sound item (none, or a past thread) only the transcript could fill the menu: ask now.
+      if (thread && (!soundAllowed || vm.past) && opts().transcriptEmail !== false) ask(cid);
+      var tr = c && transcriptVm(c);
       if (tr) items.push({ action: 'transcript', state: tr.state, to: tr.to });
-      if (soundAllowed) items.push({ action: 'sound', on: !!uiPrefsStore.get().soundEnabled });
+      // A past thread (history) is read, not followed: no sound there.
+      if (soundAllowed && !vm.past) items.push({ action: 'sound', on: !!uiPrefsStore.get().soundEnabled });
       return items.length ? { open: menuOpen && menuCid === cid, items: items } : null;
     }
     /** The behaviour hook that finds `el` again in a repainted bar (its first `data-*`), or null. */
@@ -392,6 +403,11 @@
         if (t && t.closest('[data-chat-menu-toggle]')) { setMenu(!menuOpen, true); return; }
         var item = t && t.closest('[data-chat-menu-action]');
         var cid = chatStore.get().conversationId;
+        if (item && item.getAttribute('data-chat-menu-action') === 'history') {
+          setMenu(false);
+          if (ctx.convNav) ctx.convNav.openHistory('chat');
+          return;
+        }
         if (!item || !cid) return;
         if (item.getAttribute('data-chat-menu-action') === 'sound') {
           var on = !uiPrefsStore.get().soundEnabled;
@@ -541,6 +557,8 @@
     });
     // The heart: on screen at once, then the server's answer (or the state before).
     function toggle(el) {
+      // A past conversation (history) is read, not answered.
+      if (ctx.convNav && ctx.convNav.past()) return;
       var id = el.getAttribute('data-msg-id');
       var emoji = el.getAttribute('data-msg-react') || HEART;
       // The thread on screen (a heart above a pre-chat card is one too).
@@ -932,7 +950,8 @@
         var retry = !ok && (!status || status === 429 || status >= 500);
         if (ok) {
           cbs.onConversation(j.conversation_id);
-          cbs.onAccepted({ messageId: j.message_id || null });
+          // `continued`: left in the visitor's live conversation (another tab's).
+          cbs.onAccepted({ messageId: j.message_id || null, continued: j.continued === true });
         } else cbs.onError({ status: status, feature: j.feature || j.code });
         if (retry) failedFirst = id;
         for (var i = 0; i < next.length; i += 2) {

@@ -10024,7 +10024,7 @@ const fa: TranslationKeys = {
     preview: {
       title: 'پیش‌نمایش زنده',
       liveHint: 'هر تغییر نوشتاری یا ظاهری بلافاصله اینجا نمایش داده و به‌صورت خودکار ذخیره می‌شود.',
-      view: { home: 'خانه', list: 'پیام‌ها', chat: 'گفتگو', prechat: 'فرم پیش از گفتگو', kb: 'راهنما', offline: 'آفلاین' },
+      view: { home: 'خانه', list: 'گفتگوهای قبلی', chat: 'گفتگو', prechat: 'فرم پیش از گفتگو', kb: 'راهنما', offline: 'آفلاین' },
       brandFallback: 'پشتیبانی',
       welcomeFallback: 'چطور می‌توانیم کمکتان کنیم؟',
       sampleMessage: 'سلام! چطور می‌توانیم کمکتان کنیم؟',

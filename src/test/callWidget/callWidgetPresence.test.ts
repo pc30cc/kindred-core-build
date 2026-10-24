@@ -33,7 +33,7 @@ const { publishCacheInvalidation } = await import('../../../server/lib/cacheBus.
 const server = startTestServer('/api/call-widget', callWidgetRouter, { supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'a', supabaseServiceRoleKey: 'SERVICE_KEY' }, { origin: ORIGIN });
 afterAll(() => { server.close(); vi.useRealTimers(); });
 
-type Operator = { name: string | null; initial: string; avatar_url: string | null };
+type Operator = { name: string | null; avatar_url: string | null };
 type Body = { status: string; presence?: { any_available: boolean; operators?: Operator[] } };
 
 function setStyle(style: string | undefined) {
@@ -100,10 +100,10 @@ describe('bootstrap presence', () => {
       expect(body.presence).toEqual({
         any_available: true,
         operators: [
-          { name: 'Sara Ahmadi', initial: 'S', avatar_url: null },
+          { name: 'Sara Ahmadi', avatar_url: null },
           // No name of their own: null, never anything from the e-mail.
-          { name: null, initial: '', avatar_url: null },
-          { name: 'Mina', initial: 'M', avatar_url: null },
+          { name: null, avatar_url: null },
+          { name: 'Mina', avatar_url: null },
         ],
       });
     }
@@ -161,7 +161,7 @@ describe('bootstrap presence', () => {
     db.profiles[0].full_name = '‏‌ ';
     setStyle('card');
     const ops = (await view()).body.presence?.operators || [];
-    expect(ops[0]).toEqual({ name: null, initial: '', avatar_url: null });
+    expect(ops[0]).toEqual({ name: null, avatar_url: null });
   });
 
   it('a profile change during a load is not kept (any spelling of the user id)', async () => {

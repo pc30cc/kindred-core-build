@@ -29,6 +29,7 @@ import { exportSummaryCsv, exportDetailedCsv, exportOperatorCsv } from '@/lib/op
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { OperatorAvatar } from '@/components/ui/operator-avatar';
 import { Button } from '@/components/ui/button';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 
@@ -202,15 +203,7 @@ export default function OperatorActivityPage() {
               const live = livePresenceOf(op);
               return (
                 <div key={op.user_id} className="flex flex-wrap items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/30">
-                  <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-primary/10">
-                    {op.profile?.avatar_url ? (
-                      <img src={op.profile.avatar_url} alt={name} className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-sm font-semibold text-primary">
-                        {name.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
+                  <OperatorAvatar src={op.profile?.avatar_url} alt={name} tone="tint" />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

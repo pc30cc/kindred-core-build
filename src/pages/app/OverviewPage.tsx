@@ -28,6 +28,7 @@ import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { OperatorAvatar } from '@/components/ui/operator-avatar';
 import { contactDisplayName } from '@/lib/contact-display';
 import { IdentityListSkeleton } from '@/components/common/IdentitySkeleton';
 import {
@@ -676,13 +677,7 @@ export default function OverviewPage() {
                     : tr('dashboard.statusOffline');
                 return (
                   <li key={m.user_id || label} className="flex items-center gap-3 px-5 py-2.5">
-                    <ContactAvatar
-                      name={m.full_name || m.name}
-                      email={m.email}
-                      avatarUrl={m.avatar_url}
-                      size="sm"
-                      presence={presence}
-                    />
+                    <OperatorAvatar src={m.avatar_url} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-foreground">{label}</p>
                       <p className="truncate text-[11px] text-muted-foreground">{stLabel}</p>

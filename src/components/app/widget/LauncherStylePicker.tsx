@@ -3,10 +3,11 @@
  * «دکمه شناور», RESPOK board 10 "Chat button"): the brand kit's button (in
  * the International edition its Open and Thread logos, when the worn
  * template reads the logo direction), the kit's square (Iranian edition),
- * the classic bubble, two bubbles, the support headset, the agent's face and
- * the pill with the launcher text inside. A tile sets the launcher's shape
- * and icon (shared/launcherStyles.ts); the other icons stay in the icon grid
- * below it. Each tile is drawn as the visitor will see it, on the
+ * the classic bubble, two bubbles, the support headset, the agent's face (a
+ * person's silhouette, never a letter) and the pill with the launcher text
+ * inside. A tile sets the launcher's shape and icon
+ * (shared/launcherStyles.ts); the other icons stay in the icon grid below
+ * it. Each tile is drawn as the visitor will see it, on the
  * workspace's colour (the kit's own ground while the colour is the seeded
  * one).
  *
@@ -20,6 +21,7 @@ import * as RadioGroupPrimitive from '@radix-ui/react-radio-group';
 import { Check } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { OperatorSilhouette } from '@/components/ui/avatar-glyphs';
 import { SHIPS_INTL_KIT, SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
 import { LOCAL_KIT_LAUNCHER_CHAT_GLYPH } from '../../../../shared/localKitLauncher';
 import { RESPOK_LAUNCHER_CHAT_GLYPH, RESPOK_LAUNCHER_OPEN_GLYPH } from '../../../../shared/respokLauncher';
@@ -38,8 +40,6 @@ export interface LauncherStylePickerProps {
   /** The workspace's colour and icon colour (the tiles are drawn on them). */
   primaryColor: string | null | undefined;
   iconColor?: string | null;
-  /** The agent face's letter as the visitor will see it. */
-  initial: string;
   /**
    * The widget's language: the pill's text a style starts with is in it
    * (shared/widgetTextDefaults.ts), as visitors read it, whatever language
@@ -69,7 +69,7 @@ function Glyph({ html, className, style }: { html: string; className: string; st
 export function LauncherStylePicker(props: LauncherStylePickerProps) {
   const { t } = useTranslation();
   const {
-    shape, icon, label, primaryColor, iconColor, initial, international, logoDirection,
+    shape, icon, label, primaryColor, iconColor, international, logoDirection,
     allowed, labelAllowed, logoAllowed, onChoose, widgetLocale,
   } = props;
   const pillDefault = widgetTextDefault('pill', widgetLocale);
@@ -131,8 +131,8 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
       case 'headset': return strokeIcon('headset');
       case 'avatar':
         return (
-          <span className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold leading-none" style={{ background: LAUNCHER_AVATAR.disc, color: LAUNCHER_AVATAR.ink }}>
-            {initial || '·'}
+          <span className="flex h-8 w-8 items-center justify-center rounded-full" style={{ background: LAUNCHER_AVATAR.disc, color: LAUNCHER_AVATAR.ink }}>
+            <OperatorSilhouette />
           </span>
         );
       case 'chat':
@@ -161,8 +161,8 @@ export function LauncherStylePicker(props: LauncherStylePickerProps) {
   );
   const avatarFace = (
     <>
-      <span className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-bold leading-none" style={{ background: LAUNCHER_AVATAR.disc, color: LAUNCHER_AVATAR.ink }}>
-        {initial || '·'}
+      <span className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: LAUNCHER_AVATAR.disc, color: LAUNCHER_AVATAR.ink }}>
+        <OperatorSilhouette />
       </span>
       {/* Online: green, or RESPOK's Signal on its own ground (runtime-fab.css). */}
       <span className="absolute bottom-0 end-0 h-3 w-3 rounded-full border-2 border-white" style={{ background: respokKit && brandColour ? accent : LAUNCHER_AVATAR.online }} />

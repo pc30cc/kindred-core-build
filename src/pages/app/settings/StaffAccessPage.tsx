@@ -38,6 +38,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { OperatorAvatar } from '@/components/ui/operator-avatar';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -287,20 +288,11 @@ export default function StaffAccessPage() {
               const isCurrent = m.user_id === user?.id;
               return (
                 <div key={m.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
-                    {m.profile?.avatar_url ? (
-                      <img
-                        src={m.profile.avatar_url}
-                        alt={m.profile?.full_name || m.profile?.email || ''}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="text-sm font-semibold text-primary">
-                        {(m.profile?.full_name || m.profile?.email || '?').charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
+                  <OperatorAvatar
+                    src={m.profile?.avatar_url}
+                    alt={m.profile?.full_name || m.profile?.email || ''}
+                    tone="tint"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground truncate">

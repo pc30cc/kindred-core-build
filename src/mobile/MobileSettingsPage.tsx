@@ -28,7 +28,7 @@ import { useI18n, useTranslation } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
-import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import { OperatorAvatar } from '@/components/ui/operator-avatar';
 import { cn } from '@/lib/utils';
 import { MobileScreen, MobileGroup, MobileRow } from './MobileScreen';
 import { appStoreUrl, supportUrl, openExternal } from './mobileLinks';
@@ -63,13 +63,7 @@ export default function MobileSettingsPage() {
     <MobileScreen largeTitle title={t('nav.settings')} bodyClassName="pb-8">
       {/* Identity hero */}
       <div className="flex flex-col items-center gap-2 px-4 pb-1 pt-6">
-        <ContactAvatar
-          name={profile?.full_name}
-          email={user?.email}
-          avatarUrl={profile?.avatar_url}
-          size="lg"
-          className="scale-[1.55]"
-        />
+        <OperatorAvatar src={profile?.avatar_url} className="h-12 w-12 scale-[1.55]" />
         <p className="mt-4 truncate text-[19px] font-bold text-foreground">{name}</p>
         <p
           className="max-w-full truncate text-[13px] text-muted-foreground"

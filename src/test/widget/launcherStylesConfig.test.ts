@@ -6,11 +6,12 @@
  * lockup from the template option `logoDirection`.
  *
  *   - `fab.icon` / `fab.shape` are normalised (an unknown icon is `chat`, a
- *     pill needs its text); `fab.initial` only for the agent's face (the
- *     first operator, online first, by the stack's name: their own, else
- *     the widget's word for an operator in its language; the workspace's
- *     name without a team), from the team of the first four members to join
- *     (shared/widgetTeam.ts), whatever order the rows come in;
+ *     pill needs its text); never a `fab.initial`: the agent's face is a
+ *     person's silhouette (owner, 2026-10-24), not the first operator's
+ *     letter, not the workspace's; the team stack (the first four members
+ *     to join, shared/widgetTeam.ts, whatever order the rows come in) is
+ *     named by their own names, else the widget's word for an operator in
+ *     its language;
  *   - `fabStyleUrl` (the hashed runtime-fab.css) only for a launcher wearing
  *     a style: every other payload is as before, key for key;
  *   - a plan without widget_launcher_icon wears a chat circle and gets no
@@ -112,21 +113,21 @@ describe('GET /config: the launcher', () => {
     expect(String(b.fabStyleUrl)).toMatch(FAB_URL);
   });
 
-  it('the agent\'s face: the first operator\'s initial (online first), else the workspace\'s', async () => {
+  it('the agent\'s face: no letter, not the first operator\'s (online first), not the workspace\'s', async () => {
     const b = await body(fab({ fab_icon: 'avatar' }));
     expect((b.teamMembers as Array<{ name: string; online: boolean }>)[0]).toMatchObject({ name: 'Sara', online: true });
-    expect(b.fab.initial).toBe('S');
-    expect(Object.keys(b.fab)).toEqual([...FAB_KEYS.slice(0, 3), 'initial', ...FAB_KEYS.slice(3)]);
+    expect('initial' in b.fab).toBe(false);
+    expect(Object.keys(b.fab)).toEqual(FAB_KEYS);
     expect(String(b.fabStyleUrl)).toMatch(FAB_URL);
     const noTeam = await body((t) => {
       fab({ fab_icon: 'avatar', brand_name: 'نیلوفر' })(t);
       (t as Record<string, unknown[]>).workspace_members = [];
     });
     expect(noTeam.teamMembers).toEqual([]);
-    expect(noTeam.fab.initial).toBe('ن');
+    expect('initial' in noTeam.fab).toBe(false);
   });
 
-  it('the agent\'s face: the first four to join, online first; a nameless operator is «اپراتور» in a Persian widget, in the stack and the letter', async () => {
+  it('the agent\'s face: the first four to join, online first; a nameless operator is «اپراتور» in a Persian widget\'s stack', async () => {
     const id = (n: number) => `2b3c4d5e-0000-4000-8000-00000000000${n}`;
     const online = { workspace_id: null, force_offline: false, available_when_using_app: true, schedule_enabled: false, timezone: 'UTC', weekly_schedule: null };
     const b = await body((t) => {
@@ -151,24 +152,24 @@ describe('GET /config: the launcher', () => {
     });
     // The fifth to join (online) is not in the team; the nameless first one
     // leads the online, under the widget's word for an operator (as t1's
-    // header draws its face), so the launcher wears that word's letter.
+    // header draws its face); the launcher wears the silhouette.
     expect(b.teamMembers).toEqual([
       { name: 'اپراتور', avatar: null, online: true },
       { name: 'سارا', avatar: null, online: true },
       { name: 'Reza', avatar: null, online: false },
       { name: 'Kian', avatar: null, online: false },
     ]);
-    expect(b.fab.initial).toBe('ا');
+    expect('initial' in b.fab).toBe(false);
     expect(JSON.stringify(b.teamMembers)).not.toContain('Operator');
     // Nobody's email, nor any part of it, reaches the visitor.
     expect(JSON.stringify(b)).not.toMatch(/example\.com|first@|sara@/);
   });
 
   it.each([
-    ['a Turkish widget', 'international', 'tr', 'Operatör', 'O'],
-    ['an English one', 'international', 'en', 'Operator', 'O'],
-    ['a Persian one set to Persian over an English workspace', 'iran', 'fa', 'اپراتور', 'ا'],
-  ] as const)('a nameless operator in %s: the word of the widget\'s language', async (_title, edition, language, word, letter) => {
+    ['a Turkish widget', 'international', 'tr', 'Operatör'],
+    ['an English one', 'international', 'en', 'Operator'],
+    ['a Persian one set to Persian over an English workspace', 'iran', 'fa', 'اپراتور'],
+  ] as const)('a nameless operator in %s: the word of the widget\'s language', async (_title, edition, language, word) => {
     const b = await body((t) => {
       fab({ fab_icon: 'avatar' })(t);
       const tt = t as Record<string, Array<Record<string, unknown>>>;
@@ -177,7 +178,7 @@ describe('GET /config: the launcher', () => {
     }, { edition });
     expect(b.locale).toBe(language);
     expect(b.teamMembers).toEqual([{ name: word, avatar: null, online: expect.any(Boolean) }]);
-    expect(b.fab.initial).toBe(letter);
+    expect('initial' in b.fab).toBe(false);
   });
 
   it('a plan without widget_launcher_icon: the chat circle, no stylesheet', async () => {

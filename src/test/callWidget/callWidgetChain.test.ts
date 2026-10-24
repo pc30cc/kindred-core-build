@@ -409,7 +409,7 @@ describe('settings chain: dashboard → PUT → bootstrap → widget (Iranian ed
     }
   });
 
-  it('presence: names and initials only for card and operator_face, "anyone available" for every style; an operator going away reaches the widget through the presence memo', async () => {
+  it('presence: names only (never an initial) for card and operator_face, "anyone available" for every style; an operator going away reaches the widget through the presence memo', async () => {
     const plain = await bootstrap();
     expect(plain.presence).toEqual({ any_available: true });
 
@@ -418,7 +418,7 @@ describe('settings chain: dashboard → PUT → bootstrap → widget (Iranian ed
     const face = await bootstrap();
     expect(face.presence).toEqual({
       any_available: true,
-      operators: [{ name: 'Sara Ahmadi', initial: 'S', avatar_url: null }, { name: 'Reza Karimi', initial: 'R', avatar_url: null }],
+      operators: [{ name: 'Sara Ahmadi', avatar_url: null }, { name: 'Reza Karimi', avatar_url: null }],
     });
     // Nothing that names a user: no id, no e-mail.
     const text = JSON.stringify(face);

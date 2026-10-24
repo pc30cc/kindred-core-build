@@ -26,6 +26,7 @@ import tr from '@/i18n/locales/tr';
 import { LauncherStylePicker, type LauncherStylePickerProps } from '@/components/app/widget/LauncherStylePicker';
 import { launcherChoiceOf, launcherTileOf } from '../../../shared/launcherStyles';
 import { RESPOK_LAUNCHER_OPEN_GLYPH } from '../../../shared/respokLauncher';
+import { PERSON_SILHOUETTE } from '../../../shared/avatarGlyphs';
 
 // The build's kits (shared/buildBrand.ts), `both` unless a test says otherwise.
 const build = vi.hoisted(() => ({ intlKit: true }));
@@ -45,7 +46,7 @@ function mount(over: Partial<LauncherStylePickerProps> = {}) {
   render(
     <I18nProvider initialLocale="en" initialTranslations={en}>
       <LauncherStylePicker
-        shape="circle" icon="chat" label="" primaryColor="#3B82F6" initial="S" international={false}
+        shape="circle" icon="chat" label="" primaryColor="#3B82F6" international={false}
         logoDirection={null} allowed labelAllowed logoAllowed onChoose={onChoose} {...over}
       />
     </I18nProvider>,
@@ -85,9 +86,16 @@ describe('the tiles of each edition', () => {
     expect(m.tile('kit').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('the agent\'s face shows the letter the visitor will see; the tiles wear the workspace colour', () => {
-    const m = mount({ initial: 'س', primaryColor: '#E11D48' });
-    expect(m.tile('avatar').textContent).toContain('س');
+  it('the agent\'s face is the person silhouette, never a letter; the tiles wear the workspace colour', () => {
+    const m = mount({ primaryColor: '#E11D48' });
+    const face = m.tile('avatar').querySelector('svg[data-glyph="person"]')!;
+    expect(face.getAttribute('aria-hidden')).toBe('true');
+    expect(face.querySelector('path')!.getAttribute('d')).toBe(PERSON_SILHOUETTE);
+    // On the face's disc, in its ink (LAUNCHER_AVATAR), as runtime-fab.css draws it.
+    expect((face.parentElement as HTMLElement).style.color).toBe('rgb(138, 52, 16)');
+    // The tile's only text is its name and its line.
+    const label = [...m.tile('avatar').querySelectorAll(':scope > span:last-child span')].map((n) => n.textContent).join('');
+    expect(m.tile('avatar').textContent).toBe(label);
     const art = m.tile('bubble').querySelector('span[aria-hidden]') as HTMLElement;
     expect(art.style.background).toBe('rgb(225, 29, 72)');
     // A custom colour: the bubble's dots are holes (no kit dots).

@@ -88,6 +88,7 @@ vi.mock('../../../server/services/platformSupport/service.js', async (orig) => (
 }));
 
 const { recordConversationClosed, latestClosedRow } = await import('../../../server/services/conversationClosedNotice.js');
+const { CHAT_WIDGET_TEMPLATES } = await import('../../../shared/widgetTemplates.js');
 const { applyPostSendAction } = await import('../../../server/services/conversationPostSend.js');
 const { conversationsRouter } = await import('../../../server/routes/conversations.js');
 
@@ -207,11 +208,18 @@ describe('the closed line on a template that draws it', () => {
 });
 
 describe('no new row anywhere else', () => {
-  for (const template of ['default', 'intl', 't1']) {
-    it(`a ${template} workspace: nothing written, nothing published`, async () => {
+  // Every template follows its descriptor: the line where it draws one
+  // (closedNotice), nothing at all where it does not.
+  for (const [template, descriptor] of Object.entries(CHAT_WIDGET_TEMPLATES)) {
+    it(`a ${template} workspace: ${descriptor.closedNotice ? 'the line' : 'nothing written, nothing published'}`, async () => {
       state.templates[WS] = template;
       const cid = conversation();
       message(cid, 'agent');
+      if (descriptor.closedNotice) {
+        expect(await close(cid)).not.toBeNull();
+        expect(closedRows(cid)).toHaveLength(1);
+        return;
+      }
       expect(await close(cid)).toBeNull();
       expect(closedRows(cid)).toHaveLength(0);
       expect(state.db.inserts).toHaveLength(0);

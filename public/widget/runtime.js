@@ -7365,9 +7365,9 @@
     panel.setAttribute('inert', '');
 
     // Operator avatar stack (max 4). Each operator becomes a small circular
-    // avatar overlapping the next one, falling back to their initial when no
-    // avatar_url is set. The whole stack is hidden when there are no team
-    // members configured.
+    // avatar overlapping the next one, a person's silhouette when no
+    // avatar_url is set (the template draws it). The whole stack is hidden
+    // when there are no team members configured.
     var shellVm = {
       config: config,
       locale: ctx.locale,
@@ -7641,9 +7641,11 @@
         return '<span class="msg-avatar has-img"><img src="' + Util.escapeHtml(String(img)) +
           '" alt="" loading="lazy" decoding="async" /></span>';
       }
-      var nm = (team[0] && (team[0].name || team[0].full_name)) || (ctx.config && ctx.config.brandName) || 'S';
-      return '<span class="msg-avatar" aria-hidden="true">' +
-        Util.escapeHtml((String(nm).trim().charAt(0) || 'S').toUpperCase()) + '</span>';
+      // No photo: a person's silhouette for the team's first member, else the
+      // workspace's storefront (.c4), each template's .av tile drawing the
+      // glyph (runtime.css); never a letter (owner, 2026-10-24).
+      var nm = team[0] && (team[0].name || team[0].full_name);
+      return '<span class="msg-avatar av s28 ' + (nm ? 'c1' : 'c4') + '" aria-hidden="true"></span>';
     }
 
     function renderSmartDock() {

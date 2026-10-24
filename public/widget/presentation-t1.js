@@ -225,16 +225,6 @@
       var s = String(u == null ? '' : u).trim();
       return !/["'<>\s\\]/.test(s) && /^(https?:\/\/|\/\/|\/[^/]|blob:|data:image\/(png|jpe?g|gif|webp);)/i.test(s) ? s : '';
     }
-    /**
-     * What an initial passes over because it draws nothing (an RLM pasted
-     * before a Persian name, a ZWNJ, a space, a lone combining mark), as the
-     * launcher's letter does (shared/launcherStyles.ts). Without \p{} the
-     * browser only trims, as before.
-     */
-    var UNSHOWN = (function () { try { return new RegExp('[\\p{C}\\p{Z}\\p{M}]', 'u'); } catch (e) { return /\s/; } })();
-    function initialOf(name) {
-      return (Array.from(String(name == null ? '' : name)).find(function (ch) { return !UNSHOWN.test(ch); }) || '').toUpperCase();
-    }
     /** People keep one tile colour everywhere: their place in the team, else a hash of the name. */
     function tone(name) {
       var n = String(name || '');
@@ -247,8 +237,9 @@
       return online == null ? '' : '<span class="pr' + (online ? '' : ' off') + '"></span>';
     }
     /**
-     * A person: their photo when one exists, else their initial on a soft
-     * tile. Never an empty circle. `online` (true / false) adds the dot.
+     * A person: their photo when one exists, else the person silhouette on
+     * their soft tile, never a letter (owner, 2026-10-24; the stylesheet
+     * draws it in the tile's ink). `online` (true / false) adds the dot.
      */
     function avatarHtml(person, size, online) {
       person = person || {};
@@ -257,14 +248,14 @@
       if (!name && !url) return wsAvatar(size, online);
       return url
         ? '<span class="av ' + size + ' has-img"><img src="' + esc(url) + '" alt="" loading="lazy" decoding="async">' + dotHtml(online) + '</span>'
-        : '<span class="av ' + size + ' ' + tone(name) + '" aria-hidden="true">' + esc(initialOf(name)) + dotHtml(online) + '</span>';
+        : '<span class="av ' + size + ' ' + tone(name) + '" aria-hidden="true">' + dotHtml(online) + '</span>';
     }
-    /** The workspace: its logo (when shown) or its initial on the reserved tile. */
+    /** The workspace: its logo (when shown), else its storefront glyph on the reserved tile. */
     function wsAvatar(size, online) {
       var logo = config.showLogo === false ? '' : safeUrl(config.logoUrl);
       return logo
         ? '<span class="av ' + size + ' has-img ws"><img src="' + esc(logo) + '" alt="" loading="lazy" decoding="async">' + dotHtml(online) + '</span>'
-        : '<span class="av ' + size + ' c4" aria-hidden="true">' + esc(initialOf(workspaceName) || 'W') + dotHtml(online) + '</span>';
+        : '<span class="av ' + size + ' c4" aria-hidden="true">' + dotHtml(online) + '</span>';
     }
     function stackHtml(people, size, dim) {
       return people.length
@@ -674,9 +665,9 @@
       return { quote: quoteLines.join(' ').trim(), rest: lines.slice(i).join('\n') };
     }
 
+    /** The AI: its own logo, else the workspace's tile (never a person, never a letter). */
     function botPerson() {
-      var ai = config.aiAgent || {};
-      return { name: ai.agentName || '', avatar: ai.agentLogoUrl || '' };
+      return { avatar: (config.aiAgent || {}).agentLogoUrl };
     }
     function pendingRow(cls, who, inner, meta) {
       return '<div class="msg-row operator is-last ' + cls + '">' + avatarHtml(who, 's28 msg-avatar') +
@@ -766,7 +757,8 @@
         }
 
         // Operator rows: the avatar beside the run's last bubble, a spacer
-        // beside the others (photo, else the initial; automated = workspace).
+        // beside the others (photo, else the silhouette; the AI without a
+        // logo and automated rows = the workspace's tile).
         // No name over a run (owner, 2026-10-23): the server's "X joined"
         // line comes right before a person's first message.
         var avatar = '';
@@ -1147,7 +1139,7 @@
       var logo = config.showLogo === false ? ''
         : safeUrl(config.logoUrl)
           ? '<span class="logo has-img"><img src="' + esc(safeUrl(config.logoUrl)) + '" alt="' + esc(workspaceName) + '" decoding="async"></span>'
-          : '<span class="logo" aria-hidden="true">' + esc(initialOf(workspaceName) || 'W') + '</span>';
+          : '<span class="logo" aria-hidden="true"></span>';
 
       var hero = '<div class="wy-head hx">' + (MARK && credit ? markSvg('hx-mk') : '') +
         '<div class="hx-top">' + logo + '</div>' +
@@ -1299,7 +1291,7 @@
     function kbArticleHtml(vm) {
       vm = vm || {};
       var a = vm.article || {};
-      // Its author first (feature `kbAuthor`), on their initial's tile (09·12).
+      // Its author first (feature `kbAuthor`), on their silhouette's tile (09·12).
       var by = String(a.author || '').trim();
       var meta = by ? [by] : [];
       if (a.readingMinutes) meta.push(fill(L('readT'), { n: fmtNum(a.readingMinutes) }));

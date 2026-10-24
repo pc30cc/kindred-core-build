@@ -61,8 +61,10 @@
 
 /* ---------- header ---------- */
 .hd { position: relative; z-index: 4; display: flex; align-items: center; gap: 12px; flex: none; height: 74px; padding-inline: 18px 14px; }
-.lg { display: grid; place-items: center; flex: none; overflow: hidden; width: 44px; height: 44px; border-radius: 14px; background: var(--core); color: var(--core-ink); font-size: 19px; font-weight: 700; box-shadow: 0 8px 16px -8px color-mix(in oklab, var(--a) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.25); }
+.lg { display: grid; place-items: center; flex: none; overflow: hidden; width: 44px; height: 44px; border-radius: 14px; background: var(--core); color: var(--core-ink); box-shadow: 0 8px 16px -8px color-mix(in oklab, var(--a) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.25); }
 .lg img { width: 100%; height: 100%; object-fit: cover; }
+/* No logo: the business's storefront in the tile's ink (shared/avatarGlyphs.ts), never its first letter. */
+.lg.ws::before { --g: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Cpath d='M6.6 3h10.8q.9 0 1.38.83L21.5 8.5A2.375 2.375 0 0 1 20.25 10.59v8.16A2.25 2.25 0 0 1 18 21H6a2.25 2.25 0 0 1-2.25-2.25v-8.16A2.375 2.375 0 0 1 2.5 8.5l2.72-4.67Q5.7 3 6.6 3zm-.85 7.71v8.04q0 .25.25.25h4v-2.75a2 2 0 0 1 4 0V19h4q.25 0 .25-.25v-8.04A2.375 2.375 0 0 1 16.75 8.5a2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-4.75 0 2.375 2.375 0 0 1-1.5 2.21z'/%3E%3C/svg%3E"); content: ""; width: 58%; height: 58%; background: currentColor; -webkit-mask: var(--g) center / contain no-repeat; mask: var(--g) center / contain no-repeat; }
 .hx { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .hx .nm { overflow: hidden; font-size: 15px; font-weight: 700; line-height: 1.45; white-space: nowrap; text-overflow: ellipsis; }
 .hx .st { display: flex; align-items: center; gap: 7px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
@@ -335,7 +337,8 @@
 .orb .core svg { width: 46px; height: 46px; }
 .orb.ringing .core svg { animation: cc-wiggle 2.4s ease-in-out infinite; }
 .orb.spin .core::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; border: 2.5px solid transparent; border-top-color: var(--glow); border-inline-end-color: color-mix(in oklab, var(--glow) 40%, transparent); animation: cc-spin 1.1s linear infinite; }
-.orb.op .core { background: #FCE3D4; color: #8A3410; font-size: 48px; font-weight: 700; line-height: 1; }
+.orb.op .core { background: #FCE3D4; color: #8A3410; }
+.orb .core.pp::before { width: 50%; height: 50%; }
 .orb .halo { position: absolute; inset: 38px; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in oklab, var(--glow) 62%, transparent) 55%, transparent); animation: cc-halo 1.8s ease-in-out infinite alternate; }
 .orb .halo + .halo { animation-duration: 2.3s; animation-delay: -.8s; opacity: .7; }
 .orb.breathe .core { animation: cc-breathe 2.6s ease-in-out infinite; }
@@ -437,7 +440,7 @@
 
 /* transfer */
 .xf { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 30px 0 20px; }
-.xf .av { width: 78px; height: 78px; font-size: 28px; box-shadow: 0 0 0 6px rgba(255,255,255,.05); }
+.xf .av { width: 78px; height: 78px; box-shadow: 0 0 0 6px rgba(255,255,255,.05); }
 .xf .to { position: relative; display: grid; place-items: center; width: 78px; height: 78px; border-radius: 50%; background: rgba(255,255,255,.06); color: rgba(255,255,255,.85); }
 .xf .to::before { content: ""; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px dashed color-mix(in oklab, var(--glow) 70%, transparent); animation: cc-spin 8s linear infinite; }
 .xf .to::after { content: ""; position: absolute; inset: -12px; border-radius: 50%; border: 1.5px solid color-mix(in oklab, var(--glow) 60%, transparent); opacity: 0; animation: cc-ring 2.4s var(--ease) infinite; }
@@ -485,7 +488,7 @@
 .mc .mo::before, .mc .mo::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--glow); opacity: 0; animation: cc-ring 2.4s var(--ease) infinite; }
 .mc .mo::after { animation-delay: 1.2s; }
 .mc .mo svg { animation: cc-wiggle 2.4s ease-in-out infinite; }
-.mc .av { width: 48px; height: 48px; font-size: 18px; box-shadow: 0 0 0 3px color-mix(in oklab, var(--glow) 55%, transparent); animation: cc-talk 1.6s ease-in-out infinite alternate; }
+.mc .av { width: 48px; height: 48px; box-shadow: 0 0 0 3px color-mix(in oklab, var(--glow) 55%, transparent); animation: cc-talk 1.6s ease-in-out infinite alternate; }
 .mc .mbt { position: relative; z-index: 1; display: grid; place-items: center; flex: none; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; }
 .mc .mbt::before { content: ""; position: absolute; inset: -2px; }
 .mc .mbt.on { background: #fff; color: var(--s3); }

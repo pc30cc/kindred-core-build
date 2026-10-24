@@ -26,7 +26,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { launcherInitial } from '../../../shared/launcherStyles';
+import { avatarFace, avatarFaces } from './avatarFace';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const REGISTRY_SRC = read('public/widget/presentation-registry.js');
@@ -538,7 +538,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       const h = parse(r().messagesHtml({ messages: [msg({})] }, '', { operatorTyping: { name: 'سارا', avatar: null } }));
       const row = h.querySelector('.messages > .msg-row.typing-row:last-child')!;
       expect(row.getAttribute('aria-hidden')).toBe('true');
-      expect(row.querySelector('.msg-avatar')!.textContent).toBe('س');
+      expect(avatarFace(row.querySelector('.msg-avatar'))).toBe('person');
       expect(row.querySelector('.msg-meta')!.textContent).toBe('سارا در حال نوشتن…');
       expect(parse(r().emptyHtml({ operatorTyping: { name: 'سارا' } })).querySelector('.typing-row')).not.toBeNull();
       expect(parse(r().messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.typing-row')).toBeNull();
@@ -566,7 +566,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       const away = parse(r().chatHeaderHtml({ online: false, operator: null, isNew: false }));
       expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ همین‌جا');
       expect(away.querySelector('.away[hidden]')).not.toBeNull();
-      expect(away.querySelector('.who .av.c4')!.textContent).toBe('ف');
+      expect(avatarFace(away.querySelector('.who .av.c4'))).toBe('workspace');
       expect(parse(r().chatHeaderHtml({ online: true, isNew: true })).querySelector('.hn')!.textContent).toBe('گفتگوی جدید');
       // Core rewrites the header: nothing it binds once may live in there.
       for (const html of [h.innerHTML, away.innerHTML]) {
@@ -584,21 +584,21 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       const pre = parse(r().chatHeaderHtml({ online: true, prechat: true, isNew: true }));
       expect(pre.querySelector('.hn')!.textContent).toBe('فروشگاه نیلوفر');
       expect(pre.querySelector('.hs')!.textContent).toBe('آنلاین · پاسخ در چند دقیقه');
-      expect(pre.querySelector('.who .av.c1')!.textContent).toBe('س');
+      expect(avatarFace(pre.querySelector('.who .av.c1'))).toBe('person');
       expect(pre.querySelector('.who .av .pr:not(.off)')).not.toBeNull();
       const preAway = parse(r().chatHeaderHtml({ online: false, prechat: true, isNew: true }));
-      expect(preAway.querySelector('.who .av.c4')!.textContent).toBe('ف');
+      expect(avatarFace(preAway.querySelector('.who .av.c4'))).toBe('workspace');
       expect(preAway.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ همین‌جا');
       // An assigned operator is the header's still: the store, the operator small under it.
       const op = parse(r().chatHeaderHtml({ online: true, prechat: true, operator: { name: 'مهدی', online: true } }));
       expect(op.querySelector('.hn')!.textContent).toBe('فروشگاه نیلوفر');
       expect(op.querySelector('.hs')!.textContent).toBe('مهدی');
-      expect(op.querySelector('.who .av')!.textContent).toBe('م');
+      expect(avatarFace(op.querySelector('.who .av'))).toBe('person');
       // Nobody listed online (the workspace is): the store's tile, never an
       // offline face with a green dot.
       const none = parse(make({ capabilities: SERVED, config: { teamMembers: [{ name: 'رضا', online: false }] } })
         .chatHeaderHtml({ online: true, prechat: true, isNew: true }));
-      expect(none.querySelector('.who .av.c4')!.textContent).toBe('ف');
+      expect(avatarFace(none.querySelector('.who .av.c4'))).toBe('workspace');
       expect(none.querySelector('.who .av .pr:not(.off)')).not.toBeNull();
     },
     emptyQna: () => {
@@ -685,10 +685,11 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(row.querySelector('.l2 em')!.textContent).toBe('شما: ممنون');
       expect(row.querySelector('.l2 .nb')!.textContent).toBe('۲');
       expect(row.querySelector('.av .pr')).not.toBeNull();
-      // No operator yet: the workspace, its initial on the reserved tile.
+      expect(avatarFace(row.querySelector('.av'))).toBe('person');
+      // No operator yet: the workspace, its storefront on the reserved tile.
       const ws = parse(r().conversationRowHtml({ id: 'c', status: 'resolved', preview: 'x' }, false));
       expect(ws.querySelector('.l1 .nm')!.textContent).toBe('فروشگاه نیلوفر');
-      expect(ws.querySelector('.av.c4')!.textContent).toBe('ف');
+      expect(avatarFace(ws.querySelector('.av.c4'))).toBe('workspace');
       expect(ws.querySelector('.tg.done')!.textContent).toBe('حل شده');
     },
     chatMenu: () => {
@@ -727,7 +728,8 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
     },
     kbAuthor: () => {
       const h = parse(r().kbArticleHtml({ article: { title: 't', author: 'سارا', readingMinutes: 2, contentHtml: '' } }));
-      expect(h.querySelector('.am')!.textContent).toBe('سسارا·۲ دقیقه مطالعه');
+      expect(h.querySelector('.am')!.textContent).toBe('سارا·۲ دقیقه مطالعه');
+      expect(avatarFace(h.querySelector('.am .av'))).toBe('person');
     },
   };
 
@@ -1000,17 +1002,17 @@ describe('t1: direction, people, the workspace', () => {
     expect(parse(make({ locale: 'tr' }).chatFrameHtml({ chatEnabled: true, locale: 'tr', config: BASE_CONFIG })).firstElementChild!.getAttribute('dir')).toBe('ltr');
   });
 
-  it('draws a person as a photo when there is one, else their initial; the workspace as its logo or initial', () => {
+  it('draws a person as a photo when there is one, else the silhouette; the workspace as its logo or storefront, never a letter', () => {
     const r = make({ config: { logoUrl: 'https://cdn.test/logo.png' } });
     const h = parse(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true }));
     expect(h.querySelector('.hx-top .logo img')!.getAttribute('src')).toBe('https://cdn.test/logo.png');
     // The team card: who is online first (or everyone), one colour each.
-    expect(Array.from(h.querySelectorAll('.team .avs .av')).map((a) => a.textContent)).toEqual(['س']);
+    expect(avatarFaces(h.querySelectorAll('.team .avs .av'))).toEqual(['person']);
     const all = parse(make({ config: { teamMembers: [{ name: 'سارا' }, { name: 'مهدی' }, { name: 'رضا' }] } }).homeHtml({ rtl: true, isOnline: true, chatEnabled: true }));
     expect(Array.from(all.querySelectorAll('.team .avs .av')).map((a) => a.className.split(' ')[2])).toEqual(['c1', 'c2', 'c3']);
     const noLogo = parse(make({ config: { showLogo: false, logoUrl: 'https://cdn.test/logo.png' } }).homeHtml({ rtl: true, isOnline: true }));
     expect(noLogo.querySelector('.logo')).toBeNull();
-    expect(parse(make().homeHtml({ rtl: true, isOnline: true })).querySelector('.hx-top .logo')!.textContent).toBe('ف');
+    expect(avatarFace(parse(make().homeHtml({ rtl: true, isOnline: true })).querySelector('.hx-top .logo[aria-hidden="true"]'))).toBe('workspace');
     const photo = parse(make().chatHeaderHtml({ online: true, operator: { name: 'سارا', avatar: 'https://cdn.test/s.png', online: true } }));
     expect(photo.querySelector('.who .av img')!.getAttribute('src')).toBe('https://cdn.test/s.png');
     expect(make({ config: { teamMembers: [{ name: 'سارا', online: true }] } }).homeHtml({ rtl: true, isOnline: true, chatEnabled: true, showTeamAvatars: false }))
@@ -1022,20 +1024,20 @@ describe('t1: direction, people, the workspace', () => {
     expect(thread.querySelector('.msg-sender-label')).toBeNull();
   });
 
-  it('takes a person\'s initial from the first character that shows, as the launcher\'s letter does', () => {
+  it('never draws a letter for a person or the workspace, whatever the name holds (owner, 2026-10-24)', () => {
     // An RLM pasted before a Persian name, a ZWNJ, a lone combining mark, a
-    // BOM: the tile would be blank (shared/launcherStyles.ts launcherInitial).
+    // BOM: once the tile's letter; now every one is the silhouette.
     const names = ['\u200Fسارا', '\u200C\u200Fمهدی', '\u0651رضا'];
     const team = parse(make({ config: { teamMembers: names.map((name) => ({ name, online: true })) } })
       .homeHtml({ rtl: true, isOnline: true, chatEnabled: true }));
-    expect(Array.from(team.querySelectorAll('.team .avs .av')).map((a) => a.textContent))
-      .toEqual(names.map((n) => launcherInitial([n])));
-    expect(launcherInitial(names)).toBe('س');
+    expect(avatarFaces(team.querySelectorAll('.team .avs .av'))).toEqual(['person', 'person', 'person']);
     const head = parse(make().chatHeaderHtml({ online: true, operator: { name: ' \uFEFFali', online: true } }));
-    expect(head.querySelector('.who .av')!.textContent).toBe('A');
-    // A name of marks only is no name: the workspace's tile keeps its fallback.
-    expect(parse(make({ config: { workspaceName: '\u200F\u200C' } }).homeHtml({ rtl: true, isOnline: true }))
-      .querySelector('.hx-top .logo')!.textContent).toBe('W');
+    expect(avatarFace(head.querySelector('.who .av'))).toBe('person');
+    // A name of marks only, or none: the workspace's storefront all the same.
+    for (const workspaceName of ['\u200F\u200C', '', 'Nilufar']) {
+      const home = parse(make({ config: { workspaceName } }).homeHtml({ rtl: true, isOnline: true }));
+      expect(avatarFace(home.querySelector('.hx-top .logo')), workspaceName).toBe('workspace');
+    }
   });
 
   it('never labels a run (the server\'s join line names who comes in), and gives every run its avatar and receipts', () => {
@@ -1584,7 +1586,7 @@ describe('t1: the pre-chat one question at a time (extras, feature `prechatSteps
     const root = parse(html);
     // The questions are named for the step's field (aria-describedby).
     expect(['pq-name', 'pq-email', 'pq-phone'].map((id) => !!root.querySelector('#' + id))).toEqual([true, true, true]);
-    expect(root.querySelector('#pq-name')!.closest('.msg-row')!.querySelector('.av')!.textContent).toBe('س');
+    expect(avatarFace(root.querySelector('#pq-name')!.closest('.msg-row')!.querySelector('.av'))).toBe('person');
     // The newest answer taken: a tick and «ثبت شد» (an older one says nothing,
     // as 08·b draws the name); refused: faded, the reason and an example.
     expect(list[4].querySelector('.st-ok')!.textContent).toBe('ثبت شد');
@@ -1737,7 +1739,7 @@ describe('t1: the message left while the team is away (extras, feature `awayThre
     expect(list.map((x) => x.className.includes('away-reply'))).toEqual([false, true, false]);
     const row = list[1];
     expect(row.querySelector('.msg.operator.joined')!.textContent).toBe('پیامتان ثبت شد. اگر مایلید، ایمیلتان را هم بگذارید.');
-    expect(row.querySelector('.av')!.textContent).toBe('ف');
+    expect(avatarFace(row.querySelector('.av'))).toBe('workspace');
     const form = row.querySelector('form.fcard.ec')!;
     expect(form.getAttribute('aria-label')).toBe('ایمیل شما');
     expect(form.hasAttribute('novalidate')).toBe(true);
@@ -1818,11 +1820,11 @@ describe('t1: an article\'s author (feature `kbAuthor`)', () => {
   const r = (locale = 'fa') => make({ locale, capabilities: SERVED });
   const am = (article: Vm, locale?: string) => parse(r(locale).kbArticleHtml({ article: { title: 'چطور', contentHtml: '', ...article } })).querySelector('.am');
 
-  it('leads the meta line with the name on its initial\'s tile (09·12), then the reading time and the update', () => {
+  it('leads the meta line with the name on its silhouette\'s tile (09·12), then the reading time and the update', () => {
     const updatedAt = new Date(Date.now() - 3 * 864e5).toISOString();
     const line = am({ author: ' سارا رضایی ', readingMinutes: 20, updatedAt })!;
     expect(line.firstElementChild!.matches('.av.s24[aria-hidden="true"]')).toBe(true);
-    expect(line.firstElementChild!.textContent).toBe('س');
+    expect(avatarFace(line.firstElementChild)).toBe('person');
     const parts = Array.from(line.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent);
     expect(parts[0]).toBe('سارا رضایی');
     expect(parts[1]).toBe('۲۰ دقیقه مطالعه');
@@ -1835,7 +1837,7 @@ describe('t1: an article\'s author (feature `kbAuthor`)', () => {
     const evil = am({ author: '<img src=x onerror=1>' })!;
     expect(evil.querySelector('img')).toBeNull();
     expect(evil.textContent).toContain('<img src=x onerror=1>');
-    expect(am({ author: 'Sara', readingMinutes: 3 }, 'en')!.textContent).toBe('SSara·3 min read');
+    expect(am({ author: 'Sara', readingMinutes: 3 }, 'en')!.textContent).toBe('Sara·3 min read');
   });
 });
 

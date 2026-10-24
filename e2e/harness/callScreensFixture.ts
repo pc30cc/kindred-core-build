@@ -488,6 +488,11 @@ export function boardClock(brand: Brand, ms: number): string {
 
 const LIVE_DESKTOP = { open: true, shotOffset: true } as const;
 
+/** An operator's face the boards draw with their initial, which the widget draws as the person silhouette (owner, 2026-10-24). */
+export const FACE_MASKS: ReadonlyArray<{ sel: string; why: string }> = [
+  '.ln-r .avs .av', '.ln-f .pic .av', '.orb.op .core', '.xf .av', '.sumc .av', '.mc .av',
+].map((sel) => ({ sel, why: 'owner 2026-10-24: an operator without a photo is the person silhouette; the board draws the initial' }));
+
 /** The 81 acceptance panels of one brand, in board order. */
 export function callStates(brand: Brand): CallState[] {
   const fa = brand === 'webyar';
@@ -495,8 +500,17 @@ export function callStates(brand: Brand): CallState[] {
   const dg = (s: string) => boardDigits(brand, s);
   const L = (fa_: string, en: string) => (fa ? fa_ : en);
   const states: CallState[] = [];
-  const add = (s: CallState) => { states.push(s); };
   const headerLogo = fa;
+  // Faces the boards draw as letters and the widget, since 2026-10-24 (owner),
+  // as glyphs: an operator without a photo is the person silhouette, the
+  // business without a logo (Respok's panels here: WebYar's wear the board's
+  // own tile as their logo) its storefront. Masked wherever they show; their
+  // boxes stay probed. The board still draws its initials (`initials`).
+  const faceMasks = [
+    ...FACE_MASKS,
+    ...(headerLogo ? [] : [{ sel: '.lg', why: 'owner 2026-10-24: the business without a logo is its storefront glyph; the board draws its letter' }]),
+  ];
+  const add = (s: CallState) => { states.push({ ...s, masks: [...(s.masks || []), ...faceMasks] }); };
   const voiceForm = { call_type: 'voice' };
   const operatorTeam = (n: number, photo: boolean) => d.team.slice(0, n).map((name) => ({
     name, initial: Array.from(name)[0], avatar_url: photo ? MEDIA.operatorPhoto : null,

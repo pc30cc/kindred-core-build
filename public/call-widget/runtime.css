@@ -46,6 +46,8 @@
   --bounce: linear(0, 0.059 3.3%, 0.206 6.7%, 0.399 10%, 0.602 13.3%, 0.789 16.7%, 0.944 20%, 1.060 23.3%, 1.134 26.7%, 1.172 30%, 1.179 33.3%, 1.164 36.7%, 1.135 40%, 1.099 43.3%, 1.063 46.7%, 1.031 50%, 1.005 53.3%, 0.986 56.7%, 0.974 60%, 0.969 63.3%, 0.968 66.7%, 0.972 70%, 0.977 73.3%, 0.984 76.7%, 0.990 80%, 0.996 83.3%, 1.000 86.7%, 1.003 90%, 1.005 93.3%, 1.006 96.7%, 1);
   /* Placement (the stack lifts the launcher over a chat launcher in the same corner). */
   --ccw-offset-x: 22px; --ccw-offset-y: 22px; --ccw-offset-top: 20px; --ccw-stack: 0px;
+  /* A person without a photo (shared/avatarGlyphs.ts; the panel's faces use it too). */
+  --ccw-person: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 10.75c-4.6 0-8 2.3-8 5.25 0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-2.95-3.4-5.25-8-5.25z'/%3E%3C/svg%3E");
   box-sizing: border-box;
   font-family: var(--font);
   font-size: 14px;
@@ -87,7 +89,10 @@
    its own stylesheet has come and the visitor opens it. */
 .ccw-panel { position: fixed; visibility: hidden; opacity: 0; pointer-events: none; }
 
-/* ---------- avatars (launchers and panel) ---------- */
+/* ---------- avatars (launchers and panel) ----------
+   An operator without a photo (.pp) is the person silhouette in the tile's
+   ink, never a letter (owner, 2026-10-24); only the visitor's own card
+   keeps its initial. */
 .av { position: relative; display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; font-size: 13px; font-weight: 700; line-height: 1; }
 .av.s28 { width: 28px; height: 28px; font-size: 11px; }
 .av.s30 { width: 30px; height: 30px; font-size: 12px; }
@@ -98,6 +103,7 @@
 .avs { display: flex; flex: none; }
 .avs .av { margin-inline-start: -9px; box-shadow: 0 0 0 2.5px #fff; }
 .avs .av:first-child { margin-inline-start: 0; }
+.pp::before { content: ""; width: 62%; height: 62%; background: currentColor; -webkit-mask: var(--ccw-person) center / contain no-repeat; mask: var(--ccw-person) center / contain no-repeat; }
 
 /* ---------- the launcher's place, and its leaving and return ---------- */
 .ccw-launcher-wrap {
@@ -188,7 +194,7 @@
 .ln-r .tx { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
 .ln-r b { font-size: 14px; font-weight: 700; line-height: 1.4; }
 .ln-r small { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
-.ln-r .avs .av { width: 32px; height: 32px; font-size: 12px; }
+.ln-r .avs .av { width: 32px; height: 32px; }
 .av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .ln-r .go2 { display: grid; place-items: center; flex: none; width: 50px; height: 50px; border-radius: 15px; background: var(--core); color: var(--core-ink); box-shadow: 0 8px 16px -8px color-mix(in oklab, var(--a) 80%, transparent); }
 
@@ -214,13 +220,13 @@
 .ln-q .ls { top: -3px; inset-inline-end: -3px; background: var(--glow); box-shadow: 0 0 0 2.5px #11141A, 0 0 12px 2px color-mix(in oklab, var(--glow) 60%, transparent); }
 .ln-q .ls.off { background: #11141A; box-shadow: inset 0 0 0 2.5px var(--ink-4), 0 0 0 2.5px #11141A; }
 
-/* operator face: the operator's photo (or initial), a pulse ring, the call badge */
+/* operator face: the operator's photo (or silhouette), a pulse ring, the call badge */
 .ln-f { display: flex; align-items: center; gap: 12px; direction: ltr; }
 .ln-f.at-l { flex-direction: row-reverse; }
 .ln-f .fp { position: relative; flex: none; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 50%; background: transparent; }
 .ln-f .pic { position: absolute; inset: 0; overflow: hidden; border-radius: 50%; background: linear-gradient(170deg, #7E8C92, #465259); box-shadow: 0 0 0 3px #fff, 0 14px 28px -10px rgba(15,18,23,.5); }
 .ln-f .pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.ln-f .pic .av { width: 100%; height: 100%; font-size: 24px; }
+.ln-f .pic .av { width: 100%; height: 100%; }
 .ln-f .ring2 { position: absolute; inset: -6px; border: 2px solid var(--live); border-radius: 50%; opacity: 0; animation: cc-ring 2.4s var(--ease) infinite; }
 .ln-f .pb { position: absolute; bottom: -3px; right: -4px; z-index: 2; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--core); color: var(--core-ink); box-shadow: 0 0 0 3px #fff; }
 .ln-f .pb svg { width: 14px; height: 14px; }

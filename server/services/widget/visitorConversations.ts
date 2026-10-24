@@ -194,13 +194,6 @@ async function isUnansweredGreetingRow(sb: ServiceClient, row: GreetingCandidate
   });
 }
 
-/** Which of these rows are unanswered greetings, read together (GET /conversations). */
-export async function unansweredGreetingIds(sb: ServiceClient, rows: ReadonlyArray<GreetingCandidate>): Promise<Set<string>> {
-  const out = new Set<string>();
-  await Promise.all(rows.map(async (row) => { if (await isUnansweredGreetingRow(sb, row)) out.add(row.id); }));
-  return out;
-}
-
 /**
  * The visitor's live widget conversation: the newest by updated_at whose
  * status is live (or one of `statuses`), skipping other channels' rows (in

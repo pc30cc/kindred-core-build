@@ -1,0 +1,23 @@
+<UserControl
+    x:Class="Webyar.App.Controls.WorkspaceMark"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsTabStop="False">
+    <!-- A workspace's face: see WorkspaceMark.xaml.cs. Decoration: the name beside it is what is read. -->
+    <Grid x:Name="Root" FlowDirection="LeftToRight" AutomationProperties.AccessibilityView="Raw">
+        <!-- The platform's workspace glyph on the brand's soft tile, until (unless) a logo has arrived. -->
+        <Border x:Name="Tile" Background="{ThemeResource BrandSoftBrush}">
+            <Viewbox x:Name="GlyphBox" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Canvas Width="24" Height="24">
+                    <Path x:Name="Glyph" Fill="{ThemeResource BrandBrush}" />
+                </Canvas>
+            </Viewbox>
+        </Border>
+        <!-- The owner's logo: drawn (and so loaded) from the start, shown once it has opened. -->
+        <Border x:Name="Logo" Opacity="0">
+            <Border.Background>
+                <ImageBrush x:Name="LogoBrush" Stretch="UniformToFill" ImageOpened="OnLogoOpened" ImageFailed="OnLogoFailed" />
+            </Border.Background>
+        </Border>
+    </Grid>
+</UserControl>

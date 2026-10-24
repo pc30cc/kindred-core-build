@@ -59,7 +59,6 @@ import com.platform.app.i18n.Language
 import com.platform.app.i18n.Str
 import com.platform.app.i18n.StrAndroid
 import com.platform.app.ui.A11y
-import com.platform.app.ui.components.Avatar
 import com.platform.app.ui.components.BrandFooter
 import com.platform.app.ui.components.ChoiceButton
 import com.platform.app.ui.components.Glyph
@@ -67,6 +66,7 @@ import com.platform.app.ui.components.LatinText
 import com.platform.app.ui.components.OperatorAvatar
 import com.platform.app.ui.components.SegmentGap
 import com.platform.app.ui.components.ShapeFrame
+import com.platform.app.ui.components.WorkspaceAvatar
 import com.platform.app.ui.components.segmentedShape
 import com.platform.app.ui.design.ExpressiveShapes
 import com.platform.app.ui.design.Radius
@@ -170,8 +170,10 @@ fun SettingsScreen(
                             // A logo, not a Picker. Behind one tap, with names
                             // only, an operator with a second workspace could
                             // miss it entirely — a name on its own is not how
-                            // anyone recognises their own company.
-                            Avatar(name = workspace.name, imageUrl = workspace.logoUrl, size = 40.dp, person = false)
+                            // anyone recognises their own company. Without
+                            // one, the platform's workspace mark — never the
+                            // name's first letter, never an empty circle.
+                            WorkspaceAvatar(logoUrl = workspace.logoUrl, size = 40.dp)
                             Text(
                                 workspace.name,
                                 style = MaterialTheme.typography.bodyLarge,

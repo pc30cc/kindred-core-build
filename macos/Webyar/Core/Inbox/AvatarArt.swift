@@ -31,11 +31,11 @@ struct Hsl: Sendable, Equatable {
 
 /// What a visitor's avatar shows, computed exactly like the web console's
 /// ContactAvatar (and the Windows app's AvatarArt): their photo; else, when
-/// the operating system is known, its logo on that OS's gradient; else their
-/// initials on a gradient picked by a djb2 hash of the name.
+/// the operating system is known, its logo on that OS's gradient; else a
+/// person on a disc tinted by a djb2 hash of the name (`tint`). Never
+/// initials, for anyone.
 struct AvatarArt: Sendable, Equatable {
     var os: AvatarOs
-    var initials: String
     var from: Hsl
     var to: Hsl
     var angleDegrees: Double
@@ -47,17 +47,16 @@ struct AvatarArt: Sendable, Equatable {
 
     static func make(name: String?, email: String?, os: String?) -> AvatarArt {
         let kind = osOf(os)
-        let initials = initialsOf(name: name, email: email)
         switch kind {
-        case .apple: return AvatarArt(os: kind, initials: initials, from: Hsl(220, 8, 42), to: Hsl(220, 12, 16), angleDegrees: 140)
-        case .windows: return AvatarArt(os: kind, initials: initials, from: Hsl(201, 92, 56), to: Hsl(217, 90, 44), angleDegrees: 140)
-        case .linux: return AvatarArt(os: kind, initials: initials, from: Hsl(38, 96, 58), to: Hsl(22, 90, 48), angleDegrees: 140)
-        case .android: return AvatarArt(os: kind, initials: initials, from: Hsl(150, 68, 50), to: Hsl(142, 72, 34), angleDegrees: 140)
+        case .apple: return AvatarArt(os: kind, from: Hsl(220, 8, 42), to: Hsl(220, 12, 16), angleDegrees: 140)
+        case .windows: return AvatarArt(os: kind, from: Hsl(201, 92, 56), to: Hsl(217, 90, 44), angleDegrees: 140)
+        case .linux: return AvatarArt(os: kind, from: Hsl(38, 96, 58), to: Hsl(22, 90, 48), angleDegrees: 140)
+        case .android: return AvatarArt(os: kind, from: Hsl(150, 68, 50), to: Hsl(142, 72, 34), angleDegrees: 140)
         case .none: break
         }
         let seed = ((name ?? "").isEmpty ? email ?? "" : name!).lowercased()
         let (h, s) = palette[Int(djb2(seed.isEmpty ? "?" : seed) % 12)]
-        return AvatarArt(os: .none, initials: initials, from: Hsl(h, s, 56), to: Hsl((h + 28).truncatingRemainder(dividingBy: 360), s, 44), angleDegrees: 135)
+        return AvatarArt(os: .none, from: Hsl(h, s, 56), to: Hsl((h + 28).truncatingRemainder(dividingBy: 360), s, 44), angleDegrees: 135)
     }
 
     /// A visitor's own tint for the grey placeholder, from the same hash and palette,
@@ -82,14 +81,6 @@ struct AvatarArt: Sendable, Equatable {
         var h: Int32 = 5381
         for c in s.utf16 { h = ((h &<< 5) &+ h) ^ Int32(c) }
         return UInt32(bitPattern: h)
-    }
-
-    static func initialsOf(name: String?, email: String?) -> String {
-        let src = ((name ?? "").isEmpty ? email ?? "" : name!).trimmingCharacters(in: .whitespacesAndNewlines)
-        if src.isEmpty { return "?" }
-        let parts = src.split(whereSeparator: { $0.isWhitespace })
-        if parts.count >= 2 { return (String(parts[0].prefix(1)) + String(parts[1].prefix(1))).uppercased() }
-        return String(parts[0].prefix(parts[0].count >= 2 ? 2 : 1)).uppercased()
     }
 
     /// The country as a flag: macOS draws flag emoji, unlike Windows.

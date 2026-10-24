@@ -71,6 +71,7 @@ import com.platform.app.ui.components.MessageBubble
 import com.platform.app.ui.components.OperatorAvatar
 import com.platform.app.ui.components.PrimaryButton
 import com.platform.app.ui.components.StickToNewest
+import com.platform.app.ui.components.WorkspaceAvatar
 import com.platform.app.ui.components.bidiContent
 import com.platform.app.ui.design.Radius
 import com.platform.app.ui.design.Size
@@ -126,7 +127,9 @@ internal fun SupportTeamMark(online: Boolean?, avatarUrl: String?, modifier: Mod
                 )
             }
         } else {
-            OperatorAvatar(imageUrl = avatarUrl, size = 40.dp)
+            // A workspace's logo: one that will not load falls back to the
+            // platform's workspace mark, as iOS draws it.
+            WorkspaceAvatar(logoUrl = avatarUrl, size = 40.dp)
         }
         if (online != null) {
             Box(

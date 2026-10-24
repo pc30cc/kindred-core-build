@@ -235,7 +235,7 @@ function MeButton() {
         ]}
         trigger={({ ref, onClick }) => (
           <button ref={ref} onClick={onClick} className="mt-2 rounded-full p-0.5 transition-shadow hover:ring-2 hover:ring-brand-soft" title={name}>
-            <Avatar name={name} imageURL={profile?.avatar_url} size={36} status={availability ? (online ? 'online' : 'offline') : null} />
+            <Avatar name={name} imageURL={profile?.avatar_url} size={36} kind="person" status={availability ? (online ? 'online' : 'offline') : null} />
           </button>
         )}
       />

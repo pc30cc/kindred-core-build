@@ -64,7 +64,7 @@ export function ColleaguesSection() {
             return (
               <button key={c.user_id} onClick={() => open(c.user_id)} className={cx('relative flex w-full gap-3 border-b border-line/60 px-4 py-3 text-start transition-colors', active ? 'bg-selected' : 'hover:bg-hover')}>
                 {active && <span className="absolute inset-y-2 start-0 w-[3px] rounded-e-full bg-brand" />}
-                <Avatar name={colleagueName(c)} imageURL={c.avatar_url} size={42} />
+                <Avatar name={colleagueName(c)} imageURL={c.avatar_url} size={42} kind="person" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
                     <span className={cx('truncate text-[14px]', c.unread ? 'font-bold' : 'font-semibold')}><bdi>{colleagueName(c)}</bdi></span>
@@ -175,7 +175,7 @@ function TeamThread({ colleague, workspaceId }: { colleague: Colleague; workspac
   return (
     <div className="flex h-full flex-col bg-bg">
       <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
-        <Avatar name={colleagueName(colleague)} imageURL={colleague.avatar_url} size={38} />
+        <Avatar name={colleagueName(colleague)} imageURL={colleague.avatar_url} size={38} kind="person" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] font-semibold"><bdi>{colleagueName(colleague)}</bdi></div>
           <div className="truncate text-[12px] text-fg-3"><bdi>{[colleague.role, colleague.email].filter(Boolean).join(' · ')}</bdi></div>

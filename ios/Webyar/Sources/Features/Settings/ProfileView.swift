@@ -163,6 +163,7 @@ struct ProfileView: View {
                         name: displayName,
                         imageURL: avatarURL,
                         size: Theme.Size.avatarLarge,
+                        subject: .member,
                         isBusy: isAvatarUnknown
                     )
 

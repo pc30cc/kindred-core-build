@@ -156,7 +156,7 @@ function AccountPage() {
     <>
       <PageTitle>{t('profile')}</PageTitle>
       <div className="mb-6 flex items-center gap-5 rounded-xl border border-line bg-surface p-5 shadow-card">
-        {account ? <Avatar name={display} imageURL={account.profile?.avatar_url} size={80} /> : <Skeleton className="size-20 rounded-full" />}
+        {account ? <Avatar name={display} imageURL={account.profile?.avatar_url} size={80} kind="person" /> : <Skeleton className="size-20 rounded-full" />}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[17px] font-semibold">{display}</div>
           <div className="truncate text-[13px] text-fg-2"><bdi>{account?.email ?? user?.email}</bdi></div>
@@ -222,7 +222,7 @@ function GeneralPage() {
       <Card title={t('workspace')}>
         {workspaces.map((w) => (
           <Row key={w.id} label={w.name} onClick={workspaces.length > 1 ? () => selectWorkspace(w) : undefined}>
-            <Avatar name={w.name} imageURL={w.logo_url} size={28} square />
+            <Avatar name={w.name} imageURL={w.logo_url} size={28} kind="workspace" />
             {w.id === workspace?.id && workspaces.length > 1 && <Check className="size-4 text-brand" />}
           </Row>
         ))}

@@ -43,17 +43,6 @@ enum Display {
         return String(out.suffix(4))
     }
 
-    /// Up to two letters for an avatar, from the first two words.
-    static func initials(_ name: String) -> String {
-        let words = name.split(separator: " ").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard let w0 = words.first, let first = w0.first.map(String.init) else { return "?" }
-        if words.count == 1 { return first.uppercased() }
-        let second = words[1].first.map(String.init) ?? ""
-        // "بازدیدکننده 4ZTK" would render as a jumbled "ب4": mixed directions keep one letter.
-        if isRightToLeft(first) != isRightToLeft(second) { return first.uppercased() }
-        return (first + second).uppercased()
-    }
-
     static func isRightToLeft(_ text: String) -> Bool {
         guard let u = text.unicodeScalars.first?.value else { return false }
         return (0x0590...0x08FF).contains(u) || (0xFB1D...0xFEFC).contains(u)

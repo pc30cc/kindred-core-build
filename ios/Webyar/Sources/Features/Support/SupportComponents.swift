@@ -273,9 +273,9 @@ private struct SupportBubbleRow: View {
         Group {
             if bubble.endsRun {
                 if mine {
-                    Avatar(name: appState.session.user?.displayName ?? "—", imageURL: appState.myAvatarURL, size: size)
+                    Avatar(name: appState.session.user?.displayName ?? "—", imageURL: appState.myAvatarURL, size: size, subject: .member)
                 } else {
-                    Avatar(name: bubble.item?.senderName ?? SupportStr.team(language), imageURL: bubble.item?.senderAvatar, size: size)
+                    Avatar(name: bubble.item?.senderName ?? SupportStr.team(language), imageURL: bubble.item?.senderAvatar, size: size, subject: .member)
                 }
             } else {
                 Color.clear

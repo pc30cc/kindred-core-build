@@ -18,7 +18,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,8 +62,6 @@ fun Avatar(
     device: String? = null,
     /** ISO-3166 alpha-2 country code; anything else is ignored. */
     countryCode: String? = null,
-    /** False for what is not a person — a workspace — whose empty circle stays empty. */
-    person: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // An uploaded picture always wins, so the OS is not even resolved.
@@ -94,7 +94,7 @@ fun Avatar(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (osKind != null) OsFace(osKind, size) else QuietFace(size, figure = person)
+                if (osKind != null) OsFace(osKind, size) else QuietFace(size)
             }
         }
 
@@ -141,7 +141,9 @@ fun Avatar(
  *
  * Never initials. While the photo loads the circle is a skeleton, and it is
  * replaced by the photo that came; with no photo, or one that would not
- * load, it is the quiet circle with a figure in it rather than letters.
+ * load, it is the quiet circle with the platform's person in it
+ * ([Glyph.Person], the figure the web panel, the widgets and the other apps
+ * draw for someone on the team) rather than letters.
  * A face that shows «SK» and then swaps it for a photograph reads as the row
  * changing its mind, and the letters say nothing a name beside them does
  * not already say.
@@ -170,10 +172,54 @@ fun OperatorAvatar(
         ) {
             // No photo, or one that failed: still, not pulsing — nothing is
             // on its way, so nothing should look like it is.
-            QuietFace(size)
+            QuietFace(size, Glyph.Person, personBox(size), Modifier.testTag(PERSON_GLYPH_TAG))
         }
     }
 }
+
+/**
+ * A workspace's face: the logo its owner set; else — when there is none, or
+ * it would not load — the platform's workspace mark, a shop front
+ * ([Glyph.Workspace]), on the same quiet circle a teammate without a photo
+ * has. Never the workspace's first letter, and never an empty circle, which
+ * reads as a logo that did not load.
+ */
+@Composable
+fun WorkspaceAvatar(
+    logoUrl: String?,
+    size: Dp = Size.avatarMedium,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
+            // Decoration: the workspace's name beside it is what a screen
+            // reader reads.
+            .clearAndSetSemantics { },
+    ) {
+        RemoteImage(
+            url = logoUrl,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            QuietFace(size, Glyph.Workspace, workspaceBox(size), Modifier.testTag(WORKSPACE_GLYPH_TAG))
+        }
+    }
+}
+
+/** The share of the avatar the person glyph's 24-unit box takes: more on a small chip, so the figure stays legible. */
+internal fun personBox(size: Dp): Float = if (size <= 24.dp) 0.68f else 0.62f
+
+/** The share of the avatar the workspace glyph's 24-unit box takes. */
+internal fun workspaceBox(size: Dp): Float = if (size <= 24.dp) 0.62f else 0.58f
+
+/** On the glyph a teammate's avatar falls back to, for the tests that look for it. */
+internal const val PERSON_GLYPH_TAG = "avatar.glyph.person"
+
+/** On the glyph a workspace's avatar falls back to. */
+internal const val WORKSPACE_GLYPH_TAG = "avatar.glyph.workspace"
 
 /**
  * The AI assistant's face.
@@ -241,8 +287,8 @@ private fun AiFace(size: Dp) {
  *
  * `12.sp` is not twelve points on a phone set to large text — it is
  * twenty-four, which is the point of `sp` and is right for nearly every
- * string in this app. It is wrong for the two here: a flag and a pair of
- * initials are marks filling a circle measured in `dp`, and scaling them
+ * string in this app. It is wrong for the two here: a flag and a country's
+ * two letters are marks filling a circle measured in `dp`, and scaling them
  * while the circle stays put clips them.
  *
  * Both the size AND the line height have to be pinned. Fixing the size
@@ -296,48 +342,26 @@ private fun OsFace(kind: OsKind, size: Dp) {
  * everything the letters would.
  */
 @Composable
-private fun QuietFace(size: Dp, figure: Boolean = true) {
-    // Standing still — nothing is on its way — and the same figure the
-    // mailbox draws for a sender.
+private fun QuietFace(
+    size: Dp,
+    // A visitor's: the same figure the mailbox draws for a sender. A
+    // teammate's and a workspace's are the platform's own (Glyph).
+    glyph: ImageVector = Icons.Filled.Person,
+    box: Float = 0.58f,
+    glyphModifier: Modifier = Modifier,
+) {
+    // Standing still — nothing is on its way.
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
-        if (figure) Icon(
-            Icons.Filled.Person,
+        Icon(
+            glyph,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.size(size * 0.58f),
+            modifier = glyphModifier.size(size * box),
         )
     }
-}
-
-/**
- * Two letters, the way the web picks them: one from each of the first two
- * words, or the first two characters of a single word.
- */
-internal fun initialsOf(name: String): String {
-    val source = name.trim()
-    if (source.isEmpty()) return "?"
-    val parts = source.split(' ').filter { it.isNotEmpty() }
-
-    // A visitor nobody has named is not a person with a first name and a
-    // surname — the label is a generated one, «بازدیدکننده 4ZTK», a word and
-    // an opaque code. Taking the first letter of each gives «ب4»: two
-    // scripts jammed into one circle, identifying nothing, and every
-    // anonymous visitor in a Persian inbox would look like that.
-    //
-    // The code is the only part that tells one visitor from another, so the
-    // code is what shows. Narrow on purpose: this fires only when a
-    // non-Latin word is followed by a Latin code, which a real name never is.
-    if (parts.size >= 2) {
-        val leadsInAnotherScript = parts[0].any { it.isLetter() && it.code > 127 }
-        val code = parts[1].takeIf { it.length >= 2 && it.all { c -> c.isLetterOrDigit() && c.code < 128 } }
-        if (leadsInAnotherScript && code != null) return code.take(2).uppercase()
-        return "${parts[0].first()}${parts[1].first()}".uppercase()
-    }
-    val first = parts.firstOrNull() ?: return "?"
-    return first.take(if (first.length >= 2) 2 else 1).uppercase()
 }
 
 /**

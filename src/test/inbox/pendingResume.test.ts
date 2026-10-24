@@ -10,8 +10,9 @@ import { resolve } from 'node:path';
  * Part 2 pins the ingest wiring that decides WHICH events ever reach it.
  */
 
-const events: any[] = [];
-const published: any[] = [];
+type Recorded = Record<string, unknown> & { payload: Record<string, unknown> };
+const events: Recorded[] = [];
+const published: Array<Record<string, unknown>> = [];
 let rows: Record<string, { status: string }> = {};
 /** Serializes CAS updates the way a Postgres row lock does. */
 let lock: Promise<unknown> = Promise.resolve();
@@ -19,9 +20,17 @@ let lock: Promise<unknown> = Promise.resolve();
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (_t: string) => {
-      const state: any = { id: null, ws: null, from: null, patch: null };
-      const api: any = {
-        update(patch: any) { state.patch = patch; return api; },
+      const state: { id: string | null; ws: string | null; from: string | null; patch: { status: string } | null } = {
+        id: null, ws: null, from: null, patch: null,
+      };
+      type Api = {
+        update(patch: { status: string }): Api;
+        eq(col: string, val: string): Api;
+        select(): Api;
+        maybeSingle(): Promise<unknown>;
+      };
+      const api: Api = {
+        update(patch: { status: string }) { state.patch = patch; return api; },
         eq(col: string, val: string) {
           if (col === 'id') state.id = val;
           if (col === 'workspace_id') state.ws = val;
@@ -46,17 +55,18 @@ vi.mock('../../../server/supabase.js', () => ({
 }));
 
 vi.mock('../../../server/services/conversationEvents.js', () => ({
-  recordConversationEvent: async (_c: any, input: any) => { events.push(input); return { ok: true }; },
+  recordConversationEvent: async (_c: unknown, input: Recorded) => { events.push(input); return { ok: true }; },
 }));
 
 vi.mock('../../../server/services/realtime/publish.js', () => ({
-  publishOperatorEvent: async (_c: any, p: any) => { published.push(p); },
+  publishOperatorEvent: async (_c: unknown, p: Record<string, unknown>) => { published.push(p); },
 }));
 
 const { resumeConversationIfPending } = await import('../../../server/services/conversationPending');
 const { isInboundCustomerMessageEligibleForResume } = await import(
   '../../../server/services/conversationResumeEligibility'
 );
+type ResumeCandidate = Parameters<typeof isInboundCustomerMessageEligibleForResume>[0];
 
 const base = { workspaceId: 'ws1', conversationId: 'c1' };
 const customerText = (text = 'سلام') => ({ senderType: 'contact', direction: 'inbound' as const, text });
@@ -77,7 +87,7 @@ beforeEach(() => {
 
 describe('customer messages resume a parked thread', () => {
   it('widget text', async () => {
-    const r = await resumeConversationIfPending({} as any, { ...base, source: 'widget', message: customerText() });
+    const r = await resumeConversationIfPending({} as never, { ...base, source: 'widget', message: customerText() });
     expect(r).toEqual({ resumed: true, reason: 'customer_replied' });
     expect(rows.c1.status).toBe('open');
     expect(events).toHaveLength(1);
@@ -86,7 +96,7 @@ describe('customer messages resume a parked thread', () => {
   });
 
   it('widget attachment with empty body', async () => {
-    const r = await resumeConversationIfPending({} as any, {
+    const r = await resumeConversationIfPending({} as never, {
       ...base, source: 'widget',
       message: { senderType: 'contact', direction: 'inbound', text: '', attachmentCount: 1 },
     });
@@ -95,7 +105,7 @@ describe('customer messages resume a parked thread', () => {
   });
 
   it.each(['telegram', 'bale', 'whatsapp', 'instagram'])('%s customer text', async (provider) => {
-    const r = await resumeConversationIfPending({} as any, { ...base, source: provider, message: customerText() });
+    const r = await resumeConversationIfPending({} as never, { ...base, source: provider, message: customerText() });
     expect(r.resumed).toBe(true);
     expect(events[0].payload.source).toBe(provider);
   });
@@ -106,7 +116,7 @@ describe('customer messages resume a parked thread', () => {
     ['whatsapp', 'audio'], ['whatsapp', 'video'], ['whatsapp', 'sticker'],
     ['bale', 'photo'], ['instagram', 'image'],
   ])('%s customer %s media', async (provider, kind) => {
-    const r = await resumeConversationIfPending({} as any, {
+    const r = await resumeConversationIfPending({} as never, {
       ...base, source: provider, message: customerMedia(kind),
     });
     expect(r.resumed).toBe(true);
@@ -115,7 +125,7 @@ describe('customer messages resume a parked thread', () => {
 });
 
 describe('non-customer traffic never resumes', () => {
-  const cases: Array<[string, any]> = [
+  const cases: Array<[string, ResumeCandidate]> = [
     ['agent reply', { senderType: 'agent', direction: 'outbound', text: 'hi' }],
     ['ai reply', { senderType: 'ai', direction: 'outbound', text: 'hi' }],
     ['bot/automation message', { senderType: 'bot', direction: 'outbound', text: 'hi' }],
@@ -129,7 +139,7 @@ describe('non-customer traffic never resumes', () => {
   ];
 
   it.each(cases)('%s stays pending', async (_label, message) => {
-    const r = await resumeConversationIfPending({} as any, { ...base, message });
+    const r = await resumeConversationIfPending({} as never, { ...base, message });
     expect(r.resumed).toBe(false);
     expect(rows.c1.status).toBe('pending');
     expect(events).toHaveLength(0);
@@ -139,9 +149,9 @@ describe('non-customer traffic never resumes', () => {
 
 describe('atomicity and idempotency', () => {
   it('a duplicate inbound webhook replay produces exactly one transition', async () => {
-    await resumeConversationIfPending({} as any, { ...base, message: customerText() });
-    const second = await resumeConversationIfPending({} as any, { ...base, message: customerText() });
-    const third = await resumeConversationIfPending({} as any, { ...base, message: customerText() });
+    await resumeConversationIfPending({} as never, { ...base, message: customerText() });
+    const second = await resumeConversationIfPending({} as never, { ...base, message: customerText() });
+    const third = await resumeConversationIfPending({} as never, { ...base, message: customerText() });
     expect([second.resumed, third.resumed]).toEqual([false, false]);
     expect(second.reason).toBe('not_pending');
     expect(events).toHaveLength(1);
@@ -150,8 +160,8 @@ describe('atomicity and idempotency', () => {
 
   it('two simultaneous customer messages yield one status event', async () => {
     const [a, b] = await Promise.all([
-      resumeConversationIfPending({} as any, { ...base, message: customerText('one'), messageId: 'm1' }),
-      resumeConversationIfPending({} as any, { ...base, message: customerText('two'), messageId: 'm2' }),
+      resumeConversationIfPending({} as never, { ...base, message: customerText('one'), messageId: 'm1' }),
+      resumeConversationIfPending({} as never, { ...base, message: customerText('two'), messageId: 'm2' }),
     ]);
     expect([a.resumed, b.resumed].filter(Boolean)).toHaveLength(1);
     expect(events).toHaveLength(1);
@@ -161,7 +171,7 @@ describe('atomicity and idempotency', () => {
 
   it('customer message on an already-open thread emits no status_changed', async () => {
     rows.c1.status = 'open';
-    const r = await resumeConversationIfPending({} as any, { ...base, message: customerText() });
+    const r = await resumeConversationIfPending({} as never, { ...base, message: customerText() });
     expect(r).toEqual({ resumed: false, reason: 'not_pending' });
     expect(events).toHaveLength(0);
   });
@@ -169,7 +179,7 @@ describe('atomicity and idempotency', () => {
   it('does not touch resolved or closed threads', async () => {
     for (const status of ['resolved', 'closed']) {
       rows.c1.status = status;
-      const r = await resumeConversationIfPending({} as any, { ...base, message: customerText() });
+      const r = await resumeConversationIfPending({} as never, { ...base, message: customerText() });
       expect(r.resumed).toBe(false);
       expect(rows.c1.status).toBe(status);
     }
@@ -179,7 +189,7 @@ describe('atomicity and idempotency', () => {
 
 describe('realtime + counters', () => {
   it('publishes a conversation_updated status patch so buckets move without refresh', async () => {
-    await resumeConversationIfPending({} as any, { ...base, message: customerText(), messageId: 'm9' });
+    await resumeConversationIfPending({} as never, { ...base, message: customerText(), messageId: 'm9' });
     expect(published).toHaveLength(1);
     expect(published[0]).toMatchObject({
       kind: 'conversation_updated',
@@ -243,7 +253,9 @@ describe('ingest wiring', () => {
     expect(widget).not.toContain("['closed', 'resolved', 'pending'].includes(conv.status)");
     expect(widget).not.toContain("if (['closed', 'resolved'].includes(conv.status))");
     expect(widget).not.toContain(".in('status', ['resolved', 'closed'])");
-    expect(widget).toContain("if (conv.status === 'closed') convId = null;");
+    // A closed one is left (never revived): the message goes to the visitor's
+    // live conversation, else a new one (one current conversation per visitor).
+    expect(widget).toMatch(/if \(conv\.status === 'closed'\) \{\s*convId = null;\s*namedUnusable = true;/);
   });
 
   it('WhatsApp statuses (sent/delivered/read/failed) never become messages', () => {

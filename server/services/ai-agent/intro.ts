@@ -1,9 +1,22 @@
 /**
  * AI Agent — pre-chat intro service.
  *
- * Inserts a single AI intro message into a conversation when the visitor
- * completes pre-chat (or first opens the widget) and the agent is in an
- * auto-reply mode. Templated by default — costs zero AI credits.
+ * The AI's greeting when the visitor opens the chat (or completes pre-chat)
+ * and the agent is in an auto-reply mode. Templated by default — costs zero
+ * AI credits.
+ *
+ * Since 2026-10-24 (one current conversation per visitor) opening the chat
+ * writes nothing: the widget asks for a preview (POST /ai-agent/intro
+ * `preview: true`), draws it, and the request that creates the conversation
+ * — the visitor's first POST /message, `ai_intro` — stores the server's own
+ * copy just before their message (storeIntroBeforeFirstMessage). A chat
+ * opened and left creates no conversation, and none is counted.
+ *
+ * Widgets loaded before that release still ask without `preview`, and get
+ * the greeting written as before (the legacy branch of maybeSendIntro), but
+ * never a second conversation beside a live one. Time-boxed: remove it, with
+ * the Inbox's intro-only filter (routes/conversations.ts), about two weeks
+ * after the release.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -14,6 +27,11 @@ import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
 import { ensureVisitorContact } from '../widget/anonymousContact.js';
 import { isDefaultAiAgentName } from '../../../shared/systemMessages.js';
 import {
+  LIVE_CONVERSATION_STATUSES,
+  findLiveVisitorConversation,
+  resolveVisitorConversationScope,
+} from '../widget/visitorConversations.js';
+import {
   clampLocaleToPlatformRegion,
   getPlatformAllowedLocales,
   textMatchesLocale,
@@ -21,22 +39,32 @@ import {
 
 export interface IntroInput {
   workspaceId: string;
+  /** A conversation the route verified is this visitor's own and live. */
   conversationId?: string | null;
   visitorSessionId?: string | null;
+  /** The signed visitor id (cookie or credential header). */
   visitorId?: string | null;
   locale?: string;
   /**
-   * P0-F — the visitor explicitly asked for a brand new thread. When set,
-   * the intro MUST NOT resolve or reuse any existing conversation: it
-   * creates a fresh one, so the greeting lands in the thread the visitor
-   * is actually looking at instead of resurrecting the previous one.
+   * P0-F — the visitor asked for a new thread (an older widget's "+ New
+   * conversation"). Ignored while they have a live conversation (one current
+   * conversation per visitor, 2026-10-24): the greeting goes into that one,
+   * never into a second.
    */
   forceNewConversation?: boolean;
+  /**
+   * Draw it, write nothing: no conversation, no message, no log, no run (the
+   * widget's chat open since 2026-10-24). Without it, an older widget's
+   * call: the greeting is written at once (the legacy branch).
+   */
+  preview?: boolean;
 }
 
 
 export interface IntroResult {
   sent: boolean;
+  /** The greeting to draw; nothing was written (IntroInput.preview). */
+  preview?: boolean;
   reason?: string;
   messageId?: string | null;
   conversationId?: string | null;
@@ -116,44 +144,163 @@ export function buildIntroBody(
 async function alreadyIntroduced(
   sb: ReturnType<typeof getServiceClient>,
   workspaceId: string,
-  conversationId: string | null | undefined,
-  sessionId: string | null | undefined,
+  conversationId: string,
 ): Promise<boolean> {
-  if (conversationId) {
-    const { data: log } = await sb
-      .from('ai_agent_intro_log')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('conversation_id', conversationId)
-      .limit(1)
-      .maybeSingle();
-    if (log) return true;
+  const { data: log } = await sb
+    .from('ai_agent_intro_log')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('conversation_id', conversationId)
+    .limit(1)
+    .maybeSingle();
+  if (log) return true;
 
-    // Defensive: if a prior AI intro message lives in the conversation but
-    // the log row is missing, still treat it as introduced.
-    const { data: msg } = await sb
-      .from('conversation_messages')
-      .select('id,metadata')
-      .eq('conversation_id', conversationId)
-      .eq('sender_type', 'ai')
-      .order('created_at', { ascending: true })
-      .limit(20);
-    const rows = (msg || []) as Array<{ metadata?: { source?: string } | null }>;
-    if (rows.some((m) => (m.metadata?.source || '').startsWith('ai_agent_intro'))) {
-      return true;
-    }
-  } else if (sessionId) {
-    const { data: log } = await sb
-      .from('ai_agent_intro_log')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('visitor_session_id', sessionId)
-      .is('conversation_id', null)
-      .limit(1)
-      .maybeSingle();
-    if (log) return true;
+  // Defensive: if a prior AI intro message lives in the conversation but
+  // the log row is missing, still treat it as introduced.
+  const { data: msg } = await sb
+    .from('conversation_messages')
+    .select('id,metadata')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'ai')
+    .order('created_at', { ascending: true })
+    .limit(20);
+  const rows = (msg || []) as Array<{ metadata?: { source?: string } | null }>;
+  return rows.some((m) => (m.metadata?.source || '').startsWith('ai_agent_intro'));
+}
+
+/** The greeting the AI may give this workspace's visitor now, or why not. */
+export type IntroGreeting =
+  | { ok: true; body: string; settings: AgentSettings; agentName: string; agentLogoUrl: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * Every gate the greeting passes, and its text in the visitor's language:
+ * the ONE decision behind the preview, the legacy write and the copy stored
+ * before a first message, so the visitor and the Inbox read the same words.
+ * Reads only.
+ */
+export async function resolveIntroGreeting(
+  config: ServerConfig,
+  workspaceId: string,
+  locale?: string | null,
+): Promise<IntroGreeting> {
+  // E12 — Platform kill switch must short-circuit the visitor-facing
+  // intro before any settings load, conversation creation, or AI
+  // message insert. When disabled the widget gets a graceful no-op so
+  // it falls back to the normal generic greeting / live-chat flow and
+  // no AI side effects (rows, runs, LLM calls) happen.
+  const platformGate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
+  if (platformGate.allowed !== true) {
+    return { ok: false, reason: (platformGate as { allowed: false; reason: string }).reason };
   }
-  return false;
+  const settings = await getOrCreateSettings(config, workspaceId);
+  if (!settings.enabled || settings.mode === 'off') {
+    return { ok: false, reason: 'disabled_or_off' };
+  }
+  if (settings.ai_intro_enabled === false) {
+    return { ok: false, reason: 'intro_disabled' };
+  }
+  // Only auto-reply modes get a visitor-facing intro. suggest_only stays silent.
+  if (settings.mode === 'suggest_only') {
+    return { ok: false, reason: 'suggest_only_no_intro' };
+  }
+  // "Auto-reply when operators are offline": while the team is online the
+  // AI does not answer (runtimePolicy.ts, only suggestions), so it does not
+  // greet either. Its greeting marks the thread the AI's (`ai_managed`),
+  // which parked a daytime chat in the AI's queue — out of the Inbox, with
+  // no notification — while nobody answered it (R-02). The visitor gets the
+  // widget's ordinary live-chat greeting instead.
+  if (settings.mode === 'auto_reply_when_offline') {
+    const { getOperatorAvailability } = await import('./availability.js');
+    if ((await getOperatorAvailability(config, workspaceId)).state !== 'offline') {
+      return { ok: false, reason: 'operators_online' };
+    }
+  }
+
+  // P0-AI (BLOCKER) — the client guard is not enough: a direct POST to
+  // /api/widget/ai-agent/intro must not be able to create an AI-managed
+  // conversation the AI cannot actually service. The intro text promises
+  // "I can answer your questions", so it requires a REAL provider, not
+  // just the gates. Fail closed BEFORE conversation creation,
+  // ai_state=ai_managed, the intro message insert and the intro log.
+  // Coarse reason only — never provider/model/key details.
+  const { resolveVisitorAiSnapshot } = await import('./visitorAiSnapshot.js');
+  const aiSnapshot = await resolveVisitorAiSnapshot(config, workspaceId, settings);
+  if (aiSnapshot.visitorFacing !== true || aiSnapshot.providerReady !== true) {
+    return { ok: false, reason: 'ai_not_visitor_facing' };
+  }
+
+  // A visitor's browser can still negotiate a language the platform
+  // doesn't actually offer (e.g. a Persian-only deployment reached by a
+  // Turkish browser) — clamp to what the platform's region lock allows
+  // so the admin's edited text (set for the platform's one language)
+  // always wins over a stale per-locale fallback.
+  const clampedLocale = await clampLocaleToPlatformRegion(config, locale || undefined);
+  const allowedLocales = await getPlatformAllowedLocales(config);
+  const display = deriveAgentDisplay(settings);
+  return {
+    ok: true,
+    body: buildIntroBody(settings, clampedLocale, allowedLocales),
+    settings,
+    agentName: display.agentName,
+    agentLogoUrl: display.agentLogoUrl,
+  };
+}
+
+/**
+ * The greeting the visitor saw before writing (the preview), stored by the
+ * request that created their conversation, just before their first message:
+ * the server's own text, never the browser's, in the same row today's intro
+ * writes (sender 'ai', metadata.source 'ai_agent_intro'), with its intro log
+ * and run. Never throws; null when it could not be written (the message
+ * goes on without it).
+ */
+export async function storeIntroBeforeFirstMessage(
+  config: ServerConfig,
+  input: {
+    workspaceId: string;
+    conversationId: string;
+    greeting: Extract<IntroGreeting, { ok: true }>;
+    visitorSessionId?: string | null;
+    visitorId?: string | null;
+    locale?: string | null;
+  },
+): Promise<{ row: Record<string, unknown>; senderAvatar: string | null } | null> {
+  try {
+    const { greeting } = input;
+    const inserted = await insertAiMessage(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      body: greeting.body,
+      source: 'ai_agent_intro',
+      mode: greeting.settings.mode,
+      agentName: greeting.agentName,
+      agentLogoUrl: greeting.agentLogoUrl,
+    });
+    if (!inserted.id || !inserted.row) return null;
+    const sb = getServiceClient(config);
+    await sb.from('ai_agent_intro_log').insert({
+      workspace_id: input.workspaceId,
+      conversation_id: input.conversationId,
+      visitor_session_id: input.visitorSessionId || null,
+      visitor_id: input.visitorId || null,
+      message_id: inserted.id,
+    });
+    await logRun(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      runType: 'auto_reply',
+      mode: greeting.settings.mode,
+      status: 'replied',
+      inputText: null,
+      outputText: greeting.body,
+      metadata: { intro: true, before_first_message: true, locale: input.locale || null },
+    });
+    return { row: inserted.row, senderAvatar: inserted.senderAvatar ?? null };
+  } catch (e) {
+    console.warn('[ai-agent] intro before first message failed:', (e as Error)?.message || e);
+    return null;
+  }
 }
 
 export async function maybeSendIntro(
@@ -161,114 +308,73 @@ export async function maybeSendIntro(
   input: IntroInput,
 ): Promise<IntroResult> {
   try {
-    // E12 — Platform kill switch must short-circuit the visitor-facing
-    // intro before any settings load, conversation creation, or AI
-    // message insert. When disabled the widget gets a graceful no-op so
-    // it falls back to the normal generic greeting / live-chat flow and
-    // no AI side effects (rows, runs, LLM calls) happen.
-    const platformGate = await isAutoAnswerAllowedForWorkspace(config, input.workspaceId);
-    if (platformGate.allowed !== true) {
-      const reason = (platformGate as { allowed: false; reason: string }).reason;
-      return { sent: false, reason };
-    }
-    const settings = await getOrCreateSettings(config, input.workspaceId);
-    if (!settings.enabled || settings.mode === 'off') {
-      return { sent: false, reason: 'disabled_or_off' };
-    }
-    if (settings.ai_intro_enabled === false) {
-      return { sent: false, reason: 'intro_disabled' };
-    }
-    // Only auto-reply modes get a visitor-facing intro. suggest_only stays silent.
-    if (settings.mode === 'suggest_only') {
-      return { sent: false, reason: 'suggest_only_no_intro' };
-    }
-    // "Auto-reply when operators are offline": while the team is online the
-    // AI does not answer (runtimePolicy.ts, only suggestions), so it does not
-    // greet either. Its greeting marks the thread the AI's (`ai_managed`),
-    // which parked a daytime chat in the AI's queue — out of the Inbox, with
-    // no notification — while nobody answered it (R-02). The visitor gets the
-    // widget's ordinary live-chat greeting instead.
-    if (settings.mode === 'auto_reply_when_offline') {
-      const { getOperatorAvailability } = await import('./availability.js');
-      if ((await getOperatorAvailability(config, input.workspaceId)).state !== 'offline') {
-        return { sent: false, reason: 'operators_online' };
-      }
-    }
-
-    // P0-AI (BLOCKER) — the client guard is not enough: a direct POST to
-    // /api/widget/ai-agent/intro must not be able to create an AI-managed
-    // conversation the AI cannot actually service. The intro text promises
-    // "I can answer your questions", so it requires a REAL provider, not
-    // just the gates. Fail closed BEFORE conversation creation,
-    // ai_state=ai_managed, the intro message insert and the intro log.
-    // Coarse reason only — never provider/model/key details.
-    const { resolveVisitorAiSnapshot } = await import('./visitorAiSnapshot.js');
-    const aiSnapshot = await resolveVisitorAiSnapshot(config, input.workspaceId, settings);
-    if (aiSnapshot.visitorFacing !== true || aiSnapshot.providerReady !== true) {
-      return { sent: false, reason: 'ai_not_visitor_facing' };
-    }
+    const greeting = await resolveIntroGreeting(config, input.workspaceId, input.locale);
+    if (greeting.ok !== true) return { sent: false, reason: greeting.reason };
+    const { settings, body } = greeting;
+    const display = { agentName: greeting.agentName, agentLogoUrl: greeting.agentLogoUrl };
 
     const sb = getServiceClient(config);
+    // The visitor's sessions and contact, read only when a lookup needs them.
+    const scope = () => (input.visitorId
+      ? resolveVisitorConversationScope(sb, input.workspaceId, input.visitorId)
+      : Promise.resolve(null));
 
+    // ─── Preview: the widget draws it, nothing is written ───
+    // The visitor's live conversation (another tab, another device, an
+    // operator's outreach) is theirs to go on in: the widget opens it
+    // instead of greeting a new thread beside it. At a full quota nothing is
+    // drawn either: the first message could not create the conversation.
+    if (input.preview === true) {
+      const live = await findLiveVisitorConversation(sb, input.workspaceId, await scope());
+      if (live) return { sent: false, reason: 'conversation_live', conversationId: live.id };
+      const { checkMaxConversationsAllowance } = await import('../billing/conversationLimit.js');
+      const allowance = await checkMaxConversationsAllowance(config, input.workspaceId);
+      if (!allowance.allowed) return { sent: false, reason: `conversation_limit_${allowance.reason}` };
+      return {
+        sent: true,
+        preview: true,
+        conversationId: null,
+        messageId: null,
+        body,
+        agentName: display.agentName,
+        agentLogoUrl: display.agentLogoUrl,
+      };
+    }
 
-    // ─── Resolve or create a real conversation ───
+    // ─── Legacy (widgets before 2026-10-24): resolve or create, then write ───
     // The intro must live in a real conversation_messages row so it appears
-    // in history on reload and is visible in the operator inbox. If the
-    // widget hasn't created a conversation yet (just finished pre-chat),
-    // we resolve an existing open one or create a new one here.
-    // P0-F — an explicit force-new intent disables BOTH reuse lookups and
-    // ignores any stale conversation id the client may still be carrying.
-    const forceNew = input.forceNewConversation === true;
-    let conversationId = forceNew ? null : (input.conversationId || null);
+    // in history on reload and is visible in the operator inbox. The named
+    // conversation (the route verified it is this visitor's and live), else
+    // the visitor's live one, a greeting-only one included, so this branch
+    // never mints a second conversation beside a live one, force-new or not
+    // (P0-F's "+ New conversation" is ignored while one is live). Only with
+    // none is one created.
+    let conversationId = input.conversationId || null;
 
     // The id comes from the visitor's browser and the greeting is written
     // into it (and a channel conversation would deliver it): only this
-    // workspace's, and never a closed one, which is never revived. Anything
-    // else is ignored, and the visitor's own conversation is found or
-    // created below. (The route also checks it is this visitor's.)
+    // workspace's, and only a live one, never a closed one, which is never
+    // revived. Anything else is ignored, and the visitor's own conversation
+    // is found or created below. (The route also checks it is this
+    // visitor's.)
     if (conversationId) {
       const { data: named } = await sb
         .from('conversations')
         .select('id')
         .eq('id', conversationId)
         .eq('workspace_id', input.workspaceId)
-        .neq('status', 'closed')
+        .in('status', [...LIVE_CONVERSATION_STATUSES])
         .maybeSingle();
       if (!named?.id) conversationId = null;
     }
 
-    if (!forceNew && !conversationId && input.visitorSessionId) {
-      const { data: existing } = await sb
-        .from('conversations')
-        .select('id')
-        .eq('workspace_id', input.workspaceId)
-        .eq('visitor_session_id', input.visitorSessionId)
-        .neq('status', 'closed')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (existing?.id) {
-        conversationId = existing.id;
+    if (!conversationId) {
+      const live = await findLiveVisitorConversation(sb, input.workspaceId, await scope(), { includeUnansweredGreeting: true });
+      if (live) {
+        conversationId = live.id;
         console.debug('[ai-agent] intro resolve conversation', conversationId);
       }
     }
-
-    // No session id yet (widget opened before a visitor session was
-    // negotiated): fall back to the visitor id so the intro re-uses the
-    // visitor's existing open conversation instead of orphaning a new one.
-    if (!forceNew && !conversationId && input.visitorId) {
-      const { data: existingByVisitor } = await sb
-        .from('conversations')
-        .select('id')
-        .eq('workspace_id', input.workspaceId)
-        .contains('metadata', { visitor_id: input.visitorId })
-        .neq('status', 'closed')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (existingByVisitor?.id) conversationId = existingByVisitor.id;
-    }
-
 
     if (!conversationId) {
       // P0-BILLING — creating a thread here is a real conversation creation
@@ -324,20 +430,12 @@ export async function maybeSendIntro(
       console.debug('[ai-agent] intro conversation created', conversationId);
     }
 
-    if (await alreadyIntroduced(sb, input.workspaceId, conversationId, input.visitorSessionId)) {
+    if (!conversationId) return { sent: false, reason: 'conversation_create_failed' };
+
+    if (await alreadyIntroduced(sb, input.workspaceId, conversationId)) {
       console.debug('[ai-agent] intro already sent', conversationId);
       return { sent: false, reason: 'already_sent', conversationId };
     }
-
-    // A visitor's browser can still negotiate a language the platform
-    // doesn't actually offer (e.g. a Persian-only deployment reached by a
-    // Turkish browser) — clamp to what the platform's region lock allows
-    // so the admin's edited text (set for the platform's one language)
-    // always wins over a stale per-locale fallback.
-    const clampedLocale = await clampLocaleToPlatformRegion(config, input.locale);
-    const allowedLocales = await getPlatformAllowedLocales(config);
-    const body = buildIntroBody(settings, clampedLocale, allowedLocales);
-    const display = deriveAgentDisplay(settings);
 
     let messageId: string | null = null;
     if (conversationId) {

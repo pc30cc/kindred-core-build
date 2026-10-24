@@ -104,8 +104,13 @@ describe('widget runtime — new conversation & identity hygiene', () => {
     expect(chat).toMatch(/force_new_conversation: forceNewConversation \|\| undefined/);
   });
 
-  it('the server skips every reuse path when force_new_conversation is set', () => {
-    expect(source).toMatch(/if \(!convId && body\.visitor_id && !body\.force_new_conversation\)/);
+  it('the server skips every reuse path by identity when force_new_conversation is set (the live conversation alone takes it)', () => {
+    // One current conversation per visitor: force-new (or an unusable id)
+    // goes to the visitor's live conversation, else a new one, never an
+    // older one by identity; the signed visitor alone decides.
+    expect(source).toMatch(/const wantsNext = body\.force_new_conversation === true \|\| namedUnusable;/);
+    expect(source).toMatch(/if \(!convId && !wantsNext && signedVisitorId\)/);
+    expect(source).toMatch(/const forceNew = wantsNext;/);
   });
 });
 

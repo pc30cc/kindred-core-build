@@ -336,6 +336,42 @@ describe('who routing asks chat_route_claim for', () => {
     expect(state.claims[0]).toMatchObject({ p_order: 'least_busy', p_method: 'auto' });
   });
 
+  it('the returning visitor\'s operator is found past newer AI-only and greeting-only conversations (one current conversation per visitor)', async () => {
+    for (const id of [ALI, BAHAR]) state.presence.set(id, here());
+    const daysAgo = (d: number) => new Date(NOW - d * 86400_000).toISOString();
+    const say = (cid: unknown, sender_type: string, sender_id: string | null) =>
+      (state.db.tables.conversation_messages ||= []).push({ id: `m-${Math.random()}`, conversation_id: cid, sender_type, sender_id, body: 'x', metadata: {}, created_at: daysAgo(1) });
+    // Bahar answered it (nobody claimed it: her reply is what counts).
+    const handled = conversation({}, { contact_id: 'ct-2', status: 'closed', updated_at: daysAgo(5) });
+    say(handled.id, 'agent', BAHAR);
+    // Since then: the AI alone answered one, and an older widget's greeting opened another.
+    const aiOnly = conversation({}, { contact_id: 'ct-2', status: 'closed', updated_at: daysAgo(3) });
+    say(aiOnly.id, 'contact', null);
+    say(aiOnly.id, 'ai', null);
+    const greeting = conversation({ source: 'ai_agent_intro', ai_state: 'ai_managed' }, { contact_id: 'ct-2', updated_at: daysAgo(2) });
+    say(greeting.id, 'ai', null);
+    const c = conversation({}, { contact_id: 'ct-2', updated_at: daysAgo(0) });
+    const res = await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string });
+    expect(state.claims[0]).toMatchObject({ p_candidates: [BAHAR], p_order: 'given', p_method: 'last_agent' });
+    expect(res).toEqual({ outcome: 'assigned_last_agent', assignedTo: BAHAR });
+  });
+
+  it('last-agent routing looks through five earlier conversations, not more, and only within the window', async () => {
+    for (const id of [ALI, BAHAR]) state.presence.set(id, here());
+    const daysAgo = (d: number) => new Date(NOW - d * 86400_000).toISOString();
+    conversation({}, { contact_id: 'ct-3', assigned_to: BAHAR, status: 'closed', updated_at: daysAgo(10) });
+    for (let i = 0; i < 5; i++) conversation({}, { contact_id: 'ct-3', status: 'closed', updated_at: daysAgo(9 - i) });
+    const c = conversation({}, { contact_id: 'ct-3', updated_at: daysAgo(0) });
+    await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string });
+    expect(state.claims[0]).toMatchObject({ p_method: 'auto' });
+    // Outside the window (30 days), even the first one is not looked at.
+    state.claims = [];
+    conversation({}, { contact_id: 'ct-4', assigned_to: BAHAR, status: 'closed', updated_at: daysAgo(40) });
+    const late = conversation({}, { contact_id: 'ct-4', updated_at: daysAgo(0) });
+    await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: late.id as string });
+    expect(state.claims[0]).toMatchObject({ p_method: 'auto' });
+  });
+
   it('a first-response timeout asks for anyone but the holder, only while they still hold it', async () => {
     for (const id of [ALI, BAHAR]) state.presence.set(id, here());
     const c = conversation({}, { assigned_to: ALI });

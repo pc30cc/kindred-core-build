@@ -149,12 +149,12 @@ beforeEach(() => {
   db.reads.length = 0;
   db.failInsert = null;
   db.tables = {
-    visitor_sessions: [{ id: 'sess-1', workspace_id: WS, visitor_id: 'visitor-1' }],
+    visitor_sessions: [{ id: '99999999-9999-4999-8999-999999999999', workspace_id: WS, visitor_id: 'visitor-1' }],
     contacts: [],
     conversations: [
-      { id: 'c-online', workspace_id: WS, status: 'open', updated_at: '2026-10-17T10:00:00Z', assigned_to: OP_ONLINE, visitor_session_id: 'sess-1' },
-      { id: 'c-away', workspace_id: WS, status: 'resolved', updated_at: '2026-10-16T10:00:00Z', assigned_to: OP_AWAY, visitor_session_id: 'sess-1' },
-      { id: 'c-none', workspace_id: WS, status: 'open', updated_at: '2026-10-15T10:00:00Z', assigned_to: null, visitor_session_id: 'sess-1' },
+      { id: 'c-online', workspace_id: WS, status: 'open', updated_at: '2026-10-17T10:00:00Z', assigned_to: OP_ONLINE, visitor_session_id: '99999999-9999-4999-8999-999999999999' },
+      { id: 'c-away', workspace_id: WS, status: 'resolved', updated_at: '2026-10-16T10:00:00Z', assigned_to: OP_AWAY, visitor_session_id: '99999999-9999-4999-8999-999999999999' },
+      { id: 'c-none', workspace_id: WS, status: 'open', updated_at: '2026-10-15T10:00:00Z', assigned_to: null, visitor_session_id: '99999999-9999-4999-8999-999999999999' },
     ],
     widget_conversation_reads: [],
     conversation_messages: [],
@@ -182,16 +182,23 @@ describe('GET /api/widget/conversations — the assigned operator on every row',
     expect(db.reads.find((r) => r.table === 'conversations')!.select).toContain('assigned_to');
   });
 
-  it('without operator=1 (the default template) reads and answers exactly what it did before', async () => {
+  it('without operator=1 (the default template) reads the same tables and answers no operator field', async () => {
     const res = await call('GET', `/api/widget/conversations?workspace_id=${WS}`);
     expect(res.status).toBe(200);
     expect(db.reads.map((r) => r.table)).toEqual([
       'visitor_sessions', 'contacts', 'conversations', 'widget_conversation_reads', 'conversation_messages',
     ]);
-    expect(db.reads.find((r) => r.table === 'conversations')!.select).toBe('id, status, updated_at');
+    // The assignee and the metadata one current conversation per visitor
+    // needs (an unanswered greeting, another channel, the end stamps) are
+    // read for every template; the operator's name, photo and presence are
+    // still answered only on request.
+    expect(db.reads.find((r) => r.table === 'conversations')!.select).toBe(
+      'id, status, updated_at, assigned_to, source:metadata->>source, ai_state:metadata->>ai_state, channel:metadata->>channel, ended_at:metadata->>routing_thread_ended_at, reset_at:metadata->>ai_thread_reset_at',
+    );
     for (const row of res.body.conversations || []) {
       expect(Object.keys(row)).toEqual([
         'id', 'status', 'updatedAt', 'preview', 'attachmentKind', 'outbound', 'unreadCount', 'lastMessageAt',
+        'endedAt', 'unreadReplies', 'hasVisitorMessage',
       ]);
     }
   });

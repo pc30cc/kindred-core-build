@@ -7,7 +7,8 @@
  * not(…, 'is', null) / filter('col->>key', 'eq', v) filters, order, limit,
  * single / maybeSingle, insert (… select().single()), update (through
  * `db.beforeUpdate`, a trigger's stand-in), upsert, delete (… select()) and
- * rpc (answered by `db.rpc`).
+ * rpc (answered by `db.rpc`). `or('a.eq.x,b.in.(y,z)')` is ignored unless
+ * `db.honourOr` is set; then its `eq`, `neq`, `in` and `is.null` terms filter.
  *
  * `missing` tables answer 42P01 (a database before migration 276), `failing`
  * ones a plain error; `conversation_ratings.closed_message_id` and a
@@ -36,6 +37,23 @@ export interface FakeServiceDb {
   rpcs: Array<{ fn: string; args: Record<string, unknown> }>;
   /** Rows a delete removed, per table. */
   deletes: Array<{ table: string; row: Row }>;
+  /** `.or()` filters (any of its terms), instead of being ignored. */
+  honourOr?: boolean;
+}
+
+/** One `.or()` string as a row test: a row matches when any term does. */
+function orFilter(expr: string): (r: Row) => boolean {
+  const terms: Array<(r: Row) => boolean> = [];
+  for (const m of expr.matchAll(/(\w+)\.(eq|neq|is|in)\.(\([^)]*\)|[^,]*)/g)) {
+    const [, col, op, raw] = m;
+    if (op === 'in') {
+      const vals = raw.replace(/^\(|\)$/g, '').split(',').filter(Boolean);
+      terms.push((r) => vals.includes(String(r[col])));
+    } else if (op === 'is') terms.push((r) => (r[col] ?? null) === null);
+    else if (op === 'eq') terms.push((r) => String(r[col]) === raw);
+    else terms.push((r) => String(r[col]) !== raw);
+  }
+  return (r) => terms.some((t) => t(r));
 }
 
 /** Unique keys (each a list of columns, NULLs equal as in 276's NULLS NOT DISTINCT). */
@@ -167,7 +185,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
         }
         return b;
       },
-      or: () => b,
+      or: (expr: string) => { if (db.honourOr) filters.push(orFilter(String(expr || ''))); return b; },
       order: (col: string, opts?: { ascending?: boolean }) => { sort = { col, asc: opts?.ascending !== false }; return b; },
       limit: (n: number) => { max = n; return b; },
       insert: (rows: Row | Row[]) => { mode = 'insert'; payload = Array.isArray(rows) ? rows : [rows]; return b; },

@@ -121,13 +121,15 @@ describe('P0-E/F — the AI intro is thread-scoped and understands force-new', (
     expect(body).toMatch(/delete __aiIntroKeys\[key\]/);
   });
 
-  it('server intro skips BOTH reuse lookups when force-new is requested', () => {
+  it('server intro (an older widget\'s, without preview) never mints a second conversation while one is live, force-new or not', () => {
+    // One current conversation per visitor (2026-10-24): force-new is
+    // ignored while the visitor has a live conversation, a greeting-only one
+    // included; behaviour in src/test/widget/oneLiveConversation.test.ts.
     expect(intro).toMatch(/forceNewConversation\?: boolean/);
-    expect(intro).toMatch(/const forceNew = input\.forceNewConversation === true/);
-    expect(intro).toMatch(/let conversationId = forceNew \? null : \(input\.conversationId \|\| null\)/);
-    // session-id reuse and visitor-id reuse are both gated.
-    const gated = intro.match(/if \(!forceNew && !conversationId && input\.(visitorSessionId|visitorId)\)/g) || [];
-    expect(gated.length).toBe(2);
+    expect(intro).not.toMatch(/const forceNew = input\.forceNewConversation === true/);
+    expect(intro).toMatch(/findLiveVisitorConversation\(sb, input\.workspaceId, await scope\(\), \{ includeUnansweredGreeting: true \}\)/);
+    // The preview (the widget's chat open) writes nothing.
+    expect(intro).toMatch(/if \(input\.preview === true\) \{/);
   });
 });
 

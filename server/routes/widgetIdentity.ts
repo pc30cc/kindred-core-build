@@ -147,16 +147,6 @@ async function emitIdentifiedEvents(
 
 export const widgetIdentityRouter = Router();
 
-/**
- * Platform-fixed conversation-continuity window (30 days).
- *
- * This used to be a per-workspace operator setting, but an identified visitor
- * whose HttpOnly cookie is still valid should simply resume — re-asking for
- * details they already gave only creates duplicate contacts. The value now
- * governs history restore only, and is not workspace-configurable.
- */
-const HISTORY_CONTINUE_WINDOW_HOURS = 720;
-
 
 // All identity routes require valid session token (HMAC) + matching origin
 widgetIdentityRouter.use(enforceWidgetToken);
@@ -351,12 +341,13 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     .limit(1)
     .maybeSingle();
 
+  // Live only (open, pending, resolved), whatever its age: an ended thread is
+  // never handed back to resume (one current conversation per visitor).
   const conv = await findContinuableConversation(
     supabase,
     workspaceId,
     cookie.v,
     session?.contact_id || null,
-    HISTORY_CONTINUE_WINDOW_HOURS,
   );
 
   if (!conv) {

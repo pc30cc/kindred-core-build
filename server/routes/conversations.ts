@@ -1117,8 +1117,9 @@ conversationsRouter.patch('/:id', async (req, res) => {
       // Resolved or closed: the thread is over, and the next one starts
       // afresh (the AI may answer it; its operator is looked at again when
       // the visitor writes — R-17). Reopened by the operator: theirs to
-      // continue.
-      if (statusEvType === 'resolved') {
+      // continue. A resolved one closed later is stamped again: its end for
+      // the visitor is the close (GET /api/widget/conversations `endedAt`).
+      if (statusEvType === 'resolved' || (parsed.data.status === 'closed' && before.status === 'resolved')) {
         await endConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
       } else if (statusEvType === 'reopened') {
         await continueConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
@@ -1221,14 +1222,18 @@ conversationsRouter.patch('/:id', async (req, res) => {
         }).catch((err: unknown) => {
           console.error('[conversations PATCH] transcript queue failed:', err);
         });
-        // The visitor's «X closed the conversation» line (and its rating
-        // card), for a widget conversation whose template draws it. Never
-        // throws, never awaited.
+      }
+      // The visitor's «X closed the conversation» line (and its rating
+      // card), for a widget conversation whose template draws it: only when
+      // it is closed, from any status (a resolved one too). A resolve is the
+      // operator's alone and draws nothing (owner, 2026-10-24). Never throws,
+      // never awaited.
+      if (parsed.data.status === 'closed' && before.status !== 'closed') {
         void recordConversationClosed(config, {
           workspaceId: parsed.data.workspace_id,
           conversationId,
           actorId: auth.userId,
-          status: parsed.data.status === 'closed' ? 'closed' : 'resolved',
+          status: 'closed',
         });
       }
     }
@@ -1686,7 +1691,12 @@ async function listConversationRows(
     }
     if (status && status !== 'all') {
       const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
-      q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
+      // "Resolved" is the finished tab: resolved and closed, as the tab's
+      // count (/inbox-tab-counts) and the desktop console ('resolved,closed')
+      // already read it. iOS, windows-native, Electron and the web mobile
+      // inbox ask for 'resolved' alone and would never list a closed one.
+      const wanted = parts.length === 1 && parts[0] === 'resolved' ? ['resolved', 'closed'] : parts;
+      q = wanted.length > 1 ? q.in('status', wanted) : q.eq('status', wanted[0]);
     }
   }
 

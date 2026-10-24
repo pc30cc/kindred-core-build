@@ -1,11 +1,11 @@
 /**
  * THE VISITOR-VISIBLE "CLOSED" LINE (issue #340, g1).
  *
- * When an operator closes a widget conversation (inbox PATCH to resolved or
- * closed, or the composer's "Send & resolve"), the thread gets ONE system
- * message the visitor sees: «Sara closed the conversation», and under it, in
- * a template that draws one, the rating card (conversationRatings.ts). It is
- * an ordinary conversation_messages row, published live like the join notice:
+ * When an operator closes a widget conversation (the inbox PATCH to
+ * `closed`), the thread gets ONE system message the visitor sees: «Sara
+ * closed the conversation», and under it, in a template that draws one, the
+ * rating card (conversationRatings.ts). It is an ordinary
+ * conversation_messages row, published live like the join notice:
  *
  *   sender_type 'system', body '<name> closed the conversation' (frozen
  *   English, for clients without a case for the kind, like join notices),
@@ -16,13 +16,19 @@
  * (else the closer): the one a rating is about.
  *
  * Written only when:
+ *   - the new status is `closed` (owner, 2026-10-24). "Resolve" and "Send &
+ *     resolve" take the conversation out of the operator's Inbox only: the
+ *     visitor sees nothing, and their next message reopens the same
+ *     conversation (services/widget/visitorConversations.ts: open, pending
+ *     and resolved are live for the visitor, closed alone has ended). So a
+ *     resolve writes no line and no rating card;
  *   - the conversation is a widget one (no `metadata.channel`, or 'widget'):
  *     never Telegram, Bale, WhatsApp, Instagram, email or platform support;
  *   - the workspace's EFFECTIVE chat template (configSnapshot.ts
  *     workspaceChatTemplate: the catalog, the plan, the choice) draws it
- *     (descriptor `closedNotice`, Template 2 today). A `default` / `intl`
- *     workspace gets no new row at all, so their visitors' threads, lists and
- *     unread counts are exactly what they were;
+ *     (descriptor `closedNotice`, shared/widgetTemplates.ts). A workspace
+ *     whose template does not gets no new row at all, so its visitors'
+ *     threads, lists and unread counts are exactly what they were;
  *   - the thread has moved on since the last such line: a close right after a
  *     reopen with nothing said in between reuses the line already there (and
  *     its rating card), see latestClosedRow. Two closes of one conversation
@@ -38,6 +44,7 @@ import { getServiceClient, type ServiceClient } from '../supabase.js';
 import { buildMessageEnvelope, publishConversationEvent } from './realtime/publish.js';
 import { resolveOperatorIdentities } from './widget/senderIdentity.js';
 import { workspaceChatTemplate } from './widget/configSnapshot.js';
+import { isWidgetConversation } from './widget/visitorConversations.js';
 
 export const CONVERSATION_CLOSED_KIND = 'conversation_closed';
 
@@ -87,11 +94,8 @@ export async function readLatestClosedRow(sb: ServiceClient, conversationId: str
   return latestClosedRow((data || []) as ConversationRow[]);
 }
 
-/** A widget conversation: no channel recorded, or the widget's own. */
-export function isWidgetConversation(metadata: unknown): boolean {
-  const channel = String(metaOf({ metadata }).channel ?? '').trim().toLowerCase();
-  return !channel || channel === 'widget';
-}
+// A widget conversation: no channel recorded, or the widget's own.
+export { isWidgetConversation };
 
 export interface ConversationClosedInput {
   workspaceId: string;
@@ -99,7 +103,8 @@ export interface ConversationClosedInput {
   /** Who closed it (profiles.id). */
   actorId: string | null;
   by?: 'agent';
-  status: 'resolved' | 'closed';
+  /** Only a close draws the line (see above); anything else writes nothing. */
+  status: 'closed';
 }
 
 /**
@@ -112,14 +117,15 @@ const writing = new Map<string, Promise<{ id: string } | null>>();
 
 /**
  * Writes and publishes the closed line when the rules above allow it.
- * Returns the new row's id, or null when none was written (not a widget
- * conversation, a template without the line, the line already there, or any
- * failure).
+ * Returns the new row's id, or null when none was written (not a close, not a
+ * widget conversation, a template without the line, the line already there,
+ * or any failure).
  */
 export function recordConversationClosed(
   config: ServerConfig,
   input: ConversationClosedInput,
 ): Promise<{ id: string } | null> {
+  if ((input.status as string) !== 'closed') return Promise.resolve(null);
   const key = input.conversationId;
   const before = writing.get(key);
   // writeClosedLine never rejects, so neither does the chain.

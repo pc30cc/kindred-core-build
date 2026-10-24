@@ -269,3 +269,63 @@ and `chat-handover`).
   simply run again. Every read tolerates it being absent (the catalog then reads as "only the edition default").
 - After the deploy, the Super Admin enables `t1` / `t2` in «قالب‌های ویجت»; workspace owners then see «قالب ویجت».
   On RESPOK, its Super Admin enables `t1-intl` / `t2-intl` (Widget templates) the same way.
+
+## One conversation per visitor: server contract (2026-10-24)
+
+The owner's rule: for the visitor a conversation is **live** while it is open, pending or resolved, and **ended** only
+once it is closed. "Resolve" and "Send & resolve" take it out of the operator's Inbox only; the visitor's next message
+reopens it (conversationLifecycle.ts). The server keeps the rule in one module,
+`server/services/widget/visitorConversations.ts`: the visitor is the signed visitor id (the dvsid cookie or the
+credential header, never a body field), their scope is exactly what GET /conversations lists (their visitor_sessions
+rows and the contact whose metadata carries the id), and their live conversation is the newest live widget row by
+`updated_at` that is not an unanswered greeting (`findLiveVisitorConversation`; another channel's conversation of the
+same contact never counts). The widget section of these notes describes how Core uses what follows.
+
+- **GET /api/widget/conversations**: every row gains `endedAt` (closed only: `metadata.routing_thread_ended_at`, else
+  `ai_thread_reset_at`, else `updated_at`; null while live), `unreadReplies` (an operator's or the AI's answers after
+  the read marker, `needsReply.ts isQualifiedCustomerFacingAnswer`; never the greeting, a system or bot row) and
+  `hasVisitorMessage`. Unanswered greetings (an older widget's intro row the visitor never answered and no person
+  touched) and other channels' rows are not listed. `unreadCount` is unchanged (the launcher's badge). 30 rows are read
+  so 20 remain after hiding.
+- **POST /api/widget/message**: the request takes `ai_intro: { locale? }` (lenient: anything else is dropped) and a
+  lenient `reply_to_message_id` (a value that is not a UUID, such as the local id of a greeting not yet stored, is
+  dropped instead of refusing the message with a 400). The answer may carry `continued: true` and `intro_message`.
+  - `force_new_conversation`, and a named conversation that is closed or not the visitor's, go to the visitor's live
+    conversation (`continued: true`; nothing is created, no quota spent), else to a new one, never to an older one
+    by identity. The decision is `liveConversationForNextMessage`, with a TODO for the auto-close PR: a message
+    racing an inactivity close (`closed_reason`) should reopen that conversation.
+  - A named resolved conversation is written into (it reopens), unless a newer open or pending one of the visitor's
+    exists: then that one, `continued: true`.
+  - Identity reuse and the contact use the signed visitor id; the creation lock is `visitor:<id>`. Two first messages
+    of a new thread at the very same instant (two fresh tabs, nothing live) can still make two conversations: the
+    guard runs outside the RPC's lock. A live-only contact match inside `ensure_active_conversation` would close it
+    (SQL, a candidate for migration 284).
+  - With `ai_intro`, on the request that creates the conversation and only without `smart_rule` or `nudge_context`,
+    the greeting passes the intro's own gates again (`resolveIntroGreeting`), the conversation is created with
+    `p_metadata { channel_thread_key, ai_state: 'ai_managed', source: 'ai_agent_intro' }` (never `managed_by_ai`),
+    and the server's copy of the greeting is stored just before the visitor's row (`storeIntroBeforeFirstMessage`:
+    the row, the intro log, the run), echoed as `intro_message` (the message payload the visitor gets everywhere).
+    A retry (`created: false`) stores nothing. The greeting still counts as one of the AI's replies, as the one the
+    intro used to write at chat open did.
+- **POST /api/widget/ai-agent/intro** with `preview: true` writes nothing and answers `{ sent: true, preview: true,
+  body, agentName, agentLogoUrl, conversationId: null, messageId: null }`, `{ sent: false, reason }` (a gate, or
+  `conversation_limit_*` at a full quota), or `{ sent: false, reason: 'conversation_live', conversationId }`. Without
+  `preview` (Cores before this release, time-boxed about two weeks; remove it with the Inbox's intro-only filter in
+  `routes/conversations.ts`) it writes as before, but only into a named conversation that is the visitor's and live,
+  else their live one (a greeting-only one included), and creates one only when there is none, force-new or not.
+- **GET /api/widget/poll** without a usable conversation id answers only the signed visitor's live conversation
+  (never an ended one), with its `status`. **GET /identity/history** (`findContinuableConversation`) is live-only too,
+  whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` stays until migration 284).
+- **POST /api/widget/offline-messages**, the away thread's first message (`client_message_id`): while the visitor has
+  a live conversation it is written there (lifecycle, push, routing, the owners' mail) and the answer carries
+  `continued: true` and that `conversation_id`. The leave-a-message form still makes a conversation of its own.
+- **The closed line** (`conversationClosedNotice.ts`) is written only when the new status is `closed` (from any
+  status, a resolved one too); never on a resolve or "Send & resolve". t2's rating card follows it, so it now appears
+  only after a real close. A resolved conversation closed later is stamped again (`endConversationThread`), so its
+  `endedAt` is the close.
+- **The Inbox's main queue** `status=resolved` lists resolved and closed (as its tab count and the desktop console),
+  for iOS, windows-native, Electron and the web mobile inbox, which ask for `resolved` alone.
+- **Last-agent routing** (`findPreviousOperator`) looks through the contact's five most recent other conversations
+  for the first one a person handled, passing over AI-only and greeting-only ones.
+- For the auto-close PR: the inactivity close must write the `threadEndPatch` stamps (`endedAt` reads them) and its
+  own `closed_reason`; `liveConversationForNextMessage` is where a racing message reopens it.

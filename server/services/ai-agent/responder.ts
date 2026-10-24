@@ -44,7 +44,14 @@ export interface InsertAiMessageInput {
 export async function insertAiMessage(
   config: ServerConfig,
   input: InsertAiMessageInput,
-): Promise<{ id: string | null; error?: string }> {
+): Promise<{
+  id: string | null;
+  error?: string;
+  /** The inserted row, as selected (a caller echoing it: POST /message's intro_message). */
+  row?: Record<string, unknown> | null;
+  /** The agent's logo link the realtime envelope carried. */
+  senderAvatar?: string | null;
+}> {
   const sb = getServiceClient(config);
   const offlineScreenQueued = input.handoff === true
     ? await maybeQueueTelegramOfflineScreen(config, {
@@ -127,8 +134,9 @@ export async function insertAiMessage(
   // buildMessageEnvelope's own contract requires of every caller that
   // inserts an agent message. Without it a live AI reply renders with no
   // logo until the visitor reloads and /poll re-enriches it.
+  let senderAvatar: string | null = null;
   try {
-    const senderAvatar = (await resolveWorkspaceAgentLogoUrl(config, input.workspaceId))
+    senderAvatar = (await resolveWorkspaceAgentLogoUrl(config, input.workspaceId))
       ?? input.agentLogoUrl
       ?? null;
     await publishConversationEvent(
@@ -145,7 +153,7 @@ export async function insertAiMessage(
     console.warn('[ai-agent] publish AI message failed:', e?.message || e);
   }
 
-  return { id: row?.id || null };
+  return { id: row?.id || null, row: (row as Record<string, unknown> | null) ?? null, senderAvatar };
 }
 
 /**

@@ -36,8 +36,20 @@ import {
   publishConversationEvent,
   buildMessageEnvelope,
   visitorMessageMetadata,
+  visitorMessagePayload,
 } from '../services/realtime/publish.js';
 import { notifyInboundMessage } from '../services/push/index.js';
+import {
+  findLiveVisitorConversation,
+  isLiveConversationStatus,
+  isUnansweredGreeting,
+  isWidgetConversation,
+  liveConversationForNextMessage,
+  resolveVisitorConversationScope,
+  scopeOrFilter,
+  type VisitorConversationScope,
+} from '../services/widget/visitorConversations.js';
+import { isQualifiedCustomerFacingAnswer } from '../services/needsReply.js';
 import {
   getRequestOrigin as getRequestOriginPublic,
   getWorkspaceOriginRules,
@@ -854,38 +866,20 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       }
     }
 
-    // Fallback: find by visitor_id via visitor_sessions
-    if (!conv && visitorId) {
-      const { data: session } = await supabase
-        .from('visitor_sessions').select('id')
-        .eq('workspace_id', workspaceId).eq('visitor_id', visitorId)
-        .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
-
-      if (session) {
-        const { data: fc } = await supabase
-          .from('conversations').select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id')
-          .eq('workspace_id', workspaceId).eq('visitor_session_id', session.id)
-          .order('updated_at', { ascending: false }).limit(1).maybeSingle();
-
-        if (fc) { conv = fc; activeConversationId = fc.id; }
-      }
-    }
-
-    // Fallback: find by contact metadata
-    if (!conv && visitorId) {
-      const { data: contact } = await supabase
-        .from('contacts').select('id')
-        .eq('workspace_id', workspaceId)
-        .contains('metadata', { visitor_id: visitorId })
-        .limit(1).maybeSingle();
-
-      if (contact) {
-        const { data: fc } = await supabase
-          .from('conversations').select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id')
-          .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
-          .order('updated_at', { ascending: false }).limit(1).maybeSingle();
-
-        if (fc) { conv = fc; activeConversationId = fc.id; }
+    // Fallback, without a usable id: the signed visitor's LIVE conversation
+    // (open, pending or resolved; services/widget/visitorConversations.ts),
+    // the one their list makes current, so a tab learns of an operator's
+    // outreach or a thread another tab started. Never an ended one: a fresh
+    // start must not adopt the last closed thread (one current conversation
+    // per visitor, 2026-10-24).
+    const signedVisitorId = (req as WidgetScopedRequest).visitorId || null;
+    if (!conv && signedVisitorId) {
+      const live = await findLiveVisitorConversation(
+        supabase, workspaceId, await resolveVisitorConversationScope(supabase, workspaceId, signedVisitorId),
+      );
+      if (live) {
+        conv = { id: live.id, status: live.status, assigned_to: live.assignedTo };
+        activeConversationId = live.id;
       }
     }
 
@@ -1104,7 +1098,25 @@ widgetRouter.get('/queue', widgetRateLimit('poll'), async (req: Request, res: Re
 // it is never read here, so a tampered/forged value cannot widen or shift
 // the result set. visitor_session_id / contact linkage only widens the match
 // within that already-authenticated identity.
+//
+// One current conversation per visitor (2026-10-24): the widget picks the
+// current one from this list and shows the rest under «گفتگوهای قبلی», so
+// every row also says
+//   - endedAt: when it ended for the visitor, for a closed one only
+//     (routing_thread_ended_at, else ai_thread_reset_at — the threadEndPatch
+//     stamps, which an inactivity close must write too — else updated_at);
+//     null while it is live (open, pending, resolved);
+//   - unreadReplies: the team's answers (an operator's or the AI's,
+//     needsReply.ts isQualifiedCustomerFacingAnswer) after the visitor's
+//     read marker; never the AI's greeting, a system or bot row;
+//   - hasVisitorMessage: whether the visitor ever wrote in it.
+// Another channel's conversation of the same contact and an unanswered
+// greeting (an older widget's intro, services/widget/visitorConversations.ts)
+// are not listed at all. unreadCount is unchanged: the launcher's badge.
 // ═══════════════════════════════════════════════
+/** The newest messages GET /conversations reads for its previews and counts. */
+const CONVERSATION_LIST_MESSAGE_WINDOW = 500;
+
 widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
@@ -1121,52 +1133,39 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
   try {
     // Every visitor_sessions row this browser has ever had for this
     // workspace — a visitor can accumulate more than one session row over
-    // time (new tab, cookie renewal, etc).
-    const { data: sessions } = await supabase
-      .from('visitor_sessions')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('visitor_id', visitorId)
-      .limit(50);
-    const sessionIds = (sessions || []).map((s) => s.id).filter(Boolean);
-
-    // Fallback linkage used elsewhere in this file (see /poll, /message):
-    // a contact whose metadata carries this visitor_id.
-    const { data: contact } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .contains('metadata', { visitor_id: visitorId })
-      .limit(1)
-      .maybeSingle();
-
-    if (sessionIds.length === 0 && !contact) {
+    // time (new tab, cookie renewal, etc) — and the contact whose metadata
+    // carries this visitor_id: the same scope /message's guard, /poll and
+    // the intro use (services/widget/visitorConversations.ts).
+    const scope = await resolveVisitorConversationScope(supabase, workspaceId, visitorId);
+    const orFilter = scopeOrFilter(scope);
+    if (!orFilter) {
       return res.json({ conversations: [] });
     }
 
-    const orParts: string[] = [];
-    if (sessionIds.length > 0) orParts.push(`visitor_session_id.in.(${sessionIds.join(',')})`);
-    if (contact?.id) orParts.push(`contact_id.eq.${contact.id}`);
-
     // Who answers each thread only on request (`operator=1`, sent by a
     // renderer that draws it, see runtime.js operatorQ): the default
-    // template asks nothing, so its list costs what it always did.
+    // template asks nothing, so its list costs what it always did. The
+    // assignee is read either way: it tells an answered greeting from an
+    // unanswered one.
     const withOperator = req.query.operator === '1';
-    // Typed as the wider list: without operator=1 the rows simply have no
-    // `assigned_to` (read as null below).
-    const columns = (withOperator ? 'id, status, updated_at, assigned_to' : 'id, status, updated_at') as
-      'id, status, updated_at, assigned_to';
+    // More than the 20 listed: hidden rows (another channel, an unanswered
+    // greeting) must not take the places of the visitor's own.
     const { data: convos, error } = await supabase
       .from('conversations')
-      .select(columns)
+      .select('id, status, updated_at, assigned_to, source:metadata->>source, ai_state:metadata->>ai_state, channel:metadata->>channel, ended_at:metadata->>routing_thread_ended_at, reset_at:metadata->>ai_thread_reset_at')
       .eq('workspace_id', workspaceId)
-      .or(orParts.join(','))
+      .or(orFilter)
       .order('updated_at', { ascending: false })
-      .limit(20);
+      .limit(30);
     if (error) throw error;
 
-    const list = convos || [];
-    const convIds = list.map((c) => c.id);
+    type ListedConversation = {
+      id: string; status: string | null; updated_at: string; assigned_to: string | null;
+      source: string | null; ai_state: string | null; channel: string | null;
+      ended_at: string | null; reset_at: string | null;
+    };
+    const fetched = ((convos || []) as ListedConversation[]).filter((c) => isWidgetConversation({ channel: c.channel }));
+    const convIds = fetched.map((c) => c.id);
 
     // Visitor-side read markers (widget_conversation_reads). Keyed by the
     // cookie-derived visitor id, so a visitor only ever sees their own
@@ -1198,14 +1197,25 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
       system: VisitorSystemPreview | null;
     }> = {};
     const unreadByConv: Record<string, number> = {};
+    // The team's answers after the read marker, and who wrote at all (for
+    // the history filter and for telling an unanswered greeting).
+    const repliesByConv: Record<string, number> = {};
+    const visitorWrote = new Set<string>();
+    const agentWrote = new Set<string>();
+    // The window holds every message of the listed conversations unless it
+    // came back full; only then is "nobody wrote" read again per row below.
+    let windowFull = false;
     if (convIds.length > 0) {
       const { data: msgs } = await supabase
         .from('conversation_messages')
         .select('conversation_id, body, created_at, sender_type, metadata')
         .in('conversation_id', convIds)
         .order('created_at', { ascending: false })
-        .limit(500);
+        .limit(CONVERSATION_LIST_MESSAGE_WINDOW);
+      windowFull = (msgs || []).length >= CONVERSATION_LIST_MESSAGE_WINDOW;
       for (const m of (msgs || [])) {
+        if (m.sender_type === 'contact') visitorWrote.add(m.conversation_id);
+        else if (m.sender_type === 'agent') agentWrote.add(m.conversation_id);
         // Rows the visitor's thread never shows as news neither preview it
         // nor count as unread: inbox-only notices ("Ali unassigned this
         // conversation", in English, written for the inbox) and the closed
@@ -1234,9 +1244,42 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         const readAt = readAtByConv[m.conversation_id] ?? 0;
         if (new Date(m.created_at).getTime() > readAt) {
           unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] || 0) + 1;
+          const source = String(((m.metadata || {}) as Record<string, unknown>).source ?? '');
+          if (isQualifiedCustomerFacingAnswer(m) && !source.startsWith('ai_agent_intro')) {
+            repliesByConv[m.conversation_id] = (repliesByConv[m.conversation_id] || 0) + 1;
+          }
         }
       }
     }
+
+    // Past the window: whether the visitor (and, for an intro-made row, a
+    // person) ever wrote, one indexed read each, only when the window was
+    // full and did not settle it.
+    if (windowFull) {
+      const wrote = async (conversationId: string, senderType: 'contact' | 'agent') => {
+        const { data } = await supabase
+          .from('conversation_messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .eq('sender_type', senderType)
+          .limit(1)
+          .maybeSingle();
+        return !!data;
+      };
+      await Promise.all(fetched.filter((c) => !visitorWrote.has(c.id)).map(async (c) => {
+        if (await wrote(c.id, 'contact')) visitorWrote.add(c.id);
+        else if (c.source === 'ai_agent_intro' && !c.assigned_to && c.ai_state !== 'human_active'
+          && !agentWrote.has(c.id) && await wrote(c.id, 'agent')) agentWrote.add(c.id);
+      }));
+    }
+
+    const list = fetched.filter((c) => !isUnansweredGreeting({
+      source: c.source,
+      assignedTo: c.assigned_to,
+      aiState: c.ai_state,
+      hasVisitorMessage: visitorWrote.has(c.id),
+      hasAgentMessage: agentWrote.has(c.id),
+    })).slice(0, 20);
 
     // Only a message with NO text needs its media described — a caption
     // already previews fine on its own.
@@ -1296,6 +1339,10 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         outbound: last ? last.sender_type === 'contact' : false,
         unreadCount: unreadByConv[c.id] || 0,
         lastMessageAt: last ? last.created_at : c.updated_at,
+        // One current conversation per visitor (see the route's comment).
+        endedAt: c.status === 'closed' ? (c.ended_at || c.reset_at || c.updated_at) : null,
+        unreadReplies: repliesByConv[c.id] || 0,
+        hasVisitorMessage: visitorWrote.has(c.id),
       };
       // The assigned operator (null while nobody is): a template draws
       // their name, photo and presence on the row.
@@ -1713,6 +1760,8 @@ const smartRuleRef = z.object({
   id: z.string().uuid(),
   locale: z.string().max(16).optional().nullable(),
 });
+/** The AI greeting drawn before a first message (the intro preview): its language only. */
+const aiIntroRef = z.object({ locale: z.string().max(10).optional() });
 
 const messageSchema = z.object({
   workspace_id: z.string().uuid().optional(),
@@ -1748,8 +1797,14 @@ const messageSchema = z.object({
    */
   client_message_id: z.string().min(8).max(64).optional(),
   /** Visitor-side reply-to-message: must reference a message already in
-   *  this same conversation — validated below, never trusted blindly. */
-  reply_to_message_id: z.string().uuid().optional().nullable(),
+   *  this same conversation — validated below, never trusted blindly. A
+   *  value that is not a message id (the widget's own id for a bubble it
+   *  drew, such as the AI greeting before it is stored) is dropped: the
+   *  quote is context, never a reason to refuse the message. */
+  reply_to_message_id: z.preprocess(
+    (v) => (typeof v === 'string' && z.string().uuid().safeParse(v).success ? v : undefined),
+    z.string().uuid().optional().nullable(),
+  ),
   /** Phase 8H — optional department selected by widget (single/multi mode). */
   department_id: z.string().uuid().optional().nullable(),
   /** E2C — sanitized page context (currentPageUrl/Origin/Path/Title/referrer). */
@@ -1781,6 +1836,18 @@ const messageSchema = z.object({
     // Context only: a value that is not usable is dropped, never a reason to refuse the message.
     (v) => (smartRuleRef.safeParse(v).success ? v : undefined),
     smartRuleRef.optional(),
+  ),
+  /**
+   * The AI's greeting is on the visitor's screen with no conversation yet
+   * (POST /ai-agent/intro `preview`): the request that creates the
+   * conversation stores the server's own copy before this message and makes
+   * it the AI's (services/ai-agent/intro.ts storeIntroBeforeFirstMessage).
+   * Only its language is taken, never its text. Context only, like
+   * smart_rule.
+   */
+  ai_intro: z.preprocess(
+    (v) => (aiIntroRef.safeParse(v).success ? v : undefined),
+    aiIntroRef.optional(),
   ),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
@@ -2022,11 +2089,30 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // This request created the conversation (the winner of a concurrent pair only).
     let createdConversation = false;
 
+    // One current conversation per visitor (2026-10-24,
+    // services/widget/visitorConversations.ts). The visitor is the SIGNED id
+    // (the dvsid cookie or the credential header), never body.visitor_id: a
+    // body value names nobody, so it can neither select another visitor's
+    // contact nor land in their conversation.
+    const signedVisitorId = (req as WidgetScopedRequest).visitorId || null;
+    let visitorScopeRead: Promise<VisitorConversationScope | null> | null = null;
+    const visitorScope = () => (visitorScopeRead ??= signedVisitorId
+      ? resolveVisitorConversationScope(supabase, workspaceId, signedVisitorId)
+      : Promise.resolve(null));
+    // The message joined the visitor's live conversation instead of the one
+    // the widget asked for (a new thread, an ended or foreign one, a
+    // resolved one with a newer live one beside it): the widget loads it.
+    let continued = false;
+    // The conversation named cannot take this message: not this visitor's,
+    // or closed.
+    let namedUnusable = false;
+
     // Verify conversation ownership if provided
     if (convId) {
       const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id, req);
       if (!ownership.valid) {
         convId = null; // Will create new conversation
+        namedUnusable = true;
       } else {
         const conv = ownership.conversation;
         // Threads created before the session link existed carry no
@@ -2046,12 +2132,41 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         // customer-reply transitions applied AFTER the message is committed
         // (applyInboundConversationLifecycle), so they emit a timeline event
         // and a realtime update instead of changing status silently.
-        if (conv.status === 'closed') convId = null;
+        if (conv.status === 'closed') {
+          convId = null;
+          namedUnusable = true;
+        } else if (conv.status === 'resolved') {
+          // Resolved is live for the visitor: the message reopens it. Unless
+          // a newer open or pending conversation of theirs exists (a stale
+          // tab, an operator's late reply that reopened another): that one
+          // is the current one, and the message goes there.
+          const newer = await findLiveVisitorConversation(supabase, workspaceId, await visitorScope(), {
+            excludeId: convId, statuses: ['open', 'pending'],
+          });
+          if (newer && Date.parse(String(newer.updatedAt || '')) > Date.parse(String(conv.updated_at || ''))) {
+            convId = newer.id;
+            continued = true;
+          }
+        }
+      }
+    }
+
+    // A new thread (force_new_conversation, "+ New conversation" or the first
+    // message of a fresh one), or the named conversation cannot take it:
+    // while the visitor has a live conversation the message goes there (and
+    // nothing is created, so no quota is spent), else a new one is created,
+    // never an older one by identity (forceNew below).
+    const wantsNext = body.force_new_conversation === true || namedUnusable;
+    if (!convId && wantsNext) {
+      const live = await liveConversationForNextMessage(supabase, workspaceId, await visitorScope());
+      if (live) {
+        convId = live.id;
+        continued = true;
       }
     }
 
     // Try to find existing conversation by visitor identity
-    if (!convId && body.visitor_id && !body.force_new_conversation) {
+    if (!convId && !wantsNext && signedVisitorId) {
       // By session
       if (body.session_id) {
         const { data: existingConv } = await supabase
@@ -2067,7 +2182,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         const { data: contact } = await supabase
           .from('contacts').select('id')
           .eq('workspace_id', workspaceId)
-          .contains('metadata', { visitor_id: body.visitor_id })
+          .contains('metadata', { visitor_id: signedVisitorId })
           .limit(1).maybeSingle();
 
         if (contact) {
@@ -2099,6 +2214,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // Create new conversation
+    let introGreeting: Extract<IntroGreeting, { ok: true }> | null = null;
     if (!convId) {
       // Phase 5 — enforce max_conversations only on this creation
       // branch. Replies into an existing conversation (the branches
@@ -2116,23 +2232,41 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // unset): they are recorded on this visitor's own/new contact only and
       // never select an existing contact, so the continuity cookie issued
       // below can never point at somebody else's contact.
-      const contactId: string | null = await ensureVisitorContact(supabase, {
-        workspaceId,
-        visitorId: body.visitor_id || null,
-        sessionId: body.session_id || null,
-        name: body.visitor_name || null,
-        email: body.visitor_email || null,
-        phone: body.visitor_phone || null,
-      });
+      //
+      // The greeting the visitor saw before writing (ai_intro, the intro
+      // preview) is decided before the conversation exists, alongside the
+      // contact, so the conversation is born the AI's: push, routing and the
+      // Inbox read ai_state from its first moment, as when the intro created
+      // it. Never with the platform's AI off, nor under a Smart Engagement
+      // line or an AI nudge (the widget greets under neither); the gates are
+      // the intro's own (resolveIntroGreeting).
+      const wantsGreeting = !!data.ai_intro && !platformAiOff && !data.smart_rule && !data.nudge_context;
+      const [contactId, greeting] = await Promise.all([
+        ensureVisitorContact(supabase, {
+          workspaceId,
+          visitorId: signedVisitorId,
+          sessionId: body.session_id || null,
+          name: body.visitor_name || null,
+          email: body.visitor_email || null,
+          phone: body.visitor_phone || null,
+        }),
+        wantsGreeting
+          ? resolveIntroGreeting(config, workspaceId, data.ai_intro?.locale).catch((err) => {
+            console.warn('[widget-message] intro greeting skipped:', err?.message || err);
+            return null;
+          })
+          : Promise.resolve(null),
+      ]);
+      introGreeting = greeting?.ok === true ? greeting : null;
 
       // Cross-widget continuity: pin the contact on this device's visitor
       // sessions and refresh the continuity cookie so the CALL widget skips
       // its pre-call form for the same person.
       if (contactId) {
         try {
-          const cookieVisitorId = readVisitorCookie(req, workspaceId)?.v || body.visitor_id || null;
-          if (cookieVisitorId) {
-            await pinContactOnVisitorSessions(supabase, workspaceId, cookieVisitorId, contactId);
+          // The signed visitor's sessions only, as for the contact above.
+          if (signedVisitorId) {
+            await pinContactOnVisitorSessions(supabase, workspaceId, signedVisitorId, contactId);
           }
           await issueContinuityCookieForContact(
             supabase, req, res, workspaceId, contactId, 'chat_widget',
@@ -2143,21 +2277,25 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       }
 
       const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : null);
-      // Atomic match-or-create (migration 071). Two genuinely different
-      // messages sent at the same instant by the same visitor — typically
-      // right after their previous thread was `closed` — converge on ONE new
-      // conversation instead of creating one per request: the loser of the
-      // race blocks on the per-(workspace, visitor) advisory lock and then
-      // matches the winner's row. `closed` threads are never matched, so the
-      // archived one stays archived.
+      // Atomic match-or-create (migration 071), under one advisory lock per
+      // signed visitor (lockKey below). Two genuinely different messages
+      // sent at the same instant by the same visitor converge on ONE
+      // conversation when the second may match the first by contact: the
+      // loser blocks on the lock and then matches the winner's row. A new
+      // thread's first message matches nobody by identity (forceNew), so two
+      // of those at the very same instant (two fresh tabs with nothing live,
+      // the guard above having run outside the lock) can still make two: a
+      // live-only contact match inside the RPC would close that, a change
+      // of SQL for the auto-close migration. `closed` threads are never
+      // matched, so the archived one stays archived.
       //
       // Lost-response retry safety: the widget client sends NEITHER
       // visitor_id NOR session_id on POST /message (identity there is the
-      // HttpOnly `dvsid` cookie only, which this creation path — unlike
-      // /identity/history — never consults), so p_match_session_id/
-      // p_match_contact_id below essentially never match anything for a
-      // visitor's very first message. Concretely: visitor sends message 1,
-      // the server creates conversation A and inserts message A, but the
+      // signed visitor, from the HttpOnly `dvsid` cookie or the credential
+      // header), and a new thread's first message matches nobody by
+      // identity, so p_match_session_id/p_match_contact_id below never find
+      // the thread a retry of it should land in. Concretely: visitor sends
+      // message 1, the server creates conversation A and inserts message A, but the
       // HTTP response is lost before the client sees `conversation_id`. The
       // client still believes it has no conversation. A retry (manual or
       // via resendMessage(), reusing the SAME client_message_id) would,
@@ -2191,8 +2329,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // — the very one they chose to leave — and the "new" message would
       // land in it. Only the client-message key stays: it reunites retries
       // of this same first message with the thread it created.
-      const forceNew = body.force_new_conversation === true;
-      const lockKey = clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
+      // After a close or an unusable id the same holds: live (found above) or
+      // new, never an older thread of theirs.
+      const forceNew = wantsNext;
+      // One lock per signed visitor, so two first messages of theirs
+      // (two tabs) serialize inside the RPC; a retry also matches its own
+      // thread key first. Without a signed visitor, as before.
+      const lockKey = (signedVisitorId ? `visitor:${signedVisitorId}` : null)
+        || clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
       // The link (not a match key): which session this conversation belongs
       // to, so presence-by-conversation and the Visitors list can pair them.
       // Taken from the signed cookie because the widget sends no session_id.
@@ -2208,7 +2352,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         p_contact_id: contactId,
         p_visitor_session_id: linkSessionId,
         p_subject: subjectText,
-        p_metadata: widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {},
+        // Applied on INSERT only (072): a matched or retried thread is never
+        // changed. A greeted one is the AI's from its first moment (never
+        // managed_by_ai: its first turn stays the visitor's question's).
+        p_metadata: {
+          ...(widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {}),
+          ...(introGreeting ? { ai_state: 'ai_managed', source: 'ai_agent_intro' } : {}),
+        },
       });
 
       if (convErr) throw convErr;
@@ -2314,6 +2464,29 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
     };
     if (clientMessageId) insertMetadata.client_message_id = clientMessageId;
+
+    // The greeting the visitor saw (introGreeting above), stored before their
+    // message by the request that created the conversation only: a retry
+    // finds the thread by its client key and never writes it twice. The
+    // widget puts it in the thread in place of the one it drew itself.
+    let introMessage: Record<string, unknown> | null = null;
+    if (createdConversation && convId && introGreeting) {
+      const stored = await storeIntroBeforeFirstMessage(config, {
+        workspaceId,
+        conversationId: convId,
+        greeting: introGreeting,
+        visitorSessionId: body.session_id || null,
+        visitorId: signedVisitorId,
+        locale: data.ai_intro?.locale || null,
+      });
+      if (stored) {
+        introMessage = visitorMessagePayload(buildMessageEnvelope({
+          ...(stored.row as Parameters<typeof buildMessageEnvelope>[0]),
+          sender_name: introGreeting.agentName,
+          sender_avatar: stored.senderAvatar,
+        }).payload as Record<string, unknown>);
+      }
+    }
 
     // A Smart Engagement "Message inside the chat" the visitor answers opens
     // the conversation it started: its published text, stored as the
@@ -2639,6 +2812,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // The rule's line stored before this message (smart_rule above): the
       // widget puts it in the thread in place of the one it drew itself.
       ...(openingMessage ? { opening_message: openingMessage } : {}),
+      // The greeting stored before this message (ai_intro above), likewise.
+      ...(introMessage ? { intro_message: introMessage } : {}),
+      // The message went on in the visitor's live conversation, not the one
+      // asked for: the widget loads that thread's history.
+      ...(continued ? { continued: true } : {}),
     });
   } catch (err) {
     // Full detail (Postgres code/constraint/message) stays server-side only —
@@ -3976,6 +4154,87 @@ async function priorOfflineCapture(
   return { conversationId: conv.id as string, messageId: (msg?.id as string | undefined) ?? null };
 }
 
+/**
+ * The away thread's first message when the visitor already has a live
+ * conversation (one current conversation per visitor, 2026-10-24): written
+ * into that one, as POST /message would write it (the lifecycle reopens a
+ * resolved one, the team's phones and routing hear of it, the Inbox gets it
+ * live), with the owners' mail a capture sends, instead of a second
+ * conversation beside it. A retry with the same client id finds the message
+ * it wrote. Null when it could not be written.
+ */
+async function appendAwayMessage(
+  config: ServerConfig,
+  supabase: ReturnType<typeof getServiceClient>,
+  input: { workspaceId: string; conversationId: string; message: string; clientMessageId: string; visitorId: string; name: string | null; email: string | null; phone: string | null },
+): Promise<{ messageId: string } | null> {
+  const findPrior = async () => {
+    const { data } = await supabase
+      .from('conversation_messages')
+      .select('id')
+      .eq('conversation_id', input.conversationId)
+      .eq('sender_type', 'contact')
+      .filter('metadata->>client_message_id', 'eq', input.clientMessageId)
+      .limit(1)
+      .maybeSingle();
+    return (data?.id as string | undefined) ?? null;
+  };
+  const prior = await findPrior();
+  if (prior) return { messageId: prior };
+
+  const { data: row, error } = await supabase.from('conversation_messages').insert({
+    conversation_id: input.conversationId,
+    sender_type: 'contact',
+    body: input.message,
+    metadata: { source: 'offline_capture', visitor_id: input.visitorId, client_message_id: input.clientMessageId },
+  }).select('id, conversation_id, sender_type, body, created_at, metadata, seen_at').single();
+  if (error || !row) {
+    // Lost the race against a concurrent retry of the same message.
+    const raced = /duplicate key|23505/i.test(error?.message || '') ? await findPrior() : null;
+    if (!raced) console.error('[offline-messages] live conversation append failed:', error?.message);
+    return raced ? { messageId: raced } : null;
+  }
+
+  const { data: touched } = await supabase.from('conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', input.conversationId)
+    .select('status')
+    .maybeSingle();
+  const lifecycle = await applyInboundConversationLifecycle(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    source: 'widget',
+    messageId: row.id,
+    knownStatus: typeof touched?.status === 'string' ? touched.status : null,
+    message: { senderType: 'contact', direction: 'inbound', text: input.message, attachmentCount: 0 },
+  });
+  publishConversationEvent(
+    config, input.workspaceId, input.conversationId,
+    buildMessageEnvelope(row as Parameters<typeof buildMessageEnvelope>[0]),
+  ).catch(() => {});
+  void notifyInboundMessage(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    messageId: row.id,
+    text: input.message,
+    senderName: input.name || input.email || null,
+    channel: 'widget',
+  });
+  void routeHumanBoundConversation(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    reopened: lifecycle?.transition === 'reopened_resolved',
+  });
+  void notifyOfflineCapture(config, input.workspaceId, {
+    conversationId: input.conversationId,
+    message: input.message,
+    email: input.email,
+    name: input.name,
+    phone: input.phone,
+  }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
+  return { messageId: row.id as string };
+}
+
 widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const away = req.body && typeof req.body === 'object' && (req.body as Record<string, unknown>).client_message_id != null;
@@ -4017,6 +4276,39 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
         conversation_id: prior.conversationId,
         transitioning: false,
         message_id: prior.messageId,
+      });
+    }
+  }
+
+  // The away thread's first message while the visitor has a live
+  // conversation (another tab, a stale fresh one): it goes on there
+  // (appendAwayMessage), never in a second conversation, and the widget
+  // loads that thread (`continued`, as for POST /message). The
+  // leave-a-message form is a capture of its own, as before.
+  if (away && clientMessageId) {
+    const signedVisitorId = readVisitorCookie(req, workspace_id)?.v || null;
+    const live = signedVisitorId
+      ? await findLiveVisitorConversation(supabase, workspace_id, await resolveVisitorConversationScope(supabase, workspace_id, signedVisitorId))
+      : null;
+    if (live && signedVisitorId) {
+      const appended = await appendAwayMessage(config, supabase, {
+        workspaceId: workspace_id,
+        conversationId: live.id,
+        message,
+        clientMessageId,
+        visitorId: signedVisitorId,
+        name: name ? name.trim() || null : null,
+        email: email ? email.trim().toLowerCase() : null,
+        phone: normalizeVisitorPhone(phone),
+      });
+      if (!appended) return res.status(500).json({ error: 'capture_failed' });
+      return res.json({
+        ok: true,
+        captured: true,
+        conversation_id: live.id,
+        transitioning: false,
+        message_id: appended.messageId,
+        continued: true,
       });
     }
   }
@@ -4543,12 +4835,18 @@ widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), asy
 // Phase 3 — AI Agent visitor-facing intro
 // ───────────────────────────────────────────────────────────────────
 // POST /api/widget/ai-agent/intro
-// Body: { conversation_id?, session_id?, locale? }
+// Body: { conversation_id?, session_id?, locale?, force_new_conversation?, preview? }
 // Token + origin already enforced by widgetRouter.use() above.
-// Returns the intro bubble or { sent:false, reason }. Never throws —
-// widget MUST tolerate any failure and continue rendering normally.
+// With preview (Core since 2026-10-24) writes nothing and answers
+// { sent:true, preview:true, body, agentName, agentLogoUrl,
+// conversationId:null, messageId:null } | { sent:false, reason } |
+// { sent:false, reason:'conversation_live', conversationId }; the first
+// POST /message stores the greeting (`ai_intro`). Without it (older widgets,
+// time-boxed) returns the intro bubble written as before or
+// { sent:false, reason }. Never throws — widget MUST tolerate any failure
+// and continue rendering normally.
 // ═══════════════════════════════════════════════════════════════════
-import { maybeSendIntro } from '../services/ai-agent/intro.js';
+import { maybeSendIntro, resolveIntroGreeting, storeIntroBeforeFirstMessage, type IntroGreeting } from '../services/ai-agent/intro.js';
 import { isMissingColumnError } from '../lib/missingColumn.js';
 
 widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Request, res: Response) => {
@@ -4561,20 +4859,35 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
     conversation_id: z.string().uuid().optional().nullable(),
     session_id: z.string().uuid().optional().nullable(),
     locale: z.string().max(10).optional(),
-    // P0-F — visitor explicitly started a new thread; never reuse an old one.
+    // P0-F — an older widget's new thread; ignored while one is live.
     force_new_conversation: z.boolean().optional(),
+    // Draw it, write nothing (services/ai-agent/intro.ts IntroInput.preview).
+    preview: z.boolean().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
 
   try {
-    // The AI's greeting is written into the conversation the widget names:
-    // it must be this visitor's own, in this workspace, and not closed, as
-    // for POST /message. Otherwise it is ignored, and the intro finds or
-    // creates the visitor's own conversation.
+    // The widget's chat open since 2026-10-24: the greeting to draw, or the
+    // visitor's live conversation to open instead (`conversation_live`).
+    // Nothing is written, so no conversation id is looked at.
+    if (parsed.data.preview === true) {
+      return res.json(await maybeSendIntro(config, {
+        workspaceId,
+        visitorId: visitorId || null,
+        locale: parsed.data.locale,
+        preview: true,
+      }));
+    }
+    // An older widget (legacy, time-boxed): the AI's greeting is written
+    // into the conversation the widget names, which must be this visitor's
+    // own, in this workspace, and live (open, pending or resolved; one
+    // current conversation per visitor), force-new or not. Otherwise it is
+    // ignored, and the intro finds the visitor's live conversation, or
+    // creates one only when there is none.
     let conversationId = parsed.data.conversation_id || null;
-    if (conversationId && parsed.data.force_new_conversation !== true) {
+    if (conversationId) {
       const owned = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId || null, parsed.data.session_id || null, req);
-      if (!owned.valid || owned.conversation?.status === 'closed') conversationId = null;
+      if (!owned.valid || !isLiveConversationStatus(owned.conversation?.status)) conversationId = null;
     }
     const result = await maybeSendIntro(config, {
       workspaceId,

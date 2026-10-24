@@ -53,12 +53,17 @@ stands rather than Manual.
 
 **Who gets it**, in this order:
 
-1. **The same operator as before** ("last-agent routing"): if the contact had
-   another conversation in the last N days (default 30) and its operator (its
-   assignee, else the last operator who wrote in it) still receives chats, is
-   online and active (not away), is under their maximum and belongs to the
-   chosen department, they get it straight away. Otherwise routing goes on at
-   once; it never waits for them. Not in Manual mode.
+1. **The same operator as before** ("last-agent routing"): the most recent
+   of the contact's other conversations in the last N days (default 30),
+   among their five most recent, that a person handled; its operator (its
+   assignee, else the last operator who wrote in it). Conversations only the
+   AI answered, or that hold only the AI's greeting, are passed over: with a
+   fresh conversation after every close (one current conversation per
+   visitor, 2026-10-24) they often lie between two visits. If that operator
+   still receives chats, is online and active (not away), is under their
+   maximum and belongs to the chosen department, they get it straight away.
+   Otherwise routing goes on at once; it never waits for them. Not in Manual
+   mode.
 2. **The chosen department's operators** who receive chats and are available.
    If none is available, the whole team, unless the Super Admin turned "Use
    the general pool" off (then the chat waits for the department). No

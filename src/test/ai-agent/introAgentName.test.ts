@@ -22,7 +22,7 @@ vi.mock('../../../server/supabase.js', () => ({
       // c-1, the conversation the tests name, is this workspace's and open.
       let named = false;
       const api: Record<string, unknown> = {
-        select: () => api, neq: () => api, is: () => api, order: () => api, limit: () => api, contains: () => api,
+        select: () => api, neq: () => api, is: () => api, in: () => api, or: () => api, order: () => api, limit: () => api, contains: () => api,
         eq: (col: string, val: unknown) => { if (table === 'conversations' && col === 'id' && val === 'c-1') named = true; return api; },
         insert: () => Promise.resolve({ data: null, error: null }),
         maybeSingle: async () => ({ data: named ? { id: 'c-1' } : null, error: null }),
@@ -50,6 +50,7 @@ vi.mock('../../../server/services/ai-agent/responder.js', async (importOriginal)
   },
 }));
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({ logRun: async () => undefined }));
+vi.mock('../../../server/services/billing/conversationLimit.js', () => ({ checkMaxConversationsAllowance: async () => ({ allowed: true }) }));
 vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/services/platformRegion.js')>()),
   clampLocaleToPlatformRegion: async (_config: unknown, locale: string) => locale,
@@ -87,5 +88,16 @@ describe('the intro\'s answer names the agent as the row stores it', () => {
     const result = await maybeSendIntro(CONFIG, { workspaceId: 'ws-1', conversationId: 'c-1', locale: 'fa' });
     expect(result.agentName).toBe('نیلو');
     expect(state.inserted[0]?.agentName).toBe('نیلو');
+  });
+
+  it('the preview (chat open since 2026-10-24) names the agent and words the text exactly as the written intro', async () => {
+    for (const name of ['AI Assistant', null, 'نیلو']) {
+      state.settings = settings(name);
+      state.inserted = [];
+      const written = await maybeSendIntro(CONFIG, { workspaceId: 'ws-1', conversationId: 'c-1', locale: 'fa' });
+      const preview = await maybeSendIntro(CONFIG, { workspaceId: 'ws-1', locale: 'fa', preview: true });
+      expect(preview).toMatchObject({ sent: true, preview: true, agentName: written.agentName, agentLogoUrl: written.agentLogoUrl, body: written.body });
+      expect(state.inserted).toHaveLength(1);
+    }
   });
 });

@@ -31,7 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import {
   Dialog,
@@ -66,14 +66,6 @@ function splitName(full: string | null | undefined): { first: string; last: stri
   const parts = full.trim().split(/\s+/);
   if (parts.length === 1) return { first: parts[0], last: '' };
   return { first: parts[0], last: parts.slice(1).join(' ') };
-}
-
-function getInitials(name: string | null | undefined, email: string | null | undefined): string {
-  const source = (name || email || '').trim();
-  if (!source) return '?';
-  const parts = source.split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 const SUPPORTED_AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
@@ -118,7 +110,7 @@ export default function SettingsProfilePage() {
       qc.invalidateQueries({ queryKey: ['account', 'me'] });
       qc.invalidateQueries({ queryKey: ['profile'] });
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: t('account.saveError'), description: err?.message, variant: 'destructive' });
     },
   });
@@ -141,7 +133,7 @@ export default function SettingsProfilePage() {
             : prev.profile,
         };
       });
-      qc.setQueriesData<any>({ queryKey: ['profile'] }, (prev: any) => {
+      qc.setQueriesData<{ avatar_url?: string | null }>({ queryKey: ['profile'] }, (prev) => {
         if (!prev) return prev;
         return { ...prev, avatar_url: bustedUrl ?? prev.avatar_url };
       });
@@ -149,7 +141,7 @@ export default function SettingsProfilePage() {
       qc.invalidateQueries({ queryKey: ['profile'] });
       toast({ title: t('account.avatarUpdated') });
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: t('account.uploadFailed'), description: err?.message, variant: 'destructive' });
     },
   });
@@ -164,7 +156,7 @@ export default function SettingsProfilePage() {
           profile: prev.profile ? { ...prev.profile, avatar_url: null } : prev.profile,
         };
       });
-      qc.setQueriesData<any>({ queryKey: ['profile'] }, (prev: any) => {
+      qc.setQueriesData<{ avatar_url?: string | null }>({ queryKey: ['profile'] }, (prev) => {
         if (!prev) return prev;
         return { ...prev, avatar_url: null };
       });
@@ -216,7 +208,7 @@ export default function SettingsProfilePage() {
           description: t('auth.resendCheckInbox').replace('{email}', result.email || me.email),
         });
       }
-    } catch (err: any) {
+    } catch (err) {
       const description =
         err instanceof ResendVerificationError && err.code === 'too_many_requests'
           ? t('auth.resendCooldownSeconds').replace('{seconds}', String(err.retryAfterSeconds || 60))
@@ -516,7 +508,7 @@ function ChangePasswordDialog({
       reset();
       onOpenChange(false);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       const msg = err?.message || '';
       if (msg.toLowerCase().includes('current password')) {
         setError(t('account.passwordCurrentWrong'));

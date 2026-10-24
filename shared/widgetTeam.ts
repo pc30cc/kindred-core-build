@@ -1,10 +1,9 @@
 /**
  * The widget's team: who GET /config sends as `teamMembers` (the home view's
- * team stack) and which letter the agent's face wears (`fab.initial`,
- * launcherStyles.ts). One rule for the server
- * (server/services/widget/configSnapshot.ts) and the dashboard (the
- * launcher picker and the live preview, src/pages/app/WidgetPage.tsx), so
- * the preview shows the people and the letter a visitor will see:
+ * team stack). One rule for the server
+ * (server/services/widget/configSnapshot.ts) and the dashboard (the live
+ * preview, src/pages/app/WidgetPage.tsx), so the preview shows the people a
+ * visitor will see:
  *
  *   - only the members who receive chats (isWidgetTeamMember: the owner or
  *     a team member, shared/chatRoles.ts, not suspended, "Receive chats
@@ -21,15 +20,16 @@
  *   - online first (customer availability: manual status and schedule, as
  *     the visitor's green dots), in that order otherwise.
  *
- * The agent face's letter is the first character that shows of the first
- * of those names (the stack's, so it is the face t1's header draws for the
- * same person), else the workspace's name (launcherInitial).
+ * A member without a photo, and the agent's face on the launcher, wear the
+ * person silhouette (shared/avatarGlyphs.ts), never a letter (owner,
+ * 2026-10-24); launcherInitial here only tells whether a name has anything
+ * that shows.
  */
 import { launcherInitial } from './launcherStyles.js';
 import { visitorDisplayName } from './systemMessages.js';
 import { isRoutableChatRole } from './chatRoles.js';
 
-/** How many members the widget shows (and the agent face picks from). */
+/** How many members the widget shows. */
 export const WIDGET_TEAM_SIZE = 4;
 
 /** A member's name in the team stack when their profile has none, by the widget's language (English for any other). */
@@ -92,16 +92,4 @@ export function widgetTeamName(fullName: string | null | undefined, locale: stri
 /** Online members first, the team's order otherwise. */
 export function onlineFirst<T extends { online: boolean }>(team: readonly T[]): T[] {
   return [...team].sort((a, b) => Number(b.online) - Number(a.online));
-}
-
-/**
- * The agent face's letter: the team (online first) by their stack names
- * (widgetTeamName), then the workspace's name; '' when none has a
- * character that shows.
- */
-export function agentFaceInitial(
-  team: ReadonlyArray<{ name: string; online: boolean }>,
-  workspaceName: string | null | undefined,
-): string {
-  return launcherInitial([...onlineFirst(team).map((m) => m.name), workspaceName]);
 }

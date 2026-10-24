@@ -73,7 +73,7 @@ import {
 } from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
 import { resolveLauncherStyle } from '../../../shared/launcherStyles.js';
-import { agentFaceInitial, onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
+import { onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
 import { isAuthoredWidgetText, resolveWelcomeMessage, widgetTextDefault } from '../../../shared/widgetTextDefaults.js';
@@ -1333,12 +1333,9 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       icon: launcher.icon,
       helpIcon: ws.fab_help_icon || 'help_circle',
       shape: launcher.shape,
-      // The agent's face shows the first operator's initial by the stack's
-      // name (online first, as the stack), else the workspace's. The
-      // dashboard picks it by the same rule (shared/widgetTeam.ts).
-      ...(launcher.icon === 'avatar' ? {
-        initial: agentFaceInitial(teamMembers, typeof ws.brand_name === 'string' ? ws.brand_name : workspace?.name),
-      } : {}),
+      // The agent's face is a person's silhouette (runtime-fab.css), never a
+      // letter (owner, 2026-10-24): no `initial` is sent, not even the
+      // workspace's.
       label: ws.fab_label || '',
       chatLabel: ws.fab_chat_label || '',
       helpLabel: ws.fab_help_label || '',

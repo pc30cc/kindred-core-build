@@ -29,7 +29,7 @@ import {
 } from '../../../../shared/localKitLauncher';
 import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
 import { resolveLauncherStyle } from '../../../../shared/launcherStyles';
-import { agentFaceInitial, onlineFirst, widgetTeamName } from '../../../../shared/widgetTeam';
+import { onlineFirst, widgetTeamName } from '../../../../shared/widgetTeam';
 import { WIDGET_UNCUSTOMISED_COLOR, widgetAccentColor, widgetOwnColor } from '../../../../shared/widgetColor';
 import { isAuthoredWidgetText, widgetTextDefault } from '../../../../shared/widgetTextDefaults';
 import {
@@ -193,7 +193,7 @@ export interface WidgetLivePreviewProps {
   onViewChange?: (view: PreviewView) => void;
   /** Operator profile picture shown next to chat bubbles (not the workspace logo). */
   operatorAvatar?: string | null;
-  /** Operator display name — used for the initial fallback avatar. */
+  /** Operator display name: the thread's sender and the chat header's name. */
   operatorName?: string | null;
   /**
    * The template to render: the one the workspace's visitors wear (resolved
@@ -368,27 +368,23 @@ export function WidgetLivePreview({
     const fabIcon = customIcon ? FAB_ICONS[s.fab_icon as string] : FAB_ICONS.chat;
     // A launcher style (the pill, the bubble, two bubbles, the agent's face):
     // the loader's classes and texts on the same markup, its look from
-    // runtime-fab.css (asked for in the frame, through the manifest). The
-    // team named as /config names it, in the frame's language, and the
-    // agent's letter as /config picks it (shared/widgetTeam.ts): the team,
-    // online first, by those names, then the workspace's name.
+    // runtime-fab.css (asked for in the frame, through the manifest); the
+    // agent's face is a person's silhouette there, never a letter. The team
+    // named as /config names it, in the frame's language
+    // (shared/widgetTeam.ts).
     const team = (teamMembers || []).map(({ name, fullName, avatar, online }) => ({
       name: fullName !== undefined ? widgetTeamName(fullName, locale) : name,
       avatar,
       online,
     }));
     const fabStyled = launcher.styled;
-    const fabInitial = launcher.icon === 'avatar'
-      ? agentFaceInitial(team, typeof s.brand_name === 'string' ? s.brand_name : workspaceName || brandName)
-      : '';
     const fabStyleAttrs = fabStyled
-      ? ` data-fx="${esc(s.fab_label || '')}" data-fi="${esc(fabInitial)}" dir="${/^fa/.test(locale) ? 'rtl' : 'ltr'}" style="visibility:hidden"`
+      ? ` data-fx="${esc(s.fab_label || '')}" dir="${/^fa/.test(locale) ? 'rtl' : 'ltr'}" style="visibility:hidden"`
       : '';
     const fabStyleClass = fabStyled ? ` fx fx-${launcher.icon} fx-${launcher.shape}${away ? ' fx-off' : ''}` : '';
     const rawFabImage = typeof s.fab_image_url === 'string' ? s.fab_image_url.trim() : '';
     const fabImage = /^https?:\/\//i.test(rawFabImage) ? rawFabImage : '';
     const logo = s.show_logo !== false && s.logo_url ? String(s.logo_url) : '';
-    const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
     // Strict AND: either column being explicitly false hides the KB surface,
     // exactly like the production bootstrap (`features.knowledgeBase`).

@@ -2,14 +2,16 @@
  * The dashboard's live preview draws the launcher's styles (issue #340,
  * g5-1: the pill, the classic bubble, two bubbles, the agent's face) the way
  * the loader does on a site: the same classes and texts on the same markup
- * (`fx fx-<icon> fx-<shape>`, the pill's text in `data-fx`, the agent's
- * letter in `data-fi`, `dir`), the look from runtime-fab.css (asked for in
- * the frame through the manifest, as every widget file there), the launcher
- * and its card unseen until it is in. The agent's letter and the team stack
- * follow /config's rule (shared/widgetTeam.ts), in every preview of the page
- * (the Appearance tab's, the smart studio's). A launcher without a style
- * is drawn as before; an icon named after an Object.prototype key is the
- * chat glyph; the kit's square has its 18px corners.
+ * (`fx fx-<icon> fx-<shape>`, the pill's text in `data-fx`, `dir`), the
+ * look from runtime-fab.css (asked for in the frame through the manifest, as
+ * every widget file there), the launcher and its card unseen until it is in.
+ * The agent's face is a person's silhouette (runtime-fab.css), never a
+ * letter: no `data-fi`, not the operator's, not the workspace's (owner,
+ * 2026-10-24). The team stack follows /config's rule (shared/widgetTeam.ts),
+ * in every preview of the page (the Appearance tab's, the smart studio's). A
+ * launcher without a style is drawn as before; an icon named after an
+ * Object.prototype key is the chat glyph; the kit's square has its 18px
+ * corners.
  *
  * RESPOK's button follows the build as the loader does (`@intl-kit`): an
  * Iran-brand build previews the plain launcher in the International edition,
@@ -21,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { WidgetLivePreview } from '@/components/app/widget/WidgetLivePreview';
 import { SmartRulePreviewStudio } from '@/components/app/widget/smart/SmartRulePreviewStudio';
-import { previewAgentInitial, previewTeam } from '@/components/app/widget/previewTeam';
+import { previewTeam } from '@/components/app/widget/previewTeam';
 import type { WorkspaceMember } from '@/hooks/useWorkspaceMembers';
 import type { OperatorPresence } from '@/hooks/useTeamPresence';
 import { createEmptySmartRule } from '@/lib/widget/smartRules';
@@ -68,7 +70,7 @@ function frame(settings: Record<string, unknown>, opts: { view?: 'home' | 'offli
   };
 }
 
-/** What the loader adds for a style (public/widget/loader.js applyFabConfig). */
+/** What the loader adds for a style (public/widget/loader.js applyFabConfig), and the letter it once carried. */
 const FX_ATTRS = ['data-fx', 'data-fi', 'dir'];
 
 describe('a launcher without a style is drawn as before', () => {
@@ -109,23 +111,23 @@ describe('a launcher wearing a style', () => {
     expect(payload.fabStyled).toBe(true);
     expect(launcher.className.split(' ')).toEqual(expect.arrayContaining(['launcher', 'lk-kit', 'fx', 'fx-chat', 'fx-pill']));
     expect(launcher.getAttribute('data-fx')).toBe('سؤالی دارید؟ بپرسید');
-    expect(launcher.getAttribute('data-fi')).toBe('');
+    expect(launcher.hasAttribute('data-fi')).toBe(false);
     expect(launcher.getAttribute('dir')).toBe('rtl');
     expect(launcher.style.visibility).toBe('hidden');
     expect(launcher.querySelector('svg.chat-icon.lk-kit-glyph')).not.toBeNull();
     expect(card).toBeNull();
   });
 
-  it('the agent\'s face: the first online operator\'s letter; the dot goes while the team is away; the card waits too', () => {
+  it('the agent\'s face: a silhouette, never a letter; the dot goes while the team is away; the card waits too', () => {
     const { launcher, card } = frame({ fab_icon: 'avatar', fab_label: 'گفتگو با ما' });
     expect(launcher.className).toContain('fx fx-avatar fx-circle');
     expect(launcher.className).not.toContain('fx-off');
-    expect(launcher.getAttribute('data-fi')).toBe('س');
+    expect(launcher.hasAttribute('data-fi')).toBe(false);
     expect(card!.getAttribute('style')).toBe('visibility:hidden');
     expect(frame({ fab_icon: 'avatar' }, { view: 'offline' }).launcher.className).toContain('fx-off');
   });
 
-  it('the agent\'s face reads the stack\'s names: a nameless operator is the frame\'s word for an operator; the stack is online first, as /config sends it', () => {
+  it('the stack\'s names: a nameless operator is the frame\'s word for an operator; the stack is online first, as /config sends it; no letter', () => {
     // As WidgetPage passes the team (previewTeam.ts): the stack's name, and
     // their own, from which the frame names them in its own language.
     const team = [
@@ -145,7 +147,7 @@ describe('a launcher wearing a style', () => {
       };
     };
     expect(drawn('fa')).toEqual({
-      letter: 'ا',
+      letter: null,
       stack: [
         { name: 'اپراتور', avatar: null, online: true },
         { name: 'سارا', avatar: null, online: true },
@@ -153,7 +155,7 @@ describe('a launcher wearing a style', () => {
       ],
     });
     expect(drawn('tr').stack[0]).toEqual({ name: 'Operatör', avatar: null, online: true });
-    expect(drawn('en').letter).toBe('O');
+    expect(drawn('en').letter).toBeNull();
   });
 
   it('the smart studio\'s frame wears the agent face and the team of the Appearance preview and the picker', () => {
@@ -189,18 +191,19 @@ describe('a launcher wearing a style', () => {
         locale="fa" locales={['fa']} localeLabels={{ fa: 'فارسی' }} teamMembers={team}
       />,
     );
-    expect(previewAgentInitial(team, 'نیلوفر')).toBe('س');
-    expect(appearance.letter).toBe('س');
+    expect(appearance.letter).toBeNull();
+    expect(appearance.stack).toHaveLength(2);
     expect(studio).toEqual(appearance);
     expect(JSON.stringify(studio)).not.toContain('example.com');
   });
 
-  it('the agent\'s face without a team: the workspace\'s letter', () => {
+  it('the agent\'s face without a team: still no letter, not the workspace\'s', () => {
     const { container } = render(
       <WidgetLivePreview settings={{ widget_language: 'en', fab_icon: 'avatar', brand_name: 'Acme' }} view="home" teamMembers={[]} templateId="default" templateOptions={{}} />,
     );
     const doc = container.querySelector('iframe')!.getAttribute('srcdoc') || '';
-    expect(new DOMParser().parseFromString(doc, 'text/html').getElementById('gs-launcher')!.getAttribute('data-fi')).toBe('A');
+    expect(new DOMParser().parseFromString(doc, 'text/html').getElementById('gs-launcher')!.hasAttribute('data-fi')).toBe(false);
+    expect(doc).not.toContain('data-fi=');
   });
 
   it.each(['bubble', 'duo'])('%s: its classes, LTR in English', (icon) => {

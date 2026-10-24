@@ -2065,7 +2065,7 @@ const tr: TranslationKeys = {
       localeLabel: 'Dil',
       authorLabel: 'Yazar',
       authorNone: 'Yazar gösterilmesin',
-      authorHint: 'Adı ve baş harfi widget\'ta makale başlığının altında görünür.',
+      authorHint: 'Adı widget\'ta makale başlığının altında görünür.',
       authorInvalid: 'Bu kişi artık bu çalışma alanının üyesi değil. Başka bir yazar seçin.',
       excerptLabel: 'Özet / Meta açıklama',
       excerptPlaceholder: 'Arama sonuçları için kısa açıklama',

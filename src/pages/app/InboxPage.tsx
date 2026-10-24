@@ -47,7 +47,7 @@ import {
   UserCheck, AlertCircle, Clock, X,
   Mail, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
-  MessageCircle, Hash, FileText, Download, ImageIcon,
+  Hash, FileText, Download, ImageIcon,
   Ban, ShieldOff, Users, Play, Pause, Mic, Building2, RotateCcw,
 } from 'lucide-react';
 import {
@@ -75,7 +75,8 @@ import { interpolate, unresolvedPlaceholders } from '@/components/canned-respons
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
-import { Zap, UserRound } from 'lucide-react';
+import { Zap } from 'lucide-react';
+import { OperatorSilhouette, WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAttachmentView';
 import { ChannelBadge, ChannelIdentityCard, resolveChannelKey } from '@/components/inbox/ChannelBadge';
@@ -2097,8 +2098,8 @@ export default function InboxPage() {
                 style={{ boxShadow: 'var(--shadow-glow)' }}
               />
             ) : (
-              <div data-inbox="empty-tile" className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
-                <MessageCircle className="h-8 w-8 text-primary-foreground" />
+              <div data-inbox="empty-tile" className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center text-primary-foreground" style={{ boxShadow: 'var(--shadow-glow)' }}>
+                <WorkspaceGlyph />
               </div>
             )}
             <h2 className="text-lg font-semibold text-foreground">{workspace?.name || t('nav.inbox') || 'Inbox'}</h2>
@@ -2513,7 +2514,7 @@ export default function InboxPage() {
                           ) : isAi ? (
                             <Bot className="w-[18px] h-[18px]" />
                           ) : (
-                            <UserRound className="w-[20px] h-[20px]" />
+                            <OperatorSilhouette />
                           )}
                         </div>
                       ) : (

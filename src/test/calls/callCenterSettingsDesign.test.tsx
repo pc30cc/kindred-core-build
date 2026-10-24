@@ -539,7 +539,7 @@ describe('the live preview', () => {
     expect(boot.config).not.toHaveProperty('logoDirection');
     expect(boot.presence).toEqual({
       any_available: true,
-      operators: [{ name: null, initial: '', avatar_url: null }, { name: 'Sara Ahmadi', initial: 'S', avatar_url: null }],
+      operators: [{ name: null, avatar_url: null }, { name: 'Sara Ahmadi', avatar_url: null }],
     });
     expect(JSON.stringify(boot)).not.toContain('@');
   });

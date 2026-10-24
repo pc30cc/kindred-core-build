@@ -8,7 +8,8 @@ import { useWorkspaces } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
+import { LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
+import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { resendMyVerificationEmail } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useEffect, useRef, useState } from 'react';
@@ -150,7 +151,7 @@ export function WorkspaceRedirect() {
     <div dir={dir} className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md text-center space-y-6">
         <div className="mx-auto w-20 h-20 rounded-2xl bg-muted flex items-center justify-center">
-          <Building2 className="h-10 w-10 text-muted-foreground/60" />
+          <WorkspaceGlyph className="h-10 w-10 text-muted-foreground/60" />
         </div>
 
         <div className="space-y-2">

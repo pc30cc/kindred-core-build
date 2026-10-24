@@ -1,24 +1,26 @@
 // @vitest-environment node
 /**
- * The agent face's letter is the same on the visitor's launcher and in the
- * dashboard (issue #340, g5-1): GET /config (`fab.initial`, `teamMembers`,
- * server/services/widget/configSnapshot.ts) and the launcher picker / live
- * preview (src/components/app/widget/previewTeam.ts, fed by
- * /api/workspace-members and /api/availability/team) read the same rows by
- * one rule, shared/widgetTeam.ts:
+ * The agent's face and the team stack are the same on the visitor's launcher
+ * and in the dashboard (issue #340, g5-1): GET /config (`teamMembers`,
+ * server/services/widget/configSnapshot.ts) and the live preview
+ * (src/components/app/widget/previewTeam.ts, fed by /api/workspace-members
+ * and /api/availability/team) read the same rows by one rule,
+ * shared/widgetTeam.ts:
  *
  *   - the same members (the first four to join), in the same order, online
  *     by the same customer availability (not the dashboard's connection
  *     state), under the same names: a nameless operator is the widget's
  *     word for an operator in its language on both sides (the dashboard
  *     used their email, /config an English "Operator" in every language);
- *   - the same letter, from those names;
+ *   - no letter: the face is a person's silhouette (owner, 2026-10-24), so
+ *     /config sends no `fab.initial`, not the operator's, not the
+ *     workspace's;
  *   - no email reaches the visitor's config.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Request } from 'express';
 import { createFakeDb, allowAllRpc, widgetScenarioTables, WS, type FakeDb } from './widgetConfigFakeDb';
-import { previewAgentInitial, previewTeam } from '@/components/app/widget/previewTeam';
+import { previewTeam } from '@/components/app/widget/previewTeam';
 import type { WorkspaceMember } from '@/hooks/useWorkspaceMembers';
 import type { OperatorPresence } from '@/hooks/useTeamPresence';
 import { onlineFirst } from '../../../shared/widgetTeam';
@@ -95,7 +97,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); });
 
-const SCENARIOS: Array<{ title: string; brand: string; people: Person[]; letter: string }> = [
+const SCENARIOS: Array<{ title: string; brand: string; people: Person[] }> = [
   {
     title: 'a nameless operator joined first and is online: «اپراتور» leads on both sides',
     brand: 'نیلوفر',
@@ -104,16 +106,14 @@ const SCENARIOS: Array<{ title: string; brand: string; people: Person[]; letter:
       { n: 2, joined: '2026-10-02T09:00:00+00:00', name: 'Reza', available: false },
       { n: 3, joined: '2026-10-03T09:00:00+00:00', name: 'سارا', available: true },
     ],
-    letter: 'ا',
   },
   {
-    title: 'a name pasted with an RLM before it: its first letter that shows',
+    title: 'a name pasted with an RLM before it: the same stack on both sides',
     brand: 'نیلوفر',
     people: [
       { n: 1, joined: '2026-10-01T09:00:00+00:00', name: 'Reza', available: false },
       { n: 2, joined: '2026-10-02T09:00:00+00:00', name: '\u200fسارا', available: true },
     ],
-    letter: 'س',
   },
   {
     title: 'five members: the fifth to join (online, named) is in neither team',
@@ -125,16 +125,14 @@ const SCENARIOS: Array<{ title: string; brand: string; people: Person[]; letter:
       { n: 4, joined: '2026-10-04T09:00:00+00:00', name: null, available: false },
       { n: 2, joined: '2026-10-02T09:00:00+00:00', name: 'Omid', available: false },
     ],
-    letter: 'M',
   },
   {
-    title: 'nobody has a name: the word\'s letter on both sides',
+    title: 'nobody has a name: the widget\'s word for an operator on both sides',
     brand: 'وب‌سایت من',
     people: [
       { n: 1, joined: '2026-10-01T09:00:00+00:00', name: null, available: true },
       { n: 2, joined: '2026-10-02T09:00:00+00:00', name: null, available: false },
     ],
-    letter: 'ا',
   },
   {
     // Staff never answer a visitor (shared/chatRoles.ts), nor a suspended
@@ -150,20 +148,19 @@ const SCENARIOS: Array<{ title: string; brand: string; people: Person[]; letter:
       { n: 5, joined: '2026-10-05T09:00:00+00:00', name: 'Nika', available: false, role: 'support_agent' },
       { n: 6, joined: '2026-10-06T09:00:00+00:00', name: 'Elham', available: true, role: 'team_lead' },
     ],
-    letter: 'E',
   },
-  { title: 'no members: the workspace\'s letter', brand: 'Acme', people: [], letter: 'A' },
+  { title: 'no members: no letter, not even the workspace\'s', brand: 'Acme', people: [] },
 ];
 
-describe('the agent face: the visitor\'s launcher and the dashboard pick the same letter', () => {
-  it.each(SCENARIOS)('$title', async ({ people, brand, letter }) => {
+describe('the agent face: the visitor\'s launcher and the dashboard show the same team, and no letter', () => {
+  it.each(SCENARIOS)('$title', async ({ people, brand }) => {
     const visitor = await visitorConfig(people, brand);
     // The Iranian edition's widget speaks Persian (as WidgetPage's effectiveLocale).
     expect(visitor.locale).toBe('fa');
     const team = dashboardTeam(people, 'fa');
 
-    expect(visitor.fab.initial).toBe(letter);
-    expect(previewAgentInitial(team, brand)).toBe(letter);
+    expect(visitor.fab.icon).toBe('avatar');
+    expect(visitor.fab).not.toHaveProperty('initial');
     // The same people, order and dots as the stack the preview draws.
     expect(onlineFirst(team).map(({ name, avatar, online }) => ({ name, avatar, online }))).toEqual(visitor.teamMembers);
     expect(JSON.stringify(visitor)).not.toContain('@example.com');

@@ -17,7 +17,7 @@ import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAtta
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { cn } from '@/lib/utils';
 import { useTranslation, type TranslationKey } from '@/i18n';
@@ -45,13 +45,6 @@ function clock(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s < 10 ? '0' : ''}${s}`;
-}
-
-function initials(name?: string | null, email?: string | null) {
-  const src = (name || email || '?').trim();
-  const parts = src.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return src.slice(0, 2).toUpperCase();
 }
 
 export default function TeamChatPanel() {

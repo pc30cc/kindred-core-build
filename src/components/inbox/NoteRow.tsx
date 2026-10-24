@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,7 +35,6 @@ export function NoteRow({ note, canEdit, isDeleting, isUpdating, onUpdate, onDel
   const cancel = () => { setDraft(note.body); setEditing(false); };
 
   const author = note.author;
-  const initial = (author?.full_name?.[0] || author?.email?.[0] || '?').toUpperCase();
   const edited = note.updated_at && note.updated_at !== note.created_at;
 
   return (
@@ -43,7 +42,7 @@ export function NoteRow({ note, canEdit, isDeleting, isUpdating, onUpdate, onDel
       <div className="flex items-start gap-2">
         <Avatar className="h-6 w-6 shrink-0">
           {author?.avatar_url && <AvatarImage src={author.avatar_url} alt="" />}
-          <OperatorAvatarFallback />
+          <OperatorAvatarFallback iconClassName="h-[68%] w-[68%]" />
         </Avatar>
 
         <div className="min-w-0 flex-1">

@@ -9,7 +9,8 @@
  *                     created, no quota spent), never an older ended one;
  *                     a named resolved one with a newer open or pending one
  *                     beside it goes to that one; the signed visitor alone
- *                     decides (a body visitor_id names nobody); one lock per
+ *                     decides (a body visitor_id names nobody, a body
+ *                     session_id counts only when it is theirs); one lock per
  *                     visitor; a reply_to that is no message id is dropped.
  *   ai_intro          the greeting the visitor saw is stored before their
  *                     first message, the conversation born the AI's, only by
@@ -373,6 +374,24 @@ describe('POST /message: force_new_conversation is ignored while the visitor has
     expect(res.body).toMatchObject({ conversation_id: newest.id, continued: true });
   });
 
+  it('behind more newer rows than a window holds (the contact\'s other channels, unanswered greetings): still the live one', async () => {
+    const live = conversation({ status: 'resolved', updated_at: ago(500) });
+    message(live.id, 'contact');
+    // A verified contact's email and Telegram threads, resolved (live, but not the widget's).
+    for (let i = 0; i < 12; i++) {
+      conversation({ status: 'resolved', metadata: { channel: i % 2 ? 'telegram' : 'email' }, visitor_session_id: null, updated_at: ago(i + 1) });
+    }
+    // An older widget's greeting-only rows, one per "+ New conversation".
+    for (let i = 0; i < 12; i++) {
+      const g = conversation({ metadata: { source: 'ai_agent_intro', ai_state: 'ai_managed' }, updated_at: ago(20 + i) });
+      message(g.id, 'ai', { metadata: { source: 'ai_agent_intro' } });
+    }
+    const res = await send({ message: 'سلام', force_new_conversation: true, client_message_id: 'cmid-new-0008' });
+    expect(res.body).toMatchObject({ conversation_id: live.id, continued: true });
+    expect(created()).toHaveLength(0);
+    expect(messagesOf(live.id).map((m) => m.body)).toEqual(['x', 'سلام']);
+  });
+
   it('a retry of a new thread\'s first message finds the thread it created: one conversation, one row, one lock per visitor', async () => {
     const first = await send({ message: 'سؤال', force_new_conversation: true, client_message_id: 'cmid-retry-01' });
     // Now that thread is live: the retry carries force_new again and lands in it.
@@ -446,7 +465,7 @@ describe('POST /message: a named conversation that cannot take it, or a resolved
   });
 });
 
-describe('POST /message: the signed visitor decides, never body.visitor_id', () => {
+describe('POST /message: the signed visitor decides, never body.visitor_id or body.session_id', () => {
   it('a body visitor_id of another visitor selects neither their contact nor their conversation', async () => {
     const theirs = conversation({ contact_id: OTHER_CONTACT, visitor_session_id: null, status: 'open' });
     const res = await send({ message: 'سلام', visitor_id: OTHER_VISITOR, client_message_id: 'cmid-forged-01' });
@@ -462,6 +481,28 @@ describe('POST /message: the signed visitor decides, never body.visitor_id', () 
     const res = await send({ message: 'دو', client_message_id: 'cmid-plain-002' });
     expect(res.body.conversation_id).toBe(mine.id);
     expect(res.body.continued).toBeUndefined();
+  });
+
+  it('a body session_id of another visitor\'s session: their conversation untouched, nothing linked to their session, pinned or filed under it', async () => {
+    const otherSession = String((state.db.tables.visitor_sessions as Row[])[1].id);
+    const theirs = conversation({ contact_id: OTHER_CONTACT, visitor_session_id: otherSession, status: 'open', updated_at: ago(1) });
+    const res = await send({ message: 'سلام', session_id: otherSession, client_message_id: 'cmid-forged-02' });
+    expect(res.status).toBe(200);
+    expect(res.body.conversation_id).not.toBe(theirs.id);
+    expect(messagesOf(theirs.id)).toHaveLength(0);
+    expect(created()[0].args).toMatchObject({ p_match_session_id: null, p_visitor_session_id: SESSION });
+    expect(state.contactCalls[0]).toMatchObject({ visitorId: VISITOR, sessionId: null });
+    const mine = (state.db.tables.conversations as Row[]).find((c) => c.id === res.body.conversation_id);
+    expect(mine).toMatchObject({ visitor_session_id: SESSION });
+    expect((messagesOf(mine?.id)[0].metadata as Row).session_id).toBeUndefined();
+  });
+
+  it('the visitor\'s own session in the body (an older widget) still counts', async () => {
+    const res = await send({ message: 'سلام', session_id: SESSION, client_message_id: 'cmid-own-03' });
+    expect(res.status).toBe(200);
+    expect(created()[0].args).toMatchObject({ p_match_session_id: SESSION, p_visitor_session_id: SESSION });
+    expect(state.contactCalls[0]).toMatchObject({ sessionId: SESSION });
+    expect((messagesOf(res.body.conversation_id)[0].metadata as Row).session_id).toBe(SESSION);
   });
 });
 

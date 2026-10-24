@@ -120,7 +120,7 @@ arriving at the same moment spread out instead of all landing on one person.
   Nothing is written at an assignment (routing, a claim, Take over, a
   transfer), so the line never names someone who has not written and never
   comes after their message. A transfer is an Inbox-only line ("A
-  transferred this conversation to B", internal). A chat the operator
+  transferred this conversation to B", internal). A new chat the operator
   opens from the Visitors page gets no line: the visitor has not written
   yet. A platform admin who holds an Inbox seat in the workspace claims an
   unassigned chat on reply like any member; one without a seat claims
@@ -147,6 +147,18 @@ arriving at the same moment spread out instead of all landing on one person.
   nobody holds; a thread its operator keeps (or reopens by hand) is a human
   takeover, and the AI, in either auto mode, never answers a conversation an
   operator holds.
+- **Reaching out** (Visitors → Start chat, `POST
+  /api/conversations/start-from-visitor`, R-29): the operator writes in the
+  visitor's live conversation (open, pending or resolved), never a second
+  one beside it; with none, a new one, theirs. The operator reaching out is
+  who the visitor's answer goes to: an unassigned one becomes theirs (a
+  claim), and a resolved one is reopened and taken from whoever resolved it
+  (method `manual`, source `visitor_outreach`, with the Inbox's transfer
+  line), theirs to continue, so the visitor's answer is not routed again. A
+  platform admin reaching out takes nothing: the reopened chat keeps its
+  operator, who is looked at again, as for any reopen, when the visitor
+  answers. A chat the plan locked (past its retention) is never continued:
+  the outreach starts a new conversation.
 - **Phones**: a customer message in an unassigned chat reaches those whose
   push scope is "All conversations"; "Assigned to me" (`push_scope`
   `assigned`, the wording of the phone and desktop apps) is their own

@@ -5,10 +5,11 @@
  * Enough of the chain for those services and the widget routes around them:
  * select (with a head count), eq / neq / in / gte / lte / is / contains /
  * not(…, 'is', null) / filter('col->>key', 'eq', v) filters, order, limit,
- * single / maybeSingle, insert (… select().single()), update (through
+ * range, single / maybeSingle, insert (… select().single()), update (through
  * `db.beforeUpdate`, a trigger's stand-in), upsert, delete (… select()) and
  * rpc (answered by `db.rpc`). `or('a.eq.x,b.in.(y,z)')` is ignored unless
- * `db.honourOr` is set; then its `eq`, `neq`, `in` and `is.null` terms filter.
+ * `db.honourOr` is set; then its `eq`, `neq`, `in` and `is.null` terms filter,
+ * on a column or a `col->>key` jsonb field (several `.or()` all apply).
  *
  * `missing` tables answer 42P01 (a database before migration 276), `failing`
  * ones a plain error; `conversation_ratings.closed_message_id` and a
@@ -44,8 +45,25 @@ export interface FakeServiceDb {
 /** One `.or()` string as a row test: a row matches when any term does. */
 function orFilter(expr: string): (r: Row) => boolean {
   const terms: Array<(r: Row) => boolean> = [];
-  for (const m of expr.matchAll(/(\w+)\.(eq|neq|is|in)\.(\([^)]*\)|[^,]*)/g)) {
+  for (const m of expr.matchAll(/(\w+(?:->>\w+)?)\.(eq|neq|is|in)\.(\([^)]*\)|[^,]*)/g)) {
     const [, col, op, raw] = m;
+    // `col->>key`: a jsonb text field, NULL when absent (as in SQL, where
+    // NULL equals nothing and differs from nothing).
+    const path = /^(\w+)->>(\w+)$/.exec(col);
+    if (path) {
+      const at = (r: Row) => {
+        const doc = r[path[1]];
+        const v = doc && typeof doc === 'object' ? (doc as Row)[path[2]] : undefined;
+        return v === undefined || v === null ? null : String(v);
+      };
+      if (op === 'is') terms.push((r) => at(r) === null);
+      else if (op === 'in') {
+        const vals = raw.replace(/^\(|\)$/g, '').split(',').filter(Boolean);
+        terms.push((r) => at(r) !== null && vals.includes(at(r) as string));
+      } else if (op === 'eq') terms.push((r) => at(r) !== null && at(r) === raw);
+      else terms.push((r) => at(r) !== null && at(r) !== raw);
+      continue;
+    }
     if (op === 'in') {
       const vals = raw.replace(/^\(|\)$/g, '').split(',').filter(Boolean);
       terms.push((r) => vals.includes(String(r[col])));
@@ -83,6 +101,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
     const filters: Array<(r: Row) => boolean> = [];
     let sort: { col: string; asc: boolean } | null = null;
     let max = Infinity;
+    let skip = 0;
     let head = false;
     let counting = false;
     let mode: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
@@ -100,7 +119,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
         const { col, asc } = sort;
         rows = rows.slice().sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
       }
-      return rows.slice(0, max);
+      return rows.slice(skip, skip + max);
     };
 
     function run(): { data: unknown; error: unknown; count?: number | null } {
@@ -188,6 +207,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
       or: (expr: string) => { if (db.honourOr) filters.push(orFilter(String(expr || ''))); return b; },
       order: (col: string, opts?: { ascending?: boolean }) => { sort = { col, asc: opts?.ascending !== false }; return b; },
       limit: (n: number) => { max = n; return b; },
+      range: (from: number, to: number) => { skip = from; max = to - from + 1; return b; },
       insert: (rows: Row | Row[]) => { mode = 'insert'; payload = Array.isArray(rows) ? rows : [rows]; return b; },
       upsert: (rows: Row | Row[]) => { mode = 'upsert'; payload = Array.isArray(rows) ? rows : [rows]; return b; },
       update: (p: Row) => { mode = 'update'; patch = p; return b; },

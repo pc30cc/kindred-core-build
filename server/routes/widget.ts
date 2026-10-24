@@ -47,6 +47,9 @@ import {
   liveConversationForNextMessage,
   resolveVisitorConversationScope,
   scopeOrFilter,
+  VISITOR_LIST_PAGE,
+  VISITOR_LIST_PAGES,
+  WIDGET_CHANNEL_FILTER,
   type VisitorConversationScope,
 } from '../services/widget/visitorConversations.js';
 import { isQualifiedCustomerFacingAnswer } from '../services/needsReply.js';
@@ -1147,40 +1150,21 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     // assignee is read either way: it tells an answered greeting from an
     // unanswered one.
     const withOperator = req.query.operator === '1';
-    // More than the 20 listed: hidden rows (another channel, an unanswered
-    // greeting) must not take the places of the visitor's own.
-    const { data: convos, error } = await supabase
-      .from('conversations')
-      .select('id, status, updated_at, assigned_to, source:metadata->>source, ai_state:metadata->>ai_state, channel:metadata->>channel, ended_at:metadata->>routing_thread_ended_at, reset_at:metadata->>ai_thread_reset_at')
-      .eq('workspace_id', workspaceId)
-      .or(orFilter)
-      .order('updated_at', { ascending: false })
-      .limit(30);
-    if (error) throw error;
-
+    // Read in windows (VISITOR_LIST_PAGE rows, VISITOR_LIST_PAGES at most)
+    // until 20 are listed: another channel's rows are left out in SQL, and an
+    // unanswered greeting below, so neither takes the place of one of the
+    // visitor's own (the live one above all, which findLiveVisitorConversation
+    // finds as far down).
     type ListedConversation = {
       id: string; status: string | null; updated_at: string; assigned_to: string | null;
       source: string | null; ai_state: string | null; channel: string | null;
       ended_at: string | null; reset_at: string | null;
     };
-    const fetched = ((convos || []) as ListedConversation[]).filter((c) => isWidgetConversation({ channel: c.channel }));
-    const convIds = fetched.map((c) => c.id);
 
     // Visitor-side read markers (widget_conversation_reads). Keyed by the
     // cookie-derived visitor id, so a visitor only ever sees their own
     // read state.
     const readAtByConv: Record<string, number> = {};
-    if (convIds.length > 0) {
-      const { data: reads } = await supabase
-        .from('widget_conversation_reads')
-        .select('conversation_id, last_read_at')
-        .eq('workspace_id', workspaceId)
-        .eq('visitor_id', visitorId)
-        .in('conversation_id', convIds);
-      for (const r of (reads || [])) {
-        readAtByConv[r.conversation_id] = new Date(r.last_read_at).getTime();
-      }
-    }
 
     // Last message per conversation (preview + lastMessageAt) and the real
     // unread count: inbound messages (operator / ai / bot / system) created
@@ -1201,17 +1185,30 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     const repliesByConv: Record<string, number> = {};
     const visitorWrote = new Set<string>();
     const agentWrote = new Set<string>();
-    // The window holds every message of the listed conversations unless it
-    // came back full; only then is "nobody wrote" read again per row below.
-    let windowFull = false;
-    if (convIds.length > 0) {
+
+    /** One window's read markers and messages, into the maps above. */
+    const readWindow = async (fetched: ListedConversation[]) => {
+      const convIds = fetched.map((c) => c.id);
+      if (convIds.length === 0) return;
+      const { data: reads } = await supabase
+        .from('widget_conversation_reads')
+        .select('conversation_id, last_read_at')
+        .eq('workspace_id', workspaceId)
+        .eq('visitor_id', visitorId)
+        .in('conversation_id', convIds);
+      for (const r of (reads || [])) {
+        readAtByConv[r.conversation_id] = new Date(r.last_read_at).getTime();
+      }
+
+      // The window holds every message of its conversations unless it came
+      // back full; only then is "nobody wrote" read again per row below.
       const { data: msgs } = await supabase
         .from('conversation_messages')
         .select('conversation_id, body, created_at, sender_type, metadata')
         .in('conversation_id', convIds)
         .order('created_at', { ascending: false })
         .limit(CONVERSATION_LIST_MESSAGE_WINDOW);
-      windowFull = (msgs || []).length >= CONVERSATION_LIST_MESSAGE_WINDOW;
+      const windowFull = (msgs || []).length >= CONVERSATION_LIST_MESSAGE_WINDOW;
       for (const m of (msgs || [])) {
         if (m.sender_type === 'contact') visitorWrote.add(m.conversation_id);
         else if (m.sender_type === 'agent') agentWrote.add(m.conversation_id);
@@ -1249,36 +1246,52 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
           }
         }
       }
-    }
 
-    // Past the window: whether the visitor (and, for an intro-made row, a
-    // person) ever wrote, one indexed read each, only when the window was
-    // full and did not settle it.
-    if (windowFull) {
-      const wrote = async (conversationId: string, senderType: 'contact' | 'agent') => {
-        const { data } = await supabase
-          .from('conversation_messages')
-          .select('id')
-          .eq('conversation_id', conversationId)
-          .eq('sender_type', senderType)
-          .limit(1)
-          .maybeSingle();
-        return !!data;
-      };
-      await Promise.all(fetched.filter((c) => !visitorWrote.has(c.id)).map(async (c) => {
-        if (await wrote(c.id, 'contact')) visitorWrote.add(c.id);
-        else if (c.source === 'ai_agent_intro' && !c.assigned_to && c.ai_state !== 'human_active'
-          && !agentWrote.has(c.id) && await wrote(c.id, 'agent')) agentWrote.add(c.id);
-      }));
-    }
+      // Past the window: whether the visitor (and, for an intro-made row, a
+      // person) ever wrote, one indexed read each, only when the window was
+      // full and did not settle it.
+      if (windowFull) {
+        const wrote = async (conversationId: string, senderType: 'contact' | 'agent') => {
+          const { data } = await supabase
+            .from('conversation_messages')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .eq('sender_type', senderType)
+            .limit(1)
+            .maybeSingle();
+          return !!data;
+        };
+        await Promise.all(fetched.filter((c) => !visitorWrote.has(c.id)).map(async (c) => {
+          if (await wrote(c.id, 'contact')) visitorWrote.add(c.id);
+          else if (c.source === 'ai_agent_intro' && !c.assigned_to && c.ai_state !== 'human_active'
+            && !agentWrote.has(c.id) && await wrote(c.id, 'agent')) agentWrote.add(c.id);
+        }));
+      }
+    };
 
-    const list = fetched.filter((c) => !isUnansweredGreeting({
-      source: c.source,
-      assignedTo: c.assigned_to,
-      aiState: c.ai_state,
-      hasVisitorMessage: visitorWrote.has(c.id),
-      hasAgentMessage: agentWrote.has(c.id),
-    })).slice(0, 20);
+    const listed: ListedConversation[] = [];
+    for (let page = 0; page < VISITOR_LIST_PAGES && listed.length < 20; page++) {
+      const { data: convos, error } = await supabase
+        .from('conversations')
+        .select('id, status, updated_at, assigned_to, source:metadata->>source, ai_state:metadata->>ai_state, channel:metadata->>channel, ended_at:metadata->>routing_thread_ended_at, reset_at:metadata->>ai_thread_reset_at')
+        .eq('workspace_id', workspaceId)
+        .or(orFilter)
+        .or(WIDGET_CHANNEL_FILTER)
+        .order('updated_at', { ascending: false })
+        .range(page * VISITOR_LIST_PAGE, (page + 1) * VISITOR_LIST_PAGE - 1);
+      if (error) throw error;
+      const fetched = ((convos || []) as ListedConversation[]).filter((c) => isWidgetConversation({ channel: c.channel }));
+      await readWindow(fetched);
+      listed.push(...fetched.filter((c) => !isUnansweredGreeting({
+        source: c.source,
+        assignedTo: c.assigned_to,
+        aiState: c.ai_state,
+        hasVisitorMessage: visitorWrote.has(c.id),
+        hasAgentMessage: agentWrote.has(c.id),
+      })));
+      if ((convos || []).length < VISITOR_LIST_PAGE) break;
+    }
+    const list = listed.slice(0, 20);
 
     // Only a message with NO text needs its media described — a caption
     // already previews fine on its own.
@@ -1883,6 +1896,30 @@ async function resolveCookieVisitorSessionId(
 }
 
 /**
+ * `sessionId` when it is one of the signed visitor's own sessions in this
+ * workspace, else null: a session id from the body proves nothing by itself.
+ */
+async function signedVisitorSessionId(
+  supabase: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  visitorId: string,
+  sessionId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('visitor_sessions')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[widget] visitor session check failed:', error.message);
+    return null;
+  }
+  return (data?.id as string | undefined) ?? null;
+}
+
+/**
  * The department a visitor picked (the widget's picker, GET
  * /departments/visible), as /message stores it on the message: one of this
  * workspace's enabled chat departments, else none. Routing reads it from
@@ -2186,15 +2223,25 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // One current conversation per visitor (2026-10-24,
     // services/widget/visitorConversations.ts). The visitor is the SIGNED id
-    // (the dvsid cookie or the credential header), never body.visitor_id or
-    // body.session_id: a body value names nobody, so it can neither select
-    // another visitor's contact, nor prove a conversation theirs (the
-    // ownership check below is given none), nor land in their conversation.
+    // (the dvsid cookie or the credential header), never body.visitor_id, and
+    // body.session_id only once it is found to be theirs (ownSessionId): a
+    // body value names nobody, so it can neither select another visitor's
+    // contact, nor prove a conversation theirs (the ownership check below is
+    // given none), nor land in their conversation.
     const signedVisitorId = (req as WidgetScopedRequest).visitorId || null;
     let visitorScopeRead: Promise<VisitorConversationScope | null> | null = null;
     const visitorScope = () => (visitorScopeRead ??= signedVisitorId
       ? resolveVisitorConversationScope(supabase, workspaceId, signedVisitorId)
       : Promise.resolve(null));
+    // The session the body names (an older widget sends its own) only when
+    // it is the signed visitor's; the current widget sends none. Another
+    // visitor's would reuse their conversation, link a new one to their
+    // session (so into their widget, as their current conversation, owned
+    // by this visitor's contact), pin this contact on it and file the
+    // analytics under it.
+    const ownSessionId = body.session_id && signedVisitorId
+      ? await signedVisitorSessionId(supabase, workspaceId, signedVisitorId, body.session_id)
+      : null;
     // The message joined the visitor's live conversation instead of the one
     // the widget asked for (a new thread, an ended or foreign one, a
     // resolved one with a newer live one beside it): the widget loads it.
@@ -2264,11 +2311,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Try to find existing conversation by visitor identity
     if (!convId && !wantsNext && signedVisitorId) {
-      // By session
-      if (body.session_id) {
+      // By session (the visitor's own)
+      if (ownSessionId) {
         const { data: existingConv } = await supabase
           .from('conversations').select('id')
-          .eq('workspace_id', workspaceId).eq('visitor_session_id', body.session_id)
+          .eq('workspace_id', workspaceId).eq('visitor_session_id', ownSessionId)
           .in('status', INBOUND_REUSABLE_STATUSES as unknown as string[])
           .order('updated_at', { ascending: false }).limit(1).maybeSingle();
         if (existingConv) convId = existingConv.id;
@@ -2342,7 +2389,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         ensureVisitorContact(supabase, {
           workspaceId,
           visitorId: signedVisitorId,
-          sessionId: body.session_id || null,
+          sessionId: ownSessionId,
           name: body.visitor_name || null,
           email: body.visitor_email || null,
           phone: body.visitor_phone || null,
@@ -2439,12 +2486,12 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // Taken from the signed cookie because the widget sends no session_id.
       // It stays out of p_match_session_id on purpose — see above: a new
       // compose must never reattach to an older open thread by identity.
-      const linkSessionId = body.session_id || await resolveCookieVisitorSessionId(supabase, req, workspaceId);
+      const linkSessionId = ownSessionId || await resolveCookieVisitorSessionId(supabase, req, workspaceId);
       const { data: ensured, error: convErr } = await supabase.rpc('ensure_active_conversation', {
         p_workspace_id: workspaceId,
         p_lock_key: lockKey,
         p_match_thread_key: widgetThreadKey,
-        p_match_session_id: forceNew ? null : body.session_id || null,
+        p_match_session_id: forceNew ? null : ownSessionId,
         p_match_contact_id: forceNew ? null : contactId,
         p_contact_id: contactId,
         p_visitor_session_id: linkSessionId,
@@ -2554,7 +2601,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     const insertMetadata: Record<string, unknown> = {
       source: 'widget',
       visitor_id: body.visitor_id,
-      session_id: body.session_id,
+      session_id: ownSessionId || undefined,
       attachment_id: data.attachment_id || undefined,
       department_id: (await widgetChatDepartmentId(config, workspaceId, data.department_id)) || undefined,
       page_context: pageContext || undefined,
@@ -2572,7 +2619,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         workspaceId,
         conversationId: convId,
         greeting: introGreeting,
-        visitorSessionId: body.session_id || null,
+        visitorSessionId: ownSessionId,
         visitorId: signedVisitorId,
         locale: data.ai_intro?.locale || null,
       });
@@ -2624,7 +2671,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
               source: 'rule',
               eventType: 'conversation_started',
               visitorId: body.visitor_id || null,
-              sessionId: body.session_id || null,
+              sessionId: ownSessionId,
               pagePath: pageContext?.currentPagePath || null,
               idempotencyKey: `conversation_started:${opening.ruleId}:${convId}`,
             }, config);
@@ -2706,7 +2753,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         aiNudgeId: nudgeIdForAttribution,
         eventType: 'conversation_started',
         visitorId: body.visitor_id || null,
-        sessionId: body.session_id || null,
+        sessionId: ownSessionId,
         pagePath: pageContext?.currentPagePath || null,
         idempotencyKey: `conversation_started:${nudgeIdForAttribution}`,
       });

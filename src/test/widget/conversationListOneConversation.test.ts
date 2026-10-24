@@ -139,6 +139,22 @@ describe('which rows are listed', () => {
     expect(rows.map((r) => r.id)).toEqual(own.slice(0, 20).map((c) => c.id));
   });
 
+  it('more hidden rows than a window holds (another channel\'s threads, unanswered greetings) never push the visitor\'s own out', async () => {
+    for (let i = 0; i < 12; i++) {
+      const t = conversation({ status: 'resolved', metadata: { channel: i % 2 ? 'telegram' : 'email' }, visitor_session_id: null, updated_at: at(i) });
+      message(t.id, 'contact', i);
+    }
+    for (let i = 0; i < 35; i++) {
+      const g = conversation({ metadata: { source: 'ai_agent_intro', ai_state: 'ai_managed' }, updated_at: at(20 + i) });
+      message(g.id, 'ai', 20 + i, { metadata: { source: 'ai_agent_intro' } });
+    }
+    const live = conversation({ status: 'resolved', updated_at: at(200) });
+    message(live.id, 'contact', 200);
+    const ended = conversation({ status: 'closed', updated_at: at(300) });
+    message(ended.id, 'contact', 300);
+    expect((await list()).map((r) => r.id)).toEqual([live.id, ended.id]);
+  });
+
   it('past the newest 500 messages, whether the visitor wrote is still read (and an answered greeting stays listed)', async () => {
     const busy = conversation({ updated_at: at(1) });
     for (let i = 0; i < 500; i++) message(busy.id, 'agent', 1 + i / 1000, { sender_id: OPERATOR });

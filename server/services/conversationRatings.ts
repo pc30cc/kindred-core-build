@@ -10,7 +10,9 @@
  *   - only when a human operator answered in the conversation (an AI-only
  *     conversation gets the line but no card, like platform support);
  *   - once per closure, never changed (409 `already_rated` with the stored
- *     rating; the unique closed_message_id settles a race);
+ *     rating; the unique closed_message_id settles a race). A close after
+ *     an older server's resolve line the visitor rated, nothing said since,
+ *     is that same closure: its line carries that rating (`rated_line_id`);
  *   - only for a workspace whose effective template draws the card and has
  *     its `csat` option on (the route's check, 403 `csat_disabled`).
  *
@@ -89,6 +91,24 @@ function operatorIdOf(row: ConversationRow): string | null {
   return typeof id === 'string' && UUID_RE.test(id) ? id : null;
 }
 
+/**
+ * The rating a closed line has: its own, else the one it carries (an older
+ * server's resolve line the visitor rated with nothing said since,
+ * `rated_line_id`, conversationClosedNotice.ts): the same closure for the
+ * visitor, rated once. `undefined` before migration 276.
+ */
+async function ratingOfLine(
+  sb: ServiceClient,
+  workspaceId: string,
+  conversationId: string,
+  closed: ConversationRow,
+): Promise<ConversationRating | null | undefined> {
+  const own = await storedRating(sb, workspaceId, conversationId, closed.id);
+  const carried = metaOf(closed).rated_line_id;
+  if (own !== null || typeof carried !== 'string' || !UUID_RE.test(carried)) return own;
+  return storedRating(sb, workspaceId, conversationId, carried);
+}
+
 /** Whether a human operator wrote in the conversation (an AI-only one is not rated). */
 export async function humanOperatorAnswered(sb: ServiceClient, conversationId: string): Promise<boolean> {
   const { count, error } = await sb
@@ -144,7 +164,7 @@ export async function csatState(
   const closed = await readLatestClosedRow(sb, input.conversationId);
   if (!closed) return { closed_id: null, rateable: false, rating: null, operator: null };
 
-  const rating = await storedRating(sb, input.workspaceId, input.conversationId, closed.id);
+  const rating = await ratingOfLine(sb, input.workspaceId, input.conversationId, closed);
   const answered = input.humanAnswered ?? await humanOperatorAnswered(sb, input.conversationId);
   const rateable = input.csatEnabled
     && rating === null
@@ -186,7 +206,7 @@ export async function rateClosedConversation(
     throw new RatingError(409, 'not_ratable');
   }
 
-  const existing = await storedRating(sb, input.workspaceId, input.conversationId, closed.id);
+  const existing = await ratingOfLine(sb, input.workspaceId, input.conversationId, closed);
   if (existing === undefined) throw new RatingError(503, 'csat_unavailable');
   if (existing) throw new RatingError(409, 'already_rated', existing);
   if (!withinRatingWindow(closed.created_at, now) || !(await humanOperatorAnswered(sb, input.conversationId))) {

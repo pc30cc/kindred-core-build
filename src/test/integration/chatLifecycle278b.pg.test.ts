@@ -22,11 +22,12 @@
  *   E  a resolved conversation the visitor starts again keeps its operator
  *      only when they could take it now; resolving lets the AI answer a later
  *      thread; an operator's reply reopens a closed one; Visitors-page
- *      outreach is the operator's; the list carries the department and when
- *      the visitor last read the thread.
+ *      outreach is the operator's (a resolved one too, taken from whoever
+ *      resolved it; a chat the plan locked is never continued); the list
+ *      carries the department and when the visitor last read the thread.
  *
- * Presence and the transports are fakes. Driven by TEST_DATABASE_URL;
- * skipped without it.
+ * Presence, the transports and the plan's chat locks are fakes. Driven by
+ * TEST_DATABASE_URL; skipped without it.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -46,6 +47,8 @@ const state = vi.hoisted(() => ({
   visitor: 'visitor-1' as string,
   events: [] as Array<Record<string, unknown>>,
   published: [] as Array<{ cid: string; envelope: Record<string, unknown> }>,
+  /** Conversation ids the plan's retention locks (the real lock state is off here: unlimited billing). */
+  locked: new Set<string>(),
 }));
 
 vi.mock('../../../server/services/widget/operatorPresence.js', async (orig) => ({
@@ -77,6 +80,15 @@ vi.mock('../../../server/services/push/index.js', async (orig) => ({
   notifyHandoff: async () => undefined,
   notifyAssignment: async () => undefined,
 }));
+vi.mock('../../../server/services/contactChatLocks.js', async (orig) => {
+  const real = await orig<typeof import('../../../server/services/contactChatLocks.js')>();
+  return {
+    ...real,
+    conversationLockedNow: async (...args: Parameters<typeof real.conversationLockedNow>) => (state.locked.has(String(args[2]?.id ?? ''))
+      ? { locked: true, state: { enabled: true, kb: null, contact: null, member: null, conversation: { limit: 30 } } as never }
+      : real.conversationLockedNow(...args)),
+  };
+});
 vi.mock('../../../server/services/notificationEmail/producers.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/notificationEmail/producers.js')>()),
   queueTranscript: async () => undefined,
@@ -754,6 +766,82 @@ suite('who has a conversation, on a real database (278b)', () => {
     const fresh = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: today });
     expect(fresh.body.created).toBe(true);
     expect(fresh.body.conversation_id).not.toBe(resolved);
+
+    // Resolved by Ali, who stays on it (a resolve unassigns nobody), and Ali
+    // is gone now: Bahar reaching out takes it from him (R-29), told as a
+    // hand-made assignment, and the visitor's answer stays with her.
+    state.presence.set(b, 'active');
+    const alisVisitor = randomUUID();
+    await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id) VALUES ($1, $2, $3)`, [alisVisitor, ws, `v-ali-${alisVisitor.slice(0, 8)}`]);
+    const alis = await conversation({ assigned: a });
+    await q(`UPDATE public.conversations SET visitor_session_id = $2 WHERE id = $1`, [alis, alisVisitor]);
+    await send(a, alis);
+    expect((await patch(a, alis, { status: 'resolved' })).status).toBe(200);
+    expect(await conv(alis)).toMatchObject({ status: 'resolved', assigned_to: a });
+    const outreach = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: alisVisitor });
+    expect(outreach.body).toMatchObject({ conversation_id: alis, created: false });
+    const taken = await conv(alis);
+    expect(taken).toMatchObject({ status: 'open', assigned_to: b });
+    expect(taken.metadata as Row).toMatchObject({ ai_state: 'human_active', human_takeover_by: b, routing_thread_ended_at: null });
+    expect(await until(() => events(alis, 'assigned'), (e) => e.some((x) => (x as Row).to === b)))
+      .toContainEqual(expect.objectContaining({ actor_id: b, from: a, to: b, method: 'manual', source: 'visitor_outreach' }));
+    expect(await until(() => systemKinds(alis), (k) => k.includes('conversation_transferred'))).toContain('conversation_transferred');
+    expect(((await request(app).get(`/api/conversations?workspace_id=${ws}`).set(as(b))).body.conversations as Row[]).map((r) => r.id)).toContain(alis);
+    // The visitor answers (Ali offline): Bahar keeps it.
+    expect(await routing.routeHumanBoundConversation(config as never, { workspaceId: ws, conversationId: alis, platformAiOff: true })).toBeNull();
+    expect(await assignee(alis)).toBe(b);
+
+    // A platform admin with no seat here reaches out instead: nobody takes
+    // it, so the thread-end stamp stays and the visitor's answer looks at
+    // Ali again — away, he lets it go and routing gives it to Bahar.
+    const { createSession } = await import('../../../server/services/auth/sessions.js');
+    const outsider = randomUUID();
+    await q(`INSERT INTO public.profiles (id, email, full_name) VALUES ($1, $2, 'Omid')`, [outsider, `p-${outsider.slice(0, 8)}@test.local`]);
+    await q(`INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'admin')`, [outsider]);
+    tokens[outsider] = (await createSession(config as never, { userId: outsider, email: `p-${outsider.slice(0, 8)}@test.local` })).token;
+    try {
+      const adminsVisitor = randomUUID();
+      await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id) VALUES ($1, $2, $3)`, [adminsVisitor, ws, `v-adm-${adminsVisitor.slice(0, 8)}`]);
+      const held = await conversation({ assigned: a });
+      await q(`UPDATE public.conversations SET visitor_session_id = $2 WHERE id = $1`, [held, adminsVisitor]);
+      await send(a, held);
+      expect((await patch(a, held, { status: 'resolved' })).status).toBe(200);
+      const byAdmin = await request(app).post('/api/conversations/start-from-visitor').set(as(outsider)).send({ workspace_id: ws, visitor_session_id: adminsVisitor });
+      expect(byAdmin.body).toMatchObject({ conversation_id: held, created: false });
+      const reopenedByAdmin = await conv(held);
+      expect(reopenedByAdmin).toMatchObject({ status: 'open', assigned_to: a });
+      expect(typeof (reopenedByAdmin.metadata as Row).routing_thread_ended_at).toBe('string');
+      expect((reopenedByAdmin.metadata as Row).ai_state).toBeNull();
+      state.presence.set(a, 'away');
+      expect(await routing.routeHumanBoundConversation(config as never, { workspaceId: ws, conversationId: held, platformAiOff: true }))
+        .toEqual({ outcome: 'assigned_auto', assignedTo: b });
+      expect(await until(() => events(held, 'unassigned'), (e) => e.length >= 1)).toEqual([expect.objectContaining({ from: a, method: 'reopen_release' })]);
+    } finally {
+      await q(`DELETE FROM public.user_roles WHERE user_id = $1`, [outsider]);
+    }
+  });
+
+  it('E3c outreach never continues a chat the plan locked (past retention): a new conversation, the locked one untouched', async () => {
+    for (const status of ['resolved', 'open'] as const) {
+      const visitorSession = randomUUID();
+      await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id) VALUES ($1, $2, $3)`, [visitorSession, ws, `v-lock-${visitorSession.slice(0, 8)}`]);
+      const old = await conversation({ status, assigned: status === 'open' ? null : a, updatedAgo: '90 days' });
+      await q(`UPDATE public.conversations SET visitor_session_id = $2, updated_at = now() - interval '90 days' WHERE id = $1`, [old, visitorSession]);
+      state.locked.add(old);
+      try {
+        const res = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: visitorSession });
+        expect(res.status).toBe(200);
+        expect(res.body.created).toBe(true);
+        expect(res.body.conversation_id).not.toBe(old);
+        expect(await assignee(res.body.conversation_id)).toBe(b);
+        const after = await one(`SELECT status, assigned_to, (updated_at < now() - interval '89 days') AS still_old FROM public.conversations WHERE id = $1`, [old]);
+        expect(after).toMatchObject({ status, assigned_to: status === 'open' ? null : a, still_old: true });
+        expect(await events(old, 'reopened')).toEqual([]);
+        expect(await events(old, 'assigned')).toEqual([]);
+      } finally {
+        state.locked.delete(old);
+      }
+    }
   });
 
   it('E5 the department the visitor chose is kept in manual mode too, and every row names it (R-22)', async () => {
@@ -768,6 +856,39 @@ suite('who has a conversation, on a real database (278b)', () => {
     const plain = await conversation();
     const listed = (await request(app).get(`/api/conversations?workspace_id=${ws}`).set(as(a))).body.conversations as Row[];
     expect(listed.find((r) => r.id === plain)).toMatchObject({ department_id: null, department_name: null, visitor_last_read_at: null });
+  });
+
+  it('E6 behind more newer rows than a window holds, the visitor\'s live conversation is found and listed by the real query (other channels left out in SQL, greetings passed over)', async () => {
+    const { findLiveVisitorConversation, resolveVisitorConversationScope } = await import('../../../server/services/widget/visitorConversations.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const sb = getServiceClient(config as never);
+    const visitorId = `v-win-${randomUUID().slice(0, 8)}`;
+    const session = randomUUID();
+    await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id) VALUES ($1, $2, $3)`, [session, ws, visitorId]);
+    const contact = String((await one(`INSERT INTO public.contacts (workspace_id, name, metadata) VALUES ($1, 'Vera', $2::jsonb) RETURNING id`,
+      [ws, JSON.stringify({ visitor_id: visitorId })])).id);
+    const live = await conversation({ status: 'resolved', contact, updatedAgo: '3 days' });
+    await q(`UPDATE public.conversations SET visitor_session_id = $2 WHERE id = $1`, [live, session]);
+    // The verified contact's email and Telegram threads, resolved, newer.
+    for (let i = 0; i < 12; i++) {
+      await conversation({ status: 'resolved', contact, meta: { channel: i % 2 ? 'telegram' : 'email' }, updatedAgo: `${i + 1} hours` });
+    }
+    // An older widget's greeting-only rows, newer still.
+    for (let i = 0; i < 12; i++) {
+      const greeting = await conversation({ contact, meta: { source: 'ai_agent_intro', ai_state: 'ai_managed' }, updatedAgo: `${i + 1} minutes` });
+      await q(`UPDATE public.conversation_messages SET sender_type = 'ai', metadata = '{"source":"ai_agent_intro"}'::jsonb WHERE conversation_id = $1`, [greeting]);
+    }
+    const scope = await resolveVisitorConversationScope(sb, ws, visitorId);
+    expect((await findLiveVisitorConversation(sb, ws, scope))?.id).toBe(live);
+    const previous = state.visitor;
+    state.visitor = visitorId;
+    try {
+      const listed = await request(app).get('/api/widget/conversations').query({ workspace_id: ws });
+      expect(listed.status).toBe(200);
+      expect((listed.body.conversations as Row[]).map((r) => r.id)).toEqual([live]);
+    } finally {
+      state.visitor = previous;
+    }
   });
 
   it('E4 the row says when the visitor last read the thread; the widget\'s read is announced to the operators (I-03)', async () => {

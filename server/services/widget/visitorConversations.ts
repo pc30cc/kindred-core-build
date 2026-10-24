@@ -59,8 +59,28 @@ export function isWidgetConversation(metadata: unknown): boolean {
   return !channel || channel === 'widget';
 }
 
-/** How many of the visitor's newest live conversations are looked through. */
-const LIVE_SCAN = 5;
+/**
+ * isWidgetConversation in SQL, a PostgREST `.or()` filter on conversations,
+ * so another channel's rows (a verified contact's Telegram, email… threads)
+ * never take a place in a window the LIMIT counts. The server writes the
+ * channel as the provider's id or 'widget', lower case; the JS test stays
+ * behind it.
+ */
+export const WIDGET_CHANNEL_FILTER = 'metadata->>channel.is.null,metadata->>channel.eq.widget';
+
+/**
+ * How many of the visitor's newest live widget conversations are read at a
+ * time, and in how many windows at most: unanswered greetings are passed over
+ * in JS, so while a window held nothing else the next one is read, as far as
+ * GET /conversations reaches (VISITOR_LIST_PAGE × VISITOR_LIST_PAGES), so the
+ * server and the widget's list agree on which one is live.
+ */
+const LIVE_SCAN = 10;
+const LIVE_SCAN_PAGES = 9;
+
+/** GET /conversations: the rows read at a time, and in how many windows at most (routes/widget.ts). */
+export const VISITOR_LIST_PAGE = 30;
+export const VISITOR_LIST_PAGES = 3;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -154,12 +174,40 @@ async function hasMessageFrom(sb: ServiceClient, conversationId: string, senderT
   return !!data;
 }
 
+/** Only an intro-made row nobody took can be an unanswered greeting; anything a person touched is not. */
+function mayBeUnansweredGreeting(row: { source?: string | null; assigned_to?: string | null; ai_state?: string | null }): boolean {
+  return row.source === 'ai_agent_intro' && !row.assigned_to && row.ai_state !== 'human_active';
+}
+
+type GreetingCandidate = { id: string; source?: string | null; assigned_to?: string | null; ai_state?: string | null };
+
+/** Whether this row is an unanswered greeting (isUnansweredGreeting): two indexed reads at most, none for most rows. */
+async function isUnansweredGreetingRow(sb: ServiceClient, row: GreetingCandidate): Promise<boolean> {
+  if (!mayBeUnansweredGreeting(row)) return false;
+  const hasVisitorMessage = await hasMessageFrom(sb, row.id, 'contact');
+  return !hasVisitorMessage && isUnansweredGreeting({
+    source: row.source,
+    assignedTo: row.assigned_to,
+    aiState: row.ai_state,
+    hasVisitorMessage,
+    hasAgentMessage: await hasMessageFrom(sb, row.id, 'agent'),
+  });
+}
+
+/** Which of these rows are unanswered greetings, read together (GET /conversations). */
+export async function unansweredGreetingIds(sb: ServiceClient, rows: ReadonlyArray<GreetingCandidate>): Promise<Set<string>> {
+  const out = new Set<string>();
+  await Promise.all(rows.map(async (row) => { if (await isUnansweredGreetingRow(sb, row)) out.add(row.id); }));
+  return out;
+}
+
 /**
  * The visitor's live widget conversation: the newest by updated_at whose
- * status is live (or one of `statuses`), skipping other channels' rows and,
- * unless asked, unanswered greetings. Null when there is none, when the
- * scope matches nothing, and when the read fails (a guard that cannot read
- * lets the request go on as before).
+ * status is live (or one of `statuses`), skipping other channels' rows (in
+ * SQL) and, unless asked, unanswered greetings (window after window while a
+ * window held nothing but those, LIVE_SCAN_PAGES at most). Null when there
+ * is none, when the scope matches nothing, and when the read fails (a guard
+ * that cannot read lets the request go on as before).
  */
 export async function findLiveVisitorConversation(
   sb: ServiceClient,
@@ -175,34 +223,27 @@ export async function findLiveVisitorConversation(
   const or = scopeOrFilter(scope);
   if (!or) return null;
   try {
-    let q = sb
-      .from('conversations')
-      .select('id, status, updated_at, assigned_to, source:metadata->>source, ai_state:metadata->>ai_state, channel:metadata->>channel')
-      .eq('workspace_id', workspaceId)
-      .or(or)
-      .in('status', [...(opts.statuses || LIVE_CONVERSATION_STATUSES)]);
-    if (opts.excludeId) q = q.neq('id', opts.excludeId);
-    const { data, error } = await q.order('updated_at', { ascending: false }).limit(LIVE_SCAN);
-    if (error) throw error;
     type LiveRow = { id: string; status: string; updated_at: string | null; assigned_to: string | null; source: string | null; ai_state: string | null; channel: string | null };
-    for (const row of (data || []) as LiveRow[]) {
-      if (!row?.id || !isWidgetConversation({ channel: row.channel })) continue;
-      let greetingOnly = false;
-      // Only an intro-made row can be one; anything a person touched is not.
-      if (row.source === 'ai_agent_intro' && !row.assigned_to && row.ai_state !== 'human_active') {
-        const hasVisitorMessage = await hasMessageFrom(sb, row.id, 'contact');
-        greetingOnly = !hasVisitorMessage && isUnansweredGreeting({
-          source: row.source,
-          assignedTo: row.assigned_to,
-          aiState: row.ai_state,
-          hasVisitorMessage,
-          hasAgentMessage: await hasMessageFrom(sb, row.id, 'agent'),
-        });
+    for (let page = 0; page < LIVE_SCAN_PAGES; page++) {
+      let q = sb
+        .from('conversations')
+        .select('id, status, updated_at, assigned_to, source:metadata->>source, ai_state:metadata->>ai_state, channel:metadata->>channel')
+        .eq('workspace_id', workspaceId)
+        .or(or)
+        .or(WIDGET_CHANNEL_FILTER)
+        .in('status', [...(opts.statuses || LIVE_CONVERSATION_STATUSES)]);
+      if (opts.excludeId) q = q.neq('id', opts.excludeId);
+      const { data, error } = await q.order('updated_at', { ascending: false }).range(page * LIVE_SCAN, (page + 1) * LIVE_SCAN - 1);
+      if (error) throw error;
+      for (const row of (data || []) as LiveRow[]) {
+        if (!row?.id || !isWidgetConversation({ channel: row.channel })) continue;
+        const greetingOnly = await isUnansweredGreetingRow(sb, row);
+        if (greetingOnly && opts.includeUnansweredGreeting !== true) continue;
+        return {
+          id: row.id, status: row.status, updatedAt: row.updated_at ?? null, assignedTo: row.assigned_to ?? null, aiState: row.ai_state ?? null, greetingOnly,
+        };
       }
-      if (greetingOnly && opts.includeUnansweredGreeting !== true) continue;
-      return {
-        id: row.id, status: row.status, updatedAt: row.updated_at ?? null, assignedTo: row.assigned_to ?? null, aiState: row.ai_state ?? null, greetingOnly,
-      };
+      if ((data || []).length < LIVE_SCAN) break;
     }
     return null;
   } catch (err) {

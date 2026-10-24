@@ -16,7 +16,9 @@
  *     template cannot be read;
  *   - never twice in a row: close → reopen → close with nothing said in
  *     between keeps the one line (a system notice in between does not count;
- *     the line an older server wrote on a resolve is not one);
+ *     the line an older server wrote on a resolve is not one, but a close
+ *     right after one the visitor rated keeps that rating: one card, one
+ *     rating);
  *   - it never throws, and the operator's PATCH / "Send & resolve" answer
  *     the same whether it works or fails.
  *
@@ -310,6 +312,49 @@ describe('never twice in a row', () => {
     const out = await close(cid);
     expect(out).not.toBeNull();
     expect(closedRows(cid).map((m) => (m.metadata as Row).status)).toEqual(['resolved', 'closed']);
+  });
+
+  it('…and when the visitor rated that resolve line, the close is that same closure: its rating, no second card, one rating', async () => {
+    const { csatState, rateClosedConversation } = await import('../../../server/services/conversationRatings.js');
+    const at = Date.parse('2026-10-18T10:00:00Z');
+    const cid = conversation({ status: 'resolved' });
+    message(cid, 'agent');
+    const resolveLine = message(cid, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR, operator_name: 'سارا' });
+    state.db.tables.conversation_ratings = [{
+      id: randomUUID(), workspace_id: WS, conversation_id: cid, closed_message_id: resolveLine, operator_id: OPERATOR, score: 4, comment: null, created_at: tick(),
+    }];
+    const out = await close(cid);
+    expect(out).not.toBeNull();
+    expect(closedRows(cid).find((m) => m.id === out!.id)?.metadata).toMatchObject({ status: 'closed', rated_line_id: resolveLine });
+    expect(await csatState(config, { workspaceId: WS, conversationId: cid, csatEnabled: true }, at))
+      .toMatchObject({ closed_id: out!.id, rateable: false, rating: { score: 4 } });
+    await expect(rateClosedConversation(config, { workspaceId: WS, conversationId: cid, closedId: out!.id, score: 1, comment: null }, at))
+      .rejects.toMatchObject({ status: 409, code: 'already_rated', rating: { score: 4 } });
+    expect(state.db.tables.conversation_ratings).toHaveLength(1);
+  });
+
+  it('a resolve line nobody rated, or one something was said after: the close is rated on its own', async () => {
+    const { csatState } = await import('../../../server/services/conversationRatings.js');
+    const at = Date.parse('2026-10-18T10:00:00Z');
+    const unrated = conversation({ status: 'resolved' });
+    message(unrated, 'agent');
+    message(unrated, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR });
+    state.db.tables.conversation_ratings = [];
+    const first = await close(unrated);
+    expect((closedRows(unrated).find((m) => m.id === first!.id)?.metadata as Row).rated_line_id).toBeUndefined();
+    expect(await csatState(config, { workspaceId: WS, conversationId: unrated, csatEnabled: true }, at))
+      .toMatchObject({ closed_id: first!.id, rateable: true, rating: null });
+
+    const movedOn = conversation({ status: 'resolved' });
+    message(movedOn, 'agent');
+    const old = message(movedOn, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR });
+    state.db.tables.conversation_ratings.push({ id: randomUUID(), workspace_id: WS, conversation_id: movedOn, closed_message_id: old, score: 5, created_at: tick() });
+    message(movedOn, 'contact');
+    message(movedOn, 'agent');
+    const second = await close(movedOn);
+    expect((closedRows(movedOn).find((m) => m.id === second!.id)?.metadata as Row).rated_line_id).toBeUndefined();
+    expect(await csatState(config, { workspaceId: WS, conversationId: movedOn, csatEnabled: true }, at))
+      .toMatchObject({ closed_id: second!.id, rateable: true, rating: null });
   });
 });
 

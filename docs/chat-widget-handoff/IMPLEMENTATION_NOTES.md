@@ -346,7 +346,9 @@ same contact never counts). The widget section of these notes describes how Core
   - A named resolved conversation is written into (it reopens), unless a newer open or pending one of the visitor's
     exists: then that one, `continued: true`.
   - Ownership of a named conversation, identity reuse and the contact use the signed visitor id alone (a body
-    `visitor_id` or `session_id` proves nothing; GET /poll and GET /history ignore the query ones the same way);
+    `visitor_id` proves nothing, and a body `session_id`, which only older widgets send, counts for the session match,
+    the new conversation's session link, the contact's session and the analytics only once it is found to be one of
+    the signed visitor's own sessions; GET /poll and GET /history ignore the query ones the same way);
     the creation lock is `visitor:<id>`. Two first messages
     of a new thread at the very same instant (two fresh tabs, nothing live) can still make two conversations: the
     guard runs outside the RPC's lock. A live-only contact match inside `ensure_active_conversation` would close it
@@ -378,13 +380,24 @@ same contact never counts). The widget section of these notes describes how Core
   `endedAt` is the close. The lines an older server wrote on a resolve (`metadata.status: 'resolved'`, t2) are no
   longer handed to the widget (`isVisitorVisibleMessageMeta`: /poll, /history, /identity/history, the list), and
   `latestClosedRow` passes over them, so neither a rating card nor a later close goes by one: that close writes its
-  own line. The Inbox still shows them.
+  own line. When the visitor had rated such a line and nothing was said since, the close is that same closure for
+  them: its line carries the rating (`metadata.rated_line_id`), so the card shows it as given and CSAT keeps one
+  rating. The Inbox still shows them.
 - **Visitors → Start chat** (`POST /api/conversations/start-from-visitor`) reuses the visitor's live conversation
   (the widget's scope: every session of the visitor id and their contact; else an unanswered greeting of theirs),
   never a second one beside it. A resolved one is reopened for the operator (`reopened`, reason `visitor_outreach`)
-  and is theirs to continue (claimed when nobody has it; a human takeover, so the AI does not answer over them).
+  and is theirs to continue: claimed when nobody has it, and taken from whoever resolved it (a compare-and-set,
+  announced as a manual assignment with `source: visitor_outreach`); a human takeover, so the AI does not answer over
+  them, and the visitor's answer stays with them. A platform admin reaching out takes nothing: the conversation keeps
+  its operator and routing's thread-end stamp, so the visitor's answer looks at that operator again, as for any
+  reopen. A chat the plan locked (past `data_retention_days`) is never continued, since that would unlock it: a new
+  conversation is created (not a 403: the web panel and the apps open whatever id the route answers).
 - **The Inbox's main queue** `status=resolved` lists resolved and closed (as its tab count and the desktop console),
   for iOS, windows-native, Electron and the web mobile inbox, which ask for `resolved` alone.
+- **The live conversation and the list read in windows**: `findLiveVisitorConversation` and GET /conversations leave
+  other channels' rows out in SQL (`WIDGET_CHANNEL_FILTER`) and pass over unanswered greetings window after window
+  (the list 30 rows at a time, three windows at most; the finder 10 at a time, as far down), so a pile of a contact's
+  email or Telegram threads or of an older widget's greeting-only rows never hides the visitor's live conversation.
 - **Last-agent routing** (`findPreviousOperator`) looks through the contact's five most recent other conversations
   for the first one a person handled, passing over AI-only and greeting-only ones.
 - For the auto-close PR: the inactivity close must write the `threadEndPatch` stamps (`endedAt` reads them) and its

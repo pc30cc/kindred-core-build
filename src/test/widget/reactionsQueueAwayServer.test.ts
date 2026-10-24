@@ -46,6 +46,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RealtimeHandlers } from '@/realtime/types';
 import { createFakeServiceDb, fakeServiceClient, type FakeServiceDb, type Row } from '../conversations/fakeServiceDb';
 import { boot, click, flush, key, resetWindow, typeInto, type ApiAnswer, type BootOptions } from './coreFeaturesHarness';
+import { avatarFace } from './avatarFace';
 
 type Next = () => void;
 type Envelope = { type: string; payload: Record<string, unknown> };
@@ -961,7 +962,9 @@ describe('messages of two operators, as the visitor now gets them (no operator i
       expect(runs(h), renderer).toEqual(RUNS);
       expect(joins(h), renderer).toEqual(JOINS);
       const avatars = Array.from(h.shadow.querySelectorAll('[data-chat-messages] .msg-row.operator .msg-avatar:not(.msg-avatar-spacer)'));
-      expect(avatars.map((a) => a.textContent!.trim()), renderer).toEqual(['س', 'م']);
+      // Sara and Mehdi: a silhouette each, on their own colour (never their letters).
+      expect(avatars.map((a) => avatarFace(a)), renderer).toEqual(['person', 'person']);
+      expect(avatars[0].className.match(/\bc[1-3]\b/)?.[0], renderer).not.toBe(avatars[1].className.match(/\bc[1-3]\b/)?.[0]);
       expect(h.shadow.querySelector('[data-chat-messages]')!.textContent, renderer).toContain('مهدی');
     }
   });

@@ -20,6 +20,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { avatarFace, avatarFaces } from './avatarFace';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const REGISTRY_SRC = read('public/widget/presentation-registry.js');
@@ -333,7 +334,7 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
       const h = parse(r().messagesHtml({ messages: [msg({})] }, '', { operatorTyping: { name: 'سارا', avatar: null } }));
       const row = h.querySelector('.messages > .msg-row.typing-row:last-child')!;
       expect(row.getAttribute('aria-hidden')).toBe('true');
-      expect(row.querySelector('.msg-avatar')!.textContent).toBe('س');
+      expect(avatarFace(row.querySelector('.msg-avatar'))).toBe('person');
     },
     emptyQna: () => {
       const h = parse(make().emptyHtml({ qna: { questions: [{ question: 'سفارشم کجاست؟' }] }, topics: [] }));
@@ -418,7 +419,8 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
     },
     kbAuthor: () => {
       const h = parse(r().kbArticleHtml({ article: { title: 't', author: 'سارا', readingMinutes: 2, contentHtml: '' } }));
-      expect(h.querySelector('.am')!.textContent).toBe('سسارا۲ دقیقه مطالعه');
+      expect(h.querySelector('.am')!.textContent).toBe('سارا۲ دقیقه مطالعه');
+      expect(avatarFace(h.querySelector('.am .av'))).toBe('person');
     },
   };
 
@@ -664,16 +666,17 @@ describe('t2: direction, people, the workspace', () => {
     expect(parse(make({ locale: 'en' }).chatFrameHtml({ chatEnabled: true, locale: 'en', config: BASE_CONFIG })).firstElementChild!.getAttribute('dir')).toBe('ltr');
   });
 
-  it('draws a person as a photo when there is one, else their initial; the workspace as its logo or initial', () => {
+  it('draws a person as a photo when there is one, else the silhouette; the workspace as its logo or storefront, never a letter', () => {
     const r = make({ config: { logoUrl: 'https://cdn.test/logo.png' } });
     const h = parse(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true }));
     expect(h.querySelector('.logo img')!.getAttribute('src')).toBe('https://cdn.test/logo.png');
-    expect(Array.from(h.querySelectorAll('.pres .av')).map((a) => a.textContent)).toEqual(['س', 'م', 'ر']);
+    expect(avatarFaces(h.querySelectorAll('.pres .av'))).toEqual(['person', 'person', 'person']);
     expect(Array.from(h.querySelectorAll('.pres .av')).map((a) => a.className.split(' ')[2])).toEqual(['c1', 'c2', 'c3']);
     const noLogo = parse(make({ config: { showLogo: false } }).homeHtml({ rtl: true, isOnline: true }));
     expect(noLogo.querySelector('.logo')).toBeNull();
-    const initial = parse(make().homeHtml({ rtl: true, isOnline: true }));
-    expect(initial.querySelector('.logo')!.textContent).toBe('ف');
+    const mark = parse(make().homeHtml({ rtl: true, isOnline: true }));
+    // aria-hidden marks the logo tile that draws the storefront (the home skeleton's has none).
+    expect(avatarFace(mark.querySelector('.logo[aria-hidden="true"]'))).toBe('workspace');
     const photo = parse(make().chatHeaderHtml({ online: true, operator: { name: 'سارا', avatar: 'https://cdn.test/s.png', online: true } }));
     expect(photo.querySelector('.who .av img')!.getAttribute('src')).toBe('https://cdn.test/s.png');
     expect(make({ config: { showTeamAvatars: false } }).homeHtml({ rtl: true, isOnline: true })).not.toContain('class="avs"');
@@ -1209,7 +1212,7 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
     const c = card();
     expect(c.getAttribute('role')).toBe('group');
     expect(c.getAttribute('aria-label')).toBe('گفتگو با سارا چطور بود؟');
-    expect(c.querySelector('.av.s44')!.textContent).toBe('س');
+    expect(avatarFace(c.querySelector('.av.s44'))).toBe('person');
     expect(c.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
     expect(c.querySelector('p')!.textContent).toBe('نظرتان کمک می‌کند بهتر شویم.');
     const faces = Array.from(c.querySelectorAll('.faces > button[data-csat-rate]'));
@@ -1766,11 +1769,11 @@ describe('t2: help search results with the server\'s snippet and matches (03·07
 describe('t2: an article\'s author (03·08, feature `kbAuthor`)', () => {
   const am = (article: Vm, locale = 'fa') => parse(make({ locale, capabilities: SERVED }).kbArticleHtml({ article: { title: 'چطور', contentHtml: '', ...article } })).querySelector('.am');
 
-  it('draws the initial on its tile and the name, then the reading time', () => {
+  it('draws the silhouette on its tile and the name, then the reading time', () => {
     const line = am({ author: 'سارا', readingMinutes: 2 })!;
     const spans = Array.from(line.children);
-    expect(spans.map((s) => s.textContent)).toEqual(['سسارا', '۲ دقیقه مطالعه']);
-    expect(spans[0].querySelector('.av.s24[aria-hidden="true"]')!.textContent).toBe('س');
+    expect(spans.map((s) => s.textContent)).toEqual(['سارا', '۲ دقیقه مطالعه']);
+    expect(avatarFace(spans[0].querySelector('.av.s24[aria-hidden="true"]'))).toBe('person');
     expect(am({ author: 'سارا' })!.children).toHaveLength(1);
   });
 
@@ -1779,7 +1782,7 @@ describe('t2: an article\'s author (03·08, feature `kbAuthor`)', () => {
     expect(am({})).toBeNull();
     const evil = am({ author: '<img src=x onerror=1>' })!;
     expect(evil.querySelector('img')).toBeNull();
-    expect(evil.textContent).toBe('<<img src=x onerror=1>');
+    expect(evil.textContent).toBe('<img src=x onerror=1>');
   });
 });
 

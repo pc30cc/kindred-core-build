@@ -311,17 +311,14 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
 }
 .av img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
-.av.s24 { width: 24px; height: 24px; font-size: 10px; }
-.av.s28, .msg-avatar { width: 28px; height: 28px; font-size: 11px; }
-.av.s30 { width: 30px; height: 30px; font-size: 12px; }
-.av.s40 { width: 40px; height: 40px; font-size: 15px; }
-.av.s44 { width: 44px; height: 44px; font-size: 16px; }
-.msg-avatar { display: grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; background: #EBE1FA; color: #57309A; font-weight: 700; margin-bottom: 22px; }
+.av.s24 { width: 24px; height: 24px; }
+.av.s28, .msg-avatar { width: 28px; height: 28px; }
+.av.s30 { width: 30px; height: 30px; }
+.av.s40 { width: 40px; height: 40px; }
+.av.s44 { width: 44px; height: 44px; }
+.msg-avatar { display: grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; background: #EBE1FA; color: #57309A; margin-bottom: 22px; }
 .msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .msg-avatar-spacer { visibility: hidden; }
 /* The typing and thinking rows have no time line under their bubble. */
@@ -330,6 +327,23 @@
 .c2 { background: #DCE6FB; color: #1C4A92; }
 .c3 { background: #D2EEDF; color: #145E39; }
 .c4 { background: #EBE1FA; color: #57309A; }
+/* No photo: a person is the silhouette and the workspace (c4, the hero's
+   logo tile without its image) its storefront, in the tile's ink, never a
+   letter (owner, 2026-10-24; the glyphs are runtime.css's). The home
+   skeleton's .logo carries no aria-hidden, so it stays a plain tile. */
+.av:not(.has-img)::before,
+.logo[aria-hidden]::before {
+  content: '';
+  width: 62%;
+  height: 62%;
+  background: currentColor;
+  -webkit-mask: var(--wy-person) center / contain no-repeat;
+  mask: var(--wy-person) center / contain no-repeat;
+}
+.av.s24:not(.has-img)::before { width: 68%; height: 68%; }
+.av.c4:not(.has-img)::before,
+.logo[aria-hidden]::before { width: 58%; height: 58%; -webkit-mask-image: var(--wy-workspace); mask-image: var(--wy-workspace); }
+.av.s24.c4:not(.has-img)::before { width: 62%; height: 62%; }
 .av .pr {
   position: absolute;
   bottom: -1px;
@@ -385,8 +399,6 @@
   border-radius: 15px;
   background: #fff;
   color: var(--a-tx, var(--a));
-  font-size: 21px;
-  font-weight: 700;
   box-shadow: 0 8px 18px -8px rgba(0, 0, 0, .45);
 }
 .logo img { width: 100%; height: 100%; object-fit: cover; }

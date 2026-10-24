@@ -5,8 +5,8 @@
  * wears one (config.fabStyleUrl, shared/launcherStyles.ts) and keeps the
  * launcher unseen until it is in (3 s at most). It restyles the loader's
  * own launcher, never replaces it: the classes fx-<icon> and fx-<shape>, the
- * pill's text in data-fx, the agent's initial in data-fi, the direction in
- * dir. Without it the launcher is today's.
+ * pill's text in data-fx, the direction in dir. Without it the launcher is
+ * today's.
  *
  * Above the template stylesheets' .launcher rules by specificity, whichever
  * comes last. Sizes follow --gs-fab-size (the launcher is a <button>: its
@@ -51,22 +51,19 @@
   .launcher.fx-duo { --fx: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14.5 6.5V6a2.5 2.5 0 0 0-2.5-2.5H5.5A2.5 2.5 0 0 0 3 6v5a2.5 2.5 0 0 0 2.5 2.5H6v2.4l2.6-2.2' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' opacity='.75'/%3E%3Cpath d='M9.5 11a2.5 2.5 0 0 1 2.5-2.5h6.5A2.5 2.5 0 0 1 21 11v4.5a2.5 2.5 0 0 1-2.5 2.5H18v2.6L14.8 18H12a2.5 2.5 0 0 1-2.5-2.5z'/%3E%3C/svg%3E"); }
 }
 
-/* ─── The agent's face: the first operator's initial, online dot ─── */
+/* ─── The agent's face: a person's silhouette on the disc, online dot ───
+   Never a letter (owner, 2026-10-24). The disc and the figure have fixed
+   colours (LAUNCHER_AVATAR), so the figure is a background layer with its
+   ink baked in (LAUNCHER_GLYPHS.face, the platform's person silhouette):
+   no mask, nothing a browser without masks loses. */
 .launcher.fx-avatar svg.chat-icon { display: none; }
 .launcher.fx-avatar::before {
-  content: attr(data-fi);
+  content: '';
   flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: calc(var(--gs-fab-size, 56px) - 8px);
   height: calc(var(--gs-fab-size, 56px) - 8px);
   border-radius: 50%;
-  background: #FCE3D4;
-  color: #8A3410;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238A3410'%3E%3Cpath d='M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 10.75c-4.6 0-8 2.3-8 5.25 0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-2.95-3.4-5.25-8-5.25z'/%3E%3C/svg%3E") center / 62% no-repeat, #FCE3D4;
 }
 .launcher.fx-avatar:not(.fx-pill)::after {
   content: '';

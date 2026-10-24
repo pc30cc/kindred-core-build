@@ -38,6 +38,7 @@ import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { createFakeServiceDb, fakeServiceClient, type FakeServiceDb, type Row } from '../conversations/fakeServiceDb';
 import { boot, click, flush, resetWindow, typeInto, type ApiAnswer, type BootOptions } from './coreFeaturesHarness';
+import { avatarFace } from './avatarFace';
 
 type Next = () => void;
 type Envelope = { type: string; payload: Record<string, unknown> };
@@ -350,7 +351,7 @@ describe('instant answers: the draft, GET /kb-suggest and the tray agree', () =>
     expect(art.author_name).toBe('سارا');
     const vm = h.lastCall('kbHtml')![0] as { article: Row };
     expect(vm.article).toMatchObject({ author: 'سارا', readingMinutes: promised });
-    expect(h.q('.kb-article-root .am')!.textContent).toBe('سسارا۲ دقیقه مطالعه');
+    expect(h.q('.kb-article-root .am')!.textContent).toBe('سارا۲ دقیقه مطالعه');
 
     click(h.q('.kb-article-root [data-view-back]'));
     await flush(30);
@@ -462,7 +463,7 @@ describe('an article\'s author: meta=1', () => {
       expect(art.author_name).toBe('سارا');
       expect(JSON.stringify(art)).not.toContain(SARA);
       expect((h.lastCall('kbHtml')![0] as { article: Row }).article.author).toBe('سارا');
-      expect(h.q('.am .av')!.textContent).toBe('س');
+      expect(avatarFace(h.q('.am .av'))).toBe('person');
       expect(h.q('.am')!.textContent).toContain('سارا');
     });
   }

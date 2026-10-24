@@ -25,8 +25,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
-  FAB_ICON_IDS, FAB_SHAPES, LAUNCHER_GLYPHS, STYLED_FAB_ICONS, launcherInitial, resolveLauncherStyle,
+  FAB_ICON_IDS, FAB_SHAPES, LAUNCHER_AVATAR, LAUNCHER_GLYPHS, STYLED_FAB_ICONS, launcherInitial, resolveLauncherStyle,
 } from '../../../shared/launcherStyles';
+import { PERSON_SILHOUETTE } from '../../../shared/avatarGlyphs';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const LOADER_SRC = read('public/widget/loader.js');
@@ -282,10 +283,12 @@ describe('a launcher wearing a style', () => {
     expect(launcher.dir).toBe('ltr');
   });
 
-  it('the agent\'s face: its initial, the dot off while the team is away', async () => {
+  it('the agent\'s face: never a letter (its stylesheet draws the silhouette), the dot off while the team is away', async () => {
     const on = await boot({ fabStyleUrl: FAB_URL, fab: { shape: 'circle', icon: 'avatar', initial: 'س' } });
     expect(on.launcher.className).toMatch(/ fx fx-avatar fx-circle$/);
-    expect(on.launcher.getAttribute('data-fi')).toBe('س');
+    // An older /config still names the letter; the launcher carries none.
+    expect(on.launcher.hasAttribute('data-fi')).toBe(false);
+    expect(on.launcher.textContent).not.toContain('س');
     // A label beside a round launcher stays a card.
     reset();
     const off = await boot({ fabStyleUrl: FAB_URL, availability: { state: 'offline' }, fab: { shape: 'circle', icon: 'avatar', initial: 'R', label: 'Hi' } });
@@ -305,8 +308,8 @@ describe('runtime-fab.css', () => {
   it('follows the template stylesheet rules: no font, no host, small inline SVGs, within 2 KB in both builds', async () => {
     expect(FAB_CSS).not.toMatch(/@font-face|\.woff2?\b|@import|https?:\/\//);
     const urls = [...FAB_CSS.matchAll(/url\(\s*(['"]?)([^)]*?)\1\s*\)/g)].map((m) => m[2]);
-    // The bubble, the two bubbles, the bubble's dots in a kit's colour.
-    expect(urls).toHaveLength(3);
+    // The bubble, the two bubbles, the bubble's dots in a kit's colour, the agent's face.
+    expect(urls).toHaveLength(4);
     for (const u of urls) {
       expect(u).toMatch(/^data:image\/svg\+xml,/);
       expect(u.length).toBeLessThanOrEqual(2048);
@@ -327,6 +330,15 @@ describe('runtime-fab.css', () => {
     expect(svg('fx-duo')).toContain("opacity='.75'");
     for (const cls of ['fx-bubble', 'fx-duo']) expect(svg(cls)).toContain("xmlns='http://www.w3.org/2000/svg'");
     expect(LAUNCHER_GLYPHS.bubble.endsWith(LAUNCHER_GLYPHS.bubbleDots)).toBe(true);
+    // The agent's face: the platform's person silhouette in the disc's ink, over the disc.
+    const face = /\.launcher\.fx-avatar::before \{([^}]+)\}/.exec(FAB_CSS)![1];
+    const faceSvg = decodeURIComponent(/url\("data:image\/svg\+xml,([^"]+)"\)/.exec(face)![1]);
+    expect(faceSvg).toContain(`fill='${LAUNCHER_AVATAR.ink}'`);
+    expect(faceSvg).toContain(`d='${LAUNCHER_GLYPHS.face}'`);
+    expect(faceSvg).toContain("xmlns='http://www.w3.org/2000/svg'");
+    expect(LAUNCHER_GLYPHS.face).toBe(PERSON_SILHOUETTE);
+    expect(face).toContain(`center / 62% no-repeat, ${LAUNCHER_AVATAR.disc};`);
+    expect(face).toContain("content: '';");
   });
 
   // Found in round 5's verification: on RESPOK's own ground the classic
@@ -348,8 +360,9 @@ describe('runtime-fab.css', () => {
     expect(FAB_CSS).toContain(".launcher.fx-pill[dir='rtl'] { padding: 0 6px 0 20px; }");
     expect(FAB_CSS).toContain('@supports ((-webkit-mask: none) or (mask: none))');
     expect(FAB_CSS).toContain('.launcher.fx-avatar.fx-off::after { display: none; }');
-    // Its own text attributes only, never markup.
+    // Its own text attributes only, never markup; and the face is no letter (owner, 2026-10-24).
     expect(FAB_CSS).toContain('content: attr(data-fx)');
-    expect(FAB_CSS).toContain('content: attr(data-fi)');
+    expect(FAB_CSS).not.toContain('data-fi');
+    expect(LOADER_SRC).not.toContain('data-fi');
   });
 });

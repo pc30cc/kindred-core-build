@@ -290,12 +290,15 @@ describe('the launcher\'s style: the tile → the PATCH → /config → the buil
     const row = workspace(edition, (t) => { Object.assign(t.widget_settings[0], { fab_label: locale === 'fa' ? 'گفتگو با ما' : 'Chat with us' }); });
     expect(await chooseTile('avatar', row, locale)).toEqual([200, 200]);
     const face = await configBody(brand, edition);
-    // Sara is the online operator (widgetConfigFakeDb).
+    // Sara is the online operator (widgetConfigFakeDb). /config still names
+    // her letter for launchers cached before 2026-10-24; the widget no longer
+    // draws it (the face is a silhouette, runtime-fab.css).
     expect(fab(face)).toMatchObject({ shape: 'circle', icon: 'avatar', initial: 'S' });
     expect(face.fabStyleUrl).toBe(url(brand, 'runtime-fab.css'));
     const styled = await bootLoader(brand, face);
     expect(styled.launcher.className).toContain('fx fx-avatar fx-circle');
-    expect(styled.launcher.getAttribute('data-fi')).toBe('S');
+    expect(styled.launcher.hasAttribute('data-fi')).toBe(false);
+    expect(styled.launcher.textContent).not.toContain('S');
     // The card beside it waits with it.
     expect((styled.root.querySelector('.gs-fab-label') as HTMLElement).style.visibility).toBe('hidden');
 

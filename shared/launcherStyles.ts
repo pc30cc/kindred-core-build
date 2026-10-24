@@ -3,7 +3,8 @@
  * «دکمه شناور», RESPOK board 10 "Chat button"): `fab.shape` circle |
  * square | pill and `fab.icon`, today's seven glyphs plus three styles,
  * bubble (the classic bubble), duo (two bubbles) and avatar (the agent's
- * face: the first operator's initial and a presence dot). The pill carries
+ * face: a person's silhouette and a presence dot; never a letter since
+ * 2026-10-24, owner). The pill carries
  * `fab.label` inside it instead of the card beside the launcher.
  *
  * Shared by the server (GET /config normalises what it sends, the settings
@@ -14,6 +15,8 @@
  * sits under the plan capability `widget_launcher_icon`, as the icon choice
  * always did.
  */
+
+import { PERSON_SILHOUETTE } from './avatarGlyphs.js';
 
 export const FAB_SHAPES = ['circle', 'square', 'pill'] as const;
 export type FabShape = (typeof FAB_SHAPES)[number];
@@ -57,7 +60,9 @@ const UNSHOWN_CHAR = /[\p{C}\p{Z}\p{M}]/u;
 /**
  * The agent face's letter: the first character that shows (a whole code
  * point) of the first name that has one, in order (the team, online first,
- * then the workspace's name); '' when none has.
+ * then the workspace's name); '' when none has. /config still sends it as
+ * `fab.initial` for loaders and launcher stylesheets cached before
+ * 2026-10-24; the widget no longer draws it (the face is LAUNCHER_GLYPHS.face).
  */
 export function launcherInitial(names: ReadonlyArray<string | null | undefined>): string {
   for (const name of names) {
@@ -71,9 +76,11 @@ export function launcherInitial(names: ReadonlyArray<string | null | undefined>)
 const BUBBLE_DOTS = 'M7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z';
 
 /**
- * The two drawn glyphs, in a 24-unit box: what runtime-fab.css masks the
+ * The drawn glyphs, in a 24-unit box: what runtime-fab.css masks the
  * launcher's colour with (inline SVG, a test checks they agree) and what the
- * dashboard's picker draws. The bubble's dots and the bubble are one
+ * dashboard's picker draws. The agent's face (`face`) is the platform's
+ * person silhouette (shared/avatarGlyphs.ts), drawn in LAUNCHER_AVATAR's ink
+ * on its disc. The bubble's dots and the bubble are one
  * even-odd path, so the dots are holes the launcher's own colour shows
  * through; on a brand kit's own ground the dots (`bubbleDots`, under the
  * bubble) take the kit's second colour (board 11's #18AD94, board 10's
@@ -85,9 +92,10 @@ export const LAUNCHER_GLYPHS = {
   bubbleDots: BUBBLE_DOTS,
   duoBack: 'M14.5 6.5V6a2.5 2.5 0 0 0-2.5-2.5H5.5A2.5 2.5 0 0 0 3 6v5a2.5 2.5 0 0 0 2.5 2.5H6v2.4l2.6-2.2',
   duoFront: 'M9.5 11a2.5 2.5 0 0 1 2.5-2.5h6.5A2.5 2.5 0 0 1 21 11v4.5a2.5 2.5 0 0 1-2.5 2.5H18v2.6L14.8 18H12a2.5 2.5 0 0 1-2.5-2.5z',
+  face: PERSON_SILHOUETTE,
 } as const;
 
-/** The agent face's colours (board 11): the disc, its letter, the online dot. */
+/** The agent face's colours (board 11): the disc, its silhouette, the online dot. */
 export const LAUNCHER_AVATAR = { disc: '#FCE3D4', ink: '#8A3410', online: '#16A34A' } as const;
 
 // ─── The dashboard's tiles (WebYar board 11, RESPOK board 10) ────────────

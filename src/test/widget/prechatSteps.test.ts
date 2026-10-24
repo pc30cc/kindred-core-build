@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { boot, click, flush, key, resetWindow, typeInto, type ApiAnswer, type BootOptions } from './coreFeaturesHarness';
+import { avatarFace } from './avatarFace';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
@@ -278,14 +279,17 @@ describe('the saved details, edited', () => {
 // store's own tile.
 describe('the chat bar while the details are asked, and on the saved details', () => {
   const ONLINE = { availability: { state: 'online' } };
+  // The face: the silhouette or the store's storefront (never a letter), and
+  // its tile's colour (each team member keeps theirs: Sara c1, Mahdi c2).
+  const faceOf = (el: Element | null) => (el ? `${avatarFace(el)} ${(el.className.match(/\bc[1-4]\b/) || [''])[0]}` : null);
   const bar2 = (h: ReturnType<typeof boot>) => ({
-    face: h.q('[data-chat-header] .who .av')?.textContent ?? null,
+    face: faceOf(h.q('[data-chat-header] .who .av')),
     title: h.q('[data-chat-header] .hn')!.textContent,
     status: h.q('[data-chat-header] .hs')?.textContent ?? null,
   });
-  const STORE = { face: 'س', title: 'فروشگاه نیلوفر', status: 'آنلاین · پاسخ در چند دقیقه' };
+  const STORE = { face: 'person c1', title: 'فروشگاه نیلوفر', status: 'آنلاین · پاسخ در چند دقیقه' };
   // The store on top, the operator answering small under it (owner, 2026-10-18).
-  const MAHDI = { face: 'م', title: 'فروشگاه نیلوفر', status: 'مهدی' };
+  const MAHDI = { face: 'person c2', title: 'فروشگاه نیلوفر', status: 'مهدی' };
   const mahdi = (id: string, cid: string) =>
     ({ id, role: 'agent', sender_type: 'agent', sender_name: 'مهدی', text: 'سلام', time: new Date().toISOString(), conversation_id: cid });
   async function send(h: ReturnType<typeof boot>, text: string) {
@@ -398,7 +402,7 @@ describe('the chat bar while the details are asked, and on the saved details', (
     });
     await toChat(h);
     expect(box(h)).not.toBeNull();
-    expect(bar2(h)).toEqual({ ...STORE, face: 'ف' });
+    expect(bar2(h)).toEqual({ ...STORE, face: 'workspace c4' });
   });
 
   it('away: the store\'s own tile', async () => {
@@ -406,7 +410,7 @@ describe('the chat bar while the details are asked, and on the saved details', (
     const h = start({ config: { availability: { state: 'offline', offline_mode: 'capture_message' } } });
     await toChat(h);
     expect(box(h)).not.toBeNull();
-    expect(bar2(h)).toEqual({ face: 'ف', title: 'فروشگاه نیلوفر', status: 'آفلاین · پاسخ همین‌جا' });
+    expect(bar2(h)).toEqual({ face: 'workspace c4', title: 'فروشگاه نیلوفر', status: 'آفلاین · پاسخ همین‌جا' });
   });
 
   it('t2 draws no lead in its bar: its view-model has no `prechat`, so the pre-chat repaints nothing there', async () => {

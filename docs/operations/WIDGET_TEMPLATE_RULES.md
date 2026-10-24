@@ -189,7 +189,9 @@ templates: `docs/operations/EDITIONS.md`.
   after the names over runs went and the AI's badge became the sparkle: t1
   19.6 KB (19,597 B), t2 20.0 KB (19,968 B) in the Iranian build, 19.5 /
   19.8 KB (19,518 / 19,808 B) in RESPOK's, `default` 14.1 KB, of 20: t2 has
-  32 B left, so its next surface goes in its extras).
+  32 B left, so its next surface goes in its extras). On 2026-10-24, after
+  the avatars lost their letters (§4): t1 19,486 / 19,406 B, t2 19,950 /
+  19,788 B (50 B left), `default` 14,086 B.
 - The emoji search's keywords (`public/widget/runtime-emoji.js`, ModuleLoader
   name `emoji`, `config.modules.emoji` for a template with `coreFeatures`):
   pure data (the renderer rules apply: no network, storage or host), the
@@ -208,7 +210,8 @@ templates: `docs/operations/EDITIONS.md`.
   its shadow root (canonical-name retry), keeping the launcher (and the
   card beside it) unseen until it is in (3 s at most). It restyles the
   loader's own launcher (classes `fx fx-<icon> fx-<shape>`, the pill's text
-  in `data-fx`, the agent's initial in `data-fi`, `dir`), so without it the
+  in `data-fx`, `dir`; the agent's face is a person's silhouette, never a
+  letter, since 2026-10-24), so without it the
   launcher is today's, and a launcher without a style is byte for byte as
   before (`launcherStyles.test.ts`). It follows the stylesheet rules of §3 (no
   font, no host, small inline SVGs; `templateRules.test.ts` checks it with
@@ -326,6 +329,17 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   reply-time lines there). The state a browser without it keeps must read
   right (`templateRules.test.ts` checks every template stylesheet,
   `e2e/widgetHasFallback.spec.ts` the chat header).
+- Avatars (owner, 2026-10-24): a person without a photo (an operator, a
+  team member, an article's author) is the platform's person silhouette and
+  the workspace without a logo its storefront (`shared/avatarGlyphs.ts`),
+  never a letter; the AI without a logo of its own wears the workspace's.
+  A renderer emits the tile empty (`aria-hidden`, its tone class kept) and
+  its stylesheet paints the glyph with `background: currentColor` and
+  `mask: var(--wy-person)` / `var(--wy-workspace)` (with `-webkit-mask`),
+  whose URIs live once in Core's `runtime.css`. Not a byte of JS
+  (`src/test/widget/avatarGlyphs.test.ts` boots every template and fails
+  on a letter). The call widget: `.pp` (the person, `runtime.css`) and
+  `.lg.ws` (the business, the panel's stylesheet).
 - Two things every chat template draws for Core: a failed visitor message's
   `failText` (why it was not sent, in the visitor's language: no connection
   yet, too many at once, too long, chat not available) in place of the

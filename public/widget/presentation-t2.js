@@ -388,11 +388,6 @@
     }
 
     // ── People and the workspace ──────────────────────────────────────
-    /** First letter of a name (a whole code point, never half a pair). */
-    function initialOf(name) {
-      var s = String(name || '').trim();
-      return s ? Array.from(s)[0].toUpperCase() : '';
-    }
     /** A person's tile colour (c1..c3), stable for a name on every surface. */
     function tone(name) {
       var h = 0;
@@ -408,22 +403,23 @@
       return '<img src="' + esc(src) + '" alt="' + esc(alt || '') + '" loading="lazy" decoding="async">';
     }
     /**
-     * One round person tile: the photo when there is one, else the initial
-     * on the person's colour. `pr` adds the presence dot ('on' | 'off').
+     * One round person tile: the photo when there is one, else the person
+     * silhouette (the stylesheet's, never a letter; owner 2026-10-24) on the
+     * person's colour. `pr` adds the presence dot ('on' | 'off').
      */
     function avatarHtml(name, photo, size, opts) {
       opts = opts || {};
       var src = safeSrc(photo);
       return '<span class="av s' + size + ' ' + (opts.tone || tone(name)) + (opts.cls ? ' ' + opts.cls : '') +
         (src ? ' has-img' : '') + '" aria-hidden="true">' +
-        (src ? imgTag(src) : esc(initialOf(name))) +
+        (src ? imgTag(src) : '') +
         (opts.pr ? '<span class="pr' + (opts.pr === 'off' ? ' off' : '') + '"></span>' : '') +
       '</span>';
     }
     function workspaceLogo() {
       return config.showLogo === false ? '' : safeSrc(config.logoUrl);
     }
-    /** The workspace where it speaks in a round slot: its logo, else its initial on the reserved tile. */
+    /** The workspace where it speaks in a round slot: its logo, else its storefront glyph on the reserved tile (c4). */
     function storeAvatarHtml(size, pr, cls) {
       return avatarHtml(workspaceName, workspaceLogo(), size, { tone: 'c4', pr: pr, cls: cls });
     }
@@ -932,8 +928,9 @@
         '<div class="msg-col"><div class="msg-line">' + dotsBubbleHtml() + '</div></div></div>' +
       '</div>';
     }
+    /** The run's avatar; the AI without a logo speaks under the workspace's tile, never a person's. */
     function msgAvatarHtml(m) {
-      return (m.senderName || m.senderAvatar)
+      return (m.senderAvatar || m.senderType != 'ai' && m.senderName)
         ? avatarHtml(m.senderName || '', m.senderAvatar, 28, { cls: 'msg-avatar' })
         : storeAvatarHtml(28, '', 'msg-avatar');
     }
@@ -1465,7 +1462,7 @@
       var logoSrc = workspaceLogo();
       var logo = config.showLogo === false ? ''
         : '<span class="logo"' + (logoSrc ? '' : ' aria-hidden="true"') + '>' +
-          (logoSrc ? imgTag(logoSrc, workspaceName) : esc(initialOf(workspaceName) || 'W')) + '</span>';
+          (logoSrc ? imgTag(logoSrc, workspaceName) : '') + '</span>';
 
       var hero = '<div class="hero">' +
         '<div class="aur" aria-hidden="true"><i></i><i></i></div>' + markSvg('mk', MARK) +
@@ -1709,7 +1706,7 @@
       vm = vm || {};
       var a = vm.article || {};
       var mins = Number(a.readingMinutes) || 0;
-      // Its author (feature `kbAuthor`): the initial and the name, as 03·08 draws them.
+      // Its author (feature `kbAuthor`): the silhouette and the name, as 03·08 draws them.
       var by = String(a.author || '').trim();
       return '<div class="art wy-scroll">' +
           '<h1>' + esc(a.title || '') + '</h1>' +

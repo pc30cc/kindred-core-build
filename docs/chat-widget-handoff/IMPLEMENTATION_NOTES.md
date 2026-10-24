@@ -280,7 +280,8 @@ the history item). Where t2 now departs from the template-2 boards:
 - **03·09 (conversations):** history, titled «گفتگوهای قبلی», its back to where it was opened (home, help, or the
   chat's ⋯), with no floating «گفتگوی جدید» and no open/resolved pills (the order card keeps its `.pill`). The current
   conversation is never in it; an older live one is, and opens writable. On a phone a titled bar (history, help) is
-  now as tall as a thread's (64 px), so back and close stay put between history and a past thread.
+  now as tall as a thread's (64 px), so back and close stay put between history and a past thread. Its loading rows
+  are a history row's height (68 px; they had kept the pill line's 96 px).
 - **The past bar (no board):** a closed conversation opened from history is read-only. The composer's box is locked
   (the pre-chat's locked look) and says «این گفتگو به پایان رسیده و فقط خواندنی است» beside a lock, with «گفتگوی فعلی
   ‹» where send sits; with nothing current, a «شروع گفتگو» / «پیغام بگذارید» button under the box (RESPOK: the flat
@@ -292,10 +293,13 @@ the history item). Where t2 now departs from the template-2 boards:
   resolve wording is gone: a resolve draws no line (owner, 2026-10-24), and the server writes it for a close only.
 - **The ⋯:** «گفتگوهای قبلی» first (a clock), with its unseen answers' count, on any thread but a past one, a fresh
   thread too.
-- **Bytes** (shipped, gzip 5, iran / respok): `presentation-t2.js` 19,950 / 19,788 → 19,765 / 19,599 (budget
-  20,000); `presentation-t2-x.js` 6,110 → 6,401 (12,000); `presentation-t2.css` 15,901 → 15,915 (18,000);
-  `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,841, t2-intl 38,808 →
-  38,634 (40,000). `loader.js` unchanged.
+- **The dashboard's live preview** (`WidgetLivePreview.tsx`) builds its samples as Core does for a renderer drawing a
+  past bar (t1 and t2): home continues the unread sample and links to history, and the Messages view is history, the
+  closed sample alone, back home. A renderer without one gets the samples as before.
+- **Bytes** (shipped, gzip 5, iran / respok): `presentation-t2.js` 19,950 / 19,788 → 19,764 / 19,599 (budget
+  20,000); `presentation-t2-x.js` 6,110 → 6,401 (12,000); `presentation-t2.css` 15,901 → 15,896 (18,000);
+  `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,821, t2-intl 38,808 →
+  38,615 (40,000). `loader.js` unchanged.
 
 ## Rollout
 

@@ -1167,13 +1167,8 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
 
   // A resolve ends nothing for the visitor (owner, 2026-10-24): the server
   // writes no line for one, and Core drops the line an older backend wrote
-  // (runtime.js hiddenRow), so no resolve wording is left here.
-  it('has no resolve wording: a row that still says resolved reads as the close it is drawn as', () => {
-    const line = (locale: string) => thread(withExtras(make({ locale })), [closedRow('c1', 'Sara', {
-      metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Sara', status: 'resolved' },
-    })]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
-    expect(line('fa')).toBe('Sara گفتگو را به پایان رساند');
-    expect(line('en')).toBe('Sara ended the chat');
+  // before t2 sees it (runtime.js hiddenRow; afterChat.test.ts runs it with t2).
+  it('has no resolve wording left (Core never hands t2 a resolve\'s line)', () => {
     expect(T2_X_SRC).not.toMatch(/convResolved|حل‌شده|resolved/);
   });
 
@@ -1750,6 +1745,10 @@ describe('t2: one current conversation per visitor (Core\'s mode for a renderer 
     expect(avatarFace(nobody.querySelector('.who > .av'))).toBe('workspace');
     // No day known: the name alone.
     expect(bar({ when: '', operator: { name: 'مهدی', online: null } }).querySelector('.st')!.textContent).toBe('مهدی');
+    // Core's label without Intl.RelativeTimeFormat is Latin ('5d'): in the visitor's digits, as the history row's.
+    expect(bar({ when: '5d', operator: { name: 'مهدی', online: null } }).querySelector('.st')!.textContent).toBe('مهدی · ۵d');
+    expect(parse(r('en').chatHeaderHtml({ online: true, past: true, when: '5d', operator: { name: 'Mehdi', online: null } }))
+      .querySelector('.st')!.textContent).toBe('Mehdi · 5d');
   });
 
   it('the past bar (extras): the composer\'s box locked, the way to the current conversation where send sits', () => {

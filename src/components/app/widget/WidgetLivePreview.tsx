@@ -558,7 +558,8 @@ export function WidgetLivePreview({
         categories: [],
       },
       /* The conversation list: two sample threads, one waiting for the
-         visitor (unread) and one closed. */
+         visitor (unread) and one closed (one conversation per visitor: the
+         current one and the history, see gsRenderPreview). */
       listVm: {
         rtl,
         loading: false,
@@ -870,6 +871,18 @@ export function WidgetLivePreview({
       kbVms.forEach(function (vm) { if (vm) vm.hasSearch = true; });
     }
     if (feat('visitorName')) GS_PREVIEW.homeVm.visitorName = '';
+    // One conversation per visitor (a renderer drawing a past bar: Core's
+    // oneChat()), as Core builds it: home continues the current one (the
+    // unread sample) and links to history; the list is history, the closed
+    // sample alone, its back home. The unread total above counts both.
+    if (typeof R.pastBarHtml === 'function') {
+      var samples = GS_PREVIEW.listVm.conversations;
+      GS_PREVIEW.homeVm.conversations = [samples[0]];
+      GS_PREVIEW.homeVm.pastCount = 1;
+      GS_PREVIEW.homeVm.pastUnread = 0;
+      GS_PREVIEW.listVm.conversations = [Object.assign({}, samples[1], { status: 'closed' })];
+      GS_PREVIEW.listVm.back = 'home';
+    }
 
     var panel = document.querySelector('.panel');
     panel.innerHTML = R.shellHtml(GS_PREVIEW.shellVm);

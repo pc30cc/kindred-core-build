@@ -235,7 +235,9 @@ test('t2: one conversation per visitor (the one-* and t2-one-* states)', async (
         facts[state] = await page.evaluate(() => {
           const sr = document.getElementById('gs-host')!.shadowRoot!;
           const q = (sel: string) => sr.querySelector(sel) as HTMLElement | null;
-          const at = [q('.panel [data-view-back]'), q('.panel-close')].map((e) => {
+          // The back shown (a loading view's is the skeleton's placeholder).
+          const shown = (sel: string) => (Array.from(sr.querySelectorAll(sel)) as HTMLElement[]).find((e) => !!e.offsetParent) || null;
+          const at = [shown('.panel [data-view-back], .panel .wy-skeleton .wy-back'), q('.panel-close')].map((e) => {
             if (!e || !e.offsetParent) return null;
             const r = e.getBoundingClientRect();
             return [Math.round(r.x), Math.round(r.y)];
@@ -250,6 +252,7 @@ test('t2: one conversation per visitor (the one-* and t2-one-* states)', async (
             moreBadge: q('[data-body] .more[data-view="list"] .nb')?.textContent ?? null,
             menuBadge: q('[data-chat-menu-action="history"] .nb')?.textContent ?? null,
             rows: Array.prototype.map.call(sr.querySelectorAll('.wy-view-list [data-conversation-open]'), (e: Element) => e.getAttribute('data-conversation-open')).join(','),
+            rowH: Array.prototype.map.call(sr.querySelectorAll('.wy-view-list .inbox .ci, .wy-view-list .inbox .sk'), (e: Element) => Math.round(e.getBoundingClientRect().height)).join(','),
             pills: sr.querySelectorAll('.wy-view-list .pill').length,
             fab: !!q('.fab, .wy-fab'),
             title: q('.wy-view-list .ttl')?.textContent ?? null,
@@ -299,6 +302,13 @@ test('t2: one conversation per visitor (the one-* and t2-one-* states)', async (
     expect(f['one-13-history-empty']).toMatchObject({ view: 'list', rows: '', fab: false });
     expect(f['one-07-history'].back).toEqual(f['one-08-past-thread'].back);
     expect(f['one-07-history'].close).toEqual(f['one-08-past-thread'].close);
+    // Loading, its rows are the loaded rows' boxes (nothing jumps when the list arrives), under the same bar.
+    const rowH = String(f['one-07-history'].rowH).split(',');
+    expect(rowH).toEqual([rowH[0], rowH[0], rowH[0]]);
+    expect(f['one-15-history-loading'].rowH).toBe(Array(5).fill(rowH[0]).join(','));
+    for (const state of ['one-13-history-empty', 'one-14-history-error', 'one-15-history-loading']) {
+      expect([f[state].back, f[state].close], state).toEqual([f['one-07-history'].back, f['one-07-history'].close]);
+    }
     // A past thread: read-only, who and when, no presence; the way to the current one where send sits.
     expect(f['one-08-past-thread']).toMatchObject({
       composer: false, pastButton: false, pastLink: 'گفتگوی فعلی', headerName: 'فروشگاه نیلوفر', headerSub: 'مهدی · دیروز', headerDot: false,

@@ -1248,7 +1248,7 @@
       var sub = op && workspaceName != op.name && workspaceName ? op.name : '';
       var name = op && !sub ? op.name : workspaceName;
       var on = online && op && op.online && !vm.typing;
-      var line = vm.past ? [sub, vm.when].filter(Boolean).join(' · ')
+      var line = vm.past ? [sub, vm.when && digits(vm.when)].filter(Boolean).join(' · ')
         : sub || (vm.typing ? L('typing') : !online ? L('away') : on ? L('online') : replyTimeText(true));
       var st = line ? '<span class="st' + (vm.typing ? ' typ' : online ? '' : ' off') + '">' + (on ? '<i class="ondot"></i>' : '') +
         '<b>' + esc(line) + '</b>' + (vm.typing ? '<i></i><i></i><i></i>' : '') + '</span>' : '';
@@ -1386,7 +1386,7 @@
 
       return viewOpen('wy-view-chat', rtl) +
         '<div class="header wy-head bar" data-chat-header>' +
-          chatHeaderHtml({ online: teamOnline(), typing: false, operator: null, isNew: true }) +
+          chatHeaderHtml({ online: teamOnline(), typing: false, operator: null }) +
         '</div>' +
         '<div class="wy-chat-scroll-host">' +
           '<div class="wy-chat-scroll wy-scroll" data-chat-messages></div>' +

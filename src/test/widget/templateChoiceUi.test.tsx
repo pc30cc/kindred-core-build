@@ -15,7 +15,8 @@
  *     Core's order (a named back or a conversation row first), and a
  *     renderer that declares `tabs` / `kbSearch` / `visitorName` gets Core's
  *     view-model fields, its current tab and its unread badge (the default
- *     declares none: unchanged);
+ *     declares none: unchanged), and one drawing a past bar (one
+ *     conversation per visitor) Core's home and history view-models;
  *   - WidgetPage saves a pick through mutateAsync, so its refusal handling
  *     runs even when a debounced field save is sent meanwhile.
  */
@@ -373,7 +374,7 @@ describe('WidgetLivePreview — the effective template', () => {
 describe('WidgetLivePreview — a renderer\'s declared features, as Core reads them', () => {
   type Vm = Record<string, unknown>;
   /** The frame's own script in a page of its own, painting with a stand-in renderer. */
-  function paint(view: 'home' | 'list' | 'kb', features?: Record<string, boolean>) {
+  function paint(view: 'home' | 'list' | 'kb', features?: Record<string, boolean>, more: Record<string, unknown> = {}) {
     const page = new JSDOM(srcdoc({ view, templateId: 't1' }), { runScripts: 'outside-only' });
     const inline = Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((s) => s.textContent).join('\n');
     page.window.eval(inline);
@@ -389,6 +390,7 @@ describe('WidgetLivePreview — a renderer\'s declared features, as Core reads t
       homeHtml: (vm: Vm) => { seen.home = vm; return '<p>home</p>'; },
       conversationListHtml: (vm: Vm) => { seen.list = vm; return '<p>list</p>'; },
       kbHtml: (vm: Vm) => { seen.kb = vm; return '<p>kb</p>'; },
+      ...more,
     };
     (page.window as unknown as { gsRenderPreview: (mod: unknown) => void }).gsRenderPreview({ create: () => R });
     const doc = page.window.document as Document;
@@ -405,6 +407,23 @@ describe('WidgetLivePreview — a renderer\'s declared features, as Core reads t
       expect(current).toEqual(['home:false', 'list:false', 'help:false']);
       expect(badge).toEqual({ text: '', hidden: true });
     }
+  });
+
+  it('one conversation (a renderer drawing a past bar): home continues the current sample and links to history; the list is history', () => {
+    const one = { features: { tabs: true }, pastBarHtml: () => '' };
+    const home = paint('home', undefined, one).seen.home as { conversations: Vm[]; pastCount: number; pastUnread: number };
+    expect(home.conversations.map((c) => [c.id, c.status, c.unreadCount])).toEqual([['preview-1', 'open', 1]]);
+    expect([home.pastCount, home.pastUnread]).toEqual([1, 0]);
+    const list = paint('list', undefined, one);
+    expect((list.seen.list.conversations as Vm[]).map((c) => [c.id, c.status])).toEqual([['preview-2', 'closed']]);
+    expect(list.seen.list).toMatchObject({ back: 'home', unreadTotal: 1 });
+    // The tab's badge still counts the current one's answer.
+    expect(list.badge).toEqual({ text: '(1)', hidden: false });
+    // Without a past bar (default today): as before, no conversations on home, both in the list.
+    expect('conversations' in paint('home').seen.home).toBe(false);
+    const before = paint('list').seen.list;
+    expect((before.conversations as Vm[]).map((c) => c.status)).toEqual(['open', 'resolved']);
+    expect('back' in before).toBe(false);
   });
 
   it('chatHeader / chatMenu: the chat bar as Core paints it for an existing conversation (who answers, a closed ⋯); none without them', () => {
@@ -478,6 +497,17 @@ describe('WidgetLivePreview — the late surfaces, with the real renderers and e
     const card = paintReal('t1', { view: 'prechat', prechat: PRECHAT as never, templateOptions: { prechatMode: 'card' } });
     expect(card.querySelector('[data-prechat-step]')).toBeNull();
     expect(card.querySelector('[data-prechat="name"]')).not.toBeNull();
+  });
+
+  it('t2, one conversation: home continues the unread sample and links to history; the Messages view is history alone', () => {
+    const home = paintReal('t2', { view: 'home' });
+    expect(Array.from(home.querySelectorAll('[data-conversation-open]')).map((e) => e.getAttribute('data-conversation-open'))).toEqual(['preview-1']);
+    expect(home.querySelector('.wy-view-home .list > .r[data-conversation-open="preview-1"] .nb')).not.toBeNull();
+    expect(home.querySelector('.wy-view-home .more[data-view="list"]')).not.toBeNull();
+    const list = paintReal('t2', { view: 'list' });
+    expect(Array.from(list.querySelectorAll('.wy-view-list [data-conversation-open]')).map((e) => e.getAttribute('data-conversation-open'))).toEqual(['preview-2']);
+    expect(list.querySelector('.wy-view-list [data-view-back="home"]')).not.toBeNull();
+    expect(list.querySelector('.wy-view-list .nb, .wy-view-list .pill')).toBeNull();
   });
 
   it('away, capturing a message: the visitor\'s message and the automated reply, which asks for no e-mail (t1, t2)', () => {

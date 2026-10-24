@@ -242,7 +242,7 @@ describe('t2: the ⋯ offers the earlier conversations', () => {
     expect([view(h), cid(h)]).toEqual(['chat', 'c-live']);
   });
 
-  it('on a fresh thread too (no transcript before a message), with the unseen answers there', async () => {
+  it('on a fresh thread too (no transcript before a message); no count, as an unseen answer would be the current one', async () => {
     const h = start({ conversations: [{ id: 'c-past', status: 'closed' }, { id: 'c-older', status: 'closed', unreadCount: 0 }] });
     await flush(40);
     await online(h);

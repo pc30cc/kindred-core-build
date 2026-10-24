@@ -8,9 +8,9 @@
  *    declares `closedNotice` (t1, t2): `default` never gets it, from a
  *    history or a realtime frame, in the store, the renderer, the unread
  *    count or the page's public `message` event (the toast and chime gate);
- *    with t1 and t2 it is drawn but never counted as unread. t1 (one
- *    conversation per visitor) draws a close only: the row an older backend
- *    wrote for a resolve is dropped like default's.
+ *    with t1 and t2 it is drawn but never counted as unread. t1 and t2 (one
+ *    conversation per visitor) draw a close only: the row an older backend
+ *    wrote for a resolve is dropped like default's (no rating asked for).
  *  - runtime-late.js asks GET …/csat once when the thread ends with a closed
  *    row (again when the panel reopens or the history reloads), shows the
  *    card only when the server says rateable (or rated), and only with the
@@ -172,6 +172,21 @@ describe('default never sees a closed row (no line, no count, no chime, no reque
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2']);
     expect(h.q('[data-chat-messages] .msg-day.cl')).toBeNull();
     expect(csatGets(h)).toEqual([]);
+  });
+
+  it('t2 drops it too: no line, no rating asked for or drawn, the composer as it was', async () => {
+    const h = await thread({ renderer: 't2', messages: [...THREAD, closed('cl1', 1, 'resolved')] });
+    await flush(20);
+    expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2']);
+    const drawn = h.calls.filter((c) => c.surface === 'messagesHtml')
+      .flatMap((c) => ((c.args[0] as { messages: Array<Record<string, unknown>> }).messages || []).map((m) => m.__id));
+    expect(drawn).not.toContain('cl1');
+    expect(h.q('[data-chat-messages] .msg-system-pill')).toBeNull();
+    expect(h.q('[data-csat]')).toBeNull();
+    expect(csatGets(h)).toEqual([]);
+    // Still the visitor's conversation: writable, no past bar.
+    expect(h.q<HTMLElement>('[data-input-bar]')!.style.display).not.toBe('none');
+    expect(h.q('[data-past-bar]')).toBeNull();
   });
 });
 

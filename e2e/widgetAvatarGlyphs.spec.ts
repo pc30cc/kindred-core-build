@@ -182,13 +182,15 @@ for (const v of VARIANTS) {
       return;
     }
     // The home: the hero's logo tile is the storefront, the team's tiles people.
-    // t1 (one conversation per visitor): with a conversation, home is its one
-    // card (the operator, a person); the team's stack is the first visit's.
-    const oneChat = v.templateId!.startsWith('t1');
+    // With a conversation (one per visitor), t1's home is its one card (the
+    // operator, a person; the team's stack is the first visit's); t2's keeps
+    // the hero's stack and adds the continue row's operator.
+    const oneCard = v.templateId!.startsWith('t1');
     for (const state of ['home-first-visit', 'home-recent-chat']) {
       expect(seen[state].filter((t) => /\blogo\b/.test(t.cls)), state).toHaveLength(1);
-      expect(count(state, false), state).toBeGreaterThanOrEqual(oneChat && state === 'home-recent-chat' ? 1 : 3);
+      expect(count(state, false), state).toBeGreaterThanOrEqual(state === 'home-first-visit' ? 3 : oneCard ? 1 : 4);
     }
+    if (!oneCard) expect(count('home-recent-chat', false, /^r\b/)).toBe(1);
     if (history) {
       // History: Mehdi and Reza are people, the AI's old conversation the storefront;
       // a past thread's bar is Mehdi, never a presence.

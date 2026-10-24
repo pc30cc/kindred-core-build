@@ -1625,8 +1625,6 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .art h1 .skl, .note .skl, .am .skl { display: inline-block; vertical-align: middle; }
 .kb-article-body.wy-sk-group { display: grid; gap: 17.3px; padding-top: 8.6px; }
 .kb-article.sk .tx { min-height: 40.2px; justify-content: center; }
-.inbox .sk { align-items: flex-start; }
-.inbox .sk .tx { min-height: 71.5px; justify-content: center; }
 .wy-skeleton .tx { gap: 8px; }
 .wy-skeleton .chips { gap: 6px; }
 .wy-skeleton .chips .skl { border-radius: 999px; }

@@ -849,17 +849,17 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
   if (!workspaceId) return res.json({ status: 'unknown', messages: [], conversation_id: null });
 
   const conversationId = req.query.conversation_id as string;
-  const visitorId = req.query.visitor_id as string || null;
-  const sessionId = req.query.session_id as string || null;
   const supabase = getServiceClient(config);
 
   try {
     let conv = null;
     let activeConversationId: string | null = null;
 
-    // Try direct conversation lookup with ownership verification
+    // Try direct conversation lookup with ownership verification, by the
+    // signed visitor alone: a query visitor_id or session_id names nobody
+    // (the widget sends neither), so it never reads another visitor's thread.
     if (conversationId) {
-      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
+      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
       if (ownership.valid && ownership.conversation) {
         conv = ownership.conversation;
         activeConversationId = conv.id;
@@ -980,14 +980,13 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   if (res.headersSent) return;
 
   const conversationId = req.query.conversation_id as string;
-  const visitorId = req.query.visitor_id as string || null;
-  const sessionId = req.query.session_id as string || null;
 
   if (!conversationId || !workspaceId) {
     return res.status(400).json({ error: 'conversation_id and workspace_id required' });
   }
 
-  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
+  // The signed visitor alone (see /poll): a query id names nobody.
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
   if (!ownership.valid) {
     return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
   }
@@ -1905,6 +1904,123 @@ async function widgetChatDepartmentId(config: ServerConfig, workspaceId: string,
   }
 }
 
+/**
+ * Pass E12-Hardening — the AI-off verdict for a visitor message, computed
+ * once. When OFF, no AI side-effect may run and the conversation must leave
+ * the Automated inbox for the Main Inbox. P0-G — this delegates to the ONE
+ * canonical visitor-facing gate instead of re-reading platform flags
+ * locally: the previous local copy ignored the plan module and the
+ * per-workspace platform_disabled latch, so the widget could believe AI was
+ * live while the engine skipped it, stranding conversations in the Automated
+ * inbox with no responder. Fail-closed, matching the canonical gate: an
+ * unreadable gate is AI off, so the conversation lands in the Main Inbox
+ * where a human will actually see it.
+ */
+async function platformAiVerdict(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<{ off: boolean; reason: PlatformOffReason }> {
+  try {
+    const { isAutoAnswerAllowedForWorkspace } = await import('../services/ai-agent/platformGuards.js');
+    const gate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
+    if (gate.allowed !== true) return { off: true, reason: (gate.reason || 'platform_ai_disabled') as PlatformOffReason };
+    return { off: false, reason: 'platform_ai_disabled' };
+  } catch {
+    return { off: true, reason: 'auto_answer_guard_error' };
+  }
+}
+
+/**
+ * With platform AI OFF, the conversation is NOT left stuck in Automated:
+ * AI-managed metadata is cleared defensively, for new and reused
+ * conversations alike (idempotent; no-op if nothing set). Never throws.
+ */
+async function restoreMainInboxWhenAiOff(
+  config: ServerConfig,
+  input: { workspaceId: string; conversationId: string; reason: PlatformOffReason; logTag: string },
+): Promise<void> {
+  try {
+    const restored = await clearAiManagementForPlatformOff(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      reason: input.reason,
+    });
+    // Logged only when the conversation actually moved back to the main
+    // inbox: with platform AI off this runs on every visitor message.
+    if (restored.changed) {
+      console.log(`[${input.logTag}] platform_ai_disabled_restore`, {
+        workspace_id: input.workspaceId,
+        conversation_id: input.conversationId,
+        reason: input.reason,
+        previous_ai_state: restored.previousAiState,
+      });
+    }
+  } catch (e) {
+    console.warn(`[${input.logTag}] platform_ai_disabled_restore_failed:`, e?.message || e);
+  }
+}
+
+/**
+ * Phase 3 — AI Agent runtime, after a visitor message was stored.
+ *
+ * The engine respects ai_agent_settings.mode and runtime policy:
+ *   - off / disabled                → no-op
+ *   - suggest_only                  → operator-only suggestion
+ *   - auto_reply_when_offline       → reply when operators offline
+ *   - auto_reply_until_human_joins  → reply until human posts
+ *   - auto_reply_always             → reply (capped + safety)
+ *
+ * Fire-and-forget: must never block the widget's response. Callers skip it
+ * on a duplicate replay (the original send already triggered, or correctly
+ * skipped, exactly one AI run for the message) and with platform AI off.
+ */
+function runAiAfterVisitorMessage(
+  config: ServerConfig,
+  input: {
+    workspaceId: string;
+    conversationId: string;
+    visitorMessageId: string;
+    question: string;
+    locale?: string;
+    pageContext?: Parameters<typeof maybeRunAiAssistantAfterVisitorMessage>[1]['pageContext'];
+    nudgeContext?: Parameters<typeof maybeRunAiAssistantAfterVisitorMessage>[1]['nudgeContext'];
+    logTag: string;
+  },
+): void {
+  void maybeRunAiAssistantAfterVisitorMessage(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    visitorMessageId: input.visitorMessageId,
+    question: input.question,
+    locale: input.locale,
+    pageContext: input.pageContext,
+    nudgeContext: input.nudgeContext,
+  })
+    .then(async (result) => {
+      // Observability: several engine outcomes (empty question, agent
+      // disabled, duplicate suggestion, internal failure) return without
+      // writing an ai_agent_runs row, which makes a silent AI impossible
+      // to diagnose from the database. Persist those outcomes here.
+      if (!result || result.runId) return;
+      try {
+        await logAiRun(config, {
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          visitorMessageId: input.visitorMessageId,
+          runType: 'skip',
+          mode: 'unknown',
+          status: result.action === 'failed' ? 'failed' : 'skipped',
+          inputText: input.question,
+          skipReason: result.reason || result.action || 'unlogged_outcome',
+          metadata: { engine_outcome: result.action || null, engine_reason: result.reason || null },
+        });
+      } catch { /* diagnostics must never break the visitor flow */ }
+    })
+    .catch((e) =>
+      console.warn(`[${input.logTag}] AI Agent engine error:`, e?.message || e),
+    );
+}
+
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const parsed = messageSchema.safeParse(req.body);
@@ -2060,29 +2176,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       return res.status(403).json({ error: 'Chat not enabled' });
     }
 
-    // Pass E12-Hardening — compute the AI-off verdict once. When OFF, we must
-    // not run any AI side-effects and must restore conversations out of the
-    // Automated inbox so they appear in Main Inbox.
-    // P0-G — this now delegates to the ONE canonical visitor-facing gate
-    // instead of re-reading platform flags locally: the previous local copy
-    // ignored the plan module and the per-workspace platform_disabled latch,
-    // so the widget could believe AI was live while the engine skipped it,
-    // stranding conversations in the Automated inbox with no responder.
-    let platformAiOff = false;
-    let platformAiOffReason: PlatformOffReason = 'platform_ai_disabled';
-    try {
-      const { isAutoAnswerAllowedForWorkspace } = await import('../services/ai-agent/platformGuards.js');
-      const gate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
-      if (gate.allowed !== true) {
-        platformAiOff = true;
-        platformAiOffReason = (gate.reason || 'platform_ai_disabled') as PlatformOffReason;
-      }
-    } catch {
-      // Fail-closed, matching the canonical gate: treat AI as off so the
-      // conversation lands in Main Inbox where a human will actually see it.
-      platformAiOff = true;
-      platformAiOffReason = 'auto_answer_guard_error';
-    }
+    // Pass E12-Hardening — the AI-off verdict, once (platformAiVerdict).
+    const { off: platformAiOff, reason: platformAiOffReason } = await platformAiVerdict(config, workspaceId);
 
 
     let convId = body.conversation_id || null;
@@ -2091,9 +2186,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // One current conversation per visitor (2026-10-24,
     // services/widget/visitorConversations.ts). The visitor is the SIGNED id
-    // (the dvsid cookie or the credential header), never body.visitor_id: a
-    // body value names nobody, so it can neither select another visitor's
-    // contact nor land in their conversation.
+    // (the dvsid cookie or the credential header), never body.visitor_id or
+    // body.session_id: a body value names nobody, so it can neither select
+    // another visitor's contact, nor prove a conversation theirs (the
+    // ownership check below is given none), nor land in their conversation.
     const signedVisitorId = (req as WidgetScopedRequest).visitorId || null;
     let visitorScopeRead: Promise<VisitorConversationScope | null> | null = null;
     const visitorScope = () => (visitorScopeRead ??= signedVisitorId
@@ -2107,9 +2203,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // or closed.
     let namedUnusable = false;
 
-    // Verify conversation ownership if provided
+    // Verify conversation ownership if provided: by the signed visitor alone
+    // (verifyConversationOwnership reads it from the request).
     if (convId) {
-      const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id, req);
+      const ownership = await verifyConversationOwnership(config, convId, workspaceId, null, null, req);
       if (!ownership.valid) {
         convId = null; // Will create new conversation
         namedUnusable = true;
@@ -2665,28 +2762,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // Pass E12-Hardening — when platform AI is OFF, ensure this conversation
-    // is NOT stuck in Automated. Clears AI-managed metadata defensively for
-    // both new and reused conversations (idempotent; no-op if nothing set).
+    // is NOT stuck in Automated (restoreMainInboxWhenAiOff).
     if (platformAiOff && convId) {
-      try {
-        const restored = await clearAiManagementForPlatformOff(config, {
-          workspaceId,
-          conversationId: convId,
-          reason: platformAiOffReason,
-        });
-        // Logged only when the conversation actually moved back to the main
-        // inbox: with platform AI off this runs on every visitor message.
-        if (restored.changed) {
-          console.log('[widget-message] platform_ai_disabled_restore', {
-            workspace_id: workspaceId,
-            conversation_id: convId,
-            reason: platformAiOffReason,
-            previous_ai_state: restored.previousAiState,
-          });
-        }
-      } catch (e) {
-        console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
-      }
+      await restoreMainInboxWhenAiOff(config, { workspaceId, conversationId: convId, reason: platformAiOffReason, logTag: 'widget-message' });
     }
 
     // Chat routing (package A): a conversation nobody has and no AI will
@@ -2738,56 +2816,21 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       });
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Phase 3 — AI Agent runtime.
-    //
-    // The engine respects ai_agent_settings.mode and runtime policy:
-    //   - off / disabled                → no-op
-    //   - suggest_only                  → operator-only suggestion
-    //   - auto_reply_when_offline       → reply when operators offline
-    //   - auto_reply_until_human_joins  → reply until human posts
-    //   - auto_reply_always             → reply (capped + safety)
-    //
-    // Fire-and-forget: must never block the widget /message response.
-    // Skipped on a duplicate replay — the original send already triggered
-    // (or correctly skipped) exactly one AI run for this message; running
-    // it again would risk a second AI reply for one visitor message.
-    // ─────────────────────────────────────────────────────────────────────
+    // Phase 3 — AI Agent runtime (runAiAfterVisitorMessage). Skipped on a
+    // duplicate replay — the original send already triggered (or correctly
+    // skipped) exactly one AI run for this message; running it again would
+    // risk a second AI reply for one visitor message.
     if (!duplicate && insertedMsg?.id && convId && !platformAiOff) {
-      const aiConvId = convId;
-      const aiMsgId = insertedMsg.id;
-      void maybeRunAiAssistantAfterVisitorMessage(config, {
+      runAiAfterVisitorMessage(config, {
         workspaceId,
-        conversationId: aiConvId,
-        visitorMessageId: aiMsgId,
+        conversationId: convId,
+        visitorMessageId: insertedMsg.id,
         question: messageBody,
         locale: (req.body && (req.body.locale as string)) || undefined,
         pageContext: pageContext || undefined,
         nudgeContext: nudgeContext || undefined,
-      })
-        .then(async (result) => {
-          // Observability: several engine outcomes (empty question, agent
-          // disabled, duplicate suggestion, internal failure) return without
-          // writing an ai_agent_runs row, which makes a silent AI impossible
-          // to diagnose from the database. Persist those outcomes here.
-          if (!result || result.runId) return;
-          try {
-            await logAiRun(config, {
-              workspaceId,
-              conversationId: aiConvId,
-              visitorMessageId: aiMsgId,
-              runType: 'skip',
-              mode: 'unknown',
-              status: result.action === 'failed' ? 'failed' : 'skipped',
-              inputText: messageBody,
-              skipReason: result.reason || result.action || 'unlogged_outcome',
-              metadata: { engine_outcome: result.action || null, engine_reason: result.reason || null },
-            });
-          } catch { /* diagnostics must never break the visitor flow */ }
-        })
-        .catch((e) =>
-          console.warn('[widget-message] AI Agent engine error:', e?.message || e),
-        );
+        logTag: 'widget-message',
+      });
     }
     const reply: string | null = null;
 
@@ -4157,16 +4200,21 @@ async function priorOfflineCapture(
 /**
  * The away thread's first message when the visitor already has a live
  * conversation (one current conversation per visitor, 2026-10-24): written
- * into that one, as POST /message would write it (the lifecycle reopens a
- * resolved one, the team's phones and routing hear of it, the Inbox gets it
- * live), with the owners' mail a capture sends, instead of a second
- * conversation beside it. A retry with the same client id finds the message
- * it wrote. Null when it could not be written.
+ * into that one, as POST /message would write it, instead of a second
+ * conversation beside it. It is that conversation's next visitor message:
+ * the lifecycle reopens a resolved one, the platform-off restore, routing
+ * and the AI run as for POST /message (an AI that answers the conversation
+ * answers this message too; one that does not leaves it to routing, which
+ * gives it to a person), the team's phones hear of it and the Inbox gets it
+ * live, with the owners' mail a capture sends. The visitor already read the
+ * away card, so routing posts no "nobody is online" or queue notice for it
+ * (`quiet`, as routeOfflineCapture). A retry with the same client id finds
+ * the message it wrote. Null when it could not be written.
  */
 async function appendAwayMessage(
   config: ServerConfig,
   supabase: ReturnType<typeof getServiceClient>,
-  input: { workspaceId: string; conversationId: string; message: string; clientMessageId: string; visitorId: string; name: string | null; email: string | null; phone: string | null },
+  input: { workspaceId: string; conversationId: string; message: string; clientMessageId: string; visitorId: string; name: string | null; email: string | null; phone: string | null; locale?: string },
 ): Promise<{ messageId: string } | null> {
   const findPrior = async () => {
     const { data } = await supabase
@@ -4195,6 +4243,7 @@ async function appendAwayMessage(
     return raced ? { messageId: raced } : null;
   }
 
+  const { off: platformAiOff, reason: platformAiOffReason } = await platformAiVerdict(config, input.workspaceId);
   const { data: touched } = await supabase.from('conversations')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', input.conversationId)
@@ -4208,6 +4257,19 @@ async function appendAwayMessage(
     knownStatus: typeof touched?.status === 'string' ? touched.status : null,
     message: { senderType: 'contact', direction: 'inbound', text: input.message, attachmentCount: 0 },
   });
+  // In POST /message's order: the restore rewrites the metadata routing reads.
+  if (platformAiOff) {
+    await restoreMainInboxWhenAiOff(config, {
+      workspaceId: input.workspaceId, conversationId: input.conversationId, reason: platformAiOffReason, logTag: 'offline-messages',
+    });
+  }
+  void routeHumanBoundConversation(config, {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    platformAiOff,
+    reopened: lifecycle?.transition === 'reopened_resolved',
+    quiet: true,
+  });
   publishConversationEvent(
     config, input.workspaceId, input.conversationId,
     buildMessageEnvelope(row as Parameters<typeof buildMessageEnvelope>[0]),
@@ -4220,11 +4282,16 @@ async function appendAwayMessage(
     senderName: input.name || input.email || null,
     channel: 'widget',
   });
-  void routeHumanBoundConversation(config, {
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    reopened: lifecycle?.transition === 'reopened_resolved',
-  });
+  if (!platformAiOff) {
+    runAiAfterVisitorMessage(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      visitorMessageId: row.id as string,
+      question: input.message,
+      locale: input.locale,
+      logTag: 'offline-messages',
+    });
+  }
   void notifyOfflineCapture(config, input.workspaceId, {
     conversationId: input.conversationId,
     message: input.message,
@@ -4300,6 +4367,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
         name: name ? name.trim() || null : null,
         email: email ? email.trim().toLowerCase() : null,
         phone: normalizeVisitorPhone(phone),
+        locale: locale || undefined,
       });
       if (!appended) return res.status(500).json({ error: 'capture_failed' });
       return res.json({

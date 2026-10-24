@@ -57,6 +57,7 @@ import {
   takeOverConversation,
 } from '../services/conversationAssignment.js';
 import { continueConversationThread, endConversationThread } from '../services/conversationLifecycle.js';
+import { findLiveVisitorConversation, resolveVisitorConversationScope, type VisitorConversationScope } from '../services/widget/visitorConversations.js';
 import {
   dropReplyJoin,
   introduceOperatorBeforeReply,
@@ -191,26 +192,35 @@ async function refuseLockedConversation(
 }
 
 /**
- * An operator's reply into a closed conversation reopens it (send-message):
- * only while it is still closed, on the timeline (`reopened`, reason
- * operator_replied) and in every inbox. The operator continues the thread,
- * so routing does not re-examine who has it when the visitor answers. Never
- * throws: the reply itself already went out.
+ * An operator continues a finished conversation, which reopens it:
+ *   - a reply into a closed one (send-message; reason operator_replied,
+ *     source composer);
+ *   - reaching out from the Visitors page to a visitor whose live
+ *     conversation is resolved (start-from-visitor; reason and source
+ *     visitor_outreach): resolved is still live for the visitor, so it is
+ *     the one the operator writes in, back in the Open lists.
+ * Only while it still has that status, on the timeline (`reopened`) and in
+ * every inbox. The operator continues the thread, so routing does not
+ * re-examine who has it when the visitor answers. Never throws (a reply
+ * already went out). True when it reopened it.
  */
-async function reopenClosedOnReply(
+async function reopenForOperator(
   config: ServerConfig,
-  a: { workspaceId: string; conversationId: string; actorId: string; messageId: string | null },
-): Promise<void> {
+  a: {
+    workspaceId: string; conversationId: string; actorId: string; messageId: string | null;
+    from: 'closed' | 'resolved'; reason: 'operator_replied' | 'visitor_outreach'; source: 'composer' | 'visitor_outreach';
+  },
+): Promise<boolean> {
   try {
     const { data } = await getServiceClient(config)
       .from('conversations')
       .update({ status: 'open', updated_at: new Date().toISOString() })
       .eq('id', a.conversationId)
       .eq('workspace_id', a.workspaceId)
-      .eq('status', 'closed')
+      .eq('status', a.from)
       .select('id, updated_at')
       .maybeSingle();
-    if (!data) return;
+    if (!data) return false;
     void recordAuditAndEvent(config, {
       workspaceId: a.workspaceId,
       conversationId: a.conversationId,
@@ -218,22 +228,24 @@ async function reopenClosedOnReply(
       actorId: a.actorId,
       eventType: 'reopened',
       auditAction: 'conversation.status_changed',
-      oldValue: { status: 'closed' },
+      oldValue: { status: a.from },
       newValue: { status: 'open' },
-      payload: { from: 'closed', to: 'open', reason: 'operator_replied', source: 'composer', message_id: a.messageId },
+      payload: { from: a.from, to: 'open', reason: a.reason, source: a.source, message_id: a.messageId },
     });
     void publishOperatorEvent(config, {
       kind: 'conversation_reopened',
       conversation_id: a.conversationId,
       workspace_id: a.workspaceId,
       actor_id: a.actorId,
-      changes: { status: { from: 'closed', to: 'open' } },
+      changes: { status: { from: a.from, to: 'open' } },
       updated_at: (data as { updated_at?: string }).updated_at,
     });
     await continueConversationThread(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
     void onSupportConversationChanged(config, { workspaceId: a.workspaceId, conversationId: a.conversationId });
+    return true;
   } catch (err) {
-    console.warn('[conversations/send-message] reopening a closed conversation failed:', err?.message || err);
+    console.warn(`[conversations] reopening a ${a.from} conversation failed:`, err?.message || err);
+    return false;
   }
 }
 
@@ -605,11 +617,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // operator who writes is continuing it. (A resolved one reopens by itself
     // when the visitor answers.)
     if (!duplicate && (conv as { status?: string | null }).status === 'closed') {
-      await reopenClosedOnReply(config, {
+      await reopenForOperator(config, {
         workspaceId: conv.workspace_id,
         conversationId: conv.id,
         actorId: auth.userId,
         messageId: inserted?.id ?? null,
+        from: 'closed',
+        reason: 'operator_replied',
+        source: 'composer',
       });
     }
 
@@ -818,9 +833,9 @@ conversationsRouter.post('/send-message', async (req, res) => {
 // POST /api/conversations/start-from-visitor
 //
 // Operator-initiated outreach from the Visitors page. Given a visitor
-// session, returns an existing open conversation (most-recent) or
-// creates a fresh one tied to that session + its contact (if any).
-// Idempotent for repeated clicks: an open conversation is reused.
+// session, returns the visitor's live conversation or creates a fresh one
+// tied to that session + its contact (if any). Idempotent for repeated
+// clicks: the live conversation is reused.
 // ═══════════════════════════════════════════════════════════════════
 conversationsRouter.post('/start-from-visitor', async (req, res) => {
   try {
@@ -847,51 +862,71 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
     if (sessErr) return res.status(500).json({ error: sessErr.message });
     if (!session) return res.status(404).json({ error: 'Visitor session not found' });
 
-    // Reuse the most-recent NON-resolved/closed conversation for this
-    // visitor session if one exists — avoids spawning duplicates when
-    // operators click the button multiple times.
-    const { data: existing } = await sb
-      .from('conversations')
-      .select('id, status, assigned_to, ai_state')
-      .eq('workspace_id', parsed.data.workspace_id)
-      .eq('visitor_session_id', parsed.data.visitor_session_id)
-      .in('status', ['open', 'pending'])
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // The visitor's live conversation (open, pending or resolved: one
+    // current conversation per visitor, 2026-10-24) is the one the operator
+    // writes in, never a second one beside it (which also keeps repeated
+    // clicks from spawning duplicates). The visitor is who the widget lists
+    // (services/widget/visitorConversations.ts): every session of their
+    // visitor id and the contact that carries it, so a conversation they
+    // started in an earlier visit counts too. Without a live one, an
+    // unanswered greeting of theirs (an older widget's intro row) is reused
+    // rather than doubled.
+    const scope: VisitorConversationScope = session.visitor_id
+      ? await resolveVisitorConversationScope(sb, parsed.data.workspace_id, String(session.visitor_id))
+      : { visitorId: '', sessionIds: [], contactId: null };
+    if (!scope.sessionIds.includes(String(session.id))) scope.sessionIds.push(String(session.id));
+    const existing = await findLiveVisitorConversation(sb, parsed.data.workspace_id, scope)
+      ?? await findLiveVisitorConversation(sb, parsed.data.workspace_id, scope, { includeUnansweredGreeting: true });
 
     // The operator reaching out is who the visitor's answer goes to (R-29):
-    // a conversation they start is theirs, and so is the visitor's open one
+    // a conversation they start is theirs, and so is the visitor's live one
     // when nobody has it yet (taken atomically, as a claim).
     const owner = auth.isAdmin ? null : auth.userId;
     if (existing?.id) {
-      if (owner && !(existing as { assigned_to?: string | null }).assigned_to) {
-        const claimed = await claimUnassigned(config, {
+      // Resolved is only out of the Inbox: reaching out continues it, so it
+      // is open again, in the operator's lists (reopenForOperator).
+      const reopened = existing.status === 'resolved' && await reopenForOperator(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: existing.id,
+        actorId: auth.userId,
+        messageId: null,
+        from: 'resolved',
+        reason: 'visitor_outreach',
+        source: 'visitor_outreach',
+      });
+      let holder = existing.assignedTo;
+      let claimed = false;
+      if (owner && !holder) {
+        claimed = await claimUnassigned(config, {
           workspaceId: parsed.data.workspace_id,
           conversationId: existing.id,
           actorId: owner,
           method: 'manual',
           source: 'visitor_outreach',
         });
-        // A thread the AI held is the operator's now, as POST /:id/claim
-        // makes it: out of the AI's lane, the AI stops.
-        const aiState = (existing as { ai_state?: string | null }).ai_state ?? null;
-        if (claimed && aiState === 'ai_managed') {
-          await markHumanTakeover(config, {
-            workspaceId: parsed.data.workspace_id,
-            conversationId: existing.id,
-            operatorId: owner,
-            reason: 'assignment',
-            previousAiState: aiState,
-          }).catch(() => undefined);
-        }
+        if (claimed) holder = owner;
+      }
+      // A thread the AI held is the operator's now, as POST /:id/claim
+      // makes it: out of the AI's lane, the AI stops. A reopened one is its
+      // operator's to continue, as an operator's reopen (PATCH) makes it:
+      // the resolve reset the AI's state, and the AI must not answer over
+      // them.
+      const aiState = existing.aiState;
+      if (holder && ((claimed && aiState === 'ai_managed') || (reopened && aiState !== 'human_active'))) {
+        await markHumanTakeover(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId: existing.id,
+          operatorId: holder,
+          reason: 'assignment',
+          previousAiState: aiState,
+        }).catch(() => undefined);
       }
       return res.json({ ok: true, conversation_id: existing.id, created: false });
     }
 
     // Phase 5 — enforce max_conversations only on the actual creation
-    // branch. Reuse of an existing open/pending conversation above does
-    // not count. workspace_id is already verified via authorizeWorkspaceMember.
+    // branch. Reuse of the visitor's live conversation above does not
+    // count. workspace_id is already verified via authorizeWorkspaceMember.
     {
       const ok = await enforceMaxConversationsLimit(req, res, parsed.data.workspace_id);
       if (!ok) return;

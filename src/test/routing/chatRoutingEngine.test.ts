@@ -236,6 +236,25 @@ describe('R-01 a conversation no AI will answer is routed at the visitor\'s mess
     await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: c.id as string, platformAiOff: true });
     expect(notices(c.id)).toEqual(['routing_no_agent_available']);
   });
+
+  it('quiet (the away card already told the visitor): routed, but no notice, reopened or not; the AI\'s thread is left alone', async () => {
+    const reopened = conversation({ routing_notice_sent: true, routing_outcome: 'no_eligible_agent' });
+    expect(await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: reopened.id as string, platformAiOff: true, reopened: true, quiet: true }))
+      .toEqual({ outcome: 'no_eligible_agent', assignedTo: null });
+    expect(notices(reopened.id)).toEqual([]);
+    expect(reopened.metadata).toMatchObject({ routing_notice_sent: true });
+    const fresh = conversation();
+    state.db.tables.widget_settings![0].assignment_mode = 'manual';
+    invalidateDepartmentCache(WS);
+    expect((await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: fresh.id as string, platformAiOff: true, quiet: true }))?.outcome)
+      .toBe('manual_queue');
+    expect(notices(fresh.id)).toEqual([]);
+    // An AI that answers keeps it, and its handoff its notices.
+    settings({ enabled: true, mode: 'auto_reply_always' });
+    const ai = conversation({ ai_state: 'ai_managed' });
+    expect(await routing.routeHumanBoundConversation(config, { workspaceId: WS, conversationId: ai.id as string, quiet: true })).toBeNull();
+    expect(ai.metadata).toEqual({ ai_state: 'ai_managed' });
+  });
 });
 
 describe('who routing asks chat_route_claim for', () => {

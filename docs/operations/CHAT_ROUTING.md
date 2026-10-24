@@ -42,7 +42,10 @@ answer it (the AI is off by default; `suggest_only` never answers;
 `auto_reply_when_offline` answers only while nobody is online). When the AI
 does answer, the chat is routed when it hands over. A message left in the
 widget's leave-a-message form is routed too (no visitor notice: the form
-confirmed it), waiting for the ticker when nobody can take it. If the
+confirmed it), waiting for the ticker when nobody can take it. The away
+thread's first message while the visitor has a live conversation joins that
+one as its next message: routed (or left to the AI that answers it) like any
+other, again with no notice, since the away card told the visitor. If the
 visitor is asked the pre-chat form (the form they actually get: the Super
 Admin's policy, the plan and the workspace's own, timing not "never"; never
 on a channel), routing waits for it, once per conversation, and routes

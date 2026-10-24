@@ -146,11 +146,14 @@ describe('P0-G — one canonical visitor-facing AI gate', () => {
   });
 
   it('the widget message route delegates instead of re-reading platform flags', () => {
-    const idx = widgetRoute.indexOf('let platformAiOff = false');
+    // One verdict for POST /message and the away thread's append (platformAiVerdict).
+    const idx = widgetRoute.indexOf('async function platformAiVerdict');
     expect(idx).toBeGreaterThan(-1);
-    const body = widgetRoute.slice(idx, idx + 1200);
+    const body = widgetRoute.slice(idx, idx + 700);
     expect(body).toMatch(/isAutoAnswerAllowedForWorkspace\(config, workspaceId\)/);
     // Fail-closed: an error must not leave the visitor talking to nobody.
-    expect(body).toMatch(/platformAiOff = true;[\s\S]*auto_answer_guard_error/);
+    expect(body).toMatch(/catch \{\s*return \{ off: true, reason: 'auto_answer_guard_error' \}/);
+    const route = widgetRoute.slice(widgetRoute.indexOf("widgetRouter.post('/message'"));
+    expect(route).toMatch(/const \{ off: platformAiOff, reason: platformAiOffReason \} = await platformAiVerdict\(config, workspaceId\)/);
   });
 });

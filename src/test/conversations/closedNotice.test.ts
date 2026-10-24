@@ -14,7 +14,8 @@
  *     neither does a Telegram, Bale, WhatsApp, Instagram, email or platform
  *     support conversation;
  *   - never twice in a row: close → reopen → close with nothing said in
- *     between keeps the one line (a system notice in between does not count);
+ *     between keeps the one line (a system notice in between does not count;
+ *     the line an older server wrote on a resolve is not one);
  *   - it never throws, and the operator's PATCH / "Send & resolve" answer
  *     the same whether it works or fails.
  *
@@ -283,6 +284,19 @@ describe('never twice in a row', () => {
     expect(latestClosedRow([{ ...reply, sender_type: 'ai' }, closed])).toBeNull();
     expect(latestClosedRow([join])).toBeNull();
     expect(latestClosedRow([])).toBeNull();
+    // The line an older server wrote on a resolve is none.
+    const resolveLine = { id: 'o', sender_type: 'system', created_at: '7', metadata: { kind: 'conversation_closed', status: 'resolved' } };
+    expect(latestClosedRow([resolveLine])).toBeNull();
+    expect(latestClosedRow([resolveLine, closed])).toBe(closed);
+  });
+
+  it('a close after the line an older server wrote on a resolve, with nothing said since, writes its own', async () => {
+    const cid = conversation({ status: 'resolved' });
+    message(cid, 'agent');
+    message(cid, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR, operator_name: 'سارا' });
+    const out = await close(cid);
+    expect(out).not.toBeNull();
+    expect(closedRows(cid).map((m) => (m.metadata as Row).status)).toEqual(['resolved', 'closed']);
   });
 });
 

@@ -31,9 +31,10 @@
  *     threads, lists and unread counts are exactly what they were;
  *   - the thread has moved on since the last such line: a close right after a
  *     reopen with nothing said in between reuses the line already there (and
- *     its rating card), see latestClosedRow. Two closes of one conversation
- *     at once are written one after the other in this process (`writing`),
- *     so they too leave one line.
+ *     its rating card), see latestClosedRow. A line an older server wrote on
+ *     a resolve is not one: the close writes its own. Two closes of one
+ *     conversation at once are written one after the other in this process
+ *     (`writing`), so they too leave one line.
  *
  * Never throws and is never awaited by the operator's request: the status
  * change is already saved, this is its echo.
@@ -44,7 +45,7 @@ import { getServiceClient, type ServiceClient } from '../supabase.js';
 import { buildMessageEnvelope, publishConversationEvent } from './realtime/publish.js';
 import { resolveOperatorIdentities } from './widget/senderIdentity.js';
 import { workspaceChatTemplate } from './widget/configSnapshot.js';
-import { isWidgetConversation } from './widget/visitorConversations.js';
+import { isResolveClosedLine, isWidgetConversation } from './widget/visitorConversations.js';
 
 export const CONVERSATION_CLOSED_KIND = 'conversation_closed';
 
@@ -70,14 +71,16 @@ function metaOf(row: { metadata?: unknown }): Record<string, unknown> {
  * `conversation_closed` row with no visitor, operator or AI message after it.
  * Other system rows (a join notice, a call note) and inbox-only rows do not
  * move the thread on; anything somebody said does, and then there is none.
- * The widget applies the same rule before it draws a rating card.
+ * The widget applies the same rule before it draws a rating card. A line an
+ * older server wrote on "Resolve" is none (isResolveClosedLine): the visitor
+ * no longer sees it, so neither a rating nor a later close goes by it.
  */
 export function latestClosedRow<T extends ConversationRow>(rowsNewestFirst: T[]): T | null {
   for (const row of rowsNewestFirst) {
     const meta = metaOf(row);
     if (meta.internal === true) continue;
     if (row.sender_type !== 'system') return null;
-    if (meta.kind === CONVERSATION_CLOSED_KIND) return row;
+    if (meta.kind === CONVERSATION_CLOSED_KIND && !isResolveClosedLine(meta)) return row;
   }
   return null;
 }

@@ -38,6 +38,20 @@ export function isLiveConversationStatus(status: unknown): boolean {
   return (LIVE_CONVERSATION_STATUSES as readonly string[]).includes(String(status ?? ''));
 }
 
+/**
+ * A closed line an older server wrote on "Resolve" (`conversation_closed`,
+ * status 'resolved'; Template 2 workspaces, before 2026-10-24). A resolved
+ * conversation is live for the visitor, so that line, and the rating card a
+ * template draws under it, is never handed to the widget again (routes/
+ * widgetAttachments.ts isVisitorVisibleMessageMeta), and it is not the line a
+ * later close reuses (conversationClosedNotice.ts latestClosedRow): that
+ * close writes its own. The Inbox still shows it.
+ */
+export function isResolveClosedLine(metadata: unknown): boolean {
+  const meta = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : null;
+  return !!meta && meta.kind === 'conversation_closed' && meta.status === 'resolved';
+}
+
 /** A widget conversation: no channel recorded, or the widget's own. */
 export function isWidgetConversation(metadata: unknown): boolean {
   const meta = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : {};
@@ -123,6 +137,7 @@ export interface LiveVisitorConversation {
   status: string;
   updatedAt: string | null;
   assignedTo: string | null;
+  aiState: string | null;
   /** An unanswered greeting (only with includeUnansweredGreeting). */
   greetingOnly: boolean;
 }
@@ -185,7 +200,9 @@ export async function findLiveVisitorConversation(
         });
       }
       if (greetingOnly && opts.includeUnansweredGreeting !== true) continue;
-      return { id: row.id, status: row.status, updatedAt: row.updated_at ?? null, assignedTo: row.assigned_to ?? null, greetingOnly };
+      return {
+        id: row.id, status: row.status, updatedAt: row.updated_at ?? null, assignedTo: row.assigned_to ?? null, aiState: row.ai_state ?? null, greetingOnly,
+      };
     }
     return null;
   } catch (err) {

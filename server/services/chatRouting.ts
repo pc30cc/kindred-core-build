@@ -1386,17 +1386,24 @@ export async function aiWillAnswer(
  *   - an operator who left the workspace, was suspended, lost the Inbox or
  *     whose seat the plan paused no longer holds it (R-03).
  * A conversation that loses its operator so is routed like any other.
+ *
+ * `quiet`: the visitor was already told how they will be answered (the away
+ * thread's card, whose first message POST /api/widget/offline-messages adds
+ * to their live conversation), so routing posts no "nobody is online" or
+ * queue notice for this message (routing_notice_sent, as routeOfflineCapture).
+ * Only when routing runs: a thread the AI answers keeps its notices for the
+ * AI's handoff.
  */
 export function routeHumanBoundConversation(
   config: ServerConfig,
-  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean },
+  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean; quiet?: boolean },
 ): Promise<RouteResult | null> {
   return coalesce(`route-human:${args.workspaceId}:${args.conversationId}`, () => routeHumanBoundConversationNow(config, args));
 }
 
 async function routeHumanBoundConversationNow(
   config: ServerConfig,
-  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean },
+  args: { workspaceId: string; conversationId: string; platformAiOff?: boolean; reopened?: boolean; quiet?: boolean },
 ): Promise<RouteResult | null> {
   try {
     const { data } = await getServiceClient(config)
@@ -1458,6 +1465,9 @@ async function routeHumanBoundConversationNow(
     if (metadata.routing_pending === true && !prechatWaitOver(metadata)) return null;
     if (aiAnswers === null) aiAnswers = await aiWillAnswer(config, args.workspaceId, metadata, args.platformAiOff);
     if (aiAnswers) return null;
+    if (args.quiet === true && metadata.routing_notice_sent !== true) {
+      await patchConversationMetadata(config, args.conversationId, { routing_notice_sent: true }, args.workspaceId);
+    }
     if (await shouldDeferRoutingForPrechat(config, args.workspaceId, args.conversationId)) {
       await deferRoutingForPrechat(config, args.workspaceId, args.conversationId);
       return { outcome: 'routing_deferred', assignedTo: null };

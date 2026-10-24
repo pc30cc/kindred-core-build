@@ -52,6 +52,13 @@ const state = vi.hoisted(() => ({
   aiAllowed: true,
   aiSettings: {} as Record<string, unknown>,
   teamOnline: false,
+  /** The AI engine's calls (it answers nothing here). */
+  aiRuns: [] as Array<Record<string, unknown>>,
+  restores: [] as Array<Record<string, unknown>>,
+  /** routeHumanBoundConversation runs for real (its decision is the subject). */
+  realRouting: false,
+  /** verifyConversationOwnership runs for real (the ids a route gives it are the subject). */
+  realOwnership: false,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -59,19 +66,25 @@ vi.mock('../../../server/services/widget/visitorIdentity.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/visitorIdentity.js')>()),
   readVisitorCookie: () => (state.visitor ? { v: state.visitor, w: '11111111-1111-4111-8111-111111111111', exp: 9e9 } : null),
 }));
-vi.mock('../../../server/services/widget/security.js', async (orig) => ({
-  ...(await orig<typeof import('../../../server/services/widget/security.js')>()),
-  enforceWidgetToken: (req: { _widgetWorkspaceId?: string }, _res: unknown, next: () => void) => { req._widgetWorkspaceId = '11111111-1111-4111-8111-111111111111'; next(); },
-  enforceOrigin: (_req: unknown, _res: unknown, next: () => void) => next(),
-  widgetRateLimit: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  resolveWorkspaceId: (_req: unknown, _res: unknown, wsId: string) => wsId || '11111111-1111-4111-8111-111111111111',
-  // Ownership: this visitor's session or contact (the fake has no cookie to read).
-  verifyConversationOwnership: async (_c: unknown, conversationId: string, workspaceId: string) => {
-    const conv = (state.db.tables.conversations || []).find((c) => c.id === conversationId && c.workspace_id === workspaceId);
-    const mine = conv && (conv.visitor_session_id === '22222222-2222-4222-8222-222222222222' || conv.contact_id === '33333333-3333-4333-8333-333333333333');
-    return mine ? { valid: true, conversation: conv } : { valid: false, conversation: null };
-  },
-}));
+vi.mock('../../../server/services/widget/security.js', async (orig) => {
+  const real = await orig<typeof import('../../../server/services/widget/security.js')>();
+  return {
+    ...real,
+    enforceWidgetToken: (req: { _widgetWorkspaceId?: string }, _res: unknown, next: () => void) => { req._widgetWorkspaceId = '11111111-1111-4111-8111-111111111111'; next(); },
+    enforceOrigin: (_req: unknown, _res: unknown, next: () => void) => next(),
+    widgetRateLimit: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+    resolveWorkspaceId: (_req: unknown, _res: unknown, wsId: string) => wsId || '11111111-1111-4111-8111-111111111111',
+    // Ownership: this visitor's session or contact (the fake has no cookie to
+    // read), or the real check where the ids a route passes it are the subject.
+    verifyConversationOwnership: async (...args: Parameters<typeof real.verifyConversationOwnership>) => {
+      if (state.realOwnership) return real.verifyConversationOwnership(...args);
+      const [, conversationId, workspaceId] = args;
+      const conv = (state.db.tables.conversations || []).find((c) => c.id === conversationId && c.workspace_id === workspaceId);
+      const mine = conv && (conv.visitor_session_id === '22222222-2222-4222-8222-222222222222' || conv.contact_id === '33333333-3333-4333-8333-333333333333');
+      return mine ? { valid: true, conversation: conv } : { valid: false, conversation: null };
+    },
+  };
+});
 vi.mock('../../../server/services/widget/planGate.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/widget/planGate.js')>()),
   widgetPlanDenied: async () => new Set<string>(),
@@ -139,10 +152,12 @@ vi.mock('../../../server/services/ai-agent/responder.js', async (orig) => ({
 vi.mock('../../../server/services/ai-agent/logs.js', () => ({
   logRun: async (_c: unknown, run: Record<string, unknown>) => { state.runs.push(run); },
 }));
-vi.mock('../../../server/services/ai-agent/engine.js', () => ({ maybeRunAiAssistantAfterVisitorMessage: async () => ({ action: 'skipped' }) }));
+vi.mock('../../../server/services/ai-agent/engine.js', () => ({
+  maybeRunAiAssistantAfterVisitorMessage: async (_c: unknown, input: Record<string, unknown>) => { state.aiRuns.push(input); return { action: 'skipped' }; },
+}));
 vi.mock('../../../server/services/ai-agent/handoffState.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/ai-agent/handoffState.js')>()),
-  clearAiManagementForPlatformOff: async () => ({ previousAiState: null, changed: false }),
+  clearAiManagementForPlatformOff: async (_c: unknown, a: Record<string, unknown>) => { state.restores.push(a); return { previousAiState: null, changed: false }; },
 }));
 vi.mock('../../../server/services/realtime/publish.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/realtime/publish.js')>()),
@@ -151,11 +166,17 @@ vi.mock('../../../server/services/realtime/publish.js', async (orig) => ({
 vi.mock('../../../server/services/push/index.js', () => ({
   notifyInboundMessage: async (_c: unknown, p: Record<string, unknown>) => { state.pushes.push(p); },
 }));
-vi.mock('../../../server/services/chatRouting.js', async (orig) => ({
-  ...(await orig<typeof import('../../../server/services/chatRouting.js')>()),
-  routeHumanBoundConversation: async (_c: unknown, a: Record<string, unknown>) => { state.routed.push(a); return null; },
-  routeOfflineCapture: async (_c: unknown, a: Record<string, unknown>) => { state.routed.push({ ...a, offline: true }); return null; },
-}));
+vi.mock('../../../server/services/chatRouting.js', async (orig) => {
+  const real = await orig<typeof import('../../../server/services/chatRouting.js')>();
+  return {
+    ...real,
+    routeHumanBoundConversation: async (c: never, a: Parameters<typeof real.routeHumanBoundConversation>[1]) => {
+      state.routed.push(a);
+      return state.realRouting ? real.routeHumanBoundConversation(c, a) : null;
+    },
+    routeOfflineCapture: async (_c: unknown, a: Record<string, unknown>) => { state.routed.push({ ...a, offline: true }); return null; },
+  };
+});
 vi.mock('../../../server/services/conversationEvents.js', () => ({ recordConversationEvent: async () => ({ ok: true }) }));
 vi.mock('../../../server/services/conversationLifecycle.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/conversationLifecycle.js')>()),
@@ -257,7 +278,15 @@ beforeEach(() => {
   state.db = createFakeServiceDb();
   state.db.honourOr = true;
   state.db.now = tick;
-  state.db.rpc = (fn, args) => (fn === 'ensure_active_conversation' ? ensureActiveConversation(args) : { data: null, error: null });
+  state.db.rpc = (fn, args) => {
+    if (fn === 'ensure_active_conversation') return ensureActiveConversation(args);
+    if (fn === 'patch_conversation_metadata') {
+      const row = (state.db.tables.conversations || []).find((c) => c.id === args.p_conversation_id);
+      if (row) row.metadata = { ...(row.metadata as Row), ...(args.p_patch as Row) };
+      return { data: !!row, error: null };
+    }
+    return { data: null, error: null };
+  };
   state.db.tables.widget_settings = [{ workspace_id: WS, enabled: true, chat_enabled: true }];
   state.db.tables.visitor_sessions = [
     { id: SESSION, workspace_id: WS, visitor_id: VISITOR, last_seen_at: ago(1) },
@@ -280,6 +309,10 @@ beforeEach(() => {
   state.aiAllowed = true;
   state.aiSettings = aiSettings();
   state.teamOnline = false;
+  state.aiRuns = [];
+  state.restores = [];
+  state.realRouting = false;
+  state.realOwnership = false;
 });
 
 describe('POST /message: force_new_conversation is ignored while the visitor has a live conversation', () => {
@@ -429,6 +462,36 @@ describe('POST /message: the signed visitor decides, never body.visitor_id', () 
     const res = await send({ message: 'دو', client_message_id: 'cmid-plain-002' });
     expect(res.body.conversation_id).toBe(mine.id);
     expect(res.body.continued).toBeUndefined();
+  });
+});
+
+describe('a body or query visitor_id / session_id proves no conversation theirs (the real ownership check)', () => {
+  it('POST /message naming another visitor\'s conversation with their visitor and session ids: theirs untouched, mine takes it', async () => {
+    state.realOwnership = true;
+    const otherSession = (state.db.tables.visitor_sessions as Row[])[1].id;
+    const theirs = conversation({ contact_id: OTHER_CONTACT, visitor_session_id: otherSession, status: 'open', updated_at: ago(1) });
+    const mine = conversation({ status: 'open', updated_at: ago(30) });
+    const res = await send({ conversation_id: theirs.id, visitor_id: OTHER_VISITOR, session_id: otherSession, message: 'سلام' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ conversation_id: mine.id, continued: true });
+    expect(messagesOf(theirs.id)).toHaveLength(0);
+    // My own conversation, named by the cookie alone, still takes its message.
+    const own = await send({ conversation_id: mine.id, message: 'دوباره' });
+    expect(own.body.conversation_id).toBe(mine.id);
+    expect(own.body.continued).toBeUndefined();
+  });
+
+  it('GET /poll and GET /history: a query visitor_id or session_id never reads another visitor\'s thread', async () => {
+    state.realOwnership = true;
+    const otherSession = String((state.db.tables.visitor_sessions as Row[])[1].id);
+    const theirs = conversation({ contact_id: OTHER_CONTACT, visitor_session_id: otherSession, status: 'open' });
+    message(theirs.id, 'agent', { body: 'secret' });
+    const forged = `workspace_id=${WS}&conversation_id=${theirs.id}&visitor_id=${OTHER_VISITOR}&session_id=${otherSession}`;
+    const poll = await call('GET', `/api/widget/poll?${forged}`);
+    expect(poll.body.conversation_id).not.toBe(theirs.id);
+    expect(JSON.stringify(poll.body)).not.toContain('secret');
+    const history = await call('GET', `/api/widget/history?${forged}`);
+    expect(history.status).toBe(403);
   });
 });
 
@@ -611,6 +674,34 @@ describe('POST /offline-messages: the away thread\'s first message while one is 
     expect(state.routed).toEqual([expect.objectContaining({ conversationId: live.id, reopened: true })]);
   });
 
+  it('an AI that answers the live conversation answers it: the engine runs, routing (for real) leaves it to the AI', async () => {
+    // AI on, auto-reply always, the intro off (so the widget took the away
+    // path): the live thread is the AI's and nobody has it.
+    state.realRouting = true;
+    state.db.tables.ai_agent_settings = [{ workspace_id: WS, enabled: true, mode: 'auto_reply_always' }];
+    const live = conversation({ status: 'open', metadata: { ai_state: 'ai_managed' } });
+    const res = await away({});
+    expect(res.body).toMatchObject({ conversation_id: live.id, continued: true });
+    const [row] = messagesOf(live.id);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(state.aiRuns).toEqual([expect.objectContaining({ conversationId: live.id, visitorMessageId: row.id, question: 'کسی هست؟', locale: 'fa' })]);
+    expect(state.routed).toEqual([expect.objectContaining({ conversationId: live.id, platformAiOff: false, quiet: true })]);
+    // Still the AI's, nobody assigned, no routing notice posted.
+    expect(live).toMatchObject({ assigned_to: null, metadata: { ai_state: 'ai_managed' } });
+    expect((live.metadata as Row).routing_notice_sent).toBeUndefined();
+    expect(state.restores).toEqual([]);
+  });
+
+  it('with the platform\'s AI off: no AI run, the main-inbox restore, routing told so and quiet', async () => {
+    state.aiAllowed = false;
+    const live = conversation({ status: 'open', metadata: { ai_state: 'ai_managed' } });
+    await away({});
+    await new Promise((r) => setTimeout(r, 20));
+    expect(state.aiRuns).toEqual([]);
+    expect(state.restores).toEqual([expect.objectContaining({ conversationId: live.id, reason: 'platform_ai_disabled' })]);
+    expect(state.routed).toEqual([expect.objectContaining({ conversationId: live.id, platformAiOff: true, quiet: true })]);
+  });
+
   it('a retry of it answers the same message, with no second row', async () => {
     const live = conversation({ status: 'open' });
     const first = await away({});
@@ -660,5 +751,34 @@ describe('GET /poll without a conversation id: only a live conversation', () => 
     conversation({ contact_id: OTHER_CONTACT, visitor_session_id: null, status: 'open' });
     const res = await call('GET', `/api/widget/poll?workspace_id=${WS}&visitor_id=${OTHER_VISITOR}`);
     expect(res.body.conversation_id).toBeNull();
+  });
+});
+
+describe('the closed line an older server wrote on a resolve is never handed to the visitor', () => {
+  it('the one visibility rule every read path applies (/identity/history and the list too) leaves it out', async () => {
+    const { filterVisitorVisibleMessages } = await import('../../../server/routes/widgetAttachments.js');
+    const rows = [
+      { id: 'a', metadata: { kind: 'conversation_closed', status: 'resolved' } },
+      { id: 'b', metadata: { kind: 'conversation_closed', status: 'closed' } },
+      { id: 'c', metadata: { internal: true } },
+      { id: 'd', metadata: null },
+    ];
+    expect(filterVisitorVisibleMessages(rows).map((r) => r.id)).toEqual(['b', 'd']);
+  });
+
+  it('GET /poll and GET /history leave it out (the conversation is live for them); a real close line stays', async () => {
+    const resolved = conversation({ status: 'resolved' });
+    message(resolved.id, 'agent', { body: 'بفرمایید' });
+    message(resolved.id, 'system', { body: 'Sara closed the conversation', metadata: { kind: 'conversation_closed', status: 'resolved', operator_name: 'Sara' } });
+    for (const path of [`/api/widget/poll?workspace_id=${WS}&conversation_id=${resolved.id}`, `/api/widget/history?workspace_id=${WS}&conversation_id=${resolved.id}`]) {
+      const res = await call('GET', path);
+      expect(res.status, path).toBe(200);
+      expect((res.body.messages as Row[]).map((m) => m.text), path).toEqual(['بفرمایید']);
+    }
+    const closed = conversation({ status: 'closed' });
+    message(closed.id, 'agent', { body: 'خداحافظ' });
+    message(closed.id, 'system', { body: 'Sara closed the conversation', metadata: { kind: 'conversation_closed', status: 'closed', operator_name: 'Sara' } });
+    const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=${closed.id}`);
+    expect((res.body.messages as Row[]).map((m) => (m.metadata as Row | null)?.kind ?? m.text)).toEqual(['خداحافظ', 'conversation_closed']);
   });
 });

@@ -296,7 +296,9 @@ same contact never counts). The widget section of these notes describes how Core
     racing an inactivity close (`closed_reason`) should reopen that conversation.
   - A named resolved conversation is written into (it reopens), unless a newer open or pending one of the visitor's
     exists: then that one, `continued: true`.
-  - Identity reuse and the contact use the signed visitor id; the creation lock is `visitor:<id>`. Two first messages
+  - Ownership of a named conversation, identity reuse and the contact use the signed visitor id alone (a body
+    `visitor_id` or `session_id` proves nothing; GET /poll and GET /history ignore the query ones the same way);
+    the creation lock is `visitor:<id>`. Two first messages
     of a new thread at the very same instant (two fresh tabs, nothing live) can still make two conversations: the
     guard runs outside the RPC's lock. A live-only contact match inside `ensure_active_conversation` would close it
     (SQL, a candidate for migration 284).
@@ -317,12 +319,21 @@ same contact never counts). The widget section of these notes describes how Core
   (never an ended one), with its `status`. **GET /identity/history** (`findContinuableConversation`) is live-only too,
   whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` stays until migration 284).
 - **POST /api/widget/offline-messages**, the away thread's first message (`client_message_id`): while the visitor has
-  a live conversation it is written there (lifecycle, push, routing, the owners' mail) and the answer carries
-  `continued: true` and that `conversation_id`. The leave-a-message form still makes a conversation of its own.
+  a live conversation it is written there as that conversation's next visitor message (lifecycle, the platform-off
+  restore, routing, the AI's turn, push, the owners' mail; routing posts no notice for it, `quiet`, since the away
+  card already told the visitor) and the answer carries `continued: true` and that `conversation_id`. The
+  leave-a-message form still makes a conversation of its own.
 - **The closed line** (`conversationClosedNotice.ts`) is written only when the new status is `closed` (from any
   status, a resolved one too); never on a resolve or "Send & resolve". t2's rating card follows it, so it now appears
   only after a real close. A resolved conversation closed later is stamped again (`endConversationThread`), so its
-  `endedAt` is the close.
+  `endedAt` is the close. The lines an older server wrote on a resolve (`metadata.status: 'resolved'`, t2) are no
+  longer handed to the widget (`isVisitorVisibleMessageMeta`: /poll, /history, /identity/history, the list), and
+  `latestClosedRow` passes over them, so neither a rating card nor a later close goes by one: that close writes its
+  own line. The Inbox still shows them.
+- **Visitors → Start chat** (`POST /api/conversations/start-from-visitor`) reuses the visitor's live conversation
+  (the widget's scope: every session of the visitor id and their contact; else an unanswered greeting of theirs),
+  never a second one beside it. A resolved one is reopened for the operator (`reopened`, reason `visitor_outreach`)
+  and is theirs to continue (claimed when nobody has it; a human takeover, so the AI does not answer over them).
 - **The Inbox's main queue** `status=resolved` lists resolved and closed (as its tab count and the desktop console),
   for iOS, windows-native, Electron and the web mobile inbox, which ask for `resolved` alone.
 - **Last-agent routing** (`findPreviousOperator`) looks through the contact's five most recent other conversations

@@ -727,6 +727,35 @@ suite('who has a conversation, on a real database (278b)', () => {
     expect(listed).toContain(cid);
   });
 
+  it('E3b outreach to a visitor whose conversation is resolved continues it: reopened, the operator\'s, no second one; a closed one is not reused', async () => {
+    const visitor = `v-out-${randomUUID().slice(0, 8)}`;
+    const earlier = randomUUID();
+    const today = randomUUID();
+    await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id) VALUES ($1, $2, $3), ($4, $2, $3)`, [earlier, ws, visitor, today]);
+    // Resolved this morning, in an earlier visit: live for the visitor.
+    const resolved = await conversation({ status: 'resolved', assigned: null });
+    await q(`UPDATE public.conversations SET visitor_session_id = $2 WHERE id = $1`, [resolved, earlier]);
+    const before = Number((await one(`SELECT count(*)::int AS n FROM public.conversations WHERE workspace_id = $1`, [ws])).n);
+    const res = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: today });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ conversation_id: resolved, created: false });
+    expect(Number((await one(`SELECT count(*)::int AS n FROM public.conversations WHERE workspace_id = $1`, [ws])).n)).toBe(before);
+    const after = await conv(resolved);
+    expect(after).toMatchObject({ status: 'open', assigned_to: b });
+    // Bahar's to continue: a person has it, the AI does not answer over her.
+    expect((after.metadata as Row).ai_state).toBe('human_active');
+    const reopened = await until(
+      () => q(`SELECT payload FROM public.conversation_events WHERE conversation_id = $1 AND event_type = 'reopened'`, [resolved]),
+      (rows) => rows.length > 0,
+    );
+    expect(reopened[0].payload).toMatchObject({ from: 'resolved', to: 'open', reason: 'visitor_outreach' });
+    // Closed has ended for the visitor: a new conversation.
+    await q(`UPDATE public.conversations SET status = 'closed' WHERE id = $1`, [resolved]);
+    const fresh = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: today });
+    expect(fresh.body.created).toBe(true);
+    expect(fresh.body.conversation_id).not.toBe(resolved);
+  });
+
   it('E5 the department the visitor chose is kept in manual mode too, and every row names it (R-22)', async () => {
     await q(`UPDATE public.widget_settings SET assignment_mode = 'manual' WHERE workspace_id = $1`, [ws]);
     resetCaches();

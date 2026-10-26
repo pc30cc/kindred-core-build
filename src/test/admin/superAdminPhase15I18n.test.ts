@@ -17,7 +17,7 @@ const files = [
 ];
 
 const technicalCopy = new Set([
-  'app_runtime_config.global_advanced_routing', 'payload.id', '• ws:{workspaceId}:inbox',
+  'app_runtime_config.global_advanced_routing', 'widget_platform_settings', 'payload.id', '• ws:{workspaceId}:inbox',
   '• ws:{workspaceId}:visitors', '• ws:{workspaceId}:conv:{conversationId}',
   'action=typing', 'https://example.com',
   'USD/mo', 'IRR/mo', 'TRY/mo', 'EUR/mo', '/api/',

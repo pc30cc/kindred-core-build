@@ -163,6 +163,8 @@ interface Fixture {
   suggest?: Record<string, unknown[]>;
   /** GET /api/widget/conversations/:id/csat (the rating card, the transcript); default: nothing to rate, no transcript. */
   csat?: Record<string, unknown>;
+  /** POST /api/widget/conversations/:id/csat's answer (default: rated as sent). */
+  csatPost?: { status: number; body: Record<string, unknown> };
   /** GET /api/widget/conversations/:id/reactions, by conversation: message id -> [{ emoji, count, mine }]. */
   reactions?: Record<string, Record<string, Array<{ emoji: string; count: number; mine: boolean }>>>;
   /** GET /api/widget/queue: the visitor's place (default: not queued). */
@@ -599,6 +601,10 @@ const EN = new Map<string, string>([
   ['خوشحالم که کمک کردم. روز خوبی داشته باشید! 🌸', 'Happy to help. Have a great day! 🌸'],
   ['مهدی closed the conversation', 'Mehdi closed the conversation'],
   ['راستی، فاکتور سفارش رو هم می‌خواستم.', 'Oh, and could I have the invoice for my order too?'],
+  // The inactivity close (states auto-*).
+  ['سلام، سایز ۴۲ این کفش موجوده؟', 'Hi, is size 42 of these shoes in stock?'],
+  ['سلام! بله، سایز ۴۲ موجود است و فردا ارسال می‌شود.', 'Hi! Yes, size 42 is in stock and ships tomorrow.'],
+  ['سریع و دقیق جواب دادید، ممنون.', 'Quick and spot on, thank you.'],
 ]);
 /** Objects swapped whole: their words are marked, so a word-for-word swap would not match them. */
 const EN_SWAPS = new Map<unknown, unknown>([
@@ -819,6 +825,69 @@ async function oneClose(page: Page) {
   for (let i = 0; i < 60 && (await lines.count()) <= before; i++) await pause(page, 50);
   await pause(page, 300);
 }
+
+
+// ─── The inactivity close (migration 284): the system closes a quiet one ───
+// The conversation is yesterday's; the line nobody's name is on comes today
+// (the timer's: `by: 'system'`, `closed_reason: 'inactivity'`), and the
+// rating card under it, Core's in every template (default's quiet stars,
+// t1's star card, t2's faces). Asked about the operator who answered, or,
+// when only the AI did (`subject` 'ai'), about nobody (the workspace's
+// mark). States `auto-*`, on the designs' clock.
+const AUTO_THREAD: Msg[] = [
+  visitor('a1', 'سلام، کد رهگیری سفارشم هنوز نیومده.', at(19, 42, 1)),
+  sara('a2', 'سلام علی جان! سفارش‌تون امروز صبح ارسال شد. کد رهگیری: TR-2290-5531', at(19, 54, 1)),
+  visitor('a3', 'عالیه، خیلی ممنون 🙏', at(19, 58, 1)),
+  sara('a4', 'خواهش می‌کنم! کار دیگه‌ای هست که بتونم کمکتون کنم؟', at(20, 0, 1)),
+];
+/** The AI answering alone (its name in the shot's language: built when the shot is). */
+const autoAiThread = (): Msg[] => [
+  visitor('b1', 'سلام، سایز ۴۲ این کفش موجوده؟', at(19, 30, 1)),
+  {
+    id: 'b2', role: 'agent', sender_type: 'ai', sender_name: EN_FIXTURE ? 'Assistant' : 'دستیار', sender_avatar: null,
+    text: 'سلام! بله، سایز ۴۲ موجود است و فردا ارسال می‌شود.', time: at(19, 30, 1),
+  },
+];
+/** The system's line (conversationClosedNotice.ts, by 'system'): its English body is never shown. */
+const autoLine = (id: string, operator: string | null, time: string, cid: string): Msg => ({
+  id, role: 'system', sender_type: 'system', text: 'The conversation was closed', time, conversation_id: cid,
+  metadata: { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity', agent_name: null, operator_name: operator, status: 'closed' },
+});
+/** GET …/csat for the line `closedId`: the operator who answered (Sara), or nobody (the AI's). */
+const autoCsat = (closedId: string, ai = false): Record<string, unknown> => ({
+  closed_id: closedId, rateable: true, rating: null, subject: ai ? 'ai' : 'operator',
+  operator: ai ? null : { name: 'سارا', avatar: null },
+  transcript: ai ? { available: false, to: null } : { available: true, to: 'a•••@example.com' },
+});
+/** Sara's conversation of yesterday, still open (her last answer read): the line comes live. */
+function autoOperator(f: Fixture) {
+  oneLive(f);
+  f.conversations = [{ ...RECENT, unreadCount: 0, lastMessageAt: at(20, 0, 1) }, ...ONE_PAST];
+  f.threads['c-sara'] = AUTO_THREAD;
+  f.csat = autoCsat('a9');
+}
+/** The AI's conversation of yesterday, nobody of the team in it. */
+function autoAi(f: Fixture) {
+  chatAi(f);
+  f.threads['c-ai'] = autoAiThread();
+  f.csat = autoCsat('b9', true);
+}
+/** The return after it closed: Sara's last answer never seen, so it is the current one (rule 2), its line in its history. */
+function autoUnreadReturn(f: Fixture) {
+  autoOperator(f);
+  f.conversations = [{ ...RECENT, status: 'closed', unreadCount: 1, operatorOnline: false, lastMessageAt: at(20, 0, 1) }, ...ONE_PAST];
+  f.threads['c-sara'] = [...AUTO_THREAD, autoLine('a9', 'سارا', at(20, 0), 'c-sara')];
+}
+/** Opens the thread, then the system's line arrives live and the card under it. */
+async function autoClose(page: Page, cid: string, line: Msg) {
+  await openRows(page, cid);
+  await page.evaluate((row) => (window as unknown as { __gsMessage: (r: unknown[]) => void }).__gsMessage([row]), line);
+  await page.locator('[data-csat]').waitFor();
+  await pause(page, 400);
+  await page.mouse.move(0, 0);
+}
+const AUTO_OP_LINE = () => autoLine('a9', tx('سارا'), at(20, 3), 'c-sara');
+const AUTO_AI_LINE = () => autoLine('b9', null, at(20, 3), 'c-ai');
 
 export const SCREEN_STATES: Record<string, StateSpec> = {
   'home-first-visit': { home: true },
@@ -1743,9 +1812,10 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
       return json({ ok: true, captured: true, conversation_id: 'c-away', message_id: 'a9a9a9a9-0000-4000-8000-000000000001', transitioning: false });
     }
     if (p.endsWith('/api/widget/identity/offline-email') && method === 'POST') return json({ ok: true, contact_id: 'contact-1' });
-    // The rating card and the transcript (runtime-late.js).
+    // The rating card (Core's) and the transcript (runtime-late.js).
     if (p.includes('/api/widget/conversations') && p.endsWith('/csat')) {
       if (method === 'POST') {
+        if (fixture.csatPost) return json(fixture.csatPost.body, fixture.csatPost.status);
         const b = (route.request().postDataJSON() || {}) as Record<string, unknown>;
         return json({ ok: true, rating: { score: b.rating, comment: b.comment ?? null, rated_at: new Date().toISOString() } });
       }
@@ -1970,7 +2040,8 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
       const inst = w.__gs_runtime.init(
         // A real API base: Core skips identity and history reads without one.
         { workspaceId: 'ws-screens', _apiBase: location.origin, _assetBase: location.origin, _sessionToken: 't', ...config },
-        { shadowRoot: shadow, shellEl: shell, launcher, setUnread() {}, setOperatorTyping() {} },
+        // The launcher's count (it is hidden in shots), for a state's facts.
+        { shadowRoot: shadow, shellEl: shell, launcher, setUnread(n: number) { (w as Record<string, unknown>).__gsUnread = n; }, setOperatorTyping() {} },
       );
       w.__inst = inst;
       inst.open();
@@ -2000,6 +2071,76 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
     await context.close();
   }
 }
+
+Object.assign(SCREEN_STATES, {
+  'auto-01-operator-card': { mobile: true, clock: ONE_NOW, setup: autoOperator, drive: async ({ page }: Ctx) => { await autoClose(page, 'c-sara', AUTO_OP_LINE()); } },
+  'auto-02-operator-picked': {
+    mobile: true, clock: ONE_NOW, setup: autoOperator,
+    drive: async ({ page }: Ctx) => {
+      await autoClose(page, 'c-sara', AUTO_OP_LINE());
+      await page.locator('[data-csat-rate="4"]').click();
+      await page.locator('[data-csat-comment]').fill(tx('سریع و دقیق جواب دادید، ممنون.'));
+      await page.mouse.move(0, 0);
+      await pause(page, 300);
+    },
+  },
+  'auto-03-operator-rated': {
+    mobile: true, clock: ONE_NOW, setup: autoOperator,
+    drive: async ({ page }: Ctx) => {
+      await autoClose(page, 'c-sara', AUTO_OP_LINE());
+      await page.locator('[data-csat-rate="5"]').click();
+      await page.locator('[data-csat-submit]').click();
+      await page.locator('[data-csat] [role="status"]').first().waitFor();
+      await page.mouse.move(0, 0);
+      await pause(page, 400);
+    },
+  },
+  'auto-04-ai-card': { mobile: true, clock: ONE_NOW, setup: autoAi, drive: async ({ page }: Ctx) => { await autoClose(page, 'c-ai', AUTO_AI_LINE()); } },
+  'auto-05-operator-desktop': { clock: ONE_NOW, setup: autoOperator, drive: async ({ page }: Ctx) => { await autoClose(page, 'c-sara', AUTO_OP_LINE()); } },
+  // History: the conversation the system closed yesterday, read-only, the card still there (7 days).
+  'auto-06-past-thread': {
+    mobile: true, home: true, clock: ONE_NOW,
+    setup: (f: Fixture) => {
+      oneLive(f);
+      // Sara's answers read: whatever the badge would show, the close is not it.
+      f.conversations = [{ ...RECENT, unreadCount: 0, lastMessageAt: at(20, 0) }, ...ONE_PAST];
+      f.threads['c-mahdi'] = [...ONE_PAST_THREAD.slice(0, 3), autoLine('p9', 'مهدی', at(15, 30), 'c-mahdi')];
+      f.csat = { ...autoCsat('p9'), operator: { name: 'مهدی', avatar: null } };
+    },
+    drive: async ({ page }: Ctx) => { await onePast(page, 'c-mahdi'); await page.locator('[data-csat]').waitFor(); await pause(page, 600); },
+  },
+  // The return (rule 2): it lands on that thread, its line and the card.
+  'auto-07-unread-return': {
+    mobile: true, clock: ONE_NOW, setup: autoUnreadReturn,
+    drive: async ({ page }: Ctx) => { await page.locator('[data-csat]').waitFor(); await online(page); await pause(page, 400); },
+  },
+  // Rated in another tab, the window passed, the option turned off: said, nothing to press.
+  'auto-08-gone': {
+    mobile: true, clock: ONE_NOW,
+    setup: (f: Fixture) => { autoOperator(f); f.csatPost = { status: 409, body: { error: 'not_ratable' } }; },
+    drive: async ({ page }: Ctx) => {
+      await autoClose(page, 'c-sara', AUTO_OP_LINE());
+      await page.locator('[data-csat-rate="3"]').click();
+      await page.locator('[data-csat-submit]').click();
+      await page.locator('[data-csat] [role="status"]').first().waitFor();
+      await page.mouse.move(0, 0);
+      await pause(page, 300);
+    },
+  },
+  // Offline as it is sent: not sent, the pick kept, send again.
+  'auto-09-error': {
+    mobile: true, clock: ONE_NOW, setup: autoOperator,
+    drive: async ({ page }: Ctx) => {
+      await autoClose(page, 'c-sara', AUTO_OP_LINE());
+      await page.locator('[data-csat-rate="2"]').click();
+      await inst(page, "i.__test.setConnectionState('offline');");
+      await page.locator('[data-csat-submit]').click();
+      await page.locator('[data-csat] [role="alert"]').first().waitFor();
+      await page.mouse.move(0, 0);
+      await pause(page, 300);
+    },
+  },
+});
 
 export async function renderTemplateScreens(opts: ScreenOptions): Promise<string[]> {
   const names = opts.states && opts.states.length ? opts.states : Object.keys(SCREEN_STATES);

@@ -34,7 +34,16 @@
  * (`conversation_ratings`, migration 276): per operator the average score
  * (one decimal) and the number of ratings given in the window, credited to
  * the operator each rated closure names. Null averages, and the report's
- * column stays hidden, while there are none (or before 276).
+ * column stays hidden, while there are none (or before 276). A rating of a
+ * conversation only the AI answered (subject 'ai', migration 284) names no
+ * operator: it counts for nobody's satisfaction, nor the team's csat_avg, and
+ * is reported on its own line (`totals.csat_ai_avg` / `csat_ai_count`).
+ *
+ * RESOLVED and CLOSED AUTOMATICALLY (migration 284, shared/inactivityClose.ts
+ * conversationEndOf): `conversations_resolved` counts an operator's resolve
+ * or close, and a resolve the system closed later; `conversations_auto_closed`
+ * the conversations the system closed from open or pending after the quiet
+ * period. An older backend sends no conversations_auto_closed (read as 0).
  *
  * A TAB THAT GOES AWAY (R-11): the panel names its tab in every beat
  * (`source_id`, a random id per tab) and, when the tab goes away (pagehide;
@@ -70,6 +79,7 @@ import { shouldWriteFallbackPresence } from '../services/widget/operatorPresence
 import { recordOperatorActivity } from '../services/widget/operatorActivity.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { isRelationMissing } from '../services/billing/entitlementParse.js';
+import { conversationEndOf } from '../../shared/inactivityClose.js';
 
 export const operatorActivityRouter = Router();
 
@@ -268,11 +278,43 @@ export async function ratingsByOperator(
     return out;
   }
   for (const r of (data || []) as Array<{ operator_id: string | null; score: number }>) {
+    // The AI's ratings (subject 'ai', migration 284) name no operator: never
+    // anyone's satisfaction.
     if (!r.operator_id) continue;
     const cur = out.get(r.operator_id) || { sum: 0, count: 0 };
     cur.sum += Number(r.score) || 0;
     cur.count += 1;
     out.set(r.operator_id, cur);
+  }
+  return out;
+}
+
+/**
+ * Visitors' ratings of AI-only conversations in the window (subject 'ai',
+ * migration 284): { sum, count }. Zero before 284 (no subject column) and
+ * when the read fails.
+ */
+export async function aiRatings(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  sinceIso: string,
+): Promise<{ sum: number; count: number }> {
+  const out = { sum: 0, count: 0 };
+  const { data, error } = await sb
+    .from('conversation_ratings')
+    .select('score')
+    .eq('workspace_id', workspaceId)
+    .eq('subject', 'ai')
+    .gte('created_at', sinceIso)
+    .limit(5000);
+  if (error) {
+    const missing = isRelationMissing(error, 'conversation_ratings') || error.code === '42703' || error.code === 'PGRST204';
+    if (!missing) console.warn('[operator-activity] AI ratings read failed:', error.message);
+    return out;
+  }
+  for (const r of (data || []) as Array<{ score: number }>) {
+    out.sum += Number(r.score) || 0;
+    out.count += 1;
   }
   return out;
 }
@@ -319,10 +361,12 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
     // its shape and returns zero online minutes instead of a 500.
     const samples: Array<{ user_id: string; bucket: string; available: boolean }> = [];
 
-    // Conversations assigned + operator messages in the window.
+    // Conversations assigned + operator messages in the window. How a closed
+    // one ended (the close markers, migration 284) tells an operator's close
+    // from the system's after the quiet period.
     const { data: convs } = await sb
       .from('conversations')
-      .select('id, assigned_to, status, created_at')
+      .select('id, assigned_to, status, created_at, closed_reason:metadata->>closed_reason, closed_from:metadata->>closed_from')
       .eq('workspace_id', workspaceId)
       .gte('created_at', sinceIso)
       .limit(5000);
@@ -340,8 +384,9 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       messages = msgs || [];
     }
 
-    const [ratings, presence] = await Promise.all([
+    const [ratings, aiRated, presence] = await Promise.all([
       ratingsByOperator(sb, workspaceId, sinceIso),
+      aiRatings(sb, workspaceId, sinceIso),
       // Live presence, not the settings alone: who has a panel or the app
       // open right now (never fails: unknown reads as not connected).
       readRoutingPresence(config, workspaceId, userIds),
@@ -376,7 +421,15 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
 
 
       const assigned = (convs || []).filter((c) => c.assigned_to === m.user_id);
-      const resolved = assigned.filter((c) => c.status === 'resolved' || c.status === 'closed').length;
+      // Resolved by them: resolved, closed by an operator (or before 284),
+      // or resolved by them and closed later by the system. Closed by the
+      // system from open or pending is "Closed automatically".
+      const ends = assigned.map((c) => conversationEndOf(String(c.status), {
+        closed_reason: (c as { closed_reason?: string | null }).closed_reason,
+        closed_from: (c as { closed_from?: string | null }).closed_from,
+      }));
+      const resolved = ends.filter((e) => e === 'resolved' || e === 'closed_operator' || e === 'closed_inactive_after_resolve').length;
+      const autoClosed = ends.filter((e) => e === 'closed_inactive').length;
       const replies = messages.filter((x) => x.sender_id === m.user_id).length;
 
       const live = computeOperatorState(prefsMap.get(m.user_id), now);
@@ -395,6 +448,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         daily,
         conversations_assigned: assigned.length,
         conversations_resolved: resolved,
+        conversations_auto_closed: autoClosed,
         replies_sent: replies,
         csat_avg: averageScore(rated?.sum ?? 0, rated?.count ?? 0),
         csat_count: rated?.count ?? 0,
@@ -417,6 +471,8 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         online_minutes: rows.reduce((s, r) => s + r.online_minutes, 0),
         replies_sent: rows.reduce((s, r) => s + r.replies_sent, 0),
         conversations_assigned: rows.reduce((s, r) => s + r.conversations_assigned, 0),
+        conversations_resolved: rows.reduce((s, r) => s + r.conversations_resolved, 0),
+        conversations_auto_closed: rows.reduce((s, r) => s + r.conversations_auto_closed, 0),
         // Connected right now (active or away), not merely "available" in
         // their settings.
         online_now: rows.filter((r) => r.presence_state === 'active' || r.presence_state === 'away').length,
@@ -428,6 +484,10 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
           [...ratings.values()].reduce((s, r) => s + r.count, 0),
         ),
         csat_count: [...ratings.values()].reduce((s, r) => s + r.count, 0),
+        // The AI's own line: ratings of conversations only the AI answered
+        // (never in csat_avg above, nor any operator's).
+        csat_ai_avg: averageScore(aiRated.sum, aiRated.count),
+        csat_ai_count: aiRated.count,
       },
       operators: rows,
     });

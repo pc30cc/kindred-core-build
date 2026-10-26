@@ -9,6 +9,11 @@
  * card; windows-native's list printed the body for every kind. Until a
  * release ships these, the server writes `body` in the operator's language
  * (server/services/operatorSystemText.ts).
+ *
+ * The inactivity close (migration 284) ships without an app release: its
+ * line is a `conversation_closed` row without a name (agent_name null), so
+ * every app's nameless branch prints "The conversation was closed"; no new
+ * kind, which a released app would print as its stored English body.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -62,6 +67,24 @@ describe('native localizers know every system kind', () => {
     });
   }
 
+  it('the inactivity close adds no kind: its line is a nameless conversation_closed', () => {
+    expect(SYSTEM_MESSAGE_KINDS).toContain('conversation_closed');
+    expect(SYSTEM_MESSAGE_KINDS.filter((kind) => /inactiv|idle|auto|quiet/.test(kind))).toEqual([]);
+  });
+
+  for (const [app, { file }] of Object.entries(LOCALIZERS)) {
+    it(`${app}: conversation_closed without a name prints the nameless sentence`, () => {
+      const src = read(file);
+      const at = src.search(/["']conversation_closed["']/);
+      expect(at, file).toBeGreaterThan(-1);
+      const branch = src.slice(at, at + 400);
+      // It reads the closer's name, and has the sentence for none.
+      expect(branch, file).toContain('agent_name');
+      expect(branch, file).toMatch(/sysClosed(?!By)\b/);
+      expect(branch, file).toMatch(/sysClosedBy/);
+    });
+  }
+
   it('a thread that draws no requester card prints its stored details (macOS, Electron)', () => {
     // iOS, Android and windows-native draw the card from metadata; these two
     // print the row, and the stored body is the card's full text (requester.ts).
@@ -107,6 +130,32 @@ describe('native localizers know every system kind', () => {
       const missing = PHRASES.filter((p) => !copy.includes(p));
       expect(missing, app).toEqual([]);
     }
+  });
+});
+
+describe('the inactivity close (migration 284) reuses conversation_closed, nameless', () => {
+  it('no new kind: the apps print their nameless closed sentence for the system\'s line', async () => {
+    expect([...SYSTEM_MESSAGE_KINDS]).toContain('conversation_closed');
+    expect(SYSTEM_MESSAGE_KINDS.filter((k) => /inactiv|idle|auto/i.test(k))).toEqual([]);
+    // Each localizer's nameless branch is the dashboard's 'The conversation was closed' (above).
+    for (const [app, { strings }] of Object.entries(LOCALIZERS)) {
+      expect(strings.map(read).join('\n'), app).toContain('The conversation was closed');
+    }
+  });
+
+  it('the dashboard and the server\'s copy say the system closed it after a quiet period', async () => {
+    const { systemMessageText } = await import('../../../shared/systemMessageText');
+    const { operatorSystemText } = await import('../../../server/services/operatorSystemText');
+    const line = { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity', agent_name: null, operator_name: 'Sara' };
+    const t = (copy: InboxCopy) => (key: string) => copy.inbox[key.replace(/^inbox\./, '')] ?? key;
+    expect(systemMessageText(line, t(en))).toBe('Closed automatically after a quiet period');
+    expect(systemMessageText(line, t(fa))).toBe('گفتگو پس از مدتی بی‌پیامی به‌طور خودکار بسته شد');
+    expect(systemMessageText(line, t(tr))).toBe('Bir süre mesajlaşılmadığı için otomatik kapatıldı');
+    expect(operatorSystemText(line, 'fa')).toBe('گفتگو پس از مدتی بی‌پیامی به‌طور خودکار بسته شد');
+    // Never the word for an idle operator.
+    expect(fa.inbox['system.closedInactive']).not.toContain('بی‌فعالیت');
+    // An operator's line keeps naming them.
+    expect(systemMessageText({ kind: 'conversation_closed', agent_name: 'Sara', closed_reason: 'operator' }, t(en))).toBe('Sara closed the conversation');
   });
 });
 

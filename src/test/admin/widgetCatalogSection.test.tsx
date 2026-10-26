@@ -37,7 +37,7 @@ import { WidgetCatalogSection } from '@/components/admin/widget/WidgetCatalogSec
 type Row = Record<string, unknown>;
 
 /** The option defaults the server answers with (every key each template reads). */
-const T1_OPTIONS = { navStyle: 'vb', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true };
+const T1_OPTIONS = { navStyle: 'vb', navMode: 'active', topics: [], prechatMode: 'card', csat: true, transcriptEmail: true };
 const T2_OPTIONS = { topics: [], askExamples: [], csat: true, transcriptEmail: true };
 
 function catalog(overrides: Row = {}): Row {
@@ -256,7 +256,7 @@ describe('WidgetCatalogSection', () => {
     const p = JSON.parse(m![1]) as { templateId: string; config: { templateOptions: unknown } };
     expect(p.templateId).toBe('t1');
     expect(p.config.templateOptions).toEqual({
-      navStyle: 'vb', navMode: 'active', topics: [{ label: 'Shipping', icon: 'truck' }], prechatMode: 'card', transcriptEmail: true,
+      navStyle: 'vb', navMode: 'active', topics: [{ label: 'Shipping', icon: 'truck' }], prechatMode: 'card', csat: true, transcriptEmail: true,
     });
   });
 
@@ -268,8 +268,8 @@ describe('WidgetCatalogSection', () => {
     expect([rating.getAttribute('aria-checked'), mail.getAttribute('aria-checked')]).toEqual(['true', 'true']);
     fireEvent.click(rating);
     const t1 = document.querySelector('[data-catalog-template="t1"]') as HTMLElement;
-    // Template 1 has the transcript (its menu) and the pre-chat form, no rating card.
-    expect(within(t1).queryByRole('switch', { name: 'Rating after a chat' })).toBeNull();
+    // Template 1 rates too (every template since the inactivity close), and has the transcript (its menu).
+    expect(within(t1).getByRole('switch', { name: 'Rating after a chat' }).getAttribute('aria-checked')).toBe('true');
     fireEvent.click(within(t1).getByRole('switch', { name: 'Email the transcript' }));
     fireEvent.click(saveButton());
     await waitFor(() => expect(puts).toHaveLength(1));

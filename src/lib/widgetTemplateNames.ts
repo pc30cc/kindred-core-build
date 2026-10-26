@@ -41,7 +41,7 @@ export function templateVisitorFeatures(id: string): TemplateVisitorFeature[] {
   // The place in the queue is Template 1's (runtime-late.js `queuePosition`, its extras).
   if (d.script === 'presentation-t1.js') out.push('queuePlace');
   if (d.closedNotice) out.push('closedLine');
-  // A rating card under it only where the template offers one (its `csat` option; t1 draws the line alone).
+  // The rating card under it where the template reads the `csat` option: every template since the inactivity close.
   if (d.closedNotice && chatTemplateOptionKeys(id).includes('csat')) out.push('rating');
   if (d.reactions) out.push('reactions');
   return out;

@@ -129,6 +129,7 @@ import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
 import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
 import { startChatRoutingTicker } from './services/chatRoutingTicker.js';
+import { startConversationIdleCloseTicker } from './services/conversationIdleCloseTicker.js';
 import { startAppReviewVisitorsTicker } from './services/appReview/visitorsTicker.js';
 import { startDatabaseBackupScheduler } from './services/backup/databaseBackup.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
@@ -987,6 +988,13 @@ const httpServer = app.listen(config.port, () => {
   // and an unanswered assignment moves on after the first-response timeout
   // (every 30 s, leased). See server/services/chatRoutingTicker.ts.
   startChatRoutingTicker(config);
+
+  // The inactivity close — a widget conversation nobody has written in for
+  // its workspace's window (1–48 h, default 24) is closed by the system,
+  // never while the team owes an answer (every 5 min, leased; nothing while
+  // the Super Admin's switch is off, a no-op before migration 284). See
+  // server/services/conversationIdleCloseTicker.ts.
+  startConversationIdleCloseTicker(config);
 
   // The App Review demo's visitors, kept on the Visitors tab while that
   // account may sign in (migration 248). See

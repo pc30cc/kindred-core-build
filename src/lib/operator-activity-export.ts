@@ -34,7 +34,7 @@ function summaryHead(tracked: boolean): string[] {
   return [
     'operator', 'email', 'role', 'current_state', 'presence_state',
     ...(tracked ? ['online_minutes', 'online_hours', 'present_minutes', 'active_days', 'avg_minutes_per_active_day'] : []),
-    'replies_sent', 'conversations_assigned', 'conversations_resolved',
+    'replies_sent', 'conversations_assigned', 'conversations_resolved', 'conversations_auto_closed',
     ...(tracked ? ['last_seen'] : []),
   ];
 }
@@ -45,7 +45,8 @@ function summaryRow(o: OperatorActivityRow, tracked: boolean) {
     ...(tracked
       ? [o.online_minutes, (o.online_minutes / 60).toFixed(2), o.present_minutes, o.active_days, o.avg_minutes_per_active_day]
       : []),
-    o.replies_sent, o.conversations_assigned, o.conversations_resolved,
+    // An older server does not split the automatic closes out: 0.
+    o.replies_sent, o.conversations_assigned, o.conversations_resolved, o.conversations_auto_closed ?? 0,
     ...(tracked ? [o.last_seen || ''] : []),
   ];
 }

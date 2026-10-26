@@ -155,6 +155,8 @@ interface ConversationMeta {
   ai_handoff_reason?: string;
   channel?: string;
   client_platform?: string;
+  /** Why a closed conversation was closed: 'inactivity' (the timer) or 'operator'. */
+  closed_reason?: string;
   [key: string]: unknown;
 }
 
@@ -617,7 +619,7 @@ export default function InboxPage() {
   // A take-over that did not go through. 409 (`already_assigned`): routing
   // or a colleague assigned the conversation first — said as such, and the
   // lists are read again to show who has it.
-  const takeOverFailed = (err: unknown) => {
+  const takeOverFailed = useCallback((err: unknown) => {
     const conflict = isAssignmentConflict(err);
     toast({
       title: t('inbox.takeOverFailed') || 'Take-over failed',
@@ -629,7 +631,7 @@ export default function InboxPage() {
       void qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
       void qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
     }
-  };
+  }, [t, workspace?.id, qc]);
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
@@ -688,12 +690,14 @@ export default function InboxPage() {
   useEffect(() => {
     if (!selectedId) return;
     if (!conversations) return; // still loading
+    // Another tab's rows shown while this one loads say nothing about it.
+    if (isStaleConvos) return;
     const inList = conversations.some(c => c.id === selectedId);
     if (inList) return;
     if (activeCallConversationId === selectedId) return;
     setSelectedId(null);
     setShowMobileList(true);
-  }, [conversations, selectedId, activeCallConversationId]);
+  }, [conversations, isStaleConvos, selectedId, activeCallConversationId]);
 
   // Deep-link scroll: once the target conversation is rendered in the list,
   // bring it into view (centered) so the operator lands right on it.
@@ -1027,11 +1031,29 @@ export default function InboxPage() {
     if (!workspace?.id || !selectedId) return false;
     setReopening(true);
     try {
+      // One the AI held with nobody on it (the system's inactivity close
+      // leaves the AI's hold as it was; only the Closed tab lists it):
+      // taken over first, as the header's Take over does. Reopened as it
+      // is, it would go back to the AI, unassigned, and out of this list.
+      // A failed take-over sends no reopen.
+      if (metaOf(selected).ai_state === 'ai_managed' && !selected?.assigned_to) {
+        try {
+          await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
+        } catch (e) {
+          takeOverFailed(e);
+          return false;
+        }
+      }
       await updateConv.mutateAsync({ id: selectedId, workspace_id: workspace.id, status: 'open' });
       qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
       // Reopened from the Resolved tab, it would drop out of that list (and
-      // out of the selection) under the operator's hands: show every status.
-      if (filter === 'resolved' || filter === 'closed') setFilter('all');
+      // out of the selection) under the operator's hands: show every status,
+      // read afresh (a cached "every status" list predates the reopen and
+      // would drop the selection before its refetch lands).
+      if (filter === 'resolved' || filter === 'closed') {
+        qc.removeQueries({ queryKey: ['conversations', workspace.id], predicate: (q) => q.queryKey[3] === undefined });
+        setFilter('all');
+      }
       return true;
     } catch {
       toast({ title: t('inbox.reopenFailed'), variant: 'destructive' });
@@ -1039,7 +1061,7 @@ export default function InboxPage() {
     } finally {
       setReopening(false);
     }
-  }, [workspace?.id, selectedId, updateConv, qc, t, filter, setFilter]);
+  }, [workspace?.id, selectedId, selected, updateConv, qc, t, filter, setFilter, takeOverFailed]);
 
   const sendDisabled =
     sendMessage.isPending ||
@@ -1886,6 +1908,11 @@ export default function InboxPage() {
                           <span className={cn('w-1.5 h-1.5 rounded-full', statusDots[conv.status ?? 'open'])} />
                           {statusLabels[conv.status ?? 'open']}
                         </span>
+                        {conv.status === 'closed' && metaOf(conv).closed_reason === 'inactivity' && (
+                          <span data-inbox="row-closed-auto" className="text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60 text-muted-foreground">
+                            {t('inbox.closedAuto') || 'Automatic'}
+                          </span>
+                        )}
                         {conv.priority && conv.priority !== 'normal' && (
                           <span className={cn(
                             'text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60',

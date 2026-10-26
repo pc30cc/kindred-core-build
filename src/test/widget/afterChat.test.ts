@@ -1,32 +1,38 @@
 /**
- * After a chat (issue #340, g1): the "closed the conversation" line, the
- * rating card under it, the transcript by email and the chat bar's ⋯ menu,
- * with the SHIPPED runtime.js, runtime-ext.js, runtime-late.js and the real
- * t1 / t2 renderers and extras (coreFeaturesHarness.ts).
+ * After a chat (issue #340, g1; the inactivity close, migration 284): the
+ * "closed the conversation" line, the rating card under it, the transcript
+ * by email and the chat bar's ⋯ menu, with the SHIPPED runtime.js,
+ * runtime-ext.js, runtime-late.js and the real default / t1 / t2 renderers
+ * and extras (coreFeaturesHarness.ts).
  *
- *  - runtime.js keeps a `conversation_closed` row only for a renderer that
- *    declares `closedNotice` (t1, t2): `default` never gets it, from a
- *    history or a realtime frame, in the store, the renderer, the unread
- *    count or the page's public `message` event (the toast and chime gate);
- *    with t1 and t2 it is drawn but never counted as unread. t1 and t2 (one
- *    conversation per visitor) draw a close only: the row an older backend
- *    wrote for a resolve is dropped like default's (no rating asked for).
- *  - runtime-late.js asks GET …/csat once when the thread ends with a closed
- *    row (again when the panel reopens or the history reloads), shows the
- *    card only when the server says rateable (or rated), and only with the
- *    late pack in; a pick changes the card in place; the rating, its errors
- *    and the transcript go through POST …/csat and POST …/transcript with the
- *    exact bodies the server reads.
- *  - The ⋯ is put in the chat bar when the pack lands, for an existing
- *    conversation only: an ARIA menu (Escape closes it and gives the focus
- *    back without closing the widget, arrows move, a press outside closes),
- *    the transcript item when the server offers it, the sound switch on
- *    Core's own preference, remembered per visitor.
+ *  - runtime.js keeps a `conversation_closed` row for every renderer (each
+ *    declares `closedNotice`; default at the top level), drawn but never an
+ *    unread message, a title count, a toast, a chime or a public `message`
+ *    event, and never clearing the thread or the composer. One conversation
+ *    per visitor: the row an older backend wrote for a resolve is dropped.
+ *    A close by the system after a quiet period names nobody.
+ *  - The rating is Core's (runtime.js), for every renderer that declares
+ *    `csat` (default at the top level, t1 and t2 as a feature) while the
+ *    template's `csat` option is on: GET …/csat once when the thread ends
+ *    with a closed row (again when the panel reopens or the history
+ *    reloads), the card only when the server says rateable (or rated); a
+ *    pick changes the card in place; the rating and its errors go through
+ *    POST …/csat with the exact body the server reads. default draws its
+ *    own quiet star card and never downloads runtime-ext.js or the late pack;
+ *    t1's star card and t2's faces are in their extras. A conversation only
+ *    the AI answered (`subject` 'ai') is asked about with no name.
+ *  - runtime-late.js keeps the transcript (the card's link, POST
+ *    …/transcript) and the ⋯, put in the chat bar when the pack lands, for
+ *    an existing conversation only: an ARIA menu (Escape closes it and gives
+ *    the focus back without closing the widget, arrows move, a press outside
+ *    closes), the transcript item when the server offers it, the sound
+ *    switch on Core's own preference, remembered per visitor.
  *
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { boot, click, flush, key, resetWindow, typeInto, type ApiAnswer, type BootOptions } from './coreFeaturesHarness';
+import { avatarFace } from './avatarFace';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -38,6 +44,8 @@ afterEach(() => { vi.restoreAllMocks(); });
 const T = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const agent = (id: string, text: string, min: number) =>
   ({ id, role: 'agent', sender_type: 'agent', sender_name: 'سارا', text, time: T(min), conversation_id: 'c1' });
+const aiMsg = (id: string, text: string, min: number) =>
+  ({ id, role: 'agent', sender_type: 'ai', sender_name: 'AI Assistant', text, time: T(min), conversation_id: 'c1' });
 const visitorMsg = (id: string, text: string, min: number) =>
   ({ id, role: 'visitor', sender_type: 'contact', text, time: T(min), conversation_id: 'c1' });
 /**
@@ -50,11 +58,24 @@ const closed = (id = 'cl1', min = 1, status: 'closed' | 'resolved' = 'closed') =
   time: T(min), conversation_id: 'c1', sender_name: 'سارا',
   metadata: { kind: 'conversation_closed', by: 'agent', agent_id: 'u1', agent_name: 'سارا', operator_id: 'u1', operator_name: 'سارا', status },
 });
+/**
+ * The line the system writes when it closes a quiet conversation
+ * (conversationClosedNotice.ts, by 'system'): nobody named, the rated
+ * operator's name only (the visitor's copy has no ids, publish.ts).
+ */
+const systemClosed = (id = 'cl1', min = 1, operator: string | null = 'سارا') => ({
+  id, role: 'system', sender_type: 'system', text: 'The conversation was closed', body: 'The conversation was closed',
+  time: T(min), conversation_id: 'c1',
+  metadata: { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity', agent_name: null, operator_name: operator, status: 'closed' },
+});
 const THREAD = [visitorMsg('m1', 'مرسی، مشکلم حل شد!', 5), agent('m2', 'خوشحالم که حل شد!', 4)];
+const AI_THREAD = [visitorMsg('m1', 'سایز ۴۲ موجوده؟', 5), aiMsg('m2', 'بله، موجود است.', 4)];
 const CSAT_OK = {
-  closed_id: 'cl1', rateable: true, rating: null, operator: { name: 'سارا', avatar: null },
+  closed_id: 'cl1', rateable: true, rating: null, operator: { name: 'سارا', avatar: null }, subject: 'operator',
   transcript: { available: true, to: 'a•••@example.com' },
 };
+/** Only the AI answered (decision B.5): rated, about nobody (operator null, subject 'ai'). */
+const CSAT_AI = { closed_id: 'cl1', rateable: true, rating: null, operator: null, subject: 'ai', transcript: { available: false, to: null } };
 
 type Route = (url: string, body: Record<string, unknown> | null) => ApiAnswer | Promise<ApiAnswer> | undefined;
 /**
@@ -69,8 +90,12 @@ function rowFor(messages: Array<Record<string, unknown>>) {
   const status = close ? close.status || 'closed' : 'open';
   return { id: 'c1', status, operatorName: 'سارا', operatorOnline: true, ...(status === 'closed' ? { unreadCount: 1, unreadReplies: 1 } : {}) };
 }
-/** Boots t2 (or t1) on thread c1 with the late pack in; `route` answers the after-chat routes. */
-async function thread(opts: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>> } = {}) {
+/**
+ * Boots t2 (or another template) on thread c1 with the late pack in; `route` answers the after-chat routes.
+ * `settleFocus` waits out Core's open-time focus (the composer, 200 ms after the identity and 300 ms after the
+ * open, real timers) before the test moves the focus itself: a slow run would otherwise see it land mid-test.
+ */
+async function thread({ settleFocus, ...opts }: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>>; settleFocus?: boolean } = {}) {
   const route = opts.route || ((u: string) => (u.includes('/csat') ? { body: CSAT_OK } : undefined));
   const messages = opts.messages || [...THREAD, closed()];
   const h = boot({
@@ -93,28 +118,169 @@ async function thread(opts: BootOptions & { route?: Route; messages?: Array<Reco
   await flush(30);
   h.runtime.__test.setConnectionState('online');
   await flush(5);
+  if (settleFocus) {
+    await new Promise((r) => setTimeout(r, 320));
+    await flush();
+  }
   return h;
 }
 const csatGets = (h: ReturnType<typeof boot>) => h.fetches.filter((u) => /\/conversations\/c1\/csat\?/.test(u));
 const posts = (h: ReturnType<typeof boot>, path: string) => h.posts.filter((p) => p.url.endsWith('/conversations/c1/' + path));
 const active = (h: ReturnType<typeof boot>) => h.shadow.activeElement as HTMLElement | null;
+const lateAsked = (h: ReturnType<typeof boot>) => h.scripts.some((s) => /runtime-late|runtime-ext|-x\./.test(s));
+/**
+ * A row after the closed line that repaints the thread and keeps the card
+ * (nobody wrote: the server's rule): a call that ended.
+ */
+const callEnded = (id: string) => ({
+  id, role: 'system', sender_type: 'system', conversation_id: 'c1', time: T(0),
+  metadata: { kind: 'call_ended', duration_seconds: 30, ended_by: 'operator' },
+});
+/**
+ * The comment the visitor is typing, through a real repaint of the thread:
+ * a new textarea, with the words, the focus and the caret the old one had.
+ */
+async function repaintKeepsComment(h: ReturnType<typeof boot>, words: string, a: number, b: number) {
+  const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+  expect(active(h)).toBe(ta);
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([a, b]);
+  h.emitMessages([callEnded('sys9')]);
+  await flush(10);
+  const again = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+  expect(again).not.toBe(ta);
+  expect(again.value).toBe(words);
+  expect(active(h)).toBe(again);
+  expect([again.selectionStart, again.selectionEnd]).toEqual([a, b]);
+  expect(csatGets(h)).toHaveLength(1);
+}
+/** The closed line's words as each template draws them (default: its divider, after the day's). */
+function lineOf(h: ReturnType<typeof boot>, renderer: 'default' | 't1' | 't2') {
+  const sel = { default: '[data-chat-messages] .msg-day', t1: '[data-chat-messages] .msg-day.cl span', t2: '[data-chat-messages] .msg-system-pill' }[renderer];
+  const all = h.shadow.querySelectorAll(sel);
+  return all.length ? (all[all.length - 1].textContent || '').trim() : null;
+}
 
-describe('default (one conversation per visitor): a real close is its quiet line; a resolve is nothing; never a rating or a late pack', () => {
-  it('from a history: the close drawn as the line, nothing late is asked for', async () => {
-    const h = boot({
-      renderer: 'default',
-      conversations: [{ id: 'c1', status: 'closed' }],
-      history: { c1: [...THREAD, closed()] },
-    });
-    await flush(20);
-    h.runtime.__test.openConversation('c1');
-    await flush(30);
+describe('default (one conversation per visitor): a real close is its quiet line and its own star card; a resolve is nothing; never a late pack', () => {
+  const dflt = (opts: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>>; settleFocus?: boolean } = {}) => thread({ renderer: 'default', ...opts });
+
+  it('from a history: the close drawn as the line, one GET, the card under it (five stars, no avatar); nothing late is asked for', async () => {
+    const h = await dflt();
     const msgs = h.runtime.__test.chatState().messages as Array<Record<string, unknown>>;
     expect(msgs.map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
-    expect(h.q('[data-chat-messages]')!.textContent).toContain('سارا گفتگو را به پایان رساند');
+    expect(lineOf(h, 'default')).toBe('سارا گفتگو را به پایان رساند');
     expect(h.q('[data-chat-messages]')!.textContent).not.toContain('closed the conversation');
-    expect(h.fetches.some((u) => /\/csat|\/transcript/.test(u))).toBe(false);
-    expect(h.scripts.some((s) => /runtime-late|runtime-ext|-x\./.test(s))).toBe(false);
+    expect(csatGets(h)).toEqual(['https://api.test/api/widget/conversations/c1/csat?workspace_id=ws-test']);
+    const card = h.q('[data-chat-messages] .msg-day + .wy-rate[data-csat]')!;
+    expect(card.getAttribute('role')).toBe('group');
+    expect(card.querySelector('.wy-rate-q')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    expect(Array.from(card.querySelectorAll('.wy-star[data-csat-rate]')).map((b) => b.getAttribute('aria-label')))
+      .toEqual(['خیلی بد', 'بد', 'معمولی', 'خوب', 'عالی']);
+    // default's quiet look: no face in it, so never a letter either.
+    expect(card.querySelector('img, .wy-avatar, [class*="av"]')).toBeNull();
+    // No transcript link (default has no late pack); the composer stays under the card.
+    expect(card.querySelector('[data-csat-transcript]')).toBeNull();
+    expect(h.q<HTMLElement>('[data-input-bar]')!.style.display).not.toBe('none');
+    expect(lateAsked(h)).toBe(false);
+    // Repaints ask nothing more.
+    h.runtime.setTab('home');
+    await flush();
+    h.runtime.setTab('chat');
+    await flush(10);
+    expect(csatGets(h)).toHaveLength(1);
+  });
+
+  it('a pick changes the card in place (focus kept), then the exact POST; rated: its stars and the thanks, the focus on the card', async () => {
+    let answer: (a: ApiAnswer) => void = () => {};
+    const h = await dflt({
+      settleFocus: true,
+      route: (u) => (u.includes('/csat?') ? { body: CSAT_OK } : u.endsWith('/csat') ? new Promise<ApiAnswer>((r) => { answer = r; }) : undefined),
+    });
+    const star = h.q<HTMLButtonElement>('[data-csat-rate="4"]')!;
+    const cardBefore = h.q('[data-csat]');
+    star.focus();
+    click(star);
+    expect(star.getAttribute('aria-pressed')).toBe('true');
+    expect(h.q<HTMLButtonElement>('[data-csat-submit]')!.disabled).toBe(false);
+    expect(active(h)).toBe(star);
+    expect(h.q('[data-csat]')).toBe(cardBefore);
+    typeInto(h.q<HTMLTextAreaElement>('[data-csat-comment]')!, 'ممنون');
+    click(h.q('[data-csat-submit]'));
+    click(h.q('[data-csat-submit]'));
+    await flush(5);
+    expect(posts(h, 'csat')).toEqual([{
+      url: 'https://api.test/api/widget/conversations/c1/csat',
+      body: { workspace_id: 'ws-test', closed_id: 'cl1', rating: 4, comment: 'ممنون' },
+    }]);
+    expect(h.q<HTMLButtonElement>('[data-csat-submit]')!.disabled).toBe(true);
+    answer({ body: { ok: true, rating: { score: 4, comment: 'ممنون', rated_at: T(0) } } });
+    await flush(10);
+    const card = h.q('[data-csat]')!;
+    expect(card.classList.contains('is-done')).toBe(true);
+    expect(card.querySelector('[role="status"]')!.textContent).toBe('از نظرتان سپاسگزاریم! امتیاز شما: خوب');
+    expect(card.querySelectorAll('.wy-stars i.on')).toHaveLength(4);
+    expect(card.querySelector('[data-csat-rate], [data-csat-submit], [data-csat-comment]')).toBeNull();
+    expect(active(h)).toBe(card);
+  });
+
+  it('a comment being typed survives a repaint, with its focus and caret', async () => {
+    const h = await dflt({ settleFocus: true });
+    click(h.q('[data-csat-rate="3"]'));
+    const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+    ta.focus();
+    typeInto(ta, 'سلام دوباره');
+    ta.setSelectionRange(3, 5);
+    await repaintKeepsComment(h, 'سلام دوباره', 3, 5);
+    expect(h.q('[data-csat-rate="3"]')!.getAttribute('aria-pressed')).toBe('true');
+    // Away and back: the words and the pick are Core's.
+    h.runtime.setTab('home');
+    await flush();
+    h.runtime.setTab('chat');
+    await flush(10);
+    const again = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+    expect(again.value).toBe('سلام دوباره');
+    expect(h.q('[data-csat-rate="3"]')!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  for (const [status, body] of [[409, { error: 'not_ratable' }], [403, { error: 'csat_disabled', code: 'CSAT_DISABLED' }], [503, { error: 'csat_unavailable' }]] as const) {
+    it(`${status} ${body.error}: gone, said once, nothing left to press`, async () => {
+      const h = await dflt({ route: (u) => (u.includes('/csat?') ? { body: CSAT_OK } : u.endsWith('/csat') ? { status, body } : undefined) });
+      click(h.q('[data-csat-rate="2"]'));
+      click(h.q('[data-csat-submit]'));
+      await flush(15);
+      expect(h.q('[data-csat] .wy-rate-note.is-error[role="status"]')!.textContent).toBe('دیگر نمی‌شود به این گفتگو امتیاز داد.');
+      expect(h.q('[data-csat-submit], [data-csat-rate]')).toBeNull();
+    });
+  }
+
+  it('offline, or a 500: an error line, the pick kept, send again', async () => {
+    const h = await dflt({ route: (u) => (u.includes('/csat?') ? { body: CSAT_OK } : u.endsWith('/csat') ? { status: 500, body: {} } : undefined) });
+    h.runtime.__test.setConnectionState('offline');
+    click(h.q('[data-csat-rate="5"]'));
+    click(h.q('[data-csat-submit]'));
+    await flush(5);
+    expect(posts(h, 'csat')).toEqual([]);
+    expect(h.q('[data-csat] .wy-rate-note.is-error[role="alert"]')!.textContent).toBe('ارسال نشد');
+    h.runtime.__test.setConnectionState('online');
+    await flush(5);
+    click(h.q('[data-csat-submit]'));
+    await flush(15);
+    expect(posts(h, 'csat')).toHaveLength(1);
+    expect(h.q('[data-csat] [role="alert"]')!.textContent).toBe('ارسال نشد');
+    expect(h.q('[data-csat-rate="5"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(h.q<HTMLButtonElement>('[data-csat-submit]')!.disabled).toBe(false);
+  });
+
+  it('the workspace turned the rating off: the line only, nothing asked', async () => {
+    const h = await dflt({ config: { templateOptions: { csat: false } } });
+    expect(h.q('[data-chat-messages] .msg-day')).not.toBeNull();
+    expect(h.q('[data-csat]')).toBeNull();
+    expect(csatGets(h)).toEqual([]);
+  });
+
+  it('not rateable (an older server, past the window, the visitor never wrote): the line only', async () => {
+    const h = await dflt({ route: (u) => (u.includes('/csat') ? { body: { ...CSAT_OK, rateable: false } } : undefined) });
+    expect(h.q('[data-chat-messages] .msg-day')).not.toBeNull();
+    expect(h.q('[data-csat]')).toBeNull();
   });
 
   it('a resolve line an older backend wrote: dropped (no line, no unread, no public `message` event)', async () => {
@@ -137,8 +303,11 @@ describe('default (one conversation per visitor): a real close is its quiet line
     expect(h.unread[h.unread.length - 1]).toBe(unreadBefore + 1);
   });
 
-  it('a close arriving by /poll (no realtime): the line joins the thread, no rating is asked for', async () => {
-    const h = boot({ renderer: 'default', publicEvents: true, conversations: [{ id: 'c1' }], history: { c1: THREAD } });
+  it('a close arriving by /poll (no realtime): the line joins the thread, the card under it', async () => {
+    const h = boot({
+      renderer: 'default', publicEvents: true, conversations: [{ id: 'c1' }], history: { c1: THREAD },
+      api: (u) => (u.includes('/csat') ? { body: CSAT_OK } : undefined),
+    });
     await flush(20);
     h.runtime.__test.openConversation('c1');
     await flush(30);
@@ -146,18 +315,52 @@ describe('default (one conversation per visitor): a real close is its quiet line
     await flush(10);
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
     expect(h.q('[data-chat-messages]')!.textContent).toContain('سارا گفتگو را به پایان رساند');
-    expect(h.fetches.some((u) => /\/csat|\/transcript/.test(u))).toBe(false);
+    expect(csatGets(h)).toHaveLength(1);
+    expect(h.q('[data-csat]')).not.toBeNull();
+    expect(h.events.filter((e) => e.name === 'message')).toEqual([]);
   });
-
 });
 
 describe('t1 and t2: a real close kept, an older backend\'s resolve line dropped', () => {
-  it('t1 (`closedNotice`, one conversation per visitor) keeps a close as its day-divider line, and asks for no rating', async () => {
+  it('t1 (`closedNotice`, one conversation per visitor) keeps a close as its day-divider line, and draws its star card under it', async () => {
     const h = await thread({ renderer: 't1' });
     expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl1']);
     expect(h.q('[data-chat-messages] .msg-day.cl')!.textContent).toBe('سارا گفتگو را به پایان رساند');
+    expect(csatGets(h)).toHaveLength(1);
+    const card = h.q('[data-chat-messages] .msg-day.cl + .msg-row.rt > .cd.rate[data-csat]')!;
+    expect(card.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    expect(card.querySelectorAll('.stars > [data-csat-rate]')).toHaveLength(5);
+    expect(avatarFace(card.querySelector('.av.s44'))).toBe('person');
+    // The transcript stays in t1's ⋯, never on its card.
+    expect(card.querySelector('[data-csat-transcript]')).toBeNull();
+    click(h.q('[data-csat-rate="5"]'));
+    click(h.q('[data-csat-submit]'));
+    await flush(15);
+    expect(posts(h, 'csat')).toEqual([{
+      url: 'https://api.test/api/widget/conversations/c1/csat',
+      body: { workspace_id: 'ws-test', closed_id: 'cl1', rating: 5, comment: null },
+    }]);
+  });
+
+  it('t1: the card comes once its extras are in (Core asked meanwhile, one repaint draws it)', async () => {
+    const h = await thread({ renderer: 't1', late: 'hold' });
     expect(h.q('[data-csat]')).toBeNull();
-    expect(csatGets(h)).toEqual([]);
+    expect(csatGets(h)).toHaveLength(1);
+    h.releaseLate();
+    await flush(20);
+    expect(h.q('.msg-row.rt [data-csat]')).not.toBeNull();
+    expect(csatGets(h)).toHaveLength(1);
+  });
+
+  it('t1: a comment being typed survives a repaint, with its focus and caret', async () => {
+    const h = await thread({ renderer: 't1', settleFocus: true });
+    click(h.q('[data-csat-rate="2"]'));
+    const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+    ta.focus();
+    typeInto(ta, 'کمی دیر شد');
+    ta.setSelectionRange(1, 4);
+    await repaintKeepsComment(h, 'کمی دیر شد', 1, 4);
+    expect(h.q('[data-csat-rate="2"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('t1 drops the line an older backend wrote for a resolve (a resolve ends nothing for the visitor)', async () => {
@@ -183,6 +386,121 @@ describe('t1 and t2: a real close kept, an older backend\'s resolve line dropped
   });
 });
 
+describe('the automatic close (by the system, after a quiet period), in every template', () => {
+  for (const renderer of ['default', 't1', 't2'] as const) {
+    it(`${renderer}: the line names nobody («گفتگو به پایان رسید»), the card asks about the operator who answered`, async () => {
+      const h = await thread({ renderer, messages: [...THREAD, systemClosed()] });
+      expect(lineOf(h, renderer)).toBe('گفتگو به پایان رسید');
+      expect(h.q('[data-chat-messages]')!.textContent).not.toContain('The conversation was closed');
+      const card = h.q('[data-csat]')!;
+      expect(card.getAttribute('aria-label')).toBe('گفتگو با سارا چطور بود؟');
+    });
+
+    it(`${renderer}: only the AI answered: a nameless question${renderer === 'default' ? '' : ' and the workspace\'s mark'}, rated with no operator`, async () => {
+      const h = await thread({
+        renderer,
+        messages: [...AI_THREAD, systemClosed('cl1', 1, null)],
+        assignedOperator: null,
+        route: (u) => (u.includes('/csat?') ? { body: CSAT_AI } : u.endsWith('/csat') ? { body: { ok: true, rating: { score: 3, comment: null, rated_at: T(0) } } } : undefined),
+      });
+      const card = h.q('[data-csat]')!;
+      expect(card.getAttribute('aria-label')).toBe('گفتگوی شما چطور بود؟');
+      if (renderer === 't1') expect(avatarFace(card.querySelector('.av.s44'))).toBe('workspace');
+      if (renderer === 't2') expect(card.querySelector('.av, [class*="store"], svg')).not.toBeNull();
+      expect(card.textContent).not.toContain('سارا');
+      click(h.q('[data-csat-rate="3"]'));
+      click(h.q('[data-csat-submit]'));
+      await flush(15);
+      expect(posts(h, 'csat').map((p) => p.body)).toEqual([{ workspace_id: 'ws-test', closed_id: 'cl1', rating: 3, comment: null }]);
+      expect(h.q('[data-csat] [role="status"]')).not.toBeNull();
+    });
+
+    it(`${renderer}: an operator's name in the line's copy is never the AI card's (the answer's subject wins)`, async () => {
+      const h = await thread({
+        renderer,
+        messages: [...AI_THREAD, closed()],
+        route: (u) => (u.includes('/csat') ? { body: { ...CSAT_AI } } : undefined),
+      });
+      expect(h.q('[data-csat]')!.getAttribute('aria-label')).toBe('گفتگوی شما چطور بود؟');
+    });
+
+    it(`${renderer}: arriving live, it never clears the thread or the composer, never counts as unread, a title count, a chime, a public event or gs_active`, async () => {
+      document.cookie = 'gs_active=; path=/; max-age=0';
+      const h = await thread({ renderer, messages: THREAD, publicEvents: true, route: (u) => (u.includes('/csat') ? { body: { ...CSAT_OK, closed_id: 'cl9' } } : undefined) });
+      const input = h.q<HTMLTextAreaElement>('[data-msg-input]')!;
+      typeInto(input, 'یک پیش‌نویس');
+      const title = document.title;
+      const cookie = document.cookie;
+      const unreadBefore = h.unread.length ? h.unread[h.unread.length - 1] : 0;
+      h.emitMessages([{ ...systemClosed('cl9', 0), conversation_id: 'c1' }]);
+      await flush(20);
+      // The thread stays, the line under it, the card under the line.
+      expect((h.runtime.__test.chatState().messages as Array<Record<string, unknown>>).map((m) => m.__id)).toEqual(['m1', 'm2', 'cl9']);
+      expect(lineOf(h, renderer)).toBe('گفتگو به پایان رسید');
+      expect(h.q('[data-csat]')).not.toBeNull();
+      // The composer, its draft, writable.
+      expect(h.q<HTMLElement>('[data-input-bar]')!.style.display).not.toBe('none');
+      expect(h.q<HTMLTextAreaElement>('[data-msg-input]')!.value).toBe('یک پیش‌نویس');
+      expect(h.q('[data-past-bar]')).toBeNull();
+      // Nothing counted, said or rung (the chime and the public event share
+      // one gate); a screen reader hears it, politely.
+      expect(h.unread.length ? h.unread[h.unread.length - 1] : 0).toBe(unreadBefore);
+      expect(document.title).toBe(title);
+      expect(document.cookie).toBe(cookie);
+      expect(h.events.filter((e) => e.name === 'message')).toEqual([]);
+      expect(h.shadow.textContent).toContain('گفتگو به پایان رسید');
+      // Away from the thread: the same line again is still nothing.
+      h.runtime.setTab('home');
+      await flush();
+      h.emitMessages([{ ...systemClosed('cl9', 0), conversation_id: 'c1' }]);
+      await flush(10);
+      expect(h.unread.length ? h.unread[h.unread.length - 1] : 0).toBe(unreadBefore);
+      expect(h.events.filter((e) => e.name === 'message')).toEqual([]);
+    });
+  }
+
+  it('a screen reader hears the line once, in the visitor\'s words (no toast, no sender)', async () => {
+    const h = await thread({ renderer: 'default', messages: THREAD });
+    // Core's announcer (a polite status region of its own, outside the thread).
+    const announcer = () => Array.from(h.panel.children).filter((el) => el.matches('.sr-only[role="status"][aria-live="polite"]')).map((el) => el.textContent).filter(Boolean).join('|');
+    h.emitMessages([{ ...systemClosed('cl9', 0), conversation_id: 'c1' }]);
+    await flush(10);
+    expect(announcer()).toBe('گفتگو به پایان رسید');
+    // The same row again (a reconnect, a poll) is not said twice.
+    Array.from(h.panel.children).forEach((el) => { if (el.matches('.sr-only[role="status"]')) el.textContent = ''; });
+    h.emitMessages([{ ...systemClosed('cl9', 0), conversation_id: 'c1' }]);
+    await flush(10);
+    expect(announcer()).toBe('');
+  });
+
+  for (const renderer of ['default', 't2'] as const) {
+    it(`${renderer}: the card works in a past read-only thread within the window`, async () => {
+      const h = boot({
+        renderer,
+        realtime: true,
+        conversations: [{ id: 'c2', status: 'open' }, { id: 'c1', status: 'closed' }],
+        history: { c1: [...THREAD, systemClosed()], c2: [visitorMsg('n1', 'سلام', 1)] },
+        api: (u) => (u.includes('/conversations/c1/csat?') ? { body: CSAT_OK } : u.endsWith('/conversations/c1/csat') ? { body: { ok: true, rating: { score: 5, comment: null, rated_at: T(0) } } } : undefined),
+      });
+      await flush(30);
+      h.runtime.setTab('list');
+      await flush(10);
+      click(h.q('[data-conversation-open="c1"]'));
+      await flush(30);
+      h.runtime.__test.setConnectionState('online');
+      await flush(5);
+      // Read-only: the past bar in the composer's place.
+      expect(h.q('[data-past-bar]')).not.toBeNull();
+      expect(h.q<HTMLElement>('[data-input-bar]')!.style.display).toBe('none');
+      click(h.q('[data-csat-rate="5"]'));
+      click(h.q('[data-csat-submit]'));
+      await flush(15);
+      expect(posts(h, 'csat')).toHaveLength(1);
+      expect(h.q('[data-csat] [role="status"]')).not.toBeNull();
+    });
+  }
+});
+
 describe('t2: the closed line and the rating card', () => {
   it('a thread that ends with a closed row: the line, one GET, the card (with the transcript link)', async () => {
     const h = await thread();
@@ -206,6 +524,7 @@ describe('t2: the closed line and the rating card', () => {
   it('a pick changes the card in place (focus kept), the comment is kept, send posts exactly what the server reads', async () => {
     let answer: (a: ApiAnswer) => void = () => {};
     const h = await thread({
+      settleFocus: true,
       route: (u) => (u.includes('/csat?') ? { body: CSAT_OK } : u.endsWith('/csat') ? new Promise<ApiAnswer>((r) => { answer = r; }) : undefined),
     });
     const face = h.q<HTMLButtonElement>('[data-csat-rate="5"]')!;
@@ -239,14 +558,17 @@ describe('t2: the closed line and the rating card', () => {
     expect(active(h)).toBe(card);
   });
 
-  it('a comment being typed survives a repaint, with its caret', async () => {
-    const h = await thread();
+  it('a comment being typed survives a repaint, with its focus and caret', async () => {
+    const h = await thread({ settleFocus: true });
     const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
     ta.focus();
     typeInto(ta, 'سلام');
     ta.setSelectionRange(2, 2);
-    // Anything that repaints the thread (here: a pick's state reaching the markup).
+    // A pick while typing changes the card in place; then a row after the line repaints it.
     click(h.q('[data-csat-rate="3"]'));
+    await repaintKeepsComment(h, 'سلام', 2, 2);
+    expect(h.q('[data-csat-rate="3"]')!.getAttribute('aria-pressed')).toBe('true');
+    // Away and back: the words and the pick are Core's.
     h.runtime.setTab('home');
     await flush();
     h.runtime.setTab('chat');
@@ -391,7 +713,7 @@ describe('t2: the closed line and the rating card', () => {
   });
 
   it('the card itself keeps the focus through a repaint (the visitor reading its status)', async () => {
-    const h = await thread();
+    const h = await thread({ settleFocus: true });
     click(h.q('[data-csat-rate="4"]'));
     const card = h.q<HTMLElement>('[data-csat]')!;
     card.focus();
@@ -421,10 +743,29 @@ describe('t2: the closed line and the rating card', () => {
     expect(spy.mock.contexts.filter((c) => c === host || c === bar || c === h.panel)).toEqual([]);
   });
 
-  it('no late pack, no card: the line and the card come only with it', async () => {
+  it('no late pack, no card: the line and the card come only with its extras (Core asked once, nothing is drawn)', async () => {
     const h = await thread({ late: 'fail' });
     expect(h.q('.msg-system-pill, [data-csat], [data-chat-menu-toggle]')).toBeNull();
-    expect(csatGets(h)).toEqual([]);
+    expect(csatGets(h)).toHaveLength(1);
+  });
+
+  it('the card is Core\'s: runtime-late.js asks nothing about the rating (only its transcript reads the answer)', async () => {
+    const h = await thread({ lateModule: { v: 3, create: () => ({}) } });
+    // A late module with nothing in it: Core still asks, the extras still draw the card, a pick still posts.
+    expect(csatGets(h)).toHaveLength(1);
+    expect(h.q('[data-csat] h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    click(h.q('[data-csat-rate="4"]'));
+    click(h.q('[data-csat-submit]'));
+    await flush(10);
+    expect(posts(h, 'csat')).toHaveLength(1);
+    // No transcript without runtime-late.js: the card's link is not drawn.
+    expect(h.q('[data-csat-transcript]')).toBeNull();
+  });
+
+  it('an older late module (its own rating, v 2) is refused next to this Core: one card, one request', async () => {
+    const h = await thread({ lateModule: { v: 2, create: () => { throw new Error('never created'); } } });
+    expect(csatGets(h)).toHaveLength(1);
+    expect(h.shadow.querySelectorAll('[data-csat]')).toHaveLength(0);
   });
 });
 
@@ -484,7 +825,7 @@ describe('t2: the transcript by email (the card\'s link)', () => {
 
 for (const renderer of ['t1', 't2'] as const) {
   describe(`${renderer}: the chat bar's ⋯ menu`, () => {
-    const menuThread = (opts: BootOptions & { route?: Route } = {}) => thread({ renderer, messages: THREAD, ...opts });
+    const menuThread = (opts: BootOptions & { route?: Route; settleFocus?: boolean } = {}) => thread({ renderer, messages: THREAD, ...opts });
     const toggle = (h: ReturnType<typeof boot>) => h.q<HTMLButtonElement>('[data-chat-header] [data-chat-menu-toggle]');
     const items = (h: ReturnType<typeof boot>) => Array.from(h.shadow.querySelectorAll<HTMLElement>('[data-chat-header] [data-chat-menu-action]'));
 
@@ -502,7 +843,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('opens on a press (focus on its first item, asks the server once), arrows move, Escape closes it and gives the focus back, the widget stays open', async () => {
-      const h = await menuThread();
+      const h = await menuThread({ settleFocus: true });
       expect(csatGets(h)).toEqual([]);
       toggle(h)!.focus();
       click(toggle(h));
@@ -550,7 +891,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('stays open while the bar repaints (the operator types), with the focus where it was', async () => {
-      const h = await menuThread();
+      const h = await menuThread({ settleFocus: true });
       click(toggle(h));
       await flush(10);
       const sound = h.q<HTMLElement>('[data-chat-menu-action="sound"]')!;
@@ -630,7 +971,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('the late pack landing keeps the focus where it was in the bar (the back button)', async () => {
-      const h = await menuThread({ late: 'hold' });
+      const h = await menuThread({ late: 'hold', settleFocus: true });
       expect(toggle(h)).toBeNull();
       // A draft in the composer, too.
       typeInto(h.q<HTMLTextAreaElement>('[data-msg-input]')!, 'یک پیش‌نویس');
@@ -644,7 +985,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('Home and End go to the ends; the focus leaving the bar (Tab) closes it', async () => {
-      const h = await menuThread();
+      const h = await menuThread({ settleFocus: true });
       click(toggle(h));
       await flush(10);
       key(active(h)!, 'End');

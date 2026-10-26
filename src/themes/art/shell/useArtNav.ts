@@ -15,7 +15,7 @@
 import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertCircle, Ban, BarChart3, BookOpen, Bot, Check, Clock, Eye, Inbox,
+  AlertCircle, Archive, Ban, BarChart3, BookOpen, Bot, Check, Clock, Eye, Inbox,
   LayoutDashboard, Mail, MessageSquare, MessagesSquare, Package, PhoneCall, Plug, Radar,
   Settings, Sparkles, UserCog, Users,
   type LucideIcon,
@@ -211,6 +211,7 @@ export function useArtNav() {
     }
     queues.push(queue('pending', '?status=pending', t('inbox.pending') || 'Pending', Clock, !q && !f && st === 'pending'));
     queues.push(queue('resolved', '?status=resolved', t('inbox.resolved') || 'Resolved', Check, !q && !f && st === 'resolved'));
+    queues.push(queue('closed', '?status=closed', t('inbox.closedBox') || 'Closed', Archive, !q && !f && st === 'closed'));
     queues.push(queue('spam', '?queue=spam', t('inbox.spamInbox') || 'Spam', Ban, q === 'spam', {
       badge: inboxCounts?.spam ?? 0,
     }));

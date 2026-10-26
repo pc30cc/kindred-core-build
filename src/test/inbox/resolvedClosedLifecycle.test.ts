@@ -249,7 +249,9 @@ describe('widget ingest wiring', () => {
 
   it('a closed thread passed by the client forces a new conversation', () => {
     // Left, never revived: the visitor's live conversation, else a new one.
-    expect(src).toMatch(/if \(conv\.status === 'closed'\) \{\s*convId = null;\s*namedUnusable = true;/);
+    // The inactivity close (284) first keeps the named row (namedClosed),
+    // for a message that raced the close: liveConversationForNextMessage.
+    expect(src).toMatch(/if \(conv\.status === 'closed'\) \{\s*(?:namedClosed = \{[^}]*\};\s*)?convId = null;\s*namedUnusable = true;/);
   });
 
   it('continuity lookups exclude closed threads', () => {

@@ -21,6 +21,10 @@
  *   /offline-messages the away thread's first message goes on in the live
  *                     conversation.
  *   /poll             without an id, only a live conversation.
+ *   the race          a message within 60 s of an inactivity close (migration
+ *                     284), named or caught by the touch, goes back into that
+ *                     conversation as it was; an operator's close, or one
+ *                     older than that, still ends it.
  *
  * Only the database (the shared in-memory fake) and side effects are faked;
  * the routes' own control flow runs.
@@ -60,6 +64,9 @@ const state = vi.hoisted(() => ({
   realRouting: false,
   /** verifyConversationOwnership runs for real (the ids a route gives it are the subject). */
   realOwnership: false,
+  /** The reopen RPC answers 42883 (a database before migration 284). */
+  reopenMissing: false,
+  operatorEvents: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -163,6 +170,7 @@ vi.mock('../../../server/services/ai-agent/handoffState.js', async (orig) => ({
 vi.mock('../../../server/services/realtime/publish.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/realtime/publish.js')>()),
   publishConversationEvent: async () => ({ ok: true }),
+  publishOperatorEvent: async (_c: unknown, p: Record<string, unknown>) => { state.operatorEvents.push(p); },
 }));
 vi.mock('../../../server/services/push/index.js', () => ({
   notifyInboundMessage: async (_c: unknown, p: Record<string, unknown>) => { state.pushes.push(p); },
@@ -269,6 +277,29 @@ function ensureActiveConversation(args: Record<string, unknown>) {
   return { data: [{ id: row.id, created: true, matched_by: 'created' }], error: null };
 }
 
+/**
+ * conversation_reopen_after_idle_close (284) in brief: an inactivity close
+ * within the grace goes back to closed_from, once; anything else NULL. The
+ * SQL itself is pinned in src/test/integration/conversationIdleClose284.pg.test.ts.
+ */
+function reopenAfterIdleClose(args: Record<string, unknown>) {
+  if (state.reopenMissing) return { data: null, error: { code: '42883', message: 'function public.conversation_reopen_after_idle_close does not exist' } };
+  const none = { data: [{ restored_status: null, updated_at: null, event_id: null, event_created_at: null, retracted_line_id: null }], error: null };
+  const row = (state.db.tables.conversations || []).find((c) => c.id === args.p_conversation_id && c.workspace_id === args.p_workspace_id);
+  const meta = (row?.metadata || {}) as Row;
+  if (!row || row.status !== 'closed' || meta.closed_reason !== 'inactivity') return none;
+  if (Date.now() - Date.parse(String(meta.closed_at)) > Number(args.p_grace_seconds) * 1000) return none;
+  const restored = String(meta.closed_from || 'open');
+  row.status = restored;
+  row.metadata = Object.fromEntries(Object.entries(meta).filter(([k]) => !k.startsWith('closed_')));
+  return { data: [{ restored_status: restored, updated_at: tick(), event_id: randomUUID(), event_created_at: tick(), retracted_line_id: null }], error: null };
+}
+/** An inactivity close `secondsAgo` before now, from `from`. */
+const idleClosed = (secondsAgo: number, from = 'open'): Row => ({
+  closed_reason: 'inactivity', closed_by: 'system', closed_from: from, closed_at: new Date(Date.now() - secondsAgo * 1000).toISOString(),
+});
+const reopens = () => state.db.rpcs.filter((r) => r.fn === 'conversation_reopen_after_idle_close');
+
 const aiSettings = (over: Row = {}) => ({
   enabled: true, mode: 'auto_reply_always', ai_intro_enabled: true, agent_name: 'نیلو',
   intro_message_localized: { fa: 'سلام! من نیلو هستم، دستیار هوشمند فروشگاه.', en: 'Hi, I am Nilo.' }, ...over,
@@ -286,6 +317,7 @@ beforeEach(() => {
       if (row) row.metadata = { ...(row.metadata as Row), ...(args.p_patch as Row) };
       return { data: !!row, error: null };
     }
+    if (fn === 'conversation_reopen_after_idle_close') return reopenAfterIdleClose(args);
     return { data: null, error: null };
   };
   state.db.tables.widget_settings = [{ workspace_id: WS, enabled: true, chat_enabled: true }];
@@ -314,6 +346,8 @@ beforeEach(() => {
   state.restores = [];
   state.realRouting = false;
   state.realOwnership = false;
+  state.reopenMissing = false;
+  state.operatorEvents = [];
 });
 
 describe('POST /message: force_new_conversation is ignored while the visitor has a live conversation', () => {
@@ -821,5 +855,134 @@ describe('the closed line an older server wrote on a resolve is never handed to 
     message(closed.id, 'system', { body: 'Sara closed the conversation', metadata: { kind: 'conversation_closed', status: 'closed', operator_name: 'Sara' } });
     const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=${closed.id}`);
     expect((res.body.messages as Row[]).map((m) => (m.metadata as Row | null)?.kind ?? m.text)).toEqual(['خداحافظ', 'conversation_closed']);
+  });
+});
+
+describe('a message racing the inactivity close (migration 284) goes back into that conversation, as it was', () => {
+  it('justClosedForInactivity: an inactivity close within the grace; a bad stamp never, one in the future always', async () => {
+    const { justClosedForInactivity } = await import('../../../server/services/widget/visitorConversations.js');
+    const now = Date.parse('2026-10-24T08:00:00Z');
+    const at = (ms: number) => new Date(now - ms).toISOString();
+    const closedRow = (meta: Row) => ({ status: 'closed', metadata: { closed_reason: 'inactivity', ...meta } });
+    expect(justClosedForInactivity(closedRow({ closed_at: at(10_000) }), now)).toBe(true);
+    expect(justClosedForInactivity(closedRow({ closed_at: at(60_000) }), now)).toBe(true);
+    expect(justClosedForInactivity(closedRow({ closed_at: at(60_001) }), now)).toBe(false);
+    expect(justClosedForInactivity(closedRow({ closed_at: at(-30_000) }), now)).toBe(true);
+    for (const bad of ['', 'yesterday', 42, null, undefined]) {
+      expect(justClosedForInactivity(closedRow({ closed_at: bad }), now), String(bad)).toBe(false);
+    }
+    expect(justClosedForInactivity({ status: 'closed', metadata: { closed_reason: 'operator', closed_at: at(1_000) } }, now)).toBe(false);
+    expect(justClosedForInactivity({ status: 'closed', metadata: { closed_at: at(1_000) } }, now)).toBe(false);
+    expect(justClosedForInactivity({ status: 'resolved', metadata: { closed_reason: 'inactivity', closed_at: at(1_000) } }, now)).toBe(false);
+    expect(justClosedForInactivity({ status: 'closed', metadata: null }, now)).toBe(false);
+    expect(justClosedForInactivity(null, now)).toBe(false);
+  });
+
+  it('liveConversationForNextMessage: a live one wins with no RPC; else the named one closed 10 s ago reopens; 5 minutes ago, an operator\'s close or before 284: none', async () => {
+    const { liveConversationForNextMessage, resolveVisitorConversationScope } = await import('../../../server/services/widget/visitorConversations.js');
+    const sb = fakeServiceClient(state.db) as never;
+    const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
+    const scope = await resolveVisitorConversationScope(sb, WS, VISITOR);
+    const recent = conversation({ status: 'closed', metadata: idleClosed(10, 'pending') });
+    const named = { id: recent.id as string, status: 'closed', metadata: recent.metadata };
+
+    const live = conversation({ status: 'open' });
+    expect(await liveConversationForNextMessage(config, sb, WS, scope, { closed: named })).toMatchObject({ id: live.id });
+    expect(reopens()).toHaveLength(0);
+    live.status = 'closed';
+
+    expect(await liveConversationForNextMessage(config, sb, WS, scope, { closed: named }))
+      .toMatchObject({ id: recent.id, status: 'pending', reopened: true });
+    expect(reopens()).toEqual([{ fn: 'conversation_reopen_after_idle_close', args: expect.objectContaining({ p_workspace_id: WS, p_conversation_id: recent.id, p_grace_seconds: 60 }) }]);
+    expect(recent.status).toBe('pending');
+    // The Inbox hears of it as of a reopen, with the visitor's reason, no actor.
+    expect(state.operatorEvents).toEqual([
+      expect.objectContaining({ kind: 'conversation_reopened', conversation_id: recent.id, actor_id: null, changes: { status: { from: 'closed', to: 'pending' } }, reason: 'customer_replied_after_inactivity_close' }),
+      expect.objectContaining({ kind: 'timeline_event', conversation_id: recent.id, event_type: 'reopened', actor_type: 'visitor' }),
+    ]);
+
+    state.db.rpcs.length = 0;
+    recent.status = 'closed';
+    const old = conversation({ status: 'closed', metadata: idleClosed(300) });
+    expect(await liveConversationForNextMessage(config, sb, WS, scope, { closed: { id: old.id as string, status: 'closed', metadata: old.metadata } })).toBeNull();
+    const byOperator = conversation({ status: 'closed', metadata: { closed_reason: 'operator', closed_at: new Date().toISOString() } });
+    expect(await liveConversationForNextMessage(config, sb, WS, scope, { closed: { id: byOperator.id as string, status: 'closed', metadata: byOperator.metadata } })).toBeNull();
+    expect(reopens()).toHaveLength(0);
+    expect(await liveConversationForNextMessage(config, sb, WS, scope)).toBeNull();
+
+    state.reopenMissing = true;
+    const racing = conversation({ status: 'closed', metadata: idleClosed(5) });
+    expect(await liveConversationForNextMessage(config, sb, WS, scope, { closed: { id: racing.id as string, status: 'closed', metadata: racing.metadata } })).toBeNull();
+    expect(racing.status).toBe('closed');
+  });
+
+  it('POST /message naming a conversation the timer closed 10 s ago: the same conversation, not `continued`, nothing created, the lifecycle from what it was', async () => {
+    const recent = conversation({ status: 'closed', metadata: idleClosed(10, 'resolved') });
+    const res = await send({ message: 'هنوز هستید؟', conversation_id: recent.id, client_message_id: 'cmid-race-0001' });
+    expect(res.status).toBe(200);
+    expect(res.body.conversation_id).toBe(recent.id);
+    expect(res.body.continued).toBeUndefined();
+    expect(created()).toHaveLength(0);
+    expect(state.limitChecks).toBe(0);
+    expect(messagesOf(recent.id).map((m) => m.body)).toEqual(['هنوز هستید؟']);
+    // Back to resolved, so the visitor's message reopens it as any message does.
+    expect(state.lifecycle).toEqual([expect.objectContaining({ conversationId: recent.id, knownStatus: 'resolved' })]);
+    expect(state.routed).toEqual([expect.objectContaining({ conversationId: recent.id, reopened: true })]);
+  });
+
+  it('…closed 5 minutes ago, or by an operator: a new conversation, as before', async () => {
+    for (const metadata of [idleClosed(300), { closed_reason: 'operator', closed_at: new Date().toISOString() }]) {
+      state.db.rpcs.length = 0;
+      const ended = conversation({ status: 'closed', metadata });
+      const res = await send({ message: 'سلام دوباره', conversation_id: ended.id, client_message_id: `cmid-new-${randomUUID().slice(0, 8)}` });
+      expect(res.status).toBe(200);
+      expect(res.body.conversation_id).not.toBe(ended.id);
+      expect(created()).toHaveLength(1);
+      expect(ended.status).toBe('closed');
+      // The next round starts with no live conversation of the visitor's.
+      for (const c of state.db.tables.conversations || []) c.status = 'closed';
+    }
+  });
+
+  it('the touch finds the conversation closed (the close committed while the message was on its way): reopened, the lifecycle runs from the restored status', async () => {
+    const live = conversation({ status: 'resolved', assigned_to: OPERATOR });
+    // The timer's close lands between the ownership read and the insert.
+    state.db.beforeInsert = (table) => {
+      if (table !== 'conversation_messages' || live.status === 'closed') return;
+      live.status = 'closed';
+      live.metadata = { ...(live.metadata as Row), ...idleClosed(0, 'resolved') };
+    };
+    const res = await send({ message: 'یک سؤال دیگر', conversation_id: live.id, client_message_id: 'cmid-touch-0001' });
+    expect(res.status).toBe(200);
+    expect(res.body.conversation_id).toBe(live.id);
+    expect(reopens()).toEqual([{ fn: 'conversation_reopen_after_idle_close', args: expect.objectContaining({ p_conversation_id: live.id, p_message_id: messagesOf(live.id)[0].id }) }]);
+    expect(state.lifecycle).toEqual([expect.objectContaining({ conversationId: live.id, knownStatus: 'resolved' })]);
+    expect(state.routed).toEqual([expect.objectContaining({ conversationId: live.id, reopened: true })]);
+    expect((live.metadata as Row).closed_reason).toBeUndefined();
+  });
+
+  it('…an operator\'s close there stays closed: no reopen, the lifecycle sees closed (unchanged)', async () => {
+    const live = conversation({ status: 'open' });
+    state.db.beforeInsert = (table) => {
+      if (table !== 'conversation_messages' || live.status === 'closed') return;
+      live.status = 'closed';
+      live.metadata = { closed_reason: 'operator', closed_by: 'agent', closed_at: new Date().toISOString(), closed_from: 'open' };
+    };
+    await send({ message: 'سلام', conversation_id: live.id, client_message_id: 'cmid-touch-0002' });
+    expect(live.status).toBe('closed');
+    expect(state.lifecycle).toEqual([expect.objectContaining({ conversationId: live.id, knownStatus: 'closed' })]);
+  });
+
+  it('POST /offline-messages appending to the live conversation behaves the same', async () => {
+    const live = conversation({ status: 'pending' });
+    state.db.beforeInsert = (table) => {
+      if (table !== 'conversation_messages' || live.status === 'closed') return;
+      live.status = 'closed';
+      live.metadata = { ...idleClosed(0, 'pending') };
+    };
+    const res = await call('POST', '/api/widget/offline-messages', { message: 'کسی هست؟', client_message_id: 'cmid-away-race1', locale: 'fa' });
+    expect(res.body).toMatchObject({ conversation_id: live.id, continued: true });
+    expect(live.status).toBe('pending');
+    expect(state.lifecycle).toEqual([expect.objectContaining({ conversationId: live.id, knownStatus: 'pending' })]);
   });
 });

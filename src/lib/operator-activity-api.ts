@@ -18,7 +18,13 @@ export interface OperatorActivityRow {
   last_seen: string | null;
   daily: Record<string, number>;
   conversations_assigned: number;
+  /** Resolved, or closed by an operator (or by the timer after a resolve). */
   conversations_resolved: number;
+  /**
+   * Closed by the inactivity timer while open or pending (migration 284):
+   * not a resolve. Absent from older servers (0).
+   */
+  conversations_auto_closed?: number;
   replies_sent: number;
   /** Visitors' average rating (1–5, one decimal) in the window; null without ratings. */
   csat_avg?: number | null;
@@ -55,6 +61,14 @@ export interface OperatorActivityStats {
     available_now?: number;
     csat_avg?: number | null;
     csat_count?: number;
+    /** Closed by the inactivity timer while open or pending (newer servers). */
+    conversations_auto_closed?: number;
+    /**
+     * Ratings of conversations only the AI answered (subject 'ai', no
+     * operator): never in an operator's satisfaction. Newer servers.
+     */
+    csat_ai_avg?: number | null;
+    csat_ai_count?: number;
   };
   operators: OperatorActivityRow[];
 }

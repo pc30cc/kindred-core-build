@@ -241,7 +241,7 @@ describe('GET', () => {
     expect([own.enabled, t1i.enabled, t2i.enabled]).toEqual([true, false, false]);
     expect(t1i.options).toMatchObject({ logoDirection: 'thread', navStyle: 'vb', navMode: 'active' });
     expect(t2i.options).toMatchObject({ logoDirection: 'thread', csat: true });
-    expect(own.options).toEqual({});
+    expect(own.options).toEqual({ csat: true });
     // Every option they read has its spec here too, the logo direction's
     // values with the code's default (Thread) first.
     expect(t1i.optionSpec).toMatchObject({ logoDirection: ['thread', 'open'] });

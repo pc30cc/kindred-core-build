@@ -31,6 +31,9 @@ export interface SystemMessageMeta {
   to_name?: string | null;
   // routing_agent_joined, conversation_closed (who closed it)
   agent_name?: string | null;
+  // conversation_closed: 'inactivity' when the system closed it after the
+  // quiet period (migration 284; shared/inactivityClose.ts)
+  closed_reason?: string | null;
   // routing_in_queue: 'all_busy' when everyone was at capacity (chatRouting.ts)
   reason?: string | null;
   // call_invitation
@@ -131,8 +134,13 @@ export function systemMessageText(
         : line(t, 'inbox.system.agentJoinedGeneric', 'A colleague joined the conversation');
     }
     case 'conversation_closed': {
-      // The visitor-visible line an operator's close writes (a widget
-      // conversation of a template that draws it, with the rating card).
+      // The visitor-visible line a close writes (a widget conversation of a
+      // template that draws it, with the rating card): an operator's names
+      // them; the system's, after the quiet period, says so (the visitor
+      // read the nameless «گفتگو به پایان رسید»).
+      if (meta?.closed_reason === 'inactivity') {
+        return line(t, 'inbox.system.closedInactive', 'Closed automatically after a quiet period');
+      }
       const name = personName(meta?.agent_name);
       return name
         ? fill(line(t, 'inbox.system.closedBy', '{name} closed the conversation'), { name })

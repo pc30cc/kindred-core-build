@@ -44,6 +44,11 @@ export interface WidgetPlatformSettings {
   realtime_pending_max: number;
   realtime_message_dedupe_enabled: boolean;
   realtime_message_dedupe_window: number;
+  // ── Quiet conversations (migration 284; absent before it) ──────────
+  // Off: no workspace's widget conversation closes for inactivity. The
+  // default window of every workspace without its own (1–48 hours).
+  inactivity_close_enabled?: boolean;
+  inactivity_close_default_hours?: number;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

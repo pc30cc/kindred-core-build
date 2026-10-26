@@ -35,15 +35,17 @@ win. WebYar (Iranian edition) was implemented first, on 2026-10-17; RESPOK (Inte
 | Core features | renderer-declared `features` + Core's `env.capabilities`: the feature code is Core's lazy module `public/widget/runtime-ext.js` (search `feat(`), named in the bootstrap (`config.modules.ext`) only for a template whose descriptor has `coreFeatures: true` (`shared/widgetTemplates.ts`); `env.capabilities` and the `ext()` hooks are in `public/widget/runtime.js`. What a first paint does not need is the **late pack**: the renderer's extras `presentation-<renderer>-x.js` (descriptor `extras`) and Core's `public/widget/runtime-late.js`, named in the bootstrap as `config.modules.extras` and `config.modules.late` only for a template with `coreFeatures` and `extras`, requested by runtime-ext.js after the first paint and applied together or not at all (`docs/operations/WIDGET_TEMPLATE_RULES.md` §2). `default` declares none and never downloads either, so its runtime path is unchanged |
 | Round 3-4 features (server) | reactions `server/services/messageReactions.ts`; the queue's place `server/services/chatRouting.ts` (search `queueReturnToAnnounce`) and 276's triggers; the away thread `server/routes/widget.ts` (search `client_message_id`); the order card `server/services/ai-agent/commerce-tools/orderCard.ts` (written by `server/services/ai-agent/responder.ts`, search `order_status`); the track-order flag `server/services/widget/configSnapshot.ts` (search `getStoreOrders`); instant answers `server/services/knowledge-base/widgetSuggest.ts` (route `server/routes/widgetKbSuggest.ts`, limits `server/services/widget/security.ts`, search `kb_suggest`); the KB author `server/routes/kb.ts` (search `articleAuthorName`) and `server/routes/knowledgeBase.ts` (search `resolveArticleAuthor`), the editor's select `src/pages/app/knowledge/ArticleEditorPage.tsx` (search `data-kb-author`) |
 | After-chat features (server) | the closed line `server/services/conversationClosedNotice.ts` (written only for a template whose descriptor has `closedNotice`, search `closedNotice`), the rating `server/services/conversationRatings.ts`, the transcript by email `server/services/visitorTranscript.ts`, their widget routes in `server/routes/widget.ts` (search `/conversations/:id/csat`), migration `database/migrations/276_widget_chat_features.sql`; the inbox line in `shared/systemMessageText.ts` (re-exported as `src/lib/systemMessageText.ts`; search `conversation_closed`), the timeline in `src/components/inbox/timelineMeta.tsx` (search `transcript_emailed`), satisfaction in Operator Activity (`server/routes/operatorActivity.ts`, search `ratingsByOperator`). Names: `shared/new-hooks-and-settings.md` §6 |
+| After-chat features (widget) | the rating is Core's, for every renderer declaring `csat` (`public/widget/runtime.js`, search `ctx.rating`: `GET` / `POST …/csat`, `view.csat`, the card's stars or faces, comment and send), so `default` rates with no lazy module; the cards are the renderers' (`presentation-default.js` and `presentation-t1-x.js` `csatHtml`, `presentation-t2-x.js`); the card's transcript link and the ⋯ are `public/widget/runtime-late.js` (`LATE_V` 3; t1's extras contract v4). Since migration 284. Names: `shared/new-hooks-and-settings.md` §1, §3, §6 |
 | System messages in the reader's language (every template) | the kinds and the visitor's metadata `shared/systemMessages.ts` (search `visitorSystemPreview`), the list's fields `server/routes/widget.ts` (search `systemKind`), Core's sentence `public/widget/runtime.js` (search `systemRowText`); the operator's sentence `shared/systemMessageText.ts`, written by the server for the operator APIs, the apps and the e-mails in `server/services/operatorSystemText.ts` (search `withOperatorSystemBody`) in the operator's language (`server/services/operatorLocale.ts`, search `operatorLocaleFrom`). Names: `shared/new-hooks-and-settings.md` §6 |
 | The team (and the agent's face: a person's silhouette, never a letter, owner 2026-10-24) | `shared/widgetTeam.ts` (search `widgetTeamMembers`): the first four members to join among those who receive chats (`isWidgetTeamMember`: owner or team role, not suspended, receiving chats, seat not paused; staff never), online first, a member without a name of their own named in the widget's language; read by `/config` (`server/services/widget/configSnapshot.ts`, search `widgetTeamName`; no `fab.initial`) and every dashboard preview (`src/components/app/widget/previewTeam.ts`). The glyphs: `shared/avatarGlyphs.ts` |
 | Screens for visual QA | `e2e/harness/templateScreens.ts` (`--template t1 --out <dir>`, `--list` for the states, design demo data) |
 
 Template options (merged: code defaults → Super Admin defaults → workspace): t1 `navStyle` (`vb` default, `va`, `vc`,
 `vd`), `navMode` (`active` default, `both`, `icon`, `text`, `none`), `topics` (≤ 4), `prechatMode` (`card` default,
-`steps`), `transcriptEmail` (default on); t2 `topics`, `askExamples` (≤ 2), `csat` (the rating after a chat, default
-on), `transcriptEmail` (default on); `t1-intl` / `t2-intl` their base template's keys plus `logoDirection` (`thread`
-default, `open`).
+`steps`), `csat` (the rating after a chat, default on), `transcriptEmail` (default on); t2 `topics`, `askExamples`
+(≤ 2), `csat`, `transcriptEmail` (default on); `default` / `intl` `csat` alone; `t1-intl` / `t2-intl` their base
+template's keys plus `logoDirection` (`thread` default, `open`). `csat` is every template's since migration 284 (t2's
+alone before).
 
 ## What the designs draw that is not built (renders nothing)
 
@@ -301,6 +303,42 @@ the history item). Where t2 now departs from the template-2 boards:
   `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,821, t2-intl 38,808 →
   38,615 (40,000). `loader.js` unchanged.
 
+## The rating after every close (the inactivity close, migration 284) (2026-10-26)
+
+After a close, an operator's or the system's after a quiet period, every template draws the closed line and, while its
+`csat` option is on (default on, every template since this PR), the rating card under it (owner: a rating card in
+every template; decision B.6: t2 keeps its five faces, `default` and `t1` get stars).
+
+- **The rating is Core's** (`runtime.js` `ctx.rating`), for every renderer that declares `csat` (`default` at the top
+  level, never under `features`; t1 and t2 as `features.csat`): one `GET …/csat` when the thread ends with a closed
+  row, again when the panel reopens or the history reloads; `view.csat`; the card's clicks and comment, with the
+  focus and caret kept across repaints; the `POST`. `default` still downloads neither runtime-ext.js nor the late
+  pack. runtime-late.js keeps the transcript (t2's card link, the ⋯ item) through `ctx.rating`; its `v` and
+  runtime-ext's `LATE_V` 2 → 3, so a late module with a rating of its own is refused with its extras (one card, one
+  request).
+- **The closed line** of the system's close names nobody («گفتگو به پایان رسید», `agent_name` null) and is announced
+  politely once; arriving live it never clears the thread or the composer, and is never an unread, a title count,
+  `gs_active`, a toast or a chime.
+- **Accepted differences (no board for these):**
+  - `default`: a quiet card under the line (`.wy-rate`): the question, five 40 px stars (`var(--wy-star, #f5a524)`;
+    `intl` Signal `#FF5A3C`), the comment and send once a star is picked; no face and no sub-line; its own words
+    (t2's, plus «ارسال نشد» / Not sent / Gönderilemedi); no transcript link (no late pack).
+  - `t1`: a centred 300 px card (`.msg-row.rt > .cd.rate`) after the line and before its hint: the operator's photo
+    or the person silhouette (`H.avatarHtml(…, 's44')`), the workspace mark for nobody, never a letter; a title and a
+    sub-line; five 42 px stars (`var(--star, #F2A100)`; `t1-intl` Signal); the comment and send once a star is picked
+    (`:has()` in its own rule, with an `@supports` fallback that always shows them); the transcript stays in its ⋯.
+    Extras contract v4 (`csatHtml`, `closedHtml(m, csat)`).
+  - A close by an operator now asks for a rating in `t1` and `default` too (before this PR, the line alone).
+  - Only the AI answered (decision B.5): the card asks with no name («گفتگوی شما چطور بود؟» in t1, t2's and
+    `default`'s nameless title) and wears the workspace mark where it has a face; rated with `subject: 'ai'` and no
+    operator.
+  - t2: no byte changed; Core now drives its five faces.
+- **Bytes** (shipped, gzip 5, iran / respok, budget): `presentation-default.js` 14,154 → 15,410 (20,000);
+  `presentation-default.css` 12,707 → 13,040 (18,000); `presentation-intl.css` 1,131 → 1,146 (6,000);
+  `presentation-t1.js` 19,408 / 19,329 → 19,420 / 19,340 (20,000); `presentation-t1-x.js` 5,364 → 6,387 (12,000);
+  `presentation-t1.css` 14,900 → 15,203 (18,000); `presentation-t1-intl.css` 2,095 → 2,107; `runtime-late.js` 10,783
+  → 9,687 (12,000); `runtime.js` 66,188 → 67,720 (no budget). t2's files and `loader.js` unchanged; no budget raised.
+
 ## Rollout
 
 - Migration 275 is applied by hand on WebYar's database before the merge (CLAUDE.md); RESPOK's migrator applies it on
@@ -329,15 +367,29 @@ the history item). Where t2 now departs from the template-2 boards:
     widget resumed a conversation (`/identity/history`) only within its 720 h window, and past it `default` started
     a new thread. This follows the owner's rule (a resolve ends nothing for the visitor), and the next PR closes
     these conversations.
-- **The auto-close PR must:**
-  - close (status `closed`) every conversation where nothing has been exchanged for the inactivity window, the
-    resolved ones this PR leaves current included (a sweep on its first run), and write the `threadEndPatch` stamps
-    (`endedAt` reads them), its own `closed_reason` and the visitor's closed line (`recordConversationClosed`, only
-    on `closed`). The next visit then starts fresh, and the closed conversation is in «گفتگوهای قبلی»;
-  - bring the star rating after the closed line to `t1` and `default` (contract B.3), with
-    `templateVisitorFeatures` listing 'rating' only where the csat option exists;
-  - make a message that races the close reopen that conversation (the TODO in `liveConversationForNextMessage`);
-  - keep `activeNow()`'s 48 h bound: no window is longer.
+- **The inactivity close shipped (migration 284; `docs/operations/CHAT_ROUTING.md`, "Closing quiet conversations"):**
+  - The system closes (status `closed`) a widget conversation in which nothing was exchanged for its workspace's
+    window (1–48 h, the Super Admin's default 24), never while the team owes an answer
+    (`server/services/conversationIdleCloseTicker.ts`, every 5 minutes; the decision is the SQL
+    `conversation_idle_check`). Resolved ones this PR left current close like the others.
+  - No sweep: the timer never touches a conversation untouched for 30 days. The backlog already quiet when 284
+    shipped is closed once, by hand and silently, after the owner saw the list
+    (`database/backfill/284_inactivity_backlog_close.sql`: no visitor line, no realtime, one timeline event each); 284
+    leaves the Super Admin's switch off on WebYar and RESPOK until that commit turns it on.
+  - A close writes the two thread-end stamps `endedAt` reads (`routing_thread_ended_at`, `ai_thread_reset_at`), not
+    the rest of `threadEndPatch`: the AI's hold and routing's state stay as they were (an AI-only conversation stays
+    out of every working queue and shows only in the web panel's Closed box, «بسته‌شده», `queue=main&status=closed`,
+    owner 2026-10-26; not in the native apps, whose Resolved lists closed ones without the AI's), and `updated_at`
+    does not move. Its own markers (`closed_reason` `inactivity`, `closed_from`, …,
+    `shared/inactivityClose.ts`) say how it ended; an operator's close writes `closed_reason` `operator`.
+  - The timer writes the visitor's closed line in the close's transaction, nameless (`by: 'system'`, `agent_name`
+    null, `closed_reason: 'inactivity'`): «گفتگو به پایان رسید», then the template's rating card. The owner changed
+    the earlier synthesis's guard 10 ("no rating card on an automatic close"): the line and the card are wanted; no
+    push, no transcript, no e-mail. An AI-only conversation is rated too (subject `ai`, no operator).
+  - The TODO in `liveConversationForNextMessage` is resolved: a message within 60 s of an inactivity close goes back
+    into that conversation as it was (`reopenAfterIdleCloseRace`), named or caught by the touch in POST /message
+    and the away thread's append.
+  - `activeNow()`'s 48 h bound equals the longest window (`INACTIVITY_CLOSE_MAX_HOURS`, a test ties them).
 
 ## One conversation per visitor: server contract (2026-10-24)
 
@@ -361,8 +413,9 @@ same contact never counts). The widget section of these notes describes how Core
   dropped instead of refusing the message with a 400). The answer may carry `continued: true` and `intro_message`.
   - `force_new_conversation`, and a named conversation that is closed or not the visitor's, go to the visitor's live
     conversation (`continued: true`; nothing is created, no quota spent), else to a new one, never to an older one
-    by identity. The decision is `liveConversationForNextMessage`, with a TODO for the auto-close PR: a message
-    racing an inactivity close (`closed_reason`) should reopen that conversation.
+    by identity. The decision is `liveConversationForNextMessage`; since migration 284 a named conversation the
+    inactivity close ended within the last 60 s comes back as it was instead (the message raced the close; the same
+    thread, no `continued`).
   - A named resolved conversation is written into (it reopens), unless a newer open or pending one of the visitor's
     exists: then that one, `continued: true`.
   - Ownership of a named conversation, identity reuse and the contact use the signed visitor id alone (a body
@@ -372,7 +425,7 @@ same contact never counts). The widget section of these notes describes how Core
     the creation lock is `visitor:<id>`. Two first messages
     of a new thread at the very same instant (two fresh tabs, nothing live) can still make two conversations: the
     guard runs outside the RPC's lock. A live-only contact match inside `ensure_active_conversation` would close it
-    (SQL, a candidate for migration 284).
+    (SQL, for a later migration of its own; not 284).
   - With `ai_intro`, on the request that creates the conversation and only without `smart_rule` or `nudge_context`,
     the greeting passes the intro's own gates again (`resolveIntroGreeting`), the conversation is created with
     `p_metadata { channel_thread_key, ai_state: 'ai_managed', source: 'ai_agent_intro' }` (never `managed_by_ai`),
@@ -388,7 +441,8 @@ same contact never counts). The widget section of these notes describes how Core
   else their live one (a greeting-only one included), and creates one only when there is none, force-new or not.
 - **GET /api/widget/poll** without a usable conversation id answers only the signed visitor's live conversation
   (never an ended one), with its `status`. **GET /identity/history** (`findContinuableConversation`) is live-only too,
-  whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` stays until migration 284).
+  whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` is marked retired by
+  migration 284, no longer written, and dropped by a later one).
 - **POST /api/widget/offline-messages**, the away thread's first message (`client_message_id`): while the visitor has
   a live conversation it is written there as that conversation's next visitor message (lifecycle, the platform-off
   restore, routing, the AI's turn, push, the owners' mail; routing posts no notice for it, `quiet`, since the away
@@ -420,5 +474,6 @@ same contact never counts). The widget section of these notes describes how Core
   email or Telegram threads or of an older widget's greeting-only rows never hides the visitor's live conversation.
 - **Last-agent routing** (`findPreviousOperator`) looks through the contact's five most recent other conversations
   for the first one a person handled, passing over AI-only and greeting-only ones.
-- For the auto-close PR: the inactivity close must write the `threadEndPatch` stamps (`endedAt` reads them) and its
-  own `closed_reason`; `liveConversationForNextMessage` is where a racing message reopens it.
+- The inactivity close (migration 284) writes the two `threadEndPatch` stamps `endedAt` reads and its own markers
+  (`closed_reason` `inactivity`), never `updated_at`; `liveConversationForNextMessage` and the touch in POST /message
+  are where a racing message reopens it (see the Rollout section above).

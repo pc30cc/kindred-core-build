@@ -9,7 +9,11 @@
  *   - before migration 276, or with the ratings unreadable, the report is
  *     unchanged (null / 0), never a 500;
  *   - the page shows the column only while the period has ratings, in the
- *     dashboard's digits.
+ *     dashboard's digits;
+ *   - ratings of conversations only the AI answered (subject 'ai',
+ *     migration 284) are the AI's: a line of their own in the totals
+ *     (`csat_ai_avg` / `csat_ai_count`), shown only while there are any,
+ *     never in an operator's column.
  *
  * The REAL route runs against an in-memory data layer; the page renders with
  * its data hooks stubbed.
@@ -102,6 +106,24 @@ describe('GET …/stats: satisfaction per operator', () => {
     expect(month.body.totals).toMatchObject({ csat_avg: 3.5, csat_count: 4 });
   });
 
+  it('an AI-only conversation\'s rating (subject ai, migration 284) is nobody\'s satisfaction, nor the team\'s; the totals carry it on its own line', async () => {
+    state.db.tables.conversation_ratings = [
+      rating(SARA, 5, 1),
+      { ...rating(null, 2, 1), subject: 'ai' },
+      { ...rating(null, 4, 2), subject: 'ai' },
+      { ...rating(null, 1, 10), subject: 'ai' }, // outside the 7 days
+      { ...rating(null, 5, 1, randomUUID()), subject: 'ai' }, // another workspace
+    ];
+    const res = await stats();
+    const byId = Object.fromEntries((res.body.operators as Row[]).map((o) => [o.user_id, o]));
+    expect(byId[SARA]).toMatchObject({ csat_avg: 5, csat_count: 1 });
+    expect(byId[REZA]).toMatchObject({ csat_avg: null, csat_count: 0 });
+    expect(res.body.totals).toMatchObject({ csat_avg: 5, csat_count: 1, csat_ai_avg: 3, csat_ai_count: 2 });
+    // None, or before 284 (no subject to read): null and 0.
+    state.db.tables.conversation_ratings = [rating(SARA, 4, 1)];
+    expect((await stats()).body.totals).toMatchObject({ csat_ai_avg: null, csat_ai_count: 0 });
+  });
+
   it('without ratings, and before migration 276: null and 0, the rest of the report as before', async () => {
     expect((await stats()).body.totals).toMatchObject({ csat_avg: null, csat_count: 0, operators: 2 });
     state.db.missing.add('conversation_ratings');
@@ -164,5 +186,33 @@ describe('the Operator Activity page', () => {
     state.stats = { days: 7, since: new Date(NOW).toISOString(), totals: totals(), operators: [row(SARA, 'Sara')] };
     await mount('en');
     expect(document.querySelector('[data-satisfaction]')).toBeNull();
+  });
+
+  it('the AI\'s own ratings: a line of their own, apart from every operator\'s', async () => {
+    state.stats = { days: 7, since: new Date(NOW).toISOString(),
+      totals: totals({ csat_avg: 4.6, csat_count: 12, csat_ai_avg: 3.8, csat_ai_count: 5 }),
+      operators: [row(SARA, 'Sara', { csat_avg: 4.6, csat_count: 12 }), row(REZA, 'Reza', { csat_avg: null, csat_count: 0 })] };
+    await mount('en');
+    const ai = document.querySelector('[data-satisfaction-ai]')!;
+    expect(ai.textContent).toContain('Satisfaction with the AI agent');
+    expect(ai.textContent).toContain('3.8 (5)');
+    expect(ai.textContent).toContain('Not counted in any operator');
+    // The operators' column is theirs alone.
+    expect([...document.querySelectorAll('[data-satisfaction]')].map((c) => c.textContent))
+      .toEqual(['Satisfaction4.6 (12)', 'Satisfaction—']);
+  });
+
+  it('the AI line only while the AI has ratings, also when no operator has any; in Persian digits', async () => {
+    state.stats = { days: 7, since: new Date(NOW).toISOString(), totals: totals({ csat_avg: 4, csat_count: 3, csat_ai_count: 0, csat_ai_avg: null }),
+      operators: [row(SARA, 'Sara', { csat_avg: 4, csat_count: 3 })] };
+    await mount('en');
+    expect(document.querySelector('[data-satisfaction-ai]')).toBeNull();
+    cleanup();
+    state.stats = { days: 7, since: new Date(NOW).toISOString(), totals: totals({ csat_avg: null, csat_count: 0, csat_ai_avg: 5, csat_ai_count: 2 }),
+      operators: [row(SARA, 'Sara')] };
+    await mount('fa');
+    expect(document.querySelector('[data-satisfaction]')).toBeNull();
+    expect(document.querySelector('[data-satisfaction-ai]')!.textContent).toContain('رضایت از دستیار هوش مصنوعی');
+    expect(document.querySelector('[data-satisfaction-ai]')!.textContent).toContain('۵٫۰ (۲)');
   });
 });

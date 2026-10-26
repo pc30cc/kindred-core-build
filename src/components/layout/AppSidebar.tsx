@@ -11,7 +11,7 @@ import {
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, HelpCircle, Sparkles,
-  AlertCircle, Check, Ban, Lock, Minus,
+  AlertCircle, Archive, Check, Ban, Lock, Minus,
   PhoneCall, Radar, BarChart3,
   PanelLeftClose, PanelLeftOpen,
   Plug, Mail,
@@ -578,6 +578,11 @@ export function AppSidebar({
             <Link to={wsPath('/inbox?status=resolved')} className={itemCls(!q && !f && st === 'resolved')}>
               <Check className="h-3.5 w-3.5 shrink-0" />
               <span>{t('inbox.resolved') || 'Resolved'}</span>
+            </Link>
+
+            <Link to={wsPath('/inbox?status=closed')} className={itemCls(!q && !f && st === 'closed')}>
+              <Archive className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('inbox.closedBox') || 'Closed'}</span>
             </Link>
 
 

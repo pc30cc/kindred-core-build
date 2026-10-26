@@ -172,6 +172,43 @@ describe('the guard: no template ever draws a letter for a person or the workspa
     });
   }
 
+  // The rating card after a close (Core's `view.csat`): t1's and t2's ask
+  // about a person (their photo or the silhouette) or, for a conversation
+  // only the AI answered, about nobody (the workspace's storefront);
+  // default's quiet card has no face at all.
+  for (const renderer of ['default', 't1', 't2'] as const) {
+    it(`${renderer}: the rating card's face is the silhouette for the operator, the storefront for the AI's chat, never a letter`, async () => {
+      const line = {
+        id: 'cl1', role: 'system', sender_type: 'system', text: 'The conversation was closed', time: NOW, conversation_id: 'c1',
+        metadata: { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity', agent_name: null, operator_name: 'Sara Ahmadi', status: 'closed' },
+      };
+      const seen: Array<{ subject: string; face: string | null }> = [];
+      for (const subject of ['operator', 'ai'] as const) {
+        resetWindow();
+        if (renderer !== 'default') preload(renderer);
+        const h = boot({
+          renderer,
+          config: { logoUrl: null, workspaceName: 'Nilufar Store' },
+          conversations: [{ id: 'c1', status: 'closed', unreadCount: 1, unreadReplies: 1 }],
+          history: { c1: [HISTORY[0], HISTORY[1], line] },
+          api: (u) => (u.includes('/csat') ? {
+            body: { closed_id: 'cl1', rateable: true, rating: null, subject, operator: subject === 'ai' ? null : { name: 'Sara Ahmadi', avatar: null } },
+          } : undefined),
+        });
+        await flush(40);
+        h.runtime.__test.openConversation('c1');
+        await vi.waitFor(() => expect(h.shadow.querySelector('[data-csat]')).not.toBeNull());
+        const card = h.shadow.querySelector('[data-csat]')!;
+        const tiles = Array.from(card.querySelectorAll(AVATARS));
+        if (renderer === 'default') { expect(tiles).toEqual([]); continue; }
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].textContent).toBe('');
+        seen.push({ subject, face: avatarFace(tiles[0]) });
+      }
+      if (renderer !== 'default') expect(seen).toEqual([{ subject: 'operator', face: 'person' }, { subject: 'ai', face: 'workspace' }]);
+    });
+  }
+
   it('Core\'s smart row with no team: the workspace\'s storefront', async () => {
     const s = boot({ renderer: 't2', config: { teamMembers: [], logoUrl: null } });
     await flush(40);

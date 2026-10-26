@@ -117,23 +117,47 @@ describe('which templates build on the module', () => {
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
     // Every template since one conversation per visitor (2026-10-24).
     expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(ids);
+    // The capabilities runtime.js passes (one literal, pinned by previewParity.test.ts).
+    const caps = new Function(`return ${/capabilities: (\{ kbNeutral: [^}]*\})/.exec(RUNTIME)![1]};`)() as Record<string, boolean>;
     for (const id of ids) {
       new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
-      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { closedNotice?: boolean; features?: Record<string, boolean> } };
-      const r = mod.create({ t: (k: string) => k, config: { templateId: id }, locale: 'fa' });
+      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { closedNotice?: boolean; csat?: boolean; features?: Record<string, boolean> } };
+      const r = mod.create({ t: (k: string) => k, config: { templateId: id }, locale: 'fa', capabilities: caps });
       const f = r.features || {};
-      // default declares no features (it never waits for runtime-ext.js): its flag is top-level.
+      // default declares no features (it never waits for runtime-ext.js): its flags are top-level.
       expect(!!(r.closedNotice || f.closedNotice), id).toBe(CHAT_WIDGET_TEMPLATES[id].closedNotice);
       expect(!!r.closedNotice && !!r.features, `${id}: one place for the flag`).toBe(false);
+      expect(!!r.csat && !!r.features, `${id}: one place for the rating's flag`).toBe(false);
       // The server rates (services/conversationRatings.ts csatEnabledFor) and
       // mails a transcript (visitorTranscript.ts) for the template's own
       // options: exactly the templates whose renderer draws the card (under
-      // its own closed line) or the ⋯ menu that asks for them.
+      // its own closed line; Core's rating, either flag) or the ⋯ menu that
+      // asks for them (runtime-late.js).
       const options = chatTemplateOptionKeys(id);
-      expect(!!f.csat, `${id} csat`).toBe(options.includes('csat'));
-      if (f.csat) expect(f.closedNotice, `${id} csat needs its line`).toBe(true);
+      const rates = !!(r.csat || f.csat);
+      expect(rates, `${id} csat`).toBe(options.includes('csat'));
+      if (rates) expect(!!(r.closedNotice || f.closedNotice), `${id} csat needs its line`).toBe(true);
       expect(!!(f.csat || f.chatMenu), `${id} transcript`).toBe(options.includes('transcriptEmail'));
     }
+  });
+
+  it('the rating is Core\'s, for either flag, in one place; runtime-late.js keeps the transcript only, behind LATE_V 3', () => {
+    // Core reads the renderer's flag, top-level (default) or a feature (t1, t2), once.
+    expect(RUNTIME.match(/!!\(p\.csat \|\| f\.csat\)/g)).toHaveLength(1);
+    expect(RUNTIME).toContain("((ctx.config || {}).templateOptions || {}).csat !== false");
+    // Its requests, and nothing of the transcript (runtime-late.js's).
+    expect(RUNTIME).toContain("rateCall(cid, 'csat', null,");
+    expect(RUNTIME).toContain("rateCall(cid, 'csat', { closed_id: at, rating: c.rating, comment: c.comment.trim() || null }");
+    expect(RUNTIME).not.toContain('/transcript');
+    expect(RUNTIME).not.toContain('data-csat-transcript');
+    // The late module no longer rates: no rating request, no rating state of its own.
+    const LATE = read('public/widget/runtime-late.js');
+    expect(LATE).not.toMatch(/call\(cid, 'csat'|data-csat-rate|data-csat-submit|data-csat-comment|csatVm|feat\('csat'\) &&/);
+    expect(LATE).toContain("call(cid, 'transcript',");
+    expect(LATE).toContain('var R = ctx.rating;');
+    // One version, both files: an older late module (its own rating) is refused next to this Core.
+    expect(/var LATE_V = (\d+);/.exec(EXT)![1]).toBe('3');
+    expect(LATE).toContain('window.__gs_mod_late = { v: 3, create: create };');
   });
 
   it('a descriptor\'s `reactions` (the inbox offers React) is exactly its renderer\'s `features.reactions` with Core\'s capabilities', () => {
@@ -422,7 +446,7 @@ describe('the late pack: applied together, or not at all', () => {
   it('a surface asked for before it was in is drawn by exactly one repaint', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const created: Dict[] = [];
-    const h = pack({ lateModule: { v: 2, create: (api: Dict) => { created.push(api); return {}; } } });
+    const h = pack({ lateModule: { v: 3, create: (api: Dict) => { created.push(api); return {}; } } });
     await vi.advanceTimersByTimeAsync(400);
     expect(h.q('[data-late-slot]')!.innerHTML).toBe('');
     const painted = homeCalls(h);
@@ -455,13 +479,13 @@ describe('the late pack: applied together, or not at all', () => {
     ['extras of another contract version', { extrasModule: { ...EXTRAS, v: 2 } }],
     ['no extras at all (the file defined nothing)', { extrasModule: null }],
     ['a late module of another contract version', { lateModule: { v: 1, create: () => ({}) } }],
-    ['a late module that throws', { lateModule: { v: 2, create: () => { throw new Error('boom'); } } }],
+    ['a late module that throws', { lateModule: { v: 3, create: () => { throw new Error('boom'); } } }],
   ];
   for (const [what, over] of refused) {
     it(`refuses both for ${what}: the late module's handlers never run, nothing is drawn, no repaint`, async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const ran: string[] = [];
-      const lateModule = over.lateModule ?? { v: 2, create: (api: Dict) => { (api.on as (n: string, f: () => void) => boolean)('body', () => { ran.push('body'); }); return {}; } };
+      const lateModule = over.lateModule ?? { v: 3, create: (api: Dict) => { (api.on as (n: string, f: () => void) => boolean)('body', () => { ran.push('body'); }); return {}; } };
       const h = pack({ ...over, lateModule });
       await vi.advanceTimersByTimeAsync(400);
       const painted = homeCalls(h);
@@ -480,7 +504,7 @@ describe('the late pack: applied together, or not at all', () => {
   it('a request that fails (both names) applies neither', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const created: unknown[] = [];
-    const h = pack({ late: 'fail', lateModule: { v: 2, create: () => { created.push(1); return {}; } } });
+    const h = pack({ late: 'fail', lateModule: { v: 3, create: () => { created.push(1); return {}; } } });
     await vi.advanceTimersByTimeAsync(500);
     expect(lateScripts(h)).toEqual([
       EXTRAS_URL, LATE_URL,
@@ -503,7 +527,7 @@ describe('the late pack: one file failing, a hashed URL failing', () => {
       const created: unknown[] = [];
       const h = boot({
         renderer: withExtras({ ask: true }), extras: 'presentation-tx-x.js', extrasModule: EXTRAS, config: lateConfig, late,
-        lateModule: { v: 2, create: () => { created.push(1); return {}; } },
+        lateModule: { v: 3, create: () => { created.push(1); return {}; } },
       });
       await vi.advanceTimersByTimeAsync(500);
       expect(lateScripts(h)).toEqual([EXTRAS_URL, LATE_URL, CANONICAL[which]]);
@@ -530,7 +554,7 @@ describe('the late module\'s handlers', () => {
     const seen: unknown[] = [];
     const taken: boolean[] = [];
     const lateModule = {
-      v: 2,
+      v: 3,
       create: (api: Dict) => {
         const on = api.on as (n: string, f: (...a: unknown[]) => unknown) => boolean;
         taken.push(on('noSuchHook', () => true));
@@ -612,7 +636,7 @@ describe('t1: the emoji grid comes with its extras', () => {
   });
 
   it('extras without a grid: the button goes too', async () => {
-    const h = boot({ renderer: 't1', extrasModule: { id: 't1', v: 2, create: () => ({}) } });
+    const h = boot({ renderer: 't1', extrasModule: { id: 't1', v: 4, create: () => ({}) } });
     await flush(20);
     await toChat(h);
     await flush(20);
@@ -624,7 +648,7 @@ describe('t1: the emoji grid comes with its extras', () => {
   it('a pack already on the page (an earlier instance\'s) is applied before the first paint and asked for no more', async () => {
     new Function(read('public/widget/presentation-t1-x.js')).call(window);
     const created: unknown[] = [];
-    (window as unknown as Dict).__gs_mod_late = { v: 2, create: () => { created.push(1); return {}; } };
+    (window as unknown as Dict).__gs_mod_late = { v: 3, create: () => { created.push(1); return {}; } };
     const h = boot({ renderer: 't1' });
     await flush(20);
     expect(created).toHaveLength(1);

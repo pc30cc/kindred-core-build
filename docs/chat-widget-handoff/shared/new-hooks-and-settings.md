@@ -36,7 +36,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `navMode` | `both`, `active`, `icon`, `text`, `none` | `active` | T1 | Label mode of the floating dock: icons and labels, icons with the active label, icons only, labels only, no menu | Super-admin setting. Class `nv-both`, `nv-icon`, `nv-text` or `nv-none` on each view root `.wy-view` (`active` has no class). `none` adds the home "All conversations" link and back buttons in Messages and Help. WY1 §4.10, RP1 §4.12 |
 | `logoDirection` | `thread`, `open` | `thread` | Respok: T1, T2 and the launcher | Respok logo direction: hero watermark, Messages-tab icon (T1), footer lockup, launcher glyph and its arrival animation, greeting corners | Class `lg-thread` / `lg-open` on `.shell` (the loader's, in RESPOK's build only: `@intl-kit`), so the launcher and the panel agree; the skins draw the brand art from it (CSS masks of `data:` SVGs under `.lg-open`, Thread otherwise), with no class on the elements. The settings board's "Respok Open" and "Respok Thread" chat-button tiles set it. [Brief §5.6](../CLAUDE_CODE_BRIEF.md), RP1 §4.1, RP2 §4.33 |
 | `prechatMode` | `card`, `steps` | `card` | T1 | Pre-chat inside the conversation: one form card, or one question at a time | `steps` needs the step flow in Core (validation, skip of optional steps, the workspace's country-code prefix). After submit both modes show the saved-details summary with `data-prechat-edit`. **Built as a template option** (`config.templateOptions.prechatMode`, Super Admin default → workspace, `shared/chatTemplateCatalog.ts`); a conversation keeps the mode its form first rendered in. RP1 §5.11, WY1 §9 |
-| `csat` *(named here)* | `true`, `false` | `true` | T2 | The rating card under the «… closed the conversation» line | Template option (`config.templateOptions.csat`, Super Admin default → workspace). Off: the line only, and `POST …/csat` answers 403 `csat_disabled`. §6 |
+| `csat` *(named here)* | `true`, `false` | `true` | every template (`default`, `intl`, T1, T2; T2 only before migration 284) | The rating card under the closed line, whoever closed the conversation (an operator, or the system after a quiet period) | Template option (`config.templateOptions.csat`, Super Admin default → workspace). Off: the line only, and `POST …/csat` answers 403 `csat_disabled`. The flow is Core's (runtime.js `ctx.rating`), the card the renderer's: T2's five faces, T1's stars with the operator's face, `default`'s quiet stars with no face. §6 |
 | `transcriptEmail` *(named here)* | `true`, `false` | `true` | T1, T2 | "Email me the transcript": the rating card's link (T2) and the ⋯ menu item (T1, T2) | Template option. Off: neither is drawn, and `POST …/transcript` answers 403 `transcript_disabled`. §6 |
 | `askExamples` | up to 2 strings | none | T2 | Lines 2 and 3 of the rotating ask placeholder, each shown after `simpleAskExamplePrefix` | Line 1 is `simpleAskPlaceholder`. With fewer than two examples, render the static field (`.field.static`, suggestion). WY2 §4.4, RP2 §4.5 |
 | `topics` | list of `{label, icon}` | none | T2 home and thread chips; T1 new-conversation chips | Topic chips (`data-topic`) | Without topics: Q&A chips (`data-qna-question`); T2 home falls back to article chips (`data-home-article`) or no chips. RP2 §4.17, WY2 §4.4 |
@@ -76,11 +76,11 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `data-vn-rate` | Preview speed chip `.spd` inside `[data-vn-bar]` | Playback rate of the preview | Click cycles the rate of `[data-vn-audio]` and updates the chip label | T1 (WY1 §9, RP1 §4.19) |
 | `data-prechat-edit` | "Edit" link in the saved-details summary card | Reopen the contact details | Click shows the form card (or step mode) with the saved values | T1 (WY1 §9, RP1 §4.21) |
 | `data-prechat-skip` | "No thanks…" link under the T2 email card | Skip the email | Click hides the card and continues; render only when email is not required (`identity.isRequired`) | T2 (WY2 §4.20, RP2 §4.30) |
-| `data-csat-rate="1…5"` | The five CSAT face buttons, with `aria-pressed` | Conversation rating | Click sets the rating and `aria-pressed` on the chosen face | T2 (WY2 §4.22, RP2 §4.32) |
-| `data-csat-comment` | CSAT comment `textarea` | Optional comment | Read on submit | T2 |
-| `data-csat-submit` | CSAT "Send feedback" button | Submit the rating | Click sends rating + comment: `POST /api/widget/conversations/:id/csat` (§6) | T2 |
-| `data-csat-transcript` | CSAT "Email me the transcript" link (a `button`) | Transcript by email | Click calls `POST /api/widget/conversations/:id/transcript` (§6) | T2 |
-| `data-csat` *(named here)* | The CSAT card root (`role="group"`) | Card container | Core (runtime-late.js) binds the four hooks above inside it | T2 |
+| `data-csat-rate="1…5"` | The five CSAT buttons (T2's faces, T1's and `default`'s stars), with `aria-pressed` | Conversation rating | Click sets the rating and `aria-pressed` on the chosen one, in place (no repaint, the focus stays) | every template (T2: WY2 §4.22, RP2 §4.32; T1 and `default`: no board) |
+| `data-csat-comment` | CSAT comment `textarea` | Optional comment | Read on submit; its words, focus and caret are kept across a repaint of the thread | every template |
+| `data-csat-submit` | CSAT "Send feedback" button | Submit the rating | Click sends rating + comment: `POST /api/widget/conversations/:id/csat` (§6) | every template |
+| `data-csat-transcript` | CSAT "Email me the transcript" link (a `button`) | Transcript by email | Click calls `POST /api/widget/conversations/:id/transcript` (§6); runtime-late.js binds it | T2 (T1 has it in the ⋯ menu; `default` has neither) |
+| `data-csat` *(named here)* | The CSAT card root (`role="group"`) | Card container | Core (runtime.js `ctx.rating`, for every renderer declaring `csat`) binds the rate, comment and submit hooks inside it, once per thread element; runtime-late.js binds the transcript link only | every template |
 | `data-chat-menu-toggle` *(named here)* | Chat bar ⋯ button (`aria-haspopup="menu"`, `aria-expanded`, `aria-label` = `moreOptions`) | Open the header menu | Click opens or closes `[data-chat-menu]`; drawn only when the menu has an item. On a new conversation only the history item can fill it (a renderer with `pastChats`, the visitor having earlier conversations), so the ⋯ is drawn there too then, and not otherwise | T1, T2 |
 | `data-chat-menu` *(named here)* | The menu (`role="menu"`, `hidden` while closed) | Header menu | Escape closes it and returns focus to the toggle; an outside click closes it | T1, T2 |
 | `data-chat-menu-action="history\|transcript\|sound"` *(named here)* | Menu items (`role="menuitem"`; the sound item `menuitemcheckbox` with `aria-checked`) | The earlier conversations; email the transcript; notification sounds on/off | `history` (one conversation per visitor, 2026-10-24; a renderer declaring `pastChats` must draw it): the first item whenever the visitor has earlier conversations (`pastCount > 0`) and the thread is not a past one, a fresh thread included, with the team's unseen answers there (`n`, `pastUnread`) as its badge; Core (runtime-late.js) opens «گفتگوهای قبلی» (`ctx.convNav.openHistory('chat')`, so the list's back returns to the chat). `transcript`: the same API as `data-csat-transcript`, only while the server says it is available; `sound`: Core's `uiPrefsStore.soundEnabled`, remembered for the visitor in `localStorage` `gs:sound:<workspaceId>` (`'0'` while off, removed when on; hidden when the workspace turned sound off). No "end conversation" item (owner) | T1, T2 |
@@ -148,7 +148,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | home (T2) | `kbSummary` | `{ count, categories }`: article count and top category names | Help-row subtitle `simpleHelpSub` | The static `simpleHelpSubAway` line, or the title only |
 | chat frame (T1, T2) | `assignedOperator` | `{ name, avatar, online }` | Chat header identity, presence and typing look. While an operator answers, the title is the workspace's name (`config.workspaceName`) and the operator's name the small line under it: T2 keeps its online dot, typing dots and grey away line there, and a long name ends in "…" (`.st b`); T1 (`.hn` / `.hs`) shows the name only. No workspace name, or the same name twice: the operator's name is the title (owner, 2026-10-18) | Workspace avatar, name and `replyTimeText` (production) |
 | messages: the `view` argument of `messagesHtml` (PD:630-796) (T1, T2) | `view.operatorTyping` | `{ name, avatar }`, absent when nobody types | Visible typing row (`.typing-row`, §2.3) and its "{name} is typing…" meta (T1). Core already knows from `setOperatorTyping` | No visible row; the sr-only `[data-typing-row]` still announces |
-| messages: the `view` argument of `messagesHtml` (T2) | `view.csat` *(named here)* | `{ closedId, name, avatar, rating, comment, state, transcript }`; `state` `ask` / `sending` / `done` / `error` / `gone`; `transcript` null or `{ state, to }` with `state` `idle` / `sending` / `sent` / `failed` / `no` | The rating card under the `conversation_closed` row whose id is `closedId` (runtime-late.js, from `GET …/csat`, §6) | No card: the closed line only |
+| messages: the `view` argument of `messagesHtml` (every renderer declaring `csat`: top-level for `default`, `features.csat` for T1 and T2) | `view.csat` *(named here)* | `{ closedId, name, avatar, rating, comment, state, subject, transcript }`; `state` `ask` / `sending` / `done` / `error` / `gone`; `subject` `operator`, or `ai` when only the AI answered: then `name` is empty and `avatar` null whatever the line says, and the card asks about the conversation with no name («گفتگوی شما چطور بود؟», T1's `csatTitleAny`) and wears the workspace mark (T1, T2; `default`'s card has no face), never a letter; `transcript` null or `{ state, to }` with `state` `idle` / `sending` / `sent` / `failed` / `no` | The rating card under the `conversation_closed` row whose id is `closedId` (Core, runtime.js `ctx.rating`, from `GET …/csat`, §6; runtime-late.js fills `transcript`, T2's card link) | No card: the closed line only |
 | home (every template) | `pastCount`, `pastUnread` *(named here)* | numbers | One conversation per visitor: how many conversations are history, and the team's answers unseen there. `conversations` then holds the current one only (or none). default: the quiet «گفتگوهای قبلی ›» link (`.home-link[data-view="list"]`) with the rows' unread badge; t1/t2 their own | No history link |
 | list (every template) | `back` *(named here)* | `home` / `help` / `chat` | Where the history's back goes (Core decides it anyway) | `home` |
 | past bar (every template) | `pastBarHtml(vm)`, `vm = { current, online }` *(named here)* | booleans | `current`: a current conversation exists (button `wyCurrentChat`); else `online` picks `homeStartChat` or `homeLeaveMessage` | Without the function the renderer keeps the old model (every conversation writable, no history) |
@@ -164,7 +164,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | kb results and tray (T2) | `results[].snippet`, `results[].matches`, `results[].readingMinutes` | string, match ranges, number | Two-line excerpt with `mark` highlights; tray "n min read"; named here | Title only, no highlight |
 | message `metadata` (T2) | `metadata.kind: "order_status"` + order number, item summary, status label, steps, current step, delivery day, tracking URL | object | Order card (needs the store context, `data-commerce-*`) | Not rendered |
 | message `metadata` (T2) | `metadata.reactions` | `[{ emoji, count, mine }]` in display order (❤️ 👍 😂 😮 😢 🙏); `mine` = the visitor's own | Reaction badge (up to 3 kinds, then the total) and the heart's `aria-pressed`. Put on the message by runtime-late.js from `GET …/reactions` and the `message_reactions` event (§6), only inside its `messagesHtml` wrapper: /history and /poll never carry it | Not rendered |
-| message `metadata` (every template with `closedNotice`) | `metadata.kind: "conversation_closed"` + `by`, `agent_name` (who closed it), `operator_name` (the operator rated), `status` (`closed`; the lines an older server wrote on a resolve, `status: "resolved"`, are never sent to the widget since 2026-10-24), and `rated_line_id` on a close that keeps the rating of such a line (§6) | object | System line `convClosedBy` `{name}` = `agent_name` (else the workspace), then, in T2, the CSAT card; written by the server only on a close, for a template with `closedNotice` (§6). The stored row also holds `agent_id` and `operator_id`; the visitor never receives them (§6, "What a visitor never receives") | Omit (runtime.js drops the row before a renderer without `closedNotice` sees it) |
+| message `metadata` (every template with `closedNotice`) | `metadata.kind: "conversation_closed"` + `by` (`agent`, or `system` for the close after a quiet period, with `closed_reason: "inactivity"`), `agent_name` (who closed it; null for the system), `operator_name` (the operator rated, or null), `status` (`closed`; the lines an older server wrote on a resolve, `status: "resolved"`, are never sent to the widget since 2026-10-24), and `rated_line_id` on a close that keeps the rating of such a line (§6) | object | System line `convClosedBy` `{name}` = `agent_name`, without one `convClosed` (the system's close names nobody), then the template's CSAT card; written by the server only on a close, for a template with `closedNotice` (§6). The stored row also holds `agent_id` and `operator_id`; the visitor never receives them (§6, "What a visitor never receives") | Omit (runtime.js drops the row before a renderer without `closedNotice` sees it) |
 | messages: the `view` argument of `messagesHtml` (T2) | `view.react` *(named here)* | boolean | Reactions can be drawn: the badge (`reactHtml`) under each bubble with `metadata.reactions` and the visitor's heart (`reactBtnHtml`, `data-msg-react`) among a team message's actions; set only by the late pack, so no heart is drawn without the Core that answers it | No badge, no heart |
 | messages: the `view` argument of `messagesHtml` (T1) | `view.queue` *(named here)* | `{ at, position, waitMinutes }`: `at` the index of the queued row it belongs to, `waitMinutes` null without an estimate | Queue pill on the LAST `routing_in_queue` row while nothing after it (a join, a transfer, an operator's message) says the wait is over: `routingInQueue` `{n}` `{min}`, or `routingInQueuePosition` `{n}` without `waitMinutes`. From `GET /api/widget/queue` (§6), polled every 30 s while shown | Production queue text (`routingInQueue` without placeholders) |
 | messages: the `view` argument of `messagesHtml` (T1, T2) | `view.awayReply` *(named here)* | `{ at, email, status, value, error, skip }`: `at` the index of the visitor message captured while away, `email` the contact's address once known, `status` `ask` / `saving` / `saved` / `skipped` (T2), `value` and `error` the card's draft and its message key, `skip` the T2 card may offer «نه ممنون» (email not required) | The local auto-reply row after that message and its email card (`awayReplyHtml`); never a stored message, operators do not see it | No row |
@@ -324,7 +324,7 @@ Core's table.
 | `simpleReplyToEmail` `{email}` | «پاسخ را به {email} می‌فرستیم.» | We’ll send the reply to ali@example.com. | Saved email card |
 | `simpleAutoReply` | «پاسخ خودکار» | Automatic reply | Meta under the auto reply |
 | `simpleAddMore` | «اگر چیزی اضافه دارید بنویسید…» | Add anything else… | Composer placeholder while away |
-| `convClosedBy` `{name}` | «{name} گفتگو را به پایان رساند» | Sara ended the chat | System line when the operator closes the conversation (`metadata.kind: "conversation_closed"`); without a name `convClosed` «گفتگو به پایان رسید» / Chat ended. One wording for every template (2026-10-24); a resolve draws no line |
+| `convClosedBy` `{name}` | «{name} گفتگو را به پایان رساند» | Sara ended the chat | System line when the operator closes the conversation (`metadata.kind: "conversation_closed"`); without a name `convClosed` «گفتگو به پایان رسید» / Chat ended, which is also the line the system writes when it closes a quiet conversation (migration 284: `by: "system"`, `agent_name` null). One wording for every template (2026-10-24); a resolve draws no line |
 | `pastClosed`, `pastCurrent` | «این گفتگو به پایان رسیده و فقط خواندنی است»، «گفتگوی فعلی» | This chat has ended and is read-only, Current chat | A past (closed) conversation's bar in the composer's place (`data-past-bar`, `data-chat-current`), every template |
 | `simpleReact` *(named here)* | «پسندیدن» | Like | The visitor's heart (`data-msg-react`): its `aria-label` (no `title` tooltip, as reply and copy) |
 | `simpleReactions` `{list}` *(named here)* | «واکنش‌ها: ❤️ ۱، 👍 ۲» | Reactions: ❤️ 1, 👍 2 | Reaction badge `aria-label`; `{list}` = "emoji count" pairs joined by the dictionary's separator («، » in Persian, ", " in English and Turkish) |
@@ -351,7 +351,7 @@ Core's table.
 | `orderArrives` `{day}` | «تحویل:» + day | Arrives Thursday | Order card footer |
 | `orderTrackPackage` | «پیگیری مرسوله» | Track package | Tracking link |
 
-### 4.11 Template 2: rating after a chat
+### 4.11 Rating after a chat (T2's words; T1 and `default` have their own, below)
 
 | Key | Persian (WebYar) | English (Respok) | Where used |
 |---|---|---|---|
@@ -366,7 +366,11 @@ Core's table.
 
 The rating card's other states reuse or add renderer copy (`csatThanks`, `csatRated`, `csatGone`, `csatFailed`,
 `csatTranscriptFailed` in the extras files' own dictionaries); `menuEndConversation` and `convEndedByYou` are not used
-(no "end conversation" item, owner 2026-10-17).
+(no "end conversation" item, owner 2026-10-17). Since migration 284 every template draws the card: T1's extras
+(`presentation-t1-x.js` COPY_KEYS) add `csatTitle`, `csatTitleAny` (the nameless title, «گفتگوی شما چطور بود؟» / How
+was your chat?, for `subject: "ai"`), `csatSub`, `csat1`…`csat5`, `csatComment`, `csatSend`, `csatThanks`, `csatRated`
+and `csatGone` with T2's words; `default` keeps its own fa / en / tr words in its renderer (`csatHtml`), T2's plus
+«ارسال نشد» / Not sent / Gönderilemedi. Core adds no dictionary word.
 
 ### 4.12 Launcher
 
@@ -494,10 +498,12 @@ Do not use these; they appeared in earlier drafts of the specs.
 ## 6. Server names of the late features (issue #340, as built)
 
 The widget calls these only from Core's lazy modules (`public/widget/runtime-ext.js`, `public/widget/runtime-late.js`),
-for a template that declares the feature; `default` and `intl` never do.
+for a template that declares the feature; `default` and `intl` never do. The rating is the exception: `GET` and
+`POST …/csat` are Core's own (runtime.js `ctx.rating`), for every renderer declaring `csat`, `default` included.
 
 **Template descriptor** (`shared/widgetTemplates.ts`): `closedNotice` — the renderer draws the `conversation_closed`
-line (every template since one conversation per visitor, 2026-10-24; the rating card under it is t2's only; must equal
+line (every template since one conversation per visitor, 2026-10-24; the rating card under it too since migration
+284, while the template's `csat` option is on; must equal
 the renderer's `closedNotice`: `features.closedNotice`, or top-level for `default`, which declares no features). The
 server writes the line only
 for a workspace whose **effective** template has it (`server/services/widget/configSnapshot.ts`
@@ -506,32 +512,41 @@ widget settings cannot be read counts as wearing the edition's own `default` / `
 
 **Renderer features and Core capabilities**: a renderer's `closedNotice` (feature or top-level) keeps
 `conversation_closed` rows (runtime.js drops them, before the stores and notify, for a renderer without it, and the line
-an older backend wrote for a resolve for a renderer drawing a past bar); `features.csat` (the rating card,
-`view.csat`, §3) and `features.chatMenu` (the ⋯ menu, the header's `menu`, §3) are run by runtime-late.js.
+an older backend wrote for a resolve for a renderer drawing a past bar). A renderer's `csat` (top-level for
+`default`, `features.csat` for T1 and T2) has Core's rating: runtime.js (`ctx.rating`) asks `GET …/csat`, builds
+`view.csat` (§3), binds the card and posts the rating, so `default` rates with no lazy module; runtime-late.js keeps
+the card's transcript link, reading Core's answer. `features.chatMenu` (the ⋯ menu, the header's `menu`, §3) is run
+by runtime-late.js.
 `env.capabilities.csat` and `env.capabilities.chatMenu` are true since the API below exists.
 
 **The closed line** (`server/services/conversationClosedNotice.ts`): when an operator closes a widget conversation
 (inbox `PATCH` to `closed`, from any status), one `conversation_messages` row, `sender_type: 'system'`,
 body `"<name> closed the conversation"` (frozen English), `metadata` as in §3, published like any message on
-`ws:<ws>:conv:<cid>`. Only for `closed`: never on a resolve or "Send & resolve" (owner, 2026-10-24: resolved takes the
+`ws:<ws>:conv:<cid>`. When the system closes a quiet one (migration 284, `conversationIdleCloseTicker.ts`), the same
+row with body `"The conversation was closed"`, `by: 'system'`, `closed_reason: 'inactivity'` and no `agent_name`,
+written in the close's transaction and published by the ticker; the widget draws `convClosed`, never an unread, a
+title count, a toast or a chime. Only for `closed`: never on a resolve or "Send & resolve" (owner, 2026-10-24: resolved takes the
 conversation out of the operator's Inbox only, and it stays the visitor's live one, so no line and no rating card).
 Never for another channel, never twice with nothing said in between, never failing the operator's request. The inbox
 draws it with `inbox.system.closedBy` / `inbox.system.closed`.
 
 | Endpoint | Body | Answers |
 |---|---|---|
-| `GET /api/widget/conversations/:id/csat` | — (`workspace_id` in the query) | `{ closed_id, rateable, rating: {score, comment, rated_at} \| null, operator: {name, avatar} \| null, transcript: {available, to} }`; 404 `not_found` for a conversation that is not the visitor's |
+| `GET /api/widget/conversations/:id/csat` | — (`workspace_id` in the query) | `{ closed_id, rateable, rating: {score, comment, rated_at} \| null, operator: {name, avatar} \| null, subject: 'operator' \| 'ai' \| null, transcript: {available, to} }` (`operator` null when `subject` is `ai`); 404 `not_found` for a conversation that is not the visitor's |
 | `POST /api/widget/conversations/:id/csat` | `{ workspace_id?, closed_id, rating: 1–5, comment? (≤ 1000) }` | 200 `{ok, rating}`; 400 `invalid_rating`; 403 `csat_disabled` (`code: 'CSAT_DISABLED'`) / `CONVERSATION_ACCESS_DENIED`; 409 `not_ratable` / `already_rated` (+ `rating`); 503 `csat_unavailable` |
 | `POST /api/widget/conversations/:id/transcript` | `{ workspace_id?, locale?, tz? }` (never an address) | 200 `{ok, to}` (masked); 403 `transcript_disabled` (`code: 'TRANSCRIPT_DISABLED'`) / `CONVERSATION_ACCESS_DENIED`; 409 `no_email` / `nothing_to_send`; 429 `rate_limited` (+ `retry_after`, `Retry-After`) / `limit_reached` / `workspace_limit`; 502 `send_failed`; 503 `email_unavailable` |
 
 - Each 403 these routes answer carries a `code`: the widget's `fetchWith` (runtime.js) takes a code-less 401/403 for
   an expired token, refreshes it and sends the request again.
 - Rating rules: only the closed line the thread ends with (other system rows after it do not count; anything said
-  does), within 7 days, once (`conversation_ratings.closed_message_id` unique), only when a human operator answered.
+  does), within 7 days, once (`conversation_ratings.closed_message_id` unique), only when the visitor wrote and
+  somebody answered: a person (`subject` `operator`), or only the AI (`subject` `ai`, stored with `operator_id` NULL
+  and kept out of every operator's satisfaction; migration 284, owner decision B.5; before 284 such a rating answers
+  503 `csat_unavailable`).
   A close right after a line an older server wrote on a resolve that the visitor already rated, nothing said since, is
   that same closure: the new line carries the rating (`metadata.rated_line_id`), so `GET …/csat` answers it as rated
   and a second rating is 409 `already_rated`.
-  runtime-late.js picks the card's closed row by the same rule (`lastClosed`), so the card and the server agree on
+  Core picks the card's closed row by the same rule (runtime.js `lastClosedRow`), so the card and the server agree on
   which closure is rated (`src/test/widget/afterChatServer.test.ts` runs the shipped widget against the real routes).
 - Transcript rules: only to the email on the conversation's contact, only when a human operator answered, with a
   platform email provider; 3 sent per conversation, one per 10 minutes, 100 attempts per workspace a day
@@ -539,7 +554,7 @@ draws it with `inbox.system.closedBy` / `inbox.system.closed`.
   `server/services/widget/security.ts`). The mail is the Super Admin template `visitor_conversation_transcript`
   (variables `{brand} {year} {workspace} {workspace_name} {date} {transcript} {transcript_text}`), in the visitor's
   language as the edition allows.
-- Timeline events (`conversation_events`): `rated` `{score, comment, closed_id, operator_id, source}` and
+- Timeline events (`conversation_events`): `rated` `{score, comment, closed_id, operator_id, subject, source}` and
   `transcript_emailed` `{status, to (masked), messages, source}`; Operator Activity shows satisfaction per operator from
   `conversation_ratings`.
 - Before migration 276 every read answers "nothing to rate" / unavailable and every write 503, never a 500.

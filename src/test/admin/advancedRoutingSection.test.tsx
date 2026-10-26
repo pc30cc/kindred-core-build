@@ -11,7 +11,16 @@
  *     assigned (each workspace picks its own mode);
  *   - the platform switch "Return returning visitors to the same operator"
  *     shows the stored value (on when an older server does not send it) and
- *     saves last_agent_routing_enabled.
+ *     saves last_agent_routing_enabled;
+ *   - "Quiet conversations" (migration 284): the inactivity close's platform
+ *     switch and default window are widget_platform_settings columns, so they
+ *     save through PATCH /api/widget-settings/platform/config (never the
+ *     advanced-routing endpoint) and show even when the advanced-routing read
+ *     fails (the switch is the rollback lever); the hours save on blur within
+ *     1..48 and stay editable while the switch is off (they apply once it is
+ *     on); each save's own refusal is undone and said, even when a later
+ *     save succeeded first; an older server without the fields reads on and
+ *     24.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -26,6 +35,12 @@ const { AdvancedRoutingSection } = await import('@/components/admin/widget/Advan
 
 let policy: Record<string, boolean>;
 let patches: Array<Record<string, unknown>>;
+let platform: Record<string, unknown>;
+let platformPatches: Array<Record<string, unknown>>;
+let platformAnswer: { status: number; body: unknown } | null;
+let routingReadFails: boolean;
+/** When set, the next platform PATCH answers only once this promise settles (with the answer it resolves to). */
+let holdNextPlatformPatch: Promise<{ status: number; body: unknown }> | null;
 
 beforeEach(() => {
   policy = {
@@ -37,8 +52,33 @@ beforeEach(() => {
     last_agent_routing_enabled: true,
   };
   patches = [];
+  platform = { id: '00000000-0000-4000-8000-000000000001', inactivity_close_enabled: true, inactivity_close_default_hours: 24 };
+  platformPatches = [];
+  platformAnswer = null;
+  routingReadFails = false;
+  holdNextPlatformPatch = null;
   toastMock.success.mockReset();
-  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+  toastMock.error.mockReset();
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (String(url).includes('/api/widget-settings/platform/config')) {
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        platformPatches.push(body);
+        if (holdNextPlatformPatch) {
+          const held = holdNextPlatformPatch;
+          holdNextPlatformPatch = null;
+          const answer = await held;
+          return new Response(JSON.stringify(answer.body), { status: answer.status });
+        }
+        if (platformAnswer) return new Response(JSON.stringify(platformAnswer.body), { status: platformAnswer.status });
+        const { id: _id, ...updates } = body;
+        platform = { ...platform, ...updates };
+      }
+      return new Response(JSON.stringify({ settings: platform }), { status: 200 });
+    }
+    if (routingReadFails && !init?.method) {
+      return new Response(JSON.stringify({ error: 'advanced_routing_unavailable' }), { status: 500 });
+    }
     if (init?.method === 'PATCH') {
       const body = JSON.parse(String(init.body)) as Record<string, boolean>;
       patches.push(body);
@@ -63,6 +103,9 @@ async function mount(locale?: 'fa') {
   );
   await screen.findAllByRole('switch');
 }
+
+const quietGroup = () => document.querySelector('[data-routing-inactivity]') as HTMLElement;
+const hoursField = () => screen.getByLabelText('Default for every workspace') as HTMLInputElement;
 
 const switchNamed = (label: string) =>
   screen.getByText(label).closest('div.rounded-md')!.querySelector('[role="switch"]') as HTMLButtonElement;
@@ -97,5 +140,113 @@ describe('AdvancedRoutingSection', () => {
     await mount('fa');
     expect(screen.getByText('بازدیدکنندهٔ بازگشتی به همان اپراتور قبلی برسد')).toBeTruthy();
     expect(screen.getByText(/روی تماس‌ها اثری ندارد/)).toBeTruthy();
+  });
+
+  describe('quiet conversations', () => {
+    it('the switch saves inactivity_close_enabled through the platform settings; the hours stay editable', async () => {
+      await mount();
+      await waitFor(() => expect(quietGroup().textContent).toContain('Close quiet website chats automatically'));
+      expect(quietGroup().textContent).toContain('never Telegram, Bale, WhatsApp, Instagram, email or platform support');
+      expect(quietGroup().textContent).toContain('never the AI');
+      const sw = switchNamed('Close quiet website chats automatically');
+      expect(sw.getAttribute('aria-checked')).toBe('true');
+      expect(hoursField().disabled).toBe(false);
+      fireEvent.click(sw);
+      await waitFor(() => expect(platformPatches).toEqual([{ id: platform.id, inactivity_close_enabled: false }]));
+      // Not through /api/admin/advanced-routing.
+      expect(patches).toEqual([]);
+      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      expect(toastMock.success).toHaveBeenCalled();
+      // Off, the default can still be set (it applies once the switch is on,
+      // which the backlog commit does, not a hand that wants to edit it).
+      expect(hoursField().disabled).toBe(false);
+      expect(quietGroup().textContent).toContain('Turning it on also closes, over the next few minutes, the conversations already quiet');
+      expect(quietGroup().textContent).toContain('It can be set while the switch is off.');
+      fireEvent.focus(hoursField());
+      fireEvent.change(hoursField(), { target: { value: '12' } });
+      fireEvent.blur(hoursField());
+      await waitFor(() => expect(platformPatches.at(-1)).toEqual({ id: platform.id, inactivity_close_default_hours: 12 }));
+      expect(platform.inactivity_close_enabled).toBe(false);
+    });
+
+    it('the switch stays reachable when the advanced-routing read fails', async () => {
+      routingReadFails = true;
+      await mount();
+      expect(document.querySelectorAll('[role="switch"]')).toHaveLength(1);
+      const sw = switchNamed('Close quiet website chats automatically');
+      fireEvent.click(sw);
+      await waitFor(() => expect(platformPatches).toEqual([{ id: platform.id, inactivity_close_enabled: false }]));
+      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+    });
+
+    it('an earlier save refused after a later one succeeded: undone and said, never left showing', async () => {
+      platform.inactivity_close_enabled = false;
+      await mount();
+      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      let refuse!: (answer: { status: number; body: unknown }) => void;
+      holdNextPlatformPatch = new Promise((resolve) => { refuse = resolve; });
+      // 1: the switch on (slow, then refused).
+      fireEvent.click(switchNamed('Close quiet website chats automatically'));
+      await waitFor(() => expect(platformPatches).toHaveLength(1));
+      expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('true');
+      // 2: the hours (saved at once).
+      fireEvent.focus(hoursField());
+      fireEvent.change(hoursField(), { target: { value: '36' } });
+      fireEvent.blur(hoursField());
+      await waitFor(() => expect(toastMock.success).toHaveBeenCalledTimes(1));
+      refuse({ status: 500, body: { error: 'switch_save_failed' } });
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('switch_save_failed'));
+      // The stored switch (off) shows again; the saved hours stay.
+      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      expect(platform.inactivity_close_enabled).toBe(false);
+      expect(hoursField().value).toBe('36');
+    });
+
+    it('the default hours save on blur within 1..48; 0 and 49 are refused', async () => {
+      await mount();
+      await waitFor(() => expect(hoursField().value).toBe('24'));
+      for (const bad of ['0', '49']) {
+        fireEvent.focus(hoursField());
+        fireEvent.change(hoursField(), { target: { value: bad } });
+        fireEvent.blur(hoursField());
+        expect(quietGroup().querySelector('[role="alert"]')!.textContent, bad).toBe('Enter a whole number from 1 to 48.');
+      }
+      expect(platformPatches).toEqual([]);
+      fireEvent.focus(hoursField());
+      fireEvent.change(hoursField(), { target: { value: '36' } });
+      fireEvent.blur(hoursField());
+      await waitFor(() => expect(platformPatches).toEqual([{ id: platform.id, inactivity_close_default_hours: 36 }]));
+      await waitFor(() => expect(hoursField().value).toBe('36'));
+    });
+
+    it('an older server without the fields: on, 24 hours', async () => {
+      delete platform.inactivity_close_enabled;
+      delete platform.inactivity_close_default_hours;
+      await mount();
+      await waitFor(() => expect(hoursField().value).toBe('24'));
+      expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('a database without migration 284: the refusal is said in words', async () => {
+      platformAnswer = { status: 409, body: { error: 'inactivity_close_migration_required' } };
+      await mount();
+      await waitFor(() => expect(hoursField().value).toBe('24'));
+      fireEvent.click(switchNamed('Close quiet website chats automatically'));
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('Saving this needs database migration 284.'));
+      // Refused: the switch and the hours show the stored values again.
+      expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('true');
+      fireEvent.focus(hoursField());
+      fireEvent.change(hoursField(), { target: { value: '36' } });
+      fireEvent.blur(hoursField());
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(hoursField().value).toBe('24'));
+    });
+
+    it('in Persian, without «بی‌فعالیت»', async () => {
+      await mount('fa');
+      await waitFor(() => expect(quietGroup().textContent).toContain('بستن خودکار گفتگوهای بی‌پیام ویجت'));
+      expect(quietGroup().textContent).toContain('گفتگوهای بی‌پیام');
+      expect(quietGroup().textContent).not.toContain('بی‌فعالیت');
+    });
   });
 });

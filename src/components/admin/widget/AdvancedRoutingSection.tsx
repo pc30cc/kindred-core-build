@@ -14,8 +14,16 @@
  *     its chats to the whole team; off, they wait for the department. Calls
  *     do not read it;
  *   - returning visitors: chats only — off, no workspace returns a visitor
- *     to their previous operator, whatever its own setting.
+ *     to their previous operator, whatever its own setting;
+ *   - quiet conversations (migration 284): the platform switch of the
+ *     inactivity close and the window of every workspace without its own
+ *     (1–48 hours). These are typed columns of widget_platform_settings, so
+ *     they read and save through the page's platform settings
+ *     (GET / PATCH /api/widget-settings/platform/config), not through
+ *     /api/admin/advanced-routing; the close's SQL reads them itself, so
+ *     turning the switch off stops every close at once.
  */
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
 import { Activity, Info, Loader2 } from 'lucide-react';
@@ -25,10 +33,21 @@ import {
   updateGlobalAdvancedRouting,
   type GlobalAdvancedRoutingPolicy,
 } from '@/lib/admin-advanced-routing-api';
+import {
+  useUpdateWidgetPlatformSettings,
+  useWidgetPlatformSettings,
+  type WidgetPlatformSettings,
+} from '@/hooks/useWidgetPlatformSettings';
+import { NumberSetting } from '@/components/app/widget/NumberSetting';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from '@/i18n';
+import {
+  INACTIVITY_CLOSE_MAX_HOURS,
+  INACTIVITY_CLOSE_MIN_HOURS,
+  effectiveInactivityCloseHours,
+} from '../../../../shared/inactivityClose';
 
 const QUERY_KEY = ['admin-global-advanced-routing'] as const;
 
@@ -127,19 +146,119 @@ export function AdvancedRoutingSection() {
               </div>
             </div>
           )}
+          {/* Its own data (the platform settings), so it never waits on the
+              advanced-routing read: the kill switch stays reachable when
+              that read fails. */}
+          <InactivityCloseGroup />
         </CardContent>
       </Card>
 
       <Card className="bg-muted/20 border-border/60">
         <CardContent className="p-4 flex items-start gap-3 text-xs text-muted-foreground">
           <Info className="h-4 w-4 mt-0.5 shrink-0" />
-          <div>
-            {t('admin.widgetSettingsPage.routing.storageBefore')}{' '}
-            <code className="mx-0.5 px-1 rounded bg-muted text-foreground">app_runtime_config.global_advanced_routing</code>.
-            {t('admin.widgetSettingsPage.routing.storageAfter')}
+          <div className="space-y-1">
+            <p>
+              {t('admin.widgetSettingsPage.routing.storageBefore')}{' '}
+              <code className="mx-0.5 px-1 rounded bg-muted text-foreground">app_runtime_config.global_advanced_routing</code>.
+              {t('admin.widgetSettingsPage.routing.storageAfter')}
+            </p>
+            <p>
+              {t('admin.widgetSettingsPage.routing.storageInactivityBefore')}{' '}
+              <code className="mx-0.5 px-1 rounded bg-muted text-foreground">widget_platform_settings</code>{' '}
+              {t('admin.widgetSettingsPage.routing.storageInactivityAfter')}
+            </p>
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+const PLATFORM_QUERY_KEY = ['widget-platform-settings'] as const;
+
+/**
+ * "Quiet conversations": the inactivity close's platform switch and default
+ * window, from widget_platform_settings. An older server (before 284) sends
+ * neither: on and 24, as the panel's defaults say. A change shows at once
+ * and goes back to the stored value when the save is refused, unless a
+ * newer change replaced it meanwhile. The default stays editable while the
+ * switch is off: it is stored on its own and applies once the switch is on.
+ */
+function InactivityCloseGroup() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const { data: platform, isLoading, error } = useWidgetPlatformSettings();
+  const updateMut = useUpdateWidgetPlatformSettings();
+  const [draft, setDraft] = useState<Partial<WidgetPlatformSettings>>({});
+
+  const save = (updates: Partial<WidgetPlatformSettings>) => {
+    if (!platform) return;
+    setDraft((d) => ({ ...d, ...updates }));
+    // Drop the keys of this save that no newer change has replaced.
+    const settle = () => setDraft((d) => {
+      const next = { ...d };
+      for (const key of Object.keys(updates) as Array<keyof WidgetPlatformSettings>) {
+        if (next[key] === updates[key]) delete next[key];
+      }
+      return next;
+    });
+    // mutateAsync, not mutate: mutate reports only the latest call's
+    // outcome, so a refused earlier save would keep its draft and its error
+    // would never be said.
+    updateMut.mutateAsync({ id: platform.id, updates }).then(
+      (next) => {
+        // The stored row at once; the hook refetches it after this.
+        if (next) qc.setQueryData(PLATFORM_QUERY_KEY, next);
+        settle();
+        toast.success(t('admin.widgetSettingsPage.routing.updated'));
+      },
+      (e: unknown) => {
+        settle();
+        const message = e instanceof Error ? e.message : String(e);
+        toast.error(
+          message === 'inactivity_close_migration_required'
+            ? t('admin.widgetSettingsPage.routing.inactivityMigrationRequired')
+            : message,
+        );
+      },
+    );
+  };
+
+  const live = platform ? { ...platform, ...draft } : null;
+  const enabled = live?.inactivity_close_enabled !== false;
+  return (
+    <div className="space-y-2 pt-2 border-t border-border/40" data-routing-inactivity>
+      <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
+        {t('admin.widgetSettingsPage.routing.inactivityGroup')}
+      </p>
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : !live ? (
+        <p className="text-xs text-destructive">
+          {error instanceof Error ? error.message : t('admin.widgetSettingsPage.loadFailed')}
+        </p>
+      ) : (
+        <>
+          <ToggleRow
+            label={t('admin.widgetSettingsPage.routing.inactivityClose')}
+            description={t('admin.widgetSettingsPage.routing.inactivityCloseHint')}
+            checked={enabled}
+            onChange={(v) => save({ inactivity_close_enabled: v })}
+          />
+          <div className="rounded-md border border-border/60 p-3">
+            <NumberSetting
+              id="routing-inactivity-default"
+              label={t('admin.widgetSettingsPage.routing.inactivityDefaultHours')}
+              hint={t('admin.widgetSettingsPage.routing.inactivityDefaultHint')}
+              unit={t('widgetPage.behavior.assignment.hours')}
+              value={effectiveInactivityCloseHours(null, live.inactivity_close_default_hours)}
+              min={INACTIVITY_CLOSE_MIN_HOURS}
+              max={INACTIVITY_CLOSE_MAX_HOURS}
+              onCommit={(n) => save({ inactivity_close_default_hours: n })}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -96,7 +96,7 @@ describe('default declares no feature and Core stays as it was', () => {
     expect(Object.keys(articleVm.article).sort()).toEqual(['contentHtml', 'excerpt', 'publicUrl', 'title']);
   });
 
-  it('the thread gets today\'s arguments: emptyHtml() with none, messagesHtml with { typewriter, qna }', async () => {
+  it('the thread gets today\'s arguments: emptyHtml() with none, messagesHtml with { typewriter, qna, csat }', async () => {
     const h = boot({
       renderer: 'default',
       conversations: [{ id: 'c1' }],
@@ -112,7 +112,10 @@ describe('default declares no feature and Core stays as it was', () => {
     await flush(20);
     const [, extra, view] = h.lastCall('messagesHtml')! as [unknown, unknown, Record<string, unknown>];
     expect(extra).toBeUndefined();
-    expect(Object.keys(view).sort()).toEqual(['qna', 'typewriter']);
+    expect(Object.keys(view).sort()).toEqual(['csat', 'qna', 'typewriter']);
+    // No closed line in this thread: no card, and nothing asked.
+    expect(view.csat).toBeNull();
+    expect(h.fetches.some((u) => /\/csat/.test(u))).toBe(false);
   });
 
   // I-09: the operator's typing shows in default's own row above the

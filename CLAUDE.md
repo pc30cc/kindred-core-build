@@ -331,8 +331,9 @@ reserved blocks, so a full disk stops Postgres too.
     skipped) and turned the switch on; RESPOK (nothing due) had its switch
     turned on at 11:21. Then `285_inactivity_close_app_review_workspace.sql`
     (the App Review workspace `ws_appreview` is never closed for quiet;
-    applied by hand before its merge, `<YYYY-MM-DD HH:MM UTC>`; a schema
-    dump and the dry run in `/root/webyar-migrate-285/`).
+    applied by hand before its merge, 2026-10-26 11:51 UTC; a schema dump
+    and the dry run in `/root/webyar-migrate-285/`; no App Review
+    conversation had been closed).
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

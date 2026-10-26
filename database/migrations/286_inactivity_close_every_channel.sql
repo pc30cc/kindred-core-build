@@ -65,8 +65,16 @@
 -- (2026-10-26, a rolled-back dry run: 6 on WebYar, none on RESPOK;
 -- docs/operations/CHAT_ROUTING.md, "Rollout of 286").
 --
--- Applied by hand on WebYar before the merge (CLAUDE.md, Migrations), by its
--- migrator on RESPOK. CREATE OR REPLACE keeps the functions' owner and
+-- Applied by hand on WebYar shortly before the merge (CLAUDE.md, Migrations),
+-- by its migrator on RESPOK. The code merged with it calls 284's functions
+-- only and works on 285, so the order is free; the cost of this one is one
+-- deploy round (about 15 minutes) in which the old backend's timer already
+-- closes what this makes due, silently as the new one does, but without the
+-- race reopen on channels and support and without support_update, and a
+-- resolved support thread it closes reads 'closed' in the support apps until
+-- the new backend presents it as resolved (docs/operations/CHAT_ROUTING.md,
+-- "Rollout of 286"). RESPOK has no conversation outside the widget, so
+-- nothing more closes there. CREATE OR REPLACE keeps the functions' owner and
 -- grants; they are set again below anyway (service_role only), as 284 sets
 -- them. Like 284 and 285, it sets lock_timeout 5s itself (a function replace
 -- waits on no table, but a hand-run without PGOPTIONS must not queue behind

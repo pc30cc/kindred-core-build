@@ -116,6 +116,28 @@ describe('needs reply — actionable customer turn guard', () => {
     expect(computeNeedsReply({ status: 'open', messages: [agent(0), media] })).toBe(true);
   });
 
+  it('a channel\'s media-only message (metadata.attachments) IS a customer turn, and the team\'s is an answer', () => {
+    // A Telegram voice note or an uncaptioned photo: empty body, no attachment_id.
+    const voice = { sender_type: 'contact', body: '', created_at: at(1), metadata: { channel: 'telegram', attachments: [{ kind: 'voice', fileId: 'f1' }] } };
+    expect(isActionableCustomerTurn(voice)).toBe(true);
+    expect(computeNeedsReply({ status: 'open', messages: [agent(0), voice] })).toBe(true);
+    const photo = { sender_type: 'agent', body: '', created_at: at(2), metadata: { attachments: [{ kind: 'photo' }] } };
+    expect(isQualifiedReply(photo)).toBe(true);
+    expect(computeNeedsReply({ status: 'open', messages: [voice, photo] })).toBe(false);
+  });
+
+  it('an empty or malformed metadata.attachments is no content', () => {
+    for (const attachments of [[], 'x', {}, null, 0]) {
+      const row = { sender_type: 'contact', body: ' ', created_at: at(1), metadata: { attachments } };
+      expect(isActionableCustomerTurn(row), JSON.stringify(attachments)).toBe(false);
+      expect(isQualifiedReply({ ...row, sender_type: 'agent' }), JSON.stringify(attachments)).toBe(false);
+    }
+    // Media in a menu tap or a provider echo is still not a turn.
+    const media = [{ kind: 'photo' }];
+    expect(isActionableCustomerTurn({ sender_type: 'contact', body: '', metadata: { attachments: media, channel_menu_event: 'true' } })).toBe(false);
+    expect(isActionableCustomerTurn({ sender_type: 'contact', body: '', metadata: { attachments: media, provider_echo: true } })).toBe(false);
+  });
+
   it('two customer messages before a reply are ONE waiting obligation', () => {
     const msgs = [customer(0, 'A'), customer(2, 'B')];
     expect(computeNeedsReply({ status: 'open', messages: msgs })).toBe(true);

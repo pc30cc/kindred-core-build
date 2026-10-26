@@ -815,6 +815,21 @@ commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
 9. **Knowledge base**: the decision, the counts and the times, in Persian
    (CLAUDE.md), with «بی‌پیام».
 
+Done (2026-10-26): the dry run (step 3) listed what was expected (telegram
+due 1, platform_support due 5, all resolved, oldest quiet since 2026-09-30;
+needs_reply 1; untouched_30d 0; every `exempt` row on email, WhatsApp and
+Telegram the App Review account's), so no backlog run was needed. PR #362
+merged at 23:21 UTC; once WebYar's backend ran it (healthy, health 200),
+286 was applied at 23:23:36 UTC; a second run applied nothing, the three
+functions are `service_role`'s only, and the App Review account read 12
+`exempt` and 1 `spam`. The first pass, at 23:24, logged
+`[idle-close] pass due=6 closed=6 skipped={}`: 5 platform support threads
+closed from `resolved` and 1 Telegram conversation from `open`, no line and
+no message written, nothing of the App Review account, nothing left due.
+RESPOK's migrator applied 286 at 23:25:27 UTC; its 2 live conversations,
+both widget, are owed an answer, so nothing is due there. The test-bot drill
+in step 8 waits for an owner-authorized test workspace.
+
 **Rollback of 286**: switch the close off (immediate, every channel at once).
 To go back to the widget only, a reviewed migration of its own re-creates
 285's `conversation_idle_check` and 284's `conversation_idle_due` and

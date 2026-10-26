@@ -126,7 +126,8 @@ BEGIN
 END $pre$;
 
 -- Every live, non-spam widget conversation and its verdict now (the App
--- Review demo's seeded threads aside: conversation_idle_check never closes them).
+-- Review workspace aside, ws_appreview: its seeded threads and, since 285,
+-- any conversation started there; conversation_idle_check never closes them).
 CREATE TEMP TABLE backlog_284 ON COMMIT DROP AS
 SELECT c.id,
        c.workspace_id,
@@ -142,7 +143,8 @@ SELECT c.id,
  WHERE c.status IN ('open', 'pending', 'resolved')
    AND c.is_spam = false
    AND lower(btrim(coalesce(c.metadata->>'channel', ''))) IN ('', 'widget')
-   AND coalesce(c.metadata->>'app_review_seed', '') <> 'true';
+   AND coalesce(c.metadata->>'app_review_seed', '') <> 'true'
+   AND NOT EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = c.workspace_id AND w.slug = 'ws_appreview');
 
 \echo '── Live widget conversations by verdict (due: closed by this run; the others the team owes or are recent)'
 SELECT verdict, count(*) AS conversations, min(quiet_hours) AS quiet_h_min, max(quiet_hours) AS quiet_h_max

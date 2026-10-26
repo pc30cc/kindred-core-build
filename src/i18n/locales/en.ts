@@ -1215,6 +1215,8 @@ const en = {
     sendActionBlocked: 'Status was not changed',
     resolved: 'Resolved',
     closed: 'Closed',
+    closedBox: 'Closed',
+    closedAuto: 'Automatic',
     markAwaitingReply: 'Wait for the visitor',
     markAwaitingReplyHint: 'Set this conversation aside until the visitor replies. It returns to Open automatically.',
     awaitingReplyActiveHint: 'Waiting on the visitor. Returns to Open automatically when they reply.',

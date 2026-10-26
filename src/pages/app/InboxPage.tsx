@@ -155,6 +155,8 @@ interface ConversationMeta {
   ai_handoff_reason?: string;
   channel?: string;
   client_platform?: string;
+  /** Why a closed conversation was closed: 'inactivity' (the timer) or 'operator'. */
+  closed_reason?: string;
   [key: string]: unknown;
 }
 
@@ -1886,6 +1888,11 @@ export default function InboxPage() {
                           <span className={cn('w-1.5 h-1.5 rounded-full', statusDots[conv.status ?? 'open'])} />
                           {statusLabels[conv.status ?? 'open']}
                         </span>
+                        {conv.status === 'closed' && metaOf(conv).closed_reason === 'inactivity' && (
+                          <span data-inbox="row-closed-auto" className="text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60 text-muted-foreground">
+                            {t('inbox.closedAuto') || 'Automatic'}
+                          </span>
+                        )}
                         {conv.priority && conv.priority !== 'normal' && (
                           <span className={cn(
                             'text-[11px] px-2 py-0.5 rounded-md font-medium bg-secondary/60',

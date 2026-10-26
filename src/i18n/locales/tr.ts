@@ -1217,6 +1217,8 @@ const tr: TranslationKeys = {
     sendActionBlocked: 'Durum değiştirilmedi',
     resolved: 'Çözüldü',
     closed: 'Kapalı',
+    closedBox: 'Kapatılanlar',
+    closedAuto: 'Otomatik',
     markAwaitingReply: 'Ziyaretçiyi bekle',
     markAwaitingReplyHint: 'Ziyaretçi yanıtlayana kadar bu sohbeti beklemeye alın; yanıt gelince otomatik olarak Açık olur.',
     awaitingReplyActiveHint: 'Ziyaretçinin yanıtı bekleniyor. Yanıt geldiğinde otomatik olarak Açık olur.',

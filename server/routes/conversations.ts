@@ -1783,9 +1783,13 @@ async function listConversationRows(
     q = q.eq('is_spam', true);
   } else {
     q = q.eq('is_spam', false);
+    // The Closed box (status=closed alone) lists every closed conversation,
+    // the ones the AI held to the end and the timer closed included; every
+    // other status keeps the AI's conversations in their own queue.
+    const closedOnly = !needsHuman && String(status || '').trim() === 'closed';
     if (needsHuman) {
       q = q.eq('ai_state', 'needs_human');
-    } else {
+    } else if (!closedOnly) {
       q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
     }
     if (assignedToMe) {

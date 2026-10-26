@@ -47,7 +47,11 @@ names people see live in the Super Admin's catalog (migration 275), and a
 template is worn only once the Super Admin enables it. Persian text in the
 widget is IRANSans only (owner). Core behaviour only t1/t2 use lives in the
 lazy `public/widget/runtime-ext.js`, gated on the renderer's `features`, so
-`default` visitors never download it.
+`default` visitors never download it. The rating card follows the closed line
+in every template (the template's `csat` option, on by default; t2's five
+faces, stars in `default` and `t1`). Its flow is Core's
+(`public/widget/runtime.js`, `ctx.rating`), so `default` rates without the
+lazy modules, and a renderer only draws `view.csat`.
 
 The call center widget (`public/call-widget`) wears the 2026-10 handoff
 designs: template `default` is WebYar's (skin `presentation-default.css`),
@@ -105,8 +109,11 @@ ticker (`server/services/chatRoutingTicker.ts`, every 30 s, leased) hands out
 waiting chats and the first-response timeouts. A quiet widget conversation
 closes on its own after the workspace's window (1-48 h; the Super Admin's
 switch and default, 24 h), never while the team owes an answer
-(`server/services/conversationIdleCloseTicker.ts`, migration 284). How it
-works, every setting and the rollout: `docs/operations/CHAT_ROUTING.md`.
+(`server/services/conversationIdleCloseTicker.ts`, migration 284). The web
+panel's Inbox has a «بسته‌شده» (Closed) box beside «حل‌شده»: every closed
+conversation, the AI-held ones the timer closed included (owner, 2026-10-26;
+not in the native apps, whose Resolved lists closed ones too). How it works,
+every setting and the rollout: `docs/operations/CHAT_ROUTING.md`.
 
 ## The iOS app in Xcode on the Mac
 

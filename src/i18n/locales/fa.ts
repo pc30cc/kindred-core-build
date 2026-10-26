@@ -1217,6 +1217,8 @@ const fa: TranslationKeys = {
     sendActionBlocked: 'وضعیت گفتگو تغییر نکرد',
     resolved: 'حل‌شده',
     closed: 'بسته',
+    closedBox: 'بسته‌شده',
+    closedAuto: 'خودکار',
     markAwaitingReply: 'گذاشتن در انتظار بازدیدکننده',
     markAwaitingReplyHint: 'گفتگو تا پاسخ بازدیدکننده کنار گذاشته می‌شود و با اولین پیام او خودکار به «باز» برمی‌گردد.',
     awaitingReplyActiveHint: 'در انتظار پاسخ بازدیدکننده؛ با پیام بعدی او خودکار به «باز» برمی‌گردد.',

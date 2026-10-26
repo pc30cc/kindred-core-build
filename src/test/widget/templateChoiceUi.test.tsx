@@ -54,21 +54,21 @@ const VIEW: WorkspaceWidgetCatalog = {
 
 describe('effectiveWorkspaceTemplate', () => {
   it('without the catalog (loading, an older backend): the edition default, whatever is stored', () => {
-    expect(effectiveWorkspaceTemplate(undefined, 'iran', 't1', { navMode: 'none' }, true)).toEqual({ id: 'default', options: {} });
-    expect(effectiveWorkspaceTemplate(undefined, 'international', 't1', {}, true)).toEqual({ id: 'intl', options: {} });
+    expect(effectiveWorkspaceTemplate(undefined, 'iran', 't1', { navMode: 'none' }, true)).toEqual({ id: 'default', options: { csat: true } });
+    expect(effectiveWorkspaceTemplate(undefined, 'international', 't1', {}, true)).toEqual({ id: 'intl', options: { csat: true } });
   });
 
   it('the drafted choice while enabled, with the merged options', () => {
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none', junk: 1 }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: false } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', csat: true, transcriptEmail: false } });
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', null, {}, true).id).toBe('default');
     expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't2', {}, true).id).toBe('default');
   });
 
   it('a plan without widget_appearance previews the default with no workspace options', () => {
-    expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none' }, false)).toEqual({ id: 'default', options: {} });
+    expect(effectiveWorkspaceTemplate(VIEW, 'iran', 't1', { navMode: 'none', csat: false }, false)).toEqual({ id: 'default', options: { csat: true } });
     expect(effectiveWorkspaceTemplate({ ...VIEW, defaultId: 't1', planAllowsChoice: false }, 'iran', 'default', { navMode: 'none' }, true))
-      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: false } });
+      .toEqual({ id: 't1', options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', csat: true, transcriptEmail: false } });
   });
 
   it('the card shows only with two or more templates enabled and 275 applied', () => {
@@ -85,7 +85,8 @@ describe('effectiveWorkspaceTemplate', () => {
     const onlyDefault: WorkspaceWidgetCatalog = { ...VIEW, templates: VIEW.templates.slice(0, 1), canChoose: false };
     expect(templateCardVisible(VIEW, 'default')).toBe(true);
     expect(templateCardVisible(onlyT1, 't1')).toBe(true);
-    expect(templateCardVisible(onlyDefault, 'default')).toBe(false);
+    // default reads one option of its own (the rating after a chat): its card stays for it.
+    expect(templateCardVisible(onlyDefault, 'default')).toBe(true);
     // A stored choice that is no longer enabled keeps the card, for its
     // warning, even when the default is all that is left.
     expect(templateCardVisible({ ...onlyDefault, selectedId: 't2', selectedUnavailable: true }, 'default')).toBe(true);
@@ -134,15 +135,27 @@ describe('TemplateChoiceCard', () => {
     expect(def).toContain('Operator typing');
     expect(def).not.toContain('Place in the queue');
     expect(t1).toContain('Place in the queue');
-    // default and t1 draw the end-of-conversation line (one conversation per visitor), never a rating.
+    // Every template draws the end-of-conversation line (one conversation per visitor) and the rating under it.
     expect(def).toContain('End-of-conversation line');
-    expect(def).not.toContain('Rating after a chat');
+    expect(def).toContain('Rating after a chat');
     expect(t1).toContain('End-of-conversation line');
-    expect(t1).not.toContain('Rating after a chat');
+    expect(t1).toContain('Rating after a chat');
     expect(templateVisitorFeatures('t2')).toEqual(['typing', 'closedLine', 'rating', 'reactions']);
     expect(templateVisitorFeatures('t2-intl')).toEqual(templateVisitorFeatures('t2'));
-    expect(templateVisitorFeatures('intl')).toEqual(['typing', 'closedLine']);
+    expect(templateVisitorFeatures('t1')).toEqual(['typing', 'queuePlace', 'closedLine', 'rating']);
+    expect(templateVisitorFeatures('t1-intl')).toEqual(templateVisitorFeatures('t1'));
+    expect(templateVisitorFeatures('default')).toEqual(['typing', 'closedLine', 'rating']);
+    expect(templateVisitorFeatures('intl')).toEqual(['typing', 'closedLine', 'rating']);
     expect(templateVisitorFeatures('nope')).toEqual([]);
+  });
+
+  it('the default template shows its one option, the rating after a chat (on unless turned off)', async () => {
+    const { onOptionsChange } = await card();
+    const sw = document.querySelector('[data-tpl-toggle="csat"] [role="switch"]') as HTMLButtonElement;
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    expect(document.querySelectorAll('[data-tpl-toggle]')).toHaveLength(1);
+    fireEvent.click(sw);
+    expect(onOptionsChange).toHaveBeenCalledWith({ csat: false });
   });
 
   it('a pick calls back with the id', async () => {

@@ -11,7 +11,7 @@
  * these surfaces is the template's own (presentation-t1.css).
  *
  * CONTRACT (docs/operations/WIDGET_TEMPLATE_RULES.md §1)
- *   window.__gs_mod_extras = { id: 't1', v: 3, create: function (H) { return { <surface>: fn, … }; } }
+ *   window.__gs_mod_extras = { id: 't1', v: 4, create: function (H) { return { <surface>: fn, … }; } }
  *   H = the renderer's helpers: esc, t, tf, L, fill, svg, P, D, SEND, digits,
  *       fmtNum, avatarHtml, systemPillHtml, config, lang, fa.
  *   `id` is the RENDERER's (a skin over t1 wears this file too) and `v` the
@@ -46,8 +46,15 @@
  *                       (feature `awayThread`): r = { status ('ask' | 'saving' | 'saved'),
  *                       email, value, error (a Core string key) }. Hooks: [data-fb=email],
  *                       [data-fb-submit] (the form's submit), [data-fb-status].
- *   closedHtml(m)       a close in the thread (feature `closedNotice`; a resolve draws none): m
- *                       the conversation_closed row (metadata.agent_name, else nameless).
+ *   closedHtml(m, csat) a close in the thread (feature `closedNotice`; a resolve draws none): m
+ *                       the conversation_closed row (metadata.agent_name, else nameless: the
+ *                       system's close after a quiet period), and under it the rating card
+ *                       (feature `csat`) when Core passes one for this row (`csat.closedId ===
+ *                       m.__id`): csat = { closedId, name ('' for nobody: the AI's chat, the
+ *                       workspace's mark), avatar, rating (1..5 | 0), comment, state ('ask' |
+ *                       'sending' | 'error' | 'done' | 'gone'), subject ('operator' | 'ai') }.
+ *                       Hooks: [data-csat] (the card), [data-csat-rate=1..5][aria-pressed],
+ *                       [data-csat-comment], [data-csat-submit].
  *   pastBarHtml(vm)     a past conversation's bar in the composer's place (feature
  *                       `pastChats`): vm = { current (a current conversation exists), online }.
  *                       Hooks: [data-past-bar], [data-chat-current] (to the current one).
@@ -58,11 +65,11 @@
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (as the renderer's own; the menu's keys are the names of
   // docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'cats emojiSearch emojiNoResults moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo awayHere convEndedBy convEnded closedHint pastClosed pastCurrent'.split(' ');
+  var COPY_KEYS = 'cats emojiSearch emojiNoResults moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo awayHere convEndedBy convEnded closedHint pastClosed pastCurrent csatTitle csatTitleAny csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone'.split(' ');
   var DICT = {
-    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|جستجوی شکلک|شکلکی پیدا نشد|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، نامتان را بنویسید.|ممنون {name}. ایمیلتان را هم بنویسید.|ایمیلتان را بنویسید.|اگر مایلید، شماره موبایلتان را هم بنویسید.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|شمارهٔ موبایل|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتان ثبت شد. اگر مایلید، ایمیلتان را هم بگذارید.|ایمیل شما|ایمیل شما|ثبت ایمیل|پیام خودکار|پیامتان ثبت شد.|ثبت شد: {email}|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.|{name} گفتگو را به پایان رساند|گفتگو به پایان رسید|سؤال دیگری دارید؟ همین‌جا بنویسید.|این گفتگو به پایان رسیده و فقط خواندنی است|گفتگوی فعلی',
-    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Search emoji|No emoji found|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email?|What’s your email?|If you like, add your phone number too.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|Mobile number|Submit|{n} in line · about {min} min|{n} in line|Got your message! If you like, leave your email too.|Your email|Your email|Save email|Automated message|Got your message!|Saved: {email}|Got your message! The reply will appear here, in this chat.|{name} ended the chat|Chat ended|Anything else? Just write below.|This chat has ended and is read-only|Current chat',
-    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Emoji ara|Emoji bulunamadı|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. E-postanız nedir?|E-postanız nedir?|İsterseniz telefon numaranızı da ekleyin.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|Cep telefonu numarası|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! İsterseniz e-postanızı da bırakın.|E-postanız|E-postanız|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Kaydedildi: {email}|Mesajınızı aldık! Yanıt burada, bu sohbette görünecek.|{name} sohbeti sonlandırdı|Sohbet sona erdi|Başka bir sorunuz mu var? Aşağıya yazmanız yeterli.|Bu sohbet sona erdi, yalnızca okunabilir|Güncel sohbet',
+    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|جستجوی شکلک|شکلکی پیدا نشد|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، نامتان را بنویسید.|ممنون {name}. ایمیلتان را هم بنویسید.|ایمیلتان را بنویسید.|اگر مایلید، شماره موبایلتان را هم بنویسید.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|شمارهٔ موبایل|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتان ثبت شد. اگر مایلید، ایمیلتان را هم بگذارید.|ایمیل شما|ایمیل شما|ثبت ایمیل|پیام خودکار|پیامتان ثبت شد.|ثبت شد: {email}|پیامتان ثبت شد. پاسخ همین‌جا در گفتگو نمایش داده می‌شود.|{name} گفتگو را به پایان رساند|گفتگو به پایان رسید|سؤال دیگری دارید؟ همین‌جا بنویسید.|این گفتگو به پایان رسیده و فقط خواندنی است|گفتگوی فعلی|گفتگو با {name} چطور بود؟|گفتگوی شما چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.',
+    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Search emoji|No emoji found|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email?|What’s your email?|If you like, add your phone number too.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|Mobile number|Submit|{n} in line · about {min} min|{n} in line|Got your message! If you like, leave your email too.|Your email|Your email|Save email|Automated message|Got your message!|Saved: {email}|Got your message! The reply will appear here, in this chat.|{name} ended the chat|Chat ended|Anything else? Just write below.|This chat has ended and is read-only|Current chat|How was your chat with {name}?|How was your chat?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.',
+    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Emoji ara|Emoji bulunamadı|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. E-postanız nedir?|E-postanız nedir?|İsterseniz telefon numaranızı da ekleyin.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|Cep telefonu numarası|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! İsterseniz e-postanızı da bırakın.|E-postanız|E-postanız|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Kaydedildi: {email}|Mesajınızı aldık! Yanıt burada, bu sohbette görünecek.|{name} sohbeti sonlandırdı|Sohbet sona erdi|Başka bir sorunuz mu var? Aşağıya yazmanız yeterli.|Bu sohbet sona erdi, yalnızca okunabilir|Güncel sohbet|{name} ile sohbetiniz nasıldı?|Sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.',
   };
 
   // Grouped emoji for the picker, one group per name in `cats`.
@@ -146,13 +153,47 @@
     }
 
     // A close (a resolve draws none: it ends nothing for the visitor; the
-    // nameless line is a close by the system): a divider, as a day ends,
-    // and, while it is the thread's last row, the composer's hint (CSS).
-    function closedHtml(m) {
+    // nameless line is a close by the system): a divider, as a day ends;
+    // under it the rating when Core passes one for this row (`csat`), and,
+    // while they end the thread, the composer's hint (CSS).
+    function closedHtml(m, csat) {
       var name = String(((m && m.metadata) || {}).agent_name || '');
       return '<div class="msg-day cl"><span>' + svg(H.D.okc, 14, 2) +
         esc(name ? XL('convEndedBy', { name: name }) : XL('convEnded')) + '</span></div>' +
+        (csat && csat.closedId === m.__id ? csatHtml(csat) : '') +
         '<p class="cl-h">' + esc(XL('closedHint')) + '</p>';
+    }
+    // The rating (`csat`): a card with who it asks about (their face, or
+    // the workspace's mark when nobody is named: the AI's chat), five stars
+    // (1 very bad … 5 great), then the comment and the send (shown once a
+    // star is picked, CSS); rated, the stars it got and a thanks.
+    var STAR = P('M12 3.6l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.6-5 2.6 1-5.6-4.1-3.9 5.6-.8z');
+    function csatHtml(c) {
+      var name = String(c.name || '');
+      var title = name ? XL('csatTitle', { name: name }) : XL('csatTitleAny');
+      var r = Math.round(+c.rating) || 0;
+      if (r < 1 || r > 5) r = 0;
+      var done = c.state === 'done';
+      var busy = c.state === 'sending';
+      var stars = '';
+      for (var i = 1; i <= 5; i++) {
+        stars += done ? '<i' + (i > r ? '' : ' class="on"') + '>' + svg(STAR, 24, 1.6) + '</i>'
+          : '<button type="button" data-csat-rate="' + i + '" aria-pressed="' + (r === i) + '"' + (busy ? ' disabled' : '') +
+            ' aria-label="' + esc(XL('csat' + i)) + '">' + svg(STAR, 28, 1.6) + '</button>';
+      }
+      var html = '<div class="msg-row rt"><div class="cd rate' + (done ? ' done' : '') + '" data-csat role="group" tabindex="-1" aria-label="' + esc(title) + '">' +
+        H.avatarHtml(name ? { name: name, avatar: c.avatar } : null, 's44') + '<h3>' + esc(title) + '</h3>';
+      if (done) {
+        return html + '<div class="stars" aria-hidden="true">' + stars + '</div><p role="status">' + esc(XL('csatThanks')) +
+          (r ? ' ' + esc(XL('csatRated', { r: XL('csat' + r) })) : '') + '</p></div></div>';
+      }
+      if (c.state === 'gone') return html + '<p class="er" role="status">' + esc(XL('csatGone')) + '</p></div></div>';
+      return html + '<p>' + esc(XL('csatSub')) + '</p><div class="stars">' + stars + '</div>' +
+        '<textarea class="inp ta" data-csat-comment rows="2" maxlength="1000" dir="auto" aria-label="' + esc(XL('csatComment')) +
+          '" placeholder="' + esc(XL('csatComment')) + '"' + (busy ? ' readonly' : '') + '>' + esc(c.comment || '') + '</textarea>' +
+        (c.state === 'error' ? '<p class="er" role="alert">' + esc(XL('csatFailed')) + '</p>' : '') +
+        '<button type="button" class="btn btn-p sm" data-csat-submit' + (r && !busy ? '' : ' disabled') + (busy ? ' aria-busy="true"' : '') + '>' +
+          esc(XL('csatSend')) + '</button></div></div>';
     }
     // A past conversation's bar, in the composer's place: the composer
     // locked, as the pre-chat draws it (08·a-c), saying why, with the way to
@@ -267,5 +308,5 @@
     };
   }
 
-  window.__gs_mod_extras = { id: 't1', v: 3, create: create };
+  window.__gs_mod_extras = { id: 't1', v: 4, create: create };
 })();

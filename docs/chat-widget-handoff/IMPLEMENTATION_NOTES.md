@@ -35,15 +35,17 @@ win. WebYar (Iranian edition) was implemented first, on 2026-10-17; RESPOK (Inte
 | Core features | renderer-declared `features` + Core's `env.capabilities`: the feature code is Core's lazy module `public/widget/runtime-ext.js` (search `feat(`), named in the bootstrap (`config.modules.ext`) only for a template whose descriptor has `coreFeatures: true` (`shared/widgetTemplates.ts`); `env.capabilities` and the `ext()` hooks are in `public/widget/runtime.js`. What a first paint does not need is the **late pack**: the renderer's extras `presentation-<renderer>-x.js` (descriptor `extras`) and Core's `public/widget/runtime-late.js`, named in the bootstrap as `config.modules.extras` and `config.modules.late` only for a template with `coreFeatures` and `extras`, requested by runtime-ext.js after the first paint and applied together or not at all (`docs/operations/WIDGET_TEMPLATE_RULES.md` §2). `default` declares none and never downloads either, so its runtime path is unchanged |
 | Round 3-4 features (server) | reactions `server/services/messageReactions.ts`; the queue's place `server/services/chatRouting.ts` (search `queueReturnToAnnounce`) and 276's triggers; the away thread `server/routes/widget.ts` (search `client_message_id`); the order card `server/services/ai-agent/commerce-tools/orderCard.ts` (written by `server/services/ai-agent/responder.ts`, search `order_status`); the track-order flag `server/services/widget/configSnapshot.ts` (search `getStoreOrders`); instant answers `server/services/knowledge-base/widgetSuggest.ts` (route `server/routes/widgetKbSuggest.ts`, limits `server/services/widget/security.ts`, search `kb_suggest`); the KB author `server/routes/kb.ts` (search `articleAuthorName`) and `server/routes/knowledgeBase.ts` (search `resolveArticleAuthor`), the editor's select `src/pages/app/knowledge/ArticleEditorPage.tsx` (search `data-kb-author`) |
 | After-chat features (server) | the closed line `server/services/conversationClosedNotice.ts` (written only for a template whose descriptor has `closedNotice`, search `closedNotice`), the rating `server/services/conversationRatings.ts`, the transcript by email `server/services/visitorTranscript.ts`, their widget routes in `server/routes/widget.ts` (search `/conversations/:id/csat`), migration `database/migrations/276_widget_chat_features.sql`; the inbox line in `shared/systemMessageText.ts` (re-exported as `src/lib/systemMessageText.ts`; search `conversation_closed`), the timeline in `src/components/inbox/timelineMeta.tsx` (search `transcript_emailed`), satisfaction in Operator Activity (`server/routes/operatorActivity.ts`, search `ratingsByOperator`). Names: `shared/new-hooks-and-settings.md` §6 |
+| After-chat features (widget) | the rating is Core's, for every renderer declaring `csat` (`public/widget/runtime.js`, search `ctx.rating`: `GET` / `POST …/csat`, `view.csat`, the card's stars or faces, comment and send), so `default` rates with no lazy module; the cards are the renderers' (`presentation-default.js` and `presentation-t1-x.js` `csatHtml`, `presentation-t2-x.js`); the card's transcript link and the ⋯ are `public/widget/runtime-late.js` (`LATE_V` 3; t1's extras contract v4). Since migration 284. Names: `shared/new-hooks-and-settings.md` §1, §3, §6 |
 | System messages in the reader's language (every template) | the kinds and the visitor's metadata `shared/systemMessages.ts` (search `visitorSystemPreview`), the list's fields `server/routes/widget.ts` (search `systemKind`), Core's sentence `public/widget/runtime.js` (search `systemRowText`); the operator's sentence `shared/systemMessageText.ts`, written by the server for the operator APIs, the apps and the e-mails in `server/services/operatorSystemText.ts` (search `withOperatorSystemBody`) in the operator's language (`server/services/operatorLocale.ts`, search `operatorLocaleFrom`). Names: `shared/new-hooks-and-settings.md` §6 |
 | The team (and the agent's face: a person's silhouette, never a letter, owner 2026-10-24) | `shared/widgetTeam.ts` (search `widgetTeamMembers`): the first four members to join among those who receive chats (`isWidgetTeamMember`: owner or team role, not suspended, receiving chats, seat not paused; staff never), online first, a member without a name of their own named in the widget's language; read by `/config` (`server/services/widget/configSnapshot.ts`, search `widgetTeamName`; no `fab.initial`) and every dashboard preview (`src/components/app/widget/previewTeam.ts`). The glyphs: `shared/avatarGlyphs.ts` |
 | Screens for visual QA | `e2e/harness/templateScreens.ts` (`--template t1 --out <dir>`, `--list` for the states, design demo data) |
 
 Template options (merged: code defaults → Super Admin defaults → workspace): t1 `navStyle` (`vb` default, `va`, `vc`,
 `vd`), `navMode` (`active` default, `both`, `icon`, `text`, `none`), `topics` (≤ 4), `prechatMode` (`card` default,
-`steps`), `transcriptEmail` (default on); t2 `topics`, `askExamples` (≤ 2), `csat` (the rating after a chat, default
-on), `transcriptEmail` (default on); `t1-intl` / `t2-intl` their base template's keys plus `logoDirection` (`thread`
-default, `open`).
+`steps`), `csat` (the rating after a chat, default on), `transcriptEmail` (default on); t2 `topics`, `askExamples`
+(≤ 2), `csat`, `transcriptEmail` (default on); `default` / `intl` `csat` alone; `t1-intl` / `t2-intl` their base
+template's keys plus `logoDirection` (`thread` default, `open`). `csat` is every template's since migration 284 (t2's
+alone before).
 
 ## What the designs draw that is not built (renders nothing)
 
@@ -300,6 +302,42 @@ the history item). Where t2 now departs from the template-2 boards:
   20,000); `presentation-t2-x.js` 6,110 → 6,401 (12,000); `presentation-t2.css` 15,901 → 15,896 (18,000);
   `presentation-t2-intl.css` 1,958 → 1,959 (6,000); first-open template total t2 37,012 → 36,821, t2-intl 38,808 →
   38,615 (40,000). `loader.js` unchanged.
+
+## The rating after every close (the inactivity close, migration 284) (2026-10-26)
+
+After a close, an operator's or the system's after a quiet period, every template draws the closed line and, while its
+`csat` option is on (default on, every template since this PR), the rating card under it (owner: a rating card in
+every template; decision B.6: t2 keeps its five faces, `default` and `t1` get stars).
+
+- **The rating is Core's** (`runtime.js` `ctx.rating`), for every renderer that declares `csat` (`default` at the top
+  level, never under `features`; t1 and t2 as `features.csat`): one `GET …/csat` when the thread ends with a closed
+  row, again when the panel reopens or the history reloads; `view.csat`; the card's clicks and comment, with the
+  focus and caret kept across repaints; the `POST`. `default` still downloads neither runtime-ext.js nor the late
+  pack. runtime-late.js keeps the transcript (t2's card link, the ⋯ item) through `ctx.rating`; its `v` and
+  runtime-ext's `LATE_V` 2 → 3, so a late module with a rating of its own is refused with its extras (one card, one
+  request).
+- **The closed line** of the system's close names nobody («گفتگو به پایان رسید», `agent_name` null) and is announced
+  politely once; arriving live it never clears the thread or the composer, and is never an unread, a title count,
+  `gs_active`, a toast or a chime.
+- **Accepted differences (no board for these):**
+  - `default`: a quiet card under the line (`.wy-rate`): the question, five 40 px stars (`var(--wy-star, #f5a524)`;
+    `intl` Signal `#FF5A3C`), the comment and send once a star is picked; no face and no sub-line; its own words
+    (t2's, plus «ارسال نشد» / Not sent / Gönderilemedi); no transcript link (no late pack).
+  - `t1`: a centred 300 px card (`.msg-row.rt > .cd.rate`) after the line and before its hint: the operator's photo
+    or the person silhouette (`H.avatarHtml(…, 's44')`), the workspace mark for nobody, never a letter; a title and a
+    sub-line; five 42 px stars (`var(--star, #F2A100)`; `t1-intl` Signal); the comment and send once a star is picked
+    (`:has()` in its own rule, with an `@supports` fallback that always shows them); the transcript stays in its ⋯.
+    Extras contract v4 (`csatHtml`, `closedHtml(m, csat)`).
+  - A close by an operator now asks for a rating in `t1` and `default` too (before this PR, the line alone).
+  - Only the AI answered (decision B.5): the card asks with no name («گفتگوی شما چطور بود؟» in t1, t2's and
+    `default`'s nameless title) and wears the workspace mark where it has a face; rated with `subject: 'ai'` and no
+    operator.
+  - t2: no byte changed; Core now drives its five faces.
+- **Bytes** (shipped, gzip 5, iran / respok, budget): `presentation-default.js` 14,154 → 15,410 (20,000);
+  `presentation-default.css` 12,707 → 13,040 (18,000); `presentation-intl.css` 1,131 → 1,146 (6,000);
+  `presentation-t1.js` 19,408 / 19,329 → 19,420 / 19,340 (20,000); `presentation-t1-x.js` 5,364 → 6,387 (12,000);
+  `presentation-t1.css` 14,900 → 15,203 (18,000); `presentation-t1-intl.css` 2,095 → 2,107; `runtime-late.js` 10,783
+  → 9,687 (12,000); `runtime.js` 66,188 → 67,720 (no budget). t2's files and `loader.js` unchanged; no budget raised.
 
 ## Rollout
 

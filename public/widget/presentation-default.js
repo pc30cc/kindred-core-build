@@ -644,6 +644,50 @@
     }
 
 
+    // The rating after a close (this renderer's `csat`): a quiet card under
+    // the line, five stars (1 very bad … 5 great), then the comment and the
+    // send once a star is picked; rated, its stars and a thanks. Its own
+    // words (Core's dictionary has none of them).
+    var CSAT = {
+      fa: 'گفتگو با {name} چطور بود؟|گفتگوی شما چطور بود؟|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد',
+      en: 'How was your chat with {name}?|How was your chat?|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent',
+      tr: '{name} ile sohbetiniz nasıldı?|Sohbetiniz nasıldı?|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi',
+    };
+    var csatWords = null;
+    /** Word `i` of CSAT in the visitor's language (English otherwise), `{k}` filled with `v` as plain text. */
+    function cw(i, k, v) {
+      if (!csatWords) {
+        var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+        csatWords = (CSAT.hasOwnProperty(l) ? CSAT[l] : CSAT.en).split('|');
+      }
+      return k ? csatWords[i].split('{' + k + '}').join(v) : csatWords[i];
+    }
+    var STAR = '<path d="M12 3.6l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.6-5 2.6 1-5.6-4.1-3.9 5.6-.8z"/>';
+    function starSvg(n) {
+      return '<svg viewBox="0 0 24 24" width="' + n + '" height="' + n + '" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">' + STAR + '</svg>';
+    }
+    function csatHtml(c) {
+      var name = String(c.name || '');
+      var title = name ? cw(0, 'name', name) : cw(1);
+      var r = Math.round(+c.rating) || 0;
+      if (r < 1 || r > 5) r = 0;
+      var done = c.state === 'done';
+      var busy = c.state === 'sending';
+      var stars = '';
+      for (var i = 1; i <= 5; i++) {
+        stars += done ? '<i' + (i > r ? '' : ' class="on"') + '>' + starSvg(20) + '</i>'
+          : '<button type="button" class="wy-star" data-csat-rate="' + i + '" aria-pressed="' + (r === i) + '"' + (busy ? ' disabled' : '') +
+            ' aria-label="' + esc(cw(i + 1)) + '">' + starSvg(26) + '</button>';
+      }
+      var html = '<div class="wy-rate' + (done ? ' is-done' : '') + '" data-csat role="group" tabindex="-1" aria-label="' + esc(title) + '"><p class="wy-rate-q">' + esc(title) + '</p>';
+      if (done) return html + '<span class="wy-stars" aria-hidden="true">' + stars + '</span><p class="wy-rate-note" role="status">' + esc(cw(9)) + (r ? ' ' + esc(cw(10, 'r', cw(r + 1))) : '') + '</p></div>';
+      if (c.state === 'gone') return html + '<p class="wy-rate-note is-error" role="status">' + esc(cw(11)) + '</p></div>';
+      return html + '<span class="wy-stars">' + stars + '</span>' +
+        '<textarea class="wy-rate-ta" data-csat-comment rows="2" maxlength="1000" dir="auto" aria-label="' + esc(cw(7)) + '" placeholder="' + esc(cw(7)) + '"' + (busy ? ' readonly' : '') + '>' + esc(c.comment || '') + '</textarea>' +
+        (c.state === 'error' ? '<p class="wy-rate-note is-error" role="alert">' + esc(cw(12)) + '</p>' : '') +
+        '<button type="button" class="wy-btn wy-btn-primary wy-rate-send" data-csat-submit' + (r && !busy ? '' : ' disabled') + (busy ? ' aria-busy="true"' : '') + '>' + esc(cw(8)) + '</button></div>';
+    }
+
     /** The `conversation_closed` line (this renderer's `closedNotice`). */
     function closedKind(m) { return !!m && m.senderType === 'system' && !!m.metadata && m.metadata.kind === 'conversation_closed'; }
     function messagesHtml(s, extraRowHtml, view) {
@@ -680,6 +724,8 @@
         if (closedKind(m)) {
           var by = String(m.metadata.agent_name || '');
           html += '<div class="msg-day"><span>' + esc(by ? tf('wyEndedBy', '{name} ended the chat').replace('{name}', function () { return by; }) : tf('wyEnded', 'Chat ended')) + '</span></div>';
+          // Under it, the rating Core passes for this row (`view.csat`).
+          if (view.csat && view.csat.closedId === m.__id) html += csatHtml(view.csat);
           return;
         }
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
@@ -1788,6 +1834,8 @@
       // it). Never under `features`: this renderer declares none, so it
       // never waits for or downloads runtime-ext.js.
       closedNotice: true,
+      // And the rating under it (Core's, `view.csat`; the template's `csat` option).
+      csat: true,
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
       homeHtml: homeHtml,

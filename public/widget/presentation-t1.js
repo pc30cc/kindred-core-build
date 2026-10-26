@@ -726,7 +726,7 @@
         if (isSystemRow(m)) {
           var kind = m.metadata.kind;
           // The queued row Core gives the visitor's place (`view.queue`, by the extras).
-          html += kind === 'conversation_closed' ? x('closedHtml', [m]) : kind === 'call_invitation' ? renderCallInvitationCard(m)
+          html += kind === 'conversation_closed' ? x('closedHtml', [m, view.csat]) : kind === 'call_invitation' ? renderCallInvitationCard(m)
             : kind === 'call_ended' ? renderCallEndedRow(m) : view.queue && view.queue.at === idx ? x('queueRowHtml', [view.queue]) : renderRoutingOutcomeRow(m);
           return;
         }
@@ -1416,7 +1416,7 @@
     }
     /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
     function extend(mod, dry) {
-      if (!mod || mod.id !== 't1' || mod.v !== 3 || typeof mod.create !== 'function') return 0;
+      if (!mod || mod.id !== 't1' || mod.v !== 4 || typeof mod.create !== 'function') return 0;
       if (dry) return 1;
       X = X || mod.create(H);
       var m = missed;
@@ -1437,7 +1437,7 @@
       emptyQna: true, topics: true, prechatOperator: true, prechatSummary: true, recSend: true, vnRate: true,
       clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true, closedNotice: true, pastChats: true,
       prechatSteps: !!caps.prechatSteps, queuePosition: !!caps.queuePosition, awayThread: !!caps.awayThread,
-      emojiSearch: !!caps.emojiSearch, dlProgress: !!caps.dlProgress, kbAuthor: !!caps.kbAuthor,
+      emojiSearch: !!caps.emojiSearch, dlProgress: !!caps.dlProgress, kbAuthor: !!caps.kbAuthor, csat: !!caps.csat,
     };
 
     return {

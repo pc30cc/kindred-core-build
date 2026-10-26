@@ -465,3 +465,100 @@ test('intl (English): one conversation per visitor, a subset of the one-* states
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+
+// The inactivity close (migration 284): the system closes a quiet
+// conversation, the line names nobody, and the rating card follows it in
+// every template (default's quiet stars, t1's star card, t2's faces; the
+// RESPOK skins in English). Read in the page right before each shot.
+function autoFacts() {
+  const sr = document.getElementById('gs-host')!.shadowRoot!;
+  const q = (sel: string) => sr.querySelector(sel) as HTMLElement | null;
+  const card = q('[data-csat]');
+  // The line right above the card (default's divider, t1's, t2's pill).
+  let line: string | null = null;
+  for (let el: HTMLElement | null = card; el && line === null; el = el.parentElement) {
+    const prev = el.previousElementSibling;
+    if (prev && (prev.textContent || '').trim()) line = (prev.textContent || '').trim();
+  }
+  const bar = q('[data-input-bar]');
+  const status = card && card.querySelector('[role="status"]');
+  const alert = card && card.querySelector('[role="alert"]');
+  return {
+    line,
+    card: !!card,
+    title: card ? card.getAttribute('aria-label') : null,
+    stars: card ? card.querySelectorAll('[data-csat-rate]').length : 0,
+    picked: card ? Array.prototype.map.call(card.querySelectorAll('[data-csat-rate][aria-pressed="true"]'), (b: Element) => b.getAttribute('data-csat-rate')).join('') : '',
+    status: status ? (status.textContent || '').trim() : null,
+    alert: alert ? (alert.textContent || '').trim() : null,
+    // A face only in t1's and t2's cards: the person's or the workspace's, never a letter.
+    face: card ? (card.querySelector('.av')?.textContent ?? null) : null,
+    // The launcher's count (Core's shell.setUnread) and the page's title: nothing for a close.
+    badge: Number((window as unknown as { __gsUnread?: number }).__gsUnread || 0),
+    titleCount: /^\(\d/.test(document.title),
+    composer: !!bar && bar.style.display !== 'none',
+    pastBar: !!q('[data-past-bar]'),
+  };
+}
+
+const AUTO_STATES = Object.keys(SCREEN_STATES).filter((s) => s.startsWith('auto-'));
+const AUTO_WORDS = {
+  fa: {
+    line: 'گفتگو به پایان رسید', sara: 'گفتگو با سارا چطور بود؟', mehdi: 'گفتگو با مهدی چطور بود؟', any: 'گفتگوی شما چطور بود؟',
+    gone: 'دیگر نمی‌شود به این گفتگو امتیاز داد.', failed: 'ارسال نشد',
+  },
+  en: {
+    line: 'Chat ended', sara: 'How was your chat with Sara?', mehdi: 'How was your chat with Mehdi?', any: 'How was your chat?',
+    gone: 'This chat can no longer be rated.', failed: 'Not sent',
+  },
+};
+
+for (const [templateId, locale] of [['default', 'fa'], ['t1', 'fa'], ['t2', 'fa'], ['intl', 'en'], ['t1-intl', 'en'], ['t2-intl', 'en']] as const) {
+  test(`${templateId} (${locale}): the inactivity close, its nameless line and the rating card (the auto-* states)`, async () => {
+    test.setTimeout(300_000);
+    const out = mkdtempSync(path.join(os.tmpdir(), `screens-${templateId}-auto-`));
+    const facts: Record<string, ReturnType<typeof autoFacts>> = {};
+    try {
+      const files = await renderTemplateScreens({
+        templateId,
+        outDir: out,
+        states: AUTO_STATES,
+        ...(locale === 'en' ? { edition: 'international' as const, locale: 'en' as const } : {}),
+        beforeShot: async (page, state) => { facts[state] = await page.evaluate(autoFacts); },
+      });
+      expect(files).toHaveLength(AUTO_STATES.length);
+      for (const file of files) {
+        expect(pngSize(file), path.basename(file)).toEqual(file.endsWith('auto-05-operator-desktop.png') ? { w: 800, h: 1440 } : { w: 780, h: 1688 });
+      }
+      const w = AUTO_WORDS[locale];
+      const f = facts;
+      for (const s of AUTO_STATES) {
+        // The line names nobody; the card under it; nothing counted; the
+        // composer stays (a past thread: its bar instead).
+        expect(f[s].line, s).toBe(w.line);
+        expect(f[s].card, s).toBe(true);
+        expect(f[s].badge, s).toBe(0);
+        expect(f[s].titleCount, s).toBe(false);
+        expect(f[s].composer, s).toBe(s !== 'auto-06-past-thread');
+        expect(f[s].pastBar, s).toBe(s === 'auto-06-past-thread');
+        // A face is never a letter (default's card has none).
+        if (f[s].face !== null) expect(f[s].face, s).toBe('');
+        if (templateId === 'default' || templateId === 'intl') expect(f[s].face, s).toBeNull();
+      }
+      for (const s of ['auto-01-operator-card', 'auto-05-operator-desktop', 'auto-07-unread-return']) {
+        expect(f[s], s).toMatchObject({ title: w.sara, stars: 5, picked: '' });
+      }
+      expect(f['auto-02-operator-picked']).toMatchObject({ title: w.sara, picked: '4' });
+      expect(f['auto-03-operator-rated']).toMatchObject({ title: w.sara, stars: 0 });
+      expect(f['auto-03-operator-rated'].status).toContain(locale === 'fa' ? 'سپاسگزاریم' : 'Thanks for your feedback!');
+      // The AI's conversation: asked about nobody.
+      expect(f['auto-04-ai-card']).toMatchObject({ title: w.any, stars: 5 });
+      expect(f['auto-06-past-thread']).toMatchObject({ title: w.mehdi, stars: 5 });
+      expect(f['auto-08-gone']).toMatchObject({ title: w.sara, stars: 0, status: w.gone });
+      expect(f['auto-09-error']).toMatchObject({ title: w.sara, picked: '2', alert: w.failed });
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+}

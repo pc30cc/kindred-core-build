@@ -114,3 +114,6 @@
 .lg-open .smart-nudge { bottom: calc(var(--gs-fab-size, 60px) + 5px); max-width: calc(100vw - 53px - var(--gs-fab-size, 60px)); border-radius: 18px 18px 6px 18px; }
 .lg-open .smart-nudge.bottom-right { right: calc(var(--gs-fab-size, 60px) + 5px); }
 .lg-open .smart-nudge.bottom-left { left: calc(var(--gs-fab-size, 60px) + 5px); border-radius: 18px 18px 18px 6px; }
+
+/* The rating's stars: Signal. */
+.wy-view { --star: var(--sig); }

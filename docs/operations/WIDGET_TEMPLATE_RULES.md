@@ -179,7 +179,8 @@ templates: `docs/operations/EDITIONS.md`.
   module's API, those hooks' own empty handlers, the typing name, an
   article's author, the control the visitor is on and t1's pre-chat
   header), runtime-late.js
-  10.4 KB (of 12: the rating card, the chat bar's menu, reactions, the
+  10.4 KB (of 12: the rating card, Core's since migration 284 (below),
+  the chat bar's menu, reactions, the
   pre-chat one question at a time, the message left while away, the place
   in the queue, the help articles offered while a first message is written,
   a download's progress, the emoji search), presentation-t1-x.js 4.8 KB and
@@ -192,6 +193,22 @@ templates: `docs/operations/EDITIONS.md`.
   32 B left, so its next surface goes in its extras). On 2026-10-24, after
   the avatars lost their letters (§4): t1 19,486 / 19,406 B, t2 19,950 /
   19,788 B (50 B left), `default` 14,086 B.
+- The rating after a chat is Core's, not the late pack's (the inactivity
+  close, migration 284: a card after every close, in every template).
+  runtime.js (`ctx.rating`) runs it for every renderer that declares `csat`
+  (`default` at the top level, so it still downloads neither runtime-ext.js
+  nor a late pack; t1 and t2 as `features.csat`) while the template's `csat`
+  option is on: `GET …/csat`, `view.csat`, the card's stars or faces, its
+  comment and send (their focus and caret kept across repaints), the `POST`.
+  A renderer only draws `view.csat` (`default`'s `csatHtml`, t1's and t2's
+  extras) and never fetches or wires the rating. runtime-late.js keeps the
+  card's transcript link and the ⋯, reading Core's answer; its `v` and
+  runtime-ext's `LATE_V` are 3, so a late module that still runs a rating
+  of its own is refused with its extras. Sizes on 2026-10-26 (gzip 5, as
+  shipped, both brands): runtime.js 66,188 → 67,720 B (no budget),
+  runtime-late.js 10,783 → 9,687 B, presentation-t1-x.js 5,364 → 6,387 B
+  (extras contract v4), t1 19,420 / 19,340 B, `default` 15,410 B; t2's
+  files unchanged.
 - The emoji search's keywords (`public/widget/runtime-emoji.js`, ModuleLoader
   name `emoji`, `config.modules.emoji` for a template with `coreFeatures`):
   pure data (the renderer rules apply: no network, storage or host), the
@@ -432,6 +449,14 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
     worded `{name} ended the chat` / `Chat ended` in every template
     (default: Core's `wyEndedBy`, `wyEnded`; t1 and t2 the same words from
     their extras); a resolve draws none (it ends nothing for the visitor);
+    the system's close after a quiet period (`metadata.by: 'system'`,
+    no `agent_name`) is the nameless `Chat ended`;
+  - the rating card under that line (the renderer's `csat`, the template's
+    `csat` option), drawn from `view.csat` alone when `view.csat.closedId`
+    is the line's id: Core binds `[data-csat-rate]`, `[data-csat-comment]`
+    and `[data-csat-submit]` inside `[data-csat]` and talks to the server;
+    with `subject: 'ai'` the card names nobody and, where it has a face,
+    wears the workspace mark (never a letter, §4 avatars);
   - a menu that draws the history item declares `features.pastChats`
     (t1, t2: runtime-late.js reads it; `default` has no menu).
 - Call widget: the presentation (the core and the panel module) never calls

@@ -221,10 +221,10 @@ describe('GET /config: the International credit follows the logo direction', () 
     expect(logo(t2)).toBe('https://app.test/brand/intl/respok-open-horizontal-color.svg');
   });
 
-  it('intl reads no option: Thread, whatever its row holds', async () => {
+  it('intl reads no logo direction: Thread, whatever its row holds', async () => {
     const b = await body((t) => { catalog()(t); wear('intl', { logoDirection: 'open' })(t); }, { edition: 'international' });
     expect(b.templateId).toBe('intl');
-    expect(b.templateOptions).toEqual({});
+    expect(b.templateOptions).toEqual({ csat: true });
     expect(logo(b)).toBe('https://app.test/brand/intl/respok-thread-horizontal-color.svg');
   });
 

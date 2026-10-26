@@ -68,16 +68,16 @@ describe('TemplateOptionsFields: the after-chat options and the pre-chat form', 
     const changes = await render2('t2', {}, { csat: false });
     expect(toggle('csat')!.getAttribute('aria-checked')).toBe('false');
     expect(toggle('transcriptEmail')!.getAttribute('aria-checked')).toBe('true');
-    expect(document.body.textContent).toContain('When an operator closes a conversation they answered, the visitor is asked to rate it.');
+    expect(document.body.textContent).toContain('When a conversation ends (an operator closes it, or it closes after a quiet period), the visitor is asked to rate it.');
     expect(document.getElementById('y-prechat-mode')).toBeNull();
     fireEvent.click(toggle('csat')!);
     fireEvent.click(toggle('transcriptEmail')!);
     expect(changes).toEqual([{ csat: true }, { transcriptEmail: false }]);
   });
 
-  it('Template 1: the transcript switch and the pre-chat form, no rating', async () => {
+  it('Template 1: the rating and transcript switches and the pre-chat form', async () => {
     await render2('t1', {});
-    expect(toggle('csat')).toBeNull();
+    expect(toggle('csat')!.getAttribute('aria-checked')).toBe('true');
     expect(toggle('transcriptEmail')).not.toBeNull();
     expect(document.getElementById('y-prechat-mode')!.textContent).toBe('Every question on one card');
   });
@@ -90,14 +90,14 @@ describe('TemplateOptionsFields: the after-chat options and the pre-chat form', 
     expect(changes).toEqual([{ transcriptEmail: true }]);
   });
 
-  it('default and intl have no options at all', async () => {
+  it('default and intl have one option: the rating\'s switch, nothing else', async () => {
     for (const id of ['default', 'intl']) {
-      const { container } = render(
-        <I18nProvider initialLocale="en">
-          <TemplateOptionsFields templateId={id} value={{}} onChange={() => {}} idPrefix="z" />
-        </I18nProvider>,
-      );
-      expect(container.innerHTML).toBe('');
+      const changes = await render2(id, {});
+      expect(Array.from(document.querySelectorAll('[data-tpl-toggle]')).map((el) => el.getAttribute('data-tpl-toggle'))).toEqual(['csat']);
+      expect(toggle('csat')!.getAttribute('aria-checked')).toBe('true');
+      expect(document.getElementById('y-prechat-mode')).toBeNull();
+      fireEvent.click(toggle('csat')!);
+      expect(changes).toEqual([{ csat: false }]);
       cleanup();
     }
   });

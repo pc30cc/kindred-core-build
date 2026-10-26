@@ -617,3 +617,40 @@ for (const v of T1_VARIANTS) {
     });
   });
 }
+
+// ─── The rating card after a close: t1 and default (migration 284) ──────
+// Every template rates a close now (the system's after a quiet period, or an
+// operator's). The card's send: Tab from the comment lands on it with a
+// visible ring, its words read at 4.5:1 or more on the accent, and once sent
+// the focus stays on the card (its thanks read out), never dropped on the
+// page. t2's own button is checked above ('t2-rating').
+const RATING_VARIANTS: Variant[] = [
+  ...T1_VARIANTS,
+  { templateId: 'default', locale: 'fa', accent: '#8B5CF6', edition: 'iran', workspace: 'فروشگاه نیلوفر', sara: 'سارا', mehdi: 'مهدی' },
+  { templateId: 'intl', locale: 'en', accent: '#EF4444', edition: 'international', workspace: 'Nilufar Store', sara: 'Sara', mehdi: 'Mehdi' },
+];
+for (const v of RATING_VARIANTS) {
+  test(`${v.templateId}: the rating's send takes the keyboard's focus with a ring, reads at 4.5:1 or more, and hands the focus to the card once sent`, async () => {
+    test.setTimeout(120_000);
+    await onStates(v, ['auto-02-operator-picked'], async (page) => {
+      const send = page.locator('[data-csat-submit]');
+      await expect(send).toBeEnabled();
+      await page.locator('[data-csat-comment]').focus();
+      await page.keyboard.press('Tab');
+      await expect(send).toBeFocused();
+      const ring = await send.evaluate((el) => {
+        const c = getComputedStyle(el);
+        return { outline: c.outlineStyle !== 'none' && parseFloat(c.outlineWidth) > 0, shadow: c.boxShadow !== 'none' };
+      });
+      expect(ring.outline || ring.shadow, JSON.stringify(ring)).toBe(true);
+      const { ratio, seen } = await inkOn(send);
+      expect(ratio, JSON.stringify(seen)).toBeGreaterThanOrEqual(4.5);
+      // t1's send is a 44px target, as its forms' are; default keeps its own compact button.
+      expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(String(v.templateId).startsWith('t1') ? 44 : 32);
+      await page.keyboard.press('Enter');
+      const card = page.locator('[data-csat]');
+      await expect(card.locator('[role="status"]').first()).toBeVisible();
+      await expect(card).toBeFocused();
+    });
+  });
+}

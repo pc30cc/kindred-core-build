@@ -38,7 +38,9 @@
  *   conversationOperator conversation rows carry the operator and who wrote last
  *   closedNotice         runtime.js keeps `conversation_closed` rows (the "closed the
  *                        conversation" line) only for such a renderer
- *   csat, chatMenu       the rating card and the chat bar's menu: runtime-late.js
+ *   csat                 the rating card: Core's own (runtime.js `ctx.rating`), every
+ *                        template; runtime-late.js adds the card's transcript link
+ *   chatMenu             the chat bar's menu: runtime-late.js
  *   reactions, prechatSteps, awayThread, queuePosition
  *                        a message's reactions, the pre-chat one question at a time, the
  *                        message left while the team is away, the place in the queue:
@@ -851,7 +853,7 @@
     // canonical-name fallback) is refused by its id and version, and then
     // neither is used and their features stay off. If the renderer was
     // asked for a surface before they were in, Core repaints once.
-    var LATE_V = 2;
+    var LATE_V = 3;
     var registry = window.__gs_presentation_registry;
     var desc = registry && typeof registry.resolve === 'function' ? registry.resolve(config.templateId) : null;
     var lateFile = typeof P.extend === 'function' && desc && desc.extras;

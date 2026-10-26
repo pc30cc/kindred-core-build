@@ -779,6 +779,18 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(next.textContent).not.toContain('گفتگوی جدید');
       expect(T1_CSS).toContain('.messages > .cl-h:last-child { display: block; }');
     },
+    // The rating under a close (Core's `view.csat`, through the extras): its card, under the line, before the hint.
+    csat: () => {
+      const closed = msg({ __id: 'cl1', sender: 'operator', senderType: 'system', body: '', metadata: { kind: 'conversation_closed', agent_name: null, status: 'closed' } });
+      const csat = { closedId: 'cl1', name: 'سارا', avatar: null, rating: 0, comment: '', state: 'ask', subject: 'operator', transcript: null };
+      expect(parse(r().messagesHtml({ messages: [closed] }, '', { csat })).querySelector('[data-csat]')).toBeNull();
+      const h = parse(extended(r()).messagesHtml({ messages: [closed] }, '', { csat }));
+      const card = h.querySelector('.msg-day.cl + .msg-row.rt > .cd.rate[data-csat]')!;
+      expect(card.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+      expect(card.closest('.msg-row')!.nextElementSibling!.matches('p.cl-h')).toBe(true);
+      // Another closure's card is not this line's.
+      expect(parse(extended(r()).messagesHtml({ messages: [closed] }, '', { csat: { ...csat, closedId: 'cl0' } })).querySelector('[data-csat]')).toBeNull();
+    },
     // One conversation: history is read-only, its bar (the composer locked, in its shape) leads
     // to the current one; the ⋯ offers history; a past thread's header shows who and when, no presence.
     pastChats: () => {
@@ -817,7 +829,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
     expect(Object.values(r().features).every((v) => v === true)).toBe(true);
     // A Core that does not serve them gets none of the late pre-chat, queue and away behaviours.
     const off = make({ capabilities: NO_CAPS }).features;
-    for (const f of ['prechatSteps', 'queuePosition', 'awayThread', 'emojiSearch', 'dlProgress', 'kbAuthor']) expect(off[f], f).toBe(false);
+    for (const f of ['prechatSteps', 'queuePosition', 'awayThread', 'emojiSearch', 'dlProgress', 'kbAuthor', 'csat']) expect(off[f], f).toBe(false);
   });
   for (const [name, check] of Object.entries(checks)) it(name, check);
 
@@ -864,9 +876,9 @@ describe('t1: nothing is drawn for a capability Core cannot serve', () => {
   });
 
   it('keeps the source free of the hooks of behaviours Core serves to other renderers only', () => {
-    // Its own late surfaces are in its extras, never in the renderer itself.
+    // Its own late surfaces (the rating card among them) are in its extras, never in the renderer itself.
     expect(T1_SRC).not.toMatch(/data-csat|data-react|data-msg-react|data-order|data-kb-suggest|data-prechat-step|data-fb-skip/);
-    expect(T1_X_SRC).not.toMatch(/data-csat|data-react|data-msg-react|data-order|data-kb-suggest/);
+    expect(T1_X_SRC).not.toMatch(/data-react|data-msg-react|data-order|data-kb-suggest|data-csat-transcript/);
   });
 });
 
@@ -1472,6 +1484,7 @@ describe('t1: its own copy', () => {
       'routingInQueue', 'routingInQueuePosition', 'awayAutoReply', 'fallbackEmailLabel', 'fallbackEmailFormLabel', 'saveEmail',
       'msgAutomated', 'awayRecorded', 'awayReplyTo', 'awayHere',
       'convEndedBy', 'convEnded', 'closedHint', 'pastClosed', 'pastCurrent',
+      'csatTitle', 'csatTitleAny', 'csatSub', 'csat1', 'csat2', 'csat3', 'csat4', 'csat5', 'csatComment', 'csatSend', 'csatThanks', 'csatRated', 'csatGone',
     ]);
     for (const lang of ['fa', 'en', 'tr']) {
       const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T1_X_SRC) || [])[1]!.split('|');
@@ -1528,17 +1541,116 @@ describe('t1: the platform\'s marks stay in the Iranian edition\'s build', () =>
   });
 });
 
+describe('t1: the rating after a close (t1-x csatHtml, Core\'s `view.csat`)', () => {
+  const closed = (md: Vm = {}) => msg({ __id: 'cl1', sender: 'operator', senderType: 'system', body: '', metadata: { kind: 'conversation_closed', agent_name: null, status: 'closed', ...md } });
+  const vm = (over: Vm = {}) => ({ closedId: 'cl1', name: 'سارا', avatar: null, rating: 0, comment: '', state: 'ask', subject: 'operator', transcript: null, ...over });
+  const card = (over: Vm = {}, opts: { locale?: string; config?: Vm } = {}) => {
+    const h = parse(extended(make({ capabilities: SERVED, ...opts })).messagesHtml({ messages: [closed()] }, '', { csat: vm(over) }));
+    return { h, card: h.querySelector<HTMLElement>('.msg-row.rt > .cd.rate[data-csat]')! };
+  };
+
+  it('a system close: the nameless line, then the card, then the hint', () => {
+    const { h, card: c } = card();
+    expect(h.querySelector('.msg-day.cl span')!.textContent).toBe('گفتگو به پایان رسید');
+    expect(Array.from(h.querySelector('.messages')!.children).slice(-3).map((el) => el.className)).toEqual(['msg-day cl', 'msg-row rt', 'cl-h']);
+    expect(c.getAttribute('role')).toBe('group');
+    expect(c.getAttribute('tabindex')).toBe('-1');
+    expect(c.getAttribute('aria-label')).toBe('گفتگو با سارا چطور بود؟');
+  });
+
+  it('asks: who, a sub-line, five stars with aria-pressed (1 very bad … 5 great), the comment and the send', () => {
+    const { card: c } = card({ rating: 4, comment: 'خوب بود' });
+    expect(c.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    expect(c.querySelector('h3 + p')!.textContent).toBe('نظرتان کمک می‌کند بهتر شویم.');
+    const stars = Array.from(c.querySelectorAll<HTMLButtonElement>('.stars > button[data-csat-rate]'));
+    expect(stars.map((b) => b.getAttribute('data-csat-rate'))).toEqual(['1', '2', '3', '4', '5']);
+    expect(stars.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'false', 'true', 'false']);
+    expect(stars.map((b) => b.getAttribute('aria-label'))).toEqual(['خیلی بد', 'بد', 'معمولی', 'خوب', 'عالی']);
+    expect(stars.every((b) => b.type === 'button' && !!b.querySelector('svg'))).toBe(true);
+    const ta = c.querySelector<HTMLTextAreaElement>('textarea[data-csat-comment]')!;
+    expect(ta.value).toBe('خوب بود');
+    expect(ta.getAttribute('maxlength')).toBe('1000');
+    expect(ta.getAttribute('placeholder')).toBe('چیز دیگری هم بگویید (اختیاری)');
+    const send = c.querySelector<HTMLButtonElement>('button.btn.btn-p[data-csat-submit]')!;
+    expect(send.textContent).toBe('ارسال نظر');
+    expect(send.disabled).toBe(false);
+    // Nothing picked: nothing to send yet; no transcript link in t1's card (it is in the ⋯).
+    expect(card().card.querySelector<HTMLButtonElement>('[data-csat-submit]')!.disabled).toBe(true);
+    expect(card({ transcript: { state: 'idle', to: 'a@b.c' } }).card.querySelector('[data-csat-transcript]')).toBeNull();
+  });
+
+  it('the person asked about: their photo, else the silhouette; never a letter', () => {
+    const photo = card({ avatar: 'https://cdn.test/sara.png' }).card.querySelector('.av.s44')!;
+    expect(avatarFace(photo)).toBe('photo');
+    const sil = card().card.querySelector('.av.s44')!;
+    expect(avatarFace(sil)).toBe('person');
+    expect(sil.textContent).toBe('');
+  });
+
+  it('the AI\'s conversation (no name): a nameless title and the workspace\'s mark, never a letter', () => {
+    const { card: c } = card({ name: '', subject: 'ai' });
+    expect(c.querySelector('h3')!.textContent).toBe('گفتگوی شما چطور بود؟');
+    const av = c.querySelector('.av.s44')!;
+    expect(avatarFace(av)).toBe('workspace');
+    expect(av.textContent).toBe('');
+    // The workspace's logo when it shows one.
+    const logo = card({ name: '' }, { config: { ...BASE_CONFIG, logoUrl: 'https://cdn.test/logo.png', showLogo: true } }).card.querySelector('.av.s44')!;
+    expect(logo.matches('.ws.has-img')).toBe(true);
+  });
+
+  it('sending: nothing to press twice; rated: the stars it got and a thanks; gone: said once; error: said, the pick kept', () => {
+    const busy = card({ rating: 2, state: 'sending' }).card;
+    expect(Array.from(busy.querySelectorAll<HTMLButtonElement>('[data-csat-rate]')).every((b) => b.disabled)).toBe(true);
+    expect(busy.querySelector<HTMLButtonElement>('[data-csat-submit]')!.disabled).toBe(true);
+    expect(busy.querySelector('[data-csat-submit]')!.getAttribute('aria-busy')).toBe('true');
+    expect(busy.querySelector<HTMLTextAreaElement>('[data-csat-comment]')!.readOnly).toBe(true);
+    const done = card({ rating: 5, state: 'done' }).card;
+    expect(done.classList.contains('done')).toBe(true);
+    expect(done.querySelector('[data-csat-rate], [data-csat-submit], [data-csat-comment]')).toBeNull();
+    expect(done.querySelectorAll('.stars i.on')).toHaveLength(5);
+    expect(done.querySelector('.stars')!.getAttribute('aria-hidden')).toBe('true');
+    expect(done.querySelector('[role="status"]')!.textContent).toBe('از نظرتان سپاسگزاریم! امتیاز شما: عالی');
+    expect(card({ rating: 2, state: 'done' }).card.querySelectorAll('.stars i.on')).toHaveLength(2);
+    const gone = card({ state: 'gone' }).card;
+    expect(gone.querySelector('.er[role="status"]')!.textContent).toBe('دیگر نمی‌شود به این گفتگو امتیاز داد.');
+    expect(gone.querySelector('[data-csat-rate], [data-csat-submit]')).toBeNull();
+    const err = card({ rating: 3, state: 'error' }).card;
+    expect(err.querySelector('.er[role="alert"]')!.textContent).toBe('ارسال نشد');
+    expect(err.querySelector('[data-csat-rate="3"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(err.querySelector<HTMLButtonElement>('[data-csat-submit]')!.disabled).toBe(false);
+  });
+
+  it('speaks the visitor\'s language and escapes the name', () => {
+    expect(card({}, { locale: 'en' }).card.querySelector('h3')!.textContent).toBe('How was your chat with سارا?');
+    expect(card({ name: '' }, { locale: 'tr' }).card.querySelector('h3')!.textContent).toBe('Sohbetiniz nasıldı?');
+    const x = card({ name: '<img src=x onerror=alert(1)>' }).h;
+    expect(x.querySelector('img[onerror]')).toBeNull();
+    expect(x.querySelector('h3')!.textContent).toBe('گفتگو با <img src=x onerror=alert(1)> چطور بود؟');
+  });
+
+  it('its stylesheet: a centred row, a 300px card, 42px stars in the star colour; the comment and send only once a star is picked, where :has() is read', () => {
+    expect(T1_CSS).toContain('.msg-row.rt { align-self: stretch; max-width: none; justify-content: center;');
+    expect(T1_CSS).toMatch(/\.rate \{ width: 300px;/);
+    expect(T1_CSS).toContain('width: 42px; height: 42px; border-radius: 11px;');
+    expect(T1_CSS).toContain('var(--star, #F2A100)');
+    // :has() in rules of its own, so a browser without it drops only them (and always shows the comment and the send).
+    expect(T1_CSS).toMatch(/@supports selector\(:has\(a\)\) \{\n {2}\.rate:not\(:has\(\[aria-pressed='true'\]\)\) :is\(\.ta, \.btn\) \{ display: none; \}\n\}/);
+    for (const rule of T1_CSS.split('}').filter((r) => r.includes(':has(~'))) expect(rule.split('{')[0].split(',')).toHaveLength(1);
+    expect(read('public/widget/presentation-t1-intl.css')).toContain('.wy-view { --star: var(--sig); }');
+  });
+});
+
 describe('t1: its extras (presentation-t1-x.js)', () => {
   it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
-    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 3, create: create };");
-    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 3");
+    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 4, create: create };");
+    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 4");
   });
 
   it('takes only its own file: another template\'s, another version or no module is refused', () => {
     const r = make();
     const extend = r.extend as unknown as (m: unknown, dry?: boolean) => number;
     const mod = EXTRAS();
-    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 2 }, { ...mod, v: 4 }, { id: 't1', v: 3 }]) expect(extend(bad)).toBe(0);
+    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 3 }, { ...mod, v: 5 }, { id: 't1', v: 4 }]) expect(extend(bad)).toBe(0);
     // Nothing taken: the grid is still the mark.
     expect(r.emojiPickerHtml()).toBe('<i data-emoji hidden></i>');
     // A dry run says yes and takes nothing.

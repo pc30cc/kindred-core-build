@@ -130,6 +130,12 @@
       var op = String(meta.operator_name || '').trim();
       return String(t('ciHeadline' + (meta.channel === 'video' ? 'Video' : 'Audio') + (op ? 'From' : ''))).split('{op}').join(op);
     }
+    // The closed line, as the renderers word it: by its closer, or by nobody
+    // (the system's close after a quiet period).
+    if (kind === 'conversation_closed') {
+      var by = String(meta.agent_name || '').trim();
+      return by ? String(t('wyEndedBy')).split('{name}').join(by) : t('wyEnded');
+    }
     if (kind === 'call_ended') {
       var dur = Math.max(0, Math.floor(Number(meta.duration_seconds) || 0));
       if (String(meta.end_reason || '') === 'failed' || dur <= 0) return t('csEndedNotConnected');
@@ -180,7 +186,8 @@
       // What this Core can serve, so a renderer never draws a control nobody
       // answers. `kbNeutral`: the article vote accepts 'neutral' (until the
       // database allows it, such a vote is refused like any failed vote).
-      // `csat`, `chatMenu`: the rating after a chat and the chat's menu;
+      // `csat`: the rating after a chat (Core's, `view.csat`; its transcript
+      // link runtime-late.js's); `chatMenu`: the chat's menu;
       // `reactions`, `prechatSteps`, `awayThread`, `queuePosition`: a
       // message's reactions, the pre-chat one question at a time, the
       // message left while the team is away and the place in the queue
@@ -3414,6 +3421,9 @@
     var threadStarted = typeof callBridge.threadStarted === 'function'
       ? callBridge.threadStarted
       : function () {};
+    var threadShown = typeof callBridge.threadShown === 'function'
+      ? callBridge.threadShown
+      : function () { return false; };
 
     // ─── AI intro quick-question chips (ai_agent_qna) ───
     // Fetched once per panel lifetime, in-flight de-duped the same way
@@ -4338,6 +4348,184 @@
       return Presentation.aiThinkingRowHtml();
     }
 
+
+    // ─── The rating after a chat (every renderer that draws it: `csat`, at
+    // the top level for `default`, a feature for t1 and t2; the template's
+    // `csat` option) ───
+    // Under the closed line the thread ends with (only system rows after
+    // it: the server's latestClosedRow), whoever closed it (an operator, or
+    // the system after a quiet period), the renderer draws the card from
+    // `view.csat`: GET /api/widget/conversations/:id/csat once per closure
+    // (again when the panel reopens or the history reloads), POST …/csat
+    // with the pick and the comment. The answer's `subject` is 'ai' for a
+    // conversation only the AI answered: the card names nobody. `ctx.rating`
+    // lends the requests and the answer to runtime-late.js (the transcript
+    // reads the same answer). Per conversation, for this page: the server's
+    // answer (`srv`), the visitor's pick and comment, and where the rating
+    // stands; `want`: the answer is (again) worth asking for.
+    var rates = {};
+    var rateKeep = null;
+    function rateOn() {
+      var p = Presentation || {};
+      var f = p.features || {};
+      return !!(p.csat || f.csat) && ((ctx.config || {}).templateOptions || {}).csat !== false;
+    }
+    function rateOf(cid) {
+      return rates[cid] || (rates[cid] = { want: true, seq: 0, srv: null, at: null, rating: 0, comment: '', state: 'ask' });
+    }
+    /** `done(status, json)`; status 0 when the request itself failed. */
+    function rateCall(cid, path, body, done) {
+      var url = ctx.apiBase + '/api/widget/conversations/' + encodeURIComponent(cid) + '/' + path;
+      var init = body
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ workspace_id: ctx.workspaceId }, body)) }
+        : { method: 'GET' };
+      if (!body) url += '?workspace_id=' + encodeURIComponent(ctx.workspaceId || '');
+      try {
+        ctx.fetchWith(url, init).then(function (r) {
+          return r.json().then(function (j) { return [r.status, j]; }, function () { return [r.status, null]; });
+        }).then(function (a) { done(a[0], a[1] || {}); }, function () { done(0, {}); });
+      } catch (_) { done(0, {}); }
+    }
+    function rateAsk(cid) {
+      var c = rateOf(cid);
+      if (!c.want || c.busy) return;
+      c.want = false;
+      c.busy = true;
+      var seq = ++c.seq;
+      rateCall(cid, 'csat', null, function (status, j) {
+        c.busy = false;
+        if (seq !== c.seq) return;
+        if (status === 200) {
+          c.srv = j;
+          if (j.rating && j.closed_id === c.at) { c.state = 'done'; c.rating = +j.rating.score || c.rating; }
+        }
+        rateShow(cid);
+      });
+    }
+    /** The closed row the thread ends with (the card's place), or null. */
+    function lastClosedRow(s) {
+      var msgs = s.messages || [];
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].__id && closedRow(msgs[i])) return msgs[i];
+        if (msgs[i].senderType !== 'system') break;
+      }
+      return null;
+    }
+    function rateFocus() { return lastRenderedBody && lastRenderedBody.getRootNode().activeElement; }
+    /**
+     * This conversation's card (and runtime-late.js's bar) repainted for its
+     * new state. Only a plain thread on screen with a card's place is
+     * repainted; pre-chat fields being filled in keep their values (the card
+     * shows with the next paint).
+     */
+    function rateShow(cid) {
+      if (String(chatStore.get().conversationId) !== String(cid)) return;
+      var a = rateFocus();
+      if (lastClosedRow(chatStore.get()) && threadShown() && !(a && a.hasAttribute && a.hasAttribute('data-prechat'))) renderBody();
+      if (ctx.rating.seen) ctx.rating.seen(cid);
+    }
+    function csatVm(s) {
+      var m = lastClosedRow(s);
+      var cid = s.conversationId;
+      rateKeep = null;
+      if (!rateOn() || !cid || !m) return null;
+      var c = rateOf(cid);
+      // Another closure: a new card, asked about unless the answer in hand is about it.
+      if (c.at !== m.__id) {
+        c.at = m.__id;
+        c.rating = 0;
+        c.comment = '';
+        c.state = 'ask';
+        if (c.srv && c.srv.closed_id === m.__id) {
+          if (c.srv.rating) { c.state = 'done'; c.rating = +c.srv.rating.score || 0; }
+        } else c.want = true;
+      }
+      rateAsk(cid);
+      var srv = c.srv;
+      if (!srv || srv.closed_id !== m.__id || (c.state !== 'done' && c.state !== 'gone' && !srv.rateable)) return null;
+      // The AI's conversation names nobody (the workspace's mark), whoever closed it.
+      var ai = srv.subject === 'ai';
+      var op = (!ai && srv.operator) || {};
+      // A focused control of the card gets its focus back after the paint
+      // (a control gone, sent or rated: the card itself, whose status is read out).
+      var el = rateFocus();
+      var rate = el && el.closest && el.closest('[data-csat]') ? el.getAttribute('data-csat-rate') : null;
+      rateKeep = !el || !el.closest || !el.closest('[data-csat]') ? null
+        : el.hasAttribute('data-csat-comment') ? { sel: '[data-csat-comment]', a: el.selectionStart, b: el.selectionEnd }
+        : { sel: rate ? '[data-csat-rate="' + rate + '"]' : el.hasAttribute('data-csat-submit') ? '[data-csat-submit]' : '[data-csat]' };
+      return {
+        closedId: m.__id,
+        name: ai ? '' : op.name || m.metadata.operator_name || m.metadata.agent_name || '',
+        avatar: op.avatar || null,
+        rating: c.rating,
+        comment: c.comment,
+        state: c.state,
+        subject: ai ? 'ai' : 'operator',
+        transcript: null,
+      };
+    }
+    function rateSubmit(cid, c) {
+      if (c.state === 'sending' || c.state === 'done' || !c.rating) return;
+      if (transportStore.get().connectionState !== 'online') { c.state = 'error'; rateShow(cid); return; }
+      c.state = 'sending';
+      rateShow(cid);
+      var at = c.at;
+      rateCall(cid, 'csat', { closed_id: at, rating: c.rating, comment: c.comment.trim() || null }, function (status, j) {
+        if (c.at !== at) return;
+        if (status === 200 || (status === 409 && j.error === 'already_rated')) {
+          c.state = 'done';
+          c.rating = +(j.rating && j.rating.score) || c.rating;
+        } else c.state = status === 409 || status === 403 || status === 503 ? 'gone' : 'error';
+        rateShow(cid);
+      });
+    }
+    function onRateClick(ev) {
+      var el = ev.target && ev.target.closest ? ev.target.closest('[data-csat-rate], [data-csat-submit]') : null;
+      var cid = chatStore.get().conversationId;
+      var c = el && cid && rates[cid];
+      if (!c) return;
+      if (el.hasAttribute('data-csat-submit')) { rateSubmit(cid, c); return; }
+      if (c.state === 'sending') return;
+      // A pick changes the card in place: the visitor's focus stays.
+      c.rating = +el.getAttribute('data-csat-rate');
+      var card = el.closest('[data-csat]');
+      Array.prototype.forEach.call(card.querySelectorAll('[data-csat-rate]'), function (b) { b.setAttribute('aria-pressed', String(b === el)); });
+      var send = card.querySelector('[data-csat-submit]');
+      if (send) send.disabled = false;
+    }
+    function onRateInput(ev) {
+      var el = ev.target;
+      var c = rates[chatStore.get().conversationId];
+      if (c && el && el.hasAttribute && el.hasAttribute('data-csat-comment')) c.comment = String(el.value || '').slice(0, 1000);
+    }
+    function wireRating(body) {
+      if (!body.__gsRate) {
+        body.__gsRate = 1;
+        body.addEventListener('click', onRateClick);
+        body.addEventListener('input', onRateInput);
+      }
+      var k = rateKeep;
+      rateKeep = null;
+      var card = k && body.querySelector('[data-csat]');
+      var el = card && card.querySelector(k.sel);
+      if (!card) return;
+      if (!el || el.disabled) el = card;
+      try { el.focus({ preventScroll: true }); } catch (_) {}
+      if (k.a != null && el.setSelectionRange) { try { el.setSelectionRange(k.a, k.b); } catch (_) {} }
+    }
+    ctx.rating = {
+      of: rateOf, ask: rateAsk, call: rateCall, show: rateShow, last: lastClosedRow, seen: null,
+      /**
+       * Every conversation's answer is worth asking for again (a reopened
+       * panel, a new address); `cid`'s, one asked about before, is asked now
+       * (the thread on screen is not repainted by a reopen).
+       */
+      again: function (cid) {
+        for (var k in rates) if (Object.prototype.hasOwnProperty.call(rates, k)) rates[k].want = true;
+        if (cid && rates[cid]) rateAsk(cid);
+      },
+    };
+
     // Core builds the view-model (state → data); Presentation turns it
     // into HTML. No markup lives here anymore.
     function buildMessagesHtml(s, extraRowHtml) {
@@ -4350,6 +4538,8 @@
           expanded: qnaState.expanded,
           collapsedCount: QNA_COLLAPSED_COUNT,
         },
+        // A plain thread only (a pre-chat card passed in has none).
+        csat: extraRowHtml === undefined ? csatVm(s) : null,
       });
     }
 
@@ -4430,6 +4620,7 @@
       bindChatScrollTracking(body);
       observeChatContent(body);
       chatScrollToBottom(body);
+      wireRating(body);
       ext('wired', body);
     }
 
@@ -5110,6 +5301,7 @@
           var active = ConvEpoch.activeId();
           if (active && String(active) !== String(cid)) return;
           // Explicit selection wins over any pending "new conversation".
+          if (rates[cid]) rates[cid].want = true;
           ext('history', cid, result);
           chatStore.set({ freshIntent: false, conversationId: cid });
           if (!readOnly) transport.subscribeConversation(cid);
@@ -7455,6 +7647,13 @@
         // A message of the visitor's opened this conversation: the read
         // marker covers the lines already on screen (markSeenSoon below).
         threadStarted: function (cid) { markSeenSoon(cid, 1000); },
+        // A plain thread on screen (not a pre-chat, a form or another view):
+        // the rating's answers repaint it, and nothing else.
+        threadShown: function () {
+          var st = deriveChatTabState().name;
+          var sh = shellStore.get();
+          return !!sh.isOpen && sh.activeTab === 'chat' && (st === 'AI_CHAT' || st === 'HUMAN_WELCOME' || st === 'ACTIVE_THREAD');
+        },
       },
     });
     var kbUI = createKbUI({
@@ -10799,13 +10998,21 @@
       // A new reply in the thread the visitor has open and in view: no
       // unread, but a screen reader still hears it (WCAG 4.1.3).
       var lastVisible = null;
+      // The closed line arriving in that thread: heard, and nothing else (no
+      // unread, title count, toast, chime or public event; once per row).
+      var closedHeard = null;
 
       for (var i = 0; i < allIncoming.length; i++) {
         var m = allIncoming[i] || {};
         // Skip own messages (visitor/contact = the user themselves).
         var sender = m.role || m.sender || m.sender_type || 'agent';
         if (sender === 'visitor' || sender === 'contact') continue;
-        if (closedRow(m)) continue;
+        if (closedRow(m)) {
+          var closedCid = m.conversation_id || m.conversationId || activeCid;
+          if (m.id && !seenNext[m.id] && panelOpen && activeTab === 'chat' && closedCid === activeCid && !pageHidden) closedHeard = m;
+          if (m.id) seenNext[m.id] = 1;
+          continue;
+        }
         // De-dupe by stable id (prevents reconnect/poll from double-counting).
         var id = m.id || (m.time ? (m.time + ':' + (m.text || m.body || '')) : null);
         if (id) {
@@ -10859,6 +11066,7 @@
 
       // Read where it landed: the marker follows (a burst is one request).
       if (lastVisible) markSeenSoon(activeCid, 1000);
+      if (closedHeard && !lastVisible && !(newCount > 0)) announceIncoming('', systemRowText(t, ctx.locale, 'conversation_closed', closedHeard.metadata));
 
       if (!(newCount > 0 && lastIncoming) && lastVisible) {
         // The open thread's reply: the typing row gives way to it, and it is
@@ -11306,6 +11514,12 @@
       }
     }
     shellStore.subscribe(seenInView);
+    // A reopened panel asks about the thread's rating again (rated in another tab).
+    var rateWasOpen = !!shellStore.get().isOpen;
+    shellStore.subscribe(function (sh) {
+      if (sh.isOpen && !rateWasOpen && ctx.rating) ctx.rating.again(chatStore.get().conversationId);
+      rateWasOpen = !!sh.isOpen;
+    });
     // One conversation: opening the panel, or coming back to the page with
     // it open, re-reads the list (a conversation started, answered or
     // closed since, an operator's outreach).

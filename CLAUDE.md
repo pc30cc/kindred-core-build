@@ -314,15 +314,15 @@ reserved blocks, so a full disk stops Postgres too.
     step 8; it updated the platform's six `offline_message_received`
     templates; a dump of `email_templates` taken just before it:
     `/root/webyar-migrate-283/pre-283-email_templates.dump`).
-    Then `284_conversation_inactivity_close.sql`, to be applied by hand
-    before the merge of the inactivity close (applied `<YYYY-MM-DD HH:MM UTC>`;
-    its header index `conversations_live_updated_idx` built CONCURRENTLY
-    first, at `<HH:MM>`, and a dry run inside `BEGIN … ROLLBACK`; a dump of
-    the tables it touches and a schema dump taken just before:
-    `/root/webyar-migrate-284/`). It closes nothing and leaves the Super
-    Admin's inactivity switch off while live conversations exist; the
-    backlog is closed once, by hand, after the owner reviewed its list
-    (`database/backfill/284_inactivity_backlog_close.sql`, steps in
+    Then `284_conversation_inactivity_close.sql`, applied by hand before the
+    merge of the inactivity close (2026-10-26 08:58 UTC; its header index
+    `conversations_live_updated_idx` built CONCURRENTLY first, at about
+    08:54, and a dry run inside `BEGIN … ROLLBACK`; a dump of the tables it
+    touches and a schema dump taken just before, and the backlog dry run's
+    dump, log and CSV: `/root/webyar-migrate-284/`). It closes nothing and
+    leaves the Super Admin's inactivity switch off while live conversations
+    exist; the backlog is closed once, by hand, after the owner reviewed its
+    list (`database/backfill/284_inactivity_backlog_close.sql`, steps in
     `docs/operations/CHAT_ROUTING.md`, "Rollout of 284"), whose commit turns
     the switch on; its time and counts go here in a docs-only follow-up.
   - Since 269, deleted payments and ledger rows are copied to the append-only

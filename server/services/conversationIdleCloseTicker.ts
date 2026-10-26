@@ -35,9 +35,10 @@
  *     prepares no line for it, so no row is written into the conversation
  *     and nothing reaches the Telegram, Bale, WhatsApp, Instagram or X
  *     customer (the channel outbox only sends the team's and the AI's
- *     messages, never a system row); the customer's next message starts a
- *     new conversation. A support requester's apps draw the end and their
- *     own rating from the status;
+ *     messages, never a system row); the customer's next message, once the
+ *     race grace (INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS, below) is
+ *     over, starts a new conversation. A support requester's apps draw the
+ *     end and their own rating from the status;
  *   - the Inbox lists move as for the PATCH (conversation_resolved from open
  *     or pending, conversation_updated from resolved, actor null), the open
  *     timeline reloads (timeline_event), and a platform-support requester's

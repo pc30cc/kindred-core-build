@@ -57,7 +57,7 @@ import { downloadFile, resolveStorageConfig, uploadFile, type StorageResult } fr
 import { chatAttachmentKey } from '../storage/keys.js';
 import { requesterBody, requesterSnapshot } from './requester.js';
 import { onSupportConversationChanged } from './changes.js';
-import { INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS } from '../../../shared/inactivityClose.js';
+import { INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS, conversationEndOf } from '../../../shared/inactivityClose.js';
 
 export const SUPPORT_CHANNEL = 'platform_support';
 
@@ -504,10 +504,10 @@ async function ownThread(sb: ServiceClient, userId: string, conversationId: stri
 function presentedEnd(conv: ConversationRow | undefined): { status: string; endedAt: string | null } {
   const status = conv?.status || 'open';
   if (status !== 'closed') return { status, endedAt: conv?.updated_at || null };
-  const meta = conv?.metadata || {};
-  if (meta.closed_reason === 'inactivity' && meta.closed_from === 'resolved') {
+  if (conversationEndOf(status, conv?.metadata) === 'closed_inactive_after_resolve') {
     return { status: 'resolved', endedAt: conv?.updated_at || null };
   }
+  const meta = conv?.metadata || {};
   const closedAt = typeof meta.closed_at === 'string' && Number.isFinite(Date.parse(meta.closed_at)) ? meta.closed_at : null;
   return { status, endedAt: closedAt || conv?.updated_at || null };
 }

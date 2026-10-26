@@ -92,8 +92,9 @@ async function conversationIsWaitingForHuman(
     console.warn('[telegram] conversation ownership lookup failed:', error.message);
     return false;
   }
-  const metadata = (((data as any)?.metadata as Record<string, unknown>) || {});
-  const aiState = String((data as any)?.ai_state ?? metadata.ai_state ?? '');
+  const row = data as { ai_state?: unknown; metadata?: Record<string, unknown> | null } | null;
+  const metadata = row?.metadata || {};
+  const aiState = String(row?.ai_state ?? metadata.ai_state ?? '');
   return aiState === 'needs_human'
     || metadata.ai_handoff_requested === true
     || metadata.managed_by_ai === false
@@ -294,6 +295,16 @@ export async function handleTelegramInboundFlow(
 
 }
 
+/** The part of a callback update (Telegram, Bale; WhatsApp's and Instagram's as toBotUpdate.ts maps them) read below. */
+type TelegramCallbackUpdate = {
+  callback_query?: {
+    id?: string | number;
+    data?: unknown;
+    from?: { language_code?: string | null };
+    message?: { message_id?: number; chat?: { id?: string | number | null } };
+  };
+};
+
 /**
  * Inline-button taps. Returns true when the update was a callback query we
  * consumed, so the caller must NOT run it through the message pipeline.
@@ -301,7 +312,7 @@ export async function handleTelegramInboundFlow(
  */
 export async function handleTelegramCallbackQuery(
   config: ServerConfig,
-  ctx: { workspaceId: string; update: Record<string, any>; provider?: string },
+  ctx: { workspaceId: string; update: TelegramCallbackUpdate; provider?: string },
 ): Promise<boolean> {
   const query = ctx.update?.callback_query;
   if (!query?.id) return false;
@@ -362,7 +373,7 @@ export async function handleTelegramCallbackQuery(
     // A persistent reply keyboard cannot be attached to an edited message —
     // those screens are delivered as a fresh message instead. The worker
     // falls back to a fresh message when an old bubble refuses the edit.
-    if ((view.replyMarkup as any)?.keyboard) {
+    if (view.replyMarkup?.keyboard) {
       actions.push({
         kind: 'send_message',
         chatId,

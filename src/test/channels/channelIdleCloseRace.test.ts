@@ -11,8 +11,9 @@
  *     routing from the restored status;
  *   - the close committed while the message was being inserted: the touch
  *     reads `closed`, and the conversation comes back with the message's id;
- *   - past the grace, after an operator's close, or with a newer live
- *     conversation on the thread: as before (a new conversation, or that one);
+ *   - past the grace, after an operator's close, or with a live conversation
+ *     on the thread (a newer one, or one another member of a group chat
+ *     started after the close): as before (a new conversation, or that one);
  *   - a menu tap never brings anything back; a duplicate delivery, or two
  *     messages at once, bring it back once.
  *
@@ -96,6 +97,7 @@ const { INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS, INACTIVITY_CLOSE_RACE_GRACE
 const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
 const WS = '11111111-1111-4111-8111-111111111111';
 const CONTACT = '33333333-3333-4333-8333-333333333333';
+const OTHER_MEMBER = '44444444-4444-4444-8444-444444444444';
 const INTEGRATION = 'int-1';
 const CHAT = 'chat-1';
 
@@ -268,6 +270,21 @@ describe('the close committed before the message', () => {
     const result = await processInboundMessage(config, inbound());
     expect(result.conversationId).toBe(live.id);
     expect(rowOf(closed.id).status).toBe('closed');
+    expect(reopens()).toEqual([]);
+  });
+
+  it('a group chat: once another member started a new conversation, a member\'s message goes there and nothing is reopened', async () => {
+    // One thread for every member (a Telegram or Bale group, an X group DM); the closed conversation names the first.
+    state.db.tables.contacts.push({ id: OTHER_MEMBER, workspace_id: WS, name: 'Sara', metadata: { channel_identity: 'telegram:u-2' } });
+    const old = conversation('telegram', idleClosed(120));
+    const second = await processInboundMessage(config, inbound({ externalUserId: 'u-2', senderName: 'Sara', text: 'سلام' }));
+    expect(second.conversationId).not.toBe(old.id);
+    expect(rowOf(second.conversationId).contact_id).toBe(OTHER_MEMBER);
+
+    const first = await processInboundMessage(config, inbound());
+    expect(first.conversationId).toBe(second.conversationId);
+    expect(rowOf(old.id).status).toBe('closed');
+    expect(conversations().filter((c) => c.status !== 'closed').map((c) => c.id)).toEqual([second.conversationId]);
     expect(reopens()).toEqual([]);
   });
 

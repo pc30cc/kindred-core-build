@@ -158,11 +158,21 @@ async function ensureChannelContact(
  *
  * One indexed read per message: by the sender's contact
  * (conversations_contact_recent_idx; the thread key has no index), the
- * newest by updated_at, as the RPC matches, so while a live conversation is
- * the newest it wins and nothing is reopened. A group chat whose conversation
- * names another member as its contact is not found here (a new
- * conversation, as before). Outside the RPC's lock, as the widget's: a
- * failed read is no race. Never throws.
+ * newest by updated_at, as the RPC matches. Only when that one was just
+ * closed for inactivity, a second read by the thread key alone: the RPC
+ * matches any live conversation of the thread, whoever its contact, so while
+ * there is one (in a group chat, a Telegram or Bale group or an X group DM,
+ * one another member started after the close) it wins and nothing is reopened,
+ * or the thread would have two live conversations and the reopened one would
+ * take it over. A group chat whose conversation names another member as its
+ * contact is not found by the first read (a new conversation, as before).
+ * Outside the RPC's lock, as the widget's: a failed read is no race, and a
+ * close that commits between these reads and the RPC's match is seen by
+ * neither shape (the read still finds the conversation open, the RPC no
+ * longer matches it): the message starts a new conversation and the closed
+ * one stays closed, as before 286. A known limit, one round trip wide;
+ * ruling it out needs the reopen inside ensure_active_conversation itself.
+ * Never throws.
  */
 async function reopenThreadAfterIdleCloseRace(
   config: ServerConfig,
@@ -186,6 +196,15 @@ async function reopenThreadAfterIdleCloseRace(
     if (error || !newest?.id) return;
     if (!justClosedForInactivity(newest, Date.now(), INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS)) return;
     if (isBotProvider(input.provider) && (await isTelegramMenuInput(config, input))) return;
+    const { data: live, error: liveError } = await sb
+      .from('conversations')
+      .select('id')
+      .eq('workspace_id', input.workspaceId)
+      .contains('metadata', { channel_thread_key: threadKey })
+      .in('status', ['open', 'pending', 'resolved'])
+      .limit(1)
+      .maybeSingle();
+    if (liveError || live) return;
     await reopenAfterIdleCloseRace(config, sb, {
       workspaceId: input.workspaceId,
       conversationId: newest.id,

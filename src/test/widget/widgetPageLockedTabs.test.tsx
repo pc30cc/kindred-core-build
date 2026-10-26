@@ -3,25 +3,32 @@
  * marked with a lock, and open read-only with the upgrade notice, instead of
  * vanishing after a downgrade while their settings stayed in force.
  *
+ * The inactivity close (migration 284) is never plan-gated: on a plan
+ * without the Behaviour tab it stays editable, outside the read-only copy.
+ *
  * WidgetPage itself is rendered, its data hooks stubbed (the plan snapshot
- * denies the Availability and Domains tabs) and the heavy children (the
- * live preview, the smart studio, the template card) replaced by markers.
+ * denies the Availability and Domains tabs, and the Behaviour tab where a
+ * test says so) and the heavy children (the live preview, the smart studio,
+ * the template card) replaced by markers.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@/i18n';
 import en from '@/i18n/locales/en';
 
 const WS = { id: 'ws-1', name: 'Acme', slug: 'acme' };
-const denied = new Set(['widget_business_hours', 'widget_domain_allowlist']);
+const DENIED = ['widget_business_hours', 'widget_domain_allowlist'];
 const capabilityKeys = [
   'widget_appearance', 'widget_behavior', 'widget_smart_engagement', 'widget_prechat_form', 'widget_business_hours',
   'widget_domain_allowlist', 'chat', 'knowledge_base', 'visitor_tracking', 'widget_attachments', 'widget_voice_notes',
   'widget_emoji', 'widget_raw_ip_storage', 'widget_assignment_routing',
 ];
-const ents = { features: Object.fromEntries(capabilityKeys.map((k) => [k, { value: !denied.has(k) }])), modules: {}, limits: {} };
+const entsDenying = (denied: string[]) => ({
+  features: Object.fromEntries(capabilityKeys.map((k) => [k, { value: !denied.includes(k) }])), modules: {}, limits: {},
+});
+let ents = entsDenying(DENIED);
 
 vi.mock('@/features/phone-verification/PhoneVerificationGate', () => ({ PhoneVerificationGate: ({ children }: { children: unknown }) => children }));
 vi.mock('@/hooks/useWorkspace', () => ({
@@ -88,7 +95,11 @@ beforeAll(() => {
   proto.releasePointerCapture ??= () => undefined;
   proto.scrollIntoView ??= () => undefined;
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  ents = entsDenying(DENIED);
+  vi.unstubAllGlobals();
+});
 
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -147,6 +158,48 @@ describe('WidgetPage: plan-locked tabs', () => {
     const radios = [...section.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
     expect(radios.find((r) => r.checked)?.value).toBe('hide_widget');
     for (const r of radios) expect(r.matches(':disabled')).toBe(true);
+  });
+
+  it('a plan without the Behaviour tab: read-only, but the inactivity close stays editable and saves', async () => {
+    ents = entsDenying([...DENIED, 'widget_behavior']);
+    const patches: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/routing-policy')) {
+        return new Response(JSON.stringify({ policy: { inactivity_close_enabled: true, inactivity_close_default_hours: 24 } }), { status: 200 });
+      }
+      if (String(url).includes('/api/widget-settings/ws-1') && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        patches.push(body);
+        return new Response(JSON.stringify({ settings: body }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    }));
+    const view = mount();
+    open(en.widgetPage.tabs.behavior);
+    const section = view.container.querySelector<HTMLElement>('[data-plan-read-only="widget_behavior"]')!;
+    expect(section).not.toBeNull();
+    expect(section.querySelector('fieldset')!.disabled).toBe(true);
+    // The assignment settings are shown read-only, without the inactivity field…
+    expect(section.querySelector('[data-conversation-assignment]')).not.toBeNull();
+    expect(section.querySelector('[data-assignment-inactivity]')).toBeNull();
+    // …which is drawn once, outside the read-only copy, and saves.
+    expect(view.container.querySelectorAll('[data-assignment-inactivity]')).toHaveLength(1);
+    const own = view.container.querySelector<HTMLElement>('[data-behavior-not-plan-gated]')!;
+    const input = within(own).getByLabelText(en.widgetPage.behavior.assignment.inactivityClose) as HTMLInputElement;
+    expect(input.matches(':disabled')).toBe(false);
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '12' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(patches).toEqual([{ inactivity_close_hours: 12 }]));
+  });
+
+  it('a plan with the Behaviour tab: the inactivity close sits in Conversation assignment, once', () => {
+    const view = mount();
+    open(en.widgetPage.tabs.behavior);
+    expect(view.container.querySelector('[data-behavior-not-plan-gated]')).toBeNull();
+    const fields = view.container.querySelectorAll('[data-assignment-inactivity]');
+    expect(fields).toHaveLength(1);
+    expect(fields[0].closest('[data-conversation-assignment]')).not.toBeNull();
   });
 
   it('a tab the plan includes is editable, with no notice; the save status is announced politely', () => {

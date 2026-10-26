@@ -1,8 +1,11 @@
 /**
  * A whole-number setting: typed freely (Persian digits too), saved on blur
- * or Enter when it is within [min, max]; otherwise it says so and saves
- * nothing. Follows the stored value while not being edited. `aside` sits
- * next to the field (a default it follows, a reset link).
+ * or Enter when it is within [min, max] and differs from what is stored;
+ * otherwise it says so and saves nothing. Follows the stored value while not
+ * being edited. `aside` sits next to the field (a default it follows, a
+ * reset link). A field that shows a default it only follows passes what is
+ * really stored as `committed` (null: nothing of its own), so typing the
+ * default's own number still saves it as the field's own.
  *
  * Widget → Behaviour → Conversation assignment and the Super Admin's
  * routing rules use it.
@@ -14,13 +17,15 @@ import { Label } from '@/components/ui/label';
 import { parseRoutingNumber } from '@/lib/chat-routing-api';
 
 export function NumberSetting({
-  id, label, hint, unit, value, min, max, disabled, onCommit, aside,
+  id, label, hint, unit, value, committed, min, max, disabled, onCommit, aside,
 }: {
   id: string;
   label: string;
   hint?: string;
   unit?: string;
   value: number;
+  /** What is stored, when `value` shows something else; `value` by default. */
+  committed?: number | null;
   min: number;
   max: number;
   disabled?: boolean;
@@ -46,7 +51,7 @@ export function NumberSetting({
     }
     setInvalid(false);
     setText(String(n));
-    if (n !== value) onCommit(n);
+    if (n !== (committed === undefined ? value : committed)) onCommit(n);
   };
 
   const errorId = `${id}-error`;

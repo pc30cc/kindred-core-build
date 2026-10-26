@@ -14,9 +14,12 @@
  *   - the first-response timeout in minutes (0 = off; automatic assignments
  *     only);
  *   - closing a quiet conversation after 1 to 48 hours (migration 284;
- *     shared/inactivityClose.ts), or the Super Admin's default (null). It
- *     applies to every plan and every mode, so neither the plan lock nor
- *     Manual greys it out: only the Super Admin's platform switch does.
+ *     shared/inactivityClose.ts), or the Super Admin's default (null):
+ *     InactivityCloseSetting. It applies to every plan and every mode, so
+ *     neither the plan lock nor Manual greys it out, and on a plan without
+ *     the Behaviour tab (read-only) the page draws it on its own, editable.
+ *     While the Super Admin's platform switch is off it says so and stays
+ *     editable: the value is stored and applies once the switch is on.
  *
  * Numbers save on blur or Enter, only when valid; a refused save is undone
  * and said.
@@ -72,19 +75,23 @@ export interface ConversationAssignmentSectionProps {
   onSave: (patch: Partial<AssignmentFields>) => Promise<unknown>;
   /** Where Team & departments lives, for the per-member settings link. */
   teamPath?: string;
+  /**
+   * false when the page draws InactivityCloseSetting on its own instead (a
+   * plan without the Behaviour tab, whose copy here is read-only).
+   */
+  showInactivityClose?: boolean;
 }
 
-export function ConversationAssignmentSection({
-  workspaceId,
-  settings,
-  planAllowsRouting,
-  onSave,
-  teamPath,
-}: ConversationAssignmentSectionProps) {
+/**
+ * The stored settings with what was just changed over them, until each save
+ * settles (switches, the select and the numbers show it at once). A refused
+ * save is undone and said.
+ */
+function useAssignmentDraft(
+  settings: Partial<AssignmentFields> | undefined,
+  onSave: (patch: Partial<AssignmentFields>) => Promise<unknown>,
+) {
   const { t } = useTranslation();
-  const { data: platform } = useChatRoutingPolicy(workspaceId);
-  // What was just changed here, until the save settles (the switches and
-  // the select show it at once).
   const [draft, setDraft] = useState<Partial<AssignmentFields>>({});
 
   const save = async (patch: Partial<AssignmentFields>) => {
@@ -110,6 +117,21 @@ export function ConversationAssignmentSection({
   const value = <K extends keyof AssignmentFields>(key: K): AssignmentFields[K] | undefined =>
     (key in draft ? draft[key] : settings?.[key]) as AssignmentFields[K] | undefined;
 
+  return { save, value };
+}
+
+export function ConversationAssignmentSection({
+  workspaceId,
+  settings,
+  planAllowsRouting,
+  onSave,
+  teamPath,
+  showInactivityClose = true,
+}: ConversationAssignmentSectionProps) {
+  const { t } = useTranslation();
+  const { data: platform } = useChatRoutingPolicy(workspaceId);
+  const { save, value } = useAssignmentDraft(settings, onSave);
+
   const storedMode: AssignmentMode = value('assignment_mode') || 'auto';
   const mode: AssignmentMode = planAllowsRouting ? storedMode : 'manual';
   const automatic = mode !== 'manual';
@@ -119,12 +141,6 @@ export function ConversationAssignmentSection({
   const capacity = value('default_max_concurrent_chats') ?? DEFAULT_CHAT_CAPACITY;
   const timeout = value('first_response_timeout_minutes') ?? DEFAULT_FIRST_RESPONSE_TIMEOUT_MINUTES;
   const locked = !planAllowsRouting;
-  // The inactivity close: the workspace's own hours, or (null) the platform
-  // default, which an older server does not send (24 then).
-  const platformDefaultHours = effectiveInactivityCloseHours(null, platform?.inactivity_close_default_hours);
-  const ownHours = value('inactivity_close_hours') ?? null;
-  const inactivityHours = effectiveInactivityCloseHours(ownHours, platformDefaultHours);
-  const inactivityOff = platform?.inactivity_close_enabled === false;
 
   const modeHelp = mode === 'auto'
     ? t('widgetPage.behavior.assignment.helpAuto')
@@ -245,38 +261,65 @@ export function ConversationAssignmentSection({
             />
 
             {/* Quiet conversations: every plan and every mode, so never `locked` */}
-            <div data-assignment-inactivity>
-              <NumberSetting
-                id="assignment-inactivity"
-                label={t('widgetPage.behavior.assignment.inactivityClose')}
-                hint={inactivityOff
-                  ? t('widgetPage.behavior.assignment.inactivityClosePlatformOff')
-                  : t('widgetPage.behavior.assignment.inactivityCloseHint')}
-                unit={t('widgetPage.behavior.assignment.hours')}
-                value={inactivityHours}
-                min={INACTIVITY_CLOSE_MIN_HOURS}
-                max={INACTIVITY_CLOSE_MAX_HOURS}
-                disabled={inactivityOff}
-                onCommit={(n) => void save({ inactivity_close_hours: n })}
-                aside={inactivityOff ? undefined : ownHours === null ? (
-                  <span className="text-xs text-muted-foreground" data-assignment-inactivity-default>
-                    {t('widgetPage.behavior.assignment.inactivityClosePlatformDefault', { hours: platformDefaultHours })}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="text-xs text-primary hover:underline"
-                    data-assignment-inactivity-reset
-                    onClick={() => void save({ inactivity_close_hours: null })}
-                  >
-                    {t('widgetPage.behavior.assignment.inactivityCloseUseDefault')}
-                  </button>
-                )}
-              />
-            </div>
+            {showInactivityClose && (
+              <InactivityCloseSetting workspaceId={workspaceId} settings={settings} onSave={onSave} />
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Close a quiet conversation after": the workspace's own hours (1–48), or
+ * (null) the platform default, which an older server does not send (24
+ * then). Never plan-gated and never greyed out: while the Super Admin's
+ * switch is off it says so, and what is set here applies once it is on.
+ * While it follows the default, typing the default's own number saves it
+ * as the workspace's own (it no longer follows a later default).
+ */
+export function InactivityCloseSetting({
+  workspaceId,
+  settings,
+  onSave,
+}: Pick<ConversationAssignmentSectionProps, 'workspaceId' | 'settings' | 'onSave'>) {
+  const { t } = useTranslation();
+  const { data: platform } = useChatRoutingPolicy(workspaceId);
+  const { save, value } = useAssignmentDraft(settings, onSave);
+  const platformDefaultHours = effectiveInactivityCloseHours(null, platform?.inactivity_close_default_hours);
+  const ownHours = value('inactivity_close_hours') ?? null;
+  const inactivityOff = platform?.inactivity_close_enabled === false;
+
+  return (
+    <div data-assignment-inactivity>
+      <NumberSetting
+        id="assignment-inactivity"
+        label={t('widgetPage.behavior.assignment.inactivityClose')}
+        hint={inactivityOff
+          ? t('widgetPage.behavior.assignment.inactivityClosePlatformOff')
+          : t('widgetPage.behavior.assignment.inactivityCloseHint')}
+        unit={t('widgetPage.behavior.assignment.hours')}
+        value={effectiveInactivityCloseHours(ownHours, platformDefaultHours)}
+        committed={ownHours}
+        min={INACTIVITY_CLOSE_MIN_HOURS}
+        max={INACTIVITY_CLOSE_MAX_HOURS}
+        onCommit={(n) => void save({ inactivity_close_hours: n })}
+        aside={ownHours === null ? (
+          <span className="text-xs text-muted-foreground" data-assignment-inactivity-default>
+            {t('widgetPage.behavior.assignment.inactivityClosePlatformDefault', { hours: platformDefaultHours })}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline"
+            data-assignment-inactivity-reset
+            onClick={() => void save({ inactivity_close_hours: null })}
+          >
+            {t('widgetPage.behavior.assignment.inactivityCloseUseDefault')}
+          </button>
+        )}
+      />
     </div>
   );
 }

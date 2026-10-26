@@ -19,8 +19,10 @@
  *   - a refused save is undone and said;
  *   - closing a quiet conversation (migration 284): 1 to 48 hours or the
  *     Super Admin's default (null), said while it is followed, with a link
- *     back to it once the workspace has its own; greyed out, and said, only
- *     while the platform switch is off; its Persian copy never uses
+ *     back to it once the workspace has its own; typing the default's own
+ *     number while following it saves it as the workspace's own; while the
+ *     platform switch is off it says so and stays editable (the value
+ *     applies once the switch is on); its Persian copy never uses
  *     «بی‌فعالیت» (an idle operator).
  */
 import { useState } from 'react';
@@ -300,12 +302,34 @@ describe('ConversationAssignmentSection', () => {
       expect(block().textContent).toContain('Platform default: 24 hours');
     });
 
-    it('the Super Admin turned it off for every workspace: greyed out, and said', async () => {
+    it('typing the default\'s own number while following it saves it as the workspace\'s own', async () => {
+      policy.inactivity_close_default_hours = 24;
+      const onSave = await mount();
+      await waitFor(() => expect(block().textContent).toContain('Platform default: 24 hours'));
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '24' } });
+      fireEvent.blur(quiet());
+      // Its own 24 h, no longer a later default's.
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 24 }));
+      await waitFor(() => expect(document.querySelector('[data-assignment-inactivity-reset]')).not.toBeNull());
+      // Its own value typed again saves nothing.
+      onSave.mockClear();
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '24' } });
+      fireEvent.blur(quiet());
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    it('the Super Admin turned it off for every workspace: said, and still editable for when it is on', async () => {
       policy.inactivity_close_enabled = false;
-      await mount({ settings: { ...SETTINGS, inactivity_close_hours: 6 } });
-      await screen.findByText('The platform administrator has turned automatic closing off for every workspace.');
-      expect(quiet().disabled).toBe(true);
-      expect(document.querySelector('[data-assignment-inactivity-reset]')).toBeNull();
+      const onSave = await mount({ settings: { ...SETTINGS, inactivity_close_hours: 6 } });
+      await screen.findByText('The platform administrator has turned automatic closing off for every workspace. What you set here applies once it is on.');
+      expect(quiet().disabled).toBe(false);
+      expect(document.querySelector('[data-assignment-inactivity-reset]')).not.toBeNull();
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '1' } });
+      fireEvent.blur(quiet());
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 1 }));
     });
 
     it('in Persian: Persian digits count, and the copy never says «بی‌فعالیت»', async () => {

@@ -144,9 +144,12 @@ export function AdvancedRoutingSection() {
                   onChange={(v) => updateMut.mutate({ last_agent_routing_enabled: v })}
                 />
               </div>
-              <InactivityCloseGroup />
             </div>
           )}
+          {/* Its own data (the platform settings), so it never waits on the
+              advanced-routing read: the kill switch stays reachable when
+              that read fails. */}
+          <InactivityCloseGroup />
         </CardContent>
       </Card>
 
@@ -177,7 +180,9 @@ const PLATFORM_QUERY_KEY = ['widget-platform-settings'] as const;
  * "Quiet conversations": the inactivity close's platform switch and default
  * window, from widget_platform_settings. An older server (before 284) sends
  * neither: on and 24, as the panel's defaults say. A change shows at once
- * and goes back to the stored value when the save is refused.
+ * and goes back to the stored value when the save is refused, unless a
+ * newer change replaced it meanwhile. The default stays editable while the
+ * switch is off: it is stored on its own and applies once the switch is on.
  */
 function InactivityCloseGroup() {
   const { t } = useTranslation();
@@ -189,28 +194,32 @@ function InactivityCloseGroup() {
   const save = (updates: Partial<WidgetPlatformSettings>) => {
     if (!platform) return;
     setDraft((d) => ({ ...d, ...updates }));
+    // Drop the keys of this save that no newer change has replaced.
     const settle = () => setDraft((d) => {
       const next = { ...d };
-      for (const key of Object.keys(updates) as Array<keyof WidgetPlatformSettings>) delete next[key];
+      for (const key of Object.keys(updates) as Array<keyof WidgetPlatformSettings>) {
+        if (next[key] === updates[key]) delete next[key];
+      }
       return next;
     });
-    updateMut.mutate(
-      { id: platform.id, updates },
-      {
-        onSuccess: (next) => {
-          // The stored row at once; the hook refetches it after this.
-          if (next) qc.setQueryData(PLATFORM_QUERY_KEY, next);
-          settle();
-          toast.success(t('admin.widgetSettingsPage.routing.updated'));
-        },
-        onError: (e: Error) => {
-          settle();
-          toast.error(
-            e.message === 'inactivity_close_migration_required'
-              ? t('admin.widgetSettingsPage.routing.inactivityMigrationRequired')
-              : e.message,
-          );
-        },
+    // mutateAsync, not mutate: mutate reports only the latest call's
+    // outcome, so a refused earlier save would keep its draft and its error
+    // would never be said.
+    updateMut.mutateAsync({ id: platform.id, updates }).then(
+      (next) => {
+        // The stored row at once; the hook refetches it after this.
+        if (next) qc.setQueryData(PLATFORM_QUERY_KEY, next);
+        settle();
+        toast.success(t('admin.widgetSettingsPage.routing.updated'));
+      },
+      (e: unknown) => {
+        settle();
+        const message = e instanceof Error ? e.message : String(e);
+        toast.error(
+          message === 'inactivity_close_migration_required'
+            ? t('admin.widgetSettingsPage.routing.inactivityMigrationRequired')
+            : message,
+        );
       },
     );
   };
@@ -245,7 +254,6 @@ function InactivityCloseGroup() {
               value={effectiveInactivityCloseHours(null, live.inactivity_close_default_hours)}
               min={INACTIVITY_CLOSE_MIN_HOURS}
               max={INACTIVITY_CLOSE_MAX_HOURS}
-              disabled={!enabled}
               onCommit={(n) => save({ inactivity_close_default_hours: n })}
             />
           </div>

@@ -26,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Sparkles, Plus, Paperclip, Mic, Smile, Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
-import { ConversationAssignmentSection } from '@/components/app/widget/ConversationAssignmentSection';
+import { ConversationAssignmentSection, InactivityCloseSetting } from '@/components/app/widget/ConversationAssignmentSection';
 import { PlanReadOnlySection } from '@/components/app/widget/PlanReadOnlySection';
 import { WidgetSaveStatus } from '@/components/app/widget/WidgetSaveStatus';
 import { useWidgetSettingsDraft } from '@/hooks/useWidgetSettingsDraft';
@@ -1155,14 +1155,16 @@ function WidgetPageContent() {
 
                   {/* Conversation assignment: the mode, returning visitors,
                       capacity, the first-response timeout and the
-                      inactivity close (every plan). Saves go through the
-                      page's save layer (status, refusals said). */}
+                      inactivity close (every plan; below the card when
+                      this tab is read-only). Saves go through the page's
+                      save layer (status, refusals said). */}
                   <ConversationAssignmentSection
                     workspaceId={workspace?.id}
                     settings={live}
                     planAllowsRouting={capAllowed('widget_assignment_routing')}
                     onSave={(patch) => saveNow(patch)}
                     teamPath={wsPath('/settings/team-departments')}
+                    showInactivityClose={tabAllowed('behavior')}
                   />
 
                   {/* Privacy: optional raw IP capture (default OFF). */}
@@ -1198,6 +1200,20 @@ function WidgetPageContent() {
 
                 </CardContent>
               </Card>,
+              )}
+              {/* The inactivity close is never plan-gated (the server takes it
+                  on every plan): on a plan without this tab it stays
+                  editable here, outside the read-only copy above. */}
+              {!tabAllowed('behavior') && (
+                <Card className="card-elevated mt-4" data-behavior-not-plan-gated>
+                  <CardContent className="p-6">
+                    <InactivityCloseSetting
+                      workspaceId={workspace?.id}
+                      settings={live}
+                      onSave={(patch) => saveNow(patch)}
+                    />
+                  </CardContent>
+                </Card>
               )}
             </TabsContent>
 

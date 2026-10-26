@@ -1,6 +1,7 @@
--- 284 backlog — the one-time, silent close of the widget conversations that
--- were already quiet when the inactivity close shipped (owner, 2026-10-24:
--- closed once, by hand, after the owner has seen the list). Not a migration:
+-- 284 backlog — the one-time, silent close of the conversations that were
+-- already quiet when the inactivity close shipped (owner, 2026-10-24: closed
+-- once, by hand, after the owner has seen the list), and of any the timer
+-- never reaches since (untouched for more than 30 days). Not a migration:
 -- no runner applies it (it lives in database/backfill/, which
 -- scripts/migrate-database.sh never reads). It is run with psql, as postgres,
 -- on each database, AFTER migration 284 (which leaves the Super Admin's
@@ -10,18 +11,22 @@
 --   RESPOK: respok-postgres (container k6pnithcamskd4trrpo6jabv), after its
 --           migrator (app 40) applied 284.
 --
--- What it closes: every live (open, pending, resolved), non-spam widget
+-- What it closes: every live (open, pending, resolved), non-spam
 -- conversation whose conversation_idle_check() verdict is 'due', however long
 -- it has been quiet (the timer's 30-day bound does not apply here), through
 -- conversation_close_if_idle(id, updated_at, 'backlog'): status closed, the
 -- close markers (closed_source 'inactivity_backlog') and the two thread-end
--- stamps, updated_at untouched, and ONE timeline event each. Silent: no
--- visitor line (the function refuses one), no realtime frame, no push, no
--- e-mail, no counter bumped. What the team still owes (needs_reply, a
--- handoff, routing, a call, a callback, a guidance request) is never closed:
--- it is listed, by reason, for the team to answer or resolve; the timer then
--- closes it N hours after that. The list has no message text and no contact
--- data. Run the dry run again at any time to list such rows.
+-- stamps, updated_at untouched, and ONE timeline event each. Which channels
+-- is that function's to say, as for the timer: on a database at 286 every
+-- chat channel's (the website widget, Telegram, Bale, WhatsApp, Instagram, X,
+-- platform support), before it the widget's only (the others read
+-- 'not_widget' there and are left out of the list). Silent: no line (the
+-- function refuses one), nothing sent to a channel, no realtime frame, no
+-- push, no e-mail, no counter bumped. What the team still owes (needs_reply,
+-- a handoff, routing, a call, a callback, a guidance request) is never
+-- closed: it is listed, by reason, for the team to answer or resolve; the
+-- timer then closes it N hours after that. The list has no message text and
+-- no contact data. Run the dry run again at any time to list such rows.
 --
 -- The steps, per brand, on vps-50cc1602, each from that brand's own host
 -- folder (the two CSVs never share one), set once in the shell:
@@ -33,7 +38,7 @@
 -- CSV. Only database/ (for the dry run) or this file and the reviewed CSV
 -- (for the commit) go into the container, as /tmp/m284, and /tmp/m284 is
 -- removed after each step, as CLAUDE.md's procedure removes it: the dumps
--- (visitor data) never enter the container.
+-- (customer data) never enter the container.
 --   0. A dump first, as before 275-283:
 --        docker exec $C pg_dump -U postgres -Fc \
 --          -t public.conversations -t public.conversation_events \
@@ -75,7 +80,7 @@
 --      widget settings instead).
 -- Any failed check stops the file (ON_ERROR_STOP) and nothing is kept.
 -- The transaction row-locks each conversation it closes until it ends: a
--- visitor message to one of them waits that long (a second or two).
+-- customer message to one of them waits that long (a second or two).
 
 \set ON_ERROR_STOP on
 \if :{?commit}
@@ -125,12 +130,17 @@ BEGIN
   END IF;
 END $pre$;
 
--- Every live, non-spam widget conversation and its verdict now (the App
--- Review workspace aside, ws_appreview: its seeded threads and, since 285,
--- any conversation started there; conversation_idle_check never closes them).
+-- Every live, non-spam conversation of any channel and its verdict now, but
+-- what conversation_idle_check never closes: the App Review account
+-- ('exempt' since 286: the ws_appreview workspace, its seeded threads, the
+-- platform support threads it opens) and, on a database before 286, what
+-- reads 'not_widget' there (the channels the close did not cover yet, the
+-- App Review workspace). The workspace is also left out by name, for a
+-- database at 284 alone (which exempted its seeded threads only).
 CREATE TEMP TABLE backlog_284 ON COMMIT DROP AS
 SELECT c.id,
        c.workspace_id,
+       coalesce(nullif(lower(btrim(c.metadata->>'channel')), ''), 'widget') AS channel,
        c.status::text AS status,
        c.updated_at,
        chk.verdict,
@@ -142,15 +152,21 @@ SELECT c.id,
   CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
  WHERE c.status IN ('open', 'pending', 'resolved')
    AND c.is_spam = false
-   AND lower(btrim(coalesce(c.metadata->>'channel', ''))) IN ('', 'widget')
+   AND chk.verdict NOT IN ('exempt', 'not_widget')
    AND coalesce(c.metadata->>'app_review_seed', '') <> 'true'
    AND NOT EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = c.workspace_id AND w.slug = 'ws_appreview');
 
-\echo '── Live widget conversations by verdict (due: closed by this run; the others the team owes or are recent)'
+\echo '── Live conversations by verdict (due: closed by this run; the others the team owes or are recent)'
 SELECT verdict, count(*) AS conversations, min(quiet_hours) AS quiet_h_min, max(quiet_hours) AS quiet_h_max
   FROM backlog_284
  GROUP BY verdict
  ORDER BY verdict = 'due' DESC, verdict;
+
+\echo '── By channel and verdict'
+SELECT channel, verdict, count(*) AS conversations
+  FROM backlog_284
+ GROUP BY channel, verdict
+ ORDER BY channel, verdict = 'due' DESC, verdict;
 
 \echo '── By workspace and verdict'
 SELECT workspace_id, verdict, count(*) AS conversations
@@ -159,7 +175,7 @@ SELECT workspace_id, verdict, count(*) AS conversations
  ORDER BY workspace_id, verdict = 'due' DESC, verdict;
 
 \echo '── Each conversation (no message text, no contact data)'
-SELECT workspace_id, id, status, verdict, quiet_hours, closed_outcome
+SELECT workspace_id, id, channel, status, verdict, quiet_hours, closed_outcome
   FROM backlog_284
  ORDER BY verdict = 'due' DESC, verdict, workspace_id, quiet_hours DESC NULLS LAST;
 
@@ -211,11 +227,11 @@ SELECT outcome, from_status, closed_outcome, count(*) AS conversations
 \echo '── Skipped ids'
 SELECT conversation_id, outcome FROM closed_284 WHERE NOT closed ORDER BY outcome, conversation_id;
 
-\echo '── Checks: every listed id closed or skipped by name, no visitor line, one timeline event each, updated_at unchanged'
+\echo '── Checks: every listed id closed or skipped by name, no closed line, one timeline event each, updated_at unchanged'
 SELECT (SELECT count(*) FROM reviewed_284) AS listed,
        (SELECT count(*) FROM closed_284 WHERE closed) AS closed,
        (SELECT count(*) FROM closed_284 WHERE NOT closed) AS skipped,
-       (SELECT count(*) FROM closed_284 WHERE line_id IS NOT NULL) AS visitor_lines,
+       (SELECT count(*) FROM closed_284 WHERE line_id IS NOT NULL) AS closed_lines,
        (SELECT count(*) FROM public.conversation_events e JOIN closed_284 k ON k.event_id = e.id
          WHERE e.payload->>'source' = 'inactivity_backlog') AS timeline_events;
 
@@ -257,7 +273,7 @@ BEGIN
     END IF;
   END IF;
   IF EXISTS (SELECT 1 FROM closed_284 WHERE line_id IS NOT NULL) THEN
-    RAISE EXCEPTION '284 backlog: a visitor line was written';
+    RAISE EXCEPTION '284 backlog: a closed line was written';
   END IF;
   IF EXISTS (
     SELECT 1 FROM closed_284 k JOIN before_284 b ON b.id = k.conversation_id

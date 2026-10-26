@@ -17,11 +17,12 @@ import {
   computeNeedsReply,
   isActionableCustomerTurn,
   isQualifiedReply,
+  type NeedsReplyMessage,
 } from '../../../server/services/needsReply';
 
 const at = (n: number) => new Date(Date.UTC(2026, 0, 1, 10, n)).toISOString();
 const customer = (n: number, body = 'قیمت چنده؟') => ({ sender_type: 'contact', body, created_at: at(n) });
-const agent = (n: number, body = '۱۰۰ هزار تومان', metadata: any = {}) => ({ sender_type: 'agent', body, created_at: at(n), metadata });
+const agent = (n: number, body = '۱۰۰ هزار تومان', metadata: Record<string, unknown> = {}) => ({ sender_type: 'agent', body, created_at: at(n), metadata });
 const ai = (n: number, body = 'AI answer') => ({ sender_type: 'ai', body, created_at: at(n) });
 const system = (n: number) => ({ sender_type: 'system', body: 'Agent joined the conversation.', created_at: at(n), metadata: { kind: 'routing_agent_joined' } });
 const menuTap = (n: number) => ({ sender_type: 'contact', body: '/start', created_at: at(n), metadata: { channel_menu_event: 'true' } });
@@ -66,12 +67,12 @@ describe('needs reply — what closes and what does not close the cycle', () => 
 
   it('system/routing messages never close the cycle', () => {
     expect(computeNeedsReply({ status: 'open', messages: [customer(0), system(1)] })).toBe(true);
-    expect(isQualifiedReply(system(1) as any)).toBe(false);
+    expect(isQualifiedReply(system(1))).toBe(false);
   });
 
   it('a bot menu response is not an answer', () => {
     const bot = { sender_type: 'bot', body: 'menu', created_at: at(1) };
-    expect(isQualifiedReply(bot as any)).toBe(false);
+    expect(isQualifiedReply(bot)).toBe(false);
     expect(computeNeedsReply({ status: 'open', messages: [customer(0), bot] })).toBe(true);
   });
 
@@ -81,7 +82,7 @@ describe('needs reply — what closes and what does not close the cycle', () => 
 
   it('an agent message rejected by the transport does NOT close the cycle', () => {
     const failed = agent(3, 'reply', { channel_delivery: 'failed', channel_delivery_error: 'bot_blocked' });
-    expect(isQualifiedReply(failed as any)).toBe(false);
+    expect(isQualifiedReply(failed)).toBe(false);
     expect(computeNeedsReply({ status: 'open', messages: [customer(0), failed] })).toBe(true);
   });
 
@@ -98,22 +99,44 @@ describe('needs reply — what closes and what does not close the cycle', () => 
 
 describe('needs reply — actionable customer turn guard', () => {
   it('menu navigation is not a customer turn', () => {
-    expect(isActionableCustomerTurn(menuTap(1) as any)).toBe(false);
+    expect(isActionableCustomerTurn(menuTap(1))).toBe(false);
     expect(computeNeedsReply({ status: 'open', messages: [customer(0), agent(2), menuTap(9)] })).toBe(false);
   });
 
   it('a provider echo is not a customer turn', () => {
-    expect(isActionableCustomerTurn(echo(9) as any)).toBe(false);
+    expect(isActionableCustomerTurn(echo(9))).toBe(false);
   });
 
   it('an empty customer event is not a customer turn', () => {
-    expect(isActionableCustomerTurn({ sender_type: 'contact', body: '  ', created_at: at(1) } as any)).toBe(false);
+    expect(isActionableCustomerTurn({ sender_type: 'contact', body: '  ', created_at: at(1) })).toBe(false);
   });
 
   it('a customer attachment with no text IS a customer turn', () => {
     const media = { sender_type: 'contact', body: '', created_at: at(1), attachment_count: 1 };
-    expect(isActionableCustomerTurn(media as any)).toBe(true);
+    expect(isActionableCustomerTurn(media)).toBe(true);
     expect(computeNeedsReply({ status: 'open', messages: [agent(0), media] })).toBe(true);
+  });
+
+  it('a channel\'s media-only message (metadata.attachments) IS a customer turn, and the team\'s is an answer', () => {
+    // A Telegram voice note or an uncaptioned photo: empty body, no attachment_id.
+    const voice = { sender_type: 'contact', body: '', created_at: at(1), metadata: { channel: 'telegram', attachments: [{ kind: 'voice', fileId: 'f1' }] } };
+    expect(isActionableCustomerTurn(voice)).toBe(true);
+    expect(computeNeedsReply({ status: 'open', messages: [agent(0), voice] })).toBe(true);
+    const photo = { sender_type: 'agent', body: '', created_at: at(2), metadata: { attachments: [{ kind: 'photo' }] } };
+    expect(isQualifiedReply(photo)).toBe(true);
+    expect(computeNeedsReply({ status: 'open', messages: [voice, photo] })).toBe(false);
+  });
+
+  it('an empty or malformed metadata.attachments is no content', () => {
+    for (const attachments of [[], 'x', {}, null, 0]) {
+      const row = { sender_type: 'contact', body: ' ', created_at: at(1), metadata: { attachments } };
+      expect(isActionableCustomerTurn(row), JSON.stringify(attachments)).toBe(false);
+      expect(isQualifiedReply({ ...row, sender_type: 'agent' }), JSON.stringify(attachments)).toBe(false);
+    }
+    // Media in a menu tap or a provider echo is still not a turn.
+    const media = [{ kind: 'photo' }];
+    expect(isActionableCustomerTurn({ sender_type: 'contact', body: '', metadata: { attachments: media, channel_menu_event: 'true' } })).toBe(false);
+    expect(isActionableCustomerTurn({ sender_type: 'contact', body: '', metadata: { attachments: media, provider_echo: true } })).toBe(false);
   });
 
   it('two customer messages before a reply are ONE waiting obligation', () => {
@@ -145,7 +168,7 @@ describe('needs reply — actionable customer turn guard', () => {
 });
 
 describe('needs reply — independence from unread', () => {
-  const unreadOf = (msgs: any[]) =>
+  const unreadOf = (msgs: Array<NeedsReplyMessage & { seen_at?: string | null }>) =>
     msgs.filter((m) => m.sender_type === 'contact' && !m.seen_at && !(m.metadata?.channel_menu_event)).length;
 
   it('a new customer message is both unread and needs reply', () => {
@@ -178,7 +201,7 @@ describe('needs reply — existing data regression fixtures', () => {
   ];
   for (const f of fixtures) {
     it(`${f.name} → needs_reply=${f.expected}`, () => {
-      expect(computeNeedsReply({ status: f.status, messages: f.messages as any })).toBe(f.expected);
+      expect(computeNeedsReply({ status: f.status, messages: f.messages })).toBe(f.expected);
     });
   }
 });

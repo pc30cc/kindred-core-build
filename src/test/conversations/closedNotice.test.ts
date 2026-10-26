@@ -415,6 +415,32 @@ describe('the system\'s close after the quiet period (migration 284): prepareClo
     expect((await prepareClosedLine(config, { workspaceId: WS, conversationId: rated, by: 'system' }))!.metadata)
       .toMatchObject({ by: 'system', rated_line_id: resolveLine });
   });
+
+  it('a failed read throws, never reads as "no line due" (the ticker would close it without its line, for good)', async () => {
+    const { prepareClosedLine } = await import('../../../server/services/conversationClosedNotice.js');
+    const cid = conversation();
+    message(cid, 'contact');
+    message(cid, 'agent');
+    const prepare = () => prepareClosedLine(config, { workspaceId: WS, conversationId: cid, by: 'system' });
+    for (const table of ['conversations', 'conversation_messages', 'conversation_ratings']) {
+      state.db.failing.add(table);
+      if (table === 'conversation_ratings') {
+        // Read only for a resolve line the thread still ends with.
+        const resolved = conversation({ status: 'resolved' });
+        message(resolved, 'agent');
+        message(resolved, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR });
+        await expect(prepareClosedLine(config, { workspaceId: WS, conversationId: resolved, by: 'system' }), table).rejects.toBeTruthy();
+      } else {
+        await expect(prepare(), table).rejects.toBeTruthy();
+      }
+      state.db.failing.delete(table);
+    }
+    state.templateFails = true;
+    await expect(prepare()).rejects.toThrow(/snapshot unavailable/);
+    state.templateFails = false;
+    // Nothing failing: the line.
+    expect(await prepare()).toMatchObject({ body: 'The conversation was closed' });
+  });
 });
 
 describe('ratedOperatorOf: who a closure\'s rating is about (decision 15)', () => {

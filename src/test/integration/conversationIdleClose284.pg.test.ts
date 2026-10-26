@@ -252,13 +252,16 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
     }
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     state.operatorEvents.length = 0;
     state.conversationEvents.length = 0;
     state.pushes = 0;
     state.transcripts = 0;
     state.visitor = VISITOR;
     resetSettings?.();
+    // The ticker's visitor line goes out live at once here, never into a
+    // later case (the grace has its own case).
+    (await import('../../../server/services/conversationIdleCloseTicker.js')).__setIdleCloseLineDelayForTests(0);
   });
 
   // ─── M7: the new server before 284 ──────────────────────────────────────
@@ -440,6 +443,11 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       const unanswered = await conversation({ status: 'pending' });
       await message(unanswered, 'contact', '30 hours');
       expect(await verdict(unanswered)).toMatchObject({ verdict: 'due', closed_outcome: 'unanswered' });
+      // The AI's greeting answers nothing: a question after it is unanswered, not the AI's.
+      const greeted = await conversation({ status: 'pending', meta: { source: 'ai_agent_intro', ai_state: 'ai_managed' } });
+      await message(greeted, 'ai', '31 hours', { source: 'ai_agent_intro' }, 'سلام! چطور کمک کنم؟');
+      await message(greeted, 'contact', '30 hours');
+      expect(await verdict(greeted)).toMatchObject({ verdict: 'due', closed_outcome: 'unanswered' });
 
       const fresh = await conversation({ quiet: '10 hours' });
       await message(fresh, 'agent', '10 hours');
@@ -529,6 +537,24 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       await q(`INSERT INTO public.call_sessions (workspace_id, provider, call_type, context_type, context_id, state, connected_at, ended_at, created_at)
                VALUES ($1, 'livekit', 'audio', 'conversation', $2, 'ended', now() - interval '3 hours', now() - interval '2 hours', now() - interval '3 hours')`, [ws, talked]);
       expect((await verdict(talked)).verdict).toBe('recent');
+      // A connected call whose end was never recorded (a lost webhook): live
+      // while the 'call' guard believes it (12 h), then its connect is its
+      // last exchange, never 'recent' for ever.
+      const live = await conversation();
+      await message(live, 'contact', '31 hours');
+      await message(live, 'agent', '30 hours');
+      await q(`INSERT INTO public.call_sessions (workspace_id, provider, call_type, context_type, context_id, state, connected_at, created_at)
+               VALUES ($1, 'livekit', 'audio', 'conversation', $2, 'active', now() - interval '50 minutes', now() - interval '1 hour')`, [ws, live]);
+      expect((await verdict(live)).verdict).toBe('recent');
+      const lost = await conversation();
+      await message(lost, 'contact', '41 hours');
+      await message(lost, 'agent', '40 hours');
+      await q(`INSERT INTO public.call_sessions (workspace_id, provider, call_type, context_type, context_id, state, connected_at, created_at)
+               VALUES ($1, 'livekit', 'audio', 'conversation', $2, 'active', now() - interval '39 hours', now() - interval '39 hours 5 minutes')`, [ws, lost]);
+      const v = await verdict(lost);
+      expect(v).toMatchObject({ verdict: 'due', closed_outcome: 'human' });
+      // Its connect (to the millisecond the driver keeps), not now().
+      expect((await one(`SELECT abs(extract(epoch FROM $1::timestamptz - connected_at)) < 0.001 AS same FROM public.call_sessions WHERE context_id = $2`, [v.last_exchange_at, lost])).same).toBe(true);
     });
 
     it('other channels, platform support, spam and closed are never the widget timer\'s', async () => {
@@ -825,6 +851,24 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect((await one(`SELECT inactivity_close_enabled FROM public.widget_platform_settings LIMIT 1`)).inactivity_close_enabled).toBe(false);
     });
 
+    it('a commit whose reviewed file is missing, empty or blank stops before it changes anything (psql would read it as no id)', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'backlog284-'));
+      const before = await q(`SELECT id, status, updated_at, metadata FROM public.conversations WHERE workspace_id = $1 ORDER BY id`, [ws]);
+      const blank = join(dir, 'blank.csv');
+      writeFileSync(blank, '\n \n');
+      const empty = join(dir, 'empty.csv');
+      writeFileSync(empty, '');
+      for (const ids of [join(dir, 'gone.csv'), empty, blank]) {
+        const res = run({ commit: '1', ids });
+        expect(res.status, `${ids}: ${res.stdout}`).not.toBe(0);
+        expect(res.stdout).not.toMatch(/COMMITTED/);
+        expect(res.stdout + res.stderr).toMatch(ids === blank ? /names no conversation/ : /missing or empty/);
+      }
+      expect(await q(`SELECT id, status, updated_at, metadata FROM public.conversations WHERE workspace_id = $1 ORDER BY id`, [ws])).toEqual(before);
+      expect(await q(`SELECT id FROM public.conversation_events WHERE conversation_id = ANY($1::uuid[])`, [before.map((r) => r.id)])).toEqual([]);
+      expect((await one(`SELECT inactivity_close_enabled FROM public.widget_platform_settings LIMIT 1`)).inactivity_close_enabled).toBe(false);
+    });
+
     it('the commit closes the reviewed ids only, skips one that became owed since, and turns the switch on (enable=0 keeps it off)', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'backlog284-'));
       const csv = join(dir, 'reviewed.csv');
@@ -850,6 +894,7 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect((await one(`SELECT inactivity_close_enabled FROM public.widget_platform_settings LIMIT 1`)).inactivity_close_enabled).toBe(true);
       // A commit without the reviewed list refuses to run.
       const bare = run({ commit: '1' });
+      expect(bare.status).not.toBe(0);
       expect(bare.stdout + bare.stderr).toMatch(/pass -v ids=/);
     });
   });
@@ -885,6 +930,50 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect(await q(`SELECT id FROM public.audit_logs WHERE entity_id = ANY($1::uuid[])`, [[talked, greeting]]).catch(() => [])).toEqual([]);
       expect((await conv(owed)).status).toBe('open');
       expect(await runConversationIdleCloseOnce(config as never)).toEqual({ due: 0, closed: 0, skipped: {} });
+    });
+
+    it('a visitor message racing the close takes the line back before it ever goes out live (the grace)', async () => {
+      const ticker = await import('../../../server/services/conversationIdleCloseTicker.js');
+      ticker.__setIdleCloseLineDelayForTests(1500);
+      const cid = await conversation({ assigned: sara });
+      await message(cid, 'contact', '30 hours 1 minute');
+      await message(cid, 'agent', '30 hours');
+      expect(await ticker.runConversationIdleCloseOnce(config as never)).toMatchObject({ closed: 1 });
+      const lineId = (await conv(cid)).metadata as Row;
+      expect(lineId.closed_line_id).toEqual(expect.any(String));
+      const raced = await send({ conversation_id: cid });
+      expect(raced.status, JSON.stringify(raced.body)).toBe(200);
+      expect(raced.body.conversation_id).toBe(cid);
+      expect((await conv(cid)).status).toBe('open');
+      await new Promise((r) => setTimeout(r, 2000));
+      const lineFrames = state.conversationEvents.filter((e) => ((e.envelope as Row).payload as Row | undefined)?.id === lineId.closed_line_id);
+      expect(lineFrames).toEqual([]);
+      // One that stands goes out once the grace is over.
+      const quiet = await conversation({ assigned: sara });
+      await message(quiet, 'contact', '30 hours 1 minute');
+      await message(quiet, 'agent', '30 hours');
+      expect(await ticker.runConversationIdleCloseOnce(config as never)).toMatchObject({ closed: 1 });
+      const standing = String(((await conv(quiet)).metadata as Row).closed_line_id);
+      expect(state.conversationEvents.filter((e) => ((e.envelope as Row).payload as Row | undefined)?.id === standing)).toEqual([]);
+      await until(async () => state.conversationEvents.filter((e) => ((e.envelope as Row).payload as Row | undefined)?.id === standing).length, (n) => n === 1);
+      expect(state.conversationEvents.filter((e) => ((e.envelope as Row).payload as Row | undefined)?.id === standing)).toHaveLength(1);
+    });
+
+    it('the weekly summary counts the team\'s resolves: a timer close of a resolved one stays its resolve, one from open is nobody\'s', async () => {
+      const { weekCounts } = await import('../../../server/services/notificationEmail/producers.js');
+      await conversation({ status: 'resolved', quiet: '2 days' });
+      await conversation({ status: 'closed', quiet: '2 days', meta: { closed_reason: 'operator', closed_from: 'open' } });
+      await conversation({ status: 'closed', quiet: '3 days' }); // closed before 284: no markers, an operator's
+      const afterResolve = await conversation({ status: 'resolved', quiet: '30 hours' });
+      await message(afterResolve, 'agent', '30 hours');
+      const fromOpen = await conversation({ quiet: '30 hours' });
+      await message(fromOpen, 'agent', '30 hours');
+      const fromPending = await conversation({ status: 'pending', quiet: '30 hours' });
+      await message(fromPending, 'agent', '30 hours');
+      for (const cid of [afterResolve, fromOpen, fromPending]) expect(await close(cid)).toMatchObject({ closed: true });
+      await conversation({ status: 'resolved', quiet: '9 days' }); // another week's
+      const now = new Date();
+      expect(await weekCounts(config as never, ws, new Date(now.getTime() - 7 * 86_400_000), now)).toMatchObject({ resolved: 4 });
     });
 
     it('a thread that already ends with a closed line keeps it: no second line, closed_line_id null, nothing to retract', async () => {

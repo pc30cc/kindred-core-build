@@ -68,6 +68,7 @@ import { buildMessageEnvelope, publishConversationEvent } from './realtime/publi
 import { resolveOperatorIdentities } from './widget/senderIdentity.js';
 import { workspaceChatTemplate } from './widget/configSnapshot.js';
 import { isResolveClosedLine, isWidgetConversation } from './widget/visitorConversations.js';
+import { isRelationMissing } from './billing/entitlementParse.js';
 
 export const CONVERSATION_CLOSED_KIND = 'conversation_closed';
 
@@ -136,12 +137,12 @@ async function readRecentRows(sb: ServiceClient, conversationId: string): Promis
   return (data || []) as ConversationRow[];
 }
 
-/** latestClosedRow over the conversation's newest rows (a failed read is none). */
+/** latestClosedRow over the conversation's newest rows (a failed read throws). */
 export async function readLatestClosedRow(sb: ServiceClient, conversationId: string): Promise<ConversationRow | null> {
   return latestClosedRow(await readRecentRows(sb, conversationId));
 }
 
-/** Whether the visitor rated this closed line (unreadable, or before migration 276: no). */
+/** Whether the visitor rated this closed line (before migration 276: no; a failed read throws). */
 async function lineWasRated(sb: ServiceClient, conversationId: string, closedId: string): Promise<boolean> {
   const { data, error } = await sb
     .from('conversation_ratings')
@@ -149,7 +150,11 @@ async function lineWasRated(sb: ServiceClient, conversationId: string, closedId:
     .eq('conversation_id', conversationId)
     .eq('closed_message_id', closedId)
     .maybeSingle();
-  return !error && !!data;
+  if (error) {
+    if (isRelationMissing(error, 'conversation_ratings')) return false;
+    throw error;
+  }
+  return !!data;
 }
 
 /**
@@ -214,74 +219,74 @@ export interface PreparedClosedLine {
 /**
  * The closed line a close would write now, or null when none is due (not a
  * widget conversation of this workspace, a template without the line, or the
- * thread already ends with one: latestClosedRow). Reads only; never throws
- * (a failed read is null). The operator's close inserts it below; the
- * system's hands it to conversation_close_if_idle.
+ * thread already ends with one: latestClosedRow). Reads only. A failed read
+ * THROWS, never reads as "none due": the system's close would otherwise go
+ * ahead without its line, and a closed conversation never gets one later, so
+ * the ticker leaves that conversation for its next pass
+ * (conversationIdleCloseTicker.ts). The operator's close inserts the line
+ * below (writeClosedLine logs a failure and writes none); the system's hands
+ * it to conversation_close_if_idle.
  */
 export async function prepareClosedLine(
   config: ServerConfig,
   input: { workspaceId: string; conversationId: string; actorId?: string | null; by: 'agent' | 'system' },
 ): Promise<PreparedClosedLine | null> {
-  try {
-    const sb = getServiceClient(config);
-    const { data: conv, error: convErr } = await sb
-      .from('conversations')
-      .select('id, workspace_id, assigned_to, metadata')
-      .eq('id', input.conversationId)
-      .maybeSingle();
-    if (convErr || !conv || conv.workspace_id !== input.workspaceId) return null;
-    if (!isWidgetConversation(conv.metadata)) return null;
+  const sb = getServiceClient(config);
+  const { data: conv, error: convErr } = await sb
+    .from('conversations')
+    .select('id, workspace_id, assigned_to, metadata')
+    .eq('id', input.conversationId)
+    .maybeSingle();
+  if (convErr) throw convErr;
+  if (!conv || conv.workspace_id !== input.workspaceId) return null;
+  if (!isWidgetConversation(conv.metadata)) return null;
 
-    const template = await workspaceChatTemplate(config, input.workspaceId);
-    if (!template.descriptor?.closedNotice) return null;
+  const template = await workspaceChatTemplate(config, input.workspaceId);
+  if (!template.descriptor?.closedNotice) return null;
 
-    const recent = await readRecentRows(sb, input.conversationId);
-    if (latestClosedRow(recent)) return null;
-    // The closure the visitor rated under an older server's resolve line,
-    // nothing said since: this line keeps that rating.
-    const resolveLine = latestResolveLine(recent);
-    const ratedLineId = resolveLine && await lineWasRated(sb, input.conversationId, resolveLine.id) ? resolveLine.id : null;
+  const recent = await readRecentRows(sb, input.conversationId);
+  if (latestClosedRow(recent)) return null;
+  // The closure the visitor rated under an older server's resolve line,
+  // nothing said since: this line keeps that rating.
+  const resolveLine = latestResolveLine(recent);
+  const ratedLineId = resolveLine && await lineWasRated(sb, input.conversationId, resolveLine.id) ? resolveLine.id : null;
 
-    const system = input.by === 'system';
-    const actorId = system ? null : input.actorId ?? null;
-    const operatorId = await ratedOperatorOf(sb, conv as { id: string; assigned_to?: string | null }, actorId);
-    const people = await resolveOperatorIdentities(config, sb, [actorId, operatorId]);
-    const agentName = (actorId && people.get(actorId)?.name) || null;
-    const operatorName = (operatorId && people.get(operatorId)?.name) || null;
-    const carried = ratedLineId ? { rated_line_id: ratedLineId } : {};
-    if (system) {
-      return {
-        body: SYSTEM_CLOSED_BODY,
-        metadata: {
-          kind: CONVERSATION_CLOSED_KIND,
-          by: 'system',
-          closed_reason: 'inactivity',
-          agent_id: null,
-          agent_name: null,
-          operator_id: operatorId,
-          operator_name: operatorName,
-          status: 'closed',
-          ...carried,
-        },
-      };
-    }
+  const system = input.by === 'system';
+  const actorId = system ? null : input.actorId ?? null;
+  const operatorId = await ratedOperatorOf(sb, conv as { id: string; assigned_to?: string | null }, actorId);
+  const people = await resolveOperatorIdentities(config, sb, [actorId, operatorId]);
+  const agentName = (actorId && people.get(actorId)?.name) || null;
+  const operatorName = (operatorId && people.get(operatorId)?.name) || null;
+  const carried = ratedLineId ? { rated_line_id: ratedLineId } : {};
+  if (system) {
     return {
-      body: `${agentName || 'An operator'} closed the conversation`,
+      body: SYSTEM_CLOSED_BODY,
       metadata: {
         kind: CONVERSATION_CLOSED_KIND,
-        by: 'agent',
-        agent_id: actorId,
-        agent_name: agentName,
+        by: 'system',
+        closed_reason: 'inactivity',
+        agent_id: null,
+        agent_name: null,
         operator_id: operatorId,
         operator_name: operatorName,
         status: 'closed',
         ...carried,
       },
     };
-  } catch (err) {
-    console.warn('[conversationClosed] not prepared:', (err as { message?: string } | null)?.message || err);
-    return null;
   }
+  return {
+    body: `${agentName || 'An operator'} closed the conversation`,
+    metadata: {
+      kind: CONVERSATION_CLOSED_KIND,
+      by: 'agent',
+      agent_id: actorId,
+      agent_name: agentName,
+      operator_id: operatorId,
+      operator_name: operatorName,
+      status: 'closed',
+      ...carried,
+    },
+  };
 }
 
 /**

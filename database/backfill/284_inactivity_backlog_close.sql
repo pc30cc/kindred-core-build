@@ -43,7 +43,12 @@
 --      The CSV is one conversation id per line; it stays on the server (the
 --      owner's knowledge base gets the counts only). The `out` and `ids`
 --      paths are read by psql as given: no spaces in them.
---   2. After the owner's go, the commit, with the CSV the owner reviewed:
+--   2. After the owner's go, the commit, with the CSV the owner reviewed,
+--      copied back into the container first (the folder /tmp/m284 is removed
+--      once 284 is applied; a commit whose file is missing or empty stops
+--      before it changes anything):
+--        docker exec oqzy9q4ovntam9jgf7nxzqun mkdir -p /tmp/m284
+--        docker cp /root/webyar-migrate-284/. oqzy9q4ovntam9jgf7nxzqun:/tmp/m284
 --        docker exec oqzy9q4ovntam9jgf7nxzqun psql -X -U postgres -d webyar \
 --          -v ON_ERROR_STOP=1 -v commit=1 -v ids=/tmp/m284/backlog.csv \
 --          -f /tmp/m284/database/backfill/284_inactivity_backlog_close.sql
@@ -69,10 +74,23 @@
   \if :{?ids}
   \else
     \echo '284 backlog: the commit closes the reviewed ids only: pass -v ids=<the backlog CSV>'
-    \quit
+    DO $noids$ BEGIN RAISE EXCEPTION '284 backlog: no -v ids'; END $noids$;
   \endif
-  -- One id per line (a comma or a space also separates them); read by psql.
-  \set reviewed_ids `cat :'ids'`
+  -- psql does not stop on a failed backquote command, even with
+  -- ON_ERROR_STOP: a file missing from the container (/tmp/m284 is removed
+  -- after 284 is applied) would read as no id at all, and the commit would
+  -- close nothing and still turn the switch on, leaving the backlog to the
+  -- timer (a line and a card each) and to nobody past 30 days. So the file
+  -- is checked first, and the checks below refuse a commit of no id.
+  \set ids_ok `test -r :'ids' && test -s :'ids' && echo 1 || echo 0`
+  \if :ids_ok
+    -- One id per line (a comma or a space also separates them); read by psql.
+    \set reviewed_ids `cat :'ids'`
+  \else
+    \echo '284 backlog:' :'ids' 'is missing or empty here (copy the reviewed CSV into the container first).'
+    \echo 'When the dry run found nothing due, there is nothing to commit: turn the switch on in the Super Admin''s widget settings instead.'
+    DO $noids$ BEGIN RAISE EXCEPTION '284 backlog: the reviewed ids file is missing or empty'; END $noids$;
+  \endif
 \else
   \set reviewed_ids ''
 \endif
@@ -187,7 +205,16 @@ DECLARE
   v_extra_events integer;
 BEGIN
   SELECT count(*) INTO v_closed FROM closed_284 WHERE closed;
-  IF current_setting('backlog_284.commit', true) IS DISTINCT FROM '1' THEN
+  IF current_setting('backlog_284.commit', true) = '1' THEN
+    -- The commit: the reviewed list is not empty, and each id it names was
+    -- judged (closed, or skipped by name).
+    IF NOT EXISTS (SELECT 1 FROM reviewed_284) THEN
+      RAISE EXCEPTION '284 backlog: the reviewed list names no conversation';
+    END IF;
+    IF (SELECT count(*) FROM closed_284) <> (SELECT count(*) FROM reviewed_284) THEN
+      RAISE EXCEPTION '284 backlog: % listed, % judged', (SELECT count(*) FROM reviewed_284), (SELECT count(*) FROM closed_284);
+    END IF;
+  ELSE
     -- The dry run: every due row closes (nothing else holds them here).
     SELECT count(*) INTO v_due FROM backlog_284 WHERE verdict = 'due';
     IF v_closed <> v_due THEN

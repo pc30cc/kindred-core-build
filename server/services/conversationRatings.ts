@@ -9,12 +9,14 @@
  *   - only the closure the thread still ends with (latestClosedRow: nothing
  *     said after it), within RATING_WINDOW_DAYS of it;
  *   - only when the visitor wrote, and somebody answered them (answeredBy):
- *       a person (an agent row): subject 'operator', credited to the
- *       operator the line names (ratedOperatorOf);
- *       only the AI (a qualified AI answer, never its hand-over line):
- *       subject 'ai', operator_id NULL, kept out of every operator's
- *       satisfaction (operatorActivity.ts shows it as the AI's line). The
- *       card has no name and wears the workspace mark;
+ *       a person (an agent row, or a call that connected): subject
+ *       'operator', credited to the operator the line names
+ *       (ratedOperatorOf: a person who only called is not named, so the
+ *       closer of an operator's close, else nobody);
+ *       only the AI (a qualified AI answer, never its greeting or its
+ *       hand-over line): subject 'ai', operator_id NULL, kept out of
+ *       every operator's satisfaction (operatorActivity.ts shows it as the
+ *       AI's line). The card has no name and wears the workspace mark;
  *       nobody: no card;
  *   - once per closure, never changed (409 `already_rated` with the stored
  *     rating; the unique closed_message_id settles a race). A close after
@@ -148,14 +150,34 @@ export async function humanOperatorAnswered(sb: ServiceClient, conversationId: s
   return (count ?? 0) > 0;
 }
 
+/** Whether a call of the conversation connected: a person answered the visitor on it. */
+async function callConnected(sb: ServiceClient, conversationId: string): Promise<boolean> {
+  const { count, error } = await sb
+    .from('call_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('context_type', 'conversation')
+    .eq('context_id', conversationId)
+    .not('connected_at', 'is', null);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/** The AI's greeting (ai-agent/intro.ts, source 'ai_agent_intro'): written before the visitor's first word, it answers nothing. */
+function isAiGreeting(m: { metadata?: Record<string, unknown> | null }): boolean {
+  return String(m.metadata?.source ?? '').startsWith('ai_agent_intro');
+}
+
 /**
- * Who answered the visitor in the conversation: 'human' when a person wrote
- * (an agent row), else 'ai' when the AI gave a real answer (needsReply.ts
- * isQualifiedCustomerFacingAnswer: content, delivered, never its hand-over
- * line), else null.
+ * Who answered the visitor in the conversation: 'human' when a person did
+ * (an agent row, or a call that connected), else 'ai' when the AI gave a
+ * real answer (needsReply.ts isQualifiedCustomerFacingAnswer: content,
+ * delivered, never its hand-over line; and never its greeting), else null.
+ * The SQL closed_outcome (migration 284 conversation_idle_check) reads it
+ * the same way.
  */
 export async function answeredBy(sb: ServiceClient, conversationId: string): Promise<AnsweredBy> {
   if (await humanOperatorAnswered(sb, conversationId)) return 'human';
+  if (await callConnected(sb, conversationId)) return 'human';
   const { data, error } = await sb
     .from('conversation_messages')
     .select('sender_type, body, metadata')
@@ -165,7 +187,7 @@ export async function answeredBy(sb: ServiceClient, conversationId: string): Pro
     .limit(AI_ROWS);
   if (error) throw error;
   const rows = (data || []) as Array<{ sender_type: string; body?: string | null; metadata?: Record<string, unknown> | null }>;
-  return rows.some((m) => isQualifiedCustomerFacingAnswer(m)) ? 'ai' : null;
+  return rows.some((m) => isQualifiedCustomerFacingAnswer(m) && !isAiGreeting(m)) ? 'ai' : null;
 }
 
 /** Whether the visitor wrote in the conversation (a greeting nobody answered is never rated). */

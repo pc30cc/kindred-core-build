@@ -8,13 +8,16 @@
  *   - the Super Admin's switch off (or unreadable, or before 284): no lease,
  *     no RPC, a `[idle-close] pass off` log;
  *   - before 284 (42883) a pass is a quiet no-op;
- *   - the visitor's line is prepared only when they ever wrote;
+ *   - the visitor's line is prepared only when they ever wrote, and a failed
+ *     preparation leaves the conversation for the next pass (never closed
+ *     without its line);
  *   - a close the database refused ('changed', a guard) publishes nothing
  *     and is counted;
  *   - a close is published as the PATCH publishes one: conversation_resolved
  *     from open or pending, conversation_updated from resolved, actor null,
  *     the unchanged updated_at, the timeline echo, and the line's envelope
- *     only when a line was written;
+ *     only when a line was written, once the race grace is over and only
+ *     while the close stands (a racing message's reopen retracted it);
  *   - nothing else: no transcript, no push, no notification e-mail, no
  *     audit row;
  *   - a throw still releases the lease.
@@ -29,6 +32,7 @@ const state = vi.hoisted(() => ({
   conversationEvents: [] as Array<{ ws: string; cid: string; envelope: Record<string, unknown> }>,
   prepared: [] as Array<Record<string, unknown>>,
   line: null as { body: string; metadata: Record<string, unknown> } | null,
+  prepareFails: new Set<string>(),
   forbidden: [] as string[],
 }));
 
@@ -42,7 +46,11 @@ vi.mock('../../../server/services/realtime/publish.js', () => ({
   buildMessageEnvelope: (m: Record<string, unknown>) => ({ type: 'message', payload: m }),
 }));
 vi.mock('../../../server/services/conversationClosedNotice.js', () => ({
-  prepareClosedLine: async (_c: unknown, input: Record<string, unknown>) => { state.prepared.push(input); return state.line; },
+  prepareClosedLine: async (_c: unknown, input: Record<string, unknown>) => {
+    state.prepared.push(input);
+    if (state.prepareFails.has(String(input.conversationId))) throw new Error('conversation_messages unavailable');
+    return state.line;
+  },
 }));
 // What a close must never reach (the ticker does not import them; were it
 // to, these would count).
@@ -58,7 +66,7 @@ vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordAuditAndEvent: async () => { state.forbidden.push('recordAuditAndEvent'); },
 }));
 
-const { runConversationIdleCloseOnce } = await import('../../../server/services/conversationIdleCloseTicker.js');
+const { runConversationIdleCloseOnce, __setIdleCloseLineDelayForTests } = await import('../../../server/services/conversationIdleCloseTicker.js');
 const { __resetInactivityCloseSettingsCache } = await import('../../../server/services/widget/platformSettings.js');
 
 const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
@@ -88,6 +96,8 @@ beforeEach(() => {
   state.prepared = [];
   state.line = { body: 'The conversation was closed', metadata: { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity' } };
   state.forbidden = [];
+  state.prepareFails = new Set();
+  __setIdleCloseLineDelayForTests(0);
   dueRpc = () => ({ data: [], error: null });
   closeRpc = () => ({ data: [closedAnswer()], error: null });
   state.db.rpc = (fn, args) => {
@@ -198,20 +208,79 @@ describe('a pass', () => {
     expect(state.conversationEvents).toEqual([]);
   });
 
-  it('the visitor\'s line, once written, goes out as a message envelope', async () => {
+  /** A due row whose close wrote the line `line-1` (the conversation closed, naming it). */
+  const closedWithLine = () => {
     const row = dueRow();
     dueRpc = () => ({ data: [row], error: null });
+    state.db.tables.conversations = [{
+      id: row.due_conversation_id, workspace_id: WS, status: 'closed',
+      metadata: { closed_reason: 'inactivity', closed_line_id: 'line-1' },
+    }];
     state.db.tables.conversation_messages = [{
       id: 'line-1', conversation_id: row.due_conversation_id, sender_type: 'system', body: 'The conversation was closed',
       metadata: { kind: 'conversation_closed', by: 'system', agent_name: null }, created_at: '2026-10-25T08:00:00Z', seen_at: null,
     }];
     closeRpc = () => ({ data: [closedAnswer({ line_id: 'line-1', line_created_at: '2026-10-25T08:00:00Z' })], error: null });
+    return row;
+  };
+
+  it('the visitor\'s line, once written, goes out as a message envelope', async () => {
+    const row = closedWithLine();
     await runConversationIdleCloseOnce(config);
     await vi.waitFor(() => expect(state.conversationEvents).toHaveLength(1));
     expect(state.conversationEvents[0]).toMatchObject({
       ws: WS, cid: row.due_conversation_id,
       envelope: { type: 'message', payload: { id: 'line-1', sender_type: 'system', body: 'The conversation was closed', metadata: { kind: 'conversation_closed', by: 'system' } } },
     });
+  });
+
+  it('the line waits for the race grace (60 s), and never goes out once a racing message or a reply reopened the conversation', async () => {
+    __setIdleCloseLineDelayForTests(null);
+    vi.useFakeTimers();
+    try {
+      closedWithLine();
+      await runConversationIdleCloseOnce(config);
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(state.conversationEvents).toEqual([]);
+      // The Inbox heard at once.
+      expect(state.operatorEvents.map((e) => e.kind)).toEqual(['conversation_resolved', 'timeline_event']);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(state.conversationEvents).toHaveLength(1));
+
+      // The visitor's message in flight at the close reopened it and
+      // retracted the line (conversation_reopen_after_idle_close).
+      state.conversationEvents.length = 0;
+      closedWithLine();
+      await runConversationIdleCloseOnce(config);
+      state.db.tables.conversation_messages![0].metadata = { kind: 'conversation_closed', by: 'system', internal: true };
+      state.db.tables.conversations![0].status = 'open';
+      state.db.tables.conversations![0].metadata = { idle_close_undone_at: '2026-10-25T08:00:01Z' };
+      await vi.advanceTimersByTimeAsync(61_000);
+      // A person's reply reopened it (the markers cleared, the line not retracted).
+      closedWithLine();
+      await runConversationIdleCloseOnce(config);
+      state.db.tables.conversations![0].status = 'open';
+      state.db.tables.conversations![0].metadata = { closed_reason: null, closed_line_id: null };
+      await vi.advanceTimersByTimeAsync(61_000);
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(state.conversationEvents).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a line that could not be prepared leaves the conversation for the next pass: no close, counted, the others go on', async () => {
+    const failing = dueRow();
+    const fine = dueRow();
+    dueRpc = () => ({ data: [failing, fine], error: null });
+    state.prepareFails.add(String(failing.due_conversation_id));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await runConversationIdleCloseOnce(config)).toEqual({ due: 2, closed: 1, skipped: { error: 1 } });
+    expect(calls('conversation_close_if_idle').map((c) => c.args.p_conversation_id)).toEqual([fine.due_conversation_id]);
+    expect(state.operatorEvents.map((e) => e.conversation_id)).not.toContain(failing.due_conversation_id);
+    expect(warn).toHaveBeenCalledWith('[idle-close] line not prepared, left for the next pass:', 'conversation_messages unavailable');
+    warn.mockRestore();
   });
 
   it('never reaches a transcript, a push, a notification e-mail, an audit row or the AI', async () => {

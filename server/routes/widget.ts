@@ -1482,7 +1482,10 @@ widgetRouter.get('/conversations/:id/csat', widgetRateLimit('poll'), async (req:
       workspaceChatTemplate(config, workspaceId),
       answeredBy(getServiceClient(config), conversation.id),
     ]);
-    const humanAnswered = answered === 'human';
+    // The transcript stays a written answer's (visitorTranscript.ts reads
+    // agent rows): a person who only called answered, but wrote nothing to
+    // mail, so for 'human' the transcript counts the rows itself.
+    const humanAnswered = answered === 'human' ? undefined : false;
     const [state, transcript] = await Promise.all([
       csatState(config, { workspaceId, conversationId: conversation.id, csatEnabled: csatEnabledFor(template), answered }),
       // The link is the card's extra: a failed read hides it, never the card.

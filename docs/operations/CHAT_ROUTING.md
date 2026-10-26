@@ -250,8 +250,9 @@ only the Super Admin's switch stops it, for every workspace at once.
   answer, the AI's answer (needsReply.ts's rules, in SQL as
   `conversation_message_turn`: system rows, routing notices, menu taps,
   echoes, failed deliveries and the AI's hand-over line do not count), and a
-  connected call (its end; now while it lasts). With none, when the
-  conversation was created. Open, pending and resolved conversations all use
+  connected call (its end; now while it lasts, that is while the `call`
+  guard below believes it live: a call whose end was never recorded counts
+  its connect after 12 h). With none, when the conversation was created. Open, pending and resolved conversations all use
   the same N.
 - **Never while the team owes an answer** (`conversation_idle_check`):
   - `needs_reply`: open, and the visitor's turn is the newest, with no answer
@@ -288,8 +289,13 @@ only the Super Admin's switch stops it, for every workspace at once.
   `conversation_closed`, `by` `system`, `agent_name` null, `closed_reason`
   `inactivity`; body "The conversation was closed"): the widget draws «گفتگو
   به پایان رسید» and, where the template's rating is on, the card. The line
-  names the operator the rating is about (the assignee if they wrote, else
-  the newest person who wrote), or nobody: then the card asks about the AI
+  is prepared before the close; when a read for it fails the conversation
+  is left for the next pass, never closed without it. It goes out live once
+  the race grace (below) is over, and only if the close still stands. The
+  line names the operator the rating is about (the assignee if they wrote,
+  else the newest person who wrote), or nobody. A person answered when one
+  wrote or a call connected (the card is theirs); only the AI when it gave a
+  real answer, never by its greeting alone: then the card asks about the AI
   (`subject` `ai`, kept out of every operator's satisfaction). A thread that
   already ends with a closed line keeps it (`closed_line_id` null). The
   Inbox thread shows the line as «گفتگو پس از مدتی بی‌پیامی به‌طور خودکار
@@ -304,8 +310,11 @@ only the Super Admin's switch stops it, for every workspace at once.
   `customer_replied_after_inactivity_close`); its lifecycle, routing and the
   AI then run as for any message. A message being inserted while the close
   runs holds it back (its foreign key's lock) and keeps the conversation
-  open. Later than 60 seconds, or after an operator's close: a new
-  conversation, as before.
+  open. Since the line reaches an open widget only after those 60 seconds,
+  a realtime widget never shows a line the server took back; a widget in
+  polling mode can fetch it in between and keeps it on screen until its
+  next history load. Later than 60 seconds, or after an operator's close: a
+  new conversation, as before.
 - **The ticker**: `server/services/conversationIdleCloseTicker.ts`, every 5
   minutes (first pass 2 minutes after boot), one replica (the
   `conversation_idle_close` lease; not in `TICKER_CYCLE_SECONDS`, the
@@ -330,13 +339,15 @@ only the Super Admin's switch stops it, for every workspace at once.
   text, no contact data), writes the due ids to a CSV, closes them inside the
   transaction, checks and rolls back. The commit closes the reviewed ids only
   (each checked again), writes no visitor line and turns the switch on in the
-  same transaction.
+  same transaction; a reviewed file that is missing or empty stops it before
+  anything changes.
 - **Reports** (`conversationEndOf`): "Closed automatically" counts the
   system's closes of open or pending conversations; a resolved conversation
   the system closed later stays its operator's resolve; a close by an
   operator (`closed_reason` `operator`, written by the PATCH) or by an older
-  server (no markers) is an operator's. A PATCH or reply that reopens a closed
-  conversation nulls every marker.
+  server (no markers) is an operator's. The same rule counts operator
+  activity's "resolved" and the weekly summary e-mail's. A PATCH or reply
+  that reopens a closed conversation nulls every marker.
 
 ## Rollout checklist
 
@@ -468,9 +479,14 @@ switch on.
 9. **Smoke test** on an owner-authorized test workspace of each brand: set
    its window to 1 h (its own value) with the switch still off, and check
    `conversation_idle_check` says `due` for a test chat after an hour.
-10. **After the owner's go**, per brand: the backlog commit
-    (`-v commit=1 -v ids=…/backlog.csv`). It closes exactly the reviewed ids,
-    silently, and turns the switch on. Note the time and the counts.
+10. **After the owner's go**, per brand: copy the folder with the reviewed
+    `backlog.csv` back into the container (`/tmp/m284` was removed in step
+    4), then the backlog commit (`-v commit=1 -v ids=/tmp/m284/backlog.csv`).
+    It closes exactly the reviewed ids, silently, and turns the switch on.
+    A missing or empty file stops it before anything changes (psql itself
+    would read a missing file as no id and carry on). When the dry run found
+    nothing due there is nothing to commit: turn the switch on in the Super
+    Admin's "Quiet conversations" instead. Note the time and the counts.
 11. **Watch**: the `[idle-close] pass` lines; in each template (default, t1,
     t2; intl, t1-intl, t2-intl on RESPOK) on the test workspace a live close
     shows «گفتگو به پایان رسید» and the card, a rating reaches the timeline,

@@ -238,12 +238,18 @@ export async function sweepWeeklySummary(
 /**
  * The week, counted.
  *
+ * "Resolved" is the team's resolves (shared/inactivityClose.ts
+ * conversationEndOf, as operatorActivity.ts counts them): resolved, closed by
+ * an operator, or resolved and then closed by the timer (which never moves
+ * updated_at, so the resolve stays in its week). A conversation the timer
+ * closed from open or pending is nobody's resolve and is left out.
+ *
  * `conversation_messages` carries no workspace of its own — it belongs to a
  * conversation, which belongs to a workspace — so the message count goes
  * through the conversations touched in the window. Bounded at a thousand,
  * which is a busy week for one workspace and cheap for a job that runs once.
  */
-async function weekCounts(
+export async function weekCounts(
   config: ServerConfig,
   workspaceId: string,
   since: Date,
@@ -252,7 +258,7 @@ async function weekCounts(
   const client = sb(config);
   const iso = (d: Date) => d.toISOString();
 
-  const [opened, resolved, touched] = await Promise.all([
+  const [opened, ended, autoClosed, touched] = await Promise.all([
     client
       .from('conversations')
       .select('id', { count: 'exact', head: true })
@@ -263,7 +269,17 @@ async function weekCounts(
       .from('conversations')
       .select('id', { count: 'exact', head: true })
       .eq('workspace_id', workspaceId)
-      .eq('status', 'resolved')
+      .in('status', ['resolved', 'closed'])
+      .gte('updated_at', iso(since))
+      .lt('updated_at', iso(until)),
+    // conversationEndOf's closed_inactive: closed by the timer, not from resolved.
+    client
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'closed')
+      .eq('metadata->>closed_reason', 'inactivity')
+      .or('metadata->>closed_from.is.null,metadata->>closed_from.neq.resolved')
       .gte('updated_at', iso(since))
       .lt('updated_at', iso(until)),
     client
@@ -288,7 +304,7 @@ async function weekCounts(
 
   return {
     conversations: opened.count ?? 0,
-    resolved: resolved.count ?? 0,
+    resolved: Math.max(0, (ended.count ?? 0) - (autoClosed.count ?? 0)),
     messages,
   };
 }

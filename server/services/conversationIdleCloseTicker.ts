@@ -24,14 +24,22 @@
  *     "Closed · Automatically, after N h without messages"), actor 'system';
  *   - when the visitor ever wrote, the visitor's nameless closed line
  *     («گفتگو به پایان رسید», then the template's rating card), prepared here
- *     (conversationClosedNotice.ts prepareClosedLine), written in the close's
- *     transaction and published like a message;
+ *     (conversationClosedNotice.ts prepareClosedLine; a failed read leaves
+ *     the conversation for the next pass, never closes it without its
+ *     line), written in the close's transaction and published like a
+ *     message once the race grace is over (below);
  *   - the Inbox lists move as for the PATCH (conversation_resolved from open
  *     or pending, conversation_updated from resolved, actor null) and the
  *     open timeline reloads (timeline_event). No push, no transcript, no
  *     e-mail, no audit row, no other notice to anyone, and no AI.
  * A visitor message that races a close puts it back as it was
- * (visitorConversations.ts reopenAfterIdleCloseRace, routes/widget.ts).
+ * (visitorConversations.ts reopenAfterIdleCloseRace, routes/widget.ts),
+ * within INACTIVITY_CLOSE_RACE_GRACE_SECONDS, and retracts the line (it
+ * turns internal). So the line goes to the visitor's open widget only when
+ * that grace is over, and only while the close stands: a message in flight
+ * at the close (its insert waits on the close's row lock, then reopens) or
+ * written in the meantime never meets a line on screen that the server has
+ * already taken back.
  *
  * The lease is a duplication guard only: the close is a compare-and-set, so
  * a second replica's pass closes nothing twice and writes nothing twice
@@ -45,8 +53,9 @@ import type { ServerConfig } from '../config.js';
 import { acquireTickerLease, releaseTickerLease } from './observability/tickerLease.js';
 import { getServiceClient } from '../supabase.js';
 import { buildMessageEnvelope, publishConversationEvent, publishOperatorEvent } from './realtime/publish.js';
-import { prepareClosedLine } from './conversationClosedNotice.js';
+import { prepareClosedLine, type PreparedClosedLine } from './conversationClosedNotice.js';
 import { loadInactivityCloseSettings } from './widget/platformSettings.js';
+import { INACTIVITY_CLOSE_RACE_GRACE_SECONDS } from '../../shared/inactivityClose.js';
 
 const LEASE_NAME = 'conversation_idle_close';
 
@@ -56,8 +65,15 @@ const TICK_MS = 5 * 60 * 1000;
 const FIRST_RUN_MS = 2 * 60 * 1000;
 /** Closes per pass; the rest come on the next pass (oldest first). */
 const BATCH = 50;
+/** How long the visitor's line waits before it goes out live: the race grace. */
+let lineDelayMs = INACTIVITY_CLOSE_RACE_GRACE_SECONDS * 1000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
+
+/** Tests: the wait before the visitor's line is published (the grace by default). */
+export function __setIdleCloseLineDelayForTests(ms: number | null): void {
+  lineDelayMs = ms ?? INACTIVITY_CLOSE_RACE_GRACE_SECONDS * 1000;
+}
 
 export function startConversationIdleCloseTicker(config: ServerConfig): void {
   if (timer) return;
@@ -147,10 +163,19 @@ export async function runConversationIdleCloseOnce(config: ServerConfig): Promis
       pass.due++;
       try {
         // The visitor's line only when they ever wrote: a greeting nobody
-        // answered, or an opening line, closes silently.
-        const line = row.due_has_visitor_turn
-          ? await prepareClosedLine(config, { workspaceId: row.due_workspace_id, conversationId: row.due_conversation_id, by: 'system' })
-          : null;
+        // answered, or an opening line, closes silently. A failed read is
+        // not "no line due": closed now, it would stay closed without its
+        // line for good, so it waits for the next pass.
+        let line: PreparedClosedLine | null = null;
+        if (row.due_has_visitor_turn) {
+          try {
+            line = await prepareClosedLine(config, { workspaceId: row.due_workspace_id, conversationId: row.due_conversation_id, by: 'system' });
+          } catch (err) {
+            pass.skipped.error = (pass.skipped.error || 0) + 1;
+            console.warn('[idle-close] line not prepared, left for the next pass:', (err as { message?: string } | null)?.message || String(err));
+            continue;
+          }
+        }
         const { data: res, error: closeErr } = await sb.rpc('conversation_close_if_idle', {
           p_conversation_id: row.due_conversation_id,
           p_expected_updated_at: row.due_updated_at,
@@ -215,26 +240,44 @@ function announceIdleClose(config: ServerConfig, row: DueRow, r: CloseRow): void
     }).catch(() => undefined);
   }
   // The visitor: the closed line, live (Core draws it, and the rating card
-  // where the template's csat is on). A line written a moment ago has not
-  // been seen (and seen_at is not in every chain, migration 216), so it is
-  // not read.
+  // where the template's csat is on), once the race grace is over and only
+  // while this close stands: a racing message reopened the conversation and
+  // retracted the line (metadata.internal, closed_line_id gone), or a
+  // person's reply reopened it. A line written a moment ago has not been
+  // seen (and seen_at is not in every chain, migration 216), so it is not
+  // read. A restart in the meantime loses only the live copy: the line is
+  // in the thread's history.
   if (r.line_id) {
-    void (async () => {
-      const { data: msg } = await getServiceClient(config)
-        .from('conversation_messages')
-        .select('id, conversation_id, sender_type, body, created_at, metadata')
-        .eq('id', r.line_id!)
-        .maybeSingle();
-      if (!msg) return;
+    const lineId = r.line_id;
+    const publishLine = async () => {
+      const sb = getServiceClient(config);
+      const [{ data: msg }, { data: now }] = await Promise.all([
+        sb.from('conversation_messages')
+          .select('id, conversation_id, sender_type, body, created_at, metadata')
+          .eq('id', lineId)
+          .maybeSingle(),
+        sb.from('conversations').select('status, metadata').eq('id', cid).maybeSingle(),
+      ]);
+      const lineMeta = (msg?.metadata as Record<string, unknown> | null) ?? null;
+      const convMeta = (now?.metadata as Record<string, unknown> | null) ?? null;
+      if (!msg || lineMeta?.internal === true) return;
+      if (now?.status !== 'closed' || convMeta?.closed_line_id !== lineId) return;
       await publishConversationEvent(config, ws, cid, buildMessageEnvelope({
         id: msg.id as string,
         conversation_id: cid,
         sender_type: 'system',
         body: msg.body as string,
         created_at: msg.created_at as string | null,
-        metadata: (msg.metadata as Record<string, unknown>) ?? null,
+        metadata: lineMeta,
         seen_at: null,
       }));
-    })().catch(() => undefined);
+    };
+    const send = () => void publishLine().catch(() => undefined);
+    if (lineDelayMs <= 0) {
+      send();
+    } else {
+      const wait = setTimeout(send, lineDelayMs);
+      if (typeof (wait as { unref?: () => void }).unref === 'function') (wait as { unref: () => void }).unref();
+    }
   }
 }

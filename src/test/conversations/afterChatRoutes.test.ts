@@ -320,6 +320,28 @@ describe('GET …/csat', () => {
     expect((await csat(greeting)).body).toMatchObject({ rateable: false, subject: 'ai' });
   });
 
+  it('the AI\'s greeting answers nothing, and a call that connected is a person\'s answer, not the AI\'s', async () => {
+    const intro = { metadata: { source: 'ai_agent_intro' } };
+    // The greeting, the visitor's question, the AI hands over: nobody answered.
+    const asked = conversation();
+    message(asked, 'ai', 'سلام! چطور کمک کنم؟', intro, 150_000);
+    message(asked, 'contact', 'قیمت؟', {}, 120_000);
+    message(asked, 'ai', 'وصلتان می‌کنم', { metadata: { handoff: true } }, 100_000);
+    closed(asked);
+    expect((await csat(asked)).body).toMatchObject({ rateable: false, subject: null });
+    // An operator then called the visitor (connected) and closed: the
+    // person's card, never the AI's.
+    state.db.tables.call_sessions = [{
+      id: randomUUID(), workspace_id: WS, context_type: 'conversation', context_id: asked,
+      state: 'ended', connected_at: at(90_000), ended_at: at(60_000),
+    }];
+    // Nothing written to mail, though: no transcript link.
+    expect((await csat(asked)).body).toMatchObject({ rateable: true, subject: 'operator', transcript: { available: false } });
+    // A call that never connected is no answer.
+    state.db.tables.call_sessions[0].connected_at = null;
+    expect((await csat(asked)).body).toMatchObject({ rateable: false, subject: null });
+  });
+
   it('nothing to rate: no closed line, or the thread moved on after it', async () => {
     const cid = conversation();
     message(cid, 'agent');

@@ -260,7 +260,8 @@ COMMENT ON FUNCTION public.conversation_message_turn(text, text, jsonb) IS
 --   channel, platform support);
 --   'recent'       the last exchange (the newest visitor turn, person's
 --                  answer or AI answer, or a connected call's end — now while
---                  it lasts; with none, created_at) is inside the
+--                  the 'call' guard believes it live; with none,
+--                  created_at) is inside the
 --                  workspace's window;
 --   the team owes: 'needs_reply' (open, and the visitor's turn is the newest:
 --                  no answer and no call connected after it; a tie is owed),
@@ -275,8 +276,8 @@ COMMENT ON FUNCTION public.conversation_message_turn(text, text, jsonb) IS
 -- closed_outcome (reports, 'due' only): 'no_visitor_message' (the visitor
 -- never wrote: a greeting, an opening line), 'human' (a person answered, in
 -- writing or on a connected call), 'ai_resolved' / 'ai_unresolved' (only the
--- AI answered; ai_memory.issueStatus), 'unanswered' (pending or resolved with
--- the visitor's turn unanswered).
+-- AI answered, never by its greeting alone; ai_memory.issueStatus),
+-- 'unanswered' (pending or resolved with the visitor's turn unanswered).
 CREATE OR REPLACE FUNCTION public.conversation_idle_check(p_conversation_id uuid)
 RETURNS TABLE (verdict text, idle_hours integer, last_exchange_at timestamptz, last_visitor_at timestamptz, closed_outcome text)
 LANGUAGE plpgsql
@@ -345,8 +346,18 @@ BEGIN
    LIMIT 1;
   -- A call that connected is an exchange (until it ends), and the team's
   -- answer to a turn the visitor wrote before it connected (the timer's
-  -- rule only: the Inbox's needsReply.ts is unchanged).
-  SELECT max(coalesce(cs.ended_at, now())), max(cs.connected_at)
+  -- rule only: the Inbox's needsReply.ts is unchanged). One whose end was
+  -- never recorded (a lost webhook, a crashed worker) is live only as long
+  -- as the 'call' guard below believes it (a live state, created in the
+  -- last 12 h); after that its connect is its last exchange, or it would
+  -- read 'recent' for ever.
+  SELECT max(coalesce(cs.ended_at,
+                      CASE WHEN cs.state IN ('pending', 'ringing', 'connecting', 'active')
+                                AND cs.created_at > now() - interval '12 hours'
+                           THEN now()
+                           ELSE cs.connected_at
+                      END)),
+         max(cs.connected_at)
     INTO v_call_end, v_call_connected
     FROM public.call_sessions cs
    WHERE cs.context_type = 'conversation' AND cs.context_id = c.id AND cs.connected_at IS NOT NULL;
@@ -414,11 +425,20 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Who answered, for closed_outcome (conversationRatings.ts answeredBy):
+  -- a person (a message, or a call that connected), else the AI with a
+  -- real answer: its greeting (source ai_agent_intro*, written before the
+  -- visitor's first word) answers nothing.
   RETURN QUERY SELECT 'due'::text, v_hours, v_last, v_visitor,
     CASE
       WHEN v_visitor IS NULL THEN 'no_visitor_message'
       WHEN v_agent IS NOT NULL OR v_call_connected IS NOT NULL THEN 'human'
-      WHEN v_ai IS NOT NULL THEN
+      WHEN v_ai IS NOT NULL AND EXISTS (
+        SELECT 1 FROM public.conversation_messages m
+         WHERE m.conversation_id = c.id AND m.sender_type = 'ai'
+           AND NOT starts_with(coalesce(m.metadata->>'source', ''), 'ai_agent_intro')
+           AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'team'
+      ) THEN
         CASE WHEN c.metadata->'ai_memory'->>'issueStatus' = 'resolved' THEN 'ai_resolved' ELSE 'ai_unresolved' END
       ELSE 'unanswered'
     END;

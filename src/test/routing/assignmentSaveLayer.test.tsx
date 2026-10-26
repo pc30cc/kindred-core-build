@@ -105,6 +105,27 @@ describe('Conversation assignment over the save layer', () => {
     await waitFor(() => expect(input.value).toBe('5'));
   });
 
+  it('a refused inactivity close names its field, and the field shows the default it follows again', async () => {
+    answers = [{
+      status: 400,
+      body: { error: 'Invalid input', issues: [{ path: 'inactivity_close_hours', message: 'Too big' }] },
+    }];
+    render(<Page />, { wrapper });
+    const input = screen.getByLabelText(en.widgetPage.behavior.assignment.inactivityClose) as HTMLInputElement;
+    expect(input.value).toBe('24');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '12' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(sent).toEqual([{ inactivity_close_hours: 12 }]));
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('error'));
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      description: en.widgetPage.save.errorInvalidField.replace('{{field}}', en.widgetPage.behavior.assignment.inactivityClose),
+    }));
+    await waitFor(() => expect(input.value).toBe('24'));
+  });
+
   it('a saved switch: "saved", no toast', async () => {
     render(<Page />, { wrapper });
     fireEvent.click(screen.getByRole('switch'));

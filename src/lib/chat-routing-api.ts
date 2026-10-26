@@ -1,5 +1,10 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { SettingsRequestError } from '@/lib/settingsErrors';
+import {
+  INACTIVITY_CLOSE_DEFAULT_HOURS,
+  INACTIVITY_CLOSE_MAX_HOURS,
+  INACTIVITY_CLOSE_MIN_HOURS,
+} from '../../shared/inactivityClose';
 /**
  * Chat routing, as the workspace panel reads and sets it (migration 278,
  * server/services/chatRouting.ts):
@@ -11,7 +16,7 @@ import { SettingsRequestError } from '@/lib/settingsErrors';
  *     PATCH /api/workspace-members/:memberId/chat-routing.
  *
  * The workspace-wide settings (assignment mode, returning visitors, default
- * maximum, first-response timeout) are widget settings
+ * maximum, first-response timeout, the inactivity close) are widget settings
  * (PATCH /api/widget-settings/:workspaceId).
  */
 
@@ -25,6 +30,13 @@ export interface ChatRoutingPlatformPolicy {
   last_agent_routing_enabled: boolean;
   /** The owner is the last resort for a chat nobody else could take. */
   owner_fallback_for_chat: boolean;
+  /**
+   * Off: no workspace's conversation closes for inactivity (migration 284).
+   * Absent from older servers.
+   */
+  inactivity_close_enabled?: boolean;
+  /** The hours a workspace without its own window follows (1–48). */
+  inactivity_close_default_hours?: number;
 }
 
 export interface MemberChatRouting {
@@ -40,6 +52,8 @@ export const LAST_AGENT_WINDOW_MIN = 1;
 export const LAST_AGENT_WINDOW_MAX = 365;
 export const FIRST_RESPONSE_TIMEOUT_MIN = 0;
 export const FIRST_RESPONSE_TIMEOUT_MAX = 60;
+/** The inactivity close's window in hours, and its default (shared/inactivityClose.ts). */
+export { INACTIVITY_CLOSE_MIN_HOURS, INACTIVITY_CLOSE_MAX_HOURS, INACTIVITY_CLOSE_DEFAULT_HOURS };
 /** The server's defaults when a workspace never saved one. */
 export const DEFAULT_CHAT_CAPACITY = 5;
 export const DEFAULT_LAST_AGENT_WINDOW_DAYS = 30;

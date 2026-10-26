@@ -147,6 +147,10 @@ interface TimelinePayload {
   department_name?: string;
   score?: number | string;
   comment?: string | null;
+  /** A rating's subject: 'ai' when only the AI answered (else the operator). */
+  subject?: string;
+  /** The inactivity close's window, in hours. */
+  idle_hours?: number;
   status?: string;
   from?: string;
   to?: string;
@@ -165,6 +169,11 @@ export function describeEvent(
   const L = (key: string, fallback: string) => tx(t, `inbox.timeline.${key}`, fallback);
   const channel = codeLabel(t, 'channel', p?.channel);
   const reason = codeLabel(t, 'reason', p?.reason);
+  // A close: the inactivity timer says after how long nobody wrote.
+  const idleHours = Number(p?.idle_hours);
+  const closeReason = p?.reason === 'inactivity' && Number.isFinite(idleHours) && idleHours > 0
+    ? L('reason.inactivityHours', 'Automatically, after {{hours}} h without messages').replace('{{hours}}', String(idleHours))
+    : reason;
   switch (ev.event_type) {
     case 'created':
       return { primary: L('created', 'Conversation created'), secondary: codeLabel(t, 'source', p?.source) };
@@ -184,15 +193,18 @@ export function describeEvent(
     }
     case 'unassigned':
       return { primary: L('unassigned', 'Unassigned'), secondary: codeLabel(t, 'method', p?.method) };
-    // The PATCH files a move to `closed` as a `resolved` event too; its
-    // payload says which (finding I-01: it used to read "Marked as resolved").
+    // The PATCH (and the inactivity timer) files a move to `closed` from
+    // open or pending as a `resolved` event too; its payload says which
+    // (finding I-01: it used to read "Marked as resolved").
     case 'resolved':
       return p?.to === 'closed'
-        ? { primary: L('closed', 'Closed'), secondary: reason }
+        ? { primary: L('closed', 'Closed'), secondary: closeReason }
         : { primary: L('resolved', 'Marked as resolved'), secondary: reason };
     case 'reopened':
       return { primary: L('reopened', 'Reopened'), secondary: reason };
+    // From resolved, a close is filed as a status change: it reads as a close.
     case 'status_changed':
+      if (p?.to === 'closed') return { primary: L('closed', 'Closed'), secondary: closeReason };
       return {
         primary: L('statusChanged', 'Status changed'),
         secondary: joinParts(
@@ -230,7 +242,8 @@ export function describeEvent(
       const score = Number(p?.score);
       const comment = typeof p?.comment === 'string' ? p.comment.trim() : '';
       return {
-        primary: L('rated', 'Visitor rated the conversation'),
+        // A conversation only the AI answered rates the AI, not an operator.
+        primary: p?.subject === 'ai' ? L('ratedAi', 'Visitor rated the AI agent') : L('rated', 'Visitor rated the conversation'),
         secondary: joinParts(
           Number.isFinite(score) && score > 0 ? `${'★'.repeat(Math.min(5, Math.round(score)))} ${score}/5` : undefined,
           // The visitor's own words, quoted in the interface's style; one

@@ -38,6 +38,7 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   last_agent_window_days: 'widgetPage.behavior.assignment.lastAgent',
   default_max_concurrent_chats: 'widgetPage.behavior.assignment.capacity',
   first_response_timeout_minutes: 'widgetPage.behavior.assignment.timeout',
+  inactivity_close_hours: 'widgetPage.behavior.assignment.inactivityClose',
   // Settings → Privacy requests → Visitor privacy (VisitorPrivacyCard).
   tracking_requires_consent: 'privacy.visitor.consentTitle',
   tracking_keep_query: 'privacy.visitor.keepQueryTitle',

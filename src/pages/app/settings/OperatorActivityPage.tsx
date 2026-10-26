@@ -11,11 +11,17 @@
  * now" is what their status and schedule say. Assignments and message
  * counts are live. Satisfaction (visitors' ratings after a chat) shows only
  * once the window has ratings.
+ *
+ * Inactivity close (migration 284): a conversation the timer closed while it
+ * was open or pending is not the operator's resolve; it shows in its own
+ * "Closed automatically" column, only while the window has any (an older
+ * server sends none). Ratings of conversations only the AI answered are the
+ * AI's: a line of their own, never in an operator's satisfaction.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, Clock, Users, MessageSquare, Loader2, TrendingUp, CircleDot, Download, FileSpreadsheet,
+  Activity, Clock, Users, MessageSquare, Loader2, TrendingUp, CircleDot, Download, FileSpreadsheet, Bot,
 } from 'lucide-react';
 
 import { useI18n, useTranslation } from '@/i18n';
@@ -94,6 +100,9 @@ export default function OperatorActivityPage() {
 
   const maxMinutes = Math.max(1, ...(data?.operators || []).map((o) => o.online_minutes));
   const showSatisfaction = (data?.totals.csat_count ?? 0) > 0;
+  const showAutoClosed = (data?.totals.conversations_auto_closed ?? 0) > 0
+    || (data?.operators ?? []).some((o) => (o.conversations_auto_closed ?? 0) > 0);
+  const aiRated = (data?.totals.csat_ai_count ?? 0) > 0;
   const tracked = onlineTimeTracked(data);
   const { onlineNow, availableNow } = presenceTotals(data);
 
@@ -266,6 +275,14 @@ export default function OperatorActivityPage() {
                       {fmt.num(op.conversations_resolved)}/{fmt.num(op.conversations_assigned)}
                     </div>
                   </div>
+                  {showAutoClosed && (
+                    <div className="hidden text-center lg:block" data-auto-closed={op.user_id}>
+                      <div className="text-xs text-muted-foreground">{t('operatorActivity.col.autoClosed')}</div>
+                      <div className="text-sm font-medium text-foreground" title={t('operatorActivity.autoClosedHint')}>
+                        {fmt.num(op.conversations_auto_closed ?? 0)}
+                      </div>
+                    </div>
+                  )}
                   {showSatisfaction && (
                     <div className="hidden text-center lg:block" data-satisfaction={op.user_id}>
                       <div className="text-xs text-muted-foreground">{t('operatorActivity.col.satisfaction')}</div>
@@ -293,6 +310,22 @@ export default function OperatorActivityPage() {
           </div>
         )}
       </Card>
+
+      {/* The AI's own ratings: conversations only the AI answered. */}
+      {aiRated && (
+        <Card className="border-border/60 p-4" data-satisfaction-ai>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Bot className="h-4 w-4 text-violet-500" />
+            {t('operatorActivity.aiSatisfaction')}
+          </div>
+          <div className="mt-2 text-xl font-semibold text-foreground">
+            {data?.totals.csat_ai_avg != null
+              ? t('operatorActivity.satisfactionValue', { avg: fmt.score(data.totals.csat_ai_avg), n: fmt.num(data.totals.csat_ai_count ?? 0) })
+              : '—'}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{t('operatorActivity.aiSatisfactionHint')}</p>
+        </Card>
+      )}
 
       <Card className="border-border/60 bg-muted/20 p-4">
         <div className="flex items-start gap-3 text-sm text-muted-foreground">

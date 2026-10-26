@@ -9,6 +9,11 @@
  * card; windows-native's list printed the body for every kind. Until a
  * release ships these, the server writes `body` in the operator's language
  * (server/services/operatorSystemText.ts).
+ *
+ * The inactivity close (migration 284) ships without an app release: its
+ * line is a `conversation_closed` row without a name (agent_name null), so
+ * every app's nameless branch prints "The conversation was closed"; no new
+ * kind, which a released app would print as its stored English body.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -59,6 +64,24 @@ describe('native localizers know every system kind', () => {
 
     it(`${app}: treats 'a colleague' as no name`, () => {
       expect(read(file).toLowerCase(), file).toContain('a colleague');
+    });
+  }
+
+  it('the inactivity close adds no kind: its line is a nameless conversation_closed', () => {
+    expect(SYSTEM_MESSAGE_KINDS).toContain('conversation_closed');
+    expect(SYSTEM_MESSAGE_KINDS.filter((kind) => /inactiv|idle|auto|quiet/.test(kind))).toEqual([]);
+  });
+
+  for (const [app, { file }] of Object.entries(LOCALIZERS)) {
+    it(`${app}: conversation_closed without a name prints the nameless sentence`, () => {
+      const src = read(file);
+      const at = src.search(/["']conversation_closed["']/);
+      expect(at, file).toBeGreaterThan(-1);
+      const branch = src.slice(at, at + 400);
+      // It reads the closer's name, and has the sentence for none.
+      expect(branch, file).toContain('agent_name');
+      expect(branch, file).toMatch(/sysClosed(?!By)\b/);
+      expect(branch, file).toMatch(/sysClosedBy/);
     });
   }
 

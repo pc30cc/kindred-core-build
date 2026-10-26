@@ -239,6 +239,9 @@ export interface WidgetSettings {
   last_agent_window_days?: number;
   default_max_concurrent_chats?: number;
   first_response_timeout_minutes?: number;
+  // Close a quiet conversation after this many hours (1–48, migration 284);
+  // null = the Super Admin's default (shared/inactivityClose.ts).
+  inactivity_close_hours?: number | null;
   allowed_domains: string[];
   allow_subdomains: boolean;
   chat_enabled: boolean;

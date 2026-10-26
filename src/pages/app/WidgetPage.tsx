@@ -1154,8 +1154,9 @@ function WidgetPageContent() {
                   ))}
 
                   {/* Conversation assignment: the mode, returning visitors,
-                      capacity and the first-response timeout. Saves go
-                      through the page's save layer (status, refusals said). */}
+                      capacity, the first-response timeout and the
+                      inactivity close (every plan). Saves go through the
+                      page's save layer (status, refusals said). */}
                   <ConversationAssignmentSection
                     workspaceId={workspace?.id}
                     settings={live}

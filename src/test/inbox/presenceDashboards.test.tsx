@@ -12,9 +12,14 @@
  * was "invisible mode", and its toasts were English in every panel. The menu
  * now offers Online / Away from desk / Offline (migration 282).
  *
+ * The Overview's "Resolved or closed" counted every closed conversation; a
+ * conversation the inactivity timer closed while it was open or pending
+ * (migration 284) is no resolve: it has a neutral pill of its own, drawn
+ * only while there is one. A timer close of a resolved one stays a resolve.
+ *
  * @vitest-environment jsdom
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -30,6 +35,7 @@ const state = vi.hoisted(() => ({
   presence: [] as unknown[],
   updates: [] as unknown[],
   toasts: [] as Array<{ title?: string; description?: string }>,
+  conversations: [] as unknown[],
 }));
 
 vi.mock('@/hooks/useWorkspace', () => ({
@@ -59,8 +65,37 @@ vi.mock('@/lib/availability-api', async (orig) => ({
   },
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: (t: { title?: string; description?: string }) => { state.toasts.push(t); } }));
+// The Overview's other data: an Inbox-only member of a plan without the
+// visitor or contact sections.
+vi.mock('@/hooks/useConversations', async (orig) => ({
+  ...(await orig<typeof import('@/hooks/useConversations')>()),
+  useConversations: (ws: string | undefined) => ({ data: ws ? state.conversations : undefined, isPending: false }),
+}));
+vi.mock('@/hooks/useWorkspaceSections', () => ({
+  useWorkspaceSections: () => ({ visible: (section: string) => section === 'inbox', roleKnown: true, ready: true, workspaceId: 'ws-1' }),
+}));
+vi.mock('@/hooks/useKnowledgeBase', async (orig) => ({
+  ...(await orig<typeof import('@/hooks/useKnowledgeBase')>()),
+  useKBArticles: () => ({ data: [] }),
+}));
+vi.mock('@/hooks/useWorkspaceMembers', async (orig) => ({
+  ...(await orig<typeof import('@/hooks/useWorkspaceMembers')>()),
+  useWorkspaceMembers: () => ({ data: [], isPending: false }),
+}));
+vi.mock('@/hooks/usePlans', async (orig) => ({ ...(await orig<typeof import('@/hooks/usePlans')>()), useWorkspaceUsage: () => ({ data: null }) }));
+vi.mock('@/hooks/useEntitlements', async (orig) => ({
+  ...(await orig<typeof import('@/hooks/useEntitlements')>()),
+  useWorkspaceEffectiveEntitlements: () => ({ data: null }),
+}));
+vi.mock('@/hooks/useAiWalletSummary', () => ({ useAiWalletSummary: () => ({ data: null }) }));
+vi.mock('@/hooks/useEdition', async (orig) => ({ ...(await orig<typeof import('@/hooks/useEdition')>()), useEdition: () => ({ isIran: true }) }));
+vi.mock('@/themes/art/charts/useArtCharts', () => ({ useArtCharts: () => null }));
+vi.mock('@/components/magic/NumberTicker', () => ({
+  NumberTicker: ({ value, format }: { value: number; format: (n: number) => string }) => <span>{format(value)}</span>,
+}));
 
 const { default: OperatorActivityPage } = await import('@/pages/app/settings/OperatorActivityPage');
+const { default: OverviewPage } = await import('@/pages/app/OverviewPage');
 const { UserMenu } = await import('@/components/layout/UserMenu');
 const { I18nProvider } = await import('@/i18n');
 const { summaryRows } = await import('@/lib/operator-activity-export');
@@ -243,5 +278,51 @@ describe('the operator\'s own status', () => {
     expect(document.querySelector('[data-my-status]')).toBeNull();
     fireEvent.click(document.querySelector('button')!);
     expect(document.querySelector('[data-my-status-menu]')).toBeNull();
+  });
+});
+
+describe('the Overview\'s conversation pills', () => {
+  const conv = (id: string, status: string, metadata: Record<string, unknown> | null = null) =>
+    ({ id, status, metadata, created_at: '2026-10-20T10:00:00Z', contacts: null, visitor_name: 'Visitor' });
+  const pill = (attr: string) => document.querySelector(`[${attr}]`) as HTMLElement | null;
+  // The activity chart measures its box.
+  beforeAll(() => {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
+  });
+
+  it('an automatic close of an open or pending conversation is no resolve; it has its own pill', async () => {
+    state.role = 'agent';
+    state.conversations = [
+      conv('a', 'resolved'),
+      conv('b', 'closed', { closed_reason: 'operator', closed_from: 'open' }),
+      conv('c', 'closed'), // a close from before 284: the operator's
+      conv('d', 'closed', { closed_reason: 'inactivity', closed_from: 'resolved' }), // stays the resolve
+      conv('e', 'closed', { closed_reason: 'inactivity', closed_from: 'open' }),
+      conv('f', 'closed', { closed_reason: 'inactivity', closed_from: 'pending' }),
+      conv('g', 'open'),
+      conv('h', 'pending'),
+    ];
+    mountWith(<OverviewPage />);
+    await waitFor(() => expect(pill('data-resolved')).not.toBeNull());
+    expect(pill('data-resolved')!.textContent).toBe('Resolved or closed: 4');
+    expect(pill('data-auto-closed')!.textContent).toBe('Closed automatically: 2');
+    expect(pill('data-auto-closed')!.getAttribute('title')).toContain('Not counted as resolved');
+  });
+
+  it('no automatic close: no pill', async () => {
+    state.role = 'agent';
+    state.conversations = [conv('a', 'resolved'), conv('b', 'closed'), conv('d', 'closed', { closed_reason: 'inactivity', closed_from: 'resolved' })];
+    mountWith(<OverviewPage />);
+    await waitFor(() => expect(pill('data-resolved')!.textContent).toBe('Resolved or closed: 3'));
+    expect(pill('data-auto-closed')).toBeNull();
+  });
+
+  it('in Persian', async () => {
+    state.role = 'agent';
+    state.conversations = [conv('e', 'closed', { closed_reason: 'inactivity', closed_from: 'open' })];
+    mountWith(<OverviewPage />, 'fa');
+    await waitFor(() => expect(pill('data-auto-closed')).not.toBeNull());
+    expect(pill('data-auto-closed')!.textContent).toBe('بسته‌شدهٔ خودکار: ۱');
+    expect(pill('data-resolved')!.textContent).toBe('حل‌شده یا بسته: ۰');
   });
 });

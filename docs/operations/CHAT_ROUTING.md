@@ -282,8 +282,10 @@ only the Super Admin's switch stops it, for every workspace at once.
 - **What it never writes**: `updated_at` (retention locks, the Resolved lists
   and the visitor's history go by it), the AI's hold (`ai_state`,
   `managed_by_ai`, the handoff and takeover keys: an AI-only conversation
-  stays in no Inbox queue), `routing_pending`, routing's state or skip list,
-  an audit row. No push, no transcript, no e-mail.
+  stays in no Inbox queue but the web panel's Closed box, whose Reopen takes
+  it over first, as Take over does, so it lands with that operator, not
+  back with the AI), `routing_pending`, routing's state or skip list, an
+  audit row. No push, no transcript, no e-mail.
 - **The visitor's line and the rating.** When the visitor ever wrote, the
   close inserts the nameless closed line in the same transaction (`kind`
   `conversation_closed`, `by` `system`, `agent_name` null, `closed_reason`

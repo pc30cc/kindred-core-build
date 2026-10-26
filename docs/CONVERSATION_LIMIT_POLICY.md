@@ -96,3 +96,19 @@ write at chat open, and only when the visitor has no live conversation.
   (`reopenAfterIdleCloseRace`): no creation, not gated. The visitor's closed
   line the close writes counts one message in `messages_count`, as an
   operator's close's line does.
+- Since migration 286 (owner, 2026-10-26) the close covers every chat
+  channel: Telegram, Bale, WhatsApp, Instagram, X and platform support too,
+  silently (no line, so nothing in `messages_count`). A channel customer's
+  message after it is a NEW conversation made by
+  `ensure_active_conversation` (`server/services/channels/inboundProcessing.ts`),
+  and a support requester's by `server/services/platformSupport/service.ts`.
+  Those paths are not in the table above and have no `max_conversations`
+  gate (a channel message is never refused for the plan's cap); the new
+  conversation counts like any other. A message within 600 seconds of the
+  close raced it and goes back into that conversation
+  (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`): no creation. A support
+  thread closed from `resolved` is never brought back: the message is
+  refused with `conversation_ended`, as before its close
+  (`docs/PLATFORM_SUPPORT.md`).
+  The Email inbox (`email_threads`) is not a conversation and is not
+  affected.

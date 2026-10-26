@@ -989,11 +989,12 @@ const httpServer = app.listen(config.port, () => {
   // (every 30 s, leased). See server/services/chatRoutingTicker.ts.
   startChatRoutingTicker(config);
 
-  // The inactivity close — a widget conversation nobody has written in for
-  // its workspace's window (1–48 h, default 24) is closed by the system,
-  // never while the team owes an answer (every 5 min, leased; nothing while
-  // the Super Admin's switch is off, a no-op before migration 284). See
-  // server/services/conversationIdleCloseTicker.ts.
+  // The inactivity close — a conversation of any chat channel nobody has
+  // written in for its workspace's window (1–48 h, default 24) is closed by
+  // the system, silently but on the widget, never while the team owes an
+  // answer, never the App Review account's (every 5 min, leased; nothing
+  // while the Super Admin's switch is off, a no-op before migration 284; the
+  // widget only before 286). See server/services/conversationIdleCloseTicker.ts.
   startConversationIdleCloseTicker(config);
 
   // The App Review demo's visitors, kept on the Visitors tab while that

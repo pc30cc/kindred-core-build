@@ -1,16 +1,22 @@
 /**
- * THE INACTIVITY CLOSE (owner, 2026-10-23/24; migration 284): the bounds,
- * the vocabulary and the reading of a close, shared by the server, the panel
- * and the reports. Pure: no I/O.
+ * THE INACTIVITY CLOSE (owner, 2026-10-23/24 and 2026-10-26; migrations 284,
+ * 285 and 286): the bounds, the vocabulary and the reading of a close, shared
+ * by the server, the panel and the reports. Pure: no I/O.
  *
- * A website-widget conversation in which neither the visitor nor the team
- * (people or the AI) has exchanged anything for N hours is closed by the
- * system (server/services/conversationIdleCloseTicker.ts), never while the
- * team still owes an answer (the SQL conversation_idle_check). N is the
- * workspace's widget_settings.inactivity_close_hours (1–48), else the Super
- * Admin's widget_platform_settings.inactivity_close_default_hours (24 by
- * default). Only the Super Admin's switch (inactivity_close_enabled) turns it
- * off, for every workspace at once.
+ * A conversation of any chat channel (the website widget, Telegram, Bale,
+ * WhatsApp, Instagram, X and platform support; the e-mail inbox keeps no
+ * conversations) in which neither the customer nor the team (people or the
+ * AI) has exchanged anything for N hours is closed by the system
+ * (server/services/conversationIdleCloseTicker.ts), never while the team
+ * still owes an answer and never the App Review account's (the SQL
+ * conversation_idle_check). Only the widget's visitor is shown the end
+ * («گفتگو به پایان رسید» and the rating card); the other channels' customers
+ * are sent nothing, and platform support shows its own end from the status.
+ * N is the conversation's workspace's widget_settings.inactivity_close_hours
+ * (1–48), else the Super Admin's
+ * widget_platform_settings.inactivity_close_default_hours (24 by default).
+ * Only the Super Admin's switch (inactivity_close_enabled) turns it off, for
+ * every workspace and channel at once.
  *
  * A close writes its markers into conversations.metadata (CLOSED_KEYS). They
  * describe the close the conversation is in, so they are read only while its
@@ -28,6 +34,16 @@ export const INACTIVITY_CLOSE_DEFAULT_HOURS = 24;
  */
 export const INACTIVITY_CLOSE_RACE_GRACE_SECONDS = 60;
 /**
+ * The same for a channel's customer message (Telegram, Bale, WhatsApp,
+ * Instagram, X) and a platform-support requester's (migration 286), measured
+ * when the server processes it: a channel message waits in a queue first (an
+ * idle channels worker picks a job up within 30 s, X is polled every 60 s, a
+ * failed job is retried later), and a requester's file is uploaded before its
+ * message is written, so one sent before the close can arrive minutes after
+ * it. No more than the SQL's cap of 600.
+ */
+export const INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS = 600;
+/**
  * The timer never closes a conversation untouched for longer (its updated_at):
  * that backlog is closed by hand, silently, after the owner saw the list
  * (database/backfill/284_inactivity_backlog_close.sql), which has no bound.
@@ -36,7 +52,7 @@ export const INACTIVITY_CLOSE_MAX_UNTOUCHED_DAYS = 30;
 
 /** Who closed it: the system after the quiet period, or an operator (the Inbox's PATCH). */
 export type ClosedReason = 'inactivity' | 'operator';
-/** Which inactivity close: the timer (with the visitor's line) or the hand-run backlog (silent). */
+/** Which inactivity close: the timer (with the widget visitor's line when they wrote; silent on every other channel) or the hand-run backlog (always silent). */
 export type ClosedSource = 'inactivity_timer' | 'inactivity_backlog';
 /** What the conversation was when the timer closed it (reports). */
 export type ClosedOutcome = 'no_visitor_message' | 'human' | 'ai_resolved' | 'ai_unresolved' | 'unanswered';

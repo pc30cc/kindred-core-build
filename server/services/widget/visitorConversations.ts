@@ -36,8 +36,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import type { ServiceClient } from '../../supabase.js';
-import { publishOperatorEvent } from '../realtime/publish.js';
-import { INACTIVITY_CLOSE_RACE_GRACE_SECONDS } from '../../../shared/inactivityClose.js';
+import { justClosedForInactivity, reopenAfterIdleCloseRace } from '../idleCloseRace.js';
 
 /** What a visitor may still write into (owner, 2026-10-24): closed alone has ended. */
 export const LIVE_CONVERSATION_STATUSES = ['open', 'pending', 'resolved'] as const;
@@ -254,90 +253,12 @@ export async function findLiveVisitorConversation(
 }
 
 /**
- * Whether the conversation was closed by the inactivity close a moment ago,
- * within INACTIVITY_CLOSE_RACE_GRACE_SECONDS (migration 284): a visitor
- * message now raced the close (the widget had not heard of it yet). A
- * closed_at that does not parse is no race; one in the future (the
- * database's clock ahead of this one) is within the grace.
+ * The race with an inactivity close, shared by every channel since migration
+ * 286 (services/idleCloseRace.ts): re-exported here for the widget's routes
+ * and tests, with the widget's grace (INACTIVITY_CLOSE_RACE_GRACE_SECONDS) as
+ * their default.
  */
-export function justClosedForInactivity(
-  row: { status?: unknown; metadata?: unknown } | null | undefined,
-  now: number = Date.now(),
-): boolean {
-  if (!row || row.status !== 'closed') return false;
-  const meta = row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
-    ? row.metadata as Record<string, unknown>
-    : {};
-  if (meta.closed_reason !== 'inactivity' || typeof meta.closed_at !== 'string') return false;
-  const at = Date.parse(meta.closed_at);
-  if (!Number.isFinite(at)) return false;
-  return now - at <= INACTIVITY_CLOSE_RACE_GRACE_SECONDS * 1000;
-}
-
-/**
- * A visitor message raced an inactivity close: the conversation goes back to
- * what it was before the close (open, pending or resolved, with its thread
- * stamps; conversation_reopen_after_idle_close, migration 284, row-locked,
- * once, only within the grace), the closed line it wrote is retracted, and
- * the Inbox hears of it (`conversation_reopened` and the timeline echo).
- * Returns the restored status, or null: not such a close, past the grace,
- * already reopened, before 284 (the function missing), or any failure. Never throws. The
- * caller runs the message's lifecycle with that status, as if the close had
- * not happened.
- */
-export async function reopenAfterIdleCloseRace(
-  config: ServerConfig,
-  sb: ServiceClient,
-  input: { workspaceId: string; conversationId: string; messageId?: string | null },
-): Promise<string | null> {
-  try {
-    const { data, error } = await sb.rpc('conversation_reopen_after_idle_close', {
-      p_workspace_id: input.workspaceId,
-      p_conversation_id: input.conversationId,
-      p_message_id: input.messageId ?? null,
-      p_grace_seconds: INACTIVITY_CLOSE_RACE_GRACE_SECONDS,
-    });
-    if (error) {
-      // Before migration 284 (42883; PGRST202 through the data layer): no such close to undo.
-      const code = String((error as { code?: string }).code ?? '');
-      if (code !== '42883' && code !== 'PGRST202') {
-        console.warn('[visitor-conversations] reopen after the inactivity close failed:', (error as { message?: string }).message);
-      }
-      return null;
-    }
-    const row = (Array.isArray(data) ? data[0] : data) as {
-      restored_status?: string | null; updated_at?: string | null; event_id?: string | null; event_created_at?: string | null;
-    } | null;
-    const restored = typeof row?.restored_status === 'string' ? row.restored_status : null;
-    if (!restored) return null;
-    void publishOperatorEvent(config, {
-      kind: 'conversation_reopened',
-      conversation_id: input.conversationId,
-      workspace_id: input.workspaceId,
-      actor_id: null,
-      changes: { status: { from: 'closed', to: restored } },
-      reason: 'customer_replied_after_inactivity_close',
-      updated_at: row?.updated_at ?? null,
-    }).catch(() => undefined);
-    if (row?.event_id) {
-      // recordConversationEvent's echo, for the event the SQL wrote.
-      void publishOperatorEvent(config, {
-        kind: 'timeline_event',
-        conversation_id: input.conversationId,
-        workspace_id: input.workspaceId,
-        actor_id: null,
-        event_id: row.event_id,
-        event_type: 'reopened',
-        actor_type: 'visitor',
-        created_at: row.event_created_at ?? null,
-      }).catch(() => undefined);
-    }
-    return restored;
-  } catch (err) {
-    console.warn('[visitor-conversations] reopen after the inactivity close threw:', (err as { message?: string } | null)?.message || err);
-    return null;
-  }
-}
+export { justClosedForInactivity, reopenAfterIdleCloseRace };
 
 /**
  * Where a visitor's message goes when it may not continue the conversation it

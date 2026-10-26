@@ -106,12 +106,19 @@ chat goes to the visitor's previous operator when they can take it
 else the whole team, by the workspace's mode (Auto: least busy; Round robin;
 Manual: the queue), never past a member's maximum of open chats. The routing
 ticker (`server/services/chatRoutingTicker.ts`, every 30 s, leased) hands out
-waiting chats and the first-response timeouts. A quiet widget conversation
-closes on its own after the workspace's window (1-48 h; the Super Admin's
-switch and default, 24 h; `server/services/conversationIdleCloseTicker.ts`,
-migrations 284 and 285), never while the team owes an answer and never in
-the App Review workspace (`ws_appreview`, Apple's `apple@webyar.ai`; owner,
-2026-10-26). The web
+waiting chats and the first-response timeouts. A quiet conversation of any
+chat channel (the widget, Telegram, Bale, WhatsApp, Instagram, X and
+platform support; owner, 2026-10-26: "everywhere"; the Email inbox has no
+status and is not affected) closes on its own after the workspace's window
+(1-48 h; the Super Admin's switch and default, 24 h;
+`server/services/conversationIdleCloseTicker.ts`, migrations 284, 285 and
+286), never while the team owes an answer and never for the App Review
+account (`apple@webyar.ai`: its workspace `ws_appreview` and the support
+threads it requests; owner, 2026-10-26). Only the widget tells the visitor
+(«گفتگو به پایان رسید» and the rating); every other channel closes silently,
+and platform support shows its own end. A customer message within the grace
+of a close (60 s on the widget, 600 s on the channels and support) brings
+that conversation back; later, it starts a new one. The web
 panel's Inbox has a «بسته‌شده» (Closed) box beside «حل‌شده»: every closed
 conversation, the AI-held ones the timer closed included (owner, 2026-10-26;
 not in the native apps, whose Resolved lists closed ones too). How it works,
@@ -333,7 +340,17 @@ reserved blocks, so a full disk stops Postgres too.
     (the App Review workspace `ws_appreview` is never closed for quiet;
     applied by hand before its merge, 2026-10-26 11:51 UTC; a schema dump
     and the dry run in `/root/webyar-migrate-285/`; no App Review
-    conversation had been closed).
+    conversation had been closed). Then
+    `286_inactivity_close_every_channel.sql` (every chat channel closes for
+    quiet, silently but the widget; the App Review verdict is `exempt` and
+    covers that account's support threads; a media-only message counts as a
+    turn; applied by hand once the merge's backend is live, since it needs
+    that backend and the backend does not need it, as 283 was; its time goes
+    here in a docs-only follow-up; a schema dump and the dry run's
+    by-channel counts in `/root/webyar-migrate-286/`; no new gate: the
+    switch was already on, so the timer closes what the dry run listed from
+    its next pass; steps in `docs/operations/CHAT_ROUTING.md`, "Rollout of
+    286").
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

@@ -38,7 +38,11 @@ export type NeedsReplyMessage = {
   body?: string | null;
   created_at?: string | null;
   metadata?: Record<string, unknown> | null;
-  /** Real media/file attachments carried by the message, when known. */
+  /**
+   * Real media/file attachments carried by the message, when known (a
+   * caller's count; `metadata.attachment_id` and a channel's
+   * `metadata.attachments` are read from the row itself).
+   */
   attachment_count?: number;
 };
 
@@ -66,9 +70,22 @@ function isSystemGenerated(m: NeedsReplyMessage): boolean {
   return String(m.sender_type ?? '') === 'system' || typeof md.routing_notice === 'string';
 }
 
+/**
+ * A channel's media (a Telegram/Bale/WhatsApp photo, voice note, document or
+ * sticker without a caption, Instagram's or X's media) is stored with an empty
+ * body and `metadata.attachments`, never `attachment_id`: a non-empty array is
+ * content. The SQL twin (conversation_message_turn, migration 286) reads it
+ * the same way; src/test/integration/conversationIdleClose286.pg.test.ts pins
+ * the two together.
+ */
+function channelAttachmentCount(m: NeedsReplyMessage): number {
+  const list = meta(m).attachments;
+  return Array.isArray(list) ? list.length : 0;
+}
+
 function hasContent(m: NeedsReplyMessage): boolean {
   const text = typeof m.body === 'string' ? m.body.trim() : '';
-  return text.length > 0 || (m.attachment_count ?? 0) > 0 || !!meta(m).attachment_id;
+  return text.length > 0 || (m.attachment_count ?? 0) > 0 || !!meta(m).attachment_id || channelAttachmentCount(m) > 0;
 }
 
 /** A real, new customer turn — same contract as the pending/resolved resume guard. */
@@ -78,7 +95,7 @@ export function isActionableCustomerTurn(m: NeedsReplyMessage): boolean {
     senderType: m.sender_type,
     direction: 'inbound',
     text: m.body ?? '',
-    attachmentCount: (m.attachment_count ?? 0) || (md.attachment_id ? 1 : 0),
+    attachmentCount: (m.attachment_count ?? 0) || (md.attachment_id ? 1 : 0) || channelAttachmentCount(m),
     isMenuEvent: isMenuEvent(m),
     isSystemGenerated: isSystemGenerated(m),
     isEcho: md.provider_echo === true,

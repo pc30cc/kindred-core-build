@@ -18,6 +18,11 @@
  *     the unchanged updated_at, the timeline echo, and the line's envelope
  *     only when a line was written, once the race grace is over and only
  *     while the close stands (a racing message's reopen retracted it);
+ *   - every close tells a platform-support requester's devices
+ *     (support_update, migration 286; a no-op for other conversations);
+ *   - a close of any other channel (Telegram, Bale, WhatsApp, Instagram, X,
+ *     platform support) is silent: no line handed to the SQL, no message
+ *     published, nothing queued for the channel;
  *   - nothing else: no transcript, no push, no notification e-mail, no
  *     audit row;
  *   - a throw still releases the lease.
@@ -34,6 +39,9 @@ const state = vi.hoisted(() => ({
   line: null as { body: string; metadata: Record<string, unknown> } | null,
   prepareFails: new Set<string>(),
   forbidden: [] as string[],
+  supportUpdates: [] as Array<Record<string, unknown>>,
+  /** prepareClosedLine runs for real (which conversations get a line is the subject). */
+  realLine: false,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -45,12 +53,20 @@ vi.mock('../../../server/services/realtime/publish.js', () => ({
   },
   buildMessageEnvelope: (m: Record<string, unknown>) => ({ type: 'message', payload: m }),
 }));
-vi.mock('../../../server/services/conversationClosedNotice.js', () => ({
-  prepareClosedLine: async (_c: unknown, input: Record<string, unknown>) => {
-    state.prepared.push(input);
-    if (state.prepareFails.has(String(input.conversationId))) throw new Error('conversation_messages unavailable');
-    return state.line;
-  },
+vi.mock('../../../server/services/conversationClosedNotice.js', async (orig) => {
+  const real = await orig<typeof import('../../../server/services/conversationClosedNotice.js')>();
+  return {
+    ...real,
+    prepareClosedLine: async (c: never, input: Parameters<typeof real.prepareClosedLine>[1]) => {
+      state.prepared.push(input);
+      if (state.realLine) return real.prepareClosedLine(c, input);
+      if (state.prepareFails.has(String(input.conversationId))) throw new Error('conversation_messages unavailable');
+      return state.line;
+    },
+  };
+});
+vi.mock('../../../server/services/platformSupport/changes.js', () => ({
+  onSupportConversationChanged: async (_c: unknown, input: Record<string, unknown>) => { state.supportUpdates.push(input); },
 }));
 // What a close must never reach (the ticker does not import them; were it
 // to, these would count).
@@ -64,6 +80,10 @@ vi.mock('../../../server/services/push/index.js', () => ({
 vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordConversationEvent: async () => { state.forbidden.push('recordConversationEvent'); return { ok: true }; },
   recordAuditAndEvent: async () => { state.forbidden.push('recordAuditAndEvent'); },
+}));
+vi.mock('../../../server/services/channels/outbound.js', () => ({
+  dispatchOutboundIfChannelConversation: async () => { state.forbidden.push('dispatchOutbound'); },
+  ensureOutboundIntent: async () => { state.forbidden.push('ensureOutboundIntent'); },
 }));
 
 const { runConversationIdleCloseOnce, __setIdleCloseLineDelayForTests } = await import('../../../server/services/conversationIdleCloseTicker.js');
@@ -97,6 +117,8 @@ beforeEach(() => {
   state.line = { body: 'The conversation was closed', metadata: { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity' } };
   state.forbidden = [];
   state.prepareFails = new Set();
+  state.supportUpdates = [];
+  state.realLine = false;
   __setIdleCloseLineDelayForTests(0);
   dueRpc = () => ({ data: [], error: null });
   closeRpc = () => ({ data: [closedAnswer()], error: null });
@@ -288,9 +310,53 @@ describe('a pass', () => {
     await runConversationIdleCloseOnce(config);
     await new Promise((r) => setTimeout(r, 10));
     expect(state.forbidden).toEqual([]);
-    const src = readFileSync('server/services/conversationIdleCloseTicker.ts', 'utf8');
-    const imports = [...src.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]);
-    expect(imports.filter((m) => /push|notificationEmail|conversationEvents|ai-agent|platformSupport|transcript/i.test(m))).toEqual([]);
+    const importsOf = (file: string) => [...readFileSync(file, 'utf8').matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]);
+    const imports = importsOf('server/services/conversationIdleCloseTicker.ts');
+    // Platform support only for support_update (realtime, to the requester's
+    // own channel: changes.ts), which reaches nothing of the above either.
+    expect(imports.filter((m) => /push|notificationEmail|conversationEvents|ai-agent|platformSupport|transcript|channels\//i.test(m))).toEqual(['./platformSupport/changes.js']);
+    expect(importsOf('server/services/platformSupport/changes.ts').filter((m) => /push|notificationEmail|conversationEvents|ai-agent|transcript|channels\//i.test(m))).toEqual([]);
+  });
+
+  it('tells a platform-support requester\'s devices of every close (support_update), and of no refused one', async () => {
+    const support = dueRow();
+    const widget = dueRow();
+    const refused = dueRow();
+    dueRpc = () => ({ data: [support, widget, refused], error: null });
+    closeRpc = (args) => ({
+      data: [args.p_conversation_id === refused.due_conversation_id
+        ? closedAnswer({ closed: false, outcome: 'needs_reply', event_id: null, event_type: null })
+        : closedAnswer()],
+      error: null,
+    });
+    expect(await runConversationIdleCloseOnce(config)).toMatchObject({ closed: 2, skipped: { needs_reply: 1 } });
+    // changes.ts finds the support thread (a no-op for the widget's).
+    expect(state.supportUpdates).toEqual([
+      { workspaceId: WS, conversationId: support.due_conversation_id },
+      { workspaceId: WS, conversationId: widget.due_conversation_id },
+    ]);
+  });
+
+  it('closes every other channel silently: no line handed to the SQL, nothing published to the customer, nothing queued for the channel', async () => {
+    state.realLine = true;
+    const channels = ['telegram', 'bale', 'whatsapp', 'instagram', 'x', 'platform_support'];
+    const rows = channels.map(() => dueRow());
+    state.db.tables.conversations = rows.map((r, i) => ({
+      id: r.due_conversation_id, workspace_id: WS, status: 'open', assigned_to: null,
+      metadata: { channel: channels[i], channel_thread_key: `${channels[i]}:int-1:chat-${i}` },
+    }));
+    dueRpc = () => ({ data: rows, error: null });
+    expect(await runConversationIdleCloseOnce(config)).toMatchObject({ due: 6, closed: 6, skipped: {} });
+    // Each was asked for its line (the visitor wrote), and none got one.
+    expect(state.prepared).toHaveLength(6);
+    expect(calls('conversation_close_if_idle').map((c) => [c.args.p_line_body, c.args.p_line_metadata])).toEqual(channels.map(() => [null, null]));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(state.conversationEvents).toEqual([]);
+    expect(state.db.inserts).toEqual([]);
+    expect(state.forbidden).toEqual([]);
+    // The Inbox heard of each, the support requester's devices too.
+    expect(state.operatorEvents.filter((e) => e.kind === 'conversation_resolved')).toHaveLength(6);
+    expect(state.supportUpdates).toHaveLength(6);
   });
 
   it('a throw still releases the lease, and the pass answers', async () => {

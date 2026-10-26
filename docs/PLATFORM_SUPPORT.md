@@ -30,6 +30,30 @@ own inbox, with the tools it already has.
     The team can still reopen it from the inbox, and it is active again.
   - Conversations opened as tickets before tickets were removed are closed
     (migration `244_platform_support_close_legacy_tickets`).
+- **Closed for quiet** (owner, 2026-10-26; migration 286;
+  `docs/operations/CHAT_ROUTING.md`, "Closing quiet conversations"). A
+  support conversation in which neither the operator nor the team wrote for
+  the support workspace's window (its Widget → Behaviour → "Close a quiet
+  conversation after", else the Super Admin's default, 1–48 h) is closed by
+  the system, as every chat channel's is. Never while the team owes an
+  answer (the operator wrote last), and never one the App Review account
+  (`apple@webyar.ai`) requested or wrote from its workspace (`ws_appreview`).
+  - Nothing is sent: the app draws the end from the status, as for a close
+    by the team, and the rating is offered as for any ended conversation the
+    team answered. Each close publishes `support_update` to the operator's
+    devices.
+  - Closed from `open` or `pending`, it reads `closed`, and `endedAt` is the
+    close's time (`metadata.closed_at`). Closed from `resolved`, it still
+    reads `resolved`, and `endedAt` stays its resolve time (`updated_at`), so
+    its label and icon do not change.
+  - A message that names it within 600 seconds of the close
+    (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`) puts it back as it was,
+    whether the close committed just before the message or while it was
+    being written. Closed from `open` or `pending`, the message (a file too)
+    then goes into it. Closed from `resolved`, it is `resolved` again, which
+    stays ended, so the message is refused with `conversation_ended`, as
+    before its close. Later than that, every message naming it is refused,
+    and the app offers a new conversation.
 - **Offline** is the website widget's own rule (`resolveAvailability`):
   business hours, plus whether anybody on the team is available. Offline, the
   app says "leave a message" and shows the business hours. The message is
@@ -125,7 +149,7 @@ type Conversation = {
   id: string;
   status: 'open' | 'pending' | 'resolved' | 'closed';
   createdAt: string;
-  endedAt: string | null;       // when it was resolved or closed
+  endedAt: string | null;       // when it was resolved or closed (a resolved one closed for quiet: its resolve)
   rating: { score: number; comment: string | null; ratedAt: string } | null;
   canRate: boolean;             // ended, answered by the team, not rated yet
 };
@@ -190,8 +214,8 @@ this shape:
 ```
 
 - `support_message`: the team wrote, or the operator did on another device.
-- `support_update`: the conversation was resolved, closed, reopened,
-  assigned or transferred.
+- `support_update`: the conversation was resolved, closed (by the team, or
+  by the system for quiet), reopened, assigned or transferred.
 - `support_read`: the operator read the chat on another device.
 
 Events carry ids only; `thread_id` is the conversation id. The client reads
@@ -244,8 +268,8 @@ the iPhone app.
     conversation was resolved" and a **Start a new conversation** button.
     Nothing more can be written to it.
   - A message refused with `conversation_ended` (the team closed the
-    conversation while the operator typed) goes back into the composer, and
-    the chat shows the end.
+    conversation while the operator typed, or the system closed it for
+    quiet) goes back into the composer, and the chat shows the end.
   - The composer takes text and a file (2 MB); no emoji.
   - Replies arrive live, and a `support_reply` push opens the chat.
 - **iOS:** the Android app's three screens, with the same rules

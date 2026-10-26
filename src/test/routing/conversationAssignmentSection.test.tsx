@@ -17,8 +17,9 @@
  *   - in Manual the timeout is off and the returning-visitor hint says what
  *     it still decides (a reopened conversation);
  *   - a refused save is undone and said;
- *   - closing a quiet conversation (migration 284): 1 to 48 hours or the
- *     Super Admin's default (null), said while it is followed, with a link
+ *   - closing a quiet conversation (migration 284; every chat channel since
+ *     286, and the hint says only the widget tells the visitor): 1 to 48
+ *     hours or the Super Admin's default (null), said while it is followed, with a link
  *     back to it once the workspace has its own; typing the default's own
  *     number while following it saves it as the workspace's own; while the
  *     platform switch is off it says so and stays editable (the value
@@ -257,6 +258,11 @@ describe('ConversationAssignmentSection', () => {
       expect(block().textContent).toContain('Platform default: 36 hours');
       expect(block().textContent).toContain('closed automatically');
       expect(block().textContent).toContain('1 to 48 hours');
+      // Every chat channel (migration 286); only the widget tells the visitor.
+      expect(block().textContent).toContain('A conversation in any channel (the website widget, Telegram, Bale, WhatsApp, Instagram, X or platform support)');
+      expect(block().textContent).toContain('on the other channels nothing is sent to them');
+      expect(block().textContent).toContain('The Email inbox is not affected.');
+      expect(block().textContent).not.toContain('A website chat in which');
       expect(document.querySelector('[data-assignment-inactivity-reset]')).toBeNull();
     });
 
@@ -338,6 +344,8 @@ describe('ConversationAssignmentSection', () => {
       // The panel draws Persian digits (src/lib/persian-digits.ts).
       expect(block().textContent).toContain('پیش‌فرض پلتفرم: ۲۴ ساعت');
       expect(block().textContent).toContain('«گفتگو به پایان رسید»');
+      expect(block().textContent).toContain('گفتگویی در هر کانالی (ویجت وب‌سایت، تلگرام، بله، واتس‌اپ، اینستاگرام، ایکس یا پشتیبانی پلتفرم)');
+      expect(block().textContent).toContain('در کانال‌های دیگر چیزی برایش فرستاده نمی‌شود');
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: '۱۲' } });
       fireEvent.blur(input);

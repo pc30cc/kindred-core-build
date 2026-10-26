@@ -562,3 +562,93 @@ for (const [templateId, locale] of [['default', 'fa'], ['t1', 'fa'], ['t2', 'fa'
     }
   });
 }
+
+// t1's star row under the pointer (both brands, desktop): the stars light up
+// to the one hovered and no further. The row is as wide as its stars (not the
+// card's 268 px), so a pointer beside them, still on the card, previews
+// nothing and the card keeps showing the star picked; and the row, like the
+// rated card's, stays centred.
+function starBoxes() {
+  const sr = document.getElementById('gs-host')!.shadowRoot!;
+  const r = (el: Element) => { const b = el.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; };
+  return {
+    card: r(sr.querySelector('[data-csat]')!),
+    row: r(sr.querySelector('[data-csat] .stars')!),
+    stars: Array.prototype.map.call(sr.querySelectorAll('[data-csat] .stars > *'), r) as ReturnType<typeof r>[],
+  };
+}
+/** What the point (x, y) is on: a star, the rest of the card, or neither. */
+function onCard([x, y]: number[]) {
+  const el = document.getElementById('gs-host')!.shadowRoot!.elementFromPoint(x, y);
+  return !el || !el.closest('[data-csat]') ? 'out' : el.closest('[data-csat-rate]') ? 'star' : 'card';
+}
+function litStars() {
+  const sr = document.getElementById('gs-host')!.shadowRoot!;
+  return Array.prototype.filter.call(sr.querySelectorAll('[data-csat] [data-csat-rate]'),
+    (b: Element) => getComputedStyle(b.querySelector('svg')!).fill !== 'none')
+    .map((b: Element) => b.getAttribute('data-csat-rate')).sort().join('');
+}
+
+for (const [templateId, locale] of [['t1', 'fa'], ['t1-intl', 'en']] as const) {
+  test(`${templateId} (${locale}): the rating's stars light up to the one under the pointer, never beside them`, async () => {
+    test.setTimeout(120_000);
+    const out = mkdtempSync(path.join(os.tmpdir(), `screens-${templateId}-stars-`));
+    const seen: Record<string, Record<string, unknown>> = {};
+    try {
+      await renderTemplateScreens({
+        templateId,
+        outDir: out,
+        states: ['auto-05-operator-desktop', 'auto-03-operator-rated'],
+        ...(locale === 'en' ? { edition: 'international' as const, locale: 'en' as const } : {}),
+        beforeShot: async (page, state) => {
+          const f: Record<string, unknown> = (seen[state] = {});
+          const buttons = page.locator('[data-csat] [data-csat-rate]');
+          // Star 3 picked: the comment and the send show under the stars.
+          if (state === 'auto-05-operator-desktop') {
+            await buttons.nth(2).click();
+            await page.mouse.move(0, 0);
+            await page.locator('[data-csat-submit]').waitFor();
+            await page.waitForTimeout(300);
+          }
+          const { card, row, stars } = await page.evaluate(starBoxes);
+          const left = Math.min(...stars.map((b) => b.l));
+          const right = Math.max(...stars.map((b) => b.r));
+          f.rowWidth = row.r - row.l;
+          f.starsWidth = right - left;
+          f.offCentre = Math.abs((row.l + row.r) / 2 - (card.l + card.r) / 2);
+          if (state !== 'auto-05-operator-desktop') return;
+          const y = (stars[0].t + stars[0].b) / 2;
+          f.picked = await page.evaluate(litStars);
+          // Beside the stars, on either side, still on the card.
+          f.besidePoints = [await page.evaluate(onCard, [left - 12, y]), await page.evaluate(onCard, [right + 12, y])].join();
+          await page.mouse.move(left - 12, y);
+          f.besideStart = await page.evaluate(litStars);
+          await page.mouse.move(0, 0);
+          await page.mouse.move(right + 12, y);
+          f.besideEnd = await page.evaluate(litStars);
+          // On a star: the preview up to it; from star 2 on into the 2 px
+          // before star 3, still star 2's (its scale covers the gap).
+          await buttons.nth(1).hover();
+          f.onTwo = await page.evaluate(litStars);
+          const [two, three] = [stars[1], stars[2]];
+          await page.mouse.move(two.r < three.l ? (two.r + three.l) / 2 : (three.r + two.l) / 2, y);
+          f.twoToThree = await page.evaluate(litStars);
+          await buttons.nth(4).hover();
+          f.onFive = await page.evaluate(litStars);
+          await page.mouse.move(0, 0);
+          f.away = await page.evaluate(litStars);
+        },
+      });
+      expect(seen['auto-05-operator-desktop']).toMatchObject({
+        besidePoints: 'card,card', picked: '123', besideStart: '123', besideEnd: '123', onTwo: '12', twoToThree: '12', onFive: '12345', away: '123',
+      });
+      for (const state of ['auto-05-operator-desktop', 'auto-03-operator-rated']) {
+        const f = seen[state];
+        expect(f.rowWidth as number, state).toBeLessThanOrEqual((f.starsWidth as number) + 0.5);
+        expect(f.offCentre as number, state).toBeLessThan(1);
+      }
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+}

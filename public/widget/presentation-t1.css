@@ -500,7 +500,8 @@ button.cd:hover {
 .messages > .cl-h:last-child { display: block; }
 .wy-view-chat:has(.ro) :is(.cl-h, [data-msg-reply]) { display: none; }
 /* The rating under a close (t1-x csatHtml): a card, five stars filled up to
-   the one picked (under the pointer, up to the one hovered), the comment
+   the one picked (under the pointer, up to the one hovered; the row only as
+   wide as its stars, so a pointer beside them lights none), the comment
    and the send once a star is picked (where :has() is read). */
 .msg-row.rt { align-self: stretch; max-width: none; justify-content: center; margin: -2px 0 14px; }
 .rate { width: 300px; max-width: 100%; padding: 18px 16px 16px; text-align: center; }
@@ -508,7 +509,7 @@ button.cd:hover {
 .rate h3 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.45; }
 .rate p { margin: 2px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
 .rate .er { margin-top: 8px; color: var(--bad); }
-.stars { display: flex; justify-content: center; gap: 2px; margin: 10px 0 0; }
+.stars { display: flex; justify-content: center; gap: 2px; width: fit-content; margin: 10px auto 0; }
 .stars button, .stars i { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; color: var(--ink-4); transition: transform .2s var(--ease), color .15s; }
 .stars i { width: 30px; height: 30px; }
 .stars button:not(:disabled):hover { transform: scale(1.1); }

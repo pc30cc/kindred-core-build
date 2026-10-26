@@ -619,7 +619,7 @@ export default function InboxPage() {
   // A take-over that did not go through. 409 (`already_assigned`): routing
   // or a colleague assigned the conversation first — said as such, and the
   // lists are read again to show who has it.
-  const takeOverFailed = (err: unknown) => {
+  const takeOverFailed = useCallback((err: unknown) => {
     const conflict = isAssignmentConflict(err);
     toast({
       title: t('inbox.takeOverFailed') || 'Take-over failed',
@@ -631,7 +631,7 @@ export default function InboxPage() {
       void qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
       void qc.invalidateQueries({ queryKey: ['inbox-tab-counts', workspace.id] });
     }
-  };
+  }, [t, workspace?.id, qc]);
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
@@ -1029,6 +1029,19 @@ export default function InboxPage() {
     if (!workspace?.id || !selectedId) return false;
     setReopening(true);
     try {
+      // One the AI held with nobody on it (the system's inactivity close
+      // leaves the AI's hold as it was; only the Closed tab lists it):
+      // taken over first, as the header's Take over does. Reopened as it
+      // is, it would go back to the AI, unassigned, and out of this list.
+      // A failed take-over sends no reopen.
+      if (metaOf(selected).ai_state === 'ai_managed' && !selected?.assigned_to) {
+        try {
+          await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
+        } catch (e) {
+          takeOverFailed(e);
+          return false;
+        }
+      }
       await updateConv.mutateAsync({ id: selectedId, workspace_id: workspace.id, status: 'open' });
       qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
       // Reopened from the Resolved tab, it would drop out of that list (and
@@ -1041,7 +1054,7 @@ export default function InboxPage() {
     } finally {
       setReopening(false);
     }
-  }, [workspace?.id, selectedId, updateConv, qc, t, filter, setFilter]);
+  }, [workspace?.id, selectedId, selected, updateConv, qc, t, filter, setFilter, takeOverFailed]);
 
   const sendDisabled =
     sendMessage.isPending ||

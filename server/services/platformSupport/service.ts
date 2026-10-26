@@ -13,7 +13,10 @@
  * current one. A message goes to the newest conversation that is open or
  * pending; when there is none, it starts a new one. A resolved or closed
  * conversation is never reopened from the operator's side — it can be
- * rated instead.
+ * rated instead — but for a message that raced the inactivity close of an
+ * open or pending one (migration 286): within the grace that conversation is
+ * brought back, as on every channel (idleCloseRace.ts). The close itself is
+ * silent here: the apps draw the end and the rating from the status.
  *
  * Everything the operator reads or writes goes through
  * `platform_support_threads`, keyed on their user id, never through the
@@ -45,6 +48,7 @@ import {
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
 import { resolveAvailability } from '../widget/availability.js';
 import { applyInboundConversationLifecycle } from '../conversationLifecycle.js';
+import { justClosedForInactivity, reopenAfterIdleCloseRace } from '../idleCloseRace.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { buildMessageEnvelope, publishConversationEvent, publishSupportEvent } from '../realtime/publish.js';
 import { notifyInboundMessage, notifySupportReply } from '../push/index.js';
@@ -52,6 +56,8 @@ import { createStorageUrlResolver } from '../storage/urlResolver.js';
 import { downloadFile, resolveStorageConfig, uploadFile, type StorageResult } from '../storage/index.js';
 import { chatAttachmentKey } from '../storage/keys.js';
 import { requesterBody, requesterSnapshot } from './requester.js';
+import { onSupportConversationChanged } from './changes.js';
+import { INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS, conversationEndOf } from '../../../shared/inactivityClose.js';
 
 export const SUPPORT_CHANNEL = 'platform_support';
 
@@ -96,10 +102,13 @@ export interface SupportRatingView {
 
 export interface SupportConversationView {
   id: string;
-  /** open | pending | resolved | closed — the conversation's status. */
+  /**
+   * open | pending | resolved | closed — the conversation's status, but
+   * `resolved` for one the inactivity close ended after a resolve (presentedEnd).
+   */
   status: string;
   createdAt: string;
-  /** When it was resolved or closed. */
+  /** When it was resolved or closed (an inactivity close: its closed_at). */
   endedAt: string | null;
   rating: SupportRatingView | null;
   /** Ended, answered by the team, and not rated yet. */
@@ -483,14 +492,34 @@ async function ownThread(sb: ServiceClient, userId: string, conversationId: stri
   return data as ThreadRow;
 }
 
-function conversationView(thread: ThreadRow, conv: ConversationRow | undefined, teamAnswered: boolean): SupportConversationView {
+/**
+ * The status and end the operator sees. A conversation the inactivity close
+ * ended (migration 286) after the team had resolved it had already ended for
+ * them: it stays `resolved`, ended when it was resolved (its updated_at,
+ * which the close never moves), so its label and icon do not change. One it
+ * closed from open or pending is `closed`, ended at the close (the close
+ * markers' closed_at, which an operator's close writes too), not at the last
+ * exchange. The markers are read only while the status is `closed`.
+ */
+function presentedEnd(conv: ConversationRow | undefined): { status: string; endedAt: string | null } {
   const status = conv?.status || 'open';
+  if (status !== 'closed') return { status, endedAt: conv?.updated_at || null };
+  if (conversationEndOf(status, conv?.metadata) === 'closed_inactive_after_resolve') {
+    return { status: 'resolved', endedAt: conv?.updated_at || null };
+  }
+  const meta = conv?.metadata || {};
+  const closedAt = typeof meta.closed_at === 'string' && Number.isFinite(Date.parse(meta.closed_at)) ? meta.closed_at : null;
+  return { status, endedAt: closedAt || conv?.updated_at || null };
+}
+
+function conversationView(thread: ThreadRow, conv: ConversationRow | undefined, teamAnswered: boolean): SupportConversationView {
+  const { status, endedAt } = presentedEnd(conv);
   const ended = ENDED_STATUSES.has(status);
   return {
     id: thread.conversation_id,
     status,
     createdAt: thread.created_at,
-    endedAt: ended ? conv?.updated_at || thread.created_at : null,
+    endedAt: ended ? endedAt || thread.created_at : null,
     rating:
       thread.rating != null && thread.rated_at
         ? { score: Number(thread.rating), comment: thread.rating_comment, ratedAt: thread.rated_at }
@@ -757,13 +786,44 @@ function isWritable(thread: ThreadRow, conv: ConversationRow | undefined, suppor
 }
 
 /**
+ * The operator wrote into a conversation the inactivity close ended a moment
+ * ago (migration 286; their app had not heard of it yet, or the message
+ * waited in its outbox): within the grace
+ * (INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS) one that was open or pending
+ * goes back to what it was (idleCloseRace.ts), and the operator's devices
+ * hear of it. One the team had resolved before the close stays ended, as it
+ * was before the close: nothing is brought back for a message that would
+ * have been refused anyway. Whether it was brought back.
+ */
+async function reopenedAfterIdleCloseRace(
+  config: ServerConfig,
+  sb: ServiceClient,
+  thread: ThreadRow,
+  conv: ConversationRow | undefined,
+  supportWorkspaceId: string,
+): Promise<boolean> {
+  if (thread.support_workspace_id !== supportWorkspaceId) return false;
+  if (!ACTIVE_STATUSES.has(String(conv?.metadata?.closed_from ?? ''))) return false;
+  if (!justClosedForInactivity(conv, Date.now(), INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS)) return false;
+  const restored = await reopenAfterIdleCloseRace(config, sb, {
+    workspaceId: supportWorkspaceId,
+    conversationId: thread.conversation_id,
+    graceSeconds: INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS,
+  });
+  if (!restored) return false;
+  void onSupportConversationChanged(config, { workspaceId: supportWorkspaceId, conversationId: thread.conversation_id });
+  return true;
+}
+
+/**
  * Where the operator's next message goes.
  *
  * - The app names the conversation it shows (`conversationId`): the message
  *   goes there while it is open, and is refused with `conversation_ended`
  *   once it is not — never quietly moved to another conversation the
  *   operator is not looking at. A retry of a message that landed before the
- *   end still returns it.
+ *   end still returns it. One the inactivity close ended a moment ago is
+ *   brought back first (reopenedAfterIdleCloseRace): the message raced it.
  * - It names none: a new conversation — or, when one is open already (the
  *   operator's other device started it), that one. The client's id is in a
  *   new conversation's key, so a retried first message finds the
@@ -787,12 +847,16 @@ async function prepareWrite(
   let chosen: { thread: ThreadRow; conv: ConversationRow | undefined } | null = null;
   if (input.conversationId) {
     const thread = await ownThread(sb, userId, input.conversationId);
-    const conv = (await conversationsById(sb, [thread.conversation_id])).get(thread.conversation_id);
+    let conv = (await conversationsById(sb, [thread.conversation_id])).get(thread.conversation_id);
     if (
       !isWritable(thread, conv, supportWorkspaceId) &&
       !(await priorMessage(sb, thread.conversation_id, input.clientMessageId))
     ) {
-      throw new SupportError(409, 'conversation_ended');
+      if (!(await reopenedAfterIdleCloseRace(config, sb, thread, conv, supportWorkspaceId))) {
+        throw new SupportError(409, 'conversation_ended');
+      }
+      conv = (await conversationsById(sb, [thread.conversation_id])).get(thread.conversation_id);
+      if (!isWritable(thread, conv, supportWorkspaceId)) throw new SupportError(409, 'conversation_ended');
     }
     chosen = { thread, conv };
   } else {
@@ -979,6 +1043,31 @@ async function postRequesterMessage(
         .eq('id', input.attachment.id)
         .eq('workspace_id', workspaceId);
     }
+    // The touch returns the status it found, so the lifecycle sends only the
+    // transition that can apply. A message that landed in a conversation the
+    // inactivity close ended while it was on its way (between the check
+    // above, or the file's upload, and the insert) brings it back within the
+    // grace, and the lifecycle runs from the restored status, as if the close
+    // had not happened (migration 286).
+    const { data: touched } = await sb
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId)
+      .select('status')
+      .maybeSingle();
+    let knownStatus: string | null = typeof touched?.status === 'string' ? touched.status : null;
+    if (knownStatus === 'closed') {
+      const restored = await reopenAfterIdleCloseRace(config, sb, {
+        workspaceId,
+        conversationId,
+        messageId: row.id,
+        graceSeconds: INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS,
+      });
+      if (restored) {
+        knownStatus = restored;
+        void onSupportConversationChanged(config, { workspaceId, conversationId });
+      }
+    }
     await applyInboundConversationLifecycle(config, {
       workspaceId,
       conversationId,
@@ -990,8 +1079,8 @@ async function postRequesterMessage(
         attachmentCount: input.attachment ? 1 : 0,
       },
       messageId: row.id,
+      knownStatus,
     }).catch((err) => console.warn('[platform-support] lifecycle failed:', err?.message ?? err));
-    await sb.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
     await sb
       .from('conversations')
       .update({ contact_id: ctx.contactId })

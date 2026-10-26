@@ -20,7 +20,10 @@
  *                   │ archived one is left untouched
  *
  * `resolved` = handled for now, thread may continue.
- * `closed`   = archived/final, never resurrected.
+ * `closed`   = archived/final, never resurrected — but for a customer message
+ *              that raced an inactivity close: within the grace it puts that
+ *              conversation back as it was, on every channel (idleCloseRace.ts,
+ *              migrations 284 and 286), before this lifecycle runs.
  *
  * Both transitions are compare-and-set on the exact previous status, so two
  * simultaneous customer messages serialize on the row lock and produce exactly

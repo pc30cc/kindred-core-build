@@ -15,7 +15,8 @@
  * ones a plain error, a write naming one of `missingColumns` 42703 (a
  * database before the column's migration); `conversation_ratings.closed_message_id` and a
  * reaction's (message_id, actor_type, actor_id, emoji) are unique (23505), as
- * in 276.
+ * in 276, and so is a channel event's (integration_id, external_event_id),
+ * the channel inbound idempotency gate.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -81,6 +82,7 @@ function orFilter(expr: string): (r: Row) => boolean {
 const UNIQUE: Record<string, string[][]> = {
   conversation_ratings: [['closed_message_id']],
   conversation_message_reactions: [['message_id', 'actor_type', 'actor_id', 'emoji']],
+  channel_inbound_events: [['integration_id', 'external_event_id']],
 };
 
 export function createFakeServiceDb(): FakeServiceDb {

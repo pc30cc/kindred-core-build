@@ -255,7 +255,9 @@ describe('ingest wiring', () => {
     expect(widget).not.toContain(".in('status', ['resolved', 'closed'])");
     // A closed one is left (never revived): the message goes to the visitor's
     // live conversation, else a new one (one current conversation per visitor).
-    expect(widget).toMatch(/if \(conv\.status === 'closed'\) \{\s*convId = null;\s*namedUnusable = true;/);
+    // The inactivity close (284) first keeps the named row (namedClosed),
+    // for a message that raced the close: liveConversationForNextMessage.
+    expect(widget).toMatch(/if \(conv\.status === 'closed'\) \{\s*(?:namedClosed = \{[^}]*\};\s*)?convId = null;\s*namedUnusable = true;/);
   });
 
   it('WhatsApp statuses (sent/delivered/read/failed) never become messages', () => {

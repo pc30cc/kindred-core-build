@@ -7,7 +7,9 @@
  *     «بسته‌شده» on the contact page; the hints sent it back "to Active", a
  *     status nobody showed. Now `conversationStatusLabel` (the Inbox, the
  *     contact page and drawer, the timeline) reads one set of keys.
- *   - The timeline filed a move to `closed` as "Marked as resolved".
+ *   - The timeline filed a move to `closed` as "Marked as resolved"; a close
+ *     from resolved (a status change) reads as a close too, and the
+ *     inactivity timer's says after how long nobody wrote (migration 284).
  *   - The send split button read «حل شد» (a state) in Persian.
  *   - Channel names "Email" / "Phone" were English in every panel.
  */
@@ -16,7 +18,7 @@ import en from '@/i18n/locales/en';
 import fa from '@/i18n/locales/fa';
 import tr from '@/i18n/locales/tr';
 import { conversationStatusLabel, normalizeConversationStatus } from '@/lib/conversationStatus';
-import { describeEvent } from '@/components/inbox/timelineMeta';
+import { actorLabel, describeEvent } from '@/components/inbox/timelineMeta';
 import { channelLabel } from '@/components/inbox/ChannelBadge';
 import type { TimelineEvent } from '@/hooks/useConversationTimeline';
 
@@ -91,6 +93,38 @@ describe('the timeline', () => {
     expect(describeEvent(event('resolved', { from: 'open', to: 'closed' }), T.en).primary).toBe('Closed');
     expect(describeEvent(event('resolved', { from: 'open', to: 'resolved' }), T.en).primary).toBe('Marked as resolved');
     expect(describeEvent(event('resolved', {}), T.tr).primary).toBe('Çözüldü olarak işaretlendi');
+  });
+
+  it('a close from resolved (filed as a status change) says "Closed" too, with its reason', () => {
+    expect(describeEvent(event('status_changed', { from: 'resolved', to: 'closed', reason: 'manual_status_change' }), T.en))
+      .toEqual({ primary: 'Closed', secondary: 'Changed by operator' });
+    expect(describeEvent(event('status_changed', { from: 'resolved', to: 'closed' }), T.fa))
+      .toEqual({ primary: 'بسته شد', secondary: undefined });
+  });
+
+  it('the inactivity close: "Closed · Automatically, after N h without messages", by the system', () => {
+    const system = (event_type: string, payload: Record<string, unknown>) =>
+      ({ ...event(event_type, payload), actor_type: 'system' }) as TimelineEvent;
+    const auto = [
+      system('resolved', { from: 'open', to: 'closed', reason: 'inactivity', source: 'inactivity_timer', idle_hours: 24 }),
+      system('status_changed', { from: 'resolved', to: 'closed', reason: 'inactivity', source: 'inactivity_timer', idle_hours: 24 }),
+    ];
+    const expected = {
+      en: { primary: 'Closed', secondary: 'Automatically, after 24 h without messages' },
+      fa: { primary: 'بسته شد', secondary: 'خودکار، پس از 24 ساعت بی‌پیامی' },
+      tr: { primary: 'Kapatıldı', secondary: '24 saat mesajsız kaldığı için otomatik' },
+    };
+    for (const locale of ['en', 'fa', 'tr'] as const) {
+      for (const ev of auto) expect(describeEvent(ev, T[locale]), `${locale} ${ev.event_type}`).toEqual(expected[locale]);
+      expect(actorLabel(auto[0], T[locale])).toBe(T[locale]('inbox.timeline.system'));
+    }
+    expect(actorLabel(auto[0], T.fa)).toBe('سیستم');
+    // A backlog close (no hours on an old payload) still says it was automatic.
+    expect(describeEvent(system('resolved', { from: 'pending', to: 'closed', reason: 'inactivity' }), T.en).secondary)
+      .toBe('Automatically, no messages');
+    // The visitor wrote as it closed: the close is undone (the race reopen).
+    expect(describeEvent(event('reopened', { from: 'closed', to: 'open', reason: 'customer_replied_after_inactivity_close' }), T.fa))
+      .toEqual({ primary: T.fa('inbox.timeline.reopened'), secondary: 'بازدیدکننده هم‌زمان با بسته‌شدن خودکار نوشت' });
   });
 
   it('names statuses in a status change the way the list does', () => {

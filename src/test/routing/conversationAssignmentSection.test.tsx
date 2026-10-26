@@ -7,7 +7,8 @@
  *     round robin: turns per department; manual: Unassigned and the queue),
  *     with the department fallback as the platform has it;
  *   - a plan without automatic routing shows Manual, locked, everything
- *     greyed out (the server routes it as manual too);
+ *     greyed out (the server routes it as manual too) except the inactivity
+ *     close, which applies to every plan and every mode;
  *   - the returning-visitor switch and its window, the default maximum and
  *     the first-response timeout save valid whole numbers only (Persian
  *     digits too), on blur or Enter;
@@ -15,7 +16,14 @@
  *     out and says why;
  *   - in Manual the timeout is off and the returning-visitor hint says what
  *     it still decides (a reopened conversation);
- *   - a refused save is undone and said.
+ *   - a refused save is undone and said;
+ *   - closing a quiet conversation (migration 284): 1 to 48 hours or the
+ *     Super Admin's default (null), said while it is followed, with a link
+ *     back to it once the workspace has its own; typing the default's own
+ *     number while following it saves it as the workspace's own; while the
+ *     platform switch is off it says so and stays editable (the value
+ *     applies once the switch is on); its Persian copy never uses
+ *     «بی‌فعالیت» (an idle operator).
  */
 import { useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +44,7 @@ beforeAll(() => {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
 });
 
-let policy: Record<string, boolean>;
+let policy: Record<string, boolean | number>;
 beforeEach(() => {
   policy = { general_pool_enabled: true, last_agent_routing_enabled: true, owner_fallback_for_chat: true };
   toastMock.mockReset();
@@ -134,7 +142,7 @@ describe('ConversationAssignmentSection', () => {
     expect(help().textContent).toContain('separate rotation for each department');
   });
 
-  it('a plan without automatic routing: Manual, locked, nothing editable', async () => {
+  it('a plan without automatic routing: Manual, locked, nothing editable but the inactivity close', async () => {
     await mount({ planAllowsRouting: false });
     const select = screen.getByRole('combobox') as HTMLButtonElement;
     expect(select.disabled).toBe(true);
@@ -145,6 +153,7 @@ describe('ConversationAssignmentSection', () => {
     expect(field('Maximum open conversations per operator').disabled).toBe(true);
     expect(field('First-response timeout').disabled).toBe(true);
     expect(field('Look back').disabled).toBe(true);
+    expect(field('Close a quiet conversation after').disabled).toBe(false);
   });
 
   it('Manual: the timeout does not apply; the returning-visitor switch only decides a reopened conversation', async () => {
@@ -154,6 +163,7 @@ describe('ConversationAssignmentSection', () => {
     expect(screen.getByText(/Only for conversations assigned automatically/)).toBeTruthy();
     expect(screen.getByText(/In Manual mode this only decides whether a resolved conversation/)).toBeTruthy();
     expect(field('Maximum open conversations per operator').disabled).toBe(false);
+    expect(field('Close a quiet conversation after').disabled).toBe(false);
   });
 
   it('numbers save on blur or Enter, only whole numbers within range', async () => {
@@ -233,5 +243,110 @@ describe('ConversationAssignmentSection', () => {
       variant: 'destructive',
     })));
     expect(sw.getAttribute('aria-checked')).toBe('true');
+  });
+
+  describe('closing a quiet conversation', () => {
+    const quiet = () => field('Close a quiet conversation after');
+    const block = () => document.querySelector('[data-assignment-inactivity]') as HTMLElement;
+
+    it('follows the platform default while the workspace has none, and says so', async () => {
+      policy.inactivity_close_enabled = true;
+      policy.inactivity_close_default_hours = 36;
+      await mount();
+      await waitFor(() => expect(quiet().value).toBe('36'));
+      expect(block().textContent).toContain('Platform default: 36 hours');
+      expect(block().textContent).toContain('closed automatically');
+      expect(block().textContent).toContain('1 to 48 hours');
+      expect(document.querySelector('[data-assignment-inactivity-reset]')).toBeNull();
+    });
+
+    it('an older server without the platform fields: 24 hours, on', async () => {
+      await mount();
+      expect(quiet().value).toBe('24');
+      expect(quiet().disabled).toBe(false);
+      expect(block().textContent).toContain('Platform default: 24 hours');
+    });
+
+    it('saves a whole number from 1 to 48 on blur or Enter, and nothing else', async () => {
+      const onSave = await mount();
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '12' } });
+      fireEvent.blur(quiet());
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 12 }));
+      // The workspace now has its own: the platform line gives way to the link back.
+      await waitFor(() => expect(document.querySelector('[data-assignment-inactivity-reset]')).not.toBeNull());
+
+      for (const bad of ['0', '49', '1.5', '']) {
+        onSave.mockClear();
+        fireEvent.focus(quiet());
+        fireEvent.change(quiet(), { target: { value: bad } });
+        fireEvent.blur(quiet());
+        expect(within(block()).getByRole('alert').textContent, bad).toBe('Enter a whole number from 1 to 48.');
+        expect(onSave, bad).not.toHaveBeenCalled();
+      }
+
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '48' } });
+      fireEvent.keyDown(quiet(), { key: 'Enter' });
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 48 }));
+    });
+
+    it('"Use the platform default" saves null and shows the default again', async () => {
+      policy.inactivity_close_default_hours = 24;
+      const onSave = await mount({ settings: { ...SETTINGS, inactivity_close_hours: 6 } });
+      expect(quiet().value).toBe('6');
+      expect(block().textContent).not.toContain('Platform default');
+      fireEvent.click(screen.getByText('Use the platform default'));
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: null }));
+      await waitFor(() => expect(quiet().value).toBe('24'));
+      expect(block().textContent).toContain('Platform default: 24 hours');
+    });
+
+    it('typing the default\'s own number while following it saves it as the workspace\'s own', async () => {
+      policy.inactivity_close_default_hours = 24;
+      const onSave = await mount();
+      await waitFor(() => expect(block().textContent).toContain('Platform default: 24 hours'));
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '24' } });
+      fireEvent.blur(quiet());
+      // Its own 24 h, no longer a later default's.
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 24 }));
+      await waitFor(() => expect(document.querySelector('[data-assignment-inactivity-reset]')).not.toBeNull());
+      // Its own value typed again saves nothing.
+      onSave.mockClear();
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '24' } });
+      fireEvent.blur(quiet());
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    it('the Super Admin turned it off for every workspace: said, and still editable for when it is on', async () => {
+      policy.inactivity_close_enabled = false;
+      const onSave = await mount({ settings: { ...SETTINGS, inactivity_close_hours: 6 } });
+      await screen.findByText('The platform administrator has turned automatic closing off for every workspace. What you set here applies once it is on.');
+      expect(quiet().disabled).toBe(false);
+      expect(document.querySelector('[data-assignment-inactivity-reset]')).not.toBeNull();
+      fireEvent.focus(quiet());
+      fireEvent.change(quiet(), { target: { value: '1' } });
+      fireEvent.blur(quiet());
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 1 }));
+    });
+
+    it('in Persian: Persian digits count, and the copy never says «بی‌فعالیت»', async () => {
+      const onSave = await mount({}, 'fa');
+      const input = await screen.findByLabelText('بستن گفتگوی بی‌پیام پس از') as HTMLInputElement;
+      // The panel draws Persian digits (src/lib/persian-digits.ts).
+      expect(block().textContent).toContain('پیش‌فرض پلتفرم: ۲۴ ساعت');
+      expect(block().textContent).toContain('«گفتگو به پایان رسید»');
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: '۱۲' } });
+      fireEvent.blur(input);
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith({ inactivity_close_hours: 12 }));
+      const copy = Object.entries(fa.widgetPage.behavior.assignment)
+        .filter(([key]) => key.startsWith('inactivity') || key === 'hours')
+        .map(([, text]) => text);
+      expect(copy.length).toBeGreaterThan(4);
+      for (const text of [...copy, block().textContent || '']) expect(text).not.toContain('بی‌فعالیت');
+    });
   });
 });

@@ -36,13 +36,14 @@ import {
 } from 'recharts';
 import {
   MessageSquare, Users, BookOpen, Eye, Inbox, Bot, ArrowUpRight, ArrowRight,
-  Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio, HardDrive,
+  Phone, Sparkles, CheckCircle2, Clock, ShieldCheck, CreditCard, Radio, HardDrive, Timer,
 } from 'lucide-react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
 import { useArtCharts } from '@/themes/art/charts/useArtCharts';
 import { ArtColumns } from '@/themes/art/charts/ArtColumns';
 import { isPlaceholderSubject } from '../../../shared/conversationSubject';
+import { conversationEndOf } from '../../../shared/inactivityClose';
 
 /** English placeholder subjects persisted by the widget/AI — localized in the UI. */
 /** The fields of a conversation the dashboard reads. */
@@ -66,6 +67,8 @@ interface DashboardConversation {
   visitor_name?: string | null;
   last_message_preview?: string | null;
   subject?: string | null;
+  /** How a closed conversation was closed (shared/inactivityClose.ts). */
+  metadata?: { closed_reason?: string | null; closed_from?: string | null } | null;
 }
 
 /** A presence row joined with the member directory. */
@@ -159,7 +162,12 @@ export default function OverviewPage() {
   // answered one is open too (finding I-01).
   const openConvos = list.filter((c) => c.status === 'open').length;
   const needsReplyConvos = list.filter((c) => c.status === 'open' && c.needs_reply === true).length;
-  const resolved = list.filter((c) => c.status === 'resolved' || c.status === 'closed').length;
+  // How each one ended (shared/inactivityClose.ts): the timer's close of an
+  // open or pending conversation is no resolve; its close of a resolved one
+  // stays the operator's.
+  const ends = list.map((c) => conversationEndOf(c.status ?? '', c.metadata));
+  const resolved = ends.filter((e) => e !== null && e !== 'closed_inactive').length;
+  const autoClosed = ends.filter((e) => e === 'closed_inactive').length;
   // Truly online right now: presence status online AND seen in the last 5 minutes
   const onlineVisitors = ((visitors ?? []) as Array<{ status?: string; updated_at?: string | null; last_seen_at?: string | null }>).filter((v) => {
     if (v.status !== 'online') return false;
@@ -403,10 +411,21 @@ export default function OverviewPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span data-panel-stat className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+              <span data-panel-stat data-resolved className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {tr('dashboard.resolvedConversations')}: <b className="text-foreground">{fmt(resolved)}</b>
               </span>
+              {autoClosed > 0 && (
+                <span
+                  data-panel-stat
+                  data-auto-closed
+                  title={tr('dashboard.autoClosedHint')}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-muted-foreground ring-1 ring-border"
+                >
+                  <Timer className="h-3.5 w-3.5" />
+                  {tr('dashboard.autoClosedConversations')}: <b className="text-foreground">{fmt(autoClosed)}</b>
+                </span>
+              )}
               <span data-panel-stat className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
                 <Clock className="h-3.5 w-3.5" />
                 {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(needsReplyConvos)}</b>

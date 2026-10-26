@@ -64,6 +64,14 @@ const EVENTS: TimelineEvent[] = [
   event('status_changed', { to: 'pending', reason: 'waiting_for_customer' }),
   event('resolved', { to: 'resolved', reason: 'resolved_after_reply' }),
   event('resolved', { from: 'open', to: 'closed', reason: 'manual_status_change' }),
+  // The inactivity close (migration 284): from open or pending as PATCH
+  // files it, from resolved as a status change; its race reopen.
+  event('resolved', { from: 'open', to: 'closed', reason: 'inactivity', source: 'inactivity_timer', idle_hours: 24 }),
+  event('resolved', { from: 'pending', to: 'closed', reason: 'inactivity', source: 'inactivity_backlog', idle_hours: 48 }),
+  event('status_changed', { from: 'resolved', to: 'closed', reason: 'inactivity', source: 'inactivity_timer', idle_hours: 24 }),
+  event('status_changed', { from: 'resolved', to: 'closed', reason: 'manual_status_change' }),
+  event('resolved', { from: 'open', to: 'closed', reason: 'inactivity' }),
+  event('reopened', { from: 'closed', to: 'open', reason: 'customer_replied_after_inactivity_close', message_id: 'm' }),
   event('reopened', { from: 'resolved', to: 'open', reason: 'manually_reopened' }),
   event('reopened', { from: 'resolved', to: 'open', reason: 'customer_replied_after_resolution' }),
   event('reopened', { from: 'resolved', to: 'open', reason: 'manual_reopen_by_visitor' }),
@@ -74,6 +82,7 @@ const EVENTS: TimelineEvent[] = [
     .map((availability_reason) => event('captured_offline', { availability_reason })),
   event('rated', { score: 4 }),
   event('rated', { score: 5, comment: 'خیلی خوب بود', closed_id: 'c', operator_id: 'o', source: 'widget' }),
+  event('rated', { score: 4, closed_id: 'c', operator_id: null, subject: 'ai', source: 'widget' }),
   event('transcript_emailed', { status: 'sent', to: 'a•••@example.com', messages: 4, source: 'widget' }),
   event('transcript_emailed', { status: 'failed', to: 'a•••@example.com', messages: 4, source: 'widget' }),
   event('call_queued', { channel: 'audio' }),
@@ -152,6 +161,21 @@ describe('Activity timeline translations', () => {
       .toEqual({ primary: 'Visitor rated the conversation', secondary: '★★★★ 4/5 · “Great {{text}} $&”' });
     expect(describeEvent(event('rated', { score: 5, comment: 'عالی' }), faT).secondary).toBe('★★★★★ 5/5 · «عالی»');
     expect(describeEvent(event('rated', { score: 3, comment: '  ' }), enT).secondary).toBe('★★★ 3/5');
+  });
+
+  it('a rating of a conversation only the AI answered rates the AI agent', () => {
+    for (const [locale, messages] of Object.entries({ en, fa, tr })) {
+      const t = translator(messages as unknown as Record<string, unknown>);
+      const ai = describeEvent(event('rated', { score: 4, subject: 'ai' }), t);
+      const human = describeEvent(event('rated', { score: 4, subject: 'operator' }), t);
+      expect(ai.primary, locale).toBe(t('inbox.timeline.ratedAi'));
+      expect(ai.primary, locale).not.toBe(human.primary);
+      expect(ai.secondary, locale).toBe('★★★★ 4/5');
+    }
+    expect(describeEvent(event('rated', { score: 5, subject: 'ai' }), translator(en as unknown as Record<string, unknown>)).primary)
+      .toBe('Visitor rated the AI agent');
+    expect(describeEvent(event('rated', { score: 5, subject: 'ai' }), translator(fa as unknown as Record<string, unknown>)).primary)
+      .toBe('بازدیدکننده به دستیار هوش مصنوعی امتیاز داد');
   });
 
   it('a transcript mailed to the visitor shows the masked address, and says so when it failed', () => {

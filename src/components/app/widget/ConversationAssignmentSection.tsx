@@ -12,16 +12,22 @@
  *   - the default maximum of open conversations per operator (members may
  *     have their own in Team & departments);
  *   - the first-response timeout in minutes (0 = off; automatic assignments
- *     only).
+ *     only);
+ *   - closing a quiet conversation after 1 to 48 hours (migration 284;
+ *     shared/inactivityClose.ts), or the Super Admin's default (null):
+ *     InactivityCloseSetting. It applies to every plan and every mode, so
+ *     neither the plan lock nor Manual greys it out, and on a plan without
+ *     the Behaviour tab (read-only) the page draws it on its own, editable.
+ *     While the Super Admin's platform switch is off it says so and stays
+ *     editable: the value is stored and applies once the switch is on.
  *
  * Numbers save on blur or Enter, only when valid; a refused save is undone
  * and said.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -35,11 +41,14 @@ import {
   DEFAULT_LAST_AGENT_WINDOW_DAYS,
   FIRST_RESPONSE_TIMEOUT_MAX,
   FIRST_RESPONSE_TIMEOUT_MIN,
+  INACTIVITY_CLOSE_MAX_HOURS,
+  INACTIVITY_CLOSE_MIN_HOURS,
   LAST_AGENT_WINDOW_MAX,
   LAST_AGENT_WINDOW_MIN,
-  parseRoutingNumber,
 } from '@/lib/chat-routing-api';
+import { effectiveInactivityCloseHours } from '../../../../shared/inactivityClose';
 import type { WidgetSettings } from '@/types/models';
+import { NumberSetting } from './NumberSetting';
 
 type AssignmentFields = Pick<
   WidgetSettings,
@@ -48,6 +57,7 @@ type AssignmentFields = Pick<
   | 'last_agent_window_days'
   | 'default_max_concurrent_chats'
   | 'first_response_timeout_minutes'
+  | 'inactivity_close_hours'
 >;
 
 type AssignmentMode = NonNullable<WidgetSettings['assignment_mode']>;
@@ -65,19 +75,23 @@ export interface ConversationAssignmentSectionProps {
   onSave: (patch: Partial<AssignmentFields>) => Promise<unknown>;
   /** Where Team & departments lives, for the per-member settings link. */
   teamPath?: string;
+  /**
+   * false when the page draws InactivityCloseSetting on its own instead (a
+   * plan without the Behaviour tab, whose copy here is read-only).
+   */
+  showInactivityClose?: boolean;
 }
 
-export function ConversationAssignmentSection({
-  workspaceId,
-  settings,
-  planAllowsRouting,
-  onSave,
-  teamPath,
-}: ConversationAssignmentSectionProps) {
+/**
+ * The stored settings with what was just changed over them, until each save
+ * settles (switches, the select and the numbers show it at once). A refused
+ * save is undone and said.
+ */
+function useAssignmentDraft(
+  settings: Partial<AssignmentFields> | undefined,
+  onSave: (patch: Partial<AssignmentFields>) => Promise<unknown>,
+) {
   const { t } = useTranslation();
-  const { data: platform } = useChatRoutingPolicy(workspaceId);
-  // What was just changed here, until the save settles (the switches and
-  // the select show it at once).
   const [draft, setDraft] = useState<Partial<AssignmentFields>>({});
 
   const save = async (patch: Partial<AssignmentFields>) => {
@@ -102,6 +116,21 @@ export function ConversationAssignmentSection({
 
   const value = <K extends keyof AssignmentFields>(key: K): AssignmentFields[K] | undefined =>
     (key in draft ? draft[key] : settings?.[key]) as AssignmentFields[K] | undefined;
+
+  return { save, value };
+}
+
+export function ConversationAssignmentSection({
+  workspaceId,
+  settings,
+  planAllowsRouting,
+  onSave,
+  teamPath,
+  showInactivityClose = true,
+}: ConversationAssignmentSectionProps) {
+  const { t } = useTranslation();
+  const { data: platform } = useChatRoutingPolicy(workspaceId);
+  const { save, value } = useAssignmentDraft(settings, onSave);
 
   const storedMode: AssignmentMode = value('assignment_mode') || 'auto';
   const mode: AssignmentMode = planAllowsRouting ? storedMode : 'manual';
@@ -230,6 +259,11 @@ export function ConversationAssignmentSection({
               disabled={locked || !automatic}
               onCommit={(n) => void save({ first_response_timeout_minutes: n })}
             />
+
+            {/* Quiet conversations: every plan and every mode, so never `locked` */}
+            {showInactivityClose && (
+              <InactivityCloseSetting workspaceId={workspaceId} settings={settings} onSave={onSave} />
+            )}
           </div>
         </div>
       </div>
@@ -238,80 +272,54 @@ export function ConversationAssignmentSection({
 }
 
 /**
- * A whole-number setting: typed freely (Persian digits too), saved on blur
- * or Enter when it is within [min, max]; otherwise it says so and saves
- * nothing. Follows the stored value while not being edited.
+ * "Close a quiet conversation after": the workspace's own hours (1–48), or
+ * (null) the platform default, which an older server does not send (24
+ * then). Never plan-gated and never greyed out: while the Super Admin's
+ * switch is off it says so, and what is set here applies once it is on.
+ * While it follows the default, typing the default's own number saves it
+ * as the workspace's own (it no longer follows a later default).
  */
-function NumberSetting({
-  id, label, hint, unit, value, min, max, disabled, onCommit,
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  unit?: string;
-  value: number;
-  min: number;
-  max: number;
-  disabled?: boolean;
-  onCommit: (n: number) => void;
-}) {
+export function InactivityCloseSetting({
+  workspaceId,
+  settings,
+  onSave,
+}: Pick<ConversationAssignmentSectionProps, 'workspaceId' | 'settings' | 'onSave'>) {
   const { t } = useTranslation();
-  const [text, setText] = useState(String(value));
-  const [invalid, setInvalid] = useState(false);
-  const editing = useRef(false);
+  const { data: platform } = useChatRoutingPolicy(workspaceId);
+  const { save, value } = useAssignmentDraft(settings, onSave);
+  const platformDefaultHours = effectiveInactivityCloseHours(null, platform?.inactivity_close_default_hours);
+  const ownHours = value('inactivity_close_hours') ?? null;
+  const inactivityOff = platform?.inactivity_close_enabled === false;
 
-  useEffect(() => {
-    if (editing.current) return;
-    setText(String(value));
-    setInvalid(false);
-  }, [value]);
-
-  const commit = () => {
-    const n = parseRoutingNumber(text, min, max);
-    if (typeof n !== 'number') {
-      setInvalid(true);
-      return;
-    }
-    setInvalid(false);
-    setText(String(n));
-    if (n !== value) onCommit(n);
-  };
-
-  const errorId = `${id}-error`;
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <Label htmlFor={id} className="text-sm">{label}</Label>
-        <div className="flex items-center gap-1.5">
-          <Input
-            id={id}
-            type="text"
-            inputMode="numeric"
-            dir="ltr"
-            className="h-8 w-20 text-center"
-            value={text}
-            disabled={disabled}
-            aria-invalid={invalid || undefined}
-            aria-describedby={invalid ? errorId : undefined}
-            onFocus={() => { editing.current = true; }}
-            onChange={(e) => { setText(e.target.value); setInvalid(false); }}
-            onBlur={() => { editing.current = false; commit(); }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commit();
-              }
-            }}
-          />
-          {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
-        </div>
-      </div>
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-      {invalid && (
-        <p id={errorId} role="alert" className="text-xs text-destructive">
-          {t('widgetPage.behavior.assignment.invalidRange', { min, max })}
-        </p>
-      )}
+    <div data-assignment-inactivity>
+      <NumberSetting
+        id="assignment-inactivity"
+        label={t('widgetPage.behavior.assignment.inactivityClose')}
+        hint={inactivityOff
+          ? t('widgetPage.behavior.assignment.inactivityClosePlatformOff')
+          : t('widgetPage.behavior.assignment.inactivityCloseHint')}
+        unit={t('widgetPage.behavior.assignment.hours')}
+        value={effectiveInactivityCloseHours(ownHours, platformDefaultHours)}
+        committed={ownHours}
+        min={INACTIVITY_CLOSE_MIN_HOURS}
+        max={INACTIVITY_CLOSE_MAX_HOURS}
+        onCommit={(n) => void save({ inactivity_close_hours: n })}
+        aside={ownHours === null ? (
+          <span className="text-xs text-muted-foreground" data-assignment-inactivity-default>
+            {t('widgetPage.behavior.assignment.inactivityClosePlatformDefault', { hours: platformDefaultHours })}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline"
+            data-assignment-inactivity-reset
+            onClick={() => void save({ inactivity_close_hours: null })}
+          >
+            {t('widgetPage.behavior.assignment.inactivityCloseUseDefault')}
+          </button>
+        )}
+      />
     </div>
   );
 }

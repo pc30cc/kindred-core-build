@@ -135,11 +135,14 @@ suite('285 — the App Review workspace is never closed for quiet (real PostgreS
     }
   });
 
-  (PSQL ? it : it.skip)('the backlog script\'s dry run lists the other workspace\'s row only', async () => {
+  (PSQL ? it : it.skip)('the backlog script\'s dry run leaves the App Review workspace out of its listing and its due list', async () => {
     const out = join(mkdtempSync(join(tmpdir(), 'backlog285-')), 'backlog.csv');
     const res = spawnSync('psql', [url, '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-v', `out=${out}`, '-f', BACKLOG], { encoding: 'utf8' });
     expect(res.status, res.stderr).toBe(0);
     expect(res.stdout).toMatch(/Dry run: rolled back/);
+    expect(res.stdout).toContain(twin);
+    expect(res.stdout).not.toContain(tried);
+    expect(res.stdout).not.toContain(review);
     expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual([twin]);
     expect((await one(`SELECT status::text AS status FROM public.conversations WHERE id = $1`, [twin])).status).toBe('open');
   });

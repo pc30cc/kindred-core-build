@@ -544,12 +544,25 @@ WebYar by hand before the merge (CLAUDE.md's procedure, the folder
 `/root/webyar-migrate-285/` with `scripts/` and `database/migrations/`
 holding 285 alone); RESPOK by its migrator on push (it has no App Review
 workspace, so nothing changes there). Before: a dump of the schema. Dry-run
-it inside `BEGIN … ROLLBACK`, then apply it. Check: every conversation in
-`ws_appreview` reads `not_widget` (or `spam`, `not_live`) in
+it inside `BEGIN … ROLLBACK`, then apply it. Check: every live conversation
+in `ws_appreview` reads `not_widget` (or `spam`) in
 `conversation_idle_check`, `conversation_idle_due(500)` holds none of them,
 the function is executable by `service_role` only, the ledger row is there.
-Nothing to roll back: the switch stays as it is, and without 285 the
-workspace's seeded threads are still left out.
+285 reopens nothing, so before and after it also look for one the close
+already took (the switch has been on since 11:21 UTC; the backlog's 33 held
+none):
+
+```sql
+SELECT c.id, c.metadata->>'closed_source' AS source, c.metadata->>'closed_at' AS at
+  FROM public.conversations c
+  JOIN public.workspaces w ON w.id = c.workspace_id
+ WHERE w.slug = 'ws_appreview' AND c.metadata->>'closed_reason' = 'inactivity';
+```
+
+A row there goes to the owner; with their go, Super Admin → Mobile App →
+App Review → Seed rebuilds the demo's conversations. Nothing to roll back:
+the switch stays as it is, and without 285 the workspace's seeded threads
+are still left out.
 
 **Rollback**: switch the close off (immediate: the SQL reads it), then
 `ROLLBACK=1` through `/root/webyar-move/deploy.php` if needed. 284 stays: it

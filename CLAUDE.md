@@ -108,8 +108,10 @@ Manual: the queue), never past a member's maximum of open chats. The routing
 ticker (`server/services/chatRoutingTicker.ts`, every 30 s, leased) hands out
 waiting chats and the first-response timeouts. A quiet widget conversation
 closes on its own after the workspace's window (1-48 h; the Super Admin's
-switch and default, 24 h), never while the team owes an answer
-(`server/services/conversationIdleCloseTicker.ts`, migration 284). The web
+switch and default, 24 h; `server/services/conversationIdleCloseTicker.ts`,
+migrations 284 and 285), never while the team owes an answer and never in
+the App Review workspace (`ws_appreview`, Apple's `apple@webyar.ai`; owner,
+2026-10-26). The web
 panel's Inbox has a «بسته‌شده» (Closed) box beside «حل‌شده»: every closed
 conversation, the AI-held ones the timer closed included (owner, 2026-10-26;
 not in the native apps, whose Resolved lists closed ones too). How it works,
@@ -324,7 +326,13 @@ reserved blocks, so a full disk stops Postgres too.
     exist; the backlog is closed once, by hand, after the owner reviewed its
     list (`database/backfill/284_inactivity_backlog_close.sql`, steps in
     `docs/operations/CHAT_ROUTING.md`, "Rollout of 284"), whose commit turns
-    the switch on; its time and counts go here in a docs-only follow-up.
+    the switch on. Done after the owner's go: WebYar's backlog commit at
+    2026-10-26 11:21 UTC closed the 33 reviewed conversations silently (0
+    skipped) and turned the switch on; RESPOK (nothing due) had its switch
+    turned on at 11:21. Then `285_inactivity_close_app_review_workspace.sql`
+    (the App Review workspace `ws_appreview` is never closed for quiet;
+    applied by hand before its merge, `<YYYY-MM-DD HH:MM UTC>`; a schema
+    dump and the dry run in `/root/webyar-migrate-285/`).
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

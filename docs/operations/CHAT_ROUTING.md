@@ -246,6 +246,11 @@ only the Super Admin's switch stops it, for every workspace at once.
 
 - **Widget only.** No channel recorded, or `widget`. Never Telegram, Bale,
   WhatsApp, Instagram, email or platform support, never spam.
+- **Never the App Review workspace** (owner, 2026-10-26; migration 285): the
+  workspace Apple's reviewers sign in to (slug `ws_appreview`, the account
+  `apple@webyar.ai`, migrations 248/249) reads `not_widget`, its seeded
+  threads (`metadata.app_review_seed`, 284) and any conversation started
+  there since alike, so neither the timer nor the backlog closes it.
 - **The last exchange** is the newest of: the visitor's turn, a person's
   answer, the AI's answer (needsReply.ts's rules, in SQL as
   `conversation_message_turn`: system rows, routing notices, menu taps,
@@ -346,8 +351,8 @@ only the Super Admin's switch stops it, for every workspace at once.
   not in that database (another brand's CSV, or conversations deleted since
   the dry run: dry-run again and have the owner review), or a list that closes nothing
   while it would turn the switch on stops it before anything changes. The
-  App Review demo's seeded threads (`metadata.app_review_seed`) are never
-  closed, by the timer or the backlog.
+  App Review workspace (`ws_appreview`) is never closed, by the timer or the
+  backlog (migration 285; before it, only its seeded threads).
 - **The Closed box** (web panel only; owner, 2026-10-26): the Inbox's
   «بسته‌شده» beside «حل‌شده» (`GET /api/conversations?queue=main&status=closed`)
   lists every closed conversation, the AI-only ones the timer closed included,
@@ -523,6 +528,28 @@ switch on.
     the test workspace back to the platform default.
 12. A docs-only follow-up PR records the backlog commits (times, counts) in
     the CLAUDE.md ledger.
+
+Done (owner's go, 2026-10-26): WebYar's backlog commit at 11:21:24 UTC
+closed the 33 reviewed conversations silently (17 AI-only unresolved, 13
+greeting-only, 1 AI-only resolved, 2 a person had answered; 0 skipped, 0
+visitor lines, one timeline event each) and turned the switch on; the 4 the
+team owed stayed open. RESPOK's dry run found nothing due (its 2 live
+conversations were owed), so its switch was turned on directly at 11:21:55
+UTC (`/root/respok-migrate-284/pre-switch-on.dump` taken first). The first
+live passes: `[idle-close] pass due=0 closed=0` (WebYar 11:24, RESPOK 11:26).
+
+### Rollout of 285 (the App Review workspace)
+
+WebYar by hand before the merge (CLAUDE.md's procedure, the folder
+`/root/webyar-migrate-285/` with `scripts/` and `database/migrations/`
+holding 285 alone); RESPOK by its migrator on push (it has no App Review
+workspace, so nothing changes there). Before: a dump of the schema. Dry-run
+it inside `BEGIN … ROLLBACK`, then apply it. Check: every conversation in
+`ws_appreview` reads `not_widget` (or `spam`, `not_live`) in
+`conversation_idle_check`, `conversation_idle_due(500)` holds none of them,
+the function is executable by `service_role` only, the ledger row is there.
+Nothing to roll back: the switch stays as it is, and without 285 the
+workspace's seeded threads are still left out.
 
 **Rollback**: switch the close off (immediate: the SQL reads it), then
 `ROLLBACK=1` through `/root/webyar-move/deploy.php` if needed. 284 stays: it

@@ -259,8 +259,9 @@ describe('ConversationAssignmentSection', () => {
       expect(block().textContent).toContain('closed automatically');
       expect(block().textContent).toContain('1 to 48 hours');
       // Every chat channel (migration 286); only the widget tells the visitor.
-      expect(block().textContent).toContain('A conversation in any channel (the website widget, Telegram, Bale, WhatsApp, Instagram, X or platform support)');
-      expect(block().textContent).toContain('on the other channels nothing is sent to them');
+      expect(block().textContent).toContain('A conversation in which neither the visitor nor your team');
+      expect(block().textContent).toContain('in any channel (the website widget, Telegram, Bale, WhatsApp, Instagram, X or platform support), is closed automatically');
+      expect(block().textContent).toContain('on the other channels nothing is sent to them (platform support shows the end and the rating in its own app)');
       expect(block().textContent).toContain('The Email inbox is not affected.');
       expect(block().textContent).not.toContain('A website chat in which');
       expect(document.querySelector('[data-assignment-inactivity-reset]')).toBeNull();
@@ -344,8 +345,9 @@ describe('ConversationAssignmentSection', () => {
       // The panel draws Persian digits (src/lib/persian-digits.ts).
       expect(block().textContent).toContain('پیش‌فرض پلتفرم: ۲۴ ساعت');
       expect(block().textContent).toContain('«گفتگو به پایان رسید»');
-      expect(block().textContent).toContain('گفتگویی در هر کانالی (ویجت وب‌سایت، تلگرام، بله، واتس‌اپ، اینستاگرام، ایکس یا پشتیبانی پلتفرم)');
-      expect(block().textContent).toContain('در کانال‌های دیگر چیزی برایش فرستاده نمی‌شود');
+      expect(block().textContent).toContain('گفتگویی که در این مدت نه بازدیدکننده و نه تیم');
+      expect(block().textContent).toContain('در هر کانالی (ویجت وب‌سایت، تلگرام، بله، واتس‌اپ، اینستاگرام، ایکس یا پشتیبانی پلتفرم)، خودکار بسته می‌شود');
+      expect(block().textContent).toContain('در کانال‌های دیگر چیزی برایش فرستاده نمی‌شود (پشتیبانی پلتفرم پایان و امتیازدهی را در برنامهٔ خودش نشان می‌دهد)');
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: '۱۲' } });
       fireEvent.blur(input);

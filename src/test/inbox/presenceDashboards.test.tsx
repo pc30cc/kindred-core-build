@@ -308,7 +308,7 @@ describe('the Overview\'s conversation pills', () => {
     expect(pill('data-auto-closed')!.textContent).toBe('Closed automatically: 2');
     expect(pill('data-auto-closed')!.getAttribute('title')).toContain('Not counted as resolved');
     // Every chat channel closes for quiet (migration 286), not only the widget.
-    expect(pill('data-auto-closed')!.getAttribute('title')).toContain('Conversations on any channel');
+    expect(pill('data-auto-closed')!.getAttribute('title')).toContain('Conversations (any channel) the system closed');
   });
 
   it('no automatic close: no pill', async () => {

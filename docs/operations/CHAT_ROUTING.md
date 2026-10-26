@@ -693,15 +693,17 @@ after 286 is applied. The owner saw the counts before deciding (2026-10-26, a
 rolled-back dry run with the channel test removed): on WebYar 6 would newly
 close (1 AI-held Telegram conversation quiet for 20 days, 5 resolved platform
 support threads quiet for 24 to 26 days), the 1 support thread the team owes
-stays open, and none had been untouched for 30 days, so no backlog run is
-needed. In the commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's
-database container).
+stays open, and none had been untouched for 30 days then, so no backlog run
+is needed unless the dry run (step 3) finds one past that bound. In the
+commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
 
 1. **Pre-checks**: the ledger has 285
    (`SELECT filename, applied_at FROM public._schema_migrations WHERE filename >= '284' ORDER BY 1;`;
-   286 itself stops with "286 needs 285" otherwise), and 286 holds no
-   `BEGIN` or `COMMIT` of its own, as 285 holds none (the dry run below
-   wraps it).
+   286 itself stops with "286 needs 285" otherwise), and 286 has no
+   transaction statement of its own outside its function bodies and `DO`
+   blocks (the dry run below wraps it):
+   `grep -nE '^[[:space:]]*(BEGIN|COMMIT|ROLLBACK)[[:space:]]*;' /root/webyar-migrate-286/database/migrations/286_inactivity_close_every_channel.sql`
+   prints nothing, as it does for 285.
 2. **WebYar: a schema dump** into the folder:
    `docker exec $C pg_dump -U postgres -s webyar > /root/webyar-migrate-286/pre-286-schema.sql`.
    286 writes no data (it replaces three functions and rewords five
@@ -732,8 +734,15 @@ database container).
    ```
    Expect `telegram` due 1, `platform_support` due 5 (resolved) and
    `needs_reply` 1, the App Review rows `exempt`, and the widget's rows as
-   before. Any other count goes to the owner before 286 is applied. The log
-   holds counts only (no text, no ids).
+   before. Any other count goes to the owner before 286 is applied. When
+   the first query counts `due` rows that the second leaves out, they are
+   past the timer's 30-day bound (untouched, `updated_at`, for longer), and
+   the timer never closes them: once 286 is applied, the backlog script
+   (`database/backfill/284_inactivity_backlog_close.sql`, channel-neutral
+   since 286) lists them with its dry run and closes them with its commit
+   after the owner has reviewed the list (its header's steps 0 to 2, with
+   the script in the folder's `database/backfill/`), as for 284's backlog.
+   The log holds counts only (no text, no ids).
 4. **WebYar: apply 286** with the CLAUDE.md procedure (`docker exec $C mkdir
    -p /tmp/m286`, `docker cp` the folder's `scripts` and `database`, never
    the dump or the log, into `/tmp/m286/`; `migrate-database.sh` as
@@ -753,11 +762,15 @@ database container).
      FROM public.conversations c
      CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
     WHERE c.status IN ('open', 'pending', 'resolved')
-      AND (EXISTS (SELECT 1 FROM public.workspaces w
-                    WHERE w.id = c.workspace_id AND w.slug = 'ws_appreview')
+      AND (c.metadata->>'app_review_seed' = 'true'
+           OR EXISTS (SELECT 1 FROM public.workspaces w
+                       WHERE w.id = c.workspace_id AND w.slug = 'ws_appreview')
            OR EXISTS (SELECT 1 FROM public.platform_support_threads p
                         JOIN public.profiles u ON u.id = p.user_id
-                       WHERE p.conversation_id = c.id AND lower(u.email) = 'apple@webyar.ai'))
+                       WHERE p.conversation_id = c.id AND lower(u.email) = 'apple@webyar.ai')
+           OR EXISTS (SELECT 1 FROM public.platform_support_threads p
+                        JOIN public.workspaces w2 ON w2.id = p.source_workspace_id
+                       WHERE p.conversation_id = c.id AND w2.slug = 'ws_appreview'))
     GROUP BY 1;
    ```
 6. **Ledger**: 286 with its UTC time in CLAUDE.md's migrations list, in the

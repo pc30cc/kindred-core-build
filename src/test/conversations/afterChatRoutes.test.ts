@@ -252,17 +252,20 @@ describe('the closed line in the visitor\'s thread', () => {
     expect((await csat(cid)).body).toMatchObject({ closed_id: first!.id, rateable: true, operator: { name: 'Sara' } });
   });
 
-  it('a default workspace\'s close writes the line too (one conversation per visitor), and asks for no rating', async () => {
+  it('a default workspace\'s close writes the line too (one conversation per visitor), and rates it (default reads the rating option)', async () => {
     state.template = 'default';
     const cid = conversation();
+    message(cid, 'contact', 'سلام', {}, 120_000);
     message(cid, 'agent', 'hi', {}, 90_000);
     const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;
     const line = await recordConversationClosed(config, { workspaceId: WS, conversationId: cid, actorId: ALI, status: 'closed' });
     expect(line).not.toBeNull();
     const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=${cid}`);
-    expect((res.body.messages as Body[]).map((m) => m.sender_type)).toEqual(['agent', 'system']);
+    expect((res.body.messages as Body[]).map((m) => m.sender_type)).toEqual(['contact', 'agent', 'system']);
     expect(state.published).toEqual([expect.objectContaining({ type: 'message' })]);
-    // default offers no rating option: nothing to rate under its line.
+    // default reads the rating option (on by default): its card under the line; off, nothing.
+    expect((await csat(cid)).body).toMatchObject({ closed_id: line!.id, rateable: true });
+    state.options = { csat: false };
     expect((await csat(cid)).body).toMatchObject({ closed_id: line!.id, rateable: false });
   });
 });
@@ -320,10 +323,13 @@ describe('GET …/csat', () => {
     const { cid } = answeredAndClosed();
     state.options = { csat: false };
     expect((await csat(cid)).body).toMatchObject({ rateable: false });
+    // Every template rates (the option on by default); the transcript is t1's and t2's only.
     state.options = {};
     state.template = 't1';
-    expect((await csat(cid)).body).toMatchObject({ rateable: false, transcript: { available: true } });
+    expect((await csat(cid)).body).toMatchObject({ rateable: true, transcript: { available: true } });
     state.template = 'default';
+    expect((await csat(cid)).body).toMatchObject({ rateable: true, transcript: { available: false } });
+    state.options = { csat: false };
     expect((await csat(cid)).body).toMatchObject({ rateable: false, transcript: { available: false } });
   });
 
@@ -365,9 +371,9 @@ describe('POST …/csat', () => {
     expect(ratings()).toHaveLength(0);
   });
 
-  it('403 csat_disabled when the template has no card or the option is off', async () => {
+  it('403 csat_disabled when the option is off (every template draws the card)', async () => {
     const { cid, closedId } = answeredAndClosed();
-    for (const [template, options] of [['t2', { csat: false }], ['t1', {}], ['default', {}], ['intl', {}]] as const) {
+    for (const [template, options] of [['t2', { csat: false }], ['t1', { csat: false }], ['default', { csat: false }], ['intl', { csat: false }]] as const) {
       state.template = template;
       state.options = options;
       // With a code: the widget's fetchWith refreshes the token on a code-less 403.

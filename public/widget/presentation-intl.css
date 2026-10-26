@@ -178,3 +178,6 @@
   padding-block: 10px 6px;
 }
 .composer-zone .wy-footer { padding: 6px 0 2px; }
+
+/* The rating's stars: Signal. */
+.wy-rate { --wy-star: #FF5A3C; }

@@ -468,6 +468,13 @@ describe('the guard: no letter avatar comes back in the panel', () => {
     }
   });
 
+  it('the widget\'s late surfaces (the extras: t1\'s and t2\'s rating cards among them) read no first letter at all', () => {
+    for (const file of ['public/widget/presentation-t1-x.js', 'public/widget/presentation-t2-x.js']) {
+      const found = readFileSync(join(ROOT, file), 'utf8').split('\n').filter((line) => LETTER.test(line));
+      expect(found, file).toEqual([]);
+    }
+  });
+
   it('every first-letter expression in src/ is a visitor\'s, a contact\'s, the platform\'s or a capitalised label', () => {
     const found: string[] = [];
     for (const file of sources(join(ROOT, 'src'))) {

@@ -133,8 +133,9 @@ export interface ChatTemplateOptions {
    */
   prechatMode?: ChatTemplatePrechatMode;
   /**
-   * The rating card after an operator closes the conversation (Template 2;
-   * default on). Off: the closed line only, and POST …/csat answers 403
+   * The rating card under the closed line, whoever closed the conversation
+   * (an operator, or the system after a quiet period); every template,
+   * default on. Off: the closed line only, and POST …/csat answers 403
    * `csat_disabled`.
    */
   csat?: boolean;
@@ -158,12 +159,12 @@ export type ChatTemplateOptionKey = keyof ChatTemplateOptions;
 
 /** Which options each template reads, in the order its settings show them. */
 export const CHAT_TEMPLATE_OPTIONS: Readonly<Record<ChatWidgetTemplateId, readonly ChatTemplateOptionKey[]>> = {
-  default: [],
-  intl: [],
-  t1: ['navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail'],
+  default: ['csat'],
+  intl: ['csat'],
+  t1: ['navStyle', 'navMode', 'topics', 'prechatMode', 'csat', 'transcriptEmail'],
   t2: ['topics', 'askExamples', 'csat', 'transcriptEmail'],
   // The International skins read what their renderer reads, and the logo direction.
-  't1-intl': ['logoDirection', 'navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail'],
+  't1-intl': ['logoDirection', 'navStyle', 'navMode', 'topics', 'prechatMode', 'csat', 'transcriptEmail'],
   't2-intl': ['logoDirection', 'topics', 'askExamples', 'csat', 'transcriptEmail'],
 };
 

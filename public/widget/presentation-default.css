@@ -2002,6 +2002,42 @@ a.wy-powered:hover { color: var(--wy-text); }
 .dept-option__cap svg { display: block; width: 15px; height: 15px; }
 .dept-option.is-offline .dept-option__name { color: var(--wy-muted); }
 
+/* The rating under a close (csatHtml): a quiet card in the thread, five
+   stars filled up to the one picked (under the pointer, up to the one
+   hovered), the comment and the send once a star is picked (where :has()
+   is read). No entrance of its own: it is no message row, so a repaint (its
+   sending, its thanks) would play it again. */
+.wy-rate {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; align-self: center;
+  width: 100%; max-width: 300px; box-sizing: border-box; margin: 0 auto 10px; padding: 14px;
+  border: 1px solid var(--wy-border); border-radius: var(--wy-radius-lg); background: var(--wy-card);
+}
+.wy-rate:focus { outline: 0; }
+.wy-rate-q { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.5; text-align: center; color: var(--wy-text); }
+.wy-stars { display: flex; gap: 2px; }
+.wy-star, .wy-stars i { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 9999px; color: var(--wy-border-strong); transition: transform 0.15s var(--wy-ease), color 0.15s; }
+.wy-stars i { width: 26px; height: 26px; }
+.wy-star:not(:disabled):hover { transform: scale(1.1); }
+.wy-star[aria-pressed='true'], .wy-stars .on, .wy-stars:hover .wy-star { color: var(--wy-star, #f5a524); }
+.wy-star[aria-pressed='true'] svg, .wy-stars .on svg, .wy-stars:hover .wy-star svg { fill: currentColor; }
+.wy-stars:hover .wy-star:hover ~ .wy-star { color: var(--wy-border-strong); }
+.wy-stars:hover .wy-star:hover ~ .wy-star svg { fill: none; }
+.wy-star:has(~ [aria-pressed='true']) { color: var(--wy-star, #f5a524); }
+.wy-star:has(~ [aria-pressed='true']) svg { fill: currentColor; }
+.wy-rate-ta {
+  width: 100%; box-sizing: border-box; height: 60px; padding: 8px 12px; resize: none;
+  border: 1px solid var(--wy-border); border-radius: var(--wy-radius-md); background: var(--wy-surface);
+  font: inherit; font-size: 13px; line-height: 1.6; color: var(--wy-text);
+}
+.wy-rate-ta:focus { outline: 0; border-color: var(--wy-accent); }
+.wy-rate-send { padding: 8px 18px; border-radius: 9999px; font-size: 13px; font-weight: 500; }
+.wy-rate-send:disabled { opacity: .5; }
+.wy-rate-note { margin: 0; font-size: 12px; color: var(--wy-muted); text-align: center; }
+.wy-rate-note.is-error { color: #c62a30; }
+@supports selector(:has(a)) {
+  .wy-rate:not(:has([aria-pressed='true'])) :is(.wy-rate-ta, .wy-rate-send) { display: none; }
+}
+
 /* A field under 16px makes iOS Safari zoom the page on focus: on phones and
    touch screens every field the visitor types in is 16px. */
 @media (max-width: 640px), (pointer: coarse) {

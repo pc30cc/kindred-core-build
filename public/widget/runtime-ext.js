@@ -851,7 +851,7 @@
     // canonical-name fallback) is refused by its id and version, and then
     // neither is used and their features stay off. If the renderer was
     // asked for a surface before they were in, Core repaints once.
-    var LATE_V = 2;
+    var LATE_V = 3;
     var registry = window.__gs_presentation_registry;
     var desc = registry && typeof registry.resolve === 'function' ? registry.resolve(config.templateId) : null;
     var lateFile = typeof P.extend === 'function' && desc && desc.extras;

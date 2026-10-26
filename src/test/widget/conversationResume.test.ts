@@ -59,7 +59,7 @@ function jsonResponse(payload: unknown, ok = true, status = 200) {
 
 const VIEW_KEY = 'gs:view:ws-test';
 
-type Conversation = { id: string; status: string };
+type Conversation = { id: string; status: string; unreadCount?: number; unreadReplies?: number };
 
 interface BootOpts {
   /** Thread list the server reports for this visitor. */
@@ -70,6 +70,10 @@ interface BootOpts {
   serverContinuation?: string | null;
   /** Open the panel before booting (default: stays closed). */
   open?: boolean;
+  /** A thread's own messages (default: one visitor line and one reply). */
+  threads?: Record<string, unknown[]>;
+  /** GET …/csat's answer (the rating card's), per conversation. */
+  csat?: Record<string, Record<string, unknown>>;
 }
 
 interface Harness {
@@ -82,6 +86,8 @@ interface Harness {
   smartContinuationCalls: () => number;
   /** Conversation ids whose durable read marker was POSTed. */
   readMarkers: () => string[];
+  /** Conversation ids GET …/csat was asked about. */
+  csatAsks: () => string[];
   storedHint: () => { tab?: string; conversationId?: string | null } | null;
 }
 
@@ -89,9 +95,10 @@ function boot(opts: BootOpts = {}): Harness {
   const conversations = opts.conversations ?? [];
   const explicitLoads: string[] = [];
   const readMarkers: string[] = [];
+  const csatAsks: string[] = [];
   let smartCalls = 0;
 
-  const messagesFor = (cid: string) => [
+  const messagesFor = (cid: string) => (opts.threads && opts.threads[cid]) || [
     { id: cid + '-m1', role: 'visitor', text: 'hello from ' + cid, time: new Date().toISOString() },
     { id: cid + '-m2', role: 'agent', text: 'reply inside ' + cid, time: new Date().toISOString() },
   ];
@@ -122,6 +129,12 @@ function boot(opts: BootOpts = {}): Harness {
 
   win.fetch = vi.fn((url: string, init?: RequestInit) => {
     const u = String(url);
+    const csat = u.match(/conversations\/([^/]+)\/csat\?/);
+    if (csat) {
+      csatAsks.push(decodeURIComponent(csat[1]));
+      const answer = opts.csat && opts.csat[decodeURIComponent(csat[1])];
+      return Promise.resolve(answer ? jsonResponse(answer) : jsonResponse({ closed_id: null, rateable: false, rating: null, operator: null }));
+    }
     if (u.includes('/api/widget/conversations') && u.includes('/read')) {
       const m = u.match(/conversations\/([^/]+)\/read/);
       if (m) readMarkers.push(decodeURIComponent(m[1]));
@@ -134,7 +147,8 @@ function boot(opts: BootOpts = {}): Harness {
           id: c.id,
           status: c.status,
           preview: 'preview ' + c.id,
-          unreadCount: 0,
+          unreadCount: c.unreadCount || 0,
+          ...(c.unreadReplies !== undefined ? { unreadReplies: c.unreadReplies } : {}),
           updatedAt: new Date().toISOString(),
           lastMessageAt: new Date().toISOString(),
         })),
@@ -179,6 +193,7 @@ function boot(opts: BootOpts = {}): Harness {
     explicitHistoryLoads: () => explicitLoads,
     smartContinuationCalls: () => smartCalls,
     readMarkers: () => readMarkers,
+    csatAsks: () => csatAsks,
     storedHint: () => {
       try {
         const raw = sessionStorage.getItem(VIEW_KEY);
@@ -427,5 +442,59 @@ describe('the round trip the visitor actually performs', () => {
     // and NOT into conv-B, which is what a hintless boot would have chosen.
     expect(second.explicitHistoryLoads()).toEqual(['conv-A']);
     expect(second.bodyText()).toContain('reply inside conv-A');
+  });
+});
+
+// The inactivity close (migration 284): the system closes a quiet
+// conversation and writes the line nobody's name is on. Whether the visitor
+// comes back to it is CONTRACT A rule 2 of one conversation per visitor: an
+// answer they never saw makes it current (its line and card with it); read,
+// they start fresh, the closed one in their history.
+describe('a conversation the system closed after a quiet period', () => {
+  const autoThread = (cid: string) => [
+    { id: cid + '-m1', role: 'visitor', text: 'is size 42 in stock?', time: new Date(Date.now() - 30 * 3600_000).toISOString() },
+    { id: cid + '-m2', role: 'agent', sender_type: 'agent', sender_name: 'Sara', text: 'Yes, it ships tomorrow.', time: new Date(Date.now() - 29 * 3600_000).toISOString() },
+    {
+      id: cid + '-cl', role: 'system', sender_type: 'system', text: 'The conversation was closed', time: new Date(Date.now() - 5 * 3600_000).toISOString(),
+      metadata: { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity', agent_name: null, operator_name: 'Sara', status: 'closed' },
+    },
+  ];
+  const card = (cid: string) => ({ [cid]: { closed_id: cid + '-cl', rateable: true, rating: null, operator: { name: 'Sara', avatar: null }, subject: 'operator' } });
+
+  it('with an answer the visitor never saw: the return lands on that thread, with its line and the card', async () => {
+    const h = boot({
+      conversations: [{ id: 'c-auto', status: 'closed', unreadCount: 1, unreadReplies: 1 }],
+      threads: { 'c-auto': autoThread('c-auto') },
+      csat: card('c-auto'),
+    });
+    h.runtime.open();
+    await flush();
+    await flush();
+    expect(h.explicitHistoryLoads()).toEqual(['c-auto']);
+    expect(h.bodyText()).toContain('Yes, it ships tomorrow.');
+    expect(h.bodyText()).toContain('Chat ended');
+    expect(h.bodyText()).not.toContain('The conversation was closed');
+    expect(h.csatAsks()).toEqual(['c-auto']);
+    expect(h.shadow.querySelector('.wy-rate[data-csat] .wy-rate-q')!.textContent).toBe('How was your chat with Sara?');
+    // Opened: read.
+    expect(h.readMarkers()).toContain('c-auto');
+  });
+
+  it('read already: a fresh thread, the closed one only in the history (never re-adopted)', async () => {
+    const h = boot({
+      conversations: [{ id: 'c-auto', status: 'closed', unreadCount: 0, unreadReplies: 0 }],
+      threads: { 'c-auto': autoThread('c-auto') },
+      csat: card('c-auto'),
+    });
+    h.runtime.open();
+    await flush();
+    await flush();
+    expect(h.explicitHistoryLoads()).toEqual([]);
+    expect(h.smartContinuationCalls()).toBe(0);
+    expect(h.bodyText()).not.toContain('Yes, it ships tomorrow.');
+    expect(h.csatAsks()).toEqual([]);
+    h.runtime.setTab('list');
+    await flush();
+    expect(h.shadow.querySelector('[data-conversation-open="c-auto"]')).not.toBeNull();
   });
 });

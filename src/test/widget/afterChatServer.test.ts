@@ -1,7 +1,7 @@
 /**
  * After a chat end to end (issue #340 g1): the SHIPPED widget (runtime.js,
- * runtime-ext.js, runtime-late.js, the real t1 / t2 renderers and extras,
- * coreFeaturesHarness.ts) talking to the REAL widget API (server/routes/
+ * runtime-ext.js, runtime-late.js, the real default / t1 / t2 renderers and
+ * extras, coreFeaturesHarness.ts) talking to the REAL widget API (server/routes/
  * widget.ts with the real ownership check, rate limits, rating and
  * transcript services) over HTTP, in one process. The data layer is the
  * in-memory one of the server tests (src/test/conversations/fakeServiceDb.ts);
@@ -10,11 +10,12 @@
  *
  * What it proves is that the two sides agree, field by field:
  *  - the inbox's close (recordConversationClosed) writes the row whose
- *    envelope (realtime), /history and /poll rows runtime.js keeps for t2 and
- *    runtime-late.js recognises (metadata.kind, operator_name, agent_name);
- *  - runtime-late.js's requests (GET …/csat?workspace_id=, POST …/csat
- *    {workspace_id, closed_id, rating, comment}, POST …/transcript
- *    {workspace_id, locale, tz}) are what the routes read, and every answer
+ *    envelope (realtime), /history and /poll rows runtime.js keeps for every
+ *    template and rates under (metadata.kind, operator_name, agent_name);
+ *  - Core's rating requests (runtime.js: GET …/csat?workspace_id=, POST
+ *    …/csat {workspace_id, closed_id, rating, comment}) and runtime-late.js's
+ *    transcript (POST …/transcript {workspace_id, locale, tz}) are what the
+ *    routes read, and every answer
  *    the routes give (200, 409 already_rated / not_ratable, 403, 429
  *    rate_limited / limit_reached) is read as the state the card or the
  *    menu then shows;
@@ -155,7 +156,7 @@ const get = async (path: string) => (await request('GET', path)).body as Record<
 let refreshes = 0;
 /**
  * The widget's own after-chat requests go to the real API exactly as
- * runtime-late.js made them (URL, method, headers, body); a token refresh
+ * runtime.js and runtime-late.js made them (URL, method, headers, body); a token refresh
  * answers a new token, as the real one would for a live session.
  */
 const api: BootOptions['api'] = (url, init) => {
@@ -350,23 +351,48 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     expect(card(h)).toBeNull();
   });
 
-  it('a default workspace (one conversation per visitor): its close writes the line, which default draws as a quiet divider, and asks nothing', async () => {
+  it('a default workspace (one conversation per visitor): its close writes the line, default draws it as a quiet divider and its own star card (Core\'s requests, no late pack)', async () => {
     state.template = 'default';
     const cid = answered();
     const closed = await closeFromInbox(cid);
     const rows = await history(cid);
     expect(rows.map((m) => (m.metadata as Row | null)?.kind || m.sender_type)).toEqual(['contact', 'agent', 'conversation_closed']);
     expect(rows[2]).toMatchObject({ id: closed.id, metadata: { agent_name: 'سارا', status: 'closed' } });
-    // default has no rating option: the server rates nothing for it.
-    expect(await get(`/api/widget/conversations/${cid}/csat?workspace_id=${WS}`)).toMatchObject({ rateable: false });
+    // default reads the rating option (on by default): the server rates it.
+    expect(await get(`/api/widget/conversations/${cid}/csat?workspace_id=${WS}`)).toMatchObject({ closed_id: closed.id, rateable: true });
     received.length = 0;
     const h = await widget(cid, { renderer: 'default', messages: rows });
-    await flush(20);
+    await until(() => card(h));
     const lines = Array.prototype.map.call(h.shadow.querySelectorAll('[data-chat-messages] .msg-day span'), (e: Element) => e.textContent);
     expect(lines).toContain('سارا گفتگو را به پایان رساند');
-    expect(card(h)).toBeNull();
-    // No late pack, so no request of the card's.
-    expect(sentTo('/csat')).toEqual([]);
+    expect(card(h)!.querySelector('.wy-rate-q')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    expect(sentTo('/csat').map((r) => r.path)).toEqual([`/api/widget/conversations/${cid}/csat?workspace_id=${WS}`]);
+    click(h.q('[data-csat-rate="4"]'));
+    click(h.q('[data-csat-submit]'));
+    await until(() => h.q('[data-csat] [role="status"]'));
+    expect(h.q('[data-csat] [role="status"]')!.textContent).toBe('از نظرتان سپاسگزاریم! امتیاز شما: خوب');
+    expect(state.db.tables.conversation_ratings).toEqual([expect.objectContaining({ conversation_id: cid, closed_message_id: closed.id, score: 4, operator_id: SARA })]);
+    expect(h.scripts.some((src) => /runtime-late|runtime-ext|-x\./.test(src))).toBe(false);
+    // The workspace turns it off: the card asks nothing, the POST answers 403.
+    state.options = { csat: false };
+    expect((await request('POST', `/api/widget/conversations/${cid}/csat`, JSON.stringify({ workspace_id: WS, closed_id: closed.id, rating: 2, comment: null }))).status).toBe(403);
+  });
+
+  it('a t1 workspace: the same close, t1\'s star card from its extras, the rating stored once', async () => {
+    state.template = 't1';
+    const cid = answered();
+    const closed = await closeFromInbox(cid);
+    const h = await widget(cid, { renderer: 't1' });
+    await until(() => card(h));
+    expect(card(h)!.closest('.msg-row.rt')).not.toBeNull();
+    expect(card(h)!.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    click(h.q('[data-csat-rate="5"]'));
+    typeInto(h.q<HTMLTextAreaElement>('[data-csat-comment]')!, 'عالی بود');
+    click(h.q('[data-csat-submit]'));
+    await until(() => h.q('[data-csat] [role="status"]'));
+    expect(state.db.tables.conversation_ratings).toEqual([expect.objectContaining({ closed_message_id: closed.id, score: 5, comment: 'عالی بود' })]);
+    // Exactly one GET: Core's (no late module of its own asks again).
+    expect(sentTo('/csat').filter((r) => r.path.includes('?'))).toHaveLength(1);
   });
 });
 
@@ -376,7 +402,7 @@ describe('the server\'s refusals, as the card shows them', () => {
     const closed = await closeFromInbox(cid);
     const h = await widget(cid);
     await until(() => card(h));
-    // The other tab, with the same request runtime-late.js makes.
+    // The other tab, with the same request Core makes.
     await request('POST', `/api/widget/conversations/${cid}/csat`, JSON.stringify({ workspace_id: WS, closed_id: closed.id, rating: 2, comment: null }));
 
     click(h.q('[data-csat-rate="5"]'));

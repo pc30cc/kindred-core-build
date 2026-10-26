@@ -151,14 +151,14 @@ describe('GET /:workspaceId/templates', () => {
       ready: true,
       defaultId: 'default',
       templates: [
-        { id: 'default', name: 'آشنا', isDefault: true, options: {} },
-        { id: 't1', name: 'فیروزه', isDefault: false, options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true } },
+        { id: 'default', name: 'آشنا', isDefault: true, options: { csat: true } },
+        { id: 't1', name: 'فیروزه', isDefault: false, options: { navStyle: 'vc', navMode: 'active', topics: [], prechatMode: 'card', csat: true, transcriptEmail: true } },
       ],
       selectedId: 't1',
       selectedOptions: { navMode: 'none' },
       selectedUnavailable: false,
       effectiveId: 't1',
-      effectiveOptions: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', transcriptEmail: false },
+      effectiveOptions: { navStyle: 'vc', navMode: 'none', topics: [], prechatMode: 'card', csat: true, transcriptEmail: false },
       planAllowsChoice: true,
       canChoose: true,
     });

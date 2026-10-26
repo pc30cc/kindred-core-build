@@ -101,11 +101,11 @@ afterEach(() => {
 });
 
 describe('GET /config body: templateId and templateOptions from the catalog', () => {
-  it('no catalog row: default with no options, whatever the row holds', async () => {
+  it('no catalog row: default with its own option (the rating) only, whatever the row holds', async () => {
     await fresh(choose('t1', { navMode: 'none' }));
     const b = await body();
     expect(b.templateId).toBe('default');
-    expect(b.templateOptions).toEqual({});
+    expect(b.templateOptions).toEqual({ csat: true });
     expect(String(b.presentationUrl)).toContain('presentation-default');
   });
 
@@ -113,7 +113,7 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     await fresh(withCatalog());
     const b = await body();
     expect(b.templateId).toBe('default');
-    expect(b.templateOptions).toEqual({});
+    expect(b.templateOptions).toEqual({ csat: true });
   });
 
   it('an enabled choice is worn with the merged options and its own assets', async () => {
@@ -124,7 +124,7 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     const b = await body();
     expect(b.templateId).toBe('t1');
     expect(b.templateOptions).toEqual({
-      navStyle: 'vc', navMode: 'both', topics: [{ label: 'ارسال', icon: 'truck' }], prechatMode: 'card', transcriptEmail: false,
+      navStyle: 'vc', navMode: 'both', topics: [{ label: 'ارسال', icon: 'truck' }], prechatMode: 'card', csat: true, transcriptEmail: false,
     });
     // No email to visitors while the switch is off (shared/visitorEmail.ts): the
     // away email step's flag is not sent.
@@ -203,14 +203,14 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     }, { deny: ['widget_appearance'] });
     const b = await body();
     expect(b.templateId).toBe('t1');
-    expect(b.templateOptions).toEqual({ navStyle: 'vd', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: false });
+    expect(b.templateOptions).toEqual({ navStyle: 'vd', navMode: 'active', topics: [], prechatMode: 'card', csat: true, transcriptEmail: false });
   });
 
   it('the International edition ignores an Iranian catalog and wears intl', async () => {
     await fresh((t) => { withCatalog(CATALOG, 'international')(t); choose('t1')(t); }, { edition: 'international' });
     const b = await body('international');
     expect(b.templateId).toBe('intl');
-    expect(b.templateOptions).toEqual({});
+    expect(b.templateOptions).toEqual({ csat: true });
   });
 });
 

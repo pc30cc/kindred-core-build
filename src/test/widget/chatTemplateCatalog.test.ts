@@ -81,9 +81,9 @@ describe('resolveChatTemplateCatalog — the Super Admin catalog', () => {
     const t1 = c.entries.find((e) => e.id === 't1')!;
     expect(t1.name).toEqual({ fa: 'فیروزه' });
     // An unknown value reads as the code default; topics default to none.
-    expect(t1.options).toEqual({ navStyle: 'vb', navMode: 'both', topics: [], prechatMode: 'card', transcriptEmail: true });
+    expect(t1.options).toEqual({ navStyle: 'vb', navMode: 'both', topics: [], prechatMode: 'card', csat: true, transcriptEmail: true });
     expect(c.entries.find((e) => e.id === 't2')!.options).toEqual({ topics: [], askExamples: [], csat: true, transcriptEmail: true });
-    expect(c.entries.find((e) => e.id === 'default')!.options).toEqual({});
+    expect(c.entries.find((e) => e.id === 'default')!.options).toEqual({ csat: true });
   });
 
   it('order sorts, ties keep the offered order', () => {
@@ -167,9 +167,9 @@ describe('template options', () => {
     });
     // The transcript by email reads off while visitor email is switched off
     // (shared/visitorEmail.ts, owner 2026-10-21).
-    const t1Rest = { prechatMode: 'card', transcriptEmail: false };
+    const t1Rest = { prechatMode: 'card', csat: true, transcriptEmail: false };
     expect(resolveChatTemplateOptions(c, 't1', {})).toEqual({ navStyle: 'vc', navMode: 'active', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
-    expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], csat: false, extra: 1 }))
+    expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], logoDirection: 'open', extra: 1 }))
       .toEqual({ navStyle: 'vc', navMode: 'none', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
     // An explicit empty list is the workspace's own choice: no topics.
     expect(resolveChatTemplateOptions(c, 't1', { topics: [] }).topics).toEqual([]);
@@ -177,7 +177,8 @@ describe('template options', () => {
     expect(resolveChatTemplateOptions(c, 't1', { navStyle: 'zz' }).navStyle).toBe('vc');
     expect(resolveChatTemplateOptions(c, 't2', { askExamples: ['سفارشم کی می‌رسد؟'], navMode: 'none', prechatMode: 'steps' }))
       .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'], csat: true, transcriptEmail: false });
-    expect(resolveChatTemplateOptions(c, 'default', { navMode: 'none' })).toEqual({});
+    expect(resolveChatTemplateOptions(c, 'default', { navMode: 'none' })).toEqual({ csat: true });
+    expect(resolveChatTemplateOptions(c, 'default', { csat: false })).toEqual({ csat: false });
   });
 
   it('strict input: unknown keys dropped, bad values refused with their key', () => {
@@ -296,7 +297,7 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
     expect(resolveChatTemplateOptions(c, 't1', { transcriptEmail: true }).transcriptEmail).toBe(false);
     expect(resolveChatTemplateOptions(c, 't2', { transcriptEmail: true }).transcriptEmail).toBe(false);
     // A template without the option gains no key.
-    expect(resolveChatTemplateOptions(c, 'default', { transcriptEmail: true })).toEqual({});
+    expect(resolveChatTemplateOptions(c, 'default', { transcriptEmail: true })).toEqual({ csat: true });
   });
 
   it('what is saved reads back as the same catalog', () => {
@@ -318,19 +319,20 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
 });
 
 describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMode', () => {
-  it('who reads which: the rating card is Template 2\'s, the transcript both new templates\', the step form Template 1\'s', () => {
-    expect(CHAT_TEMPLATE_OPTIONS.t1).toEqual(['navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail']);
+  it('who reads which: the rating card every template\'s, the transcript both new templates\', the step form Template 1\'s', () => {
+    expect(CHAT_TEMPLATE_OPTIONS.t1).toEqual(['navStyle', 'navMode', 'topics', 'prechatMode', 'csat', 'transcriptEmail']);
     expect(CHAT_TEMPLATE_OPTIONS.t2).toEqual(['topics', 'askExamples', 'csat', 'transcriptEmail']);
-    expect(CHAT_TEMPLATE_OPTIONS.default).toEqual([]);
-    expect(CHAT_TEMPLATE_OPTIONS.intl).toEqual([]);
+    expect(CHAT_TEMPLATE_OPTIONS.default).toEqual(['csat']);
+    expect(CHAT_TEMPLATE_OPTIONS.intl).toEqual(['csat']);
     expect(CHAT_TEMPLATE_OPTION_KEYS).toEqual(expect.arrayContaining(['prechatMode', 'csat', 'transcriptEmail']));
     expect(CHAT_TEMPLATE_PRECHAT_MODES).toEqual(['card', 'steps']);
   });
 
   it('defaults: both switches on, the card form', () => {
     expect(chatTemplateOptionDefaults('t2')).toMatchObject({ csat: true, transcriptEmail: true });
-    expect(chatTemplateOptionDefaults('t1')).toMatchObject({ prechatMode: 'card', transcriptEmail: true });
-    expect(chatTemplateOptionDefaults('default')).toEqual({});
+    expect(chatTemplateOptionDefaults('t1')).toMatchObject({ prechatMode: 'card', csat: true, transcriptEmail: true });
+    expect(chatTemplateOptionDefaults('default')).toEqual({ csat: true });
+    expect(chatTemplateOptionDefaults('intl')).toEqual({ csat: true });
   });
 
   it('only booleans and the two modes are valid; anything else is refused by name or read as the level above', () => {
@@ -351,8 +353,9 @@ describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMod
     expect(resolveChatTemplateOptions(c, 't2', {})).toMatchObject({ csat: false, transcriptEmail: false });
     expect(resolveChatTemplateOptions(c, 't2', { csat: true })).toMatchObject({ csat: true, transcriptEmail: false });
     expect(resolveChatTemplateOptions(c, 't2', { csat: 'on' })).toMatchObject({ csat: false });
-    expect(resolveChatTemplateOptions(c, 't1', { csat: false, prechatMode: 'steps' })).not.toHaveProperty('csat');
+    expect(resolveChatTemplateOptions(c, 't1', { askExamples: ['x'], prechatMode: 'steps' })).not.toHaveProperty('askExamples');
     expect(resolveChatTemplateOptions(c, 't1', { prechatMode: 'steps' }).prechatMode).toBe('steps');
+    expect(resolveChatTemplateOptions(c, 't1', { csat: false }).csat).toBe(false);
     // A Super Admin save keeps them per template.
     const saved = cleanChatTemplateCatalogInput('iran', {
       defaultId: 'default',
@@ -362,16 +365,17 @@ describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMod
       ],
     }, null);
     if (!saved.ok) throw new Error('save refused');
-    expect(saved.value.items?.t1?.options).toEqual({ prechatMode: 'steps', transcriptEmail: false });
+    expect(saved.value.items?.t1?.options).toEqual({ prechatMode: 'steps', transcriptEmail: false, csat: false });
     expect(saved.value.items?.t2?.options).toEqual({ csat: false });
     expect(cleanChatTemplateCatalogInput('iran', { defaultId: 'default', templates: [{ id: 't2', enabled: true, options: { csat: 'no' } }] }, null))
       .toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2' });
   });
 
-  it('every template draws the closed line (descriptor closedNotice, one conversation per visitor), and only Template 2 rates under it', () => {
+  it('every template draws the closed line (descriptor closedNotice, one conversation per visitor), and rates under it', () => {
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
     expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(ids);
-    expect(ids.filter((id) => chatTemplateOptionKeys(id).includes('csat'))).toEqual(['t2', 't2-intl']);
+    expect(ids.filter((id) => chatTemplateOptionKeys(id).includes('csat'))).toEqual(ids);
+    for (const id of ids) expect(chatTemplateOptionDefaults(id), id).toMatchObject({ csat: true });
     // That it is the renderer's own closedNotice: runtimeExt.test.ts.
   });
 });
@@ -421,7 +425,7 @@ describe('the International edition\'s skins over Templates 1 and 2 (t1-intl, t2
     expect(resolveChatTemplateOptions(c, 't1-intl', { logoDirection: 'sideways' }).logoDirection).toBe('open');
     expect(readTemplateOptions({ logoDirection: 'OPEN' }, ['logoDirection'])).toEqual({});
     // intl itself does not read it (its launcher and footer stay Thread).
-    expect(resolveChatTemplateOptions(c, 'intl', { logoDirection: 'open' })).toEqual({});
+    expect(resolveChatTemplateOptions(c, 'intl', { logoDirection: 'open' })).toEqual({ csat: true });
   });
 
   it('a save with a direction that is not one is refused by name; a good one is kept', () => {

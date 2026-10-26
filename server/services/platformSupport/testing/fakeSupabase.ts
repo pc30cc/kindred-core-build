@@ -2,7 +2,9 @@
  * An in-memory stand-in for the service-role Supabase client, covering just
  * the query surface platform support uses: filters, ordering, counting,
  * inserts, updates and upserts with the unique rules that matter to it, and
- * the two RPCs it calls (`is_workspace_member`, `ensure_active_conversation`).
+ * the three RPCs it calls (`is_workspace_member`, `ensure_active_conversation`
+ * and `conversation_reopen_after_idle_close`, migration 284, in brief), each
+ * call kept in `db.rpcs`.
  *
  * Test-only. Rows are plain objects; a column may be read as `metadata->>key`.
  */
@@ -30,6 +32,8 @@ const UNIQUE: Record<string, (a: Row, b: Row) => boolean> = {
 
 export class FakeDb {
   tables: Record<string, Row[]> = {};
+  /** Every RPC call, in order. */
+  rpcs: Array<{ name: string; args: Record<string, unknown> }> = [];
   private clock = Date.parse('2026-09-30T10:00:00.000Z');
   private threadNumber = 1000;
 
@@ -220,6 +224,7 @@ export function fakeSupabase(db: FakeDb) {
   return {
     from: (name: string) => new Query(db, name),
     rpc: async (name: string, args: Record<string, unknown>): Promise<Result> => {
+      db.rpcs.push({ name, args });
       if (name === 'is_workspace_member') {
         const member = db
           .table('workspace_members')
@@ -244,6 +249,41 @@ export function fakeSupabase(db: FakeDb) {
         });
         db.table('conversations').push(row);
         return { data: [{ id: row.id, created: true, matched_by: null }], error: null };
+      }
+      if (name === 'conversation_reopen_after_idle_close') {
+        // An inactivity close within the grace (at most 600 s, by the wall
+        // clock) goes back to closed_from, once, its markers gone; anything
+        // else NULL. The SQL itself: src/test/integration/conversationIdleClose284.pg.test.ts.
+        const none = { data: [{ restored_status: null, updated_at: null, event_id: null, event_created_at: null, retracted_line_id: null }], error: null };
+        const conv = db.table('conversations').find((c) => c.id === args.p_conversation_id);
+        const meta = (conv?.metadata ?? {}) as Row;
+        const grace = Math.min(Math.max(Number(args.p_grace_seconds ?? 60), 0), 600);
+        if (
+          !conv || conv.workspace_id !== args.p_workspace_id || conv.status !== 'closed' ||
+          meta.closed_reason !== 'inactivity' || typeof meta.closed_at !== 'string' ||
+          Date.now() - Date.parse(meta.closed_at) > grace * 1000
+        ) {
+          return none;
+        }
+        const restored = ['open', 'pending', 'resolved'].includes(String(meta.closed_from)) ? String(meta.closed_from) : 'open';
+        conv.status = restored;
+        conv.updated_at = db.now();
+        conv.metadata = {
+          ...Object.fromEntries(Object.entries(meta).filter(([key]) => !key.startsWith('closed_'))),
+          idle_close_undone_at: conv.updated_at,
+        };
+        const event = db.withDefaults('conversation_events', {
+          workspace_id: conv.workspace_id,
+          conversation_id: conv.id,
+          event_type: 'reopened',
+          actor_type: 'visitor',
+          payload: { from: 'closed', to: restored, reason: 'customer_replied_after_inactivity_close', message_id: args.p_message_id ?? null },
+        });
+        db.table('conversation_events').push(event);
+        return {
+          data: [{ restored_status: restored, updated_at: conv.updated_at, event_id: event.id, event_created_at: event.created_at, retracted_line_id: null }],
+          error: null,
+        };
       }
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },

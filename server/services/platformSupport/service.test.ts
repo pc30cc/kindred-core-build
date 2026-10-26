@@ -8,7 +8,8 @@ import type { RequesterSnapshot } from './requester.js';
  * Platform support end to end against an in-memory database: an operator's
  * chat arrives in the support workspace as a customer's would, is only ever
  * read back by that operator, ends and is rated, and the team's replies and
- * changes reach them.
+ * changes reach them. The inactivity close (migration 286): how a closed
+ * conversation is shown, and a message that raced the close.
  */
 
 const state = vi.hoisted(() => ({
@@ -34,6 +35,7 @@ vi.mock('../realtime/publish.js', () => ({
   buildMessageEnvelope: (row: unknown) => ({ type: 'message', payload: row }),
   publishConversationEvent: vi.fn(async () => ({ ok: true })),
   publishSupportEvent: vi.fn(async () => undefined),
+  publishOperatorEvent: vi.fn(async () => undefined),
 }));
 vi.mock('../push/index.js', () => ({ notifyInboundMessage: vi.fn(), notifySupportReply: vi.fn() }));
 vi.mock('../storage/urlResolver.js', () => ({
@@ -65,8 +67,9 @@ import {
 } from './service.js';
 import { onSupportConversationChanged } from './changes.js';
 import { notifyInboundMessage, notifySupportReply } from '../push/index.js';
-import { publishSupportEvent } from '../realtime/publish.js';
+import { publishOperatorEvent, publishSupportEvent } from '../realtime/publish.js';
 import { uploadFile } from '../storage/index.js';
+import { applyInboundConversationLifecycle } from '../conversationLifecycle.js';
 
 const config = {} as ServerConfig;
 let db: FakeDb;
@@ -611,5 +614,176 @@ describe('the team\'s side', () => {
     await onSupportConversationChanged(config, { workspaceId: 'ws-elsewhere', conversationId: conversation.id });
     expect(publishSupportEvent).not.toHaveBeenCalled();
     expect(notifySupportReply).not.toHaveBeenCalled();
+  });
+});
+
+describe('the inactivity close (migration 286)', () => {
+  const png = Buffer.from('png').toString('base64');
+  const row = (conversationId: string) => db.table('conversations').find((c) => c.id === conversationId)!;
+  /** The timer's close of a conversation that was `from`, `secondsAgo` before now (updated_at untouched). */
+  function idleClose(conversationId: string, from = 'open', secondsAgo = 120) {
+    const conv = row(conversationId);
+    conv.status = 'closed';
+    conv.metadata = {
+      ...(conv.metadata as Record<string, unknown>),
+      closed_reason: 'inactivity',
+      closed_by: 'system',
+      closed_from: from,
+      closed_source: 'inactivity_timer',
+      closed_at: new Date(Date.now() - secondsAgo * 1000).toISOString(),
+    };
+  }
+  /** An operator's close (the Inbox's PATCH), a moment ago. */
+  function operatorClose(conversationId: string) {
+    setStatus(conversationId, 'closed');
+    row(conversationId).metadata = { closed_reason: 'operator', closed_by: 'agent', closed_at: new Date().toISOString(), closed_from: 'open' };
+  }
+  const reopens = () => db.rpcs.filter((r) => r.name === 'conversation_reopen_after_idle_close');
+  const supportUpdates = () =>
+    vi.mocked(publishSupportEvent).mock.calls.filter(([, , , payload]) => payload.kind === 'support_update');
+  const lifecycleStatuses = () =>
+    vi.mocked(applyInboundConversationLifecycle).mock.calls.map(([, params]) => (params as { knownStatus?: unknown }).knownStatus);
+
+  it('shows one it closed from open or pending as closed, ended at the close, and one the team had resolved as still resolved', async () => {
+    const { userId } = operator();
+    const open = await say(userId, 'one');
+    teamSays(open.conversation.id, 'Anything else?');
+    idleClose(open.conversation.id, 'open');
+    const closedAt = (row(open.conversation.id).metadata as { closed_at: string }).closed_at;
+
+    const resolved = await say(userId, 'two');
+    teamSays(resolved.conversation.id, 'Fixed.');
+    setStatus(resolved.conversation.id, 'resolved');
+    const resolvedAt = row(resolved.conversation.id).updated_at;
+    idleClose(resolved.conversation.id, 'resolved');
+
+    const { conversations } = await supportHistory(config, userId);
+    const byId = new Map(conversations.map((c) => [c.id, c]));
+    // Ended at the close, not at the last exchange (the close never moves updated_at).
+    expect(byId.get(open.conversation.id)).toMatchObject({ status: 'closed', endedAt: closedAt, canRate: true });
+    expect(closedAt).not.toBe(row(open.conversation.id).updated_at);
+    // Its label and icon do not change: still the resolve, at the resolve.
+    expect(byId.get(resolved.conversation.id)).toMatchObject({ status: 'resolved', endedAt: resolvedAt, canRate: true });
+    const rated = await rateConversation(config, userId, resolved.conversation.id, { score: 5 });
+    expect(rated.conversation).toMatchObject({ status: 'resolved', endedAt: resolvedAt, rating: { score: 5 } });
+  });
+
+  it('an operator\'s close ends at its closed_at too; a close without one (before 284) at the last update', async () => {
+    const { userId } = operator();
+    const marked = await say(userId, 'one');
+    setStatus(marked.conversation.id, 'closed');
+    row(marked.conversation.id).metadata = { closed_reason: 'operator', closed_by: 'agent', closed_at: '2026-10-26T09:00:00.000Z', closed_from: 'open' };
+    const old = await say(userId, 'two');
+    setStatus(old.conversation.id, 'closed');
+    const { conversations } = await supportHistory(config, userId);
+    expect(conversations.find((c) => c.id === marked.conversation.id)).toMatchObject({ status: 'closed', endedAt: '2026-10-26T09:00:00.000Z' });
+    expect(conversations.find((c) => c.id === old.conversation.id)).toMatchObject({ status: 'closed', endedAt: row(old.conversation.id).updated_at });
+  });
+
+  it('a message naming a conversation it closed a moment ago brings it back, as it was, in the same conversation', async () => {
+    const { userId } = operator();
+    for (const from of ['open', 'pending']) {
+      const first = await say(userId, 'one');
+      teamSays(first.conversation.id, 'Please send a screenshot.');
+      setStatus(first.conversation.id, from);
+      // 9 minutes: past the widget's minute, within the ten of channels and support.
+      idleClose(first.conversation.id, from, 540);
+      vi.clearAllMocks();
+      db.rpcs.length = 0;
+
+      const next = await say(userId, 'here it is', nextId(), { conversationId: first.conversation.id });
+      expect(next.conversation.id).toBe(first.conversation.id);
+      expect(next.conversation.status).toBe(from);
+      expect(row(first.conversation.id).status).toBe(from);
+      expect(Object.keys(row(first.conversation.id).metadata as object).filter((k) => k.startsWith('closed_'))).toEqual([]);
+      expect(reopens().map((r) => r.args)).toEqual([{
+        p_workspace_id: 'ws-support', p_conversation_id: first.conversation.id, p_message_id: null, p_grace_seconds: 600,
+      }]);
+      // The lifecycle runs from the restored status (a pending one resumes there).
+      expect(lifecycleStatuses()).toEqual([from]);
+      // The Inbox hears of the reopen, the operator's devices read their chat again.
+      expect(publishOperatorEvent).toHaveBeenCalledWith(config, expect.objectContaining({
+        kind: 'conversation_reopened', conversation_id: first.conversation.id, reason: 'customer_replied_after_inactivity_close',
+      }));
+      expect(supportUpdates().map(([, , , payload]) => payload)).toEqual([{ kind: 'support_update', thread_id: first.conversation.id }]);
+      expect(db.table('conversations').filter((c) => c.status === 'closed')).toEqual([]);
+      setStatus(first.conversation.id, 'resolved');
+    }
+  });
+
+  it('past the grace, after an operator\'s close, or after the team\'s resolve, the message is refused as before, and nothing comes back', async () => {
+    const { userId } = operator();
+    const late = await say(userId, 'one');
+    idleClose(late.conversation.id, 'open', 601);
+    await rejects(say(userId, 'two', nextId(), { conversationId: late.conversation.id }), 409, 'conversation_ended');
+    await rejects(
+      sendAttachment(config, userId, { fileName: 'a.png', mimeType: 'image/png', data: png, clientMessageId: nextId(), conversationId: late.conversation.id, client: 'android' }),
+      409,
+      'conversation_ended',
+    );
+
+    const byOperator = await say(userId, 'three');
+    operatorClose(byOperator.conversation.id);
+    await rejects(say(userId, 'four', nextId(), { conversationId: byOperator.conversation.id }), 409, 'conversation_ended');
+
+    // Resolved before the close: it had already ended for the operator, and stays so.
+    const resolved = await say(userId, 'five');
+    setStatus(resolved.conversation.id, 'resolved');
+    idleClose(resolved.conversation.id, 'resolved', 30);
+    await rejects(say(userId, 'six', nextId(), { conversationId: resolved.conversation.id }), 409, 'conversation_ended');
+
+    expect(reopens()).toEqual([]);
+    expect([late, byOperator, resolved].map((c) => row(c.conversation.id).status)).toEqual(['closed', 'closed', 'closed']);
+    expect(supportUpdates()).toEqual([]);
+    expect(messages().map((m) => m.body)).toEqual(['one', 'three', 'five']);
+    expect(db.table('conversation_attachments')).toHaveLength(0);
+  });
+
+  it('a retry of a message that landed before the close returns it, and brings nothing back', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    const sent = await say(userId, 'two', 'client-before-close', { conversationId: first.conversation.id });
+    idleClose(first.conversation.id, 'open', 30);
+    const again = await say(userId, 'two', 'client-before-close', { conversationId: first.conversation.id });
+    expect(again.item.id).toBe(sent.item.id);
+    expect(again.conversation.status).toBe('closed');
+    expect(reopens()).toEqual([]);
+    expect(row(first.conversation.id).status).toBe('closed');
+  });
+
+  it('a file in flight while the close commits (during its upload) brings the conversation back, with the message\'s id', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    vi.clearAllMocks();
+    vi.mocked(uploadFile).mockImplementationOnce(async () => {
+      idleClose(first.conversation.id, 'open', 1);
+      return { success: true, provider: 'arvan_storage' };
+    });
+    const { conversation, item } = await sendAttachment(config, userId, {
+      fileName: 'shot.png', mimeType: 'image/png', data: png, clientMessageId: nextId(), conversationId: first.conversation.id, client: 'android',
+    });
+    expect(conversation).toMatchObject({ id: first.conversation.id, status: 'open', endedAt: null });
+    expect(row(first.conversation.id).status).toBe('open');
+    expect(reopens().map((r) => r.args)).toEqual([{
+      p_workspace_id: 'ws-support', p_conversation_id: first.conversation.id, p_message_id: item.id, p_grace_seconds: 600,
+    }]);
+    expect(lifecycleStatuses()).toEqual(['open']);
+    expect(supportUpdates().map(([, , , payload]) => payload)).toEqual([{ kind: 'support_update', thread_id: first.conversation.id }]);
+  });
+
+  it('a message that lands in a conversation an operator closed in the meantime stays there, closed, as before', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    vi.clearAllMocks();
+    vi.mocked(uploadFile).mockImplementationOnce(async () => {
+      operatorClose(first.conversation.id);
+      return { success: true, provider: 'arvan_storage' };
+    });
+    const { conversation } = await sendAttachment(config, userId, {
+      fileName: 'shot.png', mimeType: 'image/png', data: png, clientMessageId: nextId(), conversationId: first.conversation.id, client: 'android',
+    });
+    expect(conversation.status).toBe('closed');
+    expect(lifecycleStatuses()).toEqual(['closed']);
+    expect(supportUpdates()).toEqual([]);
   });
 });

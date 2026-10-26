@@ -1,14 +1,17 @@
 /**
- * The inactivity close (owner, 2026-10-23/24; migration 284).
+ * The inactivity close (owner, 2026-10-23/24 and 2026-10-26; migrations 284,
+ * 285 and 286).
  *
- * A WIDGET conversation in which neither the visitor nor the team (people or
- * the AI) has exchanged anything for the workspace's window
- * (widget_settings.inactivity_close_hours, 1–48; else the Super Admin's
- * default, 24) is closed by the system: never by the AI, never Telegram,
- * Bale, WhatsApp, Instagram, email or platform support, and never while the
- * team still owes the visitor something (conversation_idle_check:
- * needs_reply, an AI handoff, routing, a call, a callback, an AI guidance
- * request).
+ * A conversation of any chat channel — the website widget, Telegram, Bale,
+ * WhatsApp, Instagram, X and platform support (both kinds) — in which neither
+ * the customer nor the team (people or the AI) has exchanged anything for its
+ * workspace's window (widget_settings.inactivity_close_hours, 1–48; else the
+ * Super Admin's default, 24) is closed by the system: never by the AI, never
+ * the App Review account's (its workspace, and the support threads it opens),
+ * and never while the team still owes the customer something
+ * (conversation_idle_check: needs_reply, an AI handoff, routing, a call, a
+ * callback, an AI guidance request). The e-mail inbox keeps no conversations
+ * and is not touched.
  *
  * Every five minutes one replica (the lease) asks conversation_idle_due()
  * for what fell due — nothing while the Super Admin's switch is off, never a
@@ -22,24 +25,35 @@
  *     the AI's state: an AI-only conversation stays out of every Inbox queue;
  *   - one timeline event, filed as the Inbox's PATCH files a close (read
  *     "Closed · Automatically, after N h without messages"), actor 'system';
- *   - when the visitor ever wrote, the visitor's nameless closed line
- *     («گفتگو به پایان رسید», then the template's rating card), prepared here
- *     (conversationClosedNotice.ts prepareClosedLine; a failed read leaves
- *     the conversation for the next pass, never closes it without its
- *     line), written in the close's transaction and published like a
- *     message once the race grace is over (below);
+ *   - in a widget conversation the visitor ever wrote in, the visitor's
+ *     nameless closed line («گفتگو به پایان رسید», then the template's rating
+ *     card), prepared here (conversationClosedNotice.ts prepareClosedLine; a
+ *     failed read leaves the conversation for the next pass, never closes it
+ *     without its line), written in the close's transaction and published
+ *     like a message once the race grace is over (below). Every other
+ *     channel's close is silent (owner, 2026-10-26): prepareClosedLine
+ *     prepares no line for it, so no row is written into the conversation
+ *     and nothing reaches the Telegram, Bale, WhatsApp, Instagram or X
+ *     customer (the channel outbox only sends the team's and the AI's
+ *     messages, never a system row); the customer's next message starts a
+ *     new conversation. A support requester's apps draw the end and their
+ *     own rating from the status;
  *   - the Inbox lists move as for the PATCH (conversation_resolved from open
- *     or pending, conversation_updated from resolved, actor null) and the
- *     open timeline reloads (timeline_event). No push, no transcript, no
- *     e-mail, no audit row, no other notice to anyone, and no AI.
- * A visitor message that races a close puts it back as it was
- * (visitorConversations.ts reopenAfterIdleCloseRace, routes/widget.ts),
- * within INACTIVITY_CLOSE_RACE_GRACE_SECONDS, and retracts the line (it
- * turns internal). So the line goes to the visitor's open widget only when
- * that grace is over, and only while the close stands: a message in flight
- * at the close (its insert waits on the close's row lock, then reopens) or
- * written in the meantime never meets a line on screen that the server has
- * already taken back.
+ *     or pending, conversation_updated from resolved, actor null), the open
+ *     timeline reloads (timeline_event), and a platform-support requester's
+ *     devices read their chat again (support_update,
+ *     platformSupport/changes.ts; nothing for any other conversation). No
+ *     push, no transcript, no e-mail, no audit row, no other notice to
+ *     anyone, and no AI.
+ * A customer message that races a close puts it back as it was
+ * (idleCloseRace.ts reopenAfterIdleCloseRace: routes/widget.ts within
+ * INACTIVITY_CLOSE_RACE_GRACE_SECONDS, a channel's or a support requester's
+ * message within INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS), and retracts
+ * the widget's line (it turns internal). So the line goes to the visitor's
+ * open widget only when that grace is over, and only while the close stands:
+ * a message in flight at the close (its insert waits on the close's row
+ * lock, then reopens) or written in the meantime never meets a line on
+ * screen that the server has already taken back.
  *
  * The lease is a duplication guard only: the close is a compare-and-set, so
  * a second replica's pass closes nothing twice and writes nothing twice
@@ -55,6 +69,7 @@ import { getServiceClient } from '../supabase.js';
 import { buildMessageEnvelope, publishConversationEvent, publishOperatorEvent } from './realtime/publish.js';
 import { prepareClosedLine, type PreparedClosedLine } from './conversationClosedNotice.js';
 import { loadInactivityCloseSettings } from './widget/platformSettings.js';
+import { onSupportConversationChanged } from './platformSupport/changes.js';
 import { INACTIVITY_CLOSE_RACE_GRACE_SECONDS } from '../../shared/inactivityClose.js';
 
 const LEASE_NAME = 'conversation_idle_close';
@@ -163,9 +178,10 @@ export async function runConversationIdleCloseOnce(config: ServerConfig): Promis
       pass.due++;
       try {
         // The visitor's line only when they ever wrote: a greeting nobody
-        // answered, or an opening line, closes silently. A failed read is
-        // not "no line due": closed now, it would stay closed without its
-        // line for good, so it waits for the next pass.
+        // answered, or an opening line, closes silently, and so does every
+        // conversation of another channel (prepareClosedLine: none). A
+        // failed read is not "no line due": closed now, it would stay closed
+        // without its line for good, so it waits for the next pass.
         let line: PreparedClosedLine | null = null;
         if (row.due_has_visitor_turn) {
           try {
@@ -239,6 +255,10 @@ function announceIdleClose(config: ServerConfig, row: DueRow, r: CloseRow): void
       created_at: r.event_created_at,
     }).catch(() => undefined);
   }
+  // A platform-support requester's devices read their chat again, so the
+  // apps show the end and the rating now, not on their next poll (as the
+  // PATCH tells them). One primary-key read for any other conversation.
+  void onSupportConversationChanged(config, { workspaceId: ws, conversationId: cid });
   // The visitor: the closed line, live (Core draws it, and the rating card
   // where the template's csat is on), once the race grace is over and only
   // while this close stands: a racing message reopened the conversation and

@@ -22,10 +22,12 @@ import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publ
 import { notifyInboundMessage } from '../push/index.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
 import { routeHumanBoundConversation } from '../chatRouting.js';
-import { handleTelegramInboundFlow } from './telegram/runtime.js';
+import { handleTelegramInboundFlow, isTelegramMenuInput } from './telegram/runtime.js';
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
 import { anonCodeFrom } from '../widget/anonymousContact.js';
+import { justClosedForInactivity, reopenAfterIdleCloseRace } from '../idleCloseRace.js';
 import { isBotProvider } from '../../../shared/channels/botProviders.js';
+import { INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS } from '../../../shared/inactivityClose.js';
 
 export type NormalizedInboundMessage = {
   provider: string;
@@ -142,7 +144,60 @@ async function ensureChannelContact(
   return (created as { id?: string } | null)?.id ?? null;
 }
 
+/**
+ * A customer message that raced an inactivity close (migration 286), the
+ * close committed before it: when the thread's newest conversation of this
+ * sender was closed for inactivity within the channel grace
+ * (INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS: the message may have waited
+ * in the queue), it goes back to what it was (idleCloseRace.ts), and
+ * ensure_active_conversation then matches it: the same conversation, no
+ * `created` event, nothing counted against the plan. A menu tap brings
+ * nothing back (navigation, not content), and an operator's close or one
+ * past the grace stays closed: the message starts a new conversation, as
+ * before.
+ *
+ * One indexed read per message: by the sender's contact
+ * (conversations_contact_recent_idx; the thread key has no index), the
+ * newest by updated_at, as the RPC matches, so while a live conversation is
+ * the newest it wins and nothing is reopened. A group chat whose conversation
+ * names another member as its contact is not found here (a new
+ * conversation, as before). Outside the RPC's lock, as the widget's: a
+ * failed read is no race. Never throws.
+ */
+async function reopenThreadAfterIdleCloseRace(
+  config: ServerConfig,
+  sb: ServiceClient,
+  input: NormalizedInboundMessage,
+  threadKey: string,
+  contactId: string | null,
+): Promise<void> {
+  if (!contactId) return;
+  try {
+    const { data, error } = await sb
+      .from('conversations')
+      .select('id, status, metadata')
+      .eq('workspace_id', input.workspaceId)
+      .eq('contact_id', contactId)
+      .contains('metadata', { channel_thread_key: threadKey })
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const newest = data as { id: string; status: string; metadata: Record<string, unknown> | null } | null;
+    if (error || !newest?.id) return;
+    if (!justClosedForInactivity(newest, Date.now(), INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS)) return;
+    if (isBotProvider(input.provider) && (await isTelegramMenuInput(config, input))) return;
+    await reopenAfterIdleCloseRace(config, sb, {
+      workspaceId: input.workspaceId,
+      conversationId: newest.id,
+      graceSeconds: INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS,
+    });
+  } catch (err) {
+    console.warn('[channels] inactivity close race check failed:', err instanceof Error ? err.message : err);
+  }
+}
+
 async function ensureChannelConversation(
+  config: ServerConfig,
   sb: ServiceClient,
   input: NormalizedInboundMessage,
   contactId: string | null,
@@ -150,12 +205,15 @@ async function ensureChannelConversation(
 ): Promise<{ id: string; created: boolean }> {
   const threadKey = `${input.provider}:${input.integrationId}:${input.externalChatId}`;
 
+  await reopenThreadAfterIdleCloseRace(config, sb, input, threadKey, contactId);
+
   // Atomic match-or-create under a per-(workspace, thread) advisory lock.
   // Two genuinely different messages arriving at the same instant on a thread
   // whose previous conversation is `closed` converge on ONE new conversation:
   // the loser of the race blocks on the lock and then matches the winner's
   // row. `closed` is never matched (see migration 071) so archived threads
-  // still stay archived.
+  // still stay archived; one the inactivity close ended a moment ago was
+  // put back just above, and is matched as the live conversation it is again.
   const { data, error } = await sb.rpc('ensure_active_conversation', {
     p_workspace_id: input.workspaceId,
     p_lock_key: threadKey,
@@ -295,6 +353,7 @@ export async function processInboundMessage(
     }
     const aiOwnsThread = await resolveInboundAiOwnership(config, input);
     const conversation = await ensureChannelConversation(
+      config,
       sb,
       input,
       contactId,
@@ -411,6 +470,17 @@ export async function processInboundMessage(
     // flagged (and pre-marked as seen) so they never raise an unread badge,
     // never re-float the thread, and never notify the operator — the Inbox
     // only renders them as a compact activity strip once the thread is open.
+    //
+    // Real content touches the thread's updated_at, and the touch returns the
+    // status it found (as the widget's does), so the lifecycle below only
+    // sends the transition that can apply. A message that landed in a
+    // conversation the inactivity close ended while it was on its way (the
+    // close committed between the match above and the insert, whose foreign
+    // key waited for it) brings that conversation back within the channel
+    // grace, and the lifecycle, the AI and routing run from the restored
+    // status, as if the close had not happened (migration 286). A menu tap
+    // does no touch and brings nothing back.
+    let touchedStatus: string | null = null;
     if (menuCommand) {
       const nextMeta = {
         ...((insertedMsg.metadata as Record<string, unknown>) || {}),
@@ -425,10 +495,22 @@ export async function processInboundMessage(
         .update({ metadata: nextMeta, seen_at: seenAt })
         .eq('id', insertedMsg.id);
     } else {
-      await sb
+      const { data: touched } = await sb
         .from('conversations')
         .update({ updated_at: new Date().toISOString() })
-        .eq('id', conversation.id);
+        .eq('id', conversation.id)
+        .select('status')
+        .maybeSingle();
+      touchedStatus = typeof touched?.status === 'string' ? touched.status : null;
+      if (touchedStatus === 'closed') {
+        const restored = await reopenAfterIdleCloseRace(config, sb, {
+          workspaceId: input.workspaceId,
+          conversationId: conversation.id,
+          messageId: insertedMsg.id,
+          graceSeconds: INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS,
+        });
+        if (restored) touchedStatus = restored;
+      }
     }
 
     // Customer replied on a channel thread parked as "awaiting reply", or on a
@@ -441,6 +523,7 @@ export async function processInboundMessage(
       conversationId: conversation.id,
       source: input.provider,
       messageId: insertedMsg.id,
+      knownStatus: touchedStatus,
       message: {
         senderType: insertedMsg.sender_type,
         direction: 'inbound',

@@ -41,7 +41,15 @@
  *     and resolved are live for the visitor, closed alone has ended). So a
  *     resolve writes no line and no rating card;
  *   - the conversation is a widget one (no `metadata.channel`, or 'widget'):
- *     never Telegram, Bale, WhatsApp, Instagram, email or platform support;
+ *     never Telegram, Bale, WhatsApp, Instagram, X or platform support, whose
+ *     conversations the inactivity close also ends since migration 286, and
+ *     an operator too. Their closes are silent (owner, 2026-10-26): the
+ *     widget alone draws this line and a rating card under it; a channel's
+ *     customer would never see a system row (the channel outbox sends only
+ *     the team's and the AI's messages), so it would only be one more row in
+ *     the Inbox, and a support requester's apps draw their own end and
+ *     rating from the status (platformSupport/service.ts shows them no
+ *     system row but a join);
  *   - the workspace's EFFECTIVE chat template (configSnapshot.ts
  *     workspaceChatTemplate: the catalog, the plan, the choice) draws it
  *     (descriptor `closedNotice`, shared/widgetTemplates.ts). A workspace

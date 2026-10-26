@@ -647,6 +647,8 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
       'conversation_ratings_conversation_id_fkey',
       'conversation_ratings_pkey',
       'conversation_ratings_score_check',
+      // 284's (the full chain runs to the end): the rating's subject, 'human' or 'ai'.
+      'conversation_ratings_subject_check',
       'conversation_ratings_workspace_id_fkey',
       'conversation_transcript_emails_conversation_id_fkey',
       'conversation_transcript_emails_pkey',

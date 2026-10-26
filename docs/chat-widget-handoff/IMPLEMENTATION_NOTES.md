@@ -377,8 +377,10 @@ every template; decision B.6: t2 keeps its five faces, `default` and `t1` get st
     (`database/backfill/284_inactivity_backlog_close.sql`: no visitor line, no realtime, one timeline event each); 284
     leaves the Super Admin's switch off on WebYar and RESPOK until that commit turns it on.
   - A close writes the two thread-end stamps `endedAt` reads (`routing_thread_ended_at`, `ai_thread_reset_at`), not
-    the rest of `threadEndPatch`: the AI's hold and routing's state stay as they were (an AI-only conversation stays in
-    no Inbox queue), and `updated_at` does not move. Its own markers (`closed_reason` `inactivity`, `closed_from`, …,
+    the rest of `threadEndPatch`: the AI's hold and routing's state stay as they were (an AI-only conversation stays
+    out of every working queue and shows only in the web panel's Closed box, «بسته‌شده», `queue=main&status=closed`,
+    owner 2026-10-26; not in the native apps, whose Resolved lists closed ones without the AI's), and `updated_at`
+    does not move. Its own markers (`closed_reason` `inactivity`, `closed_from`, …,
     `shared/inactivityClose.ts`) say how it ended; an operator's close writes `closed_reason` `operator`.
   - The timer writes the visitor's closed line in the close's transaction, nameless (`by: 'system'`, `agent_name`
     null, `closed_reason: 'inactivity'`): «گفتگو به پایان رسید», then the template's rating card. The owner changed

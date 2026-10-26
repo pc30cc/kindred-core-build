@@ -282,8 +282,10 @@ only the Super Admin's switch stops it, for every workspace at once.
 - **What it never writes**: `updated_at` (retention locks, the Resolved lists
   and the visitor's history go by it), the AI's hold (`ai_state`,
   `managed_by_ai`, the handoff and takeover keys: an AI-only conversation
-  stays in no Inbox queue), `routing_pending`, routing's state or skip list,
-  an audit row. No push, no transcript, no e-mail.
+  stays out of every working queue, Open, Pending, Resolved and Automated,
+  and shows only in the web panel's Closed box, below), `routing_pending`,
+  routing's state or skip list, an audit row. No push, no transcript, no
+  e-mail.
 - **The visitor's line and the rating.** When the visitor ever wrote, the
   close inserts the nameless closed line in the same transaction (`kind`
   `conversation_closed`, `by` `system`, `agent_name` null, `closed_reason`
@@ -339,8 +341,18 @@ only the Super Admin's switch stops it, for every workspace at once.
   text, no contact data), writes the due ids to a CSV, closes them inside the
   transaction, checks and rolls back. The commit closes the reviewed ids only
   (each checked again), writes no visitor line and turns the switch on in the
-  same transaction; a reviewed file that is missing or empty stops it before
-  anything changes.
+  same transaction; a reviewed file that is missing or empty, an id that is
+  not in that database (another brand's CSV), or a list that closes nothing
+  while it would turn the switch on stops it before anything changes. The
+  App Review demo's seeded threads (`metadata.app_review_seed`) are never
+  closed, by the timer or the backlog.
+- **The Closed box** (web panel only; owner, 2026-10-26): the Inbox's
+  «بسته‌شده» beside «حل‌شده» (`GET /api/conversations?queue=main&status=closed`)
+  lists every closed conversation, the AI-only ones the timer closed included,
+  each one the timer closed tagged «خودکار» (Automatic). Every other status
+  keeps the AI's rows out, so Resolved and its counters do too. The native
+  apps have no Closed box: their Resolved lists closed conversations without
+  the AI's.
 - **Reports** (`conversationEndOf`): "Closed automatically" counts the
   system's closes of open or pending conversations; a resolved conversation
   the system closed later stays its operator's resolve; a close by an
@@ -459,34 +471,48 @@ switch on.
 4. **WebYar: 284.** Dry-run it inside `BEGIN … ROLLBACK`; apply it with the
    CLAUDE.md procedure (the folder `/root/webyar-migrate-284/` with
    `scripts/`, `database/migrations/` holding 284 alone and
-   `database/backfill/`; `docker cp` to `/tmp/m284`;
+   `database/backfill/`; `docker exec … mkdir -p /tmp/m284`, then `docker cp`
+   its `scripts` and `database` folders, never the dumps, into `/tmp/m284/`;
    `migrate-database.sh` as `postgres` with `PGOPTIONS='-c lock_timeout=5s'`;
    then remove `/tmp/m284`). Check: the switch reads `false`; the five
    functions (and `conversation_inbox_counters`) are executable by
    `service_role` only; the ledger row is there.
-5. **WebYar backlog dry run**: dump the live widget conversations,
-   `conversation_events` and `chat_routing_state` into the same folder; run
-   the script without commit, with `-v out=…/backlog.csv`; write the Persian
-   summary for the owner's knowledge base (counts per workspace and verdict,
-   owed rows by reason; no text, no ids). The owner reviews it.
+5. **WebYar backlog dry run** (the script header's steps 0 and 1, with
+   WebYar's `C`, `D` and `H`): dump the live widget conversations,
+   `conversation_events` and `chat_routing_state` into the same folder; copy
+   only its `database/` into the container (`mkdir -p /tmp/m284`, then
+   `docker cp /root/webyar-migrate-284/database oqzy9q4ovntam9jgf7nxzqun:/tmp/m284/`);
+   run the script without commit, with `-v out=/tmp/m284/backlog.csv`;
+   `docker cp` the CSV out to `/root/webyar-migrate-284/backlog.csv`; remove
+   `/tmp/m284`; write the Persian summary for the owner's knowledge base
+   (counts per workspace and verdict, owed rows by reason; no text, no ids).
+   The owner reviews it.
 6. Open or refresh the PR with the 284 ledger entry in CLAUDE.md; CI green.
 7. **Merge.** WebYar's 24/25 deploy; RESPOK's 32/33/40 deploy and migrator 40
    applies 284 (its index built in the file; the switch goes off). About 15
    minutes in all (check `application_deployment_queues` before assuming a
    failure). The backend logs show `[idle-close] pass off`.
-8. **RESPOK**: dumps, the backlog dry run and its Persian summary (2
+8. **RESPOK**, from its own folder `/root/respok-migrate-284/` (the repo's
+   `database/`, its dumps and its CSV; never WebYar's folder, so neither CSV
+   overwrites the other) against `k6pnithcamskd4trrpo6jabv`: dumps, the
+   backlog dry run as in step 5 (the header's steps 0 and 1 with RESPOK's
+   `C`, `D` and `H`, then remove `/tmp/m284`) and its Persian summary (2
    conversations expected).
 9. **Smoke test** on an owner-authorized test workspace of each brand: set
    its window to 1 h (its own value) with the switch still off, and check
    `conversation_idle_check` says `due` for a test chat after an hour.
-10. **After the owner's go**, per brand: copy the folder with the reviewed
-    `backlog.csv` back into the container (`/tmp/m284` was removed in step
-    4), then the backlog commit (`-v commit=1 -v ids=/tmp/m284/backlog.csv`).
-    It closes exactly the reviewed ids, silently, and turns the switch on.
-    A missing or empty file stops it before anything changes (psql itself
-    would read a missing file as no id and carry on). When the dry run found
-    nothing due there is nothing to commit: turn the switch on in the Super
-    Admin's "Quiet conversations" instead. Note the time and the counts.
+10. **After the owner's go**, per brand, from its own folder (the script
+    header's step 2): copy the script and that brand's reviewed `backlog.csv`
+    alone into `/tmp/m284` (`mkdir -p` first; never the folder, which holds
+    the dumps), run the backlog commit (`-v commit=1
+    -v ids=/tmp/m284/backlog.csv`), then remove `/tmp/m284`. It closes
+    exactly the reviewed ids, silently, and turns the switch on. A missing or
+    empty file stops it before anything changes (psql itself would read a
+    missing file as no id and carry on), and so does an id that database
+    does not hold (the other brand's CSV) or a list that would close nothing
+    and still turn the switch on. When the dry run found nothing due there is
+    nothing to commit: turn the switch on in the Super Admin's "Quiet
+    conversations" instead. Note the time and the counts.
 11. **Watch**: the `[idle-close] pass` lines; in each template (default, t1,
     t2; intl, t1-intl, t2-intl on RESPOK) on the test workspace a live close
     shows «گفتگو به پایان رسید» and the card, a rating reaches the timeline,

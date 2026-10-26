@@ -149,13 +149,15 @@ describe('GET /api/availability — the "You are currently seen as" banner (R-07
 });
 
 describe('GET /api/workspace-departments/:id/routing-policy', () => {
-  it('nothing stored: every platform rule on', async () => {
+  it('nothing stored: every platform rule on (the inactivity close, unreadable here, reads off at 24 h)', async () => {
     const res = await request(app()).get('/api/workspace-departments/ws-1/routing-policy');
     expect(res.status).toBe(200);
     expect(res.body.policy).toEqual({
       general_pool_enabled: true,
       last_agent_routing_enabled: true,
       owner_fallback_for_chat: true,
+      inactivity_close_enabled: false,
+      inactivity_close_default_hours: 24,
     });
   });
 
@@ -166,6 +168,8 @@ describe('GET /api/workspace-departments/:id/routing-policy', () => {
       general_pool_enabled: false,
       last_agent_routing_enabled: false,
       owner_fallback_for_chat: true,
+      inactivity_close_enabled: false,
+      inactivity_close_default_hours: 24,
     });
 
     // The master owner-fallback switch closes the chat one too.

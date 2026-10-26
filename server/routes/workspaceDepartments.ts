@@ -20,6 +20,7 @@ import {
   saveFallbackPolicy,
 } from '../services/calls/departments.js';
 import { loadGlobalAdvancedRouting, ownerFallbackAllowedGlobal } from '../services/calls/globalAdvancedRouting.js';
+import { loadInactivityCloseSettings } from '../services/widget/platformSettings.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { canUseInbox } from '../../shared/chatRoles.js';
@@ -326,18 +327,27 @@ workspaceDepartmentsRouter.put('/:workspaceId/fallback', async (req, res) => {
 // (globalAdvancedRouting.ts), read only, so the panel says what routing
 // really does: whether a department's chats fall back to the whole team,
 // whether returning visitors may go back to their operator at all, and
-// whether the owner is the last resort. (The per-workspace /fallback record
-// above is legacy: chat routing does not read it.)
+// whether the owner is the last resort, and whether quiet widget
+// conversations close by themselves and after how long by default (the
+// inactivity close, migration 284: off and 24 h before it or when
+// unreadable). (The per-workspace /fallback record above is legacy: chat
+// routing does not read it.)
 workspaceDepartmentsRouter.get('/:workspaceId/routing-policy', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const global = await loadGlobalAdvancedRouting(serverConfigOf(req));
+  const config = serverConfigOf(req);
+  const [global, inactivity] = await Promise.all([
+    loadGlobalAdvancedRouting(config),
+    loadInactivityCloseSettings(config),
+  ]);
   res.json({
     policy: {
       general_pool_enabled: global.general_pool_enabled,
       last_agent_routing_enabled: global.last_agent_routing_enabled,
       owner_fallback_for_chat: ownerFallbackAllowedGlobal(global, 'chat'),
+      inactivity_close_enabled: inactivity.enabled,
+      inactivity_close_default_hours: inactivity.defaultHours,
     },
   });
 });

@@ -427,9 +427,11 @@ describe('PUT /api/widget-settings/:workspaceId/prechat — fail-closed allowlis
       ask_email: true,
       require_email: false,
       prechat_timing: 'after_handoff',
-      history_continue_window_hours: 48,
       workspace_id: WS_ID,
     });
+    // Retired since PR #359 (migration 284's COMMENT): still accepted from
+    // older panels, never written.
+    expect(prechatRow).not.toHaveProperty('history_continue_window_hours');
   });
 
   it('an arbitrary/unknown field is rejected outright', async () => {

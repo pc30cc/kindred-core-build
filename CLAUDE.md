@@ -102,8 +102,11 @@ chat goes to the visitor's previous operator when they can take it
 else the whole team, by the workspace's mode (Auto: least busy; Round robin;
 Manual: the queue), never past a member's maximum of open chats. The routing
 ticker (`server/services/chatRoutingTicker.ts`, every 30 s, leased) hands out
-waiting chats and the first-response timeouts. How it works, every setting
-and the rollout: `docs/operations/CHAT_ROUTING.md`.
+waiting chats and the first-response timeouts. A quiet widget conversation
+closes on its own after the workspace's window (1-48 h; the Super Admin's
+switch and default, 24 h), never while the team owes an answer
+(`server/services/conversationIdleCloseTicker.ts`, migration 284). How it
+works, every setting and the rollout: `docs/operations/CHAT_ROUTING.md`.
 
 ## The iOS app in Xcode on the Mac
 
@@ -304,6 +307,17 @@ reserved blocks, so a full disk stops Postgres too.
     step 8; it updated the platform's six `offline_message_received`
     templates; a dump of `email_templates` taken just before it:
     `/root/webyar-migrate-283/pre-283-email_templates.dump`).
+    Then `284_conversation_inactivity_close.sql`, to be applied by hand
+    before the merge of the inactivity close (applied `<YYYY-MM-DD HH:MM UTC>`;
+    its header index `conversations_live_updated_idx` built CONCURRENTLY
+    first, at `<HH:MM>`, and a dry run inside `BEGIN … ROLLBACK`; a dump of
+    the tables it touches and a schema dump taken just before:
+    `/root/webyar-migrate-284/`). It closes nothing and leaves the Super
+    Admin's inactivity switch off while live conversations exist; the
+    backlog is closed once, by hand, after the owner reviewed its list
+    (`database/backfill/284_inactivity_backlog_close.sql`, steps in
+    `docs/operations/CHAT_ROUTING.md`, "Rollout of 284"), whose commit turns
+    the switch on; its time and counts go here in a docs-only follow-up.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

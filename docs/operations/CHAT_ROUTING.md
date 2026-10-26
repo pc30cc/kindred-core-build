@@ -2,14 +2,17 @@
 
 How a chat (a website widget conversation, or a channel conversation such as
 Telegram) gets an operator, which settings change that and where they live,
-the background ticker, and how to roll the database side out.
+the background tickers, how a quiet widget conversation is closed, and how to
+roll the database side out.
 
 Code: `server/services/chatRouting.ts` (the decisions),
 `server/services/chatRoutingTicker.ts` (the clock),
 `server/services/chatRoutingPrechat.ts` (the pre-chat wait),
 `server/services/conversationAssignment.ts` (assigning by hand),
-`shared/chatRoles.ts` (who may do what). The SQL is in migrations 278, 278b
-and 280b (`chat_route_claim` and its helpers).
+`server/services/conversationIdleCloseTicker.ts` (the inactivity close),
+`shared/chatRoles.ts` (who may do what), `shared/inactivityClose.ts` (the
+inactivity close's bounds and markers). The SQL is in migrations 278, 278b
+and 280b (`chat_route_claim` and its helpers) and 284 (the inactivity close).
 
 ## How it works
 
@@ -183,6 +186,7 @@ suspended, seat-paused or staff.
 | Look back (days) | Same section | `widget_settings.last_agent_window_days` (1–365) | 30 |
 | Maximum open conversations per operator | Same section | `widget_settings.default_max_concurrent_chats` (1–50) | 5 |
 | First-response timeout (minutes) | Same section | `widget_settings.first_response_timeout_minutes` (0–60) | 5 |
+| Close a quiet conversation after (hours) | Same section (every plan, every mode) | `widget_settings.inactivity_close_hours` (1–48, empty = the platform default) (284) | empty |
 | Receive chats (per member, owner included) | Workspace: Team & departments | `workspace_members.receives_chats` | on |
 | Max (per member) | Team & departments | `workspace_members.max_concurrent_chats` (1–50, empty = the workspace default) | empty |
 | Departments and their members | Team & departments | `workspace_departments`, `workspace_department_members` | none |
@@ -191,13 +195,21 @@ suspended, seat-paused or staff.
 | Use the general pool | Super Admin → Widget settings → Routing | global advanced-routing policy, `general_pool_enabled` | on |
 | Return returning visitors to the same operator (platform) | Same page | `last_agent_routing_enabled` (off = off for every workspace) | on |
 | Workspace-owner fallback (master and per channel) | Same page | `owner_fallback_enabled`, `owner_fallback_for_chat` | on |
+| Close quiet widget conversations (platform switch) | Same page, "Quiet conversations" | `widget_platform_settings.inactivity_close_enabled` (284; off = nothing closes automatically anywhere) | on (284 sets it off once on a database with live conversations; the backlog commit turns it on) |
+| Default window of quiet conversations (hours) | Same group | `widget_platform_settings.inactivity_close_default_hours` (1–48) | 24 |
 | Assignment routing in the plan | Super Admin → Plans | plan capability `widget_assignment_routing` | per plan |
 
 The workspace switch for last-agent routing works only while the platform
 switch is on. The workspace panel reads the platform policy through
 `GET /api/workspace-departments/:workspaceId/routing-policy`, the same
 `loadGlobalAdvancedRouting` routing reads, so the panel says what the
-server does.
+server does; the same answer carries `inactivity_close_enabled` and
+`inactivity_close_default_hours` (`loadInactivityCloseSettings`; off and 24
+before 284 or when unreadable). The Super Admin's two inactivity settings are
+saved through `PATCH /api/widget-settings/platform/config`, the workspace's
+window through `PATCH /api/widget-settings/:workspaceId` (not plan gated);
+before 284 a save naming them answers 409
+`inactivity_close_migration_required`.
 
 ## The routing ticker
 
@@ -222,6 +234,120 @@ compare-and-set; due rows are handed out under `SKIP LOCKED`), so the lease
 only avoids duplicate work. Before migration 278 the function is missing and
 a pass does nothing. Nothing needs to be deployed for it besides the
 backend.
+
+## Closing quiet conversations
+
+A website-widget conversation in which neither the visitor nor the team (a
+person or the AI) has exchanged anything for N hours is closed (status
+`closed`) by the system (owner, 2026-10-23/24; migration 284). The AI never
+closes anything. N is the workspace's "Close a quiet conversation after"
+(1–48 hours), else the Super Admin's default (24); a workspace has no off,
+only the Super Admin's switch stops it, for every workspace at once.
+
+- **Widget only.** No channel recorded, or `widget`. Never Telegram, Bale,
+  WhatsApp, Instagram, email or platform support, never spam.
+- **The last exchange** is the newest of: the visitor's turn, a person's
+  answer, the AI's answer (needsReply.ts's rules, in SQL as
+  `conversation_message_turn`: system rows, routing notices, menu taps,
+  echoes, failed deliveries and the AI's hand-over line do not count), and a
+  connected call (its end; now while it lasts, that is while the `call`
+  guard below believes it live: a call whose end was never recorded counts
+  its connect after 12 h). With none, when the conversation was created. Open, pending and resolved conversations all use
+  the same N.
+- **Never while the team owes an answer** (`conversation_idle_check`):
+  - `needs_reply`: open, and the visitor's turn is the newest, with no answer
+    and no call connected after it (a tie is owed; a bare "thanks" stays owed
+    until someone resolves it, as the Inbox badge says);
+  - `ai_handoff`: `needs_human`, `human_assigned` or a handoff requested;
+  - `routing`: `routing_pending`, the manual queue, a routing wait, a
+    pre-chat deadline or a first-response timeout running;
+  - `call`: a call ringing or live (started in the last 12 h), an invitation
+    or a call queue entry still open;
+  - `callback`: a callback request requested, scheduled or in progress;
+  - `guidance`: the AI asked the team and waits.
+  Guards only a person clears (a callback, a guidance request, an old
+  `routing_pending`) can pile up: the backlog script's dry run lists them,
+  and can be run again at any time.
+- **What a close writes** (`conversation_close_if_idle`, row-locked, a
+  compare-and-set on `updated_at`, the decision taken again): status `closed`;
+  the close markers (`shared/inactivityClose.ts` `CLOSED_KEYS`:
+  `closed_reason` `inactivity`, `closed_by` `system`, `closed_at`,
+  `closed_from`, `closed_source`, `closed_idle_hours`,
+  `closed_last_exchange_at`, `closed_outcome`, `closed_line_id`,
+  `closed_prev_stamps`); the two thread-end stamps (`routing_thread_ended_at`,
+  `ai_thread_reset_at`: the widget's `endedAt` and the next thread's start);
+  one timeline event, as the Inbox's PATCH files a close (`resolved` with
+  `to: closed` from open or pending, `status_changed` from resolved; actor
+  `system`; read "Closed · Automatically, after N h without messages").
+- **What it never writes**: `updated_at` (retention locks, the Resolved lists
+  and the visitor's history go by it), the AI's hold (`ai_state`,
+  `managed_by_ai`, the handoff and takeover keys: an AI-only conversation
+  stays in no Inbox queue), `routing_pending`, routing's state or skip list,
+  an audit row. No push, no transcript, no e-mail.
+- **The visitor's line and the rating.** When the visitor ever wrote, the
+  close inserts the nameless closed line in the same transaction (`kind`
+  `conversation_closed`, `by` `system`, `agent_name` null, `closed_reason`
+  `inactivity`; body "The conversation was closed"): the widget draws «گفتگو
+  به پایان رسید» and, where the template's rating is on, the card. The line
+  is prepared before the close; when a read for it fails the conversation
+  is left for the next pass, never closed without it. It goes out live once
+  the race grace (below) is over, and only if the close still stands. The
+  line names the operator the rating is about (the assignee if they wrote,
+  else the newest person who wrote), or nobody. A person answered when one
+  wrote or a call connected (the card is theirs); only the AI when it gave a
+  real answer, never by its greeting alone: then the card asks about the AI
+  (`subject` `ai`, kept out of every operator's satisfaction). A thread that
+  already ends with a closed line keeps it (`closed_line_id` null). The
+  Inbox thread shows the line as «گفتگو پس از مدتی بی‌پیامی به‌طور خودکار
+  بسته شد». The lists move as for the PATCH (`conversation_resolved` from
+  open or pending, `conversation_updated` from resolved, actor null) and the
+  open timeline reloads.
+- **The race.** A visitor message within 60 seconds of the close
+  (`INACTIVITY_CLOSE_RACE_GRACE_SECONDS`) goes back into that conversation
+  as it was (`conversation_reopen_after_idle_close`: `closed_from`, the
+  stamps as they were, the markers removed, the line it wrote retracted with
+  `metadata.internal`, a `reopened` event with reason
+  `customer_replied_after_inactivity_close`); its lifecycle, routing and the
+  AI then run as for any message. A message being inserted while the close
+  runs holds it back (its foreign key's lock) and keeps the conversation
+  open. Since the line reaches an open widget only after those 60 seconds,
+  a realtime widget never shows a line the server took back; a widget in
+  polling mode can fetch it in between and keeps it on screen until its
+  next history load. Later than 60 seconds, or after an operator's close: a
+  new conversation, as before.
+- **The ticker**: `server/services/conversationIdleCloseTicker.ts`, every 5
+  minutes (first pass 2 minutes after boot), one replica (the
+  `conversation_idle_close` lease; not in `TICKER_CYCLE_SECONDS`, the
+  compare-and-set makes passes idempotent), at most 50 closes a pass, the
+  longest untouched first; rows the team owes never use up the batch. Log:
+  `[idle-close] pass due=… closed=… skipped={…}`, or `[idle-close] pass off`.
+- **The 30-day bound.** The timer never closes a conversation untouched
+  (`updated_at`) for more than 30 days: that is the backlog, closed by hand.
+  One that stopped being owed after more than 30 days without anything
+  touching it is listed by the backlog script's dry run; closing it needs the
+  owner's go, as for the first backlog.
+- **Latency.** The switch is read by the SQL itself (`conversation_idle_due`
+  and the close), so nothing closes the moment it is off; the ticker's own
+  cached copy (60 s, cleared at once by the save and on every process by the
+  cache bus) only decides whether it takes the lease. In polling mode the
+  widget's heartbeat touches `updated_at` while a page is open, which delays
+  the close (never makes it early).
+- **The backlog** already quiet when 284 shipped is closed once, silently and
+  by hand: `database/backfill/284_inactivity_backlog_close.sql` (its header
+  has the commands). The dry run lists every live widget conversation with
+  its verdict (counts by verdict and workspace, one row each: no message
+  text, no contact data), writes the due ids to a CSV, closes them inside the
+  transaction, checks and rolls back. The commit closes the reviewed ids only
+  (each checked again), writes no visitor line and turns the switch on in the
+  same transaction; a reviewed file that is missing or empty stops it before
+  anything changes.
+- **Reports** (`conversationEndOf`): "Closed automatically" counts the
+  system's closes of open or pending conversations; a resolved conversation
+  the system closed later stays its operator's resolve; a close by an
+  operator (`closed_reason` `operator`, written by the PATCH) or by an older
+  server (no markers) is an operator's. The same rule counts operator
+  activity's "resolved" and the weekly summary e-mail's. A PATCH or reply
+  that reopens a closed conversation nulls every marker.
 
 ## Rollout checklist
 
@@ -301,3 +427,76 @@ before merging the code.
 On RESPOK the migrator builds the same indexes without CONCURRENTLY (its
 tables are small) and applies the files on push; run the pre-checks there
 too before merging.
+
+### Rollout of 284 (the inactivity close)
+
+WebYar by hand before the merge; RESPOK by its migrator on push. The order
+matters: 284 sets the switch off on a database with live conversations, the
+backlog is closed by hand after the owner's go, and its commit turns the
+switch on.
+
+0. **Measure** (read only, the owner's go), on both databases: live widget
+   conversations by quiet age and by verdict, and the monthly returns after
+   more than 24 h (the extra conversations to expect: a return after a close
+   is a new counted conversation). Counts only.
+1. **Pre-checks**, on both databases:
+   - the ledger has 283;
+   - no `conversations_live_updated_idx`, or a valid one:
+     `SELECT indexrelid::regclass, indisvalid FROM pg_index WHERE indexrelid = to_regclass('public.conversations_live_updated_idx');`
+   - `/data/respok/migrator/overlay.sql` writes neither
+     `widget_platform_settings.inactivity_*`,
+     `widget_settings.inactivity_close_hours` nor `conversation_ratings.subject`
+     (grep it; dry-run it with `ROLLBACK` after 284).
+2. **WebYar dumps** into `/root/webyar-migrate-284/`: `widget_settings`,
+   `widget_platform_settings` and `conversation_ratings`, plus a schema dump.
+3. **WebYar: the index CONCURRENTLY first** (outside a transaction), then
+   check `indisvalid`:
+   ```sql
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_live_updated_idx
+     ON public.conversations (updated_at)
+     WHERE status IN ('open', 'pending', 'resolved') AND is_spam = false;
+   ```
+4. **WebYar: 284.** Dry-run it inside `BEGIN … ROLLBACK`; apply it with the
+   CLAUDE.md procedure (the folder `/root/webyar-migrate-284/` with
+   `scripts/`, `database/migrations/` holding 284 alone and
+   `database/backfill/`; `docker cp` to `/tmp/m284`;
+   `migrate-database.sh` as `postgres` with `PGOPTIONS='-c lock_timeout=5s'`;
+   then remove `/tmp/m284`). Check: the switch reads `false`; the five
+   functions (and `conversation_inbox_counters`) are executable by
+   `service_role` only; the ledger row is there.
+5. **WebYar backlog dry run**: dump the live widget conversations,
+   `conversation_events` and `chat_routing_state` into the same folder; run
+   the script without commit, with `-v out=…/backlog.csv`; write the Persian
+   summary for the owner's knowledge base (counts per workspace and verdict,
+   owed rows by reason; no text, no ids). The owner reviews it.
+6. Open or refresh the PR with the 284 ledger entry in CLAUDE.md; CI green.
+7. **Merge.** WebYar's 24/25 deploy; RESPOK's 32/33/40 deploy and migrator 40
+   applies 284 (its index built in the file; the switch goes off). About 15
+   minutes in all (check `application_deployment_queues` before assuming a
+   failure). The backend logs show `[idle-close] pass off`.
+8. **RESPOK**: dumps, the backlog dry run and its Persian summary (2
+   conversations expected).
+9. **Smoke test** on an owner-authorized test workspace of each brand: set
+   its window to 1 h (its own value) with the switch still off, and check
+   `conversation_idle_check` says `due` for a test chat after an hour.
+10. **After the owner's go**, per brand: copy the folder with the reviewed
+    `backlog.csv` back into the container (`/tmp/m284` was removed in step
+    4), then the backlog commit (`-v commit=1 -v ids=/tmp/m284/backlog.csv`).
+    It closes exactly the reviewed ids, silently, and turns the switch on.
+    A missing or empty file stops it before anything changes (psql itself
+    would read a missing file as no id and carry on). When the dry run found
+    nothing due there is nothing to commit: turn the switch on in the Super
+    Admin's "Quiet conversations" instead. Note the time and the counts.
+11. **Watch**: the `[idle-close] pass` lines; in each template (default, t1,
+    t2; intl, t1-intl, t2-intl on RESPOK) on the test workspace a live close
+    shows «گفتگو به پایان رسید» and the card, a rating reaches the timeline,
+    and the Inbox timeline reads «بسته شد · خودکار، پس از … ساعت بی‌پیامی»;
+    a kill-switch drill (off, the next pass logs `off`, on again); then set
+    the test workspace back to the platform default.
+12. A docs-only follow-up PR records the backlog commits (times, counts) in
+    the CLAUDE.md ledger.
+
+**Rollback**: switch the close off (immediate: the SQL reads it), then
+`ROLLBACK=1` through `/root/webyar-move/deploy.php` if needed. 284 stays: it
+is harmless with the old code (nullable or constant-default columns, functions
+nobody calls, the switch off).

@@ -4,7 +4,8 @@
  * (issue #340 g1), as runtime-late.js calls it:
  *
  *   GET  /api/widget/conversations/:id/csat
- *        → { closed_id, rateable, rating, operator, transcript: { available, to } }
+ *        → { closed_id, rateable, rating, operator, subject ('operator' | 'ai'
+ *            | null), transcript: { available, to } }
  *   POST /api/widget/conversations/:id/csat {closed_id, rating, comment?}
  *        → 200 {ok, rating} | 400 invalid_rating | 403 csat_disabled /
  *          CONVERSATION_ACCESS_DENIED | 409 not_ratable / already_rated (+ rating)
@@ -291,8 +292,54 @@ describe('GET …/csat', () => {
       rateable: true,
       rating: null,
       operator: { name: 'Sara', avatar: 'https://cdn.test/avatars/sara.png' },
+      subject: 'operator',
       transcript: { available: true, to: 'a•••@example.com' },
     });
+  });
+
+  it('an AI-only chat the visitor wrote in is rated too (decision B.5): subject ai, no operator, no transcript', async () => {
+    const cid = conversation();
+    message(cid, 'contact', 'ساعت کاری؟', {}, 120_000);
+    message(cid, 'ai', 'از ۹ تا ۱۸.', {}, 90_000);
+    // The line names the operator who closed it; the card still asks about the AI.
+    const closedId = closed(cid);
+    expect((await csat(cid)).body).toEqual({
+      closed_id: closedId, rateable: true, rating: null, operator: null, subject: 'ai',
+      transcript: { available: false, to: null },
+    });
+    // The AI's hand-over line alone is no answer: nobody answered, no card.
+    const handoff = conversation();
+    message(handoff, 'contact', 'یک انسان لطفاً', {}, 120_000);
+    message(handoff, 'ai', 'وصلتان می‌کنم', { metadata: { handoff: true } }, 90_000);
+    closed(handoff);
+    expect((await csat(handoff)).body).toMatchObject({ rateable: false, subject: null });
+    // A greeting the visitor never answered: no card either.
+    const greeting = conversation();
+    message(greeting, 'ai', 'سلام! چطور کمک کنم؟', {}, 90_000);
+    closed(greeting);
+    expect((await csat(greeting)).body).toMatchObject({ rateable: false, subject: 'ai' });
+  });
+
+  it('the AI\'s greeting answers nothing, and a call that connected is a person\'s answer, not the AI\'s', async () => {
+    const intro = { metadata: { source: 'ai_agent_intro' } };
+    // The greeting, the visitor's question, the AI hands over: nobody answered.
+    const asked = conversation();
+    message(asked, 'ai', 'سلام! چطور کمک کنم؟', intro, 150_000);
+    message(asked, 'contact', 'قیمت؟', {}, 120_000);
+    message(asked, 'ai', 'وصلتان می‌کنم', { metadata: { handoff: true } }, 100_000);
+    closed(asked);
+    expect((await csat(asked)).body).toMatchObject({ rateable: false, subject: null });
+    // An operator then called the visitor (connected) and closed: the
+    // person's card, never the AI's.
+    state.db.tables.call_sessions = [{
+      id: randomUUID(), workspace_id: WS, context_type: 'conversation', context_id: asked,
+      state: 'ended', connected_at: at(90_000), ended_at: at(60_000),
+    }];
+    // Nothing written to mail, though: no transcript link.
+    expect((await csat(asked)).body).toMatchObject({ rateable: true, subject: 'operator', transcript: { available: false } });
+    // A call that never connected is no answer.
+    state.db.tables.call_sessions[0].connected_at = null;
+    expect((await csat(asked)).body).toMatchObject({ rateable: false, subject: null });
   });
 
   it('nothing to rate: no closed line, or the thread moved on after it', async () => {
@@ -308,7 +355,7 @@ describe('GET …/csat', () => {
     expect((await csat(joined)).body).toMatchObject({ closed_id: closedId, rateable: true });
   });
 
-  it('not rateable: older than 7 days, an AI-only chat, the option off, a template without the card', async () => {
+  it('not rateable: older than 7 days, an AI greeting the visitor never answered, the option off, a template without the card', async () => {
     const old = conversation();
     message(old, 'agent', 'hi', {}, 9 * DAY);
     closed(old, 7 * DAY + 60_000);
@@ -385,9 +432,12 @@ describe('POST …/csat', () => {
     expect(ratings()[0]).toMatchObject({
       workspace_id: WS, conversation_id: cid, closed_message_id: closedId, operator_id: SARA, score: 4, comment: 'عالی بود <b>!</b>',
     });
+    // A person's rating stores no subject of its own: the column's default
+    // ('operator') holds it, so the write works before migration 284 too.
+    expect(ratings()[0]).not.toHaveProperty('subject');
     expect(state.events).toEqual([expect.objectContaining({
       workspaceId: WS, conversationId: cid, eventType: 'rated', actorType: 'visitor', actorId: null,
-      payload: { score: 4, comment: 'عالی بود <b>!</b>', closed_id: closedId, operator_id: SARA, source: 'widget' },
+      payload: { score: 4, comment: 'عالی بود <b>!</b>', closed_id: closedId, operator_id: SARA, subject: 'operator', source: 'widget' },
     })]);
     // No message row: the thread and the visitor's list stay as they were.
     expect((state.db.tables.conversation_messages || []).filter((m) => m.conversation_id === cid)).toHaveLength(3);
@@ -398,12 +448,42 @@ describe('POST …/csat', () => {
     expect((await csat(cid)).body).toMatchObject({ rateable: false, rating: { score: 4, comment: 'عالی بود <b>!</b>' } });
   });
 
+  it('rates an AI-only chat as the AI\'s: subject ai, operator_id null, in the timeline; 503 before migration 284', async () => {
+    const cid = conversation();
+    message(cid, 'contact', 'ساعت کاری؟', {}, 120_000);
+    message(cid, 'ai', 'از ۹ تا ۱۸.', {}, 90_000);
+    const closedId = closed(cid);
+    // Before 284 conversation_ratings has no subject: 503, nothing stored.
+    state.db.missingColumns = { conversation_ratings: ['subject'] };
+    expect(await rate(cid, { closed_id: closedId, rating: 5 })).toMatchObject({ status: 503, body: { error: 'csat_unavailable' } });
+    expect(ratings()).toHaveLength(0);
+    state.db.missingColumns = {};
+    const res = await rate(cid, { closed_id: closedId, rating: 5 });
+    expect(res.status).toBe(200);
+    expect(ratings()).toEqual([expect.objectContaining({ conversation_id: cid, closed_message_id: closedId, operator_id: null, subject: 'ai', score: 5 })]);
+    expect(state.events).toEqual([expect.objectContaining({
+      eventType: 'rated', payload: expect.objectContaining({ score: 5, operator_id: null, subject: 'ai' }),
+    })]);
+    expect((await rate(cid, { closed_id: closedId, rating: 1 })).status).toBe(409);
+    // A person's rating before 284 is stored as before (no subject written).
+    state.db.missingColumns = { conversation_ratings: ['subject'] };
+    const { cid: human, closedId: humanClosed } = answeredAndClosed();
+    expect((await rate(human, { closed_id: humanClosed, rating: 4 })).status).toBe(200);
+  });
+
+  it('409 not_ratable when the visitor never wrote (a greeting nobody answered), even with an answer', async () => {
+    const cid = conversation();
+    message(cid, 'agent', 'سلام، کمکی لازم دارید؟', {}, 90_000);
+    expect((await rate(cid, { closed_id: closed(cid), rating: 5 })).body).toEqual({ error: 'not_ratable' });
+    expect(ratings()).toHaveLength(0);
+  });
+
   it('a comment left empty is stored as none', async () => {
     const { cid, closedId } = answeredAndClosed();
     expect((await rate(cid, { closed_id: closedId, rating: 3, comment: '   ' })).body.rating).toMatchObject({ score: 3, comment: null });
   });
 
-  it('409 not_ratable: another closure, a made-up id, a reopened thread, the window passed, no human reply', async () => {
+  it('409 not_ratable: another closure, a made-up id, a reopened thread, the window passed, a visitor who never wrote', async () => {
     const { cid, closedId } = answeredAndClosed();
     const { closedId: foreign } = answeredAndClosed();
     for (const id of [foreign, randomUUID(), 'x', 7, null]) {

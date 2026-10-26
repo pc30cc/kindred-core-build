@@ -102,6 +102,24 @@ describe('GET …/stats: satisfaction per operator', () => {
     expect(month.body.totals).toMatchObject({ csat_avg: 3.5, csat_count: 4 });
   });
 
+  it('an AI-only conversation\'s rating (subject ai, migration 284) is nobody\'s satisfaction, nor the team\'s; the totals carry it on its own line', async () => {
+    state.db.tables.conversation_ratings = [
+      rating(SARA, 5, 1),
+      { ...rating(null, 2, 1), subject: 'ai' },
+      { ...rating(null, 4, 2), subject: 'ai' },
+      { ...rating(null, 1, 10), subject: 'ai' }, // outside the 7 days
+      { ...rating(null, 5, 1, randomUUID()), subject: 'ai' }, // another workspace
+    ];
+    const res = await stats();
+    const byId = Object.fromEntries((res.body.operators as Row[]).map((o) => [o.user_id, o]));
+    expect(byId[SARA]).toMatchObject({ csat_avg: 5, csat_count: 1 });
+    expect(byId[REZA]).toMatchObject({ csat_avg: null, csat_count: 0 });
+    expect(res.body.totals).toMatchObject({ csat_avg: 5, csat_count: 1, csat_ai_avg: 3, csat_ai_count: 2 });
+    // None, or before 284 (no subject to read): null and 0.
+    state.db.tables.conversation_ratings = [rating(SARA, 4, 1)];
+    expect((await stats()).body.totals).toMatchObject({ csat_ai_avg: null, csat_ai_count: 0 });
+  });
+
   it('without ratings, and before migration 276: null and 0, the rest of the report as before', async () => {
     expect((await stats()).body.totals).toMatchObject({ csat_avg: null, csat_count: 0, operators: 2 });
     state.db.missing.add('conversation_ratings');

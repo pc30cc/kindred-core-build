@@ -87,3 +87,12 @@ write at chat open, and only when the visitor has no live conversation.
 - The shared `usage_counters.conversations_count` increment is owned
   by existing DB triggers / handlers; this phase does not change
   counting, only enforcement.
+- The inactivity close (migration 284, `docs/operations/CHAT_ROUTING.md`,
+  "Closing quiet conversations") ends a quiet widget conversation: the
+  visitor's return after it is a NEW conversation, created on the gated
+  branch and counted like any other (owner's decision: no fallback into the
+  closed one at the cap, in this release). A message within 60 seconds of
+  the close raced it and goes back into that conversation
+  (`reopenAfterIdleCloseRace`): no creation, not gated. The visitor's closed
+  line the close writes counts one message in `messages_count`, as an
+  operator's close's line does.

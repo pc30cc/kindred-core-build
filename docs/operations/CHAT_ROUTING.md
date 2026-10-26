@@ -343,7 +343,8 @@ only the Super Admin's switch stops it, for every workspace at once.
   transaction, checks and rolls back. The commit closes the reviewed ids only
   (each checked again), writes no visitor line and turns the switch on in the
   same transaction; a reviewed file that is missing or empty, an id that is
-  not in that database (another brand's CSV), or a list that closes nothing
+  not in that database (another brand's CSV, or conversations deleted since
+  the dry run: dry-run again and have the owner review), or a list that closes nothing
   while it would turn the switch on stops it before anything changes. The
   App Review demo's seeded threads (`metadata.app_review_seed`) are never
   closed, by the timer or the backlog.

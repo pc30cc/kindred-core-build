@@ -68,7 +68,8 @@
 --      transaction (unless -v enable=0), COMMITs, and prints the counts and
 --      the time. Note them for the CLAUDE.md ledger. It stops before it
 --      changes anything when the file is missing or empty, when an id is not
---      in this database (another brand's CSV, or the wrong container), or
+--      in this database (another brand's CSV, the wrong container, or a
+--      conversation deleted since the dry run: dry-run again, owner reviews), or
 --      when it would close nothing and still turn the switch on (every id
 --      already closed or owed since: turn the switch on in the Super Admin's
 --      widget settings instead).
@@ -237,7 +238,8 @@ BEGIN
     -- would close nothing here and still turn the switch on.
     IF EXISTS (SELECT 1 FROM closed_284 WHERE outcome = 'not_found') THEN
       RAISE EXCEPTION '284 backlog: % reviewed ids are not in this database (wrong database or CSV)',
-        (SELECT count(*) FROM closed_284 WHERE outcome = 'not_found');
+        (SELECT count(*) FROM closed_284 WHERE outcome = 'not_found')
+        USING HINT = 'Another brand''s CSV or the wrong container, or conversations deleted since the dry run: run the dry run again and have the owner review its list.';
     END IF;
     -- A commit that closes nothing (every id already closed, or owed since)
     -- does not turn the switch on: the Super Admin does, by choice.

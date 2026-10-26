@@ -501,7 +501,8 @@ button.cd:hover {
 .wy-view-chat:has(.ro) :is(.cl-h, [data-msg-reply]) { display: none; }
 /* The rating under a close (t1-x csatHtml): a card, five stars filled up to
    the one picked (under the pointer, up to the one hovered; the row only as
-   wide as its stars, so a pointer beside them lights none), the comment
+   wide as its stars, and only a hovered star previews, so a pointer beside
+   them or in a gap lights none), the comment
    and the send once a star is picked (where :has() is read). */
 .msg-row.rt { align-self: stretch; max-width: none; justify-content: center; margin: -2px 0 14px; }
 .rate { width: 300px; max-width: 100%; padding: 18px 16px 16px; text-align: center; }
@@ -513,10 +514,12 @@ button.cd:hover {
 .stars button, .stars i { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; color: var(--ink-4); transition: transform .2s var(--ease), color .15s; }
 .stars i { width: 30px; height: 30px; }
 .stars button:not(:disabled):hover { transform: scale(1.1); }
-.stars [aria-pressed='true'], .stars .on, .stars:hover button { color: var(--star, #F2A100); }
-.stars [aria-pressed='true'] svg, .stars .on svg, .stars:hover button svg { fill: currentColor; }
-.stars:hover button:hover ~ button { color: var(--ink-4); }
-.stars:hover button:hover ~ button svg { fill: none; }
+.stars [aria-pressed='true'], .stars .on { color: var(--star, #F2A100); }
+.stars [aria-pressed='true'] svg, .stars .on svg { fill: currentColor; }
+.stars:has(button:hover) button { color: var(--star, #F2A100); }
+.stars:has(button:hover) button svg { fill: currentColor; }
+.stars:has(button:hover) button:hover ~ button { color: var(--ink-4); }
+.stars:has(button:hover) button:hover ~ button svg { fill: none; }
 .stars button:has(~ [aria-pressed='true']) { color: var(--star, #F2A100); }
 .stars button:has(~ [aria-pressed='true']) svg { fill: currentColor; }
 .stars button:focus-visible { border-radius: 11px; }

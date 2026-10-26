@@ -690,12 +690,14 @@ export default function InboxPage() {
   useEffect(() => {
     if (!selectedId) return;
     if (!conversations) return; // still loading
+    // Another tab's rows shown while this one loads say nothing about it.
+    if (isStaleConvos) return;
     const inList = conversations.some(c => c.id === selectedId);
     if (inList) return;
     if (activeCallConversationId === selectedId) return;
     setSelectedId(null);
     setShowMobileList(true);
-  }, [conversations, selectedId, activeCallConversationId]);
+  }, [conversations, isStaleConvos, selectedId, activeCallConversationId]);
 
   // Deep-link scroll: once the target conversation is rendered in the list,
   // bring it into view (centered) so the operator lands right on it.
@@ -1045,8 +1047,13 @@ export default function InboxPage() {
       await updateConv.mutateAsync({ id: selectedId, workspace_id: workspace.id, status: 'open' });
       qc.invalidateQueries({ queryKey: ['inbox-tab-counts'] });
       // Reopened from the Resolved tab, it would drop out of that list (and
-      // out of the selection) under the operator's hands: show every status.
-      if (filter === 'resolved' || filter === 'closed') setFilter('all');
+      // out of the selection) under the operator's hands: show every status,
+      // read afresh (a cached "every status" list predates the reopen and
+      // would drop the selection before its refetch lands).
+      if (filter === 'resolved' || filter === 'closed') {
+        qc.removeQueries({ queryKey: ['conversations', workspace.id], predicate: (q) => q.queryKey[3] === undefined });
+        setFilter('all');
+      }
       return true;
     } catch {
       toast({ title: t('inbox.reopenFailed'), variant: 'destructive' });

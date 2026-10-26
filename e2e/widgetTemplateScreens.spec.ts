@@ -633,6 +633,12 @@ for (const [templateId, locale] of [['t1', 'fa'], ['t1-intl', 'en']] as const) {
           const [two, three] = [stars[1], stars[2]];
           await page.mouse.move(two.r < three.l ? (two.r + three.l) / 2 : (three.r + two.l) / 2, y);
           f.twoToThree = await page.evaluate(litStars);
+          // Dropping into a 2 px gap from above (no star's scale over it): no preview.
+          await page.mouse.move(0, 0);
+          const gapX = two.r < three.l ? (two.r + three.l) / 2 : (three.r + two.l) / 2;
+          await page.mouse.move(gapX, stars[1].t - 12);
+          await page.mouse.move(gapX, y);
+          f.gapFromAbove = await page.evaluate(litStars);
           await buttons.nth(4).hover();
           f.onFive = await page.evaluate(litStars);
           await page.mouse.move(0, 0);
@@ -640,7 +646,7 @@ for (const [templateId, locale] of [['t1', 'fa'], ['t1-intl', 'en']] as const) {
         },
       });
       expect(seen['auto-05-operator-desktop']).toMatchObject({
-        besidePoints: 'card,card', picked: '123', besideStart: '123', besideEnd: '123', onTwo: '12', twoToThree: '12', onFive: '12345', away: '123',
+        besidePoints: 'card,card', picked: '123', besideStart: '123', besideEnd: '123', onTwo: '12', twoToThree: '12', gapFromAbove: '123', onFive: '12345', away: '123',
       });
       for (const state of ['auto-05-operator-desktop', 'auto-03-operator-rated']) {
         const f = seen[state];

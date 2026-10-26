@@ -67,7 +67,8 @@
 --    leaves the AI's conversations out, as the tab's list (the Main Inbox)
 --    always did. It counted every resolved or closed conversation nobody had
 --    handled, the AI's included, and the close ends the AI's conversations
---    every day, keeping their ai_state (they stay in no queue).
+--    every day, keeping their ai_state (they stay in no working queue; only
+--    the web panel's Closed box lists them).
 --
 -- The index: on a live database build it by hand FIRST, outside a
 -- transaction (a plain build blocks writes to conversations while it runs);
@@ -257,7 +258,8 @@ COMMENT ON FUNCTION public.conversation_message_turn(text, text, jsonb) IS
 
 -- The whole decision for one conversation. verdict, the first that applies:
 --   'not_found' | 'not_live' (closed) | 'spam' | 'not_widget' (another
---   channel, platform support);
+--   channel, platform support, the App Review demo's seeded threads:
+--   metadata.app_review_seed, migration 249, kept as the reviewer sees them);
 --   'recent'       the last exchange (the newest visitor turn, person's
 --                  answer or AI answer, or a connected call's end — now while
 --                  the 'call' guard believes it live; with none,
@@ -316,6 +318,13 @@ BEGIN
   -- isWidgetConversation: no channel, or the widget's own; never platform support.
   IF lower(btrim(coalesce(c.metadata->>'channel', ''))) NOT IN ('', 'widget')
      OR EXISTS (SELECT 1 FROM public.platform_support_threads p WHERE p.conversation_id = c.id) THEN
+    RETURN QUERY SELECT 'not_widget'::text, NULL::integer, NULL::timestamptz, NULL::timestamptz, NULL::text;
+    RETURN;
+  END IF;
+  -- The App Review demo (app_review_seed_thread, migration 249): its threads
+  -- are dated by their messages, some already past any window when seeded,
+  -- and must stay in their queues for the reviewer.
+  IF c.metadata->>'app_review_seed' = 'true' THEN
     RETURN QUERY SELECT 'not_widget'::text, NULL::integer, NULL::timestamptz, NULL::timestamptz, NULL::text;
     RETURN;
   END IF;
@@ -446,7 +455,7 @@ END;
 $fn_idle_check$;
 
 COMMENT ON FUNCTION public.conversation_idle_check(uuid) IS
-  'Whether a widget conversation is due for the inactivity close (verdict ''due''), or why not: not live, spam, not a widget one, an exchange within the window, or something the team owes (needs_reply, ai_handoff, routing, call, callback, guidance). Server-only. Migration 284.';
+  'Whether a widget conversation is due for the inactivity close (verdict ''due''), or why not: not live, spam, not a widget one (or the App Review demo), an exchange within the window, or something the team owes (needs_reply, ai_handoff, routing, call, callback, guidance). Server-only. Migration 284.';
 
 -- The ticker's work list: at most p_limit conversations due now, the longest
 -- untouched first. Nothing while the Super Admin's switch is off (or the
@@ -455,7 +464,8 @@ COMMENT ON FUNCTION public.conversation_idle_check(uuid) IS
 -- an hour (the index range) and for the workspace's window, and touched in
 -- the last 30 days: a row nobody touched for longer is the backlog, closed by
 -- hand and silently (database/backfill/284_inactivity_backlog_close.sql),
--- never by a pass that writes visitor lines. The decision itself is
+-- never by a pass that writes visitor lines. The App Review demo's threads
+-- are left out of the scan. The decision itself is
 -- conversation_idle_check, and the LIMIT counts its 'due' rows only, so rows
 -- the team owes never use up the batch.
 CREATE OR REPLACE FUNCTION public.conversation_idle_due(p_limit integer DEFAULT 50)
@@ -499,6 +509,7 @@ BEGIN
      AND c.updated_at < now() - interval '1 hour'
      AND c.updated_at < now() - make_interval(hours => least(48, greatest(1, coalesce(w.inactivity_close_hours, v_default, 24))))
      AND (c.metadata->>'channel' IS NULL OR c.metadata->>'channel' = 'widget')
+     AND coalesce(c.metadata->>'app_review_seed', '') <> 'true'
      AND chk.verdict = 'due'
    ORDER BY c.updated_at
    LIMIT v_limit;

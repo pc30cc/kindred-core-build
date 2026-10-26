@@ -396,6 +396,54 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
     expect(await ids('status=resolved,closed')).toEqual([convClosed]);
   });
 
+  it('the Closed box keeps an AI-greeted conversation whose messages fell outside the list\'s one message window', async () => {
+    const intro = { source: 'ai_agent_intro', ai_state: 'ai_managed' };
+    const timer = (outcome: string) => ({ ...intro, closed_reason: 'inactivity', closed_by: 'system', closed_outcome: outcome });
+    const closed = (id: string, metadata: Row, updatedAt: string, more: Row = {}) => ({
+      id, workspace_id: WS, status: 'closed', is_spam: false, ai_state: 'ai_managed', assigned_to: null, metadata, updated_at: updatedAt, ...more,
+    });
+    const msg = (cid: string, sender: string, at: string, metadata: Row = {}) => ({
+      id: crypto.randomUUID(), conversation_id: cid, sender_type: sender, sender_id: sender === 'agent' ? MEMBER : null,
+      body: 'x', created_at: at, seen_at: at, metadata,
+    });
+    const filler = crypto.randomUUID(); // a person's, with 1000 newer messages: the window is full
+    const aiOld = crypto.randomUUID(); // the AI answered the visitor; nothing of it read
+    const aiSplit = crypto.randomUUID(); // its AI answer read, the visitor's turn before it not
+    const aiNoMarkers = crypto.randomUUID(); // closed before 284 (no markers); nothing read
+    const greetOnly = crypto.randomUUID(); // the timer closed a greeting nobody answered; nothing read
+    const greetRead = crypto.randomUUID(); // a greeting nobody answered, read: kept out as before
+    db.conversations.push(
+      closed(filler, {}, '2026-02-10T00:00:00Z', { ai_state: null, assigned_to: MEMBER }),
+      closed(aiOld, timer('ai_unresolved'), '2026-01-10T00:10:00Z'),
+      closed(aiSplit, timer('ai_resolved'), '2026-01-10T00:09:00Z'),
+      closed(aiNoMarkers, intro, '2026-01-10T00:08:00Z'),
+      closed(greetOnly, timer('no_visitor_message'), '2026-01-10T00:07:00Z'),
+      closed(greetRead, intro, '2026-01-10T00:06:00Z'),
+    );
+    const greeting = { source: 'ai_agent_intro' };
+    db.conversation_messages.push(
+      msg(aiOld, 'ai', '2026-01-10T00:00:00.000Z', greeting),
+      msg(aiOld, 'contact', '2026-01-10T00:01:00.000Z'),
+      msg(aiOld, 'ai', '2026-01-10T00:02:00.000Z'),
+      msg(greetOnly, 'ai', '2026-01-10T00:03:00.000Z', greeting),
+      msg(aiNoMarkers, 'contact', '2026-01-10T00:04:00.000Z'),
+      msg(aiNoMarkers, 'ai', '2026-01-10T00:04:30.000Z'),
+      msg(aiSplit, 'contact', '2026-01-10T00:05:00.000Z'),
+      msg(aiSplit, 'ai', '2026-03-01T00:00:00.000Z'),
+      msg(greetRead, 'ai', '2026-03-02T00:00:00.000Z', greeting),
+    );
+    for (let i = 0; i < 1000; i++) {
+      db.conversation_messages.push(msg(filler, i % 2 ? 'agent' : 'contact', new Date(Date.UTC(2026, 1, 1) + i * 1000).toISOString()));
+    }
+    const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main&status=closed`, { token: 'member-token' });
+    expect(res.status).toBe(200);
+    const rows = res.json.conversations as Array<{ id: string; last_message: unknown }>;
+    expect(rows.map((r) => r.id).sort()).toEqual([filler, aiOld, aiSplit, aiNoMarkers].sort());
+    // The window really missed them (the server reads 1000 at most).
+    expect(rows.find((r) => r.id === aiOld)?.last_message).toBeNull();
+    expect(rows.find((r) => r.id === aiNoMarkers)?.last_message).toBeNull();
+  });
+
   it('rejects a non-member (tenant isolation)', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'outsider-token' });
     expect(res.status).toBe(403);

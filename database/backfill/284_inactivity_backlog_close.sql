@@ -23,40 +23,55 @@
 -- closes it N hours after that. The list has no message text and no contact
 -- data. Run the dry run again at any time to list such rows.
 --
--- The steps (WebYar; RESPOK the same with its container and database), from
--- the folder /root/webyar-migrate-284/ that also carries
--- database/migrations/284 (CLAUDE.md, Migrations), copied into the
--- container as /tmp/m284:
+-- The steps, per brand, on vps-50cc1602, each from that brand's own host
+-- folder (the two CSVs never share one), set once in the shell:
+--   WebYar: C=oqzy9q4ovntam9jgf7nxzqun D=webyar H=/root/webyar-migrate-284
+--   RESPOK: C=k6pnithcamskd4trrpo6jabv H=/root/respok-migrate-284
+--           D=<the database RESPOK's backend's DATABASE_URL names>
+-- $H holds the repo's database/ folder (database/migrations/284 and this
+-- file in database/backfill/; CLAUDE.md, Migrations), then the dumps and the
+-- CSV. Only database/ (for the dry run) or this file and the reviewed CSV
+-- (for the commit) go into the container, as /tmp/m284, and /tmp/m284 is
+-- removed after each step, as CLAUDE.md's procedure removes it: the dumps
+-- (visitor data) never enter the container.
 --   0. A dump first, as before 275-283:
---        docker exec oqzy9q4ovntam9jgf7nxzqun pg_dump -U postgres -Fc \
+--        docker exec $C pg_dump -U postgres -Fc \
 --          -t public.conversations -t public.conversation_events \
---          -t public.chat_routing_state -t public.widget_platform_settings webyar \
---          > /root/webyar-migrate-284/pre-backlog.dump
+--          -t public.chat_routing_state -t public.widget_platform_settings $D \
+--          > $H/pre-backlog.dump
 --   1. The dry run (the default): the counts by verdict and by workspace,
 --      one row per conversation, the due ids written to the CSV `out`, then
 --      every due row closed inside the transaction, the checks below, and
 --      ROLLBACK. Nothing is changed:
---        docker exec oqzy9q4ovntam9jgf7nxzqun psql -X -U postgres -d webyar \
+--        docker exec $C mkdir -p /tmp/m284
+--        docker cp $H/database $C:/tmp/m284/
+--        docker exec $C psql -X -U postgres -d $D \
 --          -v ON_ERROR_STOP=1 -v out=/tmp/m284/backlog.csv \
 --          -f /tmp/m284/database/backfill/284_inactivity_backlog_close.sql
---        docker cp oqzy9q4ovntam9jgf7nxzqun:/tmp/m284/backlog.csv /root/webyar-migrate-284/backlog.csv
+--        docker cp $C:/tmp/m284/backlog.csv $H/backlog.csv
+--        docker exec $C rm -rf /tmp/m284
 --      The CSV is one conversation id per line; it stays on the server (the
 --      owner's knowledge base gets the counts only). The `out` and `ids`
 --      paths are read by psql as given: no spaces in them.
---   2. After the owner's go, the commit, with the CSV the owner reviewed,
---      copied back into the container first (the folder /tmp/m284 is removed
---      once 284 is applied; a commit whose file is missing or empty stops
---      before it changes anything):
---        docker exec oqzy9q4ovntam9jgf7nxzqun mkdir -p /tmp/m284
---        docker cp /root/webyar-migrate-284/. oqzy9q4ovntam9jgf7nxzqun:/tmp/m284
---        docker exec oqzy9q4ovntam9jgf7nxzqun psql -X -U postgres -d webyar \
+--   2. After the owner's go, the commit, with the CSV the owner reviewed for
+--      that database, copied into the container with this file alone:
+--        docker exec $C mkdir -p /tmp/m284/database/backfill
+--        docker cp $H/database/backfill/284_inactivity_backlog_close.sql $C:/tmp/m284/database/backfill/
+--        docker cp $H/backlog.csv $C:/tmp/m284/backlog.csv
+--        docker exec $C psql -X -U postgres -d $D \
 --          -v ON_ERROR_STOP=1 -v commit=1 -v ids=/tmp/m284/backlog.csv \
 --          -f /tmp/m284/database/backfill/284_inactivity_backlog_close.sql
+--        docker exec $C rm -rf /tmp/m284
 --      It closes those ids only, each checked again (one that became owed or
 --      active since is skipped and printed), makes the same checks, turns
 --      widget_platform_settings.inactivity_close_enabled on in the same
 --      transaction (unless -v enable=0), COMMITs, and prints the counts and
---      the time. Note them for the CLAUDE.md ledger.
+--      the time. Note them for the CLAUDE.md ledger. It stops before it
+--      changes anything when the file is missing or empty, when an id is not
+--      in this database (another brand's CSV, or the wrong container), or
+--      when it would close nothing and still turn the switch on (every id
+--      already closed or owed since: turn the switch on in the Super Admin's
+--      widget settings instead).
 -- Any failed check stops the file (ON_ERROR_STOP) and nothing is kept.
 -- The transaction row-locks each conversation it closes until it ends: a
 -- visitor message to one of them waits that long (a second or two).
@@ -78,7 +93,7 @@
   \endif
   -- psql does not stop on a failed backquote command, even with
   -- ON_ERROR_STOP: a file missing from the container (/tmp/m284 is removed
-  -- after 284 is applied) would read as no id at all, and the commit would
+  -- after each step) would read as no id at all, and the commit would
   -- close nothing and still turn the switch on, leaving the backlog to the
   -- timer (a line and a card each) and to nobody past 30 days. So the file
   -- is checked first, and the checks below refuse a commit of no id.
@@ -97,8 +112,10 @@
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
--- For the checks below (a dry run must close every due row).
-SELECT set_config('backlog_284.commit', :'commit', true) AS commit_mode \gset
+-- For the checks below (a dry run must close every due row; a commit that
+-- turns the switch on must close something).
+SELECT set_config('backlog_284.commit', :'commit', true) AS commit_mode,
+       set_config('backlog_284.enable', :'enable', true) AS enable_mode \gset
 
 DO $pre$
 BEGIN
@@ -107,7 +124,8 @@ BEGIN
   END IF;
 END $pre$;
 
--- Every live, non-spam widget conversation and its verdict now.
+-- Every live, non-spam widget conversation and its verdict now (the App
+-- Review demo's seeded threads aside: conversation_idle_check never closes them).
 CREATE TEMP TABLE backlog_284 ON COMMIT DROP AS
 SELECT c.id,
        c.workspace_id,
@@ -122,7 +140,8 @@ SELECT c.id,
   CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
  WHERE c.status IN ('open', 'pending', 'resolved')
    AND c.is_spam = false
-   AND lower(btrim(coalesce(c.metadata->>'channel', ''))) IN ('', 'widget');
+   AND lower(btrim(coalesce(c.metadata->>'channel', ''))) IN ('', 'widget')
+   AND coalesce(c.metadata->>'app_review_seed', '') <> 'true';
 
 \echo '── Live widget conversations by verdict (due: closed by this run; the others the team owes or are recent)'
 SELECT verdict, count(*) AS conversations, min(quiet_hours) AS quiet_h_min, max(quiet_hours) AS quiet_h_max
@@ -213,6 +232,18 @@ BEGIN
     END IF;
     IF (SELECT count(*) FROM closed_284) <> (SELECT count(*) FROM reviewed_284) THEN
       RAISE EXCEPTION '284 backlog: % listed, % judged', (SELECT count(*) FROM reviewed_284), (SELECT count(*) FROM closed_284);
+    END IF;
+    -- Every id is this database's: another brand's CSV, or a stale one,
+    -- would close nothing here and still turn the switch on.
+    IF EXISTS (SELECT 1 FROM closed_284 WHERE outcome = 'not_found') THEN
+      RAISE EXCEPTION '284 backlog: % reviewed ids are not in this database (wrong database or CSV)',
+        (SELECT count(*) FROM closed_284 WHERE outcome = 'not_found');
+    END IF;
+    -- A commit that closes nothing (every id already closed, or owed since)
+    -- does not turn the switch on: the Super Admin does, by choice.
+    IF v_closed = 0 AND current_setting('backlog_284.enable', true)::boolean THEN
+      RAISE EXCEPTION '284 backlog: the reviewed ids closed nothing, so the switch stays as it is'
+        USING HINT = 'Turn the switch on in the Super Admin''s widget settings instead, or run the dry run again for a new list.';
     END IF;
   ELSE
     -- The dry run: every due row closes (nothing else holds them here).

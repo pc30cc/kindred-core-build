@@ -20,8 +20,9 @@
  *   M3 conversation_idle_check(): every guard, a tie, calls (one live, one
  *      stuck, one connected after the question, one 2 h ago), other channels,
  *      spam, closed; the workspace's window against the platform's; a
- *      greeting; idle_due: the 30-day bound, the switch, and rows the team
- *      owes never using up the batch.
+ *      greeting; the App Review demo (the real seed) never; idle_due: the
+ *      30-day bound, the switch, and rows the team owes never using up the
+ *      batch.
  *   M4 conversation_close_if_idle(): updated_at unchanged, the AI's hold
  *      unchanged, exactly the markers and the two stamps, one event as the
  *      PATCH files a close, the line forced to the system's, the backlog's
@@ -34,7 +35,9 @@
  *      grace, not after an operator's close.
  *   M6 the backlog script (psql), on fixtures: the dry run closes every due
  *      row and rolls back; the commit closes the reviewed ids only, skips one
- *      that became owed and turns the switch on; with enable=0 it stays off.
+ *      that became owed and turns the switch on; with enable=0 it stays off;
+ *      ids this database does not hold, or a list that closes nothing, stop
+ *      it with the switch still off.
  *   T  the ticker for real; the Inbox's queues after an AI-only close; an
  *      operator's reply into an auto-closed conversation clears the markers;
  *      the AI's rating.
@@ -111,6 +114,8 @@ vi.mock('../../../server/services/ai-agent/engine.js', () => ({
 }));
 
 const MIGRATION = resolve(process.cwd(), 'database/migrations/284_conversation_inactivity_close.sql');
+/** The App Review reviewer's password hash (appReviewAccount.pg.test.ts's). */
+const APP_REVIEW_HASH = '$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNo';
 const BACKLOG = resolve(process.cwd(), 'database/backfill/284_inactivity_backlog_close.sql');
 const CLOSED_KEYS = ['closed_reason', 'closed_by', 'closed_at', 'closed_from', 'closed_source', 'closed_idle_hours',
   'closed_last_exchange_at', 'closed_outcome', 'closed_line_id', 'closed_prev_stamps'];
@@ -575,6 +580,40 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect((await verdict(randomUUID())).verdict).toBe('not_found');
     });
 
+    it('the App Review demo is never the timer\'s nor the backlog\'s: its seeded threads read not_widget, outside idle_due', async () => {
+      const demo = await conversation({ status: 'pending', quiet: '26 hours', meta: { app_review_seed: true } });
+      await message(demo, 'contact', '27 hours');
+      await message(demo, 'agent', '26 hours');
+      const twin = await conversation({ status: 'pending', quiet: '26 hours' });
+      await message(twin, 'contact', '27 hours');
+      await message(twin, 'agent', '26 hours');
+      expect((await verdict(demo)).verdict).toBe('not_widget');
+      expect((await verdict(twin)).verdict).toBe('due');
+      // The real seed (249): each thread dated by its messages, some already
+      // older than any window (ava pending 26 h, ethan resolved 25 h, ben 5 days).
+      await q(`SELECT public.app_review_seed($1)`, [APP_REVIEW_HASH]);
+      try {
+        const seeded = await q(`SELECT c.status::text AS status, c.is_spam, c.updated_at < now() - interval '24 hours' AS quiet, chk.verdict
+                                  FROM public.conversations c
+                                  JOIN public.workspaces w ON w.id = c.workspace_id
+                                  CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
+                                 WHERE w.slug = 'ws_appreview'`);
+        expect(seeded.filter((r) => r.quiet && !r.is_spam && r.status !== 'closed').length).toBeGreaterThanOrEqual(2);
+        for (const r of seeded) {
+          expect(r.verdict).toBe(!['open', 'pending', 'resolved'].includes(r.status as string) ? 'not_live' : r.is_spam ? 'spam' : 'not_widget');
+        }
+        expect((await q(`SELECT due_conversation_id FROM public.conversation_idle_due(500)`)).map((r) => r.due_conversation_id)).toEqual([twin]);
+      } finally {
+        await q(`DELETE FROM public.workspaces WHERE slug = 'ws_appreview'`);
+        await q(`DELETE FROM public.accounts WHERE slug = 'acc_appreview'`);
+        await q(`DELETE FROM public.profiles WHERE email IN ('apple@webyar.ai', 'emma.wilson@demo.webyar.ai', 'daniel.carter@demo.webyar.ai')`);
+        await q(`DELETE FROM public.billing_plans WHERE slug = 'app-review'`);
+      }
+      expect(await close(demo)).toMatchObject({ closed: false, outcome: 'not_widget' });
+      expect(await close(demo, 'backlog')).toMatchObject({ closed: false, outcome: 'not_widget' });
+      expect((await conv(demo)).status).toBe('pending');
+    });
+
     it('idle_due: never a row untouched for 30 days, nothing while switched off, and owed rows never use up the batch', async () => {
       const dormant = await conversation({ quiet: '40 days' });
       await message(dormant, 'agent', '40 days');
@@ -869,6 +908,38 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect((await one(`SELECT inactivity_close_enabled FROM public.widget_platform_settings LIMIT 1`)).inactivity_close_enabled).toBe(false);
     });
 
+    it('a commit of ids this database does not hold (another brand\'s CSV), or one that would close nothing, stops with the switch off', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'backlog284-'));
+      const alreadyClosed = await conversation({ status: 'closed', quiet: '3 days' });
+      const before = await q(`SELECT id, status, updated_at, metadata FROM public.conversations WHERE workspace_id = $1 ORDER BY id`, [ws]);
+      const foreign = join(dir, 'foreign.csv');
+      writeFileSync(foreign, `${randomUUID()}\n${randomUUID()}\n`);
+      const mixed = join(dir, 'mixed.csv');
+      writeFileSync(mixed, `${dueA}\n${randomUUID()}\n`);
+      for (const ids of [foreign, mixed]) {
+        const res = run({ commit: '1', ids });
+        expect(res.status, `${ids}: ${res.stdout}`).not.toBe(0);
+        expect(res.stdout).not.toMatch(/COMMITTED/);
+        expect(res.stderr).toMatch(/reviewed ids are not in this database/);
+      }
+      // This database's ids, but nothing to close now (closed already, owed
+      // since): the switch is the Super Admin's to turn on.
+      const stale = join(dir, 'stale.csv');
+      writeFileSync(stale, `${alreadyClosed}\n${owed}\n`);
+      const nothing = run({ commit: '1', ids: stale });
+      expect(nothing.status, nothing.stdout).not.toBe(0);
+      expect(nothing.stdout).not.toMatch(/COMMITTED/);
+      expect(nothing.stderr).toMatch(/closed nothing/);
+      expect(nothing.stderr).toMatch(/Super Admin/);
+      // Without the switch (enable=0) the same list commits, changing nothing.
+      const kept = run({ commit: '1', ids: stale, enable: '0' });
+      expect(kept.status, kept.stderr).toBe(0);
+      expect(kept.stdout).toMatch(/COMMITTED/);
+      expect(await q(`SELECT id, status, updated_at, metadata FROM public.conversations WHERE workspace_id = $1 ORDER BY id`, [ws])).toEqual(before);
+      expect(await q(`SELECT id FROM public.conversation_events WHERE conversation_id = ANY($1::uuid[])`, [before.map((r) => r.id)])).toEqual([]);
+      expect((await one(`SELECT inactivity_close_enabled FROM public.widget_platform_settings LIMIT 1`)).inactivity_close_enabled).toBe(false);
+    });
+
     it('the commit closes the reviewed ids only, skips one that became owed since, and turns the switch on (enable=0 keeps it off)', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'backlog284-'));
       const csv = join(dir, 'reviewed.csv');
@@ -990,7 +1061,7 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect((await one(`SELECT metadata->>'internal' AS internal FROM public.conversation_messages WHERE id = $1`, [earlier])).internal).toBeNull();
     });
 
-    it('an AI-only conversation closed automatically is in no Inbox queue; a person\'s is in their Resolved tab', async () => {
+    it('an AI-only conversation closed automatically is in no working queue, only the web panel\'s Closed box; a person\'s is in their Resolved tab', async () => {
       const { runConversationIdleCloseOnce } = await import('../../../server/services/conversationIdleCloseTicker.js');
       const ai = await conversation({ meta: { ai_state: 'ai_managed' } });
       await message(ai, 'contact', '31 hours');
@@ -1004,6 +1075,7 @@ suite('284 — the inactivity close (real PostgreSQL: the chain to 283, the serv
       expect(await list('queue=main&status=resolved')).toEqual([human]);
       expect(await list('queue=main&status=resolved', owner)).not.toContain(ai);
       expect(await list('queue=automated')).not.toContain(ai);
+      expect((await list('queue=main&status=closed')).sort()).toEqual([ai, human].sort());
       const tabs = (await request(app).get(`/api/conversations/inbox-tab-counts?workspace_id=${ws}`).set(as(sara))).body;
       expect(tabs).toMatchObject({ resolved: 1, automated: 0 });
     });

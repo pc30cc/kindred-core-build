@@ -120,6 +120,31 @@ const csatGets = (h: ReturnType<typeof boot>) => h.fetches.filter((u) => /\/conv
 const posts = (h: ReturnType<typeof boot>, path: string) => h.posts.filter((p) => p.url.endsWith('/conversations/c1/' + path));
 const active = (h: ReturnType<typeof boot>) => h.shadow.activeElement as HTMLElement | null;
 const lateAsked = (h: ReturnType<typeof boot>) => h.scripts.some((s) => /runtime-late|runtime-ext|-x\./.test(s));
+/**
+ * A row after the closed line that repaints the thread and keeps the card
+ * (nobody wrote: the server's rule): a call that ended.
+ */
+const callEnded = (id: string) => ({
+  id, role: 'system', sender_type: 'system', conversation_id: 'c1', time: T(0),
+  metadata: { kind: 'call_ended', duration_seconds: 30, ended_by: 'operator' },
+});
+/**
+ * The comment the visitor is typing, through a real repaint of the thread:
+ * a new textarea, with the words, the focus and the caret the old one had.
+ */
+async function repaintKeepsComment(h: ReturnType<typeof boot>, words: string, a: number, b: number) {
+  const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+  expect(active(h)).toBe(ta);
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([a, b]);
+  h.emitMessages([callEnded('sys9')]);
+  await flush(10);
+  const again = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+  expect(again).not.toBe(ta);
+  expect(again.value).toBe(words);
+  expect(active(h)).toBe(again);
+  expect([again.selectionStart, again.selectionEnd]).toEqual([a, b]);
+  expect(csatGets(h)).toHaveLength(1);
+}
 /** The closed line's words as each template draws them (default: its divider, after the day's). */
 function lineOf(h: ReturnType<typeof boot>, renderer: 'default' | 't1' | 't2') {
   const sel = { default: '[data-chat-messages] .msg-day', t1: '[data-chat-messages] .msg-day.cl span', t2: '[data-chat-messages] .msg-system-pill' }[renderer];
@@ -188,16 +213,16 @@ describe('default (one conversation per visitor): a real close is its quiet line
     expect(active(h)).toBe(card);
   });
 
-  it('a comment being typed survives a repaint, with its caret', async () => {
+  it('a comment being typed survives a repaint, with its focus and caret', async () => {
     const h = await dflt();
     click(h.q('[data-csat-rate="3"]'));
     const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
     ta.focus();
     typeInto(ta, 'سلام دوباره');
-    ta.setSelectionRange(3, 3);
-    // Anything that repaints the thread: the operator typing, a presence change.
-    h.emitTyping();
-    await flush(10);
+    ta.setSelectionRange(3, 5);
+    await repaintKeepsComment(h, 'سلام دوباره', 3, 5);
+    expect(h.q('[data-csat-rate="3"]')!.getAttribute('aria-pressed')).toBe('true');
+    // Away and back: the words and the pick are Core's.
     h.runtime.setTab('home');
     await flush();
     h.runtime.setTab('chat');
@@ -316,6 +341,17 @@ describe('t1 and t2: a real close kept, an older backend\'s resolve line dropped
     await flush(20);
     expect(h.q('.msg-row.rt [data-csat]')).not.toBeNull();
     expect(csatGets(h)).toHaveLength(1);
+  });
+
+  it('t1: a comment being typed survives a repaint, with its focus and caret', async () => {
+    const h = await thread({ renderer: 't1' });
+    click(h.q('[data-csat-rate="2"]'));
+    const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
+    ta.focus();
+    typeInto(ta, 'کمی دیر شد');
+    ta.setSelectionRange(1, 4);
+    await repaintKeepsComment(h, 'کمی دیر شد', 1, 4);
+    expect(h.q('[data-csat-rate="2"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('t1 drops the line an older backend wrote for a resolve (a resolve ends nothing for the visitor)', async () => {
@@ -512,14 +548,17 @@ describe('t2: the closed line and the rating card', () => {
     expect(active(h)).toBe(card);
   });
 
-  it('a comment being typed survives a repaint, with its caret', async () => {
+  it('a comment being typed survives a repaint, with its focus and caret', async () => {
     const h = await thread();
     const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
     ta.focus();
     typeInto(ta, 'سلام');
     ta.setSelectionRange(2, 2);
-    // Anything that repaints the thread (here: a pick's state reaching the markup).
+    // A pick while typing changes the card in place; then a row after the line repaints it.
     click(h.q('[data-csat-rate="3"]'));
+    await repaintKeepsComment(h, 'سلام', 2, 2);
+    expect(h.q('[data-csat-rate="3"]')!.getAttribute('aria-pressed')).toBe('true');
+    // Away and back: the words and the pick are Core's.
     h.runtime.setTab('home');
     await flush();
     h.runtime.setTab('chat');

@@ -69,12 +69,14 @@ export interface ChatWidgetTemplate {
    */
   extras: `presentation-${string}-x.js` | null;
   /**
-   * Its renderer draws the `conversation_closed` line («X ended the chat»)
-   * and, where its extras have one, the rating card under it (t2). The
-   * server writes that visitor-visible row when an operator closes a widget
-   * conversation only for a workspace whose effective template has this
-   * (server/services/conversationClosedNotice.ts). Every template has it
-   * since one conversation per visitor (2026-10-24). Must match the
+   * Its renderer draws the `conversation_closed` line («X ended the chat»,
+   * «Chat ended» for the system's close after a quiet period) and, while
+   * the template's `csat` option is on, the rating card under it (Core's
+   * `ctx.rating`, every template since migration 284). The server writes
+   * that visitor-visible row when a widget conversation is closed (by an
+   * operator, or by the system) only for a workspace whose effective
+   * template has this (server/services/conversationClosedNotice.ts). Every
+   * template has it since one conversation per visitor (2026-10-24). Must match the
    * renderer's `closedNotice` (`features.closedNotice`, or at the top level
    * for `default`, which declares no features; src/test/widget/runtimeExt.test.ts).
    */

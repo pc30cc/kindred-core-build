@@ -333,13 +333,36 @@ describe('the closed line: the inbox\'s close reaches the widget as the row it d
     expect(state.db.tables.conversation_ratings).toEqual([expect.objectContaining({ closed_message_id: closed.id, score: 3 })]);
   });
 
-  it('an AI-only chat: the line, a GET that says not rateable, no card', async () => {
+  it('an AI-only chat (decision B.5): the line, a GET that rates it as the AI\'s (no operator), a nameless card', async () => {
     const cid = randomUUID();
     (state.db.tables.conversations ||= []).push({
       id: cid, workspace_id: WS, status: 'open', assigned_to: null, contact_id: null, visitor_session_id: null, metadata: { visitor_id: 'visitor-1' },
     });
     message(cid, 'contact', 'ساعت کاری؟');
     message(cid, 'ai', 'از ۹ تا ۱۸.');
+    const closed = await closeFromInbox(cid);
+    expect(await get(`/api/widget/conversations/${cid}/csat?workspace_id=${WS}`))
+      .toMatchObject({ closed_id: closed.id, rateable: true, subject: 'ai', operator: null, transcript: { available: false } });
+    received.length = 0;
+    const h = await widget(cid);
+    await until(() => card(h));
+    expect(h.q('.msg-system-pill')!.textContent).toBe('سارا گفتگو را به پایان رساند');
+    // (Who the card names follows GET's `subject` and `operator`: Core's
+    // view.csat, src/test/widget/afterChat.test.ts.)
+    click(h.q('[data-csat-rate="4"]'));
+    click(h.q('[data-csat-submit]'));
+    await until(() => h.q('[data-csat] [role="status"]'));
+    expect(state.db.tables.conversation_ratings).toEqual([expect.objectContaining({
+      conversation_id: cid, closed_message_id: closed.id, operator_id: null, subject: 'ai', score: 4,
+    })]);
+  });
+
+  it('a chat the visitor never wrote in (a greeting): the line, a GET that says not rateable, no card', async () => {
+    const cid = randomUUID();
+    (state.db.tables.conversations ||= []).push({
+      id: cid, workspace_id: WS, status: 'open', assigned_to: null, contact_id: null, visitor_session_id: null, metadata: { visitor_id: 'visitor-1' },
+    });
+    message(cid, 'ai', 'سلام! چطور کمک کنم؟');
     const closed = await closeFromInbox(cid);
     expect(await get(`/api/widget/conversations/${cid}/csat?workspace_id=${WS}`)).toMatchObject({ closed_id: closed.id, rateable: false });
     received.length = 0;

@@ -7,10 +7,19 @@
  *
  * Cache: 60s in-memory, fail-open with safe defaults if the row is
  * missing or the read fails. Never throws.
+ *
+ * The inactivity close's switch and default (migration 284) have a read of
+ * their own below (loadInactivityCloseSettings), which fails closed.
  */
 
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
+import {
+  INACTIVITY_CLOSE_DEFAULT_HOURS,
+  INACTIVITY_CLOSE_MAX_HOURS,
+  INACTIVITY_CLOSE_MIN_HOURS,
+} from '../../../shared/inactivityClose.js';
 import { DEFAULT_TYPING_RATE_LIMIT, type TypingRateLimitConfig } from './typingRateLimit.js';
 
 export interface WidgetPlatformRuntimeSettings {
@@ -105,4 +114,68 @@ function clampInt(raw: unknown, min: number, max: number, fallback: number): num
 /** Test-only — reset the in-memory cache. */
 export function __resetWidgetPlatformRuntimeSettingsCache(): void {
   cache = null;
+}
+
+// ─── The inactivity close (migration 284) ──────────────────────────────────
+
+export interface InactivityCloseSettings {
+  /** The Super Admin's switch. */
+  enabled: boolean;
+  /** The window of every workspace without its own (1–48). */
+  defaultHours: number;
+}
+
+/**
+ * Off, 24 h: what an unreadable or missing row reads as. Unlike the settings
+ * above this fails CLOSED, since it starts a timer that closes conversations
+ * (and a database before 284 has no such columns).
+ */
+const INACTIVITY_CLOSE_OFF: InactivityCloseSettings = { enabled: false, defaultHours: INACTIVITY_CLOSE_DEFAULT_HOURS };
+
+let inactivityCache: { value: InactivityCloseSettings; ts: number } | null = null;
+
+/**
+ * The Super Admin's inactivity-close switch and default window, read on
+ * their own (never added to the first-paint selects above, which would fail
+ * on a database before 284). 60 s cache, cleared by PATCH /platform/config
+ * and by the cache bus `platform` message. This only decides whether the
+ * ticker takes its lease and what the panel shows: the SQL due and close
+ * functions read the switch themselves, so once it is off nothing closes.
+ * Never throws.
+ */
+export async function loadInactivityCloseSettings(config: ServerConfig): Promise<InactivityCloseSettings> {
+  const now = Date.now();
+  if (inactivityCache && now - inactivityCache.ts < CACHE_TTL_MS) return inactivityCache.value;
+  let value = INACTIVITY_CLOSE_OFF;
+  try {
+    const { data, error } = await getServiceClient(config)
+      .from('widget_platform_settings')
+      .select('inactivity_close_enabled, inactivity_close_default_hours')
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      const row = data as { inactivity_close_enabled?: unknown; inactivity_close_default_hours?: unknown };
+      value = {
+        enabled: row.inactivity_close_enabled === true,
+        defaultHours: clampInt(row.inactivity_close_default_hours, INACTIVITY_CLOSE_MIN_HOURS, INACTIVITY_CLOSE_MAX_HOURS, INACTIVITY_CLOSE_DEFAULT_HOURS),
+      };
+    }
+  } catch {
+    value = INACTIVITY_CLOSE_OFF;
+  }
+  inactivityCache = { value, ts: now };
+  return value;
+}
+
+/** Forget the cached switch and default (a save here, or another process's: the cache bus). */
+export function invalidateInactivityCloseSettings(): void {
+  inactivityCache = null;
+}
+
+// Another backend process saved the platform settings (lib/cacheBus.ts 'platform' / 'all').
+onInvalidate('platform', () => invalidateInactivityCloseSettings());
+
+/** Test-only — reset the inactivity-close cache. */
+export function __resetInactivityCloseSettingsCache(): void {
+  inactivityCache = null;
 }

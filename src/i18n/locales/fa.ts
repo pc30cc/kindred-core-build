@@ -1554,6 +1554,7 @@ const fa: TranslationKeys = {
     'system.agentJoinedGeneric': 'یکی از همکاران به گفتگو پیوست',
     'system.closedBy': '{name} گفتگو را بست',
     'system.closed': 'گفتگو بسته شد',
+    'system.closedInactive': 'گفتگو پس از مدتی بی‌پیامی به‌طور خودکار بسته شد',
     'system.noAgentAvailable': 'در حال حاضر هیچ‌یک از همکاران ما آنلاین نیست. پیام شما ثبت شد و به‌محض بازگشت یکی از همکاران، همین‌جا پاسخ می‌دهیم.',
     'system.inQueue': 'بازدیدکننده در صف پشتیبانی منتظر است',
     'system.inQueueAllBusy': 'همهٔ اپراتورها مشغول بودند؛ بازدیدکننده در صف منتظر است',

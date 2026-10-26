@@ -67,6 +67,7 @@ import {
   type ReplyJoinRow,
 } from '../services/operatorReplyJoin.js';
 import { patchConversationMetadata } from '../services/conversationMetadata.js';
+import { clearedClosedMarkers, operatorCloseMarkers } from '../../shared/inactivityClose.js';
 import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
@@ -223,6 +224,10 @@ async function reopenForOperator(
       .select('id, updated_at')
       .maybeSingle();
     if (!data) return false;
+    // Out of `closed`: the close it was in is over (shared/inactivityClose.ts).
+    if (a.from === 'closed') {
+      await patchConversationMetadata(config, a.conversationId, clearedClosedMarkers(), a.workspaceId);
+    }
     void recordAuditAndEvent(config, {
       workspaceId: a.workspaceId,
       conversationId: a.conversationId,
@@ -1213,7 +1218,17 @@ conversationsRouter.patch('/:id', async (req, res) => {
       // the visitor is the close (GET /api/widget/conversations `endedAt`).
       if (statusEvType === 'resolved' || (parsed.data.status === 'closed' && before.status === 'resolved')) {
         await endConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
-      } else if (statusEvType === 'reopened') {
+      }
+      // The close markers (shared/inactivityClose.ts), read only while the
+      // conversation is closed: a close by the operator is theirs (the
+      // reports count it as such), and any move out of `closed` clears the
+      // close it was in, so a later close is never read as an earlier one.
+      if (parsed.data.status === 'closed') {
+        await patchConversationMetadata(config, conversationId, operatorCloseMarkers(new Date().toISOString(), String(before.status)), parsed.data.workspace_id);
+      } else if (before.status === 'closed') {
+        await patchConversationMetadata(config, conversationId, clearedClosedMarkers(), parsed.data.workspace_id);
+      }
+      if (statusEvType === 'reopened') {
         await continueConversationThread(config, { workspaceId: parsed.data.workspace_id, conversationId });
         // Its operator continues it: a person has it, so the AI (whose state
         // the resolve reset) does not answer over them, and it stays in
@@ -2197,12 +2212,15 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
     // handled is not part of this operator's Resolved tab.
     let resolvedCount = resolvedRes.count ?? 0;
     if (!seesAll && resolvedCount > 0) {
+      // Not the AI's (the list's own filter): the inactivity close ends AI-only
+      // conversations without touching their ai_state (migration 284).
       const { data: resolvedRows } = await sb
         .from('conversations')
         .select('id, assigned_to')
         .eq('workspace_id', workspaceId)
         .eq('is_spam', false)
         .in('status', ['resolved', 'closed'])
+        .or('ai_state.is.null,ai_state.neq.ai_managed')
         .or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`)
         .limit(2000);
       const rows = (resolvedRows || []);

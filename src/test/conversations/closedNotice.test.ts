@@ -20,7 +20,13 @@
  *     right after one the visitor rated keeps that rating: one card, one
  *     rating);
  *   - it never throws, and the operator's PATCH / "Send & resolve" answer
- *     the same whether it works or fails.
+ *     the same whether it works or fails;
+ *   - the system's close after the quiet period (migration 284) prepares
+ *     the nameless line (prepareClosedLine by 'system'), which the SQL close
+ *     inserts; the rating is about the assignee who wrote, else the newest
+ *     person who wrote, else (an operator's close) the closer
+ *     (ratedOperatorOf); the PATCH writes an operator's close markers and a
+ *     move out of closed clears them.
  *
  * The PATCH route and the post-send action run for real against an in-memory
  * data layer; only the effective template is a stand-in (its resolution is
@@ -116,9 +122,10 @@ function conversation(fields: Row = {}): string {
   });
   return id;
 }
-function message(cid: string, sender_type: string, metadata: Row = {}): string {
+/** A row of the conversation; an agent row is OPERATOR's unless `sender` says whose. */
+function message(cid: string, sender_type: string, metadata: Row = {}, sender: string | null = sender_type === 'agent' ? OPERATOR : null): string {
   const id = randomUUID();
-  (state.db.tables.conversation_messages ||= []).push({ id, conversation_id: cid, sender_type, body: 'hi', metadata, created_at: tick() });
+  (state.db.tables.conversation_messages ||= []).push({ id, conversation_id: cid, sender_type, sender_id: sender, body: 'hi', metadata, created_at: tick() });
   return id;
 }
 const closedRows = (cid: string) => (state.db.tables.conversation_messages || [])
@@ -192,15 +199,16 @@ describe('the closed line on a template that draws it', () => {
     expect(state.published).toHaveLength(0);
   });
 
-  it('with nobody assigned the closer is the operator; without a profile it says "An operator"', async () => {
+  it('with nobody who wrote the closer is the operator; without a profile it says "An operator"', async () => {
     const cid = conversation({ assigned_to: null });
     await close(cid);
     expect(closedRows(cid)[0].metadata).toMatchObject({ status: 'closed', operator_id: CLOSER, operator_name: 'Ali' });
     state.db.tables.profiles = [];
+    // Assigned to OPERATOR, who never wrote: no credit for an answer nobody gave.
     const other = conversation();
     await close(other);
     expect(closedRows(other)[0]).toMatchObject({ body: 'An operator closed the conversation' });
-    expect(closedRows(other)[0].metadata).toMatchObject({ agent_name: null, operator_name: null, operator_id: OPERATOR });
+    expect(closedRows(other)[0].metadata).toMatchObject({ agent_name: null, operator_name: null, operator_id: CLOSER });
   });
 
   it('a conversation marked as the widget\'s own channel gets it too', async () => {
@@ -337,6 +345,7 @@ describe('never twice in a row', () => {
     const { csatState } = await import('../../../server/services/conversationRatings.js');
     const at = Date.parse('2026-10-18T10:00:00Z');
     const unrated = conversation({ status: 'resolved' });
+    message(unrated, 'contact');
     message(unrated, 'agent');
     message(unrated, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR });
     state.db.tables.conversation_ratings = [];
@@ -355,6 +364,110 @@ describe('never twice in a row', () => {
     expect((closedRows(movedOn).find((m) => m.id === second!.id)?.metadata as Row).rated_line_id).toBeUndefined();
     expect(await csatState(config, { workspaceId: WS, conversationId: movedOn, csatEnabled: true }, at))
       .toMatchObject({ closed_id: second!.id, rateable: true, rating: null });
+  });
+});
+
+describe('the system\'s close after the quiet period (migration 284): prepareClosedLine by \'system\'', () => {
+  it('the nameless line: body, agent_* null, closed_reason, the operator who wrote, nothing written yet', async () => {
+    const { prepareClosedLine } = await import('../../../server/services/conversationClosedNotice.js');
+    const cid = conversation();
+    message(cid, 'contact');
+    message(cid, 'agent');
+    const line = await prepareClosedLine(config, { workspaceId: WS, conversationId: cid, by: 'system' });
+    expect(line).toEqual({
+      body: 'The conversation was closed',
+      metadata: {
+        kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity',
+        agent_id: null, agent_name: null, operator_id: OPERATOR, operator_name: 'سارا', status: 'closed',
+      },
+    });
+    // Prepared only: the SQL close inserts it, the ticker publishes it.
+    expect(state.db.inserts).toHaveLength(0);
+    expect(state.published).toHaveLength(0);
+    // An actor passed by mistake is no closer of a system close.
+    expect((await prepareClosedLine(config, { workspaceId: WS, conversationId: cid, by: 'system', actorId: CLOSER }))!.metadata)
+      .toMatchObject({ agent_id: null, agent_name: null, operator_id: OPERATOR });
+  });
+
+  it('an AI-only conversation: nobody to name (the workspace mark on the card)', async () => {
+    const { prepareClosedLine } = await import('../../../server/services/conversationClosedNotice.js');
+    const cid = conversation({ assigned_to: null });
+    message(cid, 'contact');
+    message(cid, 'ai');
+    expect((await prepareClosedLine(config, { workspaceId: WS, conversationId: cid, by: 'system' }))!.metadata)
+      .toMatchObject({ by: 'system', operator_id: null, operator_name: null, agent_name: null });
+  });
+
+  it('null when the thread already ends with a line, or for another channel; a rated resolve line is carried', async () => {
+    const { prepareClosedLine } = await import('../../../server/services/conversationClosedNotice.js');
+    const cid = conversation();
+    message(cid, 'agent');
+    await close(cid);
+    expect(await prepareClosedLine(config, { workspaceId: WS, conversationId: cid, by: 'system' })).toBeNull();
+    const telegram = conversation({ metadata: { channel: 'telegram' } });
+    message(telegram, 'contact');
+    expect(await prepareClosedLine(config, { workspaceId: WS, conversationId: telegram, by: 'system' })).toBeNull();
+
+    const rated = conversation({ status: 'resolved' });
+    message(rated, 'agent');
+    const resolveLine = message(rated, 'system', { kind: 'conversation_closed', by: 'agent', status: 'resolved', operator_id: OPERATOR });
+    state.db.tables.conversation_ratings = [{ id: randomUUID(), workspace_id: WS, conversation_id: rated, closed_message_id: resolveLine, score: 5, created_at: tick() }];
+    expect((await prepareClosedLine(config, { workspaceId: WS, conversationId: rated, by: 'system' }))!.metadata)
+      .toMatchObject({ by: 'system', rated_line_id: resolveLine });
+  });
+});
+
+describe('ratedOperatorOf: who a closure\'s rating is about (decision 15)', () => {
+  it('the assignee who wrote, else the newest person who wrote, else the closer (an operator\'s close only), else nobody', async () => {
+    const { ratedOperatorOf } = await import('../../../server/services/conversationClosedNotice.js');
+    const sb = fakeServiceClient(state.db) as never;
+    const REZA = randomUUID();
+    const wrote = conversation();
+    message(wrote, 'agent', {}, OPERATOR);
+    message(wrote, 'agent', {}, REZA);
+    expect(await ratedOperatorOf(sb, { id: wrote, assigned_to: OPERATOR }, CLOSER)).toBe(OPERATOR);
+    // The assignee never wrote: the newest person who did.
+    const other = conversation();
+    message(other, 'agent', {}, CLOSER);
+    message(other, 'agent', {}, REZA);
+    expect(await ratedOperatorOf(sb, { id: other, assigned_to: OPERATOR }, CLOSER)).toBe(REZA);
+    // Nobody wrote: the closer, for an operator's close; nobody for the system's.
+    const silent = conversation();
+    message(silent, 'ai');
+    expect(await ratedOperatorOf(sb, { id: silent, assigned_to: OPERATOR }, CLOSER)).toBe(CLOSER);
+    expect(await ratedOperatorOf(sb, { id: silent, assigned_to: OPERATOR }, null)).toBeNull();
+    expect(await ratedOperatorOf(sb, { id: silent, assigned_to: null })).toBeNull();
+  });
+});
+
+describe('the close markers on the PATCH (shared/inactivityClose.ts)', () => {
+  it('a close writes the operator\'s markers with closed_from; a move out of closed nulls every one', async () => {
+    const { CLOSED_KEYS } = await import('../../../shared/inactivityClose.js');
+    const patches: Row[] = [];
+    state.rpc = (async (fn: string, args: Row) => {
+      if (fn === 'patch_conversation_metadata') patches.push(args.p_patch as Row);
+      return { data: null, error: null };
+    }) as never;
+    const markers = () => patches.filter((p) => 'closed_reason' in p);
+    const cid = conversation({ status: 'resolved' });
+    message(cid, 'agent');
+    expect((await patch(cid, { workspace_id: WS, status: 'closed' })).status).toBe(200);
+    expect(markers()).toEqual([{
+      closed_reason: 'operator', closed_by: 'agent', closed_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), closed_from: 'resolved',
+      closed_source: null, closed_idle_hours: null, closed_last_exchange_at: null, closed_outcome: null,
+      closed_line_id: null, closed_prev_stamps: null,
+    }]);
+    expect(Object.keys(markers()[0]).sort()).toEqual([...CLOSED_KEYS].sort());
+    const row = state.db.tables.conversations!.find((c) => c.id === cid)!;
+    row.status = 'closed';
+    patches.length = 0;
+    expect((await patch(cid, { workspace_id: WS, status: 'open' })).status).toBe(200);
+    expect(markers()).toEqual([Object.fromEntries(CLOSED_KEYS.map((k) => [k, null]))]);
+    // A move that never touches closed writes none.
+    patches.length = 0;
+    const open = conversation();
+    expect((await patch(open, { workspace_id: WS, status: 'pending' })).status).toBe(200);
+    expect(markers()).toEqual([]);
   });
 });
 

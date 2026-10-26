@@ -329,15 +329,27 @@ the history item). Where t2 now departs from the template-2 boards:
     widget resumed a conversation (`/identity/history`) only within its 720 h window, and past it `default` started
     a new thread. This follows the owner's rule (a resolve ends nothing for the visitor), and the next PR closes
     these conversations.
-- **The auto-close PR must:**
-  - close (status `closed`) every conversation where nothing has been exchanged for the inactivity window, the
-    resolved ones this PR leaves current included (a sweep on its first run), and write the `threadEndPatch` stamps
-    (`endedAt` reads them), its own `closed_reason` and the visitor's closed line (`recordConversationClosed`, only
-    on `closed`). The next visit then starts fresh, and the closed conversation is in «گفتگوهای قبلی»;
-  - bring the star rating after the closed line to `t1` and `default` (contract B.3), with
-    `templateVisitorFeatures` listing 'rating' only where the csat option exists;
-  - make a message that races the close reopen that conversation (the TODO in `liveConversationForNextMessage`);
-  - keep `activeNow()`'s 48 h bound: no window is longer.
+- **The inactivity close shipped (migration 284; `docs/operations/CHAT_ROUTING.md`, "Closing quiet conversations"):**
+  - The system closes (status `closed`) a widget conversation in which nothing was exchanged for its workspace's
+    window (1–48 h, the Super Admin's default 24), never while the team owes an answer
+    (`server/services/conversationIdleCloseTicker.ts`, every 5 minutes; the decision is the SQL
+    `conversation_idle_check`). Resolved ones this PR left current close like the others.
+  - No sweep: the timer never touches a conversation untouched for 30 days. The backlog already quiet when 284
+    shipped is closed once, by hand and silently, after the owner saw the list
+    (`database/backfill/284_inactivity_backlog_close.sql`: no visitor line, no realtime, one timeline event each); 284
+    leaves the Super Admin's switch off on WebYar and RESPOK until that commit turns it on.
+  - A close writes the two thread-end stamps `endedAt` reads (`routing_thread_ended_at`, `ai_thread_reset_at`), not
+    the rest of `threadEndPatch`: the AI's hold and routing's state stay as they were (an AI-only conversation stays in
+    no Inbox queue), and `updated_at` does not move. Its own markers (`closed_reason` `inactivity`, `closed_from`, …,
+    `shared/inactivityClose.ts`) say how it ended; an operator's close writes `closed_reason` `operator`.
+  - The timer writes the visitor's closed line in the close's transaction, nameless (`by: 'system'`, `agent_name`
+    null, `closed_reason: 'inactivity'`): «گفتگو به پایان رسید», then the template's rating card. The owner changed
+    the earlier synthesis's guard 10 ("no rating card on an automatic close"): the line and the card are wanted; no
+    push, no transcript, no e-mail. An AI-only conversation is rated too (subject `ai`, no operator).
+  - The TODO in `liveConversationForNextMessage` is resolved: a message within 60 s of an inactivity close goes back
+    into that conversation as it was (`reopenAfterIdleCloseRace`), named or caught by the touch in POST /message
+    and the away thread's append.
+  - `activeNow()`'s 48 h bound equals the longest window (`INACTIVITY_CLOSE_MAX_HOURS`, a test ties them).
 
 ## One conversation per visitor: server contract (2026-10-24)
 
@@ -361,8 +373,9 @@ same contact never counts). The widget section of these notes describes how Core
   dropped instead of refusing the message with a 400). The answer may carry `continued: true` and `intro_message`.
   - `force_new_conversation`, and a named conversation that is closed or not the visitor's, go to the visitor's live
     conversation (`continued: true`; nothing is created, no quota spent), else to a new one, never to an older one
-    by identity. The decision is `liveConversationForNextMessage`, with a TODO for the auto-close PR: a message
-    racing an inactivity close (`closed_reason`) should reopen that conversation.
+    by identity. The decision is `liveConversationForNextMessage`; since migration 284 a named conversation the
+    inactivity close ended within the last 60 s comes back as it was instead (the message raced the close; the same
+    thread, no `continued`).
   - A named resolved conversation is written into (it reopens), unless a newer open or pending one of the visitor's
     exists: then that one, `continued: true`.
   - Ownership of a named conversation, identity reuse and the contact use the signed visitor id alone (a body
@@ -372,7 +385,7 @@ same contact never counts). The widget section of these notes describes how Core
     the creation lock is `visitor:<id>`. Two first messages
     of a new thread at the very same instant (two fresh tabs, nothing live) can still make two conversations: the
     guard runs outside the RPC's lock. A live-only contact match inside `ensure_active_conversation` would close it
-    (SQL, a candidate for migration 284).
+    (SQL, for a later migration of its own; not 284).
   - With `ai_intro`, on the request that creates the conversation and only without `smart_rule` or `nudge_context`,
     the greeting passes the intro's own gates again (`resolveIntroGreeting`), the conversation is created with
     `p_metadata { channel_thread_key, ai_state: 'ai_managed', source: 'ai_agent_intro' }` (never `managed_by_ai`),
@@ -388,7 +401,8 @@ same contact never counts). The widget section of these notes describes how Core
   else their live one (a greeting-only one included), and creates one only when there is none, force-new or not.
 - **GET /api/widget/poll** without a usable conversation id answers only the signed visitor's live conversation
   (never an ended one), with its `status`. **GET /identity/history** (`findContinuableConversation`) is live-only too,
-  whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` stays until migration 284).
+  whatever its age; the 720 h window is gone (the setting `history_continue_window_hours` is marked retired by
+  migration 284, no longer written, and dropped by a later one).
 - **POST /api/widget/offline-messages**, the away thread's first message (`client_message_id`): while the visitor has
   a live conversation it is written there as that conversation's next visitor message (lifecycle, the platform-off
   restore, routing, the AI's turn, push, the owners' mail; routing posts no notice for it, `quiet`, since the away
@@ -420,5 +434,6 @@ same contact never counts). The widget section of these notes describes how Core
   email or Telegram threads or of an older widget's greeting-only rows never hides the visitor's live conversation.
 - **Last-agent routing** (`findPreviousOperator`) looks through the contact's five most recent other conversations
   for the first one a person handled, passing over AI-only and greeting-only ones.
-- For the auto-close PR: the inactivity close must write the `threadEndPatch` stamps (`endedAt` reads them) and its
-  own `closed_reason`; `liveConversationForNextMessage` is where a racing message reopens it.
+- The inactivity close (migration 284) writes the two `threadEndPatch` stamps `endedAt` reads and its own markers
+  (`closed_reason` `inactivity`), never `updated_at`; `liveConversationForNextMessage` and the touch in POST /message
+  are where a racing message reopens it (see the Rollout section above).

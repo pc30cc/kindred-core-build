@@ -1,19 +1,37 @@
 /**
- * THE VISITOR-VISIBLE "CLOSED" LINE (issue #340, g1).
+ * THE VISITOR-VISIBLE "CLOSED" LINE (issue #340, g1; the inactivity close,
+ * migration 284).
  *
- * When an operator closes a widget conversation (the inbox PATCH to
- * `closed`), the thread gets ONE system message the visitor sees: «Sara
- * closed the conversation», and under it, in a template that draws one, the
- * rating card (conversationRatings.ts). It is an ordinary
- * conversation_messages row, published live like the join notice:
+ * When a widget conversation is closed, the thread gets ONE system message
+ * the visitor sees, and under it, in a template that draws one, the rating
+ * card (conversationRatings.ts). It is an ordinary conversation_messages row,
+ * published live like the join notice. Two kinds of close write it:
  *
- *   sender_type 'system', body '<name> closed the conversation' (frozen
- *   English, for clients without a case for the kind, like join notices),
- *   metadata { kind: 'conversation_closed', by: 'agent', agent_id,
- *              agent_name, operator_id, operator_name, status }
+ *   an operator's (the inbox PATCH to `closed`): «Sara closed the conversation»
+ *     sender_type 'system', body '<name> closed the conversation' (frozen
+ *     English, for clients without a case for the kind, like join notices),
+ *     metadata { kind: 'conversation_closed', by: 'agent', agent_id,
+ *                agent_name, operator_id, operator_name, status };
+ *   the system's, after the quiet period (conversationIdleCloseTicker.ts):
+ *     the widget's «گفتگو به پایان رسید», with no name
+ *     body 'The conversation was closed', metadata { kind:
+ *     'conversation_closed', by: 'system', closed_reason: 'inactivity',
+ *     agent_id: null, agent_name: null, operator_id, operator_name, status }.
+ *     prepareClosedLine only prepares it: the row is inserted by the SQL
+ *     close (conversation_close_if_idle, migration 284) in the transaction
+ *     that closes the conversation, and the ticker publishes it. The widget
+ *     draws the nameless sentence because agent_name is empty
+ *     (presentation-default.js, presentation-t1-x.js and presentation-t2-x.js
+ *     read `metadata.agent_name`), and every native localizer prints its
+ *     nameless one.
  *
- * `agent_*` is who closed it, `operator_*` the operator assigned at the close
- * (else the closer): the one a rating is about.
+ * `agent_*` is who closed it (nobody, for the system), `operator_*` the one a
+ * rating is about (ratedOperatorOf, the same for both kinds): the assignee if
+ * they wrote in the conversation, else the newest person who wrote, else (an
+ * operator's close only) the closer, else nobody (an AI-only conversation:
+ * its card asks about the conversation, with the workspace mark). The
+ * visitor's copy never carries the ids (realtime/publish.ts
+ * visitorMessageMetadata strips agent_id and operator_id).
  *
  * Written only when:
  *   - the new status is `closed` (owner, 2026-10-24). "Resolve" and "Send &
@@ -36,9 +54,9 @@
  *     already rated that resolve line and nothing was said since, it was
  *     this same closure for them: the new line carries that rating
  *     (`rated_line_id`, conversationRatings.ts), so no second card asks and
- *     CSAT counts one rating. Two closes of one conversation at once are
- *     written one after the other in this process (`writing`), so they too
- *     leave one line.
+ *     CSAT counts one rating. Two operator closes of one conversation at
+ *     once are written one after the other in this process (`writing`), so
+ *     they too leave one line.
  *
  * Never throws and is never awaited by the operator's request: the status
  * change is already saved, this is its echo.
@@ -52,6 +70,9 @@ import { workspaceChatTemplate } from './widget/configSnapshot.js';
 import { isResolveClosedLine, isWidgetConversation } from './widget/visitorConversations.js';
 
 export const CONVERSATION_CLOSED_KIND = 'conversation_closed';
+
+/** The system close's frozen English body (shared/systemMessageText.ts's nameless sentence). */
+export const SYSTEM_CLOSED_BODY = 'The conversation was closed';
 
 /** How many of the newest rows latestClosedRow looks through. */
 const RECENT_ROWS = 20;
@@ -131,17 +152,136 @@ async function lineWasRated(sb: ServiceClient, conversationId: string, closedId:
   return !error && !!data;
 }
 
+/**
+ * Who a closure's rating is about (decision 15, every kind of close): the
+ * assignee if they wrote in the conversation (an agent row of theirs), else
+ * the newest person who wrote, else the closer (`closerId`: an operator's
+ * close only), else nobody. An assignee who never wrote gets no credit for
+ * someone else's answers. Two indexed reads at most.
+ */
+export async function ratedOperatorOf(
+  sb: ServiceClient,
+  conv: { id: string; assigned_to?: string | null },
+  closerId?: string | null,
+): Promise<string | null> {
+  const assignee = conv.assigned_to || null;
+  if (assignee) {
+    const { data, error } = await sb
+      .from('conversation_messages')
+      .select('id')
+      .eq('conversation_id', conv.id)
+      .eq('sender_type', 'agent')
+      .eq('sender_id', assignee)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return assignee;
+  }
+  const { data: newest, error } = await sb
+    .from('conversation_messages')
+    .select('sender_id')
+    .eq('conversation_id', conv.id)
+    .eq('sender_type', 'agent')
+    .not('sender_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const writer = (newest as { sender_id?: string | null } | null)?.sender_id || null;
+  return writer || closerId || null;
+}
+
 // A widget conversation: no channel recorded, or the widget's own.
 export { isWidgetConversation };
 
 export interface ConversationClosedInput {
   workspaceId: string;
   conversationId: string;
-  /** Who closed it (profiles.id). */
+  /** Who closed it (profiles.id); null for the system. */
   actorId: string | null;
-  by?: 'agent';
+  /** 'agent': an operator's close (the default); 'system': the inactivity close. */
+  by?: 'agent' | 'system';
   /** Only a close draws the line (see above); anything else writes nothing. */
   status: 'closed';
+}
+
+/** A closed line ready to insert: its body and metadata. */
+export interface PreparedClosedLine {
+  body: string;
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * The closed line a close would write now, or null when none is due (not a
+ * widget conversation of this workspace, a template without the line, or the
+ * thread already ends with one: latestClosedRow). Reads only; never throws
+ * (a failed read is null). The operator's close inserts it below; the
+ * system's hands it to conversation_close_if_idle.
+ */
+export async function prepareClosedLine(
+  config: ServerConfig,
+  input: { workspaceId: string; conversationId: string; actorId?: string | null; by: 'agent' | 'system' },
+): Promise<PreparedClosedLine | null> {
+  try {
+    const sb = getServiceClient(config);
+    const { data: conv, error: convErr } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to, metadata')
+      .eq('id', input.conversationId)
+      .maybeSingle();
+    if (convErr || !conv || conv.workspace_id !== input.workspaceId) return null;
+    if (!isWidgetConversation(conv.metadata)) return null;
+
+    const template = await workspaceChatTemplate(config, input.workspaceId);
+    if (!template.descriptor?.closedNotice) return null;
+
+    const recent = await readRecentRows(sb, input.conversationId);
+    if (latestClosedRow(recent)) return null;
+    // The closure the visitor rated under an older server's resolve line,
+    // nothing said since: this line keeps that rating.
+    const resolveLine = latestResolveLine(recent);
+    const ratedLineId = resolveLine && await lineWasRated(sb, input.conversationId, resolveLine.id) ? resolveLine.id : null;
+
+    const system = input.by === 'system';
+    const actorId = system ? null : input.actorId ?? null;
+    const operatorId = await ratedOperatorOf(sb, conv as { id: string; assigned_to?: string | null }, actorId);
+    const people = await resolveOperatorIdentities(config, sb, [actorId, operatorId]);
+    const agentName = (actorId && people.get(actorId)?.name) || null;
+    const operatorName = (operatorId && people.get(operatorId)?.name) || null;
+    const carried = ratedLineId ? { rated_line_id: ratedLineId } : {};
+    if (system) {
+      return {
+        body: SYSTEM_CLOSED_BODY,
+        metadata: {
+          kind: CONVERSATION_CLOSED_KIND,
+          by: 'system',
+          closed_reason: 'inactivity',
+          agent_id: null,
+          agent_name: null,
+          operator_id: operatorId,
+          operator_name: operatorName,
+          status: 'closed',
+          ...carried,
+        },
+      };
+    }
+    return {
+      body: `${agentName || 'An operator'} closed the conversation`,
+      metadata: {
+        kind: CONVERSATION_CLOSED_KIND,
+        by: 'agent',
+        agent_id: actorId,
+        agent_name: agentName,
+        operator_id: operatorId,
+        operator_name: operatorName,
+        status: 'closed',
+        ...carried,
+      },
+    };
+  } catch (err) {
+    console.warn('[conversationClosed] not prepared:', (err as { message?: string } | null)?.message || err);
+    return null;
+  }
 }
 
 /**
@@ -177,46 +317,21 @@ async function writeClosedLine(
   input: ConversationClosedInput,
 ): Promise<{ id: string } | null> {
   try {
-    const sb = getServiceClient(config);
-    const { data: conv, error: convErr } = await sb
-      .from('conversations')
-      .select('id, workspace_id, assigned_to, metadata')
-      .eq('id', input.conversationId)
-      .maybeSingle();
-    if (convErr || !conv || conv.workspace_id !== input.workspaceId) return null;
-    if (!isWidgetConversation(conv.metadata)) return null;
-
-    const template = await workspaceChatTemplate(config, input.workspaceId);
-    if (!template.descriptor?.closedNotice) return null;
-
-    const recent = await readRecentRows(sb, input.conversationId);
-    if (latestClosedRow(recent)) return null;
-    // The closure the visitor rated under an older server's resolve line,
-    // nothing said since: this line keeps that rating.
-    const resolveLine = latestResolveLine(recent);
-    const ratedLineId = resolveLine && await lineWasRated(sb, input.conversationId, resolveLine.id) ? resolveLine.id : null;
-
-    const operatorId = (conv.assigned_to as string | null) || input.actorId || null;
-    const people = await resolveOperatorIdentities(config, sb, [input.actorId, operatorId]);
-    const agentName = (input.actorId && people.get(input.actorId)?.name) || null;
-    const operatorName = (operatorId && people.get(operatorId)?.name) || null;
-    const metadata = {
-      kind: CONVERSATION_CLOSED_KIND,
+    const line = await prepareClosedLine(config, {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      actorId: input.actorId,
       by: input.by ?? 'agent',
-      agent_id: input.actorId,
-      agent_name: agentName,
-      operator_id: operatorId,
-      operator_name: operatorName,
-      status: input.status,
-      ...(ratedLineId ? { rated_line_id: ratedLineId } : {}),
-    };
+    });
+    if (!line) return null;
+    const sb = getServiceClient(config);
     const { data: row, error } = await sb
       .from('conversation_messages')
       .insert({
         conversation_id: input.conversationId,
         sender_type: 'system',
-        body: `${agentName || 'An operator'} closed the conversation`,
-        metadata,
+        body: line.body,
+        metadata: line.metadata,
       })
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
@@ -232,7 +347,7 @@ async function writeClosedLine(
         sender_type: 'system',
         body: row.body as string,
         created_at: row.created_at as string | null,
-        metadata: (row.metadata as Record<string, unknown>) ?? metadata,
+        metadata: (row.metadata as Record<string, unknown>) ?? line.metadata,
         seen_at: (row as { seen_at?: string | null }).seen_at ?? null,
       }),
     );

@@ -110,6 +110,32 @@ describe('native localizers know every system kind', () => {
   });
 });
 
+describe('the inactivity close (migration 284) reuses conversation_closed, nameless', () => {
+  it('no new kind: the apps print their nameless closed sentence for the system\'s line', async () => {
+    expect([...SYSTEM_MESSAGE_KINDS]).toContain('conversation_closed');
+    expect(SYSTEM_MESSAGE_KINDS.filter((k) => /inactiv|idle|auto/i.test(k))).toEqual([]);
+    // Each localizer's nameless branch is the dashboard's 'The conversation was closed' (above).
+    for (const [app, { strings }] of Object.entries(LOCALIZERS)) {
+      expect(strings.map(read).join('\n'), app).toContain('The conversation was closed');
+    }
+  });
+
+  it('the dashboard and the server\'s copy say the system closed it after a quiet period', async () => {
+    const { systemMessageText } = await import('../../../shared/systemMessageText');
+    const { operatorSystemText } = await import('../../../server/services/operatorSystemText');
+    const line = { kind: 'conversation_closed', by: 'system', closed_reason: 'inactivity', agent_name: null, operator_name: 'Sara' };
+    const t = (copy: InboxCopy) => (key: string) => copy.inbox[key.replace(/^inbox\./, '')] ?? key;
+    expect(systemMessageText(line, t(en))).toBe('Closed automatically after a quiet period');
+    expect(systemMessageText(line, t(fa))).toBe('گفتگو پس از مدتی بی‌پیامی به‌طور خودکار بسته شد');
+    expect(systemMessageText(line, t(tr))).toBe('Bir süre mesajlaşılmadığı için otomatik kapatıldı');
+    expect(operatorSystemText(line, 'fa')).toBe('گفتگو پس از مدتی بی‌پیامی به‌طور خودکار بسته شد');
+    // Never the word for an idle operator.
+    expect(fa.inbox['system.closedInactive']).not.toContain('بی‌فعالیت');
+    // An operator's line keeps naming them.
+    expect(systemMessageText({ kind: 'conversation_closed', agent_name: 'Sara', closed_reason: 'operator' }, t(en))).toBe('Sara closed the conversation');
+  });
+});
+
 describe('windows-native list preview', () => {
   it('writes a system row from its kind before printing the body', () => {
     const display = read('windows-native/src/Webyar.Core/Inbox/Display.cs');

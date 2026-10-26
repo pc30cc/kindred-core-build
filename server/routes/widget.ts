@@ -45,6 +45,7 @@ import {
   isUnansweredGreeting,
   isWidgetConversation,
   liveConversationForNextMessage,
+  reopenAfterIdleCloseRace,
   resolveVisitorConversationScope,
   scopeOrFilter,
   VISITOR_LIST_PAGE,
@@ -171,9 +172,9 @@ import { trackedPage, trackedReferrer, trackingAllowed, trackingPrivacyOf } from
 import { readPrechatRow, recordPrivacyConsent } from '../services/widget/prechatEffective.js';
 import { prechatPrivacyOf } from '../../shared/prechatPolicy.js';
 import {
+  answeredBy,
   csatEnabledFor,
   csatState,
-  humanOperatorAnswered,
   rateClosedConversation,
   RatingError,
 } from '../services/conversationRatings.js';
@@ -1466,7 +1467,9 @@ async function ownedConversation(config: ServerConfig, req: Request, workspaceId
 
 // GET /conversations/:id/csat — the closed line the thread ends with:
 // { closed_id, rateable, rating: {score, comment, rated_at} | null,
-//   operator: {name, avatar} | null, transcript: {available, to} }.
+//   operator: {name, avatar} | null, subject: 'operator' | 'ai' | null,
+//   transcript: {available, to} }. An AI-only conversation is rated too
+// (subject 'ai', no operator); its transcript stays unavailable.
 widgetRouter.get('/conversations/:id/csat', widgetRateLimit('poll'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
@@ -1475,12 +1478,13 @@ widgetRouter.get('/conversations/:id/csat', widgetRateLimit('poll'), async (req:
   try {
     const conversation = await ownedConversation(config, req, workspaceId);
     if (!conversation) return res.status(404).json({ error: 'not_found' });
-    const [template, humanAnswered] = await Promise.all([
+    const [template, answered] = await Promise.all([
       workspaceChatTemplate(config, workspaceId),
-      humanOperatorAnswered(getServiceClient(config), conversation.id),
+      answeredBy(getServiceClient(config), conversation.id),
     ]);
+    const humanAnswered = answered === 'human';
     const [state, transcript] = await Promise.all([
-      csatState(config, { workspaceId, conversationId: conversation.id, csatEnabled: csatEnabledFor(template), humanAnswered }),
+      csatState(config, { workspaceId, conversationId: conversation.id, csatEnabled: csatEnabledFor(template), answered }),
       // The link is the card's extra: a failed read hides it, never the card.
       transcriptAvailability(config, { workspaceId, conversation, humanAnswered }).catch((err: unknown) => {
         console.warn('[widget-csat] transcript availability failed:', (err as { message?: string } | null)?.message || err);
@@ -2249,6 +2253,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // The conversation named cannot take this message: not this visitor's,
     // or closed.
     let namedUnusable = false;
+    // The visitor's own conversation the widget named, closed: the one a
+    // message racing the inactivity close goes back to
+    // (liveConversationForNextMessage, migration 284).
+    let namedClosed: { id: string; status: string; metadata: unknown } | null = null;
 
     // Verify conversation ownership if provided: by the signed visitor alone
     // (verifyConversationOwnership reads it from the request).
@@ -2271,12 +2279,15 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           }
         }
         // Shared lifecycle: `closed` is archived and must never be revived —
-        // the message below starts a brand new conversation instead.
+        // the message below starts a brand new conversation instead (the
+        // one exception: it raced the inactivity close, see
+        // liveConversationForNextMessage below).
         // `pending`/`resolved` stay untouched here: those transitions are
         // customer-reply transitions applied AFTER the message is committed
         // (applyInboundConversationLifecycle), so they emit a timeline event
         // and a realtime update instead of changing status silently.
         if (conv.status === 'closed') {
+          namedClosed = { id: convId, status: conv.status, metadata: conv.metadata };
           convId = null;
           namedUnusable = true;
         } else if (conv.status === 'resolved') {
@@ -2298,12 +2309,17 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // A new thread (force_new_conversation, "+ New conversation" or the first
     // message of a fresh one), or the named conversation cannot take it:
     // while the visitor has a live conversation the message goes there (and
-    // nothing is created, so no quota is spent), else a new one is created,
-    // never an older one by identity (forceNew below).
+    // nothing is created, so no quota is spent); else, when the one it named
+    // was closed by the inactivity close within the grace (the message raced
+    // the close), that one, put back as it was (the same thread: not
+    // `continued`); else a new one is created, never an older one by
+    // identity (forceNew below).
     const wantsNext = body.force_new_conversation === true || namedUnusable;
     if (!convId && wantsNext) {
-      const live = await liveConversationForNextMessage(supabase, workspaceId, await visitorScope());
-      if (live) {
+      const live = await liveConversationForNextMessage(config, supabase, workspaceId, await visitorScope(), { closed: namedClosed });
+      if (live?.reopened) {
+        convId = live.id;
+      } else if (live) {
         convId = live.id;
         continued = true;
       }
@@ -2430,8 +2446,8 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // of those at the very same instant (two fresh tabs with nothing live,
       // the guard above having run outside the lock) can still make two: a
       // live-only contact match inside the RPC would close that, a change
-      // of SQL for the auto-close migration. `closed` threads are never
-      // matched, so the archived one stays archived.
+      // of SQL for a later migration of its own (not 284). `closed` threads
+      // are never matched, so the archived one stays archived.
       //
       // Lost-response retry safety: the widget client sends NEITHER
       // visitor_id NOR session_id on POST /message (identity there is the
@@ -2777,6 +2793,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         .select('status')
         .maybeSingle();
       touchedStatus = typeof touched?.status === 'string' ? touched.status : null;
+    }
+    // The message landed in a conversation the inactivity close ended while
+    // it was on its way (the close committed between the ownership read and
+    // the insert, whose foreign key waited for it): within the grace it goes
+    // back to what it was, and the lifecycle below runs from that status, as
+    // if the close had not happened (migration 284). An operator's close, or
+    // one past the grace, stays closed, as before.
+    if (!duplicate && convId && insertedMsg?.id && touchedStatus === 'closed') {
+      const restored = await reopenAfterIdleCloseRace(config, supabase, { workspaceId, conversationId: convId, messageId: insertedMsg.id });
+      if (restored) touchedStatus = restored;
     }
     let lifecycle: Awaited<ReturnType<typeof applyInboundConversationLifecycle>> | null = null;
     if (!duplicate && convId && insertedMsg?.id) {
@@ -4296,12 +4322,21 @@ async function appendAwayMessage(
     .eq('id', input.conversationId)
     .select('status')
     .maybeSingle();
+  let touchedStatus = typeof touched?.status === 'string' ? touched.status : null;
+  // As POST /message: a message that raced the inactivity close puts the
+  // conversation back as it was (within the grace), then runs its lifecycle.
+  if (touchedStatus === 'closed') {
+    const restored = await reopenAfterIdleCloseRace(config, supabase, {
+      workspaceId: input.workspaceId, conversationId: input.conversationId, messageId: row.id as string,
+    });
+    if (restored) touchedStatus = restored;
+  }
   const lifecycle = await applyInboundConversationLifecycle(config, {
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
     source: 'widget',
     messageId: row.id,
-    knownStatus: typeof touched?.status === 'string' ? touched.status : null,
+    knownStatus: touchedStatus,
     message: { senderType: 'contact', direction: 'inbound', text: input.message, attachmentCount: 0 },
   });
   // In POST /message's order: the restore rewrites the metadata routing reads.

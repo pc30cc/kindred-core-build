@@ -16509,6 +16509,8 @@ export type Database = {
           force_kb_enabled: string
           force_visitor_tracking: string
           id: string
+          inactivity_close_default_hours: number
+          inactivity_close_enabled: boolean
           max_allowed_domains_per_workspace: number
           max_message_length: number
           observability_log_level: string
@@ -16556,6 +16558,8 @@ export type Database = {
           force_kb_enabled?: string
           force_visitor_tracking?: string
           id?: string
+          inactivity_close_default_hours?: number
+          inactivity_close_enabled?: boolean
           max_allowed_domains_per_workspace?: number
           max_message_length?: number
           observability_log_level?: string
@@ -16603,6 +16607,8 @@ export type Database = {
           force_kb_enabled?: string
           force_visitor_tracking?: string
           id?: string
+          inactivity_close_default_hours?: number
+          inactivity_close_enabled?: boolean
           max_allowed_domains_per_workspace?: number
           max_message_length?: number
           observability_log_level?: string
@@ -16724,6 +16730,7 @@ export type Database = {
           fab_text_color: string | null
           greeting_message: string | null
           id: string
+          inactivity_close_hours: number | null
           kb_enabled: boolean | null
           launcher_text: string | null
           live_chat_enabled: boolean
@@ -16785,6 +16792,7 @@ export type Database = {
           fab_text_color?: string | null
           greeting_message?: string | null
           id?: string
+          inactivity_close_hours?: number | null
           kb_enabled?: boolean | null
           launcher_text?: string | null
           live_chat_enabled?: boolean
@@ -16846,6 +16854,7 @@ export type Database = {
           fab_text_color?: string | null
           greeting_message?: string | null
           id?: string
+          inactivity_close_hours?: number | null
           kb_enabled?: boolean | null
           launcher_text?: string | null
           live_chat_enabled?: boolean
@@ -20599,6 +20608,70 @@ export type Database = {
           changed: boolean
           changed_at: string
           new_status: string
+        }[]
+      }
+      conversation_close_if_idle: {
+        Args: {
+          p_conversation_id: string
+          p_expected_updated_at: string
+          p_line_body?: string | null
+          p_line_metadata?: Json | null
+          p_source?: string
+        }
+        Returns: {
+          closed: boolean
+          closed_at: string | null
+          closed_outcome: string | null
+          event_created_at: string | null
+          event_id: string | null
+          event_type: string | null
+          from_status: string | null
+          line_created_at: string | null
+          line_id: string | null
+          outcome: string
+          workspace_id: string | null
+        }[]
+      }
+      conversation_idle_check: {
+        Args: { p_conversation_id: string }
+        Returns: {
+          closed_outcome: string | null
+          idle_hours: number | null
+          last_exchange_at: string | null
+          last_visitor_at: string | null
+          verdict: string
+        }[]
+      }
+      conversation_idle_due: {
+        Args: { p_limit?: number }
+        Returns: {
+          due_closed_outcome: string | null
+          due_conversation_id: string
+          due_has_visitor_turn: boolean
+          due_idle_hours: number
+          due_last_exchange_at: string | null
+          due_status: string
+          due_updated_at: string
+          due_workspace_id: string
+        }[]
+      }
+      conversation_message_turn: {
+        Args: { p_body: string; p_metadata: Json; p_sender_type: string }
+        Returns: string | null
+      }
+      conversation_reopen_after_idle_close: {
+        Args: {
+          p_conversation_id: string
+          p_grace_seconds?: number
+          p_message_id?: string | null
+          p_workspace_id: string
+        }
+        Returns: {
+          event_created_at: string | null
+          event_id: string | null
+          restored_status: string | null
+          retracted_line_id: string | null
+          updated_at: string | null
         }[]
       }
       count_recent_login_failures: {

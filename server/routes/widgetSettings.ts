@@ -60,12 +60,23 @@ import {
   resolveWorkspaceChatTemplate,
   type ChatTemplateLocale,
 } from '../../shared/chatTemplateCatalog.js';
+import { INACTIVITY_CLOSE_MAX_HOURS, INACTIVITY_CLOSE_MIN_HOURS } from '../../shared/inactivityClose.js';
+import { invalidateInactivityCloseSettings } from '../services/widget/platformSettings.js';
 
 
 export const widgetSettingsRouter = Router();
 
 function serverConfigOf(req: Request): ServerConfig {
   return (req as Request & { serverConfig: ServerConfig }).serverConfig;
+}
+
+/** The answer a save of the inactivity close's settings gives while 284 is not applied. */
+const INACTIVITY_CLOSE_MIGRATION_REQUIRED = { error: 'inactivity_close_migration_required' } as const;
+
+/** A widget_settings / widget_platform_settings inactivity_close_* column does not exist yet (before 284). */
+function isInactivityColumnMissing(error: { code?: string; message?: string; details?: string } | null | undefined): boolean {
+  const code = String(error?.code || '');
+  return (code === '42703' || code === 'PGRST204') && /inactivity_close_/.test(`${error?.message || ''} ${error?.details || ''}`);
 }
 
 async function requireManageWithPhoneVerified(
@@ -417,6 +428,10 @@ const widgetSettingsPatchSchema = z.object({
   last_agent_window_days: z.number().int().min(1).max(365).optional(),
   default_max_concurrent_chats: z.number().int().min(1).max(50).optional(),
   first_response_timeout_minutes: z.number().int().min(0).max(60).optional(),
+  // The inactivity close (migration 284): hours a widget conversation may go
+  // without an exchange before the system closes it, or null for the
+  // platform's default. Not plan gated (every workspace has it; no off).
+  inactivity_close_hours: z.number().int().min(INACTIVITY_CLOSE_MIN_HOURS).max(INACTIVITY_CLOSE_MAX_HOURS).nullable().optional(),
   offline_mode: z.enum(['hide_widget', 'show_offline_message', 'capture_message']).optional(),
   // The panel's fields carry the same caps (maxLength), so a save is never
   // refused for a length the field allowed.
@@ -500,6 +515,10 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   if (error) {
     // A database from before migration 275 has no template columns yet.
     if (isTemplateColumnMissing(error)) return res.status(409).json(TEMPLATE_CATALOG_MIGRATION_REQUIRED);
+    // Before migration 284 there is no inactivity_close_hours column.
+    if ('inactivity_close_hours' in patch && isInactivityColumnMissing(error)) {
+      return res.status(409).json(INACTIVITY_CLOSE_MIGRATION_REQUIRED);
+    }
     return res.status(500).json({ error: error.message });
   }
   // Embed allow-list / subdomain policy is read on every widget request from
@@ -778,6 +797,9 @@ const widgetPrechatPatchSchema = z.object({
   verify_email: z.boolean().optional(),
   verify_phone: z.boolean().optional(),
   prechat_timing: z.enum(['always', 'after_handoff', 'never']).optional(),
+  // Retired since PR #359 (migration 284's comment): still accepted, so an
+  // older panel's save is not refused, and never written (the inactivity
+  // close, widget_settings.inactivity_close_hours, ends an idle conversation).
   history_continue_window_hours: z.number().int().min(0).max(8760).optional(),
   // The privacy line of the visitor's forms (P-01, migration 281). Not plan
   // gated: a form that collects details may always say how they are used.
@@ -841,9 +863,8 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   row.verify_email = !!merged.verify_email;
   row.verify_phone = !!merged.verify_phone;
   row.prechat_timing = normalizePrechatTiming(merged.prechat_timing);
-  if (parsed.data.history_continue_window_hours !== undefined) {
-    row.history_continue_window_hours = parsed.data.history_continue_window_hours;
-  }
+  // history_continue_window_hours is accepted above and dropped here: it is
+  // retired (nothing reads it), so the stored value stays as it was.
   // The privacy line, only as sent (a database before migration 281 has no
   // such columns, and a save that does not touch them still works there).
   if (parsed.data.privacy_notice_enabled !== undefined) row.privacy_notice_enabled = parsed.data.privacy_notice_enabled;
@@ -1007,6 +1028,10 @@ const widgetPlatformConfigPatchSchema = z.object({
   realtime_pending_max: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_pending_max.min).max(PLATFORM_TUNING_RANGES.realtime_pending_max.max).optional(),
   realtime_message_dedupe_enabled: z.boolean().optional(),
   realtime_message_dedupe_window: z.number().int().min(PLATFORM_TUNING_RANGES.realtime_message_dedupe_window.min).max(PLATFORM_TUNING_RANGES.realtime_message_dedupe_window.max).optional(),
+  // The inactivity close (migration 284): the switch for every workspace,
+  // and the window of every workspace without its own.
+  inactivity_close_enabled: z.boolean().optional(),
+  inactivity_close_default_hours: z.number().int().min(INACTIVITY_CLOSE_MIN_HOURS).max(INACTIVITY_CLOSE_MAX_HOURS).optional(),
   observability_metrics_enabled: z.boolean().optional(),
   observability_structured_logs_enabled: z.boolean().optional(),
   observability_log_level: z.string().max(20).optional(),
@@ -1038,10 +1063,18 @@ widgetSettingsRouter.patch('/platform/config', async (req, res) => {
     .eq('id', id)
     .select()
     .single();
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    // Before migration 284 there are no inactivity_close_* columns.
+    if (('inactivity_close_enabled' in updates || 'inactivity_close_default_hours' in updates) && isInactivityColumnMissing(error)) {
+      return res.status(409).json(INACTIVITY_CLOSE_MIGRATION_REQUIRED);
+    }
+    return res.status(500).json({ error: error.message });
+  }
   // The realtime_* tuning values are part of the public config; the URL
-  // bases, welcome text and powered-by wording feed the widget config.
+  // bases, welcome text and powered-by wording feed the widget config; the
+  // inactivity close's switch and default, the ticker and the panels.
   invalidatePlatformPublicConfig();
+  invalidateInactivityCloseSettings();
   publishCacheInvalidation(['platform']);
   return res.json({ settings: data });
 });

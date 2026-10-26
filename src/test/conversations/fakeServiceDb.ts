@@ -12,7 +12,8 @@
  * on a column or a `col->>key` jsonb field (several `.or()` all apply).
  *
  * `missing` tables answer 42P01 (a database before migration 276), `failing`
- * ones a plain error; `conversation_ratings.closed_message_id` and a
+ * ones a plain error, a write naming one of `missingColumns` 42703 (a
+ * database before the column's migration); `conversation_ratings.closed_message_id` and a
  * reaction's (message_id, actor_type, actor_id, emoji) are unique (23505), as
  * in 276.
  */
@@ -40,6 +41,8 @@ export interface FakeServiceDb {
   deletes: Array<{ table: string; row: Row }>;
   /** `.or()` filters (any of its terms), instead of being ignored. */
   honourOr?: boolean;
+  /** Columns a table does not have yet (a database before their migration): a write naming one answers 42703. */
+  missingColumns?: Record<string, string[]>;
 }
 
 /** One `.or()` string as a row test: a row matches when any term does. */
@@ -125,6 +128,13 @@ export function fakeServiceClient(db: FakeServiceDb) {
     function run(): { data: unknown; error: unknown; count?: number | null } {
       const err = error();
       if (err) return { data: null, error: err, count: null };
+      if (mode !== 'select' && mode !== 'delete') {
+        const absent = (db.missingColumns?.[table] || []).find((col) =>
+          (mode === 'update' ? [patch] : payload).some((r) => Object.prototype.hasOwnProperty.call(r, col)));
+        if (absent) {
+          return { data: null, error: { code: '42703', message: `column "${absent}" of relation "${table}" does not exist`, details: null }, count: null };
+        }
+      }
       if (mode === 'select') {
         db.reads.push(table);
         if (head) return { data: null, error: null, count: matching().length };

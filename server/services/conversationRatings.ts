@@ -1,14 +1,21 @@
 /**
- * THE RATING AFTER A CHAT (CSAT, issue #340 g1; migration 276).
+ * THE RATING AFTER A CHAT (CSAT, issue #340 g1; migrations 276 and 284).
  *
  * A visitor rates one CLOSURE of a widget conversation: the
  * `conversation_closed` line the thread ends with (conversationClosedNotice.ts),
- * 1–5 and an optional comment, kept in `conversation_ratings` with the
- * operator that line names. Rules (owner, 2026-10-17):
+ * whoever closed it (an operator, or the system after the quiet period),
+ * 1–5 and an optional comment, kept in `conversation_ratings`. Rules (owner,
+ * 2026-10-17; the AI's rating, decision B.5 of 2026-10-24):
  *   - only the closure the thread still ends with (latestClosedRow: nothing
  *     said after it), within RATING_WINDOW_DAYS of it;
- *   - only when a human operator answered in the conversation (an AI-only
- *     conversation gets the line but no card, like platform support);
+ *   - only when the visitor wrote, and somebody answered them (answeredBy):
+ *       a person (an agent row): subject 'operator', credited to the
+ *       operator the line names (ratedOperatorOf);
+ *       only the AI (a qualified AI answer, never its hand-over line):
+ *       subject 'ai', operator_id NULL, kept out of every operator's
+ *       satisfaction (operatorActivity.ts shows it as the AI's line). The
+ *       card has no name and wears the workspace mark;
+ *       nobody: no card;
  *   - once per closure, never changed (409 `already_rated` with the stored
  *     rating; the unique closed_message_id settles a race). A close after
  *     an older server's resolve line the visitor rated, nothing said since,
@@ -17,9 +24,12 @@
  *     its `csat` option on (the route's check, 403 `csat_disabled`).
  *
  * The inbox learns of it through the conversation's timeline (`rated`, with
- * the score and the comment); no message row, so the visitor's thread and
- * list stay as they were. Before migration 276 every read answers "nothing to
- * rate" and a rating 503 `csat_unavailable`, never a 500.
+ * the score, the comment and the subject); no message row, so the visitor's
+ * thread and list stay as they were. Before migration 276 every read answers
+ * "nothing to rate" and a rating 503 `csat_unavailable`, never a 500; before
+ * 284 (no `subject` column) an AI-only conversation's rating answers 503 too,
+ * and a person's is stored as before. The transcript by email stays a
+ * person's conversation's only (visitorTranscript.ts, humanOperatorAnswered).
  */
 
 import type { ServerConfig } from '../config.js';
@@ -29,6 +39,7 @@ import { normalizeRatingComment, normalizeScore } from './platformSupport/text.j
 import { readLatestClosedRow, type ConversationRow } from './conversationClosedNotice.js';
 import { resolveOperatorIdentities } from './widget/senderIdentity.js';
 import { isRelationMissing } from './billing/entitlementParse.js';
+import { isQualifiedCustomerFacingAnswer } from './needsReply.js';
 import type { EffectiveChatTemplate } from './widget/configSnapshot.js';
 import { chatTemplateOptionKeys } from '../../shared/chatTemplateCatalog.js';
 
@@ -36,11 +47,20 @@ export const RATING_WINDOW_DAYS = 7;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** How many of the AI's newest rows answeredBy looks through for a real answer. */
+const AI_ROWS = 20;
+
 export interface ConversationRating {
   score: number;
   comment: string | null;
   rated_at: string;
 }
+
+/** Who answered the visitor: a person, only the AI, or nobody. */
+export type AnsweredBy = 'human' | 'ai' | null;
+
+/** Who a rating is about: an operator (a person answered) or the AI (only the AI did). */
+export type RatingSubject = 'operator' | 'ai';
 
 export interface CsatState {
   /** The closed line the thread ends with, or null. */
@@ -49,8 +69,10 @@ export interface CsatState {
   rateable: boolean;
   /** Their rating of it, once given. */
   rating: ConversationRating | null;
-  /** The operator the card asks about (avatar derived now, never frozen). */
+  /** The operator the card asks about (avatar derived now, never frozen); null for the AI. */
   operator: { name: string | null; avatar: string | null } | null;
+  /** Who the card asks about ('ai': a nameless card with the workspace mark), or null when nobody answered. */
+  subject: RatingSubject | null;
 }
 
 export class RatingError extends Error {
@@ -77,6 +99,12 @@ export function csatEnabledFor(template: EffectiveChatTemplate): boolean {
 /** conversation_ratings does not exist: migration 276 is not applied. */
 function ratingsTableMissing(error: unknown): boolean {
   return isRelationMissing(error as { code?: string; message?: string }, 'conversation_ratings');
+}
+
+/** conversation_ratings has no `subject` column: migration 284 is not applied. */
+function subjectColumnMissing(error: unknown): boolean {
+  const e = (error || {}) as { code?: string; message?: string; details?: string };
+  return (e.code === '42703' || e.code === 'PGRST204') && /subject/.test(`${e.message || ''} ${e.details || ''}`);
 }
 
 function metaOf(row: { metadata?: unknown }): Record<string, unknown> {
@@ -109,7 +137,7 @@ async function ratingOfLine(
   return storedRating(sb, workspaceId, conversationId, carried);
 }
 
-/** Whether a human operator wrote in the conversation (an AI-only one is not rated). */
+/** Whether a human operator wrote in the conversation (the transcript by email is theirs only). */
 export async function humanOperatorAnswered(sb: ServiceClient, conversationId: string): Promise<boolean> {
   const { count, error } = await sb
     .from('conversation_messages')
@@ -118,6 +146,42 @@ export async function humanOperatorAnswered(sb: ServiceClient, conversationId: s
     .eq('sender_type', 'agent');
   if (error) throw error;
   return (count ?? 0) > 0;
+}
+
+/**
+ * Who answered the visitor in the conversation: 'human' when a person wrote
+ * (an agent row), else 'ai' when the AI gave a real answer (needsReply.ts
+ * isQualifiedCustomerFacingAnswer: content, delivered, never its hand-over
+ * line), else null.
+ */
+export async function answeredBy(sb: ServiceClient, conversationId: string): Promise<AnsweredBy> {
+  if (await humanOperatorAnswered(sb, conversationId)) return 'human';
+  const { data, error } = await sb
+    .from('conversation_messages')
+    .select('sender_type, body, metadata')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'ai')
+    .order('created_at', { ascending: false })
+    .limit(AI_ROWS);
+  if (error) throw error;
+  const rows = (data || []) as Array<{ sender_type: string; body?: string | null; metadata?: Record<string, unknown> | null }>;
+  return rows.some((m) => isQualifiedCustomerFacingAnswer(m)) ? 'ai' : null;
+}
+
+/** Whether the visitor wrote in the conversation (a greeting nobody answered is never rated). */
+export async function visitorWrote(sb: ServiceClient, conversationId: string): Promise<boolean> {
+  const { count, error } = await sb
+    .from('conversation_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'contact');
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/** The rating's subject for who answered, or null when nobody did. */
+function subjectOf(answered: AnsweredBy): RatingSubject | null {
+  return answered === 'human' ? 'operator' : answered === 'ai' ? 'ai' : null;
 }
 
 export function withinRatingWindow(closedAt: string, now: number = Date.now()): boolean {
@@ -152,36 +216,44 @@ async function storedRating(
 
 /**
  * GET …/csat: the closed line the thread ends with, whether it may be rated,
- * the rating once given, and who the card asks about. `csatEnabled` is the
- * template's (descriptor and option); off, nothing is rateable.
+ * the rating once given, and who the card asks about (`subject`, and the
+ * operator for a person's conversation). `csatEnabled` is the template's
+ * (descriptor and option); off, nothing is rateable. `answered`: the route's
+ * answeredBy read, when it already made it.
  */
 export async function csatState(
   config: ServerConfig,
-  input: { workspaceId: string; conversationId: string; csatEnabled: boolean; humanAnswered?: boolean },
+  input: { workspaceId: string; conversationId: string; csatEnabled: boolean; answered?: AnsweredBy },
   now: number = Date.now(),
 ): Promise<CsatState> {
   const sb = getServiceClient(config);
   const closed = await readLatestClosedRow(sb, input.conversationId);
-  if (!closed) return { closed_id: null, rateable: false, rating: null, operator: null };
+  if (!closed) return { closed_id: null, rateable: false, rating: null, operator: null, subject: null };
 
   const rating = await ratingOfLine(sb, input.workspaceId, input.conversationId, closed);
-  const answered = input.humanAnswered ?? await humanOperatorAnswered(sb, input.conversationId);
+  const answered = input.answered !== undefined ? input.answered : await answeredBy(sb, input.conversationId);
+  const subject = subjectOf(answered);
   const rateable = input.csatEnabled
     && rating === null
-    && answered
-    && withinRatingWindow(closed.created_at, now);
+    && subject !== null
+    && withinRatingWindow(closed.created_at, now)
+    && await visitorWrote(sb, input.conversationId);
 
-  const operatorId = operatorIdOf(closed);
-  const meta = metaOf(closed);
-  const frozenName = typeof meta.operator_name === 'string' ? meta.operator_name : null;
+  // The AI's card names nobody (the workspace mark): no operator, even when
+  // the line names the operator who closed it.
   let operator: CsatState['operator'] = null;
-  if (operatorId) {
-    const who = (await resolveOperatorIdentities(config, sb, [operatorId])).get(operatorId);
-    operator = { name: who?.name ?? frozenName, avatar: who?.avatar ?? null };
-  } else if (frozenName) {
-    operator = { name: frozenName, avatar: null };
+  if (subject !== 'ai') {
+    const operatorId = operatorIdOf(closed);
+    const meta = metaOf(closed);
+    const frozenName = typeof meta.operator_name === 'string' ? meta.operator_name : null;
+    if (operatorId) {
+      const who = (await resolveOperatorIdentities(config, sb, [operatorId])).get(operatorId);
+      operator = { name: who?.name ?? frozenName, avatar: who?.avatar ?? null };
+    } else if (frozenName) {
+      operator = { name: frozenName, avatar: null };
+    }
   }
-  return { closed_id: closed.id, rateable, rating: rating ?? null, operator };
+  return { closed_id: closed.id, rateable, rating: rating ?? null, operator, subject };
 }
 
 /**
@@ -209,11 +281,15 @@ export async function rateClosedConversation(
   const existing = await ratingOfLine(sb, input.workspaceId, input.conversationId, closed);
   if (existing === undefined) throw new RatingError(503, 'csat_unavailable');
   if (existing) throw new RatingError(409, 'already_rated', existing);
-  if (!withinRatingWindow(closed.created_at, now) || !(await humanOperatorAnswered(sb, input.conversationId))) {
+  const subject = withinRatingWindow(closed.created_at, now) ? subjectOf(await answeredBy(sb, input.conversationId)) : null;
+  if (!subject || !(await visitorWrote(sb, input.conversationId))) {
     throw new RatingError(409, 'not_ratable');
   }
 
-  const operatorId = operatorIdOf(closed);
+  // A person's rating is credited to the operator the line names; the AI's
+  // to nobody. `subject` is written only for the AI's: a person's row reads
+  // the column's default, so it is stored on a database before 284 too.
+  const operatorId = subject === 'ai' ? null : operatorIdOf(closed);
   const { data, error } = await sb
     .from('conversation_ratings')
     .insert({
@@ -223,11 +299,12 @@ export async function rateClosedConversation(
       operator_id: operatorId,
       score,
       comment,
+      ...(subject === 'ai' ? { subject } : {}),
     })
     .select('score, comment, created_at')
     .single();
   if (error) {
-    if (ratingsTableMissing(error)) throw new RatingError(503, 'csat_unavailable');
+    if (ratingsTableMissing(error) || subjectColumnMissing(error)) throw new RatingError(503, 'csat_unavailable');
     // Another tab got there first.
     if ((error as { code?: string }).code === '23505') {
       const stored = await storedRating(sb, input.workspaceId, input.conversationId, closed.id);
@@ -242,7 +319,7 @@ export async function rateClosedConversation(
     eventType: 'rated',
     actorType: 'visitor',
     actorId: null,
-    payload: { score, comment, closed_id: closed.id, operator_id: operatorId, source: 'widget' },
+    payload: { score, comment, closed_id: closed.id, operator_id: operatorId, subject, source: 'widget' },
   });
   return { score: Number(data.score), comment: (data.comment as string | null) ?? null, rated_at: String(data.created_at) };
 }

@@ -1556,6 +1556,7 @@ const en = {
     'system.agentJoinedGeneric': 'A colleague joined the conversation',
     'system.closedBy': '{name} closed the conversation',
     'system.closed': 'The conversation was closed',
+    'system.closedInactive': 'Closed automatically after a quiet period',
     'system.noAgentAvailable': "Nobody from our team is online right now. Your message is saved and we'll reply here as soon as someone is back.",
     'system.inQueue': 'The visitor is waiting in the support queue',
     'system.inQueueAllBusy': 'Everyone on the team was busy; the visitor is waiting in the queue',

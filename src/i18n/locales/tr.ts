@@ -1558,6 +1558,7 @@ const tr: TranslationKeys = {
     'system.agentJoinedGeneric': 'Bir meslektaşımız sohbete katıldı',
     'system.closedBy': '{name} sohbeti kapattı',
     'system.closed': 'Sohbet kapatıldı',
+    'system.closedInactive': 'Bir süre mesajlaşılmadığı için otomatik kapatıldı',
     'system.noAgentAvailable': 'Şu anda ekibimizden kimse çevrimiçi değil. Mesajınız kaydedildi; biri döner dönmez burada yanıtlayacağız.',
     'system.inQueue': 'Ziyaretçi destek kuyruğunda bekliyor',
     'system.inQueueAllBusy': 'Tüm operatörler meşguldü; ziyaretçi kuyrukta bekliyor',

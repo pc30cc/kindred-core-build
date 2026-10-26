@@ -191,6 +191,9 @@ suite('after-chat features on a real database (276)', () => {
 
   it('A2 the rating: once per closure, two tabs racing get one row, the timeline and Operator Activity see it', async () => {
     const { cid } = await conversation(ws);
+    // The visitor wrote and a person answered (migration 284: a conversation
+    // the visitor never wrote in is not rated).
+    await message(cid, 'contact', 'سلام');
     await message(cid, 'agent', 'hi', sara);
     await close(ws, cid);
     const state = await ratings.csatState(config, { workspaceId: ws, conversationId: cid, csatEnabled: true });

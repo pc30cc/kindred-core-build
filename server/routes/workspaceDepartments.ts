@@ -327,10 +327,10 @@ workspaceDepartmentsRouter.put('/:workspaceId/fallback', async (req, res) => {
 // (globalAdvancedRouting.ts), read only, so the panel says what routing
 // really does: whether a department's chats fall back to the whole team,
 // whether returning visitors may go back to their operator at all, and
-// whether the owner is the last resort, and whether quiet widget
-// conversations close by themselves and after how long by default (the
-// inactivity close, migration 284: off and 24 h before it or when
-// unreadable). (The per-workspace /fallback record above is legacy: chat
+// whether the owner is the last resort, and whether quiet conversations
+// (every chat channel since migration 286) close by themselves and after how
+// long by default (the inactivity close, migration 284: off and 24 h before
+// it or when unreadable). (The per-workspace /fallback record above is legacy: chat
 // routing does not read it.)
 workspaceDepartmentsRouter.get('/:workspaceId/routing-policy', async (req, res) => {
   const { workspaceId } = req.params;

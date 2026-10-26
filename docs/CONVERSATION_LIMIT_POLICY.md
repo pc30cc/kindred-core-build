@@ -107,7 +107,8 @@ write at chat open, and only when the visitor has no live conversation.
   conversation counts like any other. A message within 600 seconds of the
   close raced it and goes back into that conversation
   (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`): no creation. A support
-  thread closed from `resolved` is put back as `resolved`, which still
-  refuses the message with `conversation_ended` (`docs/PLATFORM_SUPPORT.md`).
+  thread closed from `resolved` is never brought back: the message is
+  refused with `conversation_ended`, as before its close
+  (`docs/PLATFORM_SUPPORT.md`).
   The Email inbox (`email_threads`) is not a conversation and is not
   affected.

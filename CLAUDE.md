@@ -344,11 +344,13 @@ reserved blocks, so a full disk stops Postgres too.
     `286_inactivity_close_every_channel.sql` (every chat channel closes for
     quiet, silently but the widget; the App Review verdict is `exempt` and
     covers that account's support threads; a media-only message counts as a
-    turn; applied by hand before its merge, <YYYY-MM-DD HH:MM UTC>; a schema
-    dump and the dry run's by-channel counts in `/root/webyar-migrate-286/`;
-    no new gate: the switch was already on, so the timer closes what the dry
-    run listed from its next pass; steps in `docs/operations/CHAT_ROUTING.md`,
-    "Rollout of 286").
+    turn; applied by hand once the merge's backend is live, since it needs
+    that backend and the backend does not need it, as 283 was; its time goes
+    here in a docs-only follow-up; a schema dump and the dry run's
+    by-channel counts in `/root/webyar-migrate-286/`; no new gate: the
+    switch was already on, so the timer closes what the dry run listed from
+    its next pass; steps in `docs/operations/CHAT_ROUTING.md`, "Rollout of
+    286").
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

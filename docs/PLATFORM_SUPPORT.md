@@ -50,10 +50,11 @@ own inbox, with the tools it already has.
     (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`) puts it back as it was,
     whether the close committed just before the message or while it was
     being written. Closed from `open` or `pending`, the message (a file too)
-    then goes into it. Closed from `resolved`, it is `resolved` again, which
-    stays ended, so the message is refused with `conversation_ended`, as
-    before its close. Later than that, every message naming it is refused,
-    and the app offers a new conversation.
+    then goes into it. Closed from `resolved`, nothing is brought back: it
+    stays closed (the apps still show it as resolved) and the message is
+    refused with `conversation_ended`, as before its close. Later than that,
+    every message naming it is refused, and the app offers a new
+    conversation.
 - **Offline** is the website widget's own rule (`resolveAvailability`):
   business hours, plus whether anybody on the team is available. Offline, the
   app says "leave a message" and shows the business hours. The message is

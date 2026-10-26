@@ -48,6 +48,7 @@ import {
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
 import { resolveAvailability } from '../widget/availability.js';
 import { applyInboundConversationLifecycle } from '../conversationLifecycle.js';
+import { patchConversationMetadata } from '../conversationMetadata.js';
 import { justClosedForInactivity, reopenAfterIdleCloseRace } from '../idleCloseRace.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { buildMessageEnvelope, publishConversationEvent, publishSupportEvent } from '../realtime/publish.js';
@@ -871,11 +872,11 @@ async function prepareWrite(
   if (chosen) {
     const { thread, conv } = chosen;
     const meta = conv?.metadata || {};
+    // A merge of the one key, never a write of the copy read above: an
+    // inactivity close committing meanwhile keeps its markers, which the race
+    // reopen after the insert needs.
     if (isWritable(thread, conv, supportWorkspaceId) && meta.client_platform !== requester.client) {
-      await sb
-        .from('conversations')
-        .update({ metadata: { ...meta, client_platform: requester.client } })
-        .eq('id', thread.conversation_id);
+      await patchConversationMetadata(config, thread.conversation_id, { client_platform: requester.client }, supportWorkspaceId);
     }
     return { sb, requester, contactId, thread, conversationId: thread.conversation_id, supportWorkspaceId };
   }

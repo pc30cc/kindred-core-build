@@ -398,8 +398,9 @@ per channel.
   flight (after the insert, the status read with the `updated_at` touch; if
   `closed`, reopened with the message's id). A duplicate delivery reopens it
   once. A menu tap or other bot navigation never brings a conversation back.
-  A support thread restored to `resolved` stays ended for the requester, as
-  before its close.
+  A support thread closed from `resolved` is never brought back: it stays
+  closed (shown to the requester as resolved) and the message is refused
+  with `conversation_ended`, as before its close.
   - The grace: 60 seconds for the widget
     (`INACTIVITY_CLOSE_RACE_GRACE_SECONDS`), 600 seconds for the channels and
     platform support (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`; the SQL
@@ -683,10 +684,15 @@ nobody calls, the switch off).
 
 ### Rollout of 286 (every chat channel)
 
-WebYar by hand before the merge (CLAUDE.md's procedure, the folder
-`/root/webyar-migrate-286/` with `scripts/` and `database/migrations/`
-holding 286 alone); RESPOK by its migrator on push (it has no conversation
-outside the widget, so nothing more closes there). There is no new gate: the
+WebYar by hand AFTER the merge, once its new backend is live (CLAUDE.md's
+procedure, the folder `/root/webyar-migrate-286/` with `scripts/` and
+`database/migrations/` holding 286 alone): the backend does not need 286 (on
+285 a channel or support conversation still reads `not_widget`, so its new
+race and support paths find nothing to do), while 286 needs the new backend
+for its first closes (the support presentation, `support_update`, the
+channel race reopen), as 283 waited for PR #351's backend. RESPOK by its
+migrator on push (it has no conversation outside the widget, so nothing
+more closes there, whichever of 40 and 32 finishes first). There is no new gate: the
 switch stays the only off, and it is already on in both databases, so the
 timer starts closing channel and support conversations at its first pass
 after 286 is applied. The owner saw the counts before deciding (2026-10-26, a
@@ -717,9 +723,11 @@ commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
    ```sql
    BEGIN;
    \i /tmp/m286/database/migrations/286_inactivity_close_every_channel.sql
-   -- Every live conversation's verdict, by channel and status.
+   -- Every live conversation's verdict, by channel and status; due rows
+   -- untouched for 30 days apart (the timer never takes those).
    SELECT coalesce(nullif(lower(btrim(c.metadata->>'channel')), ''), 'widget') AS channel,
-          c.status, chk.verdict, count(*)
+          c.status, chk.verdict, count(*),
+          count(*) FILTER (WHERE chk.verdict = 'due' AND c.updated_at < now() - interval '30 days') AS untouched_30d
      FROM public.conversations c
      CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
     WHERE c.status IN ('open', 'pending', 'resolved')
@@ -734,26 +742,35 @@ commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
    ```
    Expect `telegram` due 1, `platform_support` due 5 (resolved) and
    `needs_reply` 1, the App Review rows `exempt`, and the widget's rows as
-   before. Any other count goes to the owner before 286 is applied. When
-   the first query counts `due` rows that the second leaves out, they are
-   past the timer's 30-day bound (untouched, `updated_at`, for longer), and
-   the timer never closes them: once 286 is applied, the backlog script
-   (`database/backfill/284_inactivity_backlog_close.sql`, channel-neutral
-   since 286) lists them with its dry run and closes them with its commit
-   after the owner has reviewed the list (its header's steps 0 to 2, with
-   the script in the folder's `database/backfill/`), as for 284's backlog.
-   The log holds counts only (no text, no ids).
-4. **WebYar: apply 286** with the CLAUDE.md procedure (`docker exec $C mkdir
-   -p /tmp/m286`, `docker cp` the folder's `scripts` and `database`, never
-   the dump or the log, into `/tmp/m286/`; `migrate-database.sh` as
-   `postgres` with `PGOPTIONS='-c lock_timeout=5s'`; then remove
-   `/tmp/m286`). Apply it shortly before the merge: until the new backend is
-   live (about 15 minutes), the old one's timer already closes the channel
-   conversations, silently as the new one does, but without the channel race
-   reopen and without `support_update`, and a resolved support thread it
-   closes reads `closed` in the support apps until the new backend presents
-   it as resolved.
-5. **Check**: a second run applies nothing; `conversation_message_turn`,
+   before. Any other count goes to the owner before 286 is applied. A `due`
+   row the second query leaves out is one of two kinds. Untouched for 30
+   days (`untouched_30d`): the timer never closes it, so once 286 is
+   applied the backlog script (`database/backfill/284_inactivity_backlog_close.sql`,
+   channel-neutral since 286) lists it with its dry run and closes it with
+   its commit after the owner has reviewed the list (its header's steps 0 to
+   2, with the script in the folder's `database/backfill/`), as for 284's
+   backlog. Touched within the last hour or its window (`updated_at` moved
+   by an assignment, a reopen or another write that is no exchange): the
+   timer takes it on a later pass, so it never goes to the backlog (a widget
+   row closed there would miss its visitor line). The log holds counts only
+   (no text, no ids).
+4. **Merge.** WebYar's 24/25 and RESPOK's 32/33/40 deploy, and RESPOK's
+   migrator 40 applies 286 (afterwards the dry run's two queries, without the
+   `\i`, against `k6pnithcamskd4trrpo6jabv` and the database RESPOK's
+   backend's `DATABASE_URL` names, list no channel or support row there). No
+   channels app (WebYar's 19 and 20, RESPOK's) changes: channel ingest and
+   the support service run in the backend.
+5. **WebYar: apply 286 once app 25 runs the merge** (its deployment
+   `finished` in `application_deployment_queues`, the new container healthy,
+   `https://api.webyar.ai/api/health` 200), with the CLAUDE.md procedure
+   (`docker exec $C mkdir -p /tmp/m286`, `docker cp` the folder's `scripts`
+   and `database`, never the dump or the log, into `/tmp/m286/`;
+   `migrate-database.sh` as `postgres` with `PGOPTIONS='-c lock_timeout=5s'`;
+   then remove `/tmp/m286`). Applied before the new backend is live, the old
+   one's timer would close the channel conversations without the channel
+   race reopen and without `support_update`, and a resolved support thread
+   would read `closed` in the support apps.
+6. **Check**: a second run applies nothing; `conversation_message_turn`,
    `conversation_idle_check` and `conversation_idle_due` are executable by
    `service_role` only (`has_function_privilege`); the ledger row is there;
    the App Review account reads `exempt` (or `spam`) everywhere:
@@ -773,15 +790,8 @@ commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
                        WHERE p.conversation_id = c.id AND w2.slug = 'ws_appreview'))
     GROUP BY 1;
    ```
-6. **Ledger**: 286 with its UTC time in CLAUDE.md's migrations list, in the
-   PR before the merge.
-7. **Merge.** WebYar's 24/25 and RESPOK's 32/33/40 deploy, and RESPOK's
-   migrator 40 applies 286 (afterwards the dry run's two queries, without the
-   `\i`, against `k6pnithcamskd4trrpo6jabv` and the database RESPOK's
-   backend's `DATABASE_URL` names, list no channel or support row there). No
-   channels app (WebYar's 19
-   and 20, RESPOK's) changes: channel ingest and the support service run in
-   the backend.
+7. **Ledger**: 286 with its UTC time in CLAUDE.md's migrations list, in a
+   docs-only follow-up PR (the merge went before the apply, as for 283).
 8. **Watch** on WebYar: the next `[idle-close] pass` lines close the 6; then
    by channel, every channel but the widget with no line written (psql with
    `-v since='<the time 286 was applied, UTC>'`):
@@ -794,7 +804,7 @@ commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
       AND (c.metadata->>'closed_at')::timestamptz >= :'since'
     GROUP BY 1, 2 ORDER BY 1, 2;
    ```
-   Nothing of the App Review account closed: step 5's query with
+   Nothing of the App Review account closed: step 6's query with
    `c.metadata->>'closed_reason' = 'inactivity'` in place of its status test
    answers no row. With an
    owner-authorized test bot on a test workspace (its window at 1 h): a quiet

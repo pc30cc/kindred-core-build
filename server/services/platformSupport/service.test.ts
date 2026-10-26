@@ -771,6 +771,32 @@ describe('the inactivity close (migration 286)', () => {
     expect(supportUpdates().map(([, , , payload]) => payload)).toEqual([{ kind: 'support_update', thread_id: first.conversation.id }]);
   });
 
+  it('a close committing while the message records the app it came from keeps its markers, so the conversation still comes back', async () => {
+    const { userId } = operator();
+    const first = await say(userId, 'one');
+    vi.clearAllMocks();
+    db.rpcs.length = 0;
+    // The close lands between the read of the conversation and the write of
+    // client_platform (a different app this time).
+    const rpc = state.client.rpc;
+    state.client.rpc = async (name: string, args: Record<string, unknown>) => {
+      if (name === 'patch_conversation_metadata') idleClose(first.conversation.id, 'open', 1);
+      return rpc(name, args);
+    };
+    try {
+      const { conversation, item } = await sendMessage(config, userId, {
+        body: 'still there?', clientMessageId: nextId(), client: 'ios', conversationId: first.conversation.id,
+      });
+      expect(conversation).toMatchObject({ id: first.conversation.id, status: 'open' });
+      expect(row(first.conversation.id).metadata).toMatchObject({ client_platform: 'ios' });
+      expect(reopens().map((r) => r.args)).toEqual([{
+        p_workspace_id: 'ws-support', p_conversation_id: first.conversation.id, p_message_id: item.id, p_grace_seconds: 600,
+      }]);
+    } finally {
+      state.client.rpc = rpc;
+    }
+  });
+
   it('a message that lands in a conversation an operator closed in the meantime stays there, closed, as before', async () => {
     const { userId } = operator();
     const first = await say(userId, 'one');

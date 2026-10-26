@@ -52,7 +52,7 @@ export const INACTIVITY_CLOSE_MAX_UNTOUCHED_DAYS = 30;
 
 /** Who closed it: the system after the quiet period, or an operator (the Inbox's PATCH). */
 export type ClosedReason = 'inactivity' | 'operator';
-/** Which inactivity close: the timer (with the visitor's line) or the hand-run backlog (silent). */
+/** Which inactivity close: the timer (with the widget visitor's line when they wrote; silent on every other channel) or the hand-run backlog (always silent). */
 export type ClosedSource = 'inactivity_timer' | 'inactivity_backlog';
 /** What the conversation was when the timer closed it (reports). */
 export type ClosedOutcome = 'no_visitor_message' | 'human' | 'ai_resolved' | 'ai_unresolved' | 'unanswered';

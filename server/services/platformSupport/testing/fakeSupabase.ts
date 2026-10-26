@@ -250,6 +250,15 @@ export function fakeSupabase(db: FakeDb) {
         db.table('conversations').push(row);
         return { data: [{ id: row.id, created: true, matched_by: null }], error: null };
       }
+      if (name === 'patch_conversation_metadata') {
+        // Migration 057: merges the patch into the row's metadata as it is now.
+        const conv = db.table('conversations').find(
+          (c) => c.id === args.p_conversation_id && (!args.p_workspace_id || c.workspace_id === args.p_workspace_id),
+        );
+        if (!conv) return { data: false, error: null };
+        conv.metadata = { ...((conv.metadata ?? {}) as Row), ...((args.p_patch ?? {}) as Row) };
+        return { data: true, error: null };
+      }
       if (name === 'conversation_reopen_after_idle_close') {
         // An inactivity close within the grace (at most 600 s, by the wall
         // clock) goes back to closed_from, once, its markers gone; anything

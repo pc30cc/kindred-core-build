@@ -90,8 +90,12 @@ function rowFor(messages: Array<Record<string, unknown>>) {
   const status = close ? close.status || 'closed' : 'open';
   return { id: 'c1', status, operatorName: 'سارا', operatorOnline: true, ...(status === 'closed' ? { unreadCount: 1, unreadReplies: 1 } : {}) };
 }
-/** Boots t2 (or another template) on thread c1 with the late pack in; `route` answers the after-chat routes. */
-async function thread(opts: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>> } = {}) {
+/**
+ * Boots t2 (or another template) on thread c1 with the late pack in; `route` answers the after-chat routes.
+ * `settleFocus` waits out Core's open-time focus (the composer, 200 ms after the identity and 300 ms after the
+ * open, real timers) before the test moves the focus itself: a slow run would otherwise see it land mid-test.
+ */
+async function thread({ settleFocus, ...opts }: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>>; settleFocus?: boolean } = {}) {
   const route = opts.route || ((u: string) => (u.includes('/csat') ? { body: CSAT_OK } : undefined));
   const messages = opts.messages || [...THREAD, closed()];
   const h = boot({
@@ -114,6 +118,10 @@ async function thread(opts: BootOptions & { route?: Route; messages?: Array<Reco
   await flush(30);
   h.runtime.__test.setConnectionState('online');
   await flush(5);
+  if (settleFocus) {
+    await new Promise((r) => setTimeout(r, 320));
+    await flush();
+  }
   return h;
 }
 const csatGets = (h: ReturnType<typeof boot>) => h.fetches.filter((u) => /\/conversations\/c1\/csat\?/.test(u));
@@ -153,7 +161,7 @@ function lineOf(h: ReturnType<typeof boot>, renderer: 'default' | 't1' | 't2') {
 }
 
 describe('default (one conversation per visitor): a real close is its quiet line and its own star card; a resolve is nothing; never a late pack', () => {
-  const dflt = (opts: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>> } = {}) => thread({ renderer: 'default', ...opts });
+  const dflt = (opts: BootOptions & { route?: Route; messages?: Array<Record<string, unknown>>; settleFocus?: boolean } = {}) => thread({ renderer: 'default', ...opts });
 
   it('from a history: the close drawn as the line, one GET, the card under it (five stars, no avatar); nothing late is asked for', async () => {
     const h = await dflt();
@@ -184,6 +192,7 @@ describe('default (one conversation per visitor): a real close is its quiet line
   it('a pick changes the card in place (focus kept), then the exact POST; rated: its stars and the thanks, the focus on the card', async () => {
     let answer: (a: ApiAnswer) => void = () => {};
     const h = await dflt({
+      settleFocus: true,
       route: (u) => (u.includes('/csat?') ? { body: CSAT_OK } : u.endsWith('/csat') ? new Promise<ApiAnswer>((r) => { answer = r; }) : undefined),
     });
     const star = h.q<HTMLButtonElement>('[data-csat-rate="4"]')!;
@@ -214,7 +223,7 @@ describe('default (one conversation per visitor): a real close is its quiet line
   });
 
   it('a comment being typed survives a repaint, with its focus and caret', async () => {
-    const h = await dflt();
+    const h = await dflt({ settleFocus: true });
     click(h.q('[data-csat-rate="3"]'));
     const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
     ta.focus();
@@ -344,7 +353,7 @@ describe('t1 and t2: a real close kept, an older backend\'s resolve line dropped
   });
 
   it('t1: a comment being typed survives a repaint, with its focus and caret', async () => {
-    const h = await thread({ renderer: 't1' });
+    const h = await thread({ renderer: 't1', settleFocus: true });
     click(h.q('[data-csat-rate="2"]'));
     const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
     ta.focus();
@@ -515,6 +524,7 @@ describe('t2: the closed line and the rating card', () => {
   it('a pick changes the card in place (focus kept), the comment is kept, send posts exactly what the server reads', async () => {
     let answer: (a: ApiAnswer) => void = () => {};
     const h = await thread({
+      settleFocus: true,
       route: (u) => (u.includes('/csat?') ? { body: CSAT_OK } : u.endsWith('/csat') ? new Promise<ApiAnswer>((r) => { answer = r; }) : undefined),
     });
     const face = h.q<HTMLButtonElement>('[data-csat-rate="5"]')!;
@@ -549,7 +559,7 @@ describe('t2: the closed line and the rating card', () => {
   });
 
   it('a comment being typed survives a repaint, with its focus and caret', async () => {
-    const h = await thread();
+    const h = await thread({ settleFocus: true });
     const ta = h.q<HTMLTextAreaElement>('[data-csat-comment]')!;
     ta.focus();
     typeInto(ta, 'سلام');
@@ -703,7 +713,7 @@ describe('t2: the closed line and the rating card', () => {
   });
 
   it('the card itself keeps the focus through a repaint (the visitor reading its status)', async () => {
-    const h = await thread();
+    const h = await thread({ settleFocus: true });
     click(h.q('[data-csat-rate="4"]'));
     const card = h.q<HTMLElement>('[data-csat]')!;
     card.focus();
@@ -815,7 +825,7 @@ describe('t2: the transcript by email (the card\'s link)', () => {
 
 for (const renderer of ['t1', 't2'] as const) {
   describe(`${renderer}: the chat bar's ⋯ menu`, () => {
-    const menuThread = (opts: BootOptions & { route?: Route } = {}) => thread({ renderer, messages: THREAD, ...opts });
+    const menuThread = (opts: BootOptions & { route?: Route; settleFocus?: boolean } = {}) => thread({ renderer, messages: THREAD, ...opts });
     const toggle = (h: ReturnType<typeof boot>) => h.q<HTMLButtonElement>('[data-chat-header] [data-chat-menu-toggle]');
     const items = (h: ReturnType<typeof boot>) => Array.from(h.shadow.querySelectorAll<HTMLElement>('[data-chat-header] [data-chat-menu-action]'));
 
@@ -833,7 +843,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('opens on a press (focus on its first item, asks the server once), arrows move, Escape closes it and gives the focus back, the widget stays open', async () => {
-      const h = await menuThread();
+      const h = await menuThread({ settleFocus: true });
       expect(csatGets(h)).toEqual([]);
       toggle(h)!.focus();
       click(toggle(h));
@@ -881,7 +891,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('stays open while the bar repaints (the operator types), with the focus where it was', async () => {
-      const h = await menuThread();
+      const h = await menuThread({ settleFocus: true });
       click(toggle(h));
       await flush(10);
       const sound = h.q<HTMLElement>('[data-chat-menu-action="sound"]')!;
@@ -961,7 +971,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('the late pack landing keeps the focus where it was in the bar (the back button)', async () => {
-      const h = await menuThread({ late: 'hold' });
+      const h = await menuThread({ late: 'hold', settleFocus: true });
       expect(toggle(h)).toBeNull();
       // A draft in the composer, too.
       typeInto(h.q<HTMLTextAreaElement>('[data-msg-input]')!, 'یک پیش‌نویس');
@@ -975,7 +985,7 @@ for (const renderer of ['t1', 't2'] as const) {
     });
 
     it('Home and End go to the ends; the focus leaving the bar (Tab) closes it', async () => {
-      const h = await menuThread();
+      const h = await menuThread({ settleFocus: true });
       click(toggle(h));
       await flush(10);
       key(active(h)!, 'End');

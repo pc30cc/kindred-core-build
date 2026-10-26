@@ -12,7 +12,9 @@
  *   - the platform switch "Return returning visitors to the same operator"
  *     shows the stored value (on when an older server does not send it) and
  *     saves last_agent_routing_enabled;
- *   - "Quiet conversations" (migration 284): the inactivity close's platform
+ *   - "Quiet conversations" (migration 284; every chat channel since 286,
+ *     never the App Review account, the Email inbox not affected, said in
+ *     the switch's own words): the inactivity close's platform
  *     switch and default window are widget_platform_settings columns, so they
  *     save through PATCH /api/widget-settings/platform/config (never the
  *     advanced-routing endpoint) and show even when the advanced-routing read
@@ -145,17 +147,21 @@ describe('AdvancedRoutingSection', () => {
   describe('quiet conversations', () => {
     it('the switch saves inactivity_close_enabled through the platform settings; the hours stay editable', async () => {
       await mount();
-      await waitFor(() => expect(quietGroup().textContent).toContain('Close quiet website chats automatically'));
-      expect(quietGroup().textContent).toContain('never Telegram, Bale, WhatsApp, Instagram, email or platform support');
+      await waitFor(() => expect(quietGroup().textContent).toContain('Close quiet conversations automatically'));
+      // Every chat channel (owner, 2026-10-26; migration 286), never the App
+      // Review account; the Email inbox has no open or closed state.
+      expect(quietGroup().textContent).toContain('Every chat channel: the website widget, Telegram, Bale, WhatsApp, Instagram, X and platform support; never spam, never the App Review account');
+      expect(quietGroup().textContent).toContain('the Email inbox has no open or closed state and is not affected');
+      expect(quietGroup().textContent).not.toContain('Website widget only');
       expect(quietGroup().textContent).toContain('never the AI');
-      const sw = switchNamed('Close quiet website chats automatically');
+      const sw = switchNamed('Close quiet conversations automatically');
       expect(sw.getAttribute('aria-checked')).toBe('true');
       expect(hoursField().disabled).toBe(false);
       fireEvent.click(sw);
       await waitFor(() => expect(platformPatches).toEqual([{ id: platform.id, inactivity_close_enabled: false }]));
       // Not through /api/admin/advanced-routing.
       expect(patches).toEqual([]);
-      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      await waitFor(() => expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('false'));
       expect(toastMock.success).toHaveBeenCalled();
       // Off, the default can still be set (it applies once the switch is on,
       // which the backlog commit does, not a hand that wants to edit it).
@@ -173,22 +179,22 @@ describe('AdvancedRoutingSection', () => {
       routingReadFails = true;
       await mount();
       expect(document.querySelectorAll('[role="switch"]')).toHaveLength(1);
-      const sw = switchNamed('Close quiet website chats automatically');
+      const sw = switchNamed('Close quiet conversations automatically');
       fireEvent.click(sw);
       await waitFor(() => expect(platformPatches).toEqual([{ id: platform.id, inactivity_close_enabled: false }]));
-      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      await waitFor(() => expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('false'));
     });
 
     it('an earlier save refused after a later one succeeded: undone and said, never left showing', async () => {
       platform.inactivity_close_enabled = false;
       await mount();
-      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      await waitFor(() => expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('false'));
       let refuse!: (answer: { status: number; body: unknown }) => void;
       holdNextPlatformPatch = new Promise((resolve) => { refuse = resolve; });
       // 1: the switch on (slow, then refused).
-      fireEvent.click(switchNamed('Close quiet website chats automatically'));
+      fireEvent.click(switchNamed('Close quiet conversations automatically'));
       await waitFor(() => expect(platformPatches).toHaveLength(1));
-      expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('true');
+      expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('true');
       // 2: the hours (saved at once).
       fireEvent.focus(hoursField());
       fireEvent.change(hoursField(), { target: { value: '36' } });
@@ -197,7 +203,7 @@ describe('AdvancedRoutingSection', () => {
       refuse({ status: 500, body: { error: 'switch_save_failed' } });
       await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('switch_save_failed'));
       // The stored switch (off) shows again; the saved hours stay.
-      await waitFor(() => expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('false'));
+      await waitFor(() => expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('false'));
       expect(platform.inactivity_close_enabled).toBe(false);
       expect(hoursField().value).toBe('36');
     });
@@ -224,17 +230,17 @@ describe('AdvancedRoutingSection', () => {
       delete platform.inactivity_close_default_hours;
       await mount();
       await waitFor(() => expect(hoursField().value).toBe('24'));
-      expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('true');
+      expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('true');
     });
 
     it('a database without migration 284: the refusal is said in words', async () => {
       platformAnswer = { status: 409, body: { error: 'inactivity_close_migration_required' } };
       await mount();
       await waitFor(() => expect(hoursField().value).toBe('24'));
-      fireEvent.click(switchNamed('Close quiet website chats automatically'));
+      fireEvent.click(switchNamed('Close quiet conversations automatically'));
       await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('Saving this needs database migration 284.'));
       // Refused: the switch and the hours show the stored values again.
-      expect(switchNamed('Close quiet website chats automatically').getAttribute('aria-checked')).toBe('true');
+      expect(switchNamed('Close quiet conversations automatically').getAttribute('aria-checked')).toBe('true');
       fireEvent.focus(hoursField());
       fireEvent.change(hoursField(), { target: { value: '36' } });
       fireEvent.blur(hoursField());
@@ -244,7 +250,9 @@ describe('AdvancedRoutingSection', () => {
 
     it('in Persian, without «بی‌فعالیت»', async () => {
       await mount('fa');
-      await waitFor(() => expect(quietGroup().textContent).toContain('بستن خودکار گفتگوهای بی‌پیام ویجت'));
+      await waitFor(() => expect(quietGroup().textContent).toContain('بستن خودکار گفتگوهای بی‌پیام'));
+      expect(quietGroup().textContent).not.toContain('بی‌پیام ویجت');
+      expect(quietGroup().textContent).toContain('همهٔ کانال‌های گفتگو: ویجت وب‌سایت، تلگرام، بله، واتس‌اپ، اینستاگرام، ایکس و پشتیبانی پلتفرم');
       expect(quietGroup().textContent).toContain('گفتگوهای بی‌پیام');
       expect(quietGroup().textContent).not.toContain('بی‌فعالیت');
     });

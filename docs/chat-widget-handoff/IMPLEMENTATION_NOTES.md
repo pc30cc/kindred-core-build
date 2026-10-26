@@ -368,8 +368,9 @@ every template; decision B.6: t2 keeps its five faces, `default` and `t1` get st
     a new thread. This follows the owner's rule (a resolve ends nothing for the visitor), and the next PR closes
     these conversations.
 - **The inactivity close shipped (migration 284; `docs/operations/CHAT_ROUTING.md`, "Closing quiet conversations"):**
-  - The system closes (status `closed`) a widget conversation in which nothing was exchanged for its workspace's
-    window (1–48 h, the Super Admin's default 24), never while the team owes an answer
+  - The system closes (status `closed`) a widget conversation (every chat channel since 286, below) in which
+    nothing was exchanged for its workspace's window (1–48 h, the Super Admin's default 24), never while the team
+    owes an answer
     (`server/services/conversationIdleCloseTicker.ts`, every 5 minutes; the decision is the SQL
     `conversation_idle_check`). Resolved ones this PR left current close like the others.
   - No sweep: the timer never touches a conversation untouched for 30 days. The backlog already quiet when 284
@@ -390,6 +391,13 @@ every template; decision B.6: t2 keeps its five faces, `default` and `t1` get st
     into that conversation as it was (`reopenAfterIdleCloseRace`), named or caught by the touch in POST /message
     and the away thread's append.
   - `activeNow()`'s 48 h bound equals the longest window (`INACTIVITY_CLOSE_MAX_HOURS`, a test ties them).
+  - Since migration 286 (owner, 2026-10-26: "everywhere") the close covers every chat channel (Telegram, Bale,
+    WhatsApp, Instagram, X, platform support) with the same window, switch and guards; the Email inbox is not a
+    conversation. What the visitor sees stays the widget's alone: the closed line («گفتگو به پایان رسید»), the rating
+    card and their 60 s race (`INACTIVITY_CLOSE_RACE_GRACE_SECONDS`). Other channels are closed silently (no line, no
+    outbound message), with a 600 s race grace of their own (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`); platform
+    support draws its own end from the status. Nothing in the widget's Core or templates changed for it.
+    `docs/operations/CHAT_ROUTING.md`, "Closing quiet conversations".
 
 ## One conversation per visitor: server contract (2026-10-24)
 

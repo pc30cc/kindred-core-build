@@ -2,8 +2,8 @@
 
 How a chat (a website widget conversation, or a channel conversation such as
 Telegram) gets an operator, which settings change that and where they live,
-the background tickers, how a quiet widget conversation is closed, and how to
-roll the database side out.
+the background tickers, how a quiet conversation of any chat channel is
+closed, and how to roll the database side out.
 
 Code: `server/services/chatRouting.ts` (the decisions),
 `server/services/chatRoutingTicker.ts` (the clock),
@@ -12,7 +12,8 @@ Code: `server/services/chatRouting.ts` (the decisions),
 `server/services/conversationIdleCloseTicker.ts` (the inactivity close),
 `shared/chatRoles.ts` (who may do what), `shared/inactivityClose.ts` (the
 inactivity close's bounds and markers). The SQL is in migrations 278, 278b
-and 280b (`chat_route_claim` and its helpers) and 284 (the inactivity close).
+and 280b (`chat_route_claim` and its helpers) and 284 (the inactivity close;
+285 the App Review workspace, 286 every chat channel).
 
 ## How it works
 
@@ -186,7 +187,7 @@ suspended, seat-paused or staff.
 | Look back (days) | Same section | `widget_settings.last_agent_window_days` (1–365) | 30 |
 | Maximum open conversations per operator | Same section | `widget_settings.default_max_concurrent_chats` (1–50) | 5 |
 | First-response timeout (minutes) | Same section | `widget_settings.first_response_timeout_minutes` (0–60) | 5 |
-| Close a quiet conversation after (hours) | Same section (every plan, every mode) | `widget_settings.inactivity_close_hours` (1–48, empty = the platform default) (284) | empty |
+| Close a quiet conversation after (hours) | Same section (every plan, every mode, every chat channel since 286) | `widget_settings.inactivity_close_hours` (1–48, empty = the platform default) (284) | empty |
 | Receive chats (per member, owner included) | Workspace: Team & departments | `workspace_members.receives_chats` | on |
 | Max (per member) | Team & departments | `workspace_members.max_concurrent_chats` (1–50, empty = the workspace default) | empty |
 | Departments and their members | Team & departments | `workspace_departments`, `workspace_department_members` | none |
@@ -195,7 +196,7 @@ suspended, seat-paused or staff.
 | Use the general pool | Super Admin → Widget settings → Routing | global advanced-routing policy, `general_pool_enabled` | on |
 | Return returning visitors to the same operator (platform) | Same page | `last_agent_routing_enabled` (off = off for every workspace) | on |
 | Workspace-owner fallback (master and per channel) | Same page | `owner_fallback_enabled`, `owner_fallback_for_chat` | on |
-| Close quiet widget conversations (platform switch) | Same page, "Quiet conversations" | `widget_platform_settings.inactivity_close_enabled` (284; off = nothing closes automatically anywhere) | on (284 sets it off once on a database with live conversations; the backlog commit turns it on) |
+| Close quiet conversations automatically (platform switch) | Same page, "Quiet conversations" | `widget_platform_settings.inactivity_close_enabled` (284; off = nothing closes automatically anywhere, on any channel) | on (284 sets it off once on a database with live conversations; the backlog commit turns it on) |
 | Default window of quiet conversations (hours) | Same group | `widget_platform_settings.inactivity_close_default_hours` (1–48) | 24 |
 | Assignment routing in the plan | Super Admin → Plans | plan capability `widget_assignment_routing` | per plan |
 
@@ -210,6 +211,15 @@ saved through `PATCH /api/widget-settings/platform/config`, the workspace's
 window through `PATCH /api/widget-settings/:workspaceId` (not plan gated);
 before 284 a save naming them answers 409
 `inactivity_close_migration_required`.
+
+The workspace's window stays in Widget → Behaviour → Conversation assignment
+although it applies to every chat channel since 286: that section's other
+settings (the mode, the maximum, the timeout, returning visitors) already
+govern channel chats, because routing reads `widget_settings` for them too
+(`chatRouting.ts`, `channels/inboundProcessing.ts`). Known limit, documented
+and not built: the Widget page is behind the plan channel `chat_widget`, so a
+workspace whose plan has no widget cannot see the setting, and its channel
+chats close at the platform default.
 
 ## The routing ticker
 
@@ -237,20 +247,38 @@ backend.
 
 ## Closing quiet conversations
 
-A website-widget conversation in which neither the visitor nor the team (a
-person or the AI) has exchanged anything for N hours is closed (status
-`closed`) by the system (owner, 2026-10-23/24; migration 284). The AI never
-closes anything. N is the workspace's "Close a quiet conversation after"
-(1–48 hours), else the Super Admin's default (24); a workspace has no off,
-only the Super Admin's switch stops it, for every workspace at once.
+A conversation of any chat channel in which neither the visitor nor the team
+(a person or the AI) has exchanged anything for N hours is closed (status
+`closed`) by the system (owner, 2026-10-23/24, migration 284, for the
+website widget; owner, 2026-10-26, migration 286: "extend the automatic
+close everywhere, precisely and completely"). The AI never closes anything.
+N is the workspace's "Close a quiet conversation after" (1–48 hours), else
+the Super Admin's default (24); a workspace has no off, only the Super
+Admin's switch stops it, for every workspace and every channel at once. The
+same window, switch and guards apply on every channel; there is no window
+per channel.
 
-- **Widget only.** No channel recorded, or `widget`. Never Telegram, Bale,
-  WhatsApp, Instagram, email or platform support, never spam.
-- **Never the App Review workspace** (owner, 2026-10-26; migration 285): the
-  workspace Apple's reviewers sign in to (slug `ws_appreview`, the account
-  `apple@webyar.ai`, migrations 248/249) reads `not_widget`, its seeded
-  threads (`metadata.app_review_seed`, 284) and any conversation started
-  there since alike, so neither the timer nor the backlog closes it.
+- **Every chat channel** (since 286): the website widget (no channel
+  recorded, or `widget`), Telegram, Bale, WhatsApp, Instagram, X
+  (`metadata.channel` the provider) and platform support (`platform_support`,
+  a `platform_support_threads` row, a chat or a ticket from before tickets
+  were removed). Never spam. Before 286 only the widget closed (284 and 285
+  read `not_widget` for the others).
+- **Not e-mail.** The Email inbox (Gmail, Yahoo) is not a conversation: it
+  lives in `email_threads` and `email_messages` (migration 163), which have
+  no status, so there is nothing to close and nothing changes there.
+- **Never the App Review account** (owner, 2026-10-26; migrations 285 and
+  286): `conversation_idle_check` reads `exempt` (285 called it
+  `not_widget`), so neither the timer nor the backlog closes it, for
+  - the demo's seeded threads (`metadata.app_review_seed`, 284);
+  - any conversation of the workspace Apple's reviewers sign in to (slug
+    `ws_appreview`, the account `apple@webyar.ai`, migrations 248/249),
+    started there since included (285);
+  - a platform support thread that account requested
+    (`platform_support_threads.user_id` is the profile with the e-mail
+    `apple@webyar.ai`), or one written from that workspace
+    (`source_workspace_id`) (286). A support thread lives in the support
+    workspace, so 285's workspace test did not see it.
 - **The last exchange** is the newest of: the visitor's turn, a person's
   answer, the AI's answer (needsReply.ts's rules, in SQL as
   `conversation_message_turn`: system rows, routing notices, menu taps,
@@ -259,6 +287,14 @@ only the Super Admin's switch stops it, for every workspace at once.
   guard below believes it live: a call whose end was never recorded counts
   its connect after 12 h). With none, when the conversation was created. Open, pending and resolved conversations all use
   the same N.
+- **A message that is only media counts** (286): a message with an empty
+  body and a non-empty `metadata.attachments` array (a channel photo, voice
+  note, document or sticker without a caption) is the visitor's turn, or the
+  team's for an agent or the AI, as a message with an `attachment_id`
+  already was. `conversation_message_turn` and `server/services/needsReply.ts`
+  changed together and stay identical (a test compares them over every
+  fixture), so an unanswered voice note keeps the conversation owed, and the
+  Inbox's Needs Reply badge counts it too.
 - **Never while the team owes an answer** (`conversation_idle_check`):
   - `needs_reply`: open, and the visitor's turn is the newest, with no answer
     and no call connected after it (a tie is owed; a bare "thanks" stays owed
@@ -292,7 +328,8 @@ only the Super Admin's switch stops it, for every workspace at once.
   over first, as Take over does, so it lands with that operator, not back
   with the AI), `routing_pending`, routing's state or skip list, an audit
   row. No push, no transcript, no e-mail.
-- **The visitor's line and the rating.** When the visitor ever wrote, the
+- **The visitor's line and the rating (the widget only).** When the visitor
+  of a widget conversation ever wrote, the
   close inserts the nameless closed line in the same transaction (`kind`
   `conversation_closed`, `by` `system`, `agent_name` null, `closed_reason`
   `inactivity`; body "The conversation was closed"): the widget draws «گفتگو
@@ -310,25 +347,83 @@ only the Super Admin's switch stops it, for every workspace at once.
   بسته شد». The lists move as for the PATCH (`conversation_resolved` from
   open or pending, `conversation_updated` from resolved, actor null) and the
   open timeline reloads.
-- **The race.** A visitor message within 60 seconds of the close
-  (`INACTIVITY_CLOSE_RACE_GRACE_SECONDS`) goes back into that conversation
-  as it was (`conversation_reopen_after_idle_close`: `closed_from`, the
-  stamps as they were, the markers removed, the line it wrote retracted with
-  `metadata.internal`, a `reopened` event with reason
-  `customer_replied_after_inactivity_close`); its lifecycle, routing and the
-  AI then run as for any message. A message being inserted while the close
-  runs holds it back (its foreign key's lock) and keeps the conversation
-  open. Since the line reaches an open widget only after those 60 seconds,
-  a realtime widget never shows a line the server took back; a widget in
-  polling mode can fetch it in between and keeps it on screen until its
-  next history load. Later than 60 seconds, or after an operator's close: a
-  new conversation, as before.
+- **Silent on every other channel** (owner, 2026-10-26). Nothing is sent to
+  a Telegram, Bale, WhatsApp, Instagram or X customer and no line is written
+  into their conversation, as for an operator's close today:
+  `prepareClosedLine` returns nothing for a conversation that is not the
+  widget's (`conversationClosedNotice.ts`), and the outbound trigger
+  (`trg_channel_enqueue_outbound`, migration 150) queues only agent, bot and
+  AI rows, never a system one, so no `channel_jobs` row is made. Platform
+  support shows its own end and its own rating from the status, as for a
+  close by the team. The Inbox reads the close the same way on every channel
+  (the timeline event, «خودکار» in the Closed box, the reports).
+
+  | Channel | What the customer sees at the close | What their next message does |
+  |---|---|---|
+  | Website widget | «گفتگو به پایان رسید» and, where the template's rating is on, the card (when they ever wrote) | Within 60 s: back into that conversation, the line retracted. Later: a new conversation (the gated, counted branch) |
+  | Telegram, Bale | Nothing | Within 600 s: back into that conversation. Later: a new conversation, which the bot treats as a first contact (the away screen, the department question again) |
+  | WhatsApp, Instagram | Nothing | As Telegram. An operator who reopens it and answers more than 24 h after the customer's last message may be refused by Meta (no templates; out of scope) |
+  | X | Nothing | As Telegram (DMs are polled every 60 s, which the 600 s grace covers) |
+  | Platform support | The app's own end, from the status: closed from open or pending; a resolved one still reads resolved, with its resolve date (below) | Naming it within 600 s of a close from open or pending: back into it. Later, or a resolved one: refused with `conversation_ended`, as before; the app offers a new conversation |
+  | Email inbox | Not a conversation; nothing changes | Nothing changes |
+
+- **Platform support specifics.** A support thread closes on the support
+  workspace's own window (its Widget → Behaviour setting, else the
+  platform default); the AI never runs there, and `needs_reply` keeps a
+  thread the team owes open. A resolved thread closes too, as a resolved
+  widget conversation does, but to the requester (the support apps) one
+  closed for quiet from `resolved` (`closed_reason` `inactivity`,
+  `closed_from` `resolved`) is still presented as `resolved`, with `endedAt`
+  its resolve time (`updated_at`), so its label and icon do not change; one
+  closed from open or pending is presented as `closed`, with `endedAt` its
+  `metadata.closed_at`. The ticker announces each close to the requester's
+  devices (`support_update` through `onSupportConversationChanged`, a no-op
+  for any other conversation); there is still no push. The rating is
+  support's own (`platform_support_threads.rating`), offered as for any
+  ended thread the team answered. See `docs/PLATFORM_SUPPORT.md`.
+- **The race.** A customer message that arrives within the grace of the
+  close goes back into that conversation as it was
+  (`conversation_reopen_after_idle_close`, which works for any channel:
+  `closed_from`, the stamps as they were, the markers removed, the line it
+  wrote retracted with `metadata.internal`, a `reopened` event with reason
+  `customer_replied_after_inactivity_close`; `reopenAfterIdleCloseRace`); its
+  lifecycle, routing and the AI then run on the restored status, as for any
+  message. A message being inserted while the close runs holds it back (its
+  foreign key's lock) and keeps the conversation open. Both shapes are
+  covered on every channel: the close committed before the message (the
+  widget names the conversation; a channel looks up the thread's newest
+  conversation, through its contact, before `ensure_active_conversation`,
+  reopens it, and the RPC then matches it; platform support reopens the
+  conversation the app names before its writable check), and the message in
+  flight (after the insert, the status read with the `updated_at` touch; if
+  `closed`, reopened with the message's id). A duplicate delivery reopens it
+  once. A menu tap or other bot navigation never brings a conversation back.
+  A support thread restored to `resolved` stays ended for the requester, as
+  before its close.
+  - The grace: 60 seconds for the widget
+    (`INACTIVITY_CLOSE_RACE_GRACE_SECONDS`), 600 seconds for the channels and
+    platform support (`INACTIVITY_CLOSE_CHANNEL_RACE_GRACE_SECONDS`; the SQL
+    caps it at 600). It is measured when the backend processes the message,
+    and a channel message waits in a queue first (a worker picks a job up
+    within 30 s, X is polled every 60 s, a failed job is retried).
+  - Since the widget's line reaches an open widget only after those 60
+    seconds, a realtime widget never shows a line the server took back; a
+    widget in polling mode can fetch it in between and keeps it on screen
+    until its next history load.
+  - Later than the grace, or after an operator's close: a new conversation,
+    as before (on a channel `ensure_active_conversation` never matches a
+    closed one, migrations 071/072; platform support refuses a message that
+    names the closed one with `conversation_ended`, and the app starts a new
+    one).
 - **The ticker**: `server/services/conversationIdleCloseTicker.ts`, every 5
   minutes (first pass 2 minutes after boot), one replica (the
   `conversation_idle_close` lease; not in `TICKER_CYCLE_SECONDS`, the
   compare-and-set makes passes idempotent), at most 50 closes a pass, the
   longest untouched first; rows the team owes never use up the batch. Log:
   `[idle-close] pass due=… closed=… skipped={…}`, or `[idle-close] pass off`.
+  Nothing in it is per channel: it closes what `conversation_idle_due` lists
+  (every chat channel since 286), prepares a line only for a widget
+  conversation, and announces a support close to the requester (above).
 - **The 30-day bound.** The timer never closes a conversation untouched
   (`updated_at`) for more than 30 days: that is the backlog, closed by hand.
   One that stopped being owed after more than 30 days without anything
@@ -342,9 +437,12 @@ only the Super Admin's switch stops it, for every workspace at once.
   the close (never makes it early).
 - **The backlog** already quiet when 284 shipped is closed once, silently and
   by hand: `database/backfill/284_inactivity_backlog_close.sql` (its header
-  has the commands). The dry run lists every live widget conversation with
-  its verdict (counts by verdict and workspace, one row each: no message
-  text, no contact data), writes the due ids to a CSV, closes them inside the
+  has the commands). The dry run lists every live conversation with
+  its verdict (widget conversations only when 284 shipped; every chat channel
+  since 286, as it goes by `conversation_idle_check`, the App Review
+  account's `exempt` rows refused; counts by verdict and workspace, one row
+  each: no message text, no contact data), writes the due ids to a CSV,
+  closes them inside the
   transaction, checks and rolls back. The commit closes the reviewed ids only
   (each checked again), writes no visitor line and turns the switch on in the
   same transaction; a reviewed file that is missing or empty, an id that is
@@ -352,7 +450,11 @@ only the Super Admin's switch stops it, for every workspace at once.
   the dry run: dry-run again and have the owner review), or a list that closes nothing
   while it would turn the switch on stops it before anything changes. The
   App Review workspace (`ws_appreview`) is never closed, by the timer or the
-  backlog (migration 285; before it, only its seeded threads).
+  backlog (migration 285; before it, only its seeded threads), nor, since
+  286, a support thread its account requested. 286 has no backlog run of its
+  own: when measured (2026-10-26) none of the channel conversations it makes
+  due had been untouched for 30 days, so the timer takes them all; its dry
+  run checks that again ("Rollout of 286").
 - **The Closed box** (web panel only; owner, 2026-10-26): the Inbox's
   «بسته‌شده» beside «حل‌شده» (`GET /api/conversations?queue=main&status=closed`)
   lists every closed conversation, the AI-only ones the timer closed included,
@@ -366,7 +468,17 @@ only the Super Admin's switch stops it, for every workspace at once.
   operator (`closed_reason` `operator`, written by the PATCH) or by an older
   server (no markers) is an operator's. The same rule counts operator
   activity's "resolved" and the weekly summary e-mail's. A PATCH or reply
-  that reopens a closed conversation nulls every marker.
+  that reopens a closed conversation nulls every marker. Every channel is
+  read the same way.
+- **The conversation count.** A channel or support customer who writes after
+  the grace starts a new conversation (`ensure_active_conversation` on a
+  channel, `platformSupport/service.ts` for support), which counts in
+  `conversations_count` like any other; that path has no `max_conversations`
+  gate (`docs/CONVERSATION_LIMIT_POLICY.md`).
+- **Out of scope** (owner, 2026-10-26; not built): a notice or a rating on a
+  channel; WhatsApp templates; a window per channel; the Telegram department
+  picker's key that hard-codes `telegram:` (a defect from before the close,
+  unrelated to it).
 
 ## Rollout checklist
 
@@ -545,7 +657,7 @@ WebYar by hand before the merge (CLAUDE.md's procedure, the folder
 holding 285 alone); RESPOK by its migrator on push (it has no App Review
 workspace, so nothing changes there). Before: a dump of the schema. Dry-run
 it inside `BEGIN … ROLLBACK`, then apply it. Check: every live conversation
-in `ws_appreview` reads `not_widget` (or `spam`) in
+in `ws_appreview` reads `not_widget` (`exempt` since 286) (or `spam`) in
 `conversation_idle_check`, `conversation_idle_due(500)` holds none of them,
 the function is executable by `service_role` only, the ledger row is there.
 285 reopens nothing, so before and after it also look for one the close
@@ -568,3 +680,135 @@ are still left out.
 `ROLLBACK=1` through `/root/webyar-move/deploy.php` if needed. 284 stays: it
 is harmless with the old code (nullable or constant-default columns, functions
 nobody calls, the switch off).
+
+### Rollout of 286 (every chat channel)
+
+WebYar by hand before the merge (CLAUDE.md's procedure, the folder
+`/root/webyar-migrate-286/` with `scripts/` and `database/migrations/`
+holding 286 alone); RESPOK by its migrator on push (it has no conversation
+outside the widget, so nothing more closes there). There is no new gate: the
+switch stays the only off, and it is already on in both databases, so the
+timer starts closing channel and support conversations at its first pass
+after 286 is applied. The owner saw the counts before deciding (2026-10-26, a
+rolled-back dry run with the channel test removed): on WebYar 6 would newly
+close (1 AI-held Telegram conversation quiet for 20 days, 5 resolved platform
+support threads quiet for 24 to 26 days), the 1 support thread the team owes
+stays open, and none had been untouched for 30 days then, so no backlog run
+is needed unless the dry run (step 3) finds one past that bound. In the
+commands below `C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container).
+
+1. **Pre-checks**: the ledger has 285
+   (`SELECT filename, applied_at FROM public._schema_migrations WHERE filename >= '284' ORDER BY 1;`;
+   286 itself stops with "286 needs 285" otherwise), and 286 has no
+   transaction statement of its own outside its function bodies and `DO`
+   blocks (the dry run below wraps it):
+   `grep -nE '^[[:space:]]*(BEGIN|COMMIT|ROLLBACK)[[:space:]]*;' /root/webyar-migrate-286/database/migrations/286_inactivity_close_every_channel.sql`
+   prints nothing, as it does for 285.
+2. **WebYar: a schema dump** into the folder:
+   `docker exec $C pg_dump -U postgres -s webyar > /root/webyar-migrate-286/pre-286-schema.sql`.
+   286 writes no data (it replaces three functions and rewords five
+   comments), so the schema is all it changes.
+3. **WebYar: the dry run** inside `BEGIN … ROLLBACK`, listing what becomes
+   due by channel. Copy only the folder's `database/` into the container
+   (`docker exec $C mkdir -p /tmp/m286`, then
+   `docker cp /root/webyar-migrate-286/database $C:/tmp/m286/`), run
+   `docker exec -i $C psql -X -U postgres -d webyar -v ON_ERROR_STOP=1 < /root/webyar-migrate-286/dry-run.sql | tee /root/webyar-migrate-286/dry-run.log`
+   with this `dry-run.sql`, then remove `/tmp/m286`:
+   ```sql
+   BEGIN;
+   \i /tmp/m286/database/migrations/286_inactivity_close_every_channel.sql
+   -- Every live conversation's verdict, by channel and status.
+   SELECT coalesce(nullif(lower(btrim(c.metadata->>'channel')), ''), 'widget') AS channel,
+          c.status, chk.verdict, count(*)
+     FROM public.conversations c
+     CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
+    WHERE c.status IN ('open', 'pending', 'resolved')
+    GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
+   -- What the timer's first passes take, by channel (expect the 6 above).
+   SELECT coalesce(nullif(lower(btrim(c.metadata->>'channel')), ''), 'widget') AS channel,
+          d.due_status, count(*), min(d.due_updated_at) AS oldest_touch
+     FROM public.conversation_idle_due(500) d
+     JOIN public.conversations c ON c.id = d.due_conversation_id
+    GROUP BY 1, 2 ORDER BY 1, 2;
+   ROLLBACK;
+   ```
+   Expect `telegram` due 1, `platform_support` due 5 (resolved) and
+   `needs_reply` 1, the App Review rows `exempt`, and the widget's rows as
+   before. Any other count goes to the owner before 286 is applied. When
+   the first query counts `due` rows that the second leaves out, they are
+   past the timer's 30-day bound (untouched, `updated_at`, for longer), and
+   the timer never closes them: once 286 is applied, the backlog script
+   (`database/backfill/284_inactivity_backlog_close.sql`, channel-neutral
+   since 286) lists them with its dry run and closes them with its commit
+   after the owner has reviewed the list (its header's steps 0 to 2, with
+   the script in the folder's `database/backfill/`), as for 284's backlog.
+   The log holds counts only (no text, no ids).
+4. **WebYar: apply 286** with the CLAUDE.md procedure (`docker exec $C mkdir
+   -p /tmp/m286`, `docker cp` the folder's `scripts` and `database`, never
+   the dump or the log, into `/tmp/m286/`; `migrate-database.sh` as
+   `postgres` with `PGOPTIONS='-c lock_timeout=5s'`; then remove
+   `/tmp/m286`). Apply it shortly before the merge: until the new backend is
+   live (about 15 minutes), the old one's timer already closes the channel
+   conversations, silently as the new one does, but without the channel race
+   reopen and without `support_update`, and a resolved support thread it
+   closes reads `closed` in the support apps until the new backend presents
+   it as resolved.
+5. **Check**: a second run applies nothing; `conversation_message_turn`,
+   `conversation_idle_check` and `conversation_idle_due` are executable by
+   `service_role` only (`has_function_privilege`); the ledger row is there;
+   the App Review account reads `exempt` (or `spam`) everywhere:
+   ```sql
+   SELECT chk.verdict, count(*)
+     FROM public.conversations c
+     CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
+    WHERE c.status IN ('open', 'pending', 'resolved')
+      AND (c.metadata->>'app_review_seed' = 'true'
+           OR EXISTS (SELECT 1 FROM public.workspaces w
+                       WHERE w.id = c.workspace_id AND w.slug = 'ws_appreview')
+           OR EXISTS (SELECT 1 FROM public.platform_support_threads p
+                        JOIN public.profiles u ON u.id = p.user_id
+                       WHERE p.conversation_id = c.id AND lower(u.email) = 'apple@webyar.ai')
+           OR EXISTS (SELECT 1 FROM public.platform_support_threads p
+                        JOIN public.workspaces w2 ON w2.id = p.source_workspace_id
+                       WHERE p.conversation_id = c.id AND w2.slug = 'ws_appreview'))
+    GROUP BY 1;
+   ```
+6. **Ledger**: 286 with its UTC time in CLAUDE.md's migrations list, in the
+   PR before the merge.
+7. **Merge.** WebYar's 24/25 and RESPOK's 32/33/40 deploy, and RESPOK's
+   migrator 40 applies 286 (afterwards the dry run's two queries, without the
+   `\i`, against `k6pnithcamskd4trrpo6jabv` and the database RESPOK's
+   backend's `DATABASE_URL` names, list no channel or support row there). No
+   channels app (WebYar's 19
+   and 20, RESPOK's) changes: channel ingest and the support service run in
+   the backend.
+8. **Watch** on WebYar: the next `[idle-close] pass` lines close the 6; then
+   by channel, every channel but the widget with no line written (psql with
+   `-v since='<the time 286 was applied, UTC>'`):
+   ```sql
+   SELECT coalesce(nullif(lower(btrim(c.metadata->>'channel')), ''), 'widget') AS channel,
+          c.metadata->>'closed_from' AS closed_from, count(*) AS closed,
+          count(*) FILTER (WHERE c.metadata->>'closed_line_id' IS NOT NULL) AS with_line
+     FROM public.conversations c
+    WHERE c.status = 'closed' AND c.metadata->>'closed_reason' = 'inactivity'
+      AND (c.metadata->>'closed_at')::timestamptz >= :'since'
+    GROUP BY 1, 2 ORDER BY 1, 2;
+   ```
+   Nothing of the App Review account closed: step 5's query with
+   `c.metadata->>'closed_reason' = 'inactivity'` in place of its status test
+   answers no row. With an
+   owner-authorized test bot on a test workspace (its window at 1 h): a quiet
+   conversation closes with nothing sent, a message within 10 minutes brings
+   it back (a `reopened` event, reason
+   `customer_replied_after_inactivity_close`), a later one starts a new
+   conversation; then set the window back to the platform default.
+9. **Knowledge base**: the decision, the counts and the times, in Persian
+   (CLAUDE.md), with «بی‌پیام».
+
+**Rollback of 286**: switch the close off (immediate, every channel at once).
+To go back to the widget only, a reviewed migration of its own re-creates
+285's `conversation_idle_check` and 284's `conversation_idle_due` and
+`conversation_message_turn` (never edit 284, 285 or 286: they are applied).
+The conversations 286 closed stay closed (a team reply or the Inbox's Reopen
+brings one back). The backend needs no rollback: its channel and support
+race reopen and the support presentation do nothing without such closes.

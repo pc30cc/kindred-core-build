@@ -1035,6 +1035,12 @@ export async function routeConversationToOperator(
       metadata = { ...metadata, ...released };
     }
 
+    // If routing waited for the pre-chat form (deferRoutingForPrechat), this
+    // run is that wait ending: the flag is cleared with the outcome. So it is
+    // when somebody already has the conversation (a person took it before
+    // routing ran), else it would read "routing still owed" for good (the
+    // inactivity close before migration 287; the AI's freshness check).
+    const pending = metadata.routing_pending === true ? { routing_pending: false } : {};
     if (row.assigned_to) {
       // Already assigned, so nobody is being routed and the thread says
       // nothing: the visitor handed over from the AI reads "X joined" right
@@ -1045,15 +1051,15 @@ export async function routeConversationToOperator(
       if (metadata.routing_notice_sent !== true) {
         await tagOutcome(
           config, args.workspaceId, args.conversationId, metadata,
-          'already_assigned', { routing_notice_sent: true },
+          'already_assigned', { routing_notice_sent: true, ...pending },
         );
+      } else if ('routing_pending' in pending) {
+        // Tagged before: the flag alone (a patch, so updated_at moves, once).
+        await patchConversationMetadata(config, args.conversationId, pending, args.workspaceId);
       }
       notifyHandoffOnce(config, args, metadata);
       return { outcome: 'already_assigned', assignedTo: row.assigned_to };
     }
-    // If routing waited for the pre-chat form (deferRoutingForPrechat), this
-    // run is that wait ending: the flag is cleared with the outcome.
-    const pending = metadata.routing_pending === true ? { routing_pending: false } : {};
     // A visitor may send several messages while still unassigned (manual
     // queue, or genuinely nobody eligible) — routing runs again on each one.
     // Without this guard the "queue"/"no one available" notice would repeat
@@ -1104,7 +1110,11 @@ export async function routeConversationToOperator(
       cache: opts.cache,
       departmentOnly: metadata.routing_department_only === true,
     });
-    if (pick.outcome === 'already_assigned') return { outcome: 'already_assigned', assignedTo: pick.userId };
+    if (pick.outcome === 'already_assigned') {
+      // Somebody took it while this run looked: the pre-chat wait ends as above.
+      if ('routing_pending' in pending) await patchConversationMetadata(config, args.conversationId, pending, args.workspaceId);
+      return { outcome: 'already_assigned', assignedTo: pick.userId };
+    }
     if (pick.outcome === 'not_routable') return { outcome: 'not_routable', assignedTo: pick.userId };
     if (pick.outcome === 'error') {
       // The claim itself failed (a timeout, a connection blip): the ticker

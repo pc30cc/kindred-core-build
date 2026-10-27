@@ -264,7 +264,12 @@ async function reopenForOperator(
  * its visitor (start-from-visitor, method manual): only while nobody has it
  * (one conditional write, so of two operators replying at once exactly one
  * gets it), on the timeline (`assigned`) and in every inbox — the colleagues'
- * lists drop it. Never throws.
+ * lists drop it. A pre-chat wait (`metadata.routing_pending`,
+ * chatRoutingPrechat.ts) ends with it: the flag is cleared (`routing_pending_at`
+ * stays: a conversation is held for the form once; a metadata patch, so
+ * `updated_at` moves with it, once), or it would read "routing still owed"
+ * for good (the inactivity close before migration 287; the AI's freshness
+ * check). Never throws.
  */
 async function claimUnassigned(
   config: ServerConfig,
@@ -277,8 +282,11 @@ async function claimUnassigned(
       .eq('id', a.conversationId)
       .eq('workspace_id', a.workspaceId)
       .is('assigned_to', null)
-      .select('id, updated_at');
+      .select('id, updated_at, routing_pending:metadata->>routing_pending');
     if (!Array.isArray(data) || data.length === 0) return false;
+    if ((data[0] as { routing_pending?: string | null }).routing_pending === 'true') {
+      await patchConversationMetadata(config, a.conversationId, { routing_pending: false }, a.workspaceId);
+    }
     void recordAuditAndEvent(config, {
       workspaceId: a.workspaceId,
       conversationId: a.conversationId,
@@ -1386,7 +1394,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
     const conversationId = req.params.id;
     const { data: before } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to, ai_state, created_at, updated_at')
+      .select('id, workspace_id, assigned_to, ai_state, created_at, updated_at, routing_pending:metadata->>routing_pending')
       .eq('id', conversationId)
       .maybeSingle();
     if (!before || before.workspace_id !== parsed.data.workspace_id) {
@@ -1408,6 +1416,12 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
       });
     }
     if (result.alreadyHeld) return res.json({ ok: true, assigned_to: auth.userId });
+    // Taken during a pre-chat wait: the wait ends with it, as with the first
+    // reply's claim (claimUnassigned). The flag was read before the claim;
+    // only routing clears it otherwise, and clearing it twice is harmless.
+    if ((before as { routing_pending?: string | null }).routing_pending === 'true') {
+      await patchConversationMetadata(config, conversationId, { routing_pending: false }, parsed.data.workspace_id);
+    }
 
     void recordAuditAndEvent(config, {
       workspaceId: parsed.data.workspace_id,

@@ -540,6 +540,41 @@ describe('what a routing run leaves behind', () => {
     expect(routing.prechatWaitOver({})).toBe(true);
   });
 
+  it('a pre-chat wait a person ended first (they took it before routing ran) is cleared by the next run, its start kept; nothing is told', async () => {
+    const at = new Date().toISOString();
+    const patches = (id: unknown) => rpcsOf('patch_conversation_metadata', id).map((r) => r.args.p_patch);
+    // With the outcome, the first time it is tagged …
+    const answered = conversation({ routing_pending: true, routing_pending_at: at }, { assigned_to: ALI });
+    expect(await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: answered.id as string }))
+      .toEqual({ outcome: 'already_assigned', assignedTo: ALI });
+    expect(answered.metadata).toMatchObject({ routing_pending: false, routing_pending_at: at, routing_outcome: 'already_assigned', routing_notice_sent: true });
+    // … alone when it was tagged before (the outcome stays as it was).
+    const told = conversation({ routing_pending: true, routing_pending_at: at, routing_notice_sent: true, routing_outcome: 'assigned_auto' }, { assigned_to: BAHAR });
+    expect((await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: told.id as string })).outcome).toBe('already_assigned');
+    expect(told.metadata).toEqual({ routing_pending: false, routing_pending_at: at, routing_notice_sent: true, routing_outcome: 'assigned_auto' });
+    expect(patches(told.id)).toEqual([{ routing_pending: false }]);
+    // Once cleared, or never set: no write at all.
+    const plain = conversation({ routing_notice_sent: true }, { assigned_to: ALI });
+    for (const c of [told, plain]) {
+      const before = rpcsOf('patch_conversation_metadata', c.id).length;
+      await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string });
+      expect(rpcsOf('patch_conversation_metadata', c.id)).toHaveLength(before);
+    }
+    expect(state.claims).toEqual([]);
+    for (const c of [answered, told, plain]) expect(notices(c.id)).toEqual([]);
+  });
+
+  it('one somebody took while routing looked (the claim answers already_assigned): its pre-chat flag is cleared too', async () => {
+    state.presence.set(ALI, here());
+    state.claimAnswer = () => ({ outcome: 'already_assigned', picked_user_id: BAHAR });
+    const at = new Date(Date.now() - 3 * 60_000).toISOString();
+    const c = conversation({ routing_pending: true, routing_pending_at: at });
+    expect(await routing.routeConversationToOperator(config, { workspaceId: WS, conversationId: c.id as string }))
+      .toEqual({ outcome: 'already_assigned', assignedTo: BAHAR });
+    expect(c.metadata).toEqual({ routing_pending: false, routing_pending_at: at });
+    expect(notices(c.id)).toEqual([]);
+  });
+
   it('a claim that fails waits for the ticker (nothing told, nothing tagged, a pre-chat flag kept)', async () => {
     state.presence.set(ALI, here());
     state.claimFails = true;

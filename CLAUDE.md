@@ -355,11 +355,14 @@ reserved blocks, so a full disk stops Postgres too.
     `docs/operations/CHAT_ROUTING.md`, "Rollout of 286"). Then
     `287_inactivity_close_prechat_wait_assigned.sql` (a pre-chat wait
     counts only while nobody holds the conversation; applied by hand before
-    its merge; a schema dump and the dry run's verdicts of the rows carrying
-    `routing_pending` in `/root/webyar-migrate-287/`; it writes no data, and
-    the 2 open conversations carrying the flag when measured (2026-10-27),
-    both assigned, read `needs_reply`; RESPOK by its migrator on push; steps
-    in `docs/operations/CHAT_ROUTING.md`, "Rollout of 287").
+    its merge, 2026-10-27 09:00 UTC; a schema dump and the dry run's verdicts
+    of the rows carrying `routing_pending` in `/root/webyar-migrate-287/`; it
+    writes no data; the dry run moved only the test workspace's probe (held,
+    answered, quiet) from `routing` to `due`, and the WebYar workspace's 2
+    flagged conversations, both assigned, read `needs_reply` on both sides;
+    RESPOK, which had no flagged conversation in its dry run
+    (`/root/respok-migrate-287/`), by its migrator on push; steps in
+    `docs/operations/CHAT_ROUTING.md`, "Rollout of 287").
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

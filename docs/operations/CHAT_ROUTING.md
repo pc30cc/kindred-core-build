@@ -13,7 +13,8 @@ Code: `server/services/chatRouting.ts` (the decisions),
 `shared/chatRoles.ts` (who may do what), `shared/inactivityClose.ts` (the
 inactivity close's bounds and markers). The SQL is in migrations 278, 278b
 and 280b (`chat_route_claim` and its helpers) and 284 (the inactivity close;
-285 the App Review workspace, 286 every chat channel).
+285 the App Review workspace, 286 every chat channel, 287 a pre-chat wait
+only while unassigned).
 
 ## How it works
 
@@ -54,7 +55,14 @@ visitor is asked the pre-chat form (the form they actually get: the Super
 Admin's policy, the plan and the workspace's own, timing not "never"; never
 on a channel), routing waits for it, once per conversation, and routes
 anyway two minutes later if the form never comes; a form sent, even empty,
-is never waited for again. A claim that fails (a database blip) is retried
+is never waited for again. An operator who takes the conversation during the
+wait ends it: the first reply's claim, the visitor outreach's and the Claim
+button clear `metadata.routing_pending` (`routing_pending_at` kept, so it is
+not held for the form again), and so does a routing run that finds it
+already assigned (the form, or an AI handoff, after an assignment by hand, a
+transfer, a take-over or a claim that raced the wait's own start). Until such
+a run, those leave the flag; since 287 it no longer holds the inactivity
+close back on a conversation somebody holds. A claim that fails (a database blip) is retried
 by the ticker. If the plan cannot be read for a moment, the stored mode
 stands rather than Manual.
 
@@ -300,15 +308,21 @@ per channel.
     and no call connected after it (a tie is owed; a bare "thanks" stays owed
     until someone resolves it, as the Inbox badge says);
   - `ai_handoff`: `needs_human`, `human_assigned` or a handoff requested;
-  - `routing`: `routing_pending`, the manual queue, a routing wait, a
-    pre-chat deadline or a first-response timeout running;
+  - `routing`: `routing_pending` while nobody holds the conversation, the
+    manual queue, a routing wait, a pre-chat deadline or a first-response
+    timeout running. A pre-chat wait counts only while the conversation is
+    unassigned (287): a person who took it before routing ran (their first
+    reply or the Claim button claims it) ended the wait, and whether the
+    visitor still waits for an answer is `needs_reply`'s, above. 286 read
+    the flag whoever held the conversation, and nothing cleared it then, so
+    such a conversation was never closed;
   - `call`: a call ringing or live (started in the last 12 h), an invitation
     or a call queue entry still open;
   - `callback`: a callback request requested, scheduled or in progress;
   - `guidance`: the AI asked the team and waits.
   Guards only a person clears (a callback, a guidance request, an old
-  `routing_pending`) can pile up: the backlog script's dry run lists them,
-  and can be run again at any time.
+  `routing_pending` on an unassigned conversation) can pile up: the backlog
+  script's dry run lists them, and can be run again at any time.
 - **What a close writes** (`conversation_close_if_idle`, row-locked, a
   compare-and-set on `updated_at`, the decision taken again): status `closed`;
   the close markers (`shared/inactivityClose.ts` `CLOSED_KEYS`:
@@ -837,3 +851,125 @@ To go back to the widget only, a reviewed migration of its own re-creates
 The conversations 286 closed stay closed (a team reply or the Inbox's Reopen
 brings one back). The backend needs no rollback: its channel and support
 race reopen and the support presentation do nothing without such closes.
+
+### Rollout of 287 (a pre-chat wait only while unassigned)
+
+WebYar by hand BEFORE the merge (CLAUDE.md's procedure, the folder
+`/root/webyar-migrate-287/` with `scripts/` and `database/migrations/`
+holding 287 alone): the backend does not need 287 (the timer closes through
+`conversation_idle_check` with either function) and 287 needs no new
+backend. The merge's backend clears the flag when the wait ends with a
+person taking the conversation (the first reply's claim, the visitor
+outreach's, the Claim button, or a routing run that finds it assigned); an
+assignment by hand, a transfer or a take-over leave it, which 287 makes
+harmless for the close, and 287 is what lets the conversations flagged
+before it close. RESPOK by its migrator on push, which waits for nobody, so
+its counts are taken, read-only in effect, before the merge (step 4). No new
+gate: the switch stays the only off. 287 writes no data. On WebYar it closes
+nothing at once: when measured (2026-10-27) 2 open conversations carried
+`routing_pending`, both assigned and both `needs_reply`; once their operator
+answers, they close after the window like any other. In the commands below
+`C=oqzy9q4ovntam9jgf7nxzqun` (WebYar's database container),
+`R=k6pnithcamskd4trrpo6jabv` (RESPOK's) and `D` the database RESPOK's
+backend's `DATABASE_URL` names.
+
+1. **Pre-checks**: the ledger has 286
+   (`SELECT filename, applied_at FROM public._schema_migrations WHERE filename >= '284' ORDER BY 1;`;
+   287 itself stops with "287 needs 286" otherwise), and 287 has no
+   transaction statement of its own (the dry run below wraps it):
+   `grep -nE '^[[:space:]]*(BEGIN|COMMIT|ROLLBACK)[[:space:]]*;' /root/webyar-migrate-287/database/migrations/287_inactivity_close_prechat_wait_assigned.sql`
+   prints nothing.
+2. **WebYar: a schema dump** into the folder:
+   `docker exec $C pg_dump -U postgres -s webyar > /root/webyar-migrate-287/pre-287-schema.sql`.
+   287 replaces one function and its comment, so the schema is all it
+   changes.
+3. **WebYar: the dry run** inside `BEGIN … ROLLBACK`, listing the verdicts
+   of the rows carrying `routing_pending` before and with 287. Copy only the
+   folder's `database/` into the container (`docker exec $C mkdir -p /tmp/m287`,
+   then `docker cp /root/webyar-migrate-287/database $C:/tmp/m287/`), run
+   `docker exec -i $C psql -X -U postgres -d webyar -v ON_ERROR_STOP=1 < /root/webyar-migrate-287/dry-run.sql | tee /root/webyar-migrate-287/dry-run.log`
+   with this `dry-run.sql`, then remove `/tmp/m287`:
+   ```sql
+   BEGIN;
+   -- The live rows carrying the flag, by holder, status, verdict and whether
+   -- chat_routing_state still records a wait, a pre-chat deadline or a
+   -- first-response timeout for them; due rows untouched for 30 days apart
+   -- (the timer never takes those). At 286 first.
+   SELECT (c.assigned_to IS NOT NULL) AS held, c.status, chk.verdict,
+          EXISTS (SELECT 1 FROM public.chat_routing_state s
+                   WHERE s.conversation_id = c.id
+                     AND (s.waiting_since IS NOT NULL OR s.prechat_deadline IS NOT NULL OR s.timeout_due_at IS NOT NULL)) AS routing_state,
+          count(*),
+          count(*) FILTER (WHERE chk.verdict = 'due' AND c.updated_at < now() - interval '30 days') AS untouched_30d
+     FROM public.conversations c
+     CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
+    WHERE c.status IN ('open', 'pending', 'resolved')
+      AND c.metadata->>'routing_pending' = 'true'
+    GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4;
+   SELECT count(*) AS due_before FROM public.conversation_idle_due(500);
+   \i /tmp/m287/database/migrations/287_inactivity_close_prechat_wait_assigned.sql
+   -- The same rows with 287.
+   SELECT (c.assigned_to IS NOT NULL) AS held, c.status, chk.verdict,
+          EXISTS (SELECT 1 FROM public.chat_routing_state s
+                   WHERE s.conversation_id = c.id
+                     AND (s.waiting_since IS NOT NULL OR s.prechat_deadline IS NOT NULL OR s.timeout_due_at IS NOT NULL)) AS routing_state,
+          count(*),
+          count(*) FILTER (WHERE chk.verdict = 'due' AND c.updated_at < now() - interval '30 days') AS untouched_30d
+     FROM public.conversations c
+     CROSS JOIN LATERAL public.conversation_idle_check(c.id) chk
+    WHERE c.status IN ('open', 'pending', 'resolved')
+      AND c.metadata->>'routing_pending' = 'true'
+    GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4;
+   SELECT count(*) AS due_after FROM public.conversation_idle_due(500);
+   ROLLBACK;
+   ```
+   Expect the 2 held, open rows `needs_reply` on both sides and `due_after`
+   equal to `due_before`: nothing newly due. A held row that moves to `due`
+   (its operator answered since, and it has been quiet for the window) goes
+   to the owner before 287 is applied: the timer would close it at its first
+   pass after (on the widget with its line and rating). One untouched for 30
+   days (`untouched_30d`) is the exception, and `due_after` does not count
+   it: the timer never takes it, so once 287 is applied the backlog script
+   (`database/backfill/284_inactivity_backlog_close.sql`) lists it with its
+   dry run and closes it with its commit after the owner has reviewed the
+   list, as in the Rollout of 286. The log holds counts only (no text, no
+   ids).
+4. **RESPOK: the same dry run, before the merge** (its migrator applies 287
+   as the merge deploys, with no pause for a look). From its own folder
+   `/root/respok-migrate-287/` (the repo's `database/` and the same
+   `dry-run.sql`; never WebYar's folder, so neither log overwrites the
+   other): `docker exec $R mkdir -p /tmp/m287`, then
+   `docker cp /root/respok-migrate-287/database $R:/tmp/m287/`, run
+   `docker exec -i $R psql -X -U postgres -d $D -v ON_ERROR_STOP=1 < /root/respok-migrate-287/dry-run.sql | tee /root/respok-migrate-287/dry-run.log`,
+   then remove `/tmp/m287`. It ends in `ROLLBACK`, so RESPOK keeps 286's
+   function until its migrator runs. A held row that moves to `due` goes to
+   the owner before the merge, as on WebYar (one untouched for 30 days goes
+   to RESPOK's backlog run after it); both brands' counts go into the PR.
+5. **WebYar: apply 287** with the CLAUDE.md procedure
+   (`docker exec $C mkdir -p /tmp/m287`, `docker cp` the folder's `scripts`
+   and `database`, never the dump or the log, into `/tmp/m287/`;
+   `migrate-database.sh` as `postgres` with `PGOPTIONS='-c lock_timeout=5s'`;
+   then remove `/tmp/m287`).
+6. **Check**: a second run applies nothing; `conversation_idle_check` is
+   executable by `service_role` only (`has_function_privilege`) and its
+   comment ends "Migrations 284, 285, 286, 287."; the ledger row is there;
+   the dry run's last two queries, run without the transaction, answer as
+   they did inside it.
+7. **Ledger**: 287 with its UTC time in CLAUDE.md's migrations list, in the
+   PR before it merges (applied before the merge, as 284 and 285 were).
+8. **Merge.** WebYar's 24/25 and RESPOK's 32/33/40 deploy, and RESPOK's
+   migrator 40 applies 287. Afterwards the dry run's first query, without the
+   transaction and the `\i`, against `$R` and `$D` lists no held row reading
+   `routing` for the flag alone: a held row may still read `routing` while
+   `routing_state` is true (`chat_routing_state` still records a wait, a
+   pre-chat deadline or a first-response timeout for it), never with it
+   false.
+9. **Knowledge base**: the decision, both brands' counts and the time, in
+   Persian (CLAUDE.md).
+
+**Rollback of 287**: switch the close off if needed (immediate, every
+channel at once), then a reviewed migration of its own re-creates 286's
+`conversation_idle_check` (never edit 286 or 287: they are applied). The
+conversations 287 let close stay closed (a team reply or the Inbox's Reopen
+brings one back). The backend needs no rollback: it clears the flag only on
+a conversation somebody holds, which routing leaves with them anyway.

@@ -22,6 +22,8 @@ const db: Record<string, Row[]> = {};
 /** When set, the fake conversation_inbox_counters RPC answers with this row. */
 let inboxCounters: Row | null = null;
 const inboxCounterCalls: Row[] = [];
+/** Every patch_conversation_metadata call (recorded only: the rows stay as they are). */
+const metadataPatches: Array<{ conversationId: unknown; patch: Row }> = [];
 /**
  * When set, a read of conversation_messages takes its rows at once (as a real
  * read takes its snapshot when it starts) but answers only when this settles.
@@ -54,7 +56,7 @@ interface QueryBuilder {
 interface UpdateBuilder {
   eq(col: string, val: unknown): UpdateBuilder;
   is(col: string, val: unknown): UpdateBuilder;
-  select(): { then(resolve: Resolve): unknown };
+  select(cols?: string): { then(resolve: Resolve): unknown };
   then(resolve: Resolve): unknown;
 }
 
@@ -132,10 +134,22 @@ function fakeClient() {
           const updateBuilder: UpdateBuilder = {
             eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
             is(col: string, val: unknown) { scoped.push((r: Row) => (val === null ? r[col] == null : r[col] === val)); return updateBuilder; },
-            select() {
+            select(cols?: string) {
               const matched = rows.filter((r) => scoped.every((f) => f(r)));
               for (const r of matched) Object.assign(r, patch);
-              return { then: (resolve: Resolve) => resolve({ data: matched, error: null }) };
+              // `alias:col->>key` projections of the representation: a jsonb
+              // field as text, null when absent (every column is returned too).
+              const aliases = String(cols || '').split(',').map((c) => /^\s*(\w+):(\w+)->>(\w+)\s*$/.exec(c))
+                .filter((m): m is RegExpExecArray => !!m);
+              const project = (r: Row): Row => {
+                const out: Row = { ...r };
+                for (const [, alias, col, key] of aliases) {
+                  const v = ((r[col] || {}) as Row)[key];
+                  out[alias] = v === undefined || v === null ? null : String(v);
+                }
+                return out;
+              };
+              return { then: (resolve: Resolve) => resolve({ data: matched.map(project), error: null }) };
             },
             then(resolve: Resolve) {
               for (const r of rows) if (scoped.every((f) => f(r))) Object.assign(r, patch);
@@ -199,6 +213,9 @@ function fakeClient() {
       if (name === 'conversation_inbox_counters') {
         // A database without migration 241 answers "function not found".
         return { data: null, error: { code: 'PGRST202', message: 'function not found' } };
+      }
+      if (name === 'patch_conversation_metadata') {
+        metadataPatches.push({ conversationId: args.p_conversation_id, patch: args.p_patch as Row });
       }
       return { data: null, error: null };
     },
@@ -286,6 +303,7 @@ let convOpen: string, convPending: string, convAutomated: string, convSpam: stri
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
+  metadataPatches.length = 0;
   holdMessageReads = null;
   heldMessageReads = 0;
   convOpen = crypto.randomUUID();
@@ -711,6 +729,36 @@ describe('POST /api/conversations/send-message — the visitor hears of it (V-07
     });
     await new Promise((r) => setTimeout(r, 20));
     expect(wakes).toHaveLength(1);
+  });
+});
+
+describe('POST /api/conversations/send-message — the first reply ends a pre-chat wait (migration 287)', () => {
+  const reply = (conversationId: string, clientMessageId: string) => call('POST', '/api/conversations/send-message', {
+    token: 'member-token',
+    body: { workspace_id: WS, conversation_id: conversationId, body: 'سلام، در خدمتم', client_message_id: clientMessageId },
+  });
+  const flagPatches = (conversationId: string) => metadataPatches
+    .filter((p) => p.conversationId === conversationId && 'routing_pending' in p.patch).map((p) => p.patch);
+
+  it('the reply that claims a conversation routing held for the pre-chat form clears the flag, and only the flag', async () => {
+    const at = '2026-10-27T08:00:00.000Z';
+    const open = db.conversations.find((c) => c.id === convOpen)!;
+    open.metadata = { routing_pending: true, routing_pending_at: at };
+    expect((await reply(convOpen, 'cmid-prechat-1')).status).toBe(200);
+    expect(open.assigned_to).toBe(MEMBER);
+    expect(flagPatches(convOpen)).toEqual([{ routing_pending: false }]);
+    // A later reply claims nothing and writes no patch again.
+    expect((await reply(convOpen, 'cmid-prechat-2')).status).toBe(200);
+    expect(flagPatches(convOpen)).toHaveLength(1);
+  });
+
+  it('nothing when the conversation carries no flag, or somebody already has it', async () => {
+    expect((await reply(convOpen, 'cmid-prechat-3')).status).toBe(200);
+    expect(db.conversations.find((c) => c.id === convOpen)!.assigned_to).toBe(MEMBER);
+    const held = db.conversations.find((c) => c.id === convPending)!;
+    Object.assign(held, { assigned_to: crypto.randomUUID(), metadata: { routing_pending: true, routing_pending_at: '2026-10-27T08:00:00.000Z' } });
+    expect((await reply(convPending, 'cmid-prechat-4')).status).toBe(200);
+    expect(metadataPatches.filter((p) => 'routing_pending' in p.patch)).toEqual([]);
   });
 });
 

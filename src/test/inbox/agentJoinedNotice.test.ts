@@ -53,7 +53,7 @@ describe('only the operator\'s reply introduces them', () => {
     expect(announce).toContain("eventType: 'assigned'");
     const assigned = ROUTING.slice(ROUTING.indexOf('if (row.assigned_to) {'), ROUTING.indexOf("return { outcome: 'already_assigned'", ROUTING.indexOf('if (row.assigned_to) {')));
     expect(assigned).not.toContain('insertRoutingSystemMessage');
-    expect(assigned).toContain("'already_assigned', { routing_notice_sent: true }");
+    expect(assigned).toContain("'already_assigned', { routing_notice_sent: true, ...pending }");
     const claim = ROUTING.slice(ROUTING.indexOf('export async function claimConversationManually('));
     expect(claim).not.toContain('insertRoutingSystemMessage');
     expect(claim).toContain("reason: 'manual_claim'");

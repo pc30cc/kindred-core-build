@@ -111,8 +111,8 @@ chat channel (the widget, Telegram, Bale, WhatsApp, Instagram, X and
 platform support; owner, 2026-10-26: "everywhere"; the Email inbox has no
 status and is not affected) closes on its own after the workspace's window
 (1-48 h; the Super Admin's switch and default, 24 h;
-`server/services/conversationIdleCloseTicker.ts`, migrations 284, 285 and
-286), never while the team owes an answer and never for the App Review
+`server/services/conversationIdleCloseTicker.ts`, migrations 284 to
+287), never while the team owes an answer and never for the App Review
 account (`apple@webyar.ai`: its workspace `ws_appreview` and the support
 threads it requests; owner, 2026-10-26). Only the widget tells the visitor
 («گفتگو به پایان رسید» and the rating); every other channel closes silently,
@@ -352,7 +352,17 @@ reserved blocks, so a full disk stops Postgres too.
     run listed (1 Telegram, 5 resolved platform support threads), silently
     (no line written), and nothing of the App Review account; RESPOK's
     migrator applied it at 23:25, with nothing due there; steps in
-    `docs/operations/CHAT_ROUTING.md`, "Rollout of 286").
+    `docs/operations/CHAT_ROUTING.md`, "Rollout of 286"). Then
+    `287_inactivity_close_prechat_wait_assigned.sql` (a pre-chat wait
+    counts only while nobody holds the conversation; applied by hand before
+    its merge, 2026-10-27 09:00 UTC; a schema dump and the dry run's verdicts
+    of the rows carrying `routing_pending` in `/root/webyar-migrate-287/`; it
+    writes no data; the dry run moved only the test workspace's probe (held,
+    answered, quiet) from `routing` to `due`, and the WebYar workspace's 2
+    flagged conversations, both assigned, read `needs_reply` on both sides;
+    RESPOK, which had no flagged conversation in its dry run
+    (`/root/respok-migrate-287/`), by its migrator on push; steps in
+    `docs/operations/CHAT_ROUTING.md`, "Rollout of 287").
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

@@ -324,6 +324,21 @@ suite('who has a conversation, on a real database (278b)', () => {
     expect(await introducedFirst(cid, winner!)).toBe(true);
   });
 
+  it('B2b the Claim button ends a pre-chat wait as the first reply does (the flag cleared, its start kept); a refused claim writes nothing', async () => {
+    const at = new Date(Date.now() - 30_000).toISOString();
+    const claim = (user: string, cid: string) => request(app).post(`/api/conversations/${cid}/claim`).set(as(user)).send({ workspace_id: ws });
+    const waited = await conversation({ meta: { routing_pending: true, routing_pending_at: at } });
+    expect((await claim(a, waited)).body).toEqual({ ok: true, assigned_to: a });
+    expect((await conv(waited)).metadata).toMatchObject({ routing_pending: false, routing_pending_at: at });
+    // Somebody has it: a colleague's claim is refused and the flag stays as it is.
+    const held = await conversation({ assigned: a, meta: { routing_pending: true, routing_pending_at: at } });
+    expect((await claim(b, held)).status).toBe(409);
+    expect((await conv(held)).metadata).toMatchObject({ routing_pending: true, routing_pending_at: at });
+    const plain = await conversation();
+    expect((await claim(b, plain)).body).toEqual({ ok: true, assigned_to: b });
+    expect((await conv(plain)).metadata).not.toHaveProperty('routing_pending');
+  });
+
   it('B3 the first reply claims an unassigned conversation, once, even when two operators reply at once', async () => {
     const cid = await conversation();
     const results = await Promise.all([send(a, cid, 'سلام از علی'), send(b, cid, 'سلام از بهار')]);
@@ -341,6 +356,18 @@ suite('who has a conversation, on a real database (278b)', () => {
     await new Promise((r) => setTimeout(r, 150));
     expect(await assignee(cid)).toBe(winner);
     expect(await events(cid, 'assigned')).toHaveLength(1);
+  });
+
+  it('B3b the first reply ends a pre-chat wait routing kept (the flag cleared, its start kept); one without the flag gets none', async () => {
+    const at = new Date(Date.now() - 30_000).toISOString();
+    const waited = await conversation({ meta: { routing_pending: true, routing_pending_at: at } });
+    expect((await send(a, waited)).status).toBe(200);
+    expect(await assignee(waited)).toBe(a);
+    expect((await conv(waited)).metadata).toMatchObject({ routing_pending: false, routing_pending_at: at });
+    const plain = await conversation();
+    expect((await send(b, plain)).status).toBe(200);
+    expect(await assignee(plain)).toBe(b);
+    expect((await conv(plain)).metadata).not.toHaveProperty('routing_pending');
   });
 
   // ─── C: moving one by hand ─────────────────────────────────────────────
@@ -889,6 +916,22 @@ suite('who has a conversation, on a real database (278b)', () => {
     } finally {
       state.visitor = previous;
     }
+  });
+
+  it('E3d reaching out to a visitor whose conversation waits for the pre-chat form takes it and ends the wait (the flag cleared, its start kept)', async () => {
+    const session = randomUUID();
+    await q(`INSERT INTO public.visitor_sessions (id, workspace_id, visitor_id) VALUES ($1, $2, $3)`, [session, ws, `v-pre-${session.slice(0, 8)}`]);
+    const at = new Date(Date.now() - 30_000).toISOString();
+    const waited = await conversation({ meta: { routing_pending: true, routing_pending_at: at } });
+    await q(`UPDATE public.conversations SET visitor_session_id = $2 WHERE id = $1`, [waited, session]);
+    const res = await request(app).post('/api/conversations/start-from-visitor').set(as(b)).send({ workspace_id: ws, visitor_session_id: session });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ conversation_id: waited, created: false });
+    const after = await conv(waited);
+    expect(after).toMatchObject({ status: 'open', assigned_to: b });
+    expect(after.metadata as Row).toMatchObject({ routing_pending: false, routing_pending_at: at });
+    expect(await until(() => events(waited, 'assigned'), (e) => e.length >= 1))
+      .toEqual([expect.objectContaining({ to: b, method: 'manual', source: 'visitor_outreach' })]);
   });
 
   it('E4 the row says when the visitor last read the thread; the widget\'s read is announced to the operators (I-03)', async () => {

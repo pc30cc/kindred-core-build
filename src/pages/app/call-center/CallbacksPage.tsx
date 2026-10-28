@@ -25,7 +25,7 @@ import { MetricTile, StatusChip, type Tone } from '@/features/calls/callCenterUi
 import { useVisitorNetworkBatchBySession, type VisitorNetworkProfile } from '@/hooks/useVisitorNetwork';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
-import { httpPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
+import { httpPageUrl, pageLinkLabel } from '../../../../shared/callCenter/visitorPageUrl';
 
 type StatusKey = 'requested' | 'in_progress' | 'scheduled' | 'completed' | 'cancelled';
 
@@ -222,7 +222,7 @@ function CallbackRow({
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
               {page && (
                 <a href={page.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary truncate max-w-[220px]">
-                  <Globe className="h-3 w-3" /><span className="truncate">{page.hostname}</span>
+                  <Globe className="h-3 w-3" /><span className="truncate" dir="ltr">{pageLinkLabel(page)}</span>
                 </a>
               )}
               <span className="inline-flex items-center gap-1" title={new Date(requested).toLocaleString()}>

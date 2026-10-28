@@ -6,7 +6,9 @@
  * whose page did not parse threw while its row drew (`new URL`), blanking the
  * page for every operator. A call's page is now linked only as an http(s)
  * address on the call's own `origin`; a callback's only as an http(s)
- * address, under its real host (shared/callCenter/visitorPageUrl.ts).
+ * address. Either link reads its real host, never the visitor's title: the
+ * origin binds nothing in a workspace without an allow-list, where any site
+ * may run the widget (shared/callCenter/visitorPageUrl.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -79,18 +81,18 @@ function mount(page: ReactNode) {
   );
 }
 
-function call(pageUrl: string, origin: string | null = ORIGIN) {
+function call(pageUrl: string, origin: string | null = ORIGIN, pageTitle = 'Checkout') {
   return {
     id: 'c0ffee00-0000-4000-8000-000000000001', workspace_id: 'ws-1', state: 'queued', call_type: 'audio',
     visitor_name: 'Sara Ahmadi', visitor_email: null, visitor_phone: null, subject: null,
-    page_url: pageUrl, page_title: 'Checkout', origin, created_at: new Date().toISOString(),
+    page_url: pageUrl, page_title: pageTitle, origin, created_at: new Date().toISOString(),
     ended_at: null, duration_seconds: null, end_reason: null, provider: 'livekit', provider_room_id: null,
     entry_source: 'call_widget', metadata: {},
   };
 }
 
-/** The call's page link ("Checkout"), once the page shows the call. */
-async function pageLink(which: 'calls' | 'queue'): Promise<HTMLAnchorElement | null> {
+/** The links that open a page in a new tab, once the page shows the call. */
+async function pageLinks(which: 'calls' | 'queue'): Promise<HTMLAnchorElement[]> {
   if (which === 'calls') {
     mount(<CallsPage />);
     fireEvent.click(screen.getByText('Sara Ahmadi'));
@@ -99,7 +101,14 @@ async function pageLink(which: 'calls' | 'queue'): Promise<HTMLAnchorElement | n
     mount(<LiveQueuePage />);
     await screen.findAllByText('Sara Ahmadi');
   }
-  return screen.queryByRole('link', { name: 'Checkout' }) as HTMLAnchorElement | null;
+  return (screen.queryAllByRole('link') as HTMLAnchorElement[]).filter((a) => a.getAttribute('target') === '_blank');
+}
+
+/** The call's one page link, or null. */
+async function pageLink(which: 'calls' | 'queue'): Promise<HTMLAnchorElement | null> {
+  const links = await pageLinks(which);
+  expect(links.length).toBeLessThanOrEqual(1);
+  return links[0] ?? null;
 }
 
 beforeEach(() => {
@@ -118,6 +127,26 @@ describe.each(['calls', 'queue'] as const)('a call\'s page link (%s)', (which) =
     const a = await pageLink(which);
     expect(a?.getAttribute('href')).toBe(LEGIT);
     expect(a?.getAttribute('target')).toBe('_blank');
+    // The link reads its real host; the visitor's title is shown as text.
+    expect(a?.textContent).toBe('shop.example');
+    expect(screen.getAllByText('Checkout').some((el) => !el.closest('a'))).toBe(true);
+  });
+
+  it('a site that may run the widget only because nothing restricts it: the link reads its real host, not the visitor\'s title', async () => {
+    // A workspace without an allow-list takes any Origin, so the origin and
+    // the page can both be the attacker's, under a title naming the shop.
+    state.call = call('https://evil.example/login', 'https://evil.example', 'https://shop.example/checkout');
+    const a = await pageLink(which);
+    expect(a?.getAttribute('href')).toBe('https://evil.example/login');
+    expect(a?.textContent).toBe('evil.example');
+    expect(screen.queryByRole('link', { name: /shop\.example/ })).toBeNull();
+  });
+
+  it('a user name in the page does not make it read as another site', async () => {
+    state.call = call('https://shop.example@evil.example/login', 'https://evil.example');
+    const a = await pageLink(which);
+    expect(a?.getAttribute('href')).toBe('https://evil.example/login');
+    expect(a?.textContent).toBe('evil.example');
   });
 
   it.each(HOSTILE)('never links %j', async (pageUrl) => {

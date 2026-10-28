@@ -9,14 +9,28 @@
  * on the site the widget runs on, the request's Origin: same scheme and host
  * (server/routes/callWidget.ts). The panel checks a call's page again against
  * the call's stored `origin`, for rows written before that check.
+ *
+ * The Origin binds the page only as far as the workspace's allow-list does:
+ * with an empty list (the default) or a plan without one, any site may run
+ * the widget (server/services/widget/public.ts, getWorkspaceOriginRules), and
+ * a request can name any site as its Origin. So the panel never lets the
+ * visitor's `page_title` stand for the link: the link reads the page's real
+ * host (pageLinkLabel), and the title is shown beside it as plain text.
  */
 
-/** `raw` as an absolute http(s) URL, or null (never throws). */
+/**
+ * `raw` as an absolute http(s) URL, or null (never throws). A user name or
+ * password in it is dropped: a page needs none, and
+ * `https://shop.example@evil.example/` must not read as the shop.
+ */
 export function httpPageUrl(raw: unknown): URL | null {
   if (typeof raw !== 'string' || !raw) return null;
   try {
     const url = new URL(raw);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url : null;
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    url.username = '';
+    url.password = '';
+    return url;
   } catch {
     return null;
   }
@@ -28,4 +42,9 @@ export function visitorPageUrl(raw: unknown, origin: unknown): URL | null {
   const site = httpPageUrl(origin);
   if (!url || !site) return null;
   return url.protocol === site.protocol && url.host === site.host ? url : null;
+}
+
+/** What a page link reads: where it really goes (its host), never the visitor's title. */
+export function pageLinkLabel(url: URL): string {
+  return url.hostname;
 }

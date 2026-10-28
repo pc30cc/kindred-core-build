@@ -9,7 +9,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, fakeClient } from './fakeDb';
 import { startTestServer } from './callWidgetHttp';
-import { httpPageUrl, visitorPageUrl } from '../../../shared/callCenter/visitorPageUrl';
+import { httpPageUrl, pageLinkLabel, visitorPageUrl } from '../../../shared/callCenter/visitorPageUrl';
 
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => fakeClient }));
@@ -60,6 +60,14 @@ describe('visitorPageUrl (the rule)', () => {
     expect(visitorPageUrl('http://localhost:5173/p', 'http://localhost:5173')?.href).toBe('http://localhost:5173/p');
     // Normalized as a browser would: the address that was checked is the one stored.
     expect(visitorPageUrl('https://SHOP.example/a b', ORIGIN)?.href).toBe('https://shop.example/a%20b');
+    // No user name or password is kept: `shop.example@` must not read as the shop.
+    expect(visitorPageUrl('https://user:pw@shop.example/a', ORIGIN)?.href).toBe('https://shop.example/a');
+    expect(visitorPageUrl('https://shop.example@evil.example/x', 'https://evil.example')?.href).toBe('https://evil.example/x');
+  });
+
+  it('pageLinkLabel reads the real host, whatever the address says before it', () => {
+    expect(pageLinkLabel(visitorPageUrl(LEGIT, ORIGIN)!)).toBe('shop.example');
+    expect(pageLinkLabel(httpPageUrl('https://shop.example:pw@evil.example:8443/shop.example')!)).toBe('evil.example');
   });
 
   it.each(HOSTILE)('drops %j', (raw) => {

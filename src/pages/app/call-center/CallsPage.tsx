@@ -25,7 +25,7 @@ import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { IdentityRowSkeleton } from '@/components/common/IdentitySkeleton';
 import { contactDisplayName } from '@/lib/contact-display';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
-import { visitorPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
+import { pageLinkLabel, visitorPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
 const TYPES = ['all', 'audio', 'video'];
@@ -742,7 +742,13 @@ export default function CallsPage() {
                 <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.endReason')}</div>{detail.call.end_reason ? endReasonLabel(t, detail.call.end_reason) : '—'}</div>
               </div>
               {detailPage && (
-                <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detailPage.href} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detailPage.href}</a></div>
+                <div className="text-sm">
+                  <div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div>
+                  {/* The title is the visitor's to write: plain text. The link
+                      reads where it really goes (visitorPageUrl.ts). */}
+                  {detail.call.page_title && <div className="truncate">{detail.call.page_title}</div>}
+                  <a href={detailPage.href} target="_blank" rel="noreferrer" dir="ltr" title={detailPage.href} className="underline truncate block">{pageLinkLabel(detailPage)}</a>
+                </div>
               )}
               {/* Same canonical IP/geo panel as Inbox / Live Queue — fed from
                   the page-level batch read, so opening the sheet costs nothing. */}

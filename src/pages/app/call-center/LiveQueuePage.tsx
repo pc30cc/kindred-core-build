@@ -61,7 +61,7 @@ import {
   EmptyState, LiveDot, Panel, PanelSkeleton, SectionHeading, StatusChip, ToneBar,
   TONE_DOT, TONE_TEXT, type Tone,
 } from '@/features/calls/callCenterUi';
-import { visitorPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
+import { pageLinkLabel, visitorPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
 
 /** SLA threshold, in seconds, after which a waiting call counts as breached. */
 const SLA_BREACH_SECONDS = 180;
@@ -1040,11 +1040,16 @@ export default function LiveQueuePage() {
                         {detail.call.subject && (
                           <div className="text-sm"><span className="text-muted-foreground">{t('callCenter.queue.subjectLabel')}: </span>{detail.call.subject}</div>
                         )}
+                        {/* The title is the visitor's to write: plain text. The
+                            link reads where it really goes (visitorPageUrl.ts). */}
+                        {selectedPage && detail.call.page_title && (
+                          <div className="truncate text-sm">{detail.call.page_title}</div>
+                        )}
                         {selectedPage && (
                           <div className="flex items-center gap-1.5 text-sm">
                             <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <a href={selectedPage.href} target="_blank" rel="noreferrer" className="truncate underline">
-                              {detail.call.page_title || selectedPage.href}
+                            <a href={selectedPage.href} target="_blank" rel="noreferrer" dir="ltr" title={selectedPage.href} className="truncate underline">
+                              {pageLinkLabel(selectedPage)}
                             </a>
                           </div>
                         )}

@@ -5,13 +5,13 @@
  * article is its workspace's writing, untrusted to the visitors of its help
  * center.
  *
- * sanitize-html is pinned at 2.17.5: every later release needs Node 22.12
- * (htmlparser2 12 is ESM-only) and the backend image is node:20. npm audit
- * flags 2.17.5 for four moderate advisories (a solidus-closed textarea, an
- * early end of a no-text region, SVG SMIL schemes, meta refresh). None is
- * reachable while svg, math, meta, textarea, xmp, noscript and template stay
- * out of KB_ARTICLE_TAGS; src/test/kb/kbArticleHtmlFixtures.ts carries a
- * payload shaped like each. Move to >= 2.18 with the image's Node 22.
+ * sanitize-html 2.18 (its htmlparser2 12 is ESM-only, so it needs Node 22.12;
+ * the images run Node 24). It fixes the four moderate advisories npm audit
+ * flagged against 2.17.5 (a solidus-closed textarea, an early end of a
+ * no-text region, SVG SMIL schemes, meta refresh), none of which was
+ * reachable here while svg, math, meta, textarea, xmp, noscript and template
+ * stay out of KB_ARTICLE_TAGS; src/test/kb/kbArticleHtmlFixtures.ts carries
+ * a payload shaped like each.
  */
 import sanitizeHtml from 'sanitize-html';
 import {

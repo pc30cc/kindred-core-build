@@ -48,7 +48,7 @@ import { adminNotificationEmailRouter } from './adminNotificationEmail.js';
 import { adminWidgetCatalogRouter } from './adminWidgetCatalog.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
-import { isNewPlatformWebsite } from '../services/platformHosts.js';
+import { storeFirstWebsite, websiteEdit } from '../services/ownerWebsite.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { issueImpersonationToken } from '../services/auth/impersonation.js';
@@ -473,18 +473,15 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
     const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
-    // Same rule as PATCH /api/account/me: the website becomes a verified
-    // domain of that account's next workspace, so it never names a platform
-    // host (services/platformHosts.ts). An unchanged value saves as before.
-    if (await isNewPlatformWebsite(config, userId, body.website_domain)) {
-      return res.status(400).json({
-        error: 'This address belongs to the platform and cannot be a customer website.',
-        code: 'PLATFORM_DOMAIN',
-      });
-    }
+    // Same rule as PATCH /api/account/me (services/ownerWebsite.ts): a stored
+    // website is fixed, for Super Admin too. The form sends the whole row, so
+    // the same website saves; a profile without one may get one, once.
+    const website = await websiteEdit(config, userId, body.website_domain);
+    if (website.ok === false) return res.status(website.status).json({ error: website.code, code: website.code });
+    if (website.write) await storeFirstWebsite(config, userId, website.write);
 
     const patch: Record<string, unknown> = {};
-    for (const key of ['full_name', 'company_name', 'website_domain', 'preferred_locale'] as const) {
+    for (const key of ['full_name', 'company_name', 'preferred_locale'] as const) {
       if (key in body) patch[key] = (body as Record<string, unknown>)[key] || null;
     }
 

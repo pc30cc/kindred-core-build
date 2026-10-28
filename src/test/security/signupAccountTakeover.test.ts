@@ -474,8 +474,8 @@ describe('E — concurrent signups for the same not-yet-existing email', () => {
   it('only one profile is created; the loser gets a duplicate response, not a second credential set', async () => {
     const email = 'racer@example.com';
     const [first, second] = await Promise.all([
-      call('POST', '/api/auth/signup', { body: { email, password: 'RacerPasswordOne1', website: '' } }),
-      call('POST', '/api/auth/signup', { body: { email, password: 'RacerPasswordTwo2', website: '' } }),
+      call('POST', '/api/auth/signup', { body: { email, password: 'RacerPasswordOne1', website: 'racer-one.example' } }),
+      call('POST', '/api/auth/signup', { body: { email, password: 'RacerPasswordTwo2', website: 'racer-two.example' } }),
     ]);
     const statuses = [first.status, second.status].sort();
     expect(statuses).toEqual([200, 409]);

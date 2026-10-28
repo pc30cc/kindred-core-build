@@ -1080,11 +1080,28 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
   const { data: existing } = await sb
     .from('workspace_domains')
-    .select('id, domain, workspace_id')
+    .select('id, domain, workspace_id, is_primary')
     .eq('id', req.params.id)
     .maybeSingle();
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
-  const existingDomain = existing as { id: string; domain: string; workspace_id: string };
+  const existingDomain = existing as { id: string; domain: string; workspace_id: string; is_primary: boolean | null };
+
+  // The primary domain is the website registered at signup and fixed for
+  // good (owner, 2026-10-28; services/ownerWebsite.ts), for Super Admin too:
+  // it keeps its value and its flag, and no other row takes the flag.
+  const fixed = { error: 'The primary domain cannot be changed.', code: 'PRIMARY_DOMAIN_FIXED' };
+  if (existingDomain.is_primary && parsed.data.is_primary === false) return res.status(403).json(fixed);
+  if (!existingDomain.is_primary && parsed.data.is_primary === true) {
+    const { data: primary, error: primaryError } = await sb
+      .from('workspace_domains')
+      .select('id')
+      .eq('workspace_id', existingDomain.workspace_id)
+      .eq('is_primary', true)
+      .limit(1)
+      .maybeSingle();
+    if (primaryError) return res.status(500).json({ error: primaryError.message });
+    if (primary) return res.status(403).json(fixed);
+  }
 
   const update: Record<string, unknown> = {};
   let nextDomain: string | null = null;
@@ -1094,6 +1111,7 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
       const failure = input as Extract<DomainInputResult, { ok: false }>;
       return res.status(400).json({ error: failure.message, code: failure.code });
     }
+    if (existingDomain.is_primary && input.domain !== existingDomain.domain) return res.status(403).json(fixed);
     // The row keeps its `verified` flag, so a platform host
     // (services/platformHosts.ts) would become a verified claim on it: only
     // the platform's own workspace may hold one.

@@ -32,6 +32,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
+import { websiteFor } from './testWebsite';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
@@ -322,7 +323,7 @@ function extractTokenFromUrl(url: string): string {
 }
 
 async function signupAndVerify(email: string, password: string): Promise<{ cookie: string }> {
-  const signupRes = await call('POST', '/api/auth/signup', { body: { email, password, fullName: 'Acceptance User' } });
+  const signupRes = await call('POST', '/api/auth/signup', { body: { email, password, fullName: 'Acceptance User', website: websiteFor(email) } });
   expect(signupRes.status).toBe(200);
 
   const sent = capturedEmails.find((e) => e.templateSlug === 'email_verify' && e.actionUrl);
@@ -376,7 +377,7 @@ suite('Fresh self-host acceptance: signup -> verify -> session -> workspace boot
     const before = await db.query(`SELECT count(*)::int AS n FROM auth.users`);
 
     const res = await call('POST', '/api/auth/signup', {
-      body: { email: 'owner@acceptance.example.com', password: 'CorrectHorseBattery1', fullName: 'Owner User' },
+      body: { email: 'owner@acceptance.example.com', password: 'CorrectHorseBattery1', fullName: 'Owner User', website: websiteFor('owner@acceptance.example.com') },
     });
     expect(res.status).toBe(200);
 

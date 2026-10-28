@@ -24,6 +24,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
+import { websiteFor } from './testWebsite';
 import type { ServerConfig } from '../../../server/config.js';
 import { SUPPORTED_NOTIFICATION_LOCALES, renderOtpEmail } from '../../../server/services/invitations/notificationTemplates.js';
 
@@ -345,7 +346,7 @@ const cookieOf = (res: Res, name: string): string | null => {
 const rid = () => crypto.randomUUID();
 
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
-  const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
+  const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User', website: websiteFor(email) } });
   expect(signup.status).toBe(200);
   // The verification mail is dispatched after the HTTP response is flushed,
   // so wait for the real delivery instead of assuming a same-tick send.
@@ -558,6 +559,10 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
       [owner.workspaceId, body.email.toLowerCase()],
     );
     expect(members.rows[0].n).toBe(1);
+    // An invited member joins without a website: only an owner's signup
+    // requires one (owner, 2026-10-28; server/services/ownerWebsite.ts).
+    const invitee = await db.query(`SELECT website_domain FROM public.profiles WHERE email = $1`, [body.email.toLowerCase()]);
+    expect(invitee.rows[0].website_domain).toBeNull();
 
     const consent = await db.query(
       `SELECT count(*)::int AS n FROM public.workspace_invitation_consents c

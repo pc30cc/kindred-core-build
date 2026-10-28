@@ -4,9 +4,10 @@
  * refuses a platform host (server/services/platformHosts.ts), and lets a
  * customer domain through exactly as before:
  *
- *   POST  /api/auth/signup                 drops it (like a website that does not parse)
+ *   POST  /api/auth/signup                 refuses it, before any row exists
  *   PATCH /api/account/me                  refuses a new one, saves an unchanged one
  *   PATCH /api/admin/users/:id/profile     the same, for Super Admin
+ *                                          (a stored website is fixed: services/ownerWebsite.ts)
  *   POST  /api/workspaces/provision-account and POST /api/workspaces
  *                                          clear a stored one before the INSERT whose
  *                                          trigger would verify it
@@ -42,6 +43,7 @@ vi.mock('../../../server/supabase.js', () => {
     const builder: any = {
       select: () => builder,
       eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return builder; },
+      is: (col: string, val: unknown) => { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
       in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return builder; },
       order: () => builder,
       limit: () => builder,
@@ -165,6 +167,12 @@ const SQL_ONLY = (value: string) => value.includes('\u0130');
 
 const profileOf = (id: string) => state.db.profiles.find((p) => p.id === id);
 
+/** Refused: PLATFORM_DOMAIN when the domain check takes the spelling, else that check's 400. */
+function expectRefused(res: { status: number; body: Row }) {
+  if (res.status === 409) expect(res.body.code).toBe('PLATFORM_DOMAIN');
+  else expect(res.status).toBe(400);
+}
+
 describe.each([
   ['WebYar', 'webyar.ai'],
   ['RESPOK', 'respok.app'],
@@ -190,6 +198,7 @@ describe.each([
       workspace_domains: [
         { id: 'd-platform', workspace_id: PLATFORM_WS, domain: apex, normalized_domain: apex, verified: true, is_primary: true },
         { id: 'd-customer', workspace_id: CUSTOMER_WS, domain: 'ninisite.com', normalized_domain: 'ninisite.com', verified: true, is_primary: true },
+        { id: 'd-extra', workspace_id: CUSTOMER_WS, domain: 'extra.example', normalized_domain: 'extra.example', verified: true, is_primary: false },
       ],
     };
   });
@@ -199,60 +208,58 @@ describe.each([
       request(app).post('/api/auth/signup').send({ email: `new-${Math.random()}@example.test`, password: 'correct horse 9', ...body });
     const stored = (id: string) => profileOf(id)?.website_domain;
 
-    it.each(REFUSED(apex))('drops the website %j, from either field', async (value) => {
-      const viaMetadata = await signup({ website: value, metadata: { websiteDomain: value } });
-      expect(viaMetadata.status).toBe(200);
-      expect(stored(viaMetadata.body.user.id)).toBeNull();
-      const viaWebsite = await signup({ website: value });
-      // `website` is stored as a URL, which reads U+0130 as punycode (xn--…),
-      // never the platform host; metadata.websiteDomain is stored as typed.
-      if (SQL_ONLY(value)) expect(stored(viaWebsite.body.user.id)).not.toMatch(new RegExp(`(^|[/.])${apex.replace('.', '\\.')}$`));
-      else expect(stored(viaWebsite.body.user.id)).toBeNull();
+    it.each(REFUSED(apex))('refuses the website %j, from either field, creating nothing', async (value) => {
+      const before = state.db.profiles.length;
+      for (const body of [{ website: value, metadata: { websiteDomain: value } }, { website: '', metadata: { websiteDomain: value } }, { website: value }]) {
+        expectRefused(await signup(body));
+      }
+      expect(state.db.profiles.length).toBe(before);
     });
 
-    it('keeps a customer website exactly as before (metadata first, then the URL form of `website`)', async () => {
-      const both = await signup({ website: 'shop.example', metadata: { websiteDomain: 'shop.example' } });
+    it('stores a customer website in the canonical form it was checked in', async () => {
+      const both = await signup({ website: 'Shop.Example', metadata: { websiteDomain: 'Shop.Example' } });
       expect(stored(both.body.user.id)).toBe('shop.example');
-      const websiteOnly = await signup({ website: 'ninisite.com' });
-      expect(stored(websiteOnly.body.user.id)).toBe('https://ninisite.com');
+      const websiteOnly = await signup({ website: 'https://www.other-shop.example/' });
+      expect(stored(websiteOnly.body.user.id)).toBe('other-shop.example');
     });
 
     it('ignores a metadata website that is not a string', async () => {
       const res = await signup({ website: 'shop.example', metadata: { websiteDomain: { host: `api.${apex}` } } });
-      expect(stored(res.body.user.id)).toBe('https://shop.example');
+      expect(stored(res.body.user.id)).toBe('shop.example');
     });
   });
 
   describe('PATCH /api/account/me', () => {
-    it.each(REFUSED(apex))('refuses the website %j', async (value) => {
-      const res = await request(app).patch('/api/account/me').send({ website_domain: value });
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe('PLATFORM_DOMAIN');
-      expect(profileOf(USER)!.website_domain).toBe('shop.example');
+    it.each(REFUSED(apex))('refuses the website %j as the first one of a profile', async (value) => {
+      profileOf(USER)!.website_domain = null;
+      expectRefused(await request(app).patch('/api/account/me').send({ website_domain: value }));
+      expect(profileOf(USER)!.website_domain).toBeNull();
     });
 
-    it('saves a customer website, a cleared one, and an unchanged stored value', async () => {
-      expect((await request(app).patch('/api/account/me').send({ website_domain: 'ninisite.com' })).status).toBe(200);
-      expect(profileOf(USER)!.website_domain).toBe('ninisite.com');
-      expect((await request(app).patch('/api/account/me').send({ website_domain: null })).status).toBe(200);
-      expect(profileOf(USER)!.website_domain).toBeNull();
+    it('saves a customer website as the first one, and an unchanged stored value', async () => {
+      profileOf(USER)!.website_domain = null;
+      expect((await request(app).patch('/api/account/me').send({ website_domain: 'other-shop.example' })).status).toBe(200);
+      expect(profileOf(USER)!.website_domain).toBe('other-shop.example');
       // A value stored before this guard is not a new claim: the form may send it back.
       profileOf(USER)!.website_domain = apex;
       expect((await request(app).patch('/api/account/me').send({ website_domain: apex, full_name: 'Owner' })).status).toBe(200);
+      expect(profileOf(USER)!.website_domain).toBe(apex);
     });
   });
 
   describe('PATCH /api/admin/users/:id/profile (Super Admin)', () => {
-    it('refuses a platform host as anyone\'s website, saves the rest as before', async () => {
-      const refused = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: `https://api.${apex}` });
-      expect(refused.status).toBe(400);
+    it('refuses a platform host as anyone\'s first website, saves a customer one', async () => {
+      profileOf(OWNER)!.website_domain = null;
+      const refused = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: `api.${apex}` });
+      expect(refused.status).toBe(409);
       expect(refused.body.code).toBe('PLATFORM_DOMAIN');
+      expect(profileOf(OWNER)!.website_domain).toBeNull();
       const dotted = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: `app.${apex}`.replace(/i/g, '\u0130') });
-      expect(dotted.status).toBe(400);
-      expect(profileOf(OWNER)!.website_domain).toBe('ninisite.com');
-      const saved = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: 'shop.example', full_name: 'X' });
+      expect(dotted.status).toBeGreaterThanOrEqual(400);
+      expect(profileOf(OWNER)!.website_domain).toBeNull();
+      const saved = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: 'shop2.example', full_name: 'X' });
       expect(saved.status).toBe(200);
-      expect(profileOf(OWNER)!.website_domain).toBe('shop.example');
+      expect(profileOf(OWNER)!.website_domain).toBe('shop2.example');
     });
   });
 
@@ -328,16 +335,16 @@ describe.each([
 
   describe('PATCH /api/admin/management/domains/:id (Super Admin)', () => {
     it('refuses to rewrite a customer\'s verified row into a platform host', async () => {
-      const res = await request(app).patch('/api/admin/management/domains/d-customer').send({ domain: `api.${apex}` });
+      const res = await request(app).patch('/api/admin/management/domains/d-extra').send({ domain: `api.${apex}` });
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('PLATFORM_DOMAIN');
-      expect(state.db.workspace_domains.find((d) => d.id === 'd-customer')!.domain).toBe('ninisite.com');
+      expect(state.db.workspace_domains.find((d) => d.id === 'd-extra')!.domain).toBe('extra.example');
     });
 
-    it('rewrites a customer row to a customer domain, and the platform row to a platform host, as before', async () => {
-      expect((await request(app).patch('/api/admin/management/domains/d-customer').send({ domain: 'shop.example' })).status).toBe(200);
+    it('rewrites a customer row to a customer domain, and saves the platform\'s primary row unchanged, as before', async () => {
+      expect((await request(app).patch('/api/admin/management/domains/d-extra').send({ domain: 'shop.example' })).status).toBe(200);
       expect((await request(app).patch('/api/admin/management/domains/d-platform').send({ domain: `www.${apex}` })).status).toBe(200);
-      expect(state.db.workspace_domains.find((d) => d.id === 'd-customer')!.domain).toBe('shop.example');
+      expect(state.db.workspace_domains.find((d) => d.id === 'd-extra')!.domain).toBe('shop.example');
     });
   });
 });

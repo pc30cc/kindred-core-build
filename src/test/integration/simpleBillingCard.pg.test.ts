@@ -74,6 +74,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { createFullChainDatabase, type FullChainDatabase } from './fullChainDatabase';
+import { websiteFor } from './testWebsite';
 import { periodEndOf } from '../../../server/services/billing/account/cardState';
 import {
   FakePaddle,
@@ -527,7 +528,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     fake.connect((body, headers) => call('POST', `/api/billing/webhook/${PROVIDER}`, body, headers, ''));
 
     const signIn = async (email: string) => {
-      expect((await call('POST', '/api/auth/signup', { email, password: 'correct horse battery 9', fullName: 'Owner' }, {}, '')).status).toBe(200);
+      expect((await call('POST', '/api/auth/signup', { email, password: 'correct horse battery 9', fullName: 'Owner', website: websiteFor(email) }, {}, '')).status).toBe(200);
       const link = captured.emails.find((e) => e.to === email && e.templateSlug === 'email_verify')?.data.action_url;
       expect((await call('POST', '/api/auth-email/verify-email', { token: new URL(String(link)).searchParams.get('token') }, {}, '')).status).toBe(200);
       const login = await call('POST', '/api/auth/login', { email, password: 'correct horse battery 9' }, {}, '');

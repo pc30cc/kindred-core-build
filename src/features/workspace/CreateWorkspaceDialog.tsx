@@ -7,12 +7,13 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { Label } from '@/components/ui/label';
-import { Globe, Loader2, Lock, Sparkles, ArrowUpRight } from 'lucide-react';
+import { Loader2, Lock, Sparkles, ArrowUpRight } from 'lucide-react';
 import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { useCreateWorkspace, useAccount } from '@/hooks/useWorkspace';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { isDomainRefusal, settingsErrorMessage } from '@/lib/settingsErrors';
 import { useWorkspaceCapacity, type WorkspaceCapacity } from './useWorkspaceCapacity';
 
 interface CreateWorkspaceDialogProps {
@@ -24,7 +25,6 @@ interface CreateWorkspaceDialogProps {
 
 export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: CreateWorkspaceDialogProps) {
   const [name, setName] = useState('');
-  const [domain, setDomain] = useState('');
   const navigate = useNavigate();
   const { data: account } = useAccount();
   const createWorkspace = useCreateWorkspace();
@@ -53,7 +53,6 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
 
       toast.success(t('workspaceCreate.created'));
       setName('');
-      setDomain('');
       onOpenChange(false);
 
       navigate(newWs?.slug ? `/${newWs.slug}` : '/app');
@@ -66,6 +65,8 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
       } else if (msg.includes('workspace_limit_reached')) {
         setOverride(capacity ? { ...capacity, canCreate: false } : null);
         toast.error(t('workspaceCreate.limitTitle'));
+      } else if (isDomainRefusal(err)) {
+        toast.error(settingsErrorMessage(err, t));
       } else {
         toast.error(msg || t('workspaceCreate.failed'));
       }
@@ -160,22 +161,6 @@ export function CreateWorkspaceDialog({ open, onOpenChange, upgradeHref }: Creat
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">{t('workspaceCreate.nameHint')}</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ws-domain">{t('workspaceCreate.domainLabel')}</Label>
-                <div className="relative">
-                  <Globe className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    id="ws-domain"
-                    dir="ltr"
-                    placeholder={t('workspaceCreate.domainPlaceholder')}
-                    value={domain}
-                    onChange={(e) => setDomain(e.target.value)}
-                    className="ps-9 text-start"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">{t('workspaceCreate.domainHint')}</p>
               </div>
 
               <div className="flex justify-end gap-2 pt-1">

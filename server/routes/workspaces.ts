@@ -191,6 +191,7 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   await dropPlatformWebsite(config, (accountId && (await accountOwnerId(config, accountId))) || userId);
 
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
+  if (isVerifiedDomainConflict(error)) return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
   if (error) return res.status(500).json({ error: error.message });
 
   // NEW signups only: give the freshly created workspace its starting plan
@@ -209,6 +210,17 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   }
   return res.json({ ok: true });
 });
+
+/**
+ * The workspace INSERT trigger verified the owner's website, and another
+ * workspace already holds it verified (workspace_domains_verified_domain_uniq).
+ * Signup refuses such a website first (services/ownerWebsite.ts); this is a
+ * claim made in between, or a website stored before. The RPC rolls back as a
+ * whole, so no account or workspace is left behind.
+ */
+function isVerifiedDomainConflict(error: { message?: string } | null): boolean {
+  return !!error && /workspace_domains_verified_domain_uniq/.test(error.message || '');
+}
 
 /**
  * The owner of an account: the profile whose website the workspace INSERT
@@ -364,6 +376,7 @@ workspacesRouter.post('/', async (req, res) => {
     _slug: '',
     _user_id: userId,
   });
+  if (isVerifiedDomainConflict(error)) return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
   if (error) return res.status(400).json({ error: error.message });
 
 
@@ -621,12 +634,19 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
 async function loadDomainForWorkspace(sb: ReturnType<typeof getServiceClient>, workspaceId: string, domainId: string) {
   const { data } = await sb
     .from('workspace_domains')
-    .select('id, domain')
+    .select('id, domain, is_primary')
     .eq('id', domainId)
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   return data;
 }
+
+/**
+ * THE PRIMARY DOMAIN IS FIXED (owner, 2026-10-28): it is the website
+ * registered at signup (services/ownerWebsite.ts), so it is never removed or
+ * replaced. Other domains are added and removed as before.
+ */
+const PRIMARY_DOMAIN_FIXED = { error: 'The primary domain cannot be changed.', code: 'PRIMARY_DOMAIN_FIXED' };
 
 workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: WorkspaceDomainRequest, res) => {
   const config: ServerConfig = serverConfigOf(req);
@@ -635,6 +655,7 @@ workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: 
   const sb = getServiceClient(config);
   const existing = await loadDomainForWorkspace(sb, workspaceId, domainId);
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  if (existing.is_primary) return res.status(403).json(PRIMARY_DOMAIN_FIXED);
   const { error } = await sb.from('workspace_domains').delete().eq('id', domainId);
   if (error) return res.status(500).json({ error: error.message });
   // Removal must take effect immediately — a removed domain keeps working
@@ -656,6 +677,17 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/domains/:domainId/primary`, async
   const sb = getServiceClient(config);
   const existing = await loadDomainForWorkspace(sb, workspaceId, domainId);
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  if (existing.is_primary) return res.json({ success: true });
+  // Only a workspace without a primary domain (no website) may choose one.
+  const { data: primary, error: primaryError } = await sb
+    .from('workspace_domains')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('is_primary', true)
+    .limit(1)
+    .maybeSingle();
+  if (primaryError) return res.status(500).json({ error: primaryError.message });
+  if (primary) return res.status(403).json(PRIMARY_DOMAIN_FIXED);
   await sb.from('workspace_domains').update({ is_primary: false }).eq('workspace_id', workspaceId);
   const { error } = await sb.from('workspace_domains').update({ is_primary: true }).eq('id', domainId);
   if (error) return res.status(500).json({ error: error.message });

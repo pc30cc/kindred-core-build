@@ -20,6 +20,9 @@ const BY_CODE: Record<string, TranslationKey> = {
   domain_taken: 'settings.errors.domainTaken',
   // A platform host (api.<brand>, app.<brand>, …) is the platform's own.
   platform_domain: 'settings.errors.domainTaken',
+  // The website and the primary domain are fixed once registered (owner, 2026-10-28).
+  website_fixed: 'settings.errors.forbidden',
+  primary_domain_fixed: 'settings.errors.forbidden',
   'not a member of this workspace': 'settings.errors.forbidden',
   forbidden: 'settings.errors.forbidden',
   'domain not found': 'settings.errors.notFound',
@@ -29,6 +32,7 @@ const BY_CODE: Record<string, TranslationKey> = {
 const DOMAIN_CODES = new Set([
   'invalid_type', 'empty', 'whitespace', 'too_long', 'invalid_scheme', 'userinfo_not_allowed',
   'path_not_allowed', 'port_not_allowed', 'malformed', 'localhost_not_allowed', 'ip_not_allowed',
+  'wildcard_not_allowed',
 ]);
 
 /** A request's refusal: its `code` or `error`, and its HTTP status. */
@@ -43,11 +47,26 @@ export class SettingsRequestError extends Error {
   }
 }
 
-export function settingsErrorMessage(err: unknown, t: Translate): string {
-  if (err instanceof TypeError) return t('settings.errors.network');
-  const code = String(
+/** The refusal's code, lowercased: a SettingsRequestError's, else the message. */
+function codeOf(err: unknown): string {
+  return String(
     err instanceof SettingsRequestError ? err.code : err instanceof Error ? err.message : err ?? '',
   ).trim().toLowerCase();
+}
+
+/**
+ * A domain or website refusal (taken, a platform host, or one the domain
+ * checks reject): signup and first-run provisioning show its sentence in
+ * place of the server's code.
+ */
+export function isDomainRefusal(err: unknown): boolean {
+  const code = codeOf(err);
+  return code === 'domain_taken' || code === 'platform_domain' || DOMAIN_CODES.has(code);
+}
+
+export function settingsErrorMessage(err: unknown, t: Translate): string {
+  if (err instanceof TypeError) return t('settings.errors.network');
+  const code = codeOf(err);
   const status = err instanceof SettingsRequestError ? err.status : 0;
   if (BY_CODE[code]) return t(BY_CODE[code]);
   if (DOMAIN_CODES.has(code)) return t('settings.errors.domainInvalid');

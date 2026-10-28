@@ -33,6 +33,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { createFullChainDatabase, type FullChainDatabase } from './fullChainDatabase';
 import { FakePaddle, installOutboundGuard, type OutboundGuard } from './fakePaddle';
+import { websiteFor } from './testWebsite';
 
 const DSN = process.env.TEST_DATABASE_URL;
 if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
@@ -168,7 +169,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
 
     // A real owner: sign up, verify, log in, create the workspace.
     const email = `owner-${Date.now()}@example.test`;
-    expect((await call('POST', '/api/auth/signup', { email, password: 'correct horse battery 9', fullName: 'Owner' })).status).toBe(200);
+    expect((await call('POST', '/api/auth/signup', { email, password: 'correct horse battery 9', fullName: 'Owner', website: websiteFor(email) })).status).toBe(200);
     const link = captured.emails.find((e) => e.to === email && e.templateSlug === 'email_verify')?.actionUrl;
     expect((await call('POST', '/api/auth-email/verify-email', { token: new URL(link!).searchParams.get('token') })).status).toBe(200);
     const login = await call('POST', '/api/auth/login', { email, password: 'correct horse battery 9' });

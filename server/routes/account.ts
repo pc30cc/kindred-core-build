@@ -40,7 +40,7 @@ import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { disableOtherDevices } from '../services/push/devices.js';
-import { isNewPlatformWebsite } from '../services/platformHosts.js';
+import { storeFirstWebsite, websiteEdit } from '../services/ownerWebsite.js';
 
 export const accountRouter = Router();
 
@@ -174,17 +174,14 @@ accountRouter.patch('/me', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
-    // The website becomes a VERIFIED domain of the account's next workspace
-    // (trg_workspaces_auto_register_owner_domain): never one of the
-    // platform's own hosts (services/platformHosts.ts).
-    if (await isNewPlatformWebsite(config, user.id, parsed.data.website_domain)) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        code: 'PLATFORM_DOMAIN',
-        details: { website_domain: ['This address belongs to the platform, not to your website.'] },
-      });
-    }
+    // The website is fixed once stored (owner, 2026-10-28;
+    // services/ownerWebsite.ts): the same one again saves, any other value
+    // (null and '' included) is refused, and a profile without one may set
+    // one, once, checked as at signup.
+    const website = await websiteEdit(config, user.id, parsed.data.website_domain);
+    if (website.ok === false) return res.status(website.status).json({ error: website.code, code: website.code });
     const sb = getServiceClient(config);
+    if (website.write) await storeFirstWebsite(config, user.id, website.write);
 
     // Compose full_name from first/last if provided explicitly
     const updates: Record<string, unknown> = {};
@@ -194,7 +191,7 @@ accountRouter.patch('/me', async (req, res) => {
       const combined = [first, last].filter(Boolean).join(' ').trim();
       if (combined) updates.full_name = combined;
     }
-    for (const k of ['full_name', 'preferred_locale', 'company_name', 'website_domain'] as const) {
+    for (const k of ['full_name', 'preferred_locale', 'company_name'] as const) {
       if (parsed.data[k] !== undefined) updates[k] = parsed.data[k];
     }
 

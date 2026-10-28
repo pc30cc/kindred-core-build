@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
 import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { resendMyVerificationEmail } from '@/lib/api';
+import { isDomainRefusal, settingsErrorMessage } from '@/lib/settingsErrors';
 import { toast } from '@/lib/toast';
 import { useEffect, useRef, useState } from 'react';
 // Same-origin in dev/preview (Vite proxy), configured origin in production.
@@ -69,6 +70,9 @@ export function WorkspaceRedirect() {
             setNeedsVerification(true);
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
             setError(t('workspaceRedirect.connectionFailed'));
+          } else if (isDomainRefusal(err)) {
+            // The owner's website is verified by another workspace already.
+            setError(settingsErrorMessage(err, t));
           } else {
             setError(raw || t('workspaceRedirect.createFailed'));
           }

@@ -903,7 +903,13 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.website')}</label>
-              <Input dir="ltr" value={editForm.website_domain} onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))} />
+              {/* Fixed once stored (owner, 2026-10-28); the server refuses a change too. */}
+              <Input
+                dir="ltr"
+                value={editForm.website_domain}
+                disabled={!!detail?.profile?.website_domain?.trim()}
+                onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))}
+              />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.phoneNumber')}</label>

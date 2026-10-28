@@ -320,32 +320,11 @@ export async function isPlatformWorkspace(config: ServerConfig, workspaceId: str
 }
 
 /**
- * A profile website (`profiles.website_domain`) becomes a VERIFIED domain of
- * the account's next workspace (the trigger in the header). True when `next`
- * names a platform host and is not the value already stored, so a form that
- * sends the stored value back unchanged (Super Admin → Users saves the whole
- * row) still saves; a stored one is dropped before a workspace is created
- * (`dropPlatformWebsite`).
- */
-export async function isNewPlatformWebsite(
-  config: ServerConfig,
-  userId: string,
-  next: string | null | undefined,
-): Promise<boolean> {
-  if (!next || !(await isPlatformHost(config, next))) return false;
-  const { data } = await getServiceClient(config)
-    .from('profiles')
-    .select('website_domain')
-    .eq('id', userId)
-    .maybeSingle();
-  return (data as { website_domain?: string | null } | null)?.website_domain !== next;
-}
-
-/**
  * Clears the owner's website when it names a platform host, right before a
  * workspace INSERT that would have the trigger verify it for that workspace.
- * Covers values stored before the profile writers refused them, or written
- * outside the app. Conditional on the value read, so a concurrent edit wins.
+ * Covers values stored before the profile writers refused them (a new
+ * website is checked in services/ownerWebsite.ts), or written outside the
+ * app. Conditional on the value read, so a concurrent edit wins.
  */
 export async function dropPlatformWebsite(config: ServerConfig, ownerId: string): Promise<void> {
   const sb = getServiceClient(config);

@@ -74,6 +74,11 @@ export default function SettingsDomainsPage() {
     if (value && !addDomain.isPending) addDomain.mutate(value);
   };
 
+  // The primary domain is the website registered at signup, fixed for good
+  // (owner, 2026-10-28): it is neither removed nor replaced (the server
+  // refuses both too).
+  const hasPrimary = !!domains?.some(d => d.is_primary);
+
   return (
     <div className="space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold text-foreground">{t('settings.domains')}</h1>
@@ -132,20 +137,22 @@ export default function SettingsDomainsPage() {
                   )}
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  {!domain.is_primary && (
+                  {!hasPrimary && (
                     <Button variant="ghost" size="sm" onClick={() => setPrimary.mutate(domain.id)}>
                       {t('settings.domainsPage.setPrimary')}
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={t('settings.domainsPage.remove', { domain: domain.domain })}
-                    title={t('settings.domainsPage.remove', { domain: domain.domain })}
-                    onClick={() => deleteDomain.mutate(domain.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
-                  </Button>
+                  {!domain.is_primary && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('settings.domainsPage.remove', { domain: domain.domain })}
+                      title={t('settings.domainsPage.remove', { domain: domain.domain })}
+                      onClick={() => deleteDomain.mutate(domain.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
+                    </Button>
+                  )}
                 </div>
               </div>
             ))

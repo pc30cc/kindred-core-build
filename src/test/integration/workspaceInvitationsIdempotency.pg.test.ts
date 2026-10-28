@@ -17,6 +17,7 @@
  * Driven by TEST_DATABASE_URL (or CLEAN_INSTALL_DATABASE_URL) — skipped when
  * no live PostgreSQL is configured.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any -- the PostgREST and HTTP doubles and the row reads of this suite are untyped since it was written, before the changed-file lint gate. */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
@@ -24,6 +25,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
+import { websiteFor } from './testWebsite';
 import type { PgQueryable } from './pgMigrationChain';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
@@ -41,7 +43,7 @@ type PgTestClient = PgQueryable & { end(): Promise<void> };
 
 let db: PgTestClient;
 let emailTransportFailure = false;
-let capturedEmails: Array<{ to: string; subject?: string; text?: string; templateSlug?: string; actionUrl: string | null }> = [];
+const capturedEmails: Array<{ to: string; subject?: string; text?: string; templateSlug?: string; actionUrl: string | null }> = [];
 
 process.env.INVITATION_LINK_SECRET ||= 'test-invitation-link-secret-value-32b!!';
 process.env.INVITATION_OTP_PEPPER ||= 'test-invitation-otp-pepper-value-32bytes';
@@ -284,7 +286,7 @@ const cookieOf = (res: Res, name: string): string | null => {
 const rid = () => crypto.randomUUID();
 
 async function signupAndVerify(email: string): Promise<{ cookie: string; userId: string }> {
-  const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' } });
+  const signup = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User', website: websiteFor(email) } });
   expect(signup.status).toBe(200);
   // The verification mail is dispatched after the HTTP response is flushed,
   // so wait for the real delivery instead of assuming a same-tick send.

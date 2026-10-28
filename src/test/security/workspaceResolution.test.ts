@@ -13,6 +13,7 @@
  * workspaces, and that it stays tenant-isolated (never returns a workspace
  * the caller isn't a member of).
  */
+/* eslint-disable @typescript-eslint/no-explicit-any -- the PostgREST and HTTP doubles and the JSON reads of this suite are untyped since it was written, before the changed-file lint gate. */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
 import express from 'express';
@@ -135,10 +136,11 @@ beforeEach(() => {
   // Both callers are verified — this file isn't about the email-verification
   // gate (see emailVerificationPolicy.test.ts for that); it's about
   // provision-account always using the SESSION user id, so both users must
-  // clear the gate to reach that logic.
+  // clear the gate to reach that logic. Each signed up with its website,
+  // which a new account requires (server/services/ownerWebsite.ts).
   db.profiles = [
-    { id: USER_A, email: 'user-a@example.com', full_name: 'User A', phone: null, created_at: '2026-01-01' },
-    { id: USER_B, email: 'user-b@example.com', full_name: 'User B', phone: null, created_at: '2026-01-01' },
+    { id: USER_A, email: 'user-a@example.com', full_name: 'User A', phone: null, website_domain: 'user-a.example', created_at: '2026-01-01' },
+    { id: USER_B, email: 'user-b@example.com', full_name: 'User B', phone: null, website_domain: 'user-b.example', created_at: '2026-01-01' },
   ];
   db.user_credentials = [
     { user_id: USER_A, email_verified_at: '2026-01-01T00:00:00Z' },

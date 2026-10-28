@@ -8,6 +8,8 @@ import { useWorkspaces } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
 import { WorkspaceGlyph } from '@/components/ui/avatar-glyphs';
 import { resendMyVerificationEmail } from '@/lib/api';
@@ -28,6 +30,13 @@ export function WorkspaceRedirect() {
   const [error, setError] = useState<string | null>(null);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resending, setResending] = useState(false);
+  // The owner's website, asked for when provisioning refused the one stored
+  // (missing, or taken meanwhile): required for an account of one's own.
+  const [askWebsite, setAskWebsite] = useState(false);
+  const [website, setWebsite] = useState('');
+  // Bumped by "Try again": a refetch that finds no workspace again returns
+  // the same empty list, which alone would not run the provisioning again.
+  const [attempt, setAttempt] = useState(0);
   const attempted = useRef(false);
   const location = useLocation();
 
@@ -57,6 +66,8 @@ export function WorkspaceRedirect() {
           const res = await fetch(`${API_BASE}/api/workspaces/provision-account`, {
             method: 'POST',
             credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(website.trim() ? { website: website.trim() } : {}),
           });
           if (!res.ok) {
             const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -71,7 +82,9 @@ export function WorkspaceRedirect() {
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
             setError(t('workspaceRedirect.connectionFailed'));
           } else if (isDomainRefusal(err)) {
-            // The owner's website is verified by another workspace already.
+            // The owner's website is missing, invalid or verified by another
+            // workspace already: the existing sentence, and the website field.
+            setAskWebsite(true);
             setError(settingsErrorMessage(err, t));
           } else {
             setError(raw || t('workspaceRedirect.createFailed'));
@@ -82,7 +95,7 @@ export function WorkspaceRedirect() {
         }
       })();
     }
-  }, [isLoading, workspaces, user, provisioning, refetch, t]);
+  }, [isLoading, workspaces, user, provisioning, refetch, t, website, attempt]);
 
   if (isLoading || provisioning) {
     return <BrandLoaderScreen />;
@@ -169,10 +182,27 @@ export function WorkspaceRedirect() {
           </p>
         </div>
 
+        {askWebsite && (
+          <div className="space-y-2 text-start">
+            <Label htmlFor="websiteDomain">{t('auth.websiteDomainLabel')}</Label>
+            <Input
+              id="websiteDomain"
+              type="text"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              dir="ltr"
+              className="text-left"
+              maxLength={255}
+              required
+            />
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Button
             variant="default"
-            onClick={() => { attempted.current = false; setError(null); refetch(); }}
+            onClick={() => { attempted.current = false; setError(null); setAttempt((n) => n + 1); refetch(); }}
+            disabled={askWebsite && !website.trim()}
             className="w-full sm:w-auto gap-2"
           >
             <RefreshCw className="h-4 w-4" />

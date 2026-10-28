@@ -17,6 +17,8 @@ interface AdminDomainRow {
   workspace_id: string;
   verified: boolean | null;
   is_primary: boolean | null;
+  /** The workspace's registered website (server/services/ownerWebsite.ts). */
+  fixed?: boolean;
   workspaces?: { name: string | null } | null;
 }
 
@@ -50,10 +52,10 @@ export default function AdminDomainsPage() {
     },
   });
 
-  // A primary domain is the website registered at signup, fixed for good
-  // (owner, 2026-10-28): it is not edited, and no other row of its workspace
-  // takes the flag (the server refuses both too).
-  const withPrimary = new Set((domains ?? []).filter((d) => d.is_primary).map((d) => d.workspace_id));
+  // A registered website is fixed for good (owner, 2026-10-28): it is not
+  // edited, and while it is its workspace's primary no other row takes the
+  // flag (the server refuses both too). Other rows edit as before.
+  const primaryFixed = new Set((domains ?? []).filter((d) => d.is_primary && d.fixed).map((d) => d.workspace_id));
 
   return (
     <div className="space-y-6">
@@ -118,14 +120,14 @@ export default function AdminDomainsPage() {
                       </div>
                     ) : (
                       <div className="flex justify-end gap-1">
-                        {!withPrimary.has(d.workspace_id) && (
+                        {!d.is_primary && !primaryFixed.has(d.workspace_id) && (
                           <Button size="sm" variant="ghost" disabled={patch.isPending}
                             onClick={() => patch.mutate({ id: d.id, is_primary: true })}>
                             <Star className="h-4 w-4 me-1" />
                             {t('admin.domains.setPrimary')}
                           </Button>
                         )}
-                        {!d.is_primary && (
+                        {!d.fixed && (
                           <Button size="icon" variant="ghost"
                             onClick={() => { setEditingId(d.id); setDraft(d.domain ?? ''); }}>
                             <Pencil className="h-4 w-4" />

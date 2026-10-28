@@ -30,6 +30,7 @@ import { invalidateGlobalAdminCache } from '../lib/globalAdminCache.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { invalidatePlatformHosts, isPlatformHost, isPlatformWorkspace } from '../services/platformHosts.js';
+import { fixedDomainIds, isWebsiteRegistered, type DomainRowKey } from '../services/ownerWebsite.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
 import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
@@ -112,7 +113,12 @@ adminManagementRouter.get('/users/:userId', async (req, res) => {
     _user_id: req.params.userId,
   });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json(data);
+  // `website_fixed`: the website is registered (services/ownerWebsite.ts),
+  // so the profile edit offers no control to change it.
+  const detail = data as { profile?: { website_domain?: string | null } | null } | null;
+  if (!detail) return res.json(data);
+  const fixed = !!detail.profile?.website_domain?.trim() && (await isWebsiteRegistered(config, req.params.userId));
+  return res.json({ ...detail, website_fixed: fixed });
 });
 
 adminManagementRouter.get('/users/:userId/roles', async (req, res) => {
@@ -1056,7 +1062,10 @@ adminManagementRouter.get('/domains', async (req, res) => {
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ domains: data ?? [] });
+  // `fixed`: a workspace's registered website (services/ownerWebsite.ts).
+  const rows = (data ?? []) as Array<DomainRowKey & Record<string, unknown>>;
+  const fixed = await fixedDomainIds(serverConfigOf(req), rows);
+  return res.json({ domains: rows.map((d) => ({ ...d, fixed: fixed.has(d.id) })) });
 });
 
 // ── Edit a workspace's own domain (platform admin override) ────────────
@@ -1080,27 +1089,27 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
   const { data: existing } = await sb
     .from('workspace_domains')
-    .select('id, domain, workspace_id, is_primary')
+    .select('id, domain, workspace_id, is_primary, verified, normalized_domain')
     .eq('id', req.params.id)
     .maybeSingle();
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
-  const existingDomain = existing as { id: string; domain: string; workspace_id: string; is_primary: boolean | null };
+  const existingDomain = existing as DomainRowKey & { domain: string; is_primary: boolean | null };
 
-  // The primary domain is the website registered at signup and fixed for
-  // good (owner, 2026-10-28; services/ownerWebsite.ts), for Super Admin too:
-  // it keeps its value and its flag, and no other row takes the flag.
+  // The registered website (the row holding the account owner's website,
+  // verified) is fixed for good (owner, 2026-10-28; services/ownerWebsite.ts),
+  // for Super Admin too: it keeps its value and its flag, and while it is
+  // the primary no other row takes the flag. Other rows edit as before.
   const fixed = { error: 'The primary domain cannot be changed.', code: 'PRIMARY_DOMAIN_FIXED' };
-  if (existingDomain.is_primary && parsed.data.is_primary === false) return res.status(403).json(fixed);
+  const isFixed = (await fixedDomainIds(serverConfigOf(req), [existingDomain])).size > 0;
+  if (isFixed && existingDomain.is_primary && parsed.data.is_primary === false) return res.status(403).json(fixed);
   if (!existingDomain.is_primary && parsed.data.is_primary === true) {
     const { data: primary, error: primaryError } = await sb
       .from('workspace_domains')
-      .select('id')
+      .select('id, workspace_id, verified, normalized_domain')
       .eq('workspace_id', existingDomain.workspace_id)
-      .eq('is_primary', true)
-      .limit(1)
-      .maybeSingle();
+      .eq('is_primary', true);
     if (primaryError) return res.status(500).json({ error: primaryError.message });
-    if (primary) return res.status(403).json(fixed);
+    if ((await fixedDomainIds(serverConfigOf(req), (primary ?? []) as DomainRowKey[])).size) return res.status(403).json(fixed);
   }
 
   const update: Record<string, unknown> = {};
@@ -1111,7 +1120,7 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
       const failure = input as Extract<DomainInputResult, { ok: false }>;
       return res.status(400).json({ error: failure.message, code: failure.code });
     }
-    if (existingDomain.is_primary && input.domain !== existingDomain.domain) return res.status(403).json(fixed);
+    if (isFixed && input.domain !== existingDomain.domain) return res.status(403).json(fixed);
     // The row keeps its `verified` flag, so a platform host
     // (services/platformHosts.ts) would become a verified claim on it: only
     // the platform's own workspace may hold one.

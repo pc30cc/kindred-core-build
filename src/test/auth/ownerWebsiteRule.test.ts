@@ -5,15 +5,21 @@
  * (server/services/ownerWebsite.ts). Every server path:
  *
  *   POST  /api/auth/signup                   refuses a missing, invalid, platform or
- *                                            taken website before any row exists, and
+ *                                            taken website (verified, or another
+ *                                            profile's) before any row exists, and
  *                                            stores the canonical host it checked
- *   PATCH /api/account/me                    the same website saves, any other value is
- *                                            refused, a profile without one sets it once
+ *   PATCH /api/account/me                    once registered, the same website saves and
+ *                                            any other value is refused; until then it
+ *                                            is set or replaced, never cleared
  *   PATCH /api/admin/users/:id/profile       the same, for Super Admin
- *   DELETE/PATCH …/domains/:id(/primary)     the primary domain is never removed or replaced
- *   PATCH /api/admin/management/domains/:id  the same, for Super Admin
- *   POST  /api/workspaces/provision-account  a website verified elsewhere meanwhile is a
- *   POST  /api/workspaces                    clean DOMAIN_TAKEN, never the raw index error
+ *   GET   /api/admin/management/users/:id    says whether it is registered
+ *   GET/DELETE/PATCH …/domains(/:id/primary) the registered website's row is never removed
+ *                                            and keeps the flag; other rows as before
+ *   GET/PATCH /api/admin/management/domains  the same, for Super Admin
+ *   POST  /api/workspaces/provision-account  a new account needs a website, which may come
+ *                                            with the request; a website verified elsewhere
+ *   POST  /api/workspaces                    meanwhile is a clean DOMAIN_TAKEN, never the
+ *                                            raw index error
  *
  * The data layer is an in-memory double.
  */
@@ -26,6 +32,7 @@ type Row = Record<string, unknown>;
 interface Query extends PromiseLike<{ data: Row[]; error: null }> {
   select(): Query;
   eq(col: string, val: unknown): Query;
+  neq(col: string, val: unknown): Query;
   is(col: string, val: unknown): Query;
   in(col: string, vals: unknown[]): Query;
   order(): Query;
@@ -39,6 +46,7 @@ const state = vi.hoisted(() => ({
   db: {} as Record<string, Row[]>,
   userId: '',
   rpcError: null as null | { message: string; code?: string },
+  rpcCalls: [] as string[],
 }));
 
 vi.mock('../../../server/supabase.js', () => {
@@ -55,6 +63,7 @@ vi.mock('../../../server/supabase.js', () => {
     const builder: Query = {
       select: () => builder,
       eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return builder; },
+      neq: (col: string, val: unknown) => { filters.push((r) => r[col] !== val); return builder; },
       is: (col: string, val: unknown) => { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
       in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return builder; },
       order: () => builder,
@@ -73,7 +82,11 @@ vi.mock('../../../server/supabase.js', () => {
   return {
     getServiceClient: () => ({
       from,
-      rpc: async (name: string) => {
+      rpc: async (name: string, args: Row = {}) => {
+        if (name === 'admin_get_user_detail') {
+          return { data: { profile: (state.db.profiles || []).find((p) => p.id === args._user_id) ?? null }, error: null };
+        }
+        state.rpcCalls.push(name);
         if (state.rpcError) return { data: null, error: state.rpcError };
         return { data: name === 'create_workspace_atomic' ? 'ws-new' : null, error: null };
       },
@@ -148,6 +161,7 @@ beforeEach(() => {
   __resetPlatformHostsCache();
   state.userId = USER;
   state.rpcError = null;
+  state.rpcCalls = [];
   state.db = {
     platform_domains: [{
       primary_domain: 'webyar.ai',
@@ -161,9 +175,10 @@ beforeEach(() => {
       { id: OWNER, email: 'owner@example.test', website_domain: null },
     ],
     user_credentials: [],
-    accounts: [{ id: ACCOUNT, owner_id: USER }],
+    accounts: [{ id: ACCOUNT, owner_id: USER }, { id: 'acc-other', owner_id: 'someone-else' }],
     account_members: [{ account_id: ACCOUNT, user_id: USER }],
-    workspaces: [],
+    // USER's website (shop.example) is registered: WS holds it verified.
+    workspaces: [{ id: WS, account_id: ACCOUNT }, { id: BARE_WS, account_id: ACCOUNT }, { id: 'ws-other', account_id: 'acc-other' }],
     workspace_domains: [
       { id: 'd-primary', workspace_id: WS, domain: 'shop.example', normalized_domain: 'shop.example', verified: true, is_primary: true },
       { id: 'd-extra', workspace_id: WS, domain: 'extra.example', normalized_domain: 'extra.example', verified: false, is_primary: false },
@@ -215,6 +230,14 @@ describe('POST /api/auth/signup: the website is required and checked before anyt
     expect((await signup({ website: 'pending.example' })).status).toBe(200);
   });
 
+  it('another signup\'s website, its workspace not created yet, is taken', async () => {
+    profileOf(OWNER)!.website_domain = 'waiting.example';
+    const res = await signup({ website: 'https://WWW.Waiting.example/' });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+    expect(created()).toBe(0);
+  });
+
   it('an existing email is answered first, as before, whatever the website', async () => {
     const res = await signup({ email: 'user@example.test', website: '' });
     expect(res.status).toBe(409);
@@ -222,7 +245,7 @@ describe('POST /api/auth/signup: the website is required and checked before anyt
   });
 });
 
-describe('PATCH /api/account/me: a stored website is fixed', () => {
+describe('PATCH /api/account/me: a registered website is fixed', () => {
   const patch = (body: Record<string, unknown>) => request(app).patch('/api/account/me').send(body);
 
   it.each(['shop.example', ' shop.example ', 'https://WWW.Shop.Example/'])('the same website %j saves, the stored text untouched', async (value) => {
@@ -252,7 +275,7 @@ describe('PATCH /api/account/me: a stored website is fixed', () => {
     expect((await patch({ website_domain: 'other.example' })).status).toBe(403);
   });
 
-  it('a profile without one sets it once, checked as at signup, then it is fixed', async () => {
+  it('an older account without one sets it once, checked as at signup, then it is fixed', async () => {
     profileOf(USER)!.website_domain = null;
     expect((await patch({ website_domain: null })).status).toBe(200);
     expect(profileOf(USER)!.website_domain).toBeNull();
@@ -265,9 +288,31 @@ describe('PATCH /api/account/me: a stored website is fixed', () => {
     expect((await patch({ website_domain: 'second.example' })).status).toBe(403);
     expect(profileOf(USER)!.website_domain).toBe('first.example');
   });
+
+  it('before the account\'s first workspace registers it, a website is replaced, never cleared', async () => {
+    state.userId = OWNER;
+    profileOf(OWNER)!.website_domain = 'waiting.example';
+    expect((await patch({ website_domain: 'second.example' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBe('second.example');
+    expect((await patch({ website_domain: '' })).body).toEqual({ error: 'EMPTY', code: 'EMPTY' });
+    expect((await patch({ website_domain: null })).body.code).toBe('EMPTY');
+    expect(profileOf(OWNER)!.website_domain).toBe('second.example');
+    // The first workspace is created (its INSERT verifies the website): fixed.
+    state.db.accounts.push({ id: 'acc-owner', owner_id: OWNER });
+    state.db.workspaces.push({ id: 'ws-owner', account_id: 'acc-owner' });
+    expect((await patch({ website_domain: 'third.example' })).status).toBe(403);
+    expect(profileOf(OWNER)!.website_domain).toBe('second.example');
+  });
+
+  it('a website another account registered is not this profile\'s registration', async () => {
+    profileOf(OWNER)!.website_domain = 'ninisite.com';
+    state.userId = OWNER;
+    expect((await patch({ website_domain: 'own-site.example' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBe('own-site.example');
+  });
 });
 
-describe('PATCH /api/admin/users/:id/profile: fixed for Super Admin too', () => {
+describe('PATCH /api/admin/users/:id/profile: fixed for Super Admin too, once registered', () => {
   const patch = (userId: string, body: Record<string, unknown>) => request(app).patch(`/api/admin/users/${userId}/profile`).send(body);
 
   it('the whole row with the same website saves', async () => {
@@ -286,26 +331,46 @@ describe('PATCH /api/admin/users/:id/profile: fixed for Super Admin too', () => 
     expect(profileOf(USER)!.full_name).toBeUndefined();
   });
 
-  it('a profile without one gets it once', async () => {
+  it('a profile without one gets one; until a workspace registers it, it is replaced, not cleared', async () => {
     expect((await patch(OWNER, { full_name: 'O', website_domain: null })).status).toBe(200);
     expect(profileOf(OWNER)!.website_domain).toBeNull();
     expect((await patch(OWNER, { website_domain: 'Owner-Site.example' })).status).toBe(200);
     expect(profileOf(OWNER)!.website_domain).toBe('owner-site.example');
-    expect((await patch(OWNER, { website_domain: 'else.example' })).status).toBe(403);
+    expect((await patch(OWNER, { website_domain: 'else.example' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBe('else.example');
+    expect((await patch(OWNER, { website_domain: null })).body.code).toBe('EMPTY');
+    expect((await patch(OWNER, { website_domain: 'ninisite.com' })).body.code).toBe('DOMAIN_TAKEN');
+    expect(profileOf(OWNER)!.website_domain).toBe('else.example');
+  });
+
+  it('the user detail says whether the website is registered', async () => {
+    const detail = (id: string) => request(app).get(`/api/admin/management/users/${id}`);
+    expect((await detail(USER)).body).toMatchObject({ profile: { id: USER }, website_fixed: true });
+    profileOf(OWNER)!.website_domain = 'waiting.example';
+    expect((await detail(OWNER)).body).toMatchObject({ profile: { id: OWNER }, website_fixed: false });
   });
 });
 
-describe('the primary domain is never removed or replaced', () => {
-  it('DELETE: refused on the primary row, other rows go as before', async () => {
+describe('the registered website\'s row is never removed and keeps the primary flag; other rows as before', () => {
+  it('GET …/domains marks the registered website\'s row', async () => {
+    const res = await request(app).get(`/api/workspaces/${WS}/domains`);
+    expect(res.status).toBe(200);
+    expect(Object.fromEntries(res.body.domains.map((d: Row) => [d.id, d.fixed]))).toEqual({ 'd-primary': true, 'd-extra': false });
+  });
+
+  it('DELETE: refused on the website\'s row; other rows, a primary one included, go as before', async () => {
     const refused = await request(app).delete(`/api/workspaces/${WS}/domains/d-primary`);
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe('PRIMARY_DOMAIN_FIXED');
     expect(domainOf('d-primary')).toBeTruthy();
     expect((await request(app).delete(`/api/workspaces/${WS}/domains/d-extra`)).status).toBe(200);
     expect(domainOf('d-extra')).toBeUndefined();
+    domainOf('d-bare')!.is_primary = true;
+    expect((await request(app).delete(`/api/workspaces/${BARE_WS}/domains/d-bare`)).status).toBe(200);
+    expect(domainOf('d-bare')).toBeUndefined();
   });
 
-  it('PATCH …/primary: refused while a primary exists, a no-op on it, allowed in a workspace without one', async () => {
+  it('PATCH …/primary: refused while the website is the primary, a no-op on it; any other primary moves as before', async () => {
     const refused = await request(app).patch(`/api/workspaces/${WS}/domains/d-extra/primary`);
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe('PRIMARY_DOMAIN_FIXED');
@@ -313,8 +378,13 @@ describe('the primary domain is never removed or replaced', () => {
     expect(domainOf('d-extra')!.is_primary).toBe(false);
     expect((await request(app).patch(`/api/workspaces/${WS}/domains/d-primary/primary`)).status).toBe(200);
     expect(domainOf('d-primary')!.is_primary).toBe(true);
+    // A workspace whose primary is not the website (a later workspace, an older one).
+    state.db.workspace_domains.push({ id: 'd-bare2', workspace_id: BARE_WS, domain: 'bare2.example', normalized_domain: 'bare2.example', verified: true, is_primary: false });
     expect((await request(app).patch(`/api/workspaces/${BARE_WS}/domains/d-bare/primary`)).status).toBe(200);
     expect(domainOf('d-bare')!.is_primary).toBe(true);
+    expect((await request(app).patch(`/api/workspaces/${BARE_WS}/domains/d-bare2/primary`)).status).toBe(200);
+    expect(domainOf('d-bare2')!.is_primary).toBe(true);
+    expect(domainOf('d-bare')!.is_primary).toBe(false);
   });
 
   it('POST …/domains: adding another domain stays as it is', async () => {
@@ -322,7 +392,9 @@ describe('the primary domain is never removed or replaced', () => {
     expect(state.db.workspace_domains.some((d) => d.domain === 'second-site.example' && !d.verified && !d.is_primary)).toBe(true);
   });
 
-  it('Super Admin: the primary row keeps its value and flag, no other row takes the flag', async () => {
+  it('Super Admin: the website\'s row keeps its value and flag, no other row takes the flag; other rows as before', async () => {
+    const listed = await request(app).get('/api/admin/management/domains');
+    expect(listed.body.domains.filter((d: Row) => d.fixed).map((d: Row) => d.id)).toEqual(['d-primary']);
     const patch = (id: string, body: Record<string, unknown>) => request(app).patch(`/api/admin/management/domains/${id}`).send(body);
     expect((await patch('d-primary', { domain: 'moved.example' })).status).toBe(403);
     expect((await patch('d-primary', { is_primary: false })).status).toBe(403);
@@ -334,6 +406,8 @@ describe('the primary domain is never removed or replaced', () => {
     expect((await patch('d-extra', { domain: 'renamed.example' })).status).toBe(200);
     expect(domainOf('d-extra')!.domain).toBe('renamed.example');
     expect((await patch('d-bare', { is_primary: true })).status).toBe(200);
+    expect((await patch('d-bare', { domain: 'bare-renamed.example', is_primary: false })).status).toBe(200);
+    expect(domainOf('d-bare')).toMatchObject({ domain: 'bare-renamed.example', is_primary: false });
   });
 });
 
@@ -347,6 +421,7 @@ describe('creating a workspace when the website was verified elsewhere meanwhile
 
   it('POST /api/workspaces answers DOMAIN_TAKEN, not the raw index error', async () => {
     state.rpcError = INDEX_ERROR;
+    state.db.workspaces = []; // under the plan's workspace cap
     const res = await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('DOMAIN_TAKEN');
@@ -355,5 +430,55 @@ describe('creating a workspace when the website was verified elsewhere meanwhile
   it('other failures keep their answer', async () => {
     state.rpcError = { message: 'boom' };
     expect((await request(app).post('/api/workspaces/provision-account')).status).toBe(500);
+  });
+});
+
+describe('POST /api/workspaces/provision-account: a new account of one\'s own needs a website', () => {
+  const provision = (body?: Record<string, unknown>) => request(app).post('/api/workspaces/provision-account').send(body ?? {});
+
+  it('a member without an account and without a website (invited, offboarded) is refused before the RPC', async () => {
+    state.userId = OWNER;
+    for (const body of [undefined, { website: '' }, { website: '  ' }]) {
+      const res = await provision(body);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'EMPTY', code: 'EMPTY' });
+    }
+    expect(state.rpcCalls).toEqual([]);
+  });
+
+  it('the website may come with the request, checked as at signup', async () => {
+    state.userId = OWNER;
+    expect((await provision({ website: 'ninisite.com' })).body.code).toBe('DOMAIN_TAKEN');
+    expect((await provision({ website: 'api.webyar.ai' })).body.code).toBe('PLATFORM_DOMAIN');
+    expect((await provision({ website: 'not a site' })).status).toBe(400);
+    expect(state.rpcCalls).toEqual([]);
+    expect((await provision({ website: 'https://www.Owner-Site.example/' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBe('owner-site.example');
+    expect(state.rpcCalls).toEqual(['provision_account_on_signup']);
+  });
+
+  it('a website taken meanwhile is replaced by the next request\'s, as no workspace holds it', async () => {
+    state.userId = OWNER;
+    profileOf(OWNER)!.website_domain = 'ninisite.com';
+    state.rpcError = INDEX_ERROR;
+    expect((await provision()).body.code).toBe('DOMAIN_TAKEN');
+    state.rpcError = null;
+    expect((await provision({ website: 'fresh.example' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBe('fresh.example');
+  });
+
+  it('a registered website stays: the same one passes, another is refused', async () => {
+    expect((await provision({ website: 'www.shop.example' })).status).toBe(200);
+    const res = await provision({ website: 'other.example' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('WEBSITE_FIXED');
+    expect(profileOf(USER)!.website_domain).toBe('shop.example');
+  });
+
+  it('a member provisioning into another owner\'s account needs no website of its own', async () => {
+    state.userId = OWNER;
+    state.db.account_members.push({ account_id: ACCOUNT, user_id: OWNER });
+    expect((await provision({ website: 'ignored.example' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBeNull();
   });
 });

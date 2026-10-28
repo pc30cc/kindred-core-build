@@ -48,7 +48,7 @@ import { adminNotificationEmailRouter } from './adminNotificationEmail.js';
 import { adminWidgetCatalogRouter } from './adminWidgetCatalog.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
-import { storeFirstWebsite, websiteEdit } from '../services/ownerWebsite.js';
+import { storeWebsite, websiteEdit } from '../services/ownerWebsite.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { issueImpersonationToken } from '../services/auth/impersonation.js';
@@ -473,12 +473,13 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
     const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
-    // Same rule as PATCH /api/account/me (services/ownerWebsite.ts): a stored
-    // website is fixed, for Super Admin too. The form sends the whole row, so
-    // the same website saves; a profile without one may get one, once.
+    // Same rule as PATCH /api/account/me (services/ownerWebsite.ts): a
+    // registered website is fixed, for Super Admin too. The form sends the
+    // whole row, so the same website saves; one no workspace holds yet (a
+    // first-run provisioning that found it taken) may be replaced.
     const website = await websiteEdit(config, userId, body.website_domain);
     if (website.ok === false) return res.status(website.status).json({ error: website.code, code: website.code });
-    if (website.write) await storeFirstWebsite(config, userId, website.write);
+    if (website.write) await storeWebsite(config, userId, website.write);
 
     const patch: Record<string, unknown> = {};
     for (const key of ['full_name', 'company_name', 'preferred_locale'] as const) {

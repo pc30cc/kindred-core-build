@@ -74,10 +74,10 @@ export default function SettingsDomainsPage() {
     if (value && !addDomain.isPending) addDomain.mutate(value);
   };
 
-  // The primary domain is the website registered at signup, fixed for good
-  // (owner, 2026-10-28): it is neither removed nor replaced (the server
-  // refuses both too).
-  const hasPrimary = !!domains?.some(d => d.is_primary);
+  // The registered website is fixed for good (owner, 2026-10-28): it is not
+  // removed, and while it is the primary no other row takes the flag (the
+  // server refuses both too). Other domains are managed as before.
+  const primaryFixed = !!domains?.some(d => d.is_primary && d.fixed);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -137,12 +137,12 @@ export default function SettingsDomainsPage() {
                   )}
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  {!hasPrimary && (
+                  {!domain.is_primary && !primaryFixed && (
                     <Button variant="ghost" size="sm" onClick={() => setPrimary.mutate(domain.id)}>
                       {t('settings.domainsPage.setPrimary')}
                     </Button>
                   )}
-                  {!domain.is_primary && (
+                  {!domain.fixed && (
                     <Button
                       variant="ghost"
                       size="icon"

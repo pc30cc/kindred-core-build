@@ -10,7 +10,8 @@
  *                                          (a stored website is fixed: services/ownerWebsite.ts)
  *   POST  /api/workspaces/provision-account and POST /api/workspaces
  *                                          clear a stored one before the INSERT whose
- *                                          trigger would verify it
+ *                                          trigger would verify it (a new account
+ *                                          then needs another: services/ownerWebsite.ts)
  *   POST  /api/workspaces/:id/domains      refuses it, but for the platform's own workspace
  *   PATCH /api/admin/management/domains/:id  the same, for Super Admin (the row keeps `verified`)
  *
@@ -43,6 +44,7 @@ vi.mock('../../../server/supabase.js', () => {
     const builder: any = {
       select: () => builder,
       eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return builder; },
+      neq: (col: string, val: unknown) => { filters.push((r) => r[col] !== val); return builder; },
       is: (col: string, val: unknown) => { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
       in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return builder; },
       order: () => builder,
@@ -217,15 +219,15 @@ describe.each([
     });
 
     it('stores a customer website in the canonical form it was checked in', async () => {
-      const both = await signup({ website: 'Shop.Example', metadata: { websiteDomain: 'Shop.Example' } });
-      expect(stored(both.body.user.id)).toBe('shop.example');
+      const both = await signup({ website: 'New-Shop.Example', metadata: { websiteDomain: 'New-Shop.Example' } });
+      expect(stored(both.body.user.id)).toBe('new-shop.example');
       const websiteOnly = await signup({ website: 'https://www.other-shop.example/' });
       expect(stored(websiteOnly.body.user.id)).toBe('other-shop.example');
     });
 
     it('ignores a metadata website that is not a string', async () => {
-      const res = await signup({ website: 'shop.example', metadata: { websiteDomain: { host: `api.${apex}` } } });
-      expect(stored(res.body.user.id)).toBe('shop.example');
+      const res = await signup({ website: 'third-shop.example', metadata: { websiteDomain: { host: `api.${apex}` } } });
+      expect(stored(res.body.user.id)).toBe('third-shop.example');
     });
   });
 
@@ -267,12 +269,16 @@ describe.each([
     it.each([`HTTPS://api.${apex}:8443/x`, `app.${apex}`.replace(/i/g, '\u0130')])(
       'provision-account: the trigger never sees the platform host %j, the profile is cleared',
       async (website) => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        profileOf(USER)!.website_domain = website;
-        expect((await request(app).post('/api/workspaces/provision-account')).status).toBe(200);
-        warn.mockRestore();
-        expect(state.triggerSaw).toEqual([null]);
-        expect(profileOf(USER)!.website_domain).toBeNull();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      profileOf(USER)!.website_domain = website;
+      // A new account then needs a website, as at signup.
+      expect((await request(app).post('/api/workspaces/provision-account')).body.code).toBe('EMPTY');
+      warn.mockRestore();
+      expect(state.triggerSaw).toEqual([]);
+      expect(profileOf(USER)!.website_domain).toBeNull();
+      expect((await request(app).post('/api/workspaces/provision-account').send({ website: `api.${apex}` })).body.code).toBe('PLATFORM_DOMAIN');
+      expect((await request(app).post('/api/workspaces/provision-account').send({ website: 'own-shop.example' })).status).toBe(200);
+      expect(state.triggerSaw).toEqual(['own-shop.example']);
       },
     );
 

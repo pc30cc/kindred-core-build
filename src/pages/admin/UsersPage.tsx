@@ -235,6 +235,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const { t, dir } = useTranslation();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { data: detail, isLoading, refetch } = useAdminUserDetail(userId);
+  // The website is registered (server/services/ownerWebsite.ts): fixed for good.
+  const websiteFixed = !!(detail as { website_fixed?: boolean } | undefined)?.website_fixed;
   const { data: roles, refetch: refetchRoles } = useAdminUserRoles(userId);
   const assignRole = useAssignRole();
   const removeRole = useRemoveRole();
@@ -903,11 +905,11 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{t('admin.users.website')}</label>
-              {/* Fixed once stored (owner, 2026-10-28); the server refuses a change too. */}
+              {/* Fixed once registered (owner, 2026-10-28); the server refuses a change too. */}
               <Input
                 dir="ltr"
                 value={editForm.website_domain}
-                disabled={!!detail?.profile?.website_domain?.trim()}
+                disabled={websiteFixed}
                 onChange={e => setEditForm(f => ({ ...f, website_domain: e.target.value }))}
               />
             </div>

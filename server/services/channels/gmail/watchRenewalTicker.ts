@@ -19,6 +19,7 @@ import { updateIntegration, type ChannelIntegration } from '../../channels/integ
 import { createGmailAdapter } from '../../../../channels/mail/gmail/client.js';
 import { getGmailOAuthConfig } from './oauthConfig.js';
 import { getGmailPubSubTopic, getGmailAccessToken } from './oauth.js';
+import { isGmailGrantRevoked } from './types.js';
 
 const LEASE_NAME = 'gmail_watch_renewal';
 const TICK_MS = 6 * 60 * 60 * 1000; // every 6 hours
@@ -94,11 +95,24 @@ async function runOnce(config: ServerConfig): Promise<void> {
         renewed++;
       } catch (err: any) {
         failed++;
-        emitLog(config, 'warn', 'gmail_watch_renewal_failed', { integrationId: integration.id, error: err?.message || 'unknown' });
-        await updateIntegration(config, integration.id, {
-          last_error_code: 'gmail_watch_renewal_failed',
-          last_error_at: new Date().toISOString(),
-        }).catch(() => {});
+        // A grant Google no longer honours never renews on a retry: mark the
+        // mailbox errored (as the live inbox does), so the panel asks for a
+        // reconnect and this ticker stops picking it up. It used to stay
+        // 'connected' with only gmail_watch_renewal_failed, deaf for weeks.
+        const revoked = isGmailGrantRevoked(err);
+        emitLog(config, 'warn', 'gmail_watch_renewal_failed', {
+          integrationId: integration.id,
+          error: err?.message || 'unknown',
+          grantRevoked: revoked,
+        });
+        const at = new Date().toISOString();
+        await updateIntegration(
+          config,
+          integration.id,
+          revoked
+            ? { status: 'error', last_error_code: 'gmail_token_revoked', last_error_at: at }
+            : { last_error_code: 'gmail_watch_renewal_failed', last_error_at: at },
+        ).catch(() => {});
       }
     }
     if (renewed > 0 || failed > 0) {

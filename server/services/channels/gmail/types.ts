@@ -57,6 +57,20 @@ export function isGmailError(value: unknown): value is GmailError {
   return value instanceof GmailError;
 }
 
+/**
+ * The user's grant is gone: the refresh token was revoked or expired, or the
+ * Gmail scope was not granted. Only a reconnect helps. Google's token
+ * endpoint answers `invalid_grant` with a 400, which the client reports as a
+ * provider error whose detail names that endpoint, so the detail is read too.
+ * Platform-side failures (`invalid_client`, a missing config) are not this.
+ */
+export function isGmailGrantRevoked(err: unknown): err is GmailError {
+  if (!(err instanceof GmailError)) return false;
+  if (err.code === 'gmail_not_connected' || err.code === 'gmail_token_revoked' || err.code === 'gmail_insufficient_scope') return true;
+  const detail = err.detail || '';
+  return /oauth2\.googleapis\.com\/token/.test(detail) && /invalid_grant/.test(detail);
+}
+
 export interface GmailConnectionInfo {
   connected: boolean;
   emailAddress: string | null;

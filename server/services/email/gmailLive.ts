@@ -21,7 +21,7 @@ import { updateIntegration, type ChannelIntegration } from '../channels/integrat
 import { createHash } from 'node:crypto';
 import { getGmailAccessToken, evictGmailAccessToken } from '../channels/gmail/oauth.js';
 import { getGmailOAuthConfig } from '../channels/gmail/oauthConfig.js';
-import { GmailError } from '../channels/gmail/types.js';
+import { GmailError, isGmailGrantRevoked } from '../channels/gmail/types.js';
 import {
   createGmailAdapter,
   parseGmailMessage,
@@ -123,17 +123,6 @@ function isQuota(err: GmailError): boolean {
   return err.code === 'gmail_rate_limited' || /rate ?limit|quota|limit exceeded/i.test(err.detail || '');
 }
 
-/**
- * The user's grant is gone: the refresh token was revoked or expired
- * (token endpoint `invalid_grant`), or the Gmail scope was not granted.
- * Platform-side failures (`invalid_client`, a missing config) are not this.
- */
-function isGrantRevoked(err: GmailError): boolean {
-  const detail = err.detail || '';
-  if (err.code === 'gmail_not_connected' || err.code === 'gmail_token_revoked' || err.code === 'gmail_insufficient_scope') return true;
-  return /oauth2\.googleapis\.com\/token/.test(detail) && /invalid_grant/.test(detail);
-}
-
 /** Gmail rejected the access token itself (401 from the API, not the token endpoint). */
 function isApiUnauthorized(err: unknown): boolean {
   return err instanceof GmailError && err.code === 'gmail_auth_failed' && /^Google 401 @ https:\/\/gmail\.googleapis\.com/.test(err.detail || '');
@@ -144,7 +133,7 @@ function classify(err: unknown): GmailLiveError {
   if (err instanceof GmailError) {
     const detail = err.detail || '';
     if (isQuota(err)) return new GmailLiveError('email_rate_limited');
-    if (isGrantRevoked(err) || isApiUnauthorized(err)) return new GmailLiveError('email_not_connected', err.message);
+    if (isGmailGrantRevoked(err) || isApiUnauthorized(err)) return new GmailLiveError('email_not_connected', err.message);
     if (/^Gmail 404\b/.test(detail) || (/^Gmail 400\b/.test(detail) && /invalid id value/i.test(detail))) {
       return new GmailLiveError('email_thread_not_found');
     }
@@ -177,7 +166,7 @@ async function withGmail<T>(
     }
   } catch (err) {
     const mapped = classify(err);
-    if (err instanceof GmailError && isGrantRevoked(err)) {
+    if (err instanceof GmailError && isGmailGrantRevoked(err)) {
       await updateIntegration(config, integration.id, {
         status: 'error',
         last_error_code: 'gmail_token_revoked',

@@ -29,13 +29,21 @@
 #   LIVEKIT_API_SECRET  - LiveKit API secret (signing secret).
 #                         Generate: openssl rand -hex 32
 #                         MUST match Super Admin -> Providers -> Calls -> LiveKit.
-#   LIVEKIT_NODE_IP     - Public IP of the host running this container.
-#                         REQUIRED. Without it, LiveKit advertises a Docker
-#                         internal IP in ICE candidates and remote browsers
-#                         cannot establish media streams.
-#                         Find with: curl -s https://api.ipify.org
 #
 # Optional environment variables:
+#   LIVEKIT_NODE_IP            - the public IPv4 LiveKit puts in its ICE
+#                                candidates. Default `auto` (or empty): the
+#                                wrapper asks on every start what address the
+#                                outside sees this host as (Cloudflare's trace,
+#                                then ipify, then OpenDNS), so moving to another
+#                                server needs no setting changed, only the DNS
+#                                of the LiveKit domain. If every source fails,
+#                                LiveKit's own STUN discovery takes over. An IP
+#                                pins the address instead; the wrapper warns
+#                                when the host is seen elsewhere. A wrong
+#                                address means calls connect with no audio or
+#                                video, which is why it is never guessed from
+#                                the container's own (Docker-internal) address.
 #   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
 #   LIVEKIT_WEBHOOK_URL        - where LiveKit posts room and participant events,
 #                                e.g. https://api.example.com/api/calls/livekit/webhook.
@@ -97,7 +105,50 @@ services:
         set -eu
         : "$${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}"
         : "$${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
-        : "$${LIVEKIT_NODE_IP:?LIVEKIT_NODE_IP is required (public IP of this host)}"
+        # >>> node-ip (src/test/calls/livekitNodeIp.test.ts runs this block)
+        # The public IPv4 the outside sees this host as. Asked, not read off an
+        # interface: inside the container that is a Docker address, and on many
+        # hosts the public one is NATed and on no interface at all. Plain HTTP
+        # to an IP first, so neither DNS nor TLS has to work for it.
+        is_public_ipv4() {
+          case "$$1" in
+            ''|*[!0-9.]*|.*|*.|*..*) return 1 ;;
+            0.*|10.*|127.*|169.254.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 1 ;;
+            100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 1 ;;
+          esac
+          set -f; old_ifs=$$IFS; IFS=.; set -- $$1; IFS=$$old_ifs; set +f
+          [ $$# -eq 4 ] || return 1
+          for octet in "$$@"; do [ "$$octet" -le 255 ] || return 1; done
+        }
+        detect_node_ip() {
+          for source in cloudflare ipify opendns; do
+            case $$source in
+              cloudflare) found=$$(wget -q -T 5 -O- http://1.1.1.1/cdn-cgi/trace 2>/dev/null | sed -n 's/^ip=//p') || found= ;;
+              ipify) found=$$(wget -q -T 5 -O- https://api.ipify.org 2>/dev/null) || found= ;;
+              opendns) found=$$(timeout 5 nslookup myip.opendns.com resolver1.opendns.com 2>/dev/null | awk '/^Address/ && $$NF ~ /^[0-9.]+$$/ { a = $$NF } END { print a }') || found= ;;
+            esac
+            if is_public_ipv4 "$$found"; then echo "$$found $$source"; return 0; fi
+          done
+          return 1
+        }
+        NODE_IP_SETTING="$${LIVEKIT_NODE_IP:-auto}"
+        if [ "$$NODE_IP_SETTING" = auto ]; then
+          if seen=$$(detect_node_ip); then
+            LIVEKIT_NODE_IP="$${seen%% *}"; NODE_IP_SOURCE="auto, $${seen#* }"
+          else
+            LIVEKIT_NODE_IP=""; NODE_IP_SOURCE="auto, LiveKit's STUN (no source answered)"
+          fi
+        else
+          is_public_ipv4 "$$NODE_IP_SETTING" || { echo "[livekit-bootstrap] LIVEKIT_NODE_IP must be a public IPv4 or auto, not $$NODE_IP_SETTING" >&2; exit 1; }
+          LIVEKIT_NODE_IP="$$NODE_IP_SETTING"; NODE_IP_SOURCE="pinned"
+          if seen=$$(detect_node_ip) && [ "$${seen%% *}" != "$$LIVEKIT_NODE_IP" ]; then
+            echo "[livekit-bootstrap] WARNING: LIVEKIT_NODE_IP is pinned to $$LIVEKIT_NODE_IP but this host is seen as $${seen%% *}; calls will have no audio or video until it is auto or corrected" >&2
+          fi
+        fi
+        # With no address LiveKit finds its own over STUN; with one, STUN stays
+        # off, because use_external_ip wins over node_ip in LiveKit's config.
+        if [ -n "$$LIVEKIT_NODE_IP" ]; then USE_EXTERNAL_IP=false; else USE_EXTERNAL_IP=true; fi
+        # <<< node-ip
         LOG_LEVEL="$${LIVEKIT_LOG_LEVEL:-info}"
         cat > /tmp/livekit.yaml <<EOF
         port: 7880
@@ -106,11 +157,8 @@ services:
           tcp_port: 7881
           port_range_start: 50000
           port_range_end: 50100
-          # We provide the public IP explicitly via LIVEKIT_NODE_IP, so disable
-          # STUN-based auto-discovery. In LiveKit's config, use_external_ip
-          # takes precedence over node_ip; leaving it true can prevent the node
-          # from advertising the intended address consistently.
-          use_external_ip: false
+          # The address found or pinned above (node-ip block).
+          use_external_ip: $${USE_EXTERNAL_IP}
           node_ip: $${LIVEKIT_NODE_IP}
           # Ramp-up. A call used to open blurry and sharpen slowly. Send-side
           # BWE (transport-cc feedback) lets the allocator move a subscriber
@@ -207,7 +255,7 @@ services:
             echo "    - $${LIVEKIT_WEBHOOK_URL}"
           } >> /tmp/livekit.yaml
         fi
-        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP}, redis=$${LIVEKIT_REDIS_ADDRESS:-none}, turn=$${LIVEKIT_TURN_DOMAIN:-off}, webhook=$${LIVEKIT_WEBHOOK_URL:-off})"
+        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP:-stun} ($${NODE_IP_SOURCE}), redis=$${LIVEKIT_REDIS_ADDRESS:-none}, turn=$${LIVEKIT_TURN_DOMAIN:-off}, webhook=$${LIVEKIT_WEBHOOK_URL:-off})"
         exec /livekit-server --config /tmp/livekit.yaml
 
     # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
@@ -242,8 +290,9 @@ services:
       # --- Required: consumed by the startup wrapper above ---------------
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
-      LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP}
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
+      # `auto` (the default) finds the host's public IPv4 on every start.
+      LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP:-auto}
 
       # --- Optional: webhooks to the backend (off when the URL is empty) --
       LIVEKIT_WEBHOOK_URL: ${LIVEKIT_WEBHOOK_URL:-}

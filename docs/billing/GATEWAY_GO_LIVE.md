@@ -35,7 +35,7 @@ Super Admin paths used below:
 On the terminal in ZarinPal's panel:
 
 - **Website / domain:** `app.webyar.ai`. The gateway sends the customer back to `https://app.webyar.ai/<workspace>/billing?payment=<id>&provider=zarinpal&Authority=…&Status=OK|NOK`. Because the app is https, no API hop is used. If ZarinPal also asks for the API domain, add `api.webyar.ai`; the fallback hop `https://api.webyar.ai/api/billing/account-return` is used only for a non-https app address.
-- **IP restriction:** if the terminal has an IP whitelist, add the production server's address **192.99.68.134**. It is outside Iran, and ZarinPal answered from it in the 2026-10-12 probe. Without it, ZarinPal answers -10.
+- **IP restriction:** if the terminal has an IP whitelist, add the production server's address **5.39.70.213** (since 2026-10-28; it was 192.99.68.134, the address ZarinPal answered from in the 2026-10-12 probe, so an IP registered before the move must be replaced). It is outside Iran. Without it, ZarinPal answers -10.
 - **Webhook:** none. ZarinPal is confirmed by the server calling `verify.json` when the customer returns. Nothing needs registering.
 
 RESPOK (International edition) never offers ZarinPal, so there is no RESPOK URL for it.
@@ -175,7 +175,7 @@ Zibal, NextPay, IDPay and PayPing verify by the reference stored on the payment,
 | **Merchant code** (`merchant`, required) | Zibal panel → the gateway → merchant code. The merchant `zibal` is Zibal's sandbox (any payment "succeeds", no money moves), so it is refused on save and on the card. |
 
 - API: `gateway.zibal.ir/v1/request`, `/start/{trackId}`, `/v1/verify`, `/v1/inquiry`. Amounts are **Rial**, sent as is.
-- Callback: GET to the app's billing page (`trackId`, `success`, `status`, `orderId`). Register `app.webyar.ai` on the gateway. If the gateway has an IP list, add **192.99.68.134**; otherwise Zibal answers 115.
+- Callback: GET to the app's billing page (`trackId`, `success`, `status`, `orderId`). Register `app.webyar.ai` on the gateway. If the gateway has an IP list, add **5.39.70.213** (192.99.68.134 before 2026-10-28); otherwise Zibal answers 115.
 - Zibal now needs a valid `Referer` on the redirect to `/start/…`. A normal browser redirect sends one.
 - The old **Lazy mode** switch sent an empty `multiplexingInfos`, which Zibal refuses (no "self" beneficiary). It is removed and ignored.
 - Verify results: 100 = verified, 201 = already verified (see above), 202 = not paid or failed (the payment ends). Anything else leaves the payment pending.
@@ -214,7 +214,7 @@ Zibal, NextPay, IDPay and PayPing verify by the reference stored on the payment,
 - Callback: SEP **POSTs** a form (`State`, `Status`, `RefNum`, `ResNum`, `Token`, `TraceNo`, `Amount`, …). It goes to the API hop. A return without `RefNum` (cancelled at the bank) ends the payment without calling SEP.
 - The verified amount is read from `TransactionDetail.OrginalAmount` (SEP's own spelling), then `OriginalAmount`, then `AffectiveAmount`.
 - SEP reverses a payment that is not verified within **30 minutes**.
-- **Reachability: warning.** SEP answers only registered server IPs, in practice from inside Iran. From the production server (Canada, 192.99.68.134) it did not answer within 15 s. The readiness card says so. Before switching SEP on, have the server's IP registered with SEP and press **Test**. Without that, every checkout fails after 20 s.
+- **Reachability: warning.** SEP answers only registered server IPs, in practice from inside Iran. From the production server it did not answer within 15 s (probed 2026-10-12 from the old box in Canada, 192.99.68.134; the server is 5.39.70.213, an OVH box in Europe, since 2026-10-28). The readiness card says so. Before switching SEP on, have the server's IP registered with SEP and press **Test**. Without that, every checkout fails after 20 s.
 
 ### 4.5 IDPay (WebYar, IRR)
 
@@ -268,7 +268,7 @@ Taking account payments with any of these needs a server-side lookup (for exampl
 ### 4.9 Switching one of these on
 
 1. Enter the credentials (4.1 to 4.7) and save. A credential of the wrong kind is refused with the reason.
-2. Register the callback domains (`app.webyar.ai` and `api.webyar.ai` for the Iranian gateways), the server IP **192.99.68.134** where the gateway has an IP list, and the webhook URLs for Stripe and PayPal.
+2. Register the callback domains (`app.webyar.ai` and `api.webyar.ai` for the Iranian gateways), the server IP **5.39.70.213** (since 2026-10-28) where the gateway has an IP list, and the webhook URLs for Stripe and PayPal.
 3. Press **Test**. It must succeed; for SEP and IDPay, this also proves the gateway answers this server.
 4. Finance → Gateways: switch it on for its currency. The readiness card must show **Listed**.
 5. Make a small real payment, as in the ZarinPal and Paddle smoke tests: success with a receipt; reload shows the same receipt; a cancel ends as failed; the gateway's panel shows the same amount.

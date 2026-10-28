@@ -87,6 +87,14 @@ be reached (another FTP login, a vendor taken out of the pool) is left alone.
 - Local backups live on the same disk as the database. For a copy that survives the
   server, choose a storage provider or FTP.
 - Coolify's own daily dump (02:13 UTC, 14 kept on the server) continues independently.
+- **Off-site, since 2026-10-28, on both brands:** the schedule is on, daily at 03:00 UTC,
+  destination `storage` / `bunny_storage` (WebYar's zone `webyar`, RESPOK's `respok`),
+  30 days kept. The first manual run of each (WebYar 4.1 MB, RESPOK 2.8 MB) was
+  downloaded back through the download path (fetch, sha256, decrypt, sha256) before
+  anything was relied on. It was set with `/root/webyar-move/db-backup.mts` on the
+  server, which runs the backend's own settings and run code inside a backend
+  container (`MODE=check|apply|run|verify`). Those copies are only readable with
+  `PLUGIN_SECRETS_MASTER_KEY`: keep that key somewhere other than the server.
 
 ## The schema `billing_v2_archive` (migrations 267 and 268)
 

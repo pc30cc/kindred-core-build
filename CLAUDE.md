@@ -135,13 +135,25 @@ tracked file there has local edits. Do not check other branches out in that
 folder: build and test a PR in a separate worktree (e.g. `~/dev/kcbi-pr`).
 Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
 
-## Production server: `vps-50cc1602` (since 2026-10-07, verified 2026-10-08)
+## Production server: `host.respok.app` (since 2026-10-28)
 
-WebYar runs on `vps-50cc1602` (public IP `192.99.68.134`, Desktop Commander
-device `7b4d1a32-e6fe-475e-a178-9fc2a16a7097`), under that server's own
-Coolify 4.4.1. Its dashboard has no domain: `http://192.99.68.134:8000`.
-The old Coolify on `analyticsme.site` is no longer used for WebYar (owner,
-2026-10-08): do not deploy, start, stop or change anything there.
+WebYar and RESPOK run on `host.respok.app` (public IP `5.39.70.213`, an OVH
+dedicated server: 128 GB RAM, 878 GB RAID1 `/dev/md3`; Desktop Commander
+device `3dcd7c30-0d1a-4bbf-ab08-565c4e0a905c`, listed as `host`), under its
+own Coolify (4.5.0 on 2026-10-28; it updates itself nightly). Its dashboard
+has no domain: `http://5.39.70.213:8000`. The owner moved everything there
+from `vps-50cc1602` on 2026-10-28 06:04-06:43 UTC (a cold copy with the same
+Coolify uuids and app ids, about 4 minutes down; its report is
+`/root/migration-20261028/migration-report.json`).
+
+`vps-50cc1602` (`192.99.68.134`, device `7b4d1a32-e6fe-475e-a178-9fc2a16a7097`)
+is the old box: its 44 containers are stopped with restart `no` and its
+timers and bot disabled, its data kept as a rollback copy until the owner
+retires it. Do not start, deploy or change anything there. Its `/root` (the
+migration folders, `billing-v2-backup`, the move kit, the drill logs) was
+copied to `/root/from-vps-50cc1602/` on the new box; the `/root/...` paths in
+the ledger below are there now. The old Coolify on `analyticsme.site` is not
+used for WebYar either (owner, 2026-10-08): do not touch it.
 
 Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
 `main`, GitHub App "CustomerCore"):
@@ -156,6 +168,14 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
   auto-deploy off, so a push does not update them; queue them by hand when a
   change needs them.
+- LiveKit (WebYar 16, `docker-compose.livekit.yml`; RESPOK 41, the host
+  script `/data/respok/livekit/start.sh`) has `LIVEKIT_NODE_IP=auto`: it finds
+  the host's public IPv4 on every start (`deploy/livekit/README.md` §3), so a
+  server move needs only the DNS of `livekit.*` and `turn.*` changed. Their
+  ports (7881/7882 tcp, 3478/3479 and 50000-50500 udp) are reserved from the
+  kernel's ephemeral range (`/etc/sysctl.d/60-livekit-reserved-ports.conf`):
+  without it a restart can fail with "address already in use" when an
+  outgoing DNS query holds one of them.
 - Coolify builds two apps at a time, so after a merge the whole set (with
   RESPOK's) takes about 15 minutes. A deploy that has not appeared yet is
   usually still queued: look at `application_deployment_queues` in the
@@ -169,7 +189,9 @@ The same server also runs:
   `main`; 39 (WooCommerce, `commerce-sync`) does not, like WebYar's 26.
   Never point a WebYar app at RESPOK's database or the other way round.
 - Commerce test shops: `whmcs.webyar.ai` is the `webyar-whmcs-test` stack
-  here (`/opt/webyar-whmcs-test/`). `p.webyar.ai` (WooCommerce) and
+  here (`/opt/webyar-whmcs-test/`; on 2026-10-28 its Cloudflare origin, and
+  `limer.tr`'s, still named the old box, so both answered 521 until the owner
+  changes them). `p.webyar.ai` (WooCommerce) and
   `open.webyar.ai` (OpenCart) did not move here: since 2026-10-07 they
   answer 503 and 523 (seen 2026-10-22), so WebYar's WooCommerce connection
   to `p.webyar.ai` reads offline (`commerce_invalid_response`). That is the
@@ -216,10 +238,11 @@ or private ranges in `forwardedHeaders.trustedIPs`, and keep
 
 ### Disk
 
-The root disk (72G, Docker included) holds about 50G after a cleanup. A
-deploy round after a merge adds about 12 GB of build cache plus the new images
-(68% to 91% on 2026-10-08), a LimerLanding deploy about 5 GB. `/` has no
-reserved blocks, so a full disk stops Postgres too.
+The root disk is 878G (RAID1, Docker included), 53G used (7%) on 2026-10-28.
+A deploy round after a merge adds about 12 GB of build cache plus the new
+images, a LimerLanding deploy about 5 GB. The old box's 72G disk is what the
+thresholds below were tuned for (68% to 91% per round there); they carried
+over unchanged. A full disk stops Postgres too.
 
 - Coolify's Docker cleanup (server `localhost` → Docker Cleanup) checks every
   5 minutes (`*/5 * * * *`, force off, threshold 75%; since 2026-10-08, before
@@ -238,7 +261,7 @@ reserved blocks, so a full disk stops Postgres too.
 - Telegram's high-disk alert (Sentinel, checked every minute) fires above 80%,
   at most once a day until usage drops to 75%. Keep the cleanup threshold below
   it, or every deploy round alerts before the cleanup runs. Changes and
-  manual cleanups: `/root/disk-cleanup-20261008.log`.
+  manual cleanups on the old box: `/root/from-vps-50cc1602/disk-cleanup-20261008.log`.
 
 ### Database
 
@@ -250,14 +273,21 @@ reserved blocks, so a full disk stops Postgres too.
   (`oqzy9q4ovntam9jgf7nxzqun:5432/webyar`, `sslmode=disable`). `webyar_app`
   is NOINHERIT, member of `service_role`; `webyar_backup` is read-only.
 - Backups: Coolify dumps `webyar` daily at 02:13 UTC and keeps 14 copies in
-  `/data/coolify/backups/databases/root-team-0/webyar-postgres-oqzy9q4ovntam9jgf7nxzqun/`.
-  There is no off-site copy (no S3 storage in Coolify). Super Admin →
-  Database → Backup also backs it up (`pg_dump` from the backend as
-  `webyar_backup` via `BACKUP_DATABASE_URL`, local copies in the bind volume
-  `/data/webyar/db-backups`); see `docs/operations/DATABASE_BACKUPS.md`.
+  `/data/coolify/backups/databases/root-team-0/webyar-postgres-oqzy9q4ovntam9jgf7nxzqun/`
+  (on the server's own disk; Coolify has no S3 storage). The off-site copy is
+  Super Admin → Database → Backup, on since 2026-10-28 on both brands: daily
+  at 03:00 UTC to the storage pool's `bunny_storage`
+  (`bunny://webyar/backups/database/…`, RESPOK's `bunny://respok/…`),
+  encrypted under `PLUGIN_SECRETS_MASTER_KEY`, 30 days kept (`pg_dump` from
+  the backend as `webyar_backup` via `BACKUP_DATABASE_URL`). The first run of
+  each was downloaded back and decrypted; `/root/webyar-move/db-backup.mts`
+  does check, apply, run and verify from inside a backend container. Without
+  that key the off-site copies cannot be read, so it must exist somewhere
+  other than this server. See `docs/operations/DATABASE_BACKUPS.md`.
 - Migrations:
   - WebYar's database is never migrated automatically. Apply new files by hand
-    on `vps-50cc1602`, before merging the code that needs them:
+    on the production server (`host.respok.app` since 2026-10-28), before
+    merging the code that needs them:
     1. Put `scripts/migrate-database.sh` and the new files in a folder with
        the repo's layout (`scripts/`, `database/migrations/`), e.g.
        `/root/webyar-migrate-253/`.
@@ -291,7 +321,8 @@ reserved blocks, so a full disk stops Postgres too.
     `269_billing_revenue_archive.sql` and
     `270_billing_admin_adjust_rate_limit.sql` (09:33). Full `pg_dump -Fc`
     copies taken before 267 and before 268: `/root/billing-v2-backup/` on
-    `vps-50cc1602`. Then `271_plan_storage_mb_ai_credit.sql` (2026-10-16
+    `vps-50cc1602`, now `/root/from-vps-50cc1602/billing-v2-backup/` on the
+    new box. Then `271_plan_storage_mb_ai_credit.sql` (2026-10-16
     08:33 UTC), `272_plan_storage_gb_removed.sql` (09:51),
     `273_sms_provider_telnyx.sql` (11:09), `274_billing_card_transfer.sql`
     (19:23), `275_widget_template_catalog.sql` (2026-10-17 22:07; a dump of
@@ -394,6 +425,12 @@ pause it or delete it. Going back to it loses everything written since,
 unless that data is moved back first, which needs Supabase's `postgres` role.
 
 History, kept for reference:
+- 2026-10-28 06:04-06:43 UTC: both brands moved from `vps-50cc1602` to
+  `host.respok.app` (`5.39.70.213`), same Coolify uuids and app ids. After it,
+  the same day: LiveKit's address became automatic (PR #365), the migration's
+  plaintext dumps were deleted on both boxes, root's `authorized_keys` on the
+  new box was cut back to Coolify's own key, the Intelligence workers (17, 34)
+  were rebuilt from `main`, and the off-site backup to Bunny was turned on.
 - 2026-10-07 05:41 UTC: WebYar's data moved from Supabase to the self-hosted
   `webyar-postgres` (then on the old server).
 - 2026-10-07 14:12-14:24 UTC: the apps and the database moved to

@@ -84,11 +84,11 @@ The compose file publishes these ports from the container — you only need to m
 |---|---|---|---|
 | `LIVEKIT_API_KEY` | ✅ | `APIabc123` | LiveKit API key (identifier). Generate with `openssl rand -hex 16`. **Must match** the API Key in Super Admin → Providers → Calls → LiveKit. |
 | `LIVEKIT_API_SECRET` | ✅ | `secretvalue...` | LiveKit API secret (signing secret). Generate with `openssl rand -hex 32`. **Must match** the API Secret in Super Admin → Providers → Calls → LiveKit. |
-| `LIVEKIT_NODE_IP` | ✅ | `203.0.113.10` | Public IP of the host. Find with `curl -s https://api.ipify.org`. **Without this, calls connect but no audio/video flows.** |
 | `LIVEKIT_LOG_LEVEL` | ❌ | `info` | `debug` / `info` / `warn` / `error` |
 | `LIVEKIT_WEBHOOK_API_KEY` | ❌ | `APIabc123` | Same value as `LIVEKIT_API_KEY`. Only if you enable webhooks (§2.5). |
 | `LIVEKIT_REDIS_ADDRESS` | ❌ | `redis:6379` | Multi-node only. |
 | `LIVEKIT_TURN_DOMAIN` | ❌ | `turn.your-domain.tld` | Reserved for a future TURN/TLS rollout. |
+| `LIVEKIT_NODE_IP` | ❌ | `auto` | The public IPv4 put in ICE candidates. `auto` (default, also when empty) finds it on every start (§3), so a server move needs only the LiveKit domain's DNS changed. An IP pins it. **A wrong address means calls connect but no audio/video flows.** |
 
 See `.env.livekit.example` for the canonical list. The startup wrapper hard-fails fast if any required var is missing, so a misconfigured deploy surfaces the missing variable name in the container logs instead of looping silently.
 
@@ -102,9 +102,10 @@ Off until `LIVEKIT_WEBHOOK_URL` is set. Set it to the backend's `https://<api ho
 
 The compose service overrides the image entrypoint with a small shell wrapper. On every container start it:
 
-1. Asserts that `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_NODE_IP` are set (fails fast otherwise).
-2. Writes `/tmp/livekit.yaml` from a heredoc, interpolating the env vars into a real YAML map — so `keys:` is always a proper `key: secret` mapping, never a string.
-3. `exec`s `/livekit-server --config /tmp/livekit.yaml` so the LiveKit process replaces the shell at PID 1 and receives Coolify's redeploy signals cleanly.
+1. Asserts that `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` are set (fails fast otherwise).
+2. Finds the host's public IPv4 when `LIVEKIT_NODE_IP` is `auto` or empty: it asks Cloudflare (`http://1.1.1.1/cdn-cgi/trace`, plain HTTP to an IP, so DNS and TLS need not work), then `https://api.ipify.org`, then OpenDNS (`myip.opendns.com`), and keeps the first answer that is a public IPv4. If none answers, it leaves the address out and turns on LiveKit's own STUN discovery (`use_external_ip: true`). It never uses the container's own address, which is a Docker one. A pinned IP is used as given, with a warning in the log when the host is seen as another address. `src/test/calls/livekitNodeIp.test.ts` runs this block with stubbed sources.
+3. Writes `/tmp/livekit.yaml` from a heredoc, interpolating the env vars into a real YAML map — so `keys:` is always a proper `key: secret` mapping, never a string.
+4. `exec`s `/livekit-server --config /tmp/livekit.yaml` so the LiveKit process replaces the shell at PID 1 and receives Coolify's redeploy signals cleanly.
 
 The exact command lives in `docker-compose.livekit.yml` — no extra entrypoint scripts to maintain in the repo.
 
@@ -138,17 +139,17 @@ curl -i https://livekit.your-domain.tld/
 ### 5.2 Container logs
 In Coolify → LiveKit service → **Logs**, look for:
 ```
-[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=info, node_ip=203.0.113.10)
+[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=info, node_ip=203.0.113.10 (auto, cloudflare), ...)
 starting LiveKit server   {"version": "1.7.x"}
 listening on              {"port": 7880}
 ```
-If you see `LIVEKIT_API_KEY is required` (or similar), the wrapper aborted because an env var is missing — set it in Coolify and redeploy. If you see `node_ip is not set` or `failed to determine external IP`, your `LIVEKIT_NODE_IP` is wrong.
+If you see `LIVEKIT_API_KEY is required` (or similar), the wrapper aborted because an env var is missing — set it in Coolify and redeploy. The bracket after `node_ip` says where the address came from: `auto, cloudflare` (or `ipify`, `opendns`), `pinned`, or `stun` when no source answered and LiveKit looked for itself. If you see `failed to determine external IP`, the STUN fallback failed too: the host has no way out, so pin `LIVEKIT_NODE_IP`. A `WARNING: LIVEKIT_NODE_IP is pinned to ...` line means the pinned address is not this host's: set it back to `auto`.
 
 ### 5.3 End-to-end smoke test
 Open two operator UI tabs, start a call between them, and confirm bidirectional audio. Signaling is visible in DevTools → Network → WS. Media frames go peer↔server over UDP 50000–50100 and are NOT visible in WS frames.
 
 If signaling works but no media:
-- `LIVEKIT_NODE_IP` not set or wrong
+- `LIVEKIT_NODE_IP` pinned to an address that is not this host's (look for the bootstrap WARNING line)
 - UDP `50000-50100` blocked on the cloud firewall
 - Both clients on networks blocking UDP **and** TCP 7881 → enable TURN/TLS later
 
@@ -171,7 +172,7 @@ If signaling works but no media:
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `wss://...` returns 502 | Container down, or Coolify domain points to wrong port | Confirm `expose: ["7880"]` and Coolify domain target = 7880 |
-| Signaling connects, no audio/video | `LIVEKIT_NODE_IP` missing or UDP `50000-50100` blocked | Set the env var; open the range on the cloud firewall |
+| Signaling connects, no audio/video | `LIVEKIT_NODE_IP` pinned to another host's address, or UDP `50000-50100` blocked | Set it to `auto` (or the right IP) and redeploy; open the range on the cloud firewall |
 | `unauthorized` on token mint | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` don't match Super Admin → Providers → Calls → LiveKit | Re-enter both sides so they match exactly |
 | Container exits immediately with `LIVEKIT_API_KEY is required` (or similar) | Required env var not set in Coolify | Add it in the LiveKit service's env panel and redeploy |
 | Container restart loop with `cannot unmarshal !!str ... into map[string]string` | You are on an older revision that injected `LIVEKIT_KEYS` as a string. | Pull latest; the new compose renders `keys:` as a real YAML map from `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`. |

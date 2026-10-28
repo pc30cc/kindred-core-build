@@ -28,11 +28,13 @@ const BATCH_SIZE = 50;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
+const errorMessage = (err: unknown): string => (err instanceof Error && err.message) || 'unknown';
+
 export function startGmailWatchRenewalTicker(config: ServerConfig): void {
   if (timer) return;
   setTimeout(() => runOnce(config), 90_000);
   timer = setInterval(() => runOnce(config), TICK_MS);
-  if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  if (typeof (timer as { unref?: () => void }).unref === 'function') (timer as { unref: () => void }).unref();
 }
 
 export function __stopGmailWatchRenewalTickerForTests(): void {
@@ -48,8 +50,8 @@ async function runOnce(config: ServerConfig): Promise<void> {
   let leased = false;
   try {
     leased = await acquireTickerLease(config, LEASE_NAME);
-  } catch (err: any) {
-    emitLog(config, 'warn', 'gmail_watch_ticker_lease_unavailable', { error: err?.message || 'unknown' });
+  } catch (err: unknown) {
+    emitLog(config, 'warn', 'gmail_watch_ticker_lease_unavailable', { error: errorMessage(err) });
     return;
   }
   if (!leased) return;
@@ -93,7 +95,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
           last_error_at: null,
         });
         renewed++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         failed++;
         // A grant Google no longer honours never renews on a retry: mark the
         // mailbox errored (as the live inbox does), so the panel asks for a
@@ -102,7 +104,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
         const revoked = isGmailGrantRevoked(err);
         emitLog(config, 'warn', 'gmail_watch_renewal_failed', {
           integrationId: integration.id,
-          error: err?.message || 'unknown',
+          error: errorMessage(err),
           grantRevoked: revoked,
         });
         const at = new Date().toISOString();
@@ -118,8 +120,8 @@ async function runOnce(config: ServerConfig): Promise<void> {
     if (renewed > 0 || failed > 0) {
       emitLog(config, 'info', 'gmail_watch_ticker_cycle', { renewed, failed, due: due.length });
     }
-  } catch (err: any) {
-    emitLog(config, 'warn', 'gmail_watch_ticker_cycle_threw', { error: err?.message || 'unknown' });
+  } catch (err: unknown) {
+    emitLog(config, 'warn', 'gmail_watch_ticker_cycle_threw', { error: errorMessage(err) });
   } finally {
     await releaseTickerLease(config, LEASE_NAME);
   }

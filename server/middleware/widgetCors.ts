@@ -18,6 +18,8 @@
  *      recover the session is the one the browser blocks).
  *   2. Explicit `workspace_id` in query/body (bootstrap, realtime connect).
  *   3. Origin → workspace lookup, for /bootstrap and /config only.
+ *   4. The request's own host → workspace, for the help center's
+ *      /help-host probe only (it answers with that very workspace).
  *
  * Strategy:
  *  - OPTIONS preflight → always reply 204 with the requesting Origin echoed
@@ -162,6 +164,19 @@ export function widgetCorsMiddleware() {
     if (!workspaceId && (req.path === '/bootstrap' || req.path === '/boot' || req.path === '/config')) {
       try {
         workspaceId = await resolveWorkspaceIdFromOrigin(config, getBootstrapOrigin(req));
+      } catch {
+        workspaceId = null;
+      }
+    }
+
+    // 4) The help center's host probe (routes/kb.ts /help-host, mounted at
+    //    /api/widget/kb) names the workspace of the request's OWN host, so
+    //    only that workspace's origins may read the answer: app.<brand>'s
+    //    /help pages calling api.<brand> resolve the platform's workspace
+    //    there (through the guarded resolver), and its rules decide below.
+    if (!workspaceId && req.path === '/help-host') {
+      try {
+        workspaceId = await resolveWorkspaceIdFromOrigin(config, getRequestBaseUrl(req));
       } catch {
         workspaceId = null;
       }

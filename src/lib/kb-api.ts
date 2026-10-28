@@ -59,7 +59,7 @@ async function resolveWorkspaceId(): Promise<string | null> {
   cachedWorkspaceLookup = (async () => {
     try {
       // Lightweight host→workspace probe; returns 404 if host is not bound.
-      const r = await fetch(`${API_BASE}/api/widget/help-host`, { credentials: 'include' });
+      const r = await fetch(`${API_BASE}/api/widget/kb/help-host`, { credentials: 'include' });
       if (!r.ok) return null;
       const data = await r.json();
       cachedWorkspaceId = data?.workspace_id || null;

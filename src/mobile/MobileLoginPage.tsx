@@ -15,6 +15,7 @@ import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { normalizeEmail, stripInvisible } from './normalizeCredentials';
 import { brandTokens } from '@/lib/brand';
+import { inAppRedirect } from '@/lib/inAppRedirect';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -32,7 +33,7 @@ export default function MobileLoginPage() {
   const { signIn, user, isLoading: authLoading } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
 
-  const destination = params.get('redirect') || '/app';
+  const destination = inAppRedirect(params.get('redirect'), '/app');
 
   useEffect(() => {
     if (user && !authLoading) navigate(destination, { replace: true });

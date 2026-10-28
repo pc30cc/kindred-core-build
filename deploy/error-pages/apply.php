@@ -5,9 +5,10 @@
 // service, Maintenance → "Maintenance page". Run inside the coolify container
 // with the two HTML files next to this script:
 //
-//   docker cp /root/error-pages coolify:/tmp/error-pages
+//   docker exec -u root coolify rm -rf /tmp/error-pages
+//   docker cp /root/error-pages/. coolify:/tmp/error-pages
 //   docker exec coolify php artisan tinker --execute="require '/tmp/error-pages/apply.php';"
-//   docker exec coolify rm -rf /tmp/error-pages
+//   docker exec -u root coolify rm -rf /tmp/error-pages
 
 use App\Models\Application;
 use App\Models\Server;

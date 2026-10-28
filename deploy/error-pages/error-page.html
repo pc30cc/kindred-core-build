@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="light dark">
 <title>Service unavailable</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23d6293e'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23c42239'/%3E%3C/svg%3E">
 <style>
 :root {
   --bg: #f5f6f8;
@@ -16,10 +16,10 @@
   --border: #e3e5ea;
   --text: #0e1116;
   --muted: #565c68;
-  --faint: #80868f;
-  --ok: #0f8a5f;
-  --state: #d6293e;
-  --state-soft: rgba(214, 41, 62, .09);
+  --faint: #666c76;
+  --ok: #0b7a53;
+  --state: #c42239;
+  --state-soft: rgba(196, 34, 57, .09);
   --btn: #0e1116;
   --btn-hover: #2a2e37;
   --btn-text: #ffffff;
@@ -34,7 +34,7 @@
     --border: #23262d;
     --text: #eef0f3;
     --muted: #a6abb5;
-    --faint: #737985;
+    --faint: #868c97;
     --ok: #34c98b;
     --state: #ff5d6c;
     --state-soft: rgba(255, 93, 108, .12);
@@ -202,6 +202,7 @@ h1 {
 .btn svg { width: 16px; height: 16px; }
 .retry { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--faint); font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .retry:empty { display: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .spin { width: 14px; height: 14px; flex: none; }
 .checking .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -299,6 +300,7 @@ h1 {
         Try again
       </a>
       <p class="retry" id="status"></p>
+      <p class="sr-only" role="status" id="announce"></p>
     </div>
 
     <div class="help">
@@ -329,23 +331,28 @@ h1 {
 
   var status = document.getElementById('status');
   var button = document.getElementById('retry');
+  var announce = document.getElementById('announce');
   if (!window.fetch) return;
 
   // Check the same address in the background and reload only once it answers,
   // waiting a little longer after each miss.
   var delays = [15, 30, 60, 120];
-  var attempt = 0, left = delays[0], timer = null, busy = false;
+  var attempt = 0, left = delays[0], timer = null, busy = false, stopped = false;
   var ring = '<svg class="spin" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/><path d="M14 8a6 6 0 0 0-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
-  function show(text, checking) {
+  function show(text, checking, plain) {
     status.className = checking ? 'retry checking' : 'retry';
-    status.innerHTML = ring + '<span></span>';
+    status.innerHTML = (plain ? '' : ring) + '<span></span>';
     status.lastChild.textContent = text;
   }
   function tick() {
     clearTimeout(timer);
-    if (busy) return;
-    if (navigator.onLine === false) { show('You’re offline. Waiting for a connection…'); return; }
+    if (busy || stopped) return;
+    if (navigator.onLine === false) {
+      show('You’re offline. Waiting for a connection…');
+      announce.textContent = 'You’re offline.';
+      return;
+    }
     if (!document.hidden) {
       if (left <= 0) { check(); return; }
       show((attempt ? 'Still unavailable. Checking again in ' : 'Checking automatically in ') + left + 's');
@@ -357,18 +364,35 @@ h1 {
     busy = true;
     button.setAttribute('aria-disabled', 'true');
     show('Checking…', true);
-    fetch(location.href, { cache: 'no-store', redirect: 'manual', credentials: 'same-origin' })
-      .then(function (r) { return r.type === 'opaqueredirect' || r.status < 500; }, function () { return false; })
+    // The address without its query: a one-time link (an OAuth callback's code
+    // and state) must reach the service once, with the reload, not with this check.
+    // HEAD, so nothing large is downloaded; a server without HEAD (501) is up too.
+    fetch(location.origin + location.pathname, { method: 'HEAD', cache: 'no-store', redirect: 'manual', credentials: 'same-origin' })
+      .then(function (r) { return r.type === 'opaqueredirect' || r.status < 500 || r.status === 501; }, function () { return false; })
       .then(function (up) {
-        if (up) { show('Back online. Reloading…', true); location.reload(); return; }
+        if (up) {
+          show('Back online. Reloading…', true);
+          announce.textContent = 'Back online. Reloading.';
+          location.reload();
+          // A reload can leave this page in place (a download, a cancelled form
+          // resubmission): stop checking and let the visitor reload by hand.
+          setTimeout(function () {
+            busy = false;
+            stopped = true;
+            button.removeAttribute('aria-disabled');
+            show('The service is back. Reload this page if it doesn’t open.', false, true);
+          }, 8000);
+          return;
+        }
         busy = false;
         button.removeAttribute('aria-disabled');
         attempt++;
         left = delays[Math.min(attempt, delays.length - 1)];
+        announce.textContent = 'Still unavailable. Checking again in ' + left + ' seconds.';
         tick();
       });
   }
-  button.addEventListener('click', function (e) { e.preventDefault(); left = 0; tick(); });
+  button.addEventListener('click', function (e) { e.preventDefault(); stopped = false; left = 0; tick(); });
   window.addEventListener('online', function () { left = 0; tick(); });
   document.addEventListener('visibilitychange', tick);
   tick();

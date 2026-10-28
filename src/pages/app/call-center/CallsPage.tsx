@@ -25,6 +25,7 @@ import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { IdentityRowSkeleton } from '@/components/common/IdentitySkeleton';
 import { contactDisplayName } from '@/lib/contact-display';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
+import { visitorPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
 const TYPES = ['all', 'audio', 'video'];
@@ -43,6 +44,14 @@ function fmtBytes(n?: number | null) {
 }
 function isVideoRecording(t: string | null): boolean {
   return t === 'composite' || t === 'individual';
+}
+
+/** What a call's `metadata.recording` carries (written by the call widget's /calls/request). */
+interface CallRecordingMeta {
+  state?: string;
+  consent_given?: boolean;
+  consent_at?: string | null;
+  artifact_id?: string | null;
 }
 
 /**
@@ -83,8 +92,8 @@ function RecordingPlaybackRow({
     try {
       const r = await callCenterApi.mintCallRecordingPlaybackToken(workspaceId, callId, rec.id);
       setUrl(r.url);
-    } catch (e: any) {
-      toast({ title: t('callCenter.calls.loadPlayback'), description: e?.message || 'token_mint_failed', variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('callCenter.calls.loadPlayback'), description: (e instanceof Error && e.message) || 'token_mint_failed', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -104,8 +113,8 @@ function RecordingPlaybackRow({
       document.body.appendChild(a);
       a.click();
       a.remove();
-    } catch (e: any) {
-      toast({ title: t('callCenter.calls.download'), description: e?.message || 'token_mint_failed', variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('callCenter.calls.download'), description: (e instanceof Error && e.message) || 'token_mint_failed', variant: 'destructive' });
     } finally {
       setDownloading(false);
     }
@@ -123,10 +132,10 @@ function RecordingPlaybackRow({
         title: t('callCenter.calls.shareLinkCopied'),
         description: t('callCenter.calls.shareLinkDesc'),
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: t('callCenter.calls.shareLinkFailed'),
-        description: e?.message || 'token_mint_failed',
+        description: (e instanceof Error && e.message) || 'token_mint_failed',
         variant: 'destructive',
       });
     }
@@ -271,10 +280,10 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
           description: t('callCenter.calls.bulkStartedDesc', { count: ok }),
         });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: t('callCenter.calls.bulkUnavailable'),
-        description: e?.message || 'bulk_token_mint_failed',
+        description: (e instanceof Error && e.message) || 'bulk_token_mint_failed',
         variant: 'destructive',
       });
     } finally {
@@ -309,10 +318,10 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
           description: t('callCenter.calls.archiveDownloadedDesc', { count: r.included }),
         });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: t('callCenter.calls.archiveFailed'),
-        description: e?.message || 'archive_export_failed',
+        description: (e instanceof Error && e.message) || 'archive_export_failed',
         variant: 'destructive',
       });
     } finally {
@@ -410,7 +419,7 @@ export default function CallsPage() {
 
   // ONE batched network read for the whole page (list rows + detail sheet).
   const sessionIds = useMemo(
-    () => filtered.map((c) => (c as any).visitor_session_id ?? null),
+    () => filtered.map((c) => c.visitor_session_id ?? null),
     [filtered],
   );
   const { data: networkBySession, isPending: networkPending } = useVisitorNetworkBatchBySession(
@@ -422,9 +431,12 @@ export default function CallsPage() {
   const identityLoading = networkPending && sessionIds.some(Boolean);
   // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
   useGeoEnrichmentRealtime(workspace?.id);
-  const detailProfile = (detail as any)?.call?.visitor_session_id
-    ? networkBySession?.[(detail as any).call.visitor_session_id] ?? null
+  const detailProfile = detail?.call?.visitor_session_id
+    ? networkBySession?.[detail.call.visitor_session_id] ?? null
     : null;
+  // The visitor's page, linked only on the site the call came from
+  // (shared/callCenter/visitorPageUrl.ts): the request body is theirs to write.
+  const detailPage = detail ? visitorPageUrl(detail.call.page_url, detail.call.origin) : null;
 
   const summary = useMemo(() => {
     let answered = 0, missed = 0, rejected = 0, totalDur = 0, durCount = 0;
@@ -493,10 +505,10 @@ export default function CallsPage() {
         truncated ? t('callCenter.calls.workspaceArchiveTruncated', { max: MAX_ITEMS }) : null,
       ].filter(Boolean).join(' · ');
       toast({ title: t('callCenter.calls.workspaceArchiveDownloaded'), description: desc });
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: t('callCenter.calls.archiveFailed'),
-        description: e?.message || 'archive_export_failed',
+        description: (e instanceof Error && e.message) || 'archive_export_failed',
         variant: 'destructive',
       });
     } finally {
@@ -616,8 +628,8 @@ export default function CallsPage() {
           </thead>
           <tbody>
             {filtered.map((c) => {
-              const net = (c as any).visitor_session_id
-                ? networkBySession?.[(c as any).visitor_session_id] ?? null
+              const net = c.visitor_session_id
+                ? networkBySession?.[c.visitor_session_id] ?? null
                 : null;
               // Same identity rule as Inbox / Contacts / Visitors: a stable,
               // geo-aware visitor label instead of a generic "anonymous".
@@ -627,8 +639,8 @@ export default function CallsPage() {
                 c.visitor_phone ||
                 contactDisplayName(
                   null,
-                  (c as any).contact_id ?? (c as any).visitor_session_id ?? c.id,
-                  t as any,
+                  c.contact_id ?? c.visitor_session_id ?? c.id,
+                  t,
                   net?.geo,
                   locale,
                 );
@@ -663,7 +675,7 @@ export default function CallsPage() {
                       <div className="font-medium truncate">{display}</div>
                       <VisitorNetworkInline
                         profile={net}
-                        t={t as any}
+                        t={t}
                         locale={locale}
                       />
                     </div>
@@ -683,10 +695,10 @@ export default function CallsPage() {
                 </td>
                 <td className="py-2 px-3">{fmtDuration(c.duration_seconds)}</td>
                 <td className="py-2 px-3">
-                  {(c as any).rating ? (
+                  {c.rating ? (
                     <span className="inline-flex items-center gap-1 text-xs">
                       <Star className="h-3 w-3 fill-warning text-warning" />
-                      {(c as any).rating.rating}
+                      {c.rating.rating}
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
@@ -729,8 +741,8 @@ export default function CallsPage() {
                 <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.duration')}</div>{fmtDuration(detail.call.duration_seconds)}</div>
                 <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.endReason')}</div>{detail.call.end_reason ? endReasonLabel(t, detail.call.end_reason) : '—'}</div>
               </div>
-              {detail.call.page_url && (
-                <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
+              {detailPage && (
+                <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detailPage.href} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detailPage.href}</a></div>
               )}
               {/* Same canonical IP/geo panel as Inbox / Live Queue — fed from
                   the page-level batch read, so opening the sheet costs nothing. */}
@@ -738,11 +750,11 @@ export default function CallsPage() {
                 workspaceId={workspace?.id}
                 profile={detailProfile}
                 showUnknown
-                t={t as any}
+                t={t}
                 locale={locale}
               />
               {(() => {
-                const rec = (detail.call as any)?.metadata?.recording || null;
+                const rec = (detail.call.metadata?.recording as CallRecordingMeta | undefined) || null;
                 const consent = rec?.consent_given;
                 const consentAt = rec?.consent_at ? new Date(rec.consent_at).toLocaleString() : '—';
                 const state = rec?.state || (rec ? 'disabled' : 'not_started');
@@ -769,7 +781,7 @@ export default function CallsPage() {
                   </div>
                 );
               })()}
-              {(detail as any).rating && (
+              {detail.rating && (
                 <div className="space-y-2 rounded-xl border border-warning/30 bg-warning/[0.06] p-3">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {t('callCenter.calls.visitorRating')}
@@ -780,21 +792,21 @@ export default function CallsPage() {
                         key={n}
                         className={cn(
                           'h-4 w-4',
-                          n <= ((detail as any).rating.rating || 0)
+                          n <= (detail.rating.rating || 0)
                             ? 'fill-warning text-warning'
                             : 'text-muted-foreground/40',
                         )}
                       />
                     ))}
                     <span className="ms-1 text-xs text-muted-foreground">
-                      {(detail as any).rating.rating}/5
+                      {detail.rating.rating}/5
                     </span>
                   </div>
-                  {(detail as any).rating.comment && (
-                    <p className="text-sm whitespace-pre-wrap">{(detail as any).rating.comment}</p>
+                  {detail.rating.comment && (
+                    <p className="text-sm whitespace-pre-wrap">{detail.rating.comment}</p>
                   )}
                   <div className="text-[11px] text-muted-foreground">
-                    {new Date((detail as any).rating.created_at).toLocaleString()}
+                    {new Date(detail.rating.created_at).toLocaleString()}
                   </div>
                 </div>
               )}

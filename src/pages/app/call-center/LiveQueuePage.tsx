@@ -61,6 +61,7 @@ import {
   EmptyState, LiveDot, Panel, PanelSkeleton, SectionHeading, StatusChip, ToneBar,
   TONE_DOT, TONE_TEXT, type Tone,
 } from '@/features/calls/callCenterUi';
+import { visitorPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
 
 /** SLA threshold, in seconds, after which a waiting call counts as breached. */
 const SLA_BREACH_SECONDS = 180;
@@ -362,6 +363,9 @@ export default function LiveQueuePage() {
     || rawQueue.find((q) => q.call_session_id === selectedCallId)?.call_session?.visitor_session_id
     || null;
   const selectedProfile = selectedSessionId ? networkBySession?.[selectedSessionId] ?? null : null;
+  // The caller's page, linked only on the site the call came from
+  // (shared/callCenter/visitorPageUrl.ts): the request body is theirs to write.
+  const selectedPage = detail ? visitorPageUrl(detail.call.page_url, detail.call.origin) : null;
 
   // Queue analytics
   const queueStats = useMemo(() => {
@@ -1028,7 +1032,7 @@ export default function LiveQueuePage() {
                     t={t}
                     locale={locale}
                   />
-                  {(detail.call.page_url || detail.call.subject) && (
+                  {(selectedPage || detail.call.subject) && (
                     <>
                       <Separator />
                       <div className="space-y-2">
@@ -1036,11 +1040,11 @@ export default function LiveQueuePage() {
                         {detail.call.subject && (
                           <div className="text-sm"><span className="text-muted-foreground">{t('callCenter.queue.subjectLabel')}: </span>{detail.call.subject}</div>
                         )}
-                        {detail.call.page_url && (
+                        {selectedPage && (
                           <div className="flex items-center gap-1.5 text-sm">
                             <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="truncate underline">
-                              {detail.call.page_title || detail.call.page_url}
+                            <a href={selectedPage.href} target="_blank" rel="noreferrer" className="truncate underline">
+                              {detail.call.page_title || selectedPage.href}
                             </a>
                           </div>
                         )}

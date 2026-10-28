@@ -452,6 +452,8 @@ export interface CallSession {
   subject: string | null;
   page_url: string | null;
   page_title: string | null;
+  /** The site the widget ran on (the request's Origin); `page_url` is linked only on it. */
+  origin?: string | null;
   created_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
@@ -470,6 +472,8 @@ export interface CallSession {
   recording_enabled?: boolean;
   recording_state?: string;
   metadata?: Record<string, unknown>;
+  /** The latest visitor rating, attached by the call list (the detail returns it beside the call). */
+  rating?: { rating: number; comment: string | null; created_at: string } | null;
 }
 
 export interface CallEvent {

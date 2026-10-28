@@ -175,7 +175,8 @@ describe('the rendered config', () => {
     try {
       const file = join(dir, 'livekit.yaml');
       const script = unescape(commandBlock())
-        .replaceAll('/tmp/livekit.yaml', file)
+        .split('/tmp/livekit.yaml')
+        .join(file)
         .replace(/exec \/livekit-server.*/, 'exit 0');
       execFileSync('sh', ['-c', script], {
         env: { PATH: `${bin}:${process.env.PATH}`, LIVEKIT_API_KEY: 'APItest', LIVEKIT_API_SECRET: 'secret', ...env },

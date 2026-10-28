@@ -50,6 +50,11 @@ export function xhtmlVoids(html: string): string {
  */
 export const XSS_PAYLOADS: Array<[string, string]> = [
   ['an svg with onload', '<svg/onload=alert(1)>'],
+  // Shaped like the four advisories against sanitize-html 2.17.5 (articleHtml.ts).
+  ['a textarea closed with a solidus', '<textarea></textarea/><img src=x onerror=alert(1)>'],
+  ['a noscript region ended early', '<noscript><p title="</noscript><img src=x onerror=alert(1)>"></noscript>'],
+  ['an svg animate setting a javascript href', '<svg><a><animate attributeName="href" to="javascript:alert(1)"/><text>x</text></a></svg>'],
+  ['a meta refresh to javascript', '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">'],
   ['a script tag split by another', '<scr<script></script>ipt>alert(1)</script>'],
   ['a script', '<p>Hi</p><script>alert(1)</script>'],
   ['an img onerror, bare', '<img src=x onerror=alert(1)>'],

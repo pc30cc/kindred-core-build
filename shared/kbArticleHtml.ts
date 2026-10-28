@@ -60,7 +60,9 @@ export const KB_IMAGE_SCHEMES: readonly string[] = ['http', 'https'];
  * `javascript:`).
  */
 export function isKbArticleUrl(value: string, schemes: readonly string[]): boolean {
-  const url = String(value).split('').filter((c) => c > ' ' && c !== '\u007f').join('');
+  // Control characters and any whitespace (Unicode's too, which DOMPurify
+  // strips and sanitize-html does not), so both sides read the same scheme.
+  const url = String(value).split('').filter((c) => c > ' ' && c !== '\u007f' && !/\s/.test(c)).join('');
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
   return !scheme || schemes.includes(scheme[1].toLowerCase());
 }

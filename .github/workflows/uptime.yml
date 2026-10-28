@@ -7,11 +7,12 @@ name: Uptime
 # changed the cron line below) when one of them does not answer as expected.
 # Planned maintenance: disable this workflow first (docs/DEPLOYMENT.md,
 # "Uptime monitor"). src/test/ci/uptimeWorkflow.test.ts pins the schedule and
-# the checks. The repository is private, so each run is billed as at least a
-# minute of hosted runner: about 4,400 minutes a month at this schedule.
+# the checks. The repository is public, so its runs cost no Actions minutes.
+# The schedule is off the hour (minute 3, 13, ...): GitHub delays and drops
+# scheduled runs most at the top of the hour.
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '3-59/10 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -39,15 +40,18 @@ jobs:
           # (comma-separated, x for any digit; redirects are not followed) and
           # the body it must answer, spaces aside ('-' for any).
           CHECKS: |
-            https://api.webyar.ai/api/health   200      -
-            https://api.respok.app/api/health  200      -
-            https://app.webyar.ai/             200      -
-            https://app.respok.app/            200      -
-            https://channels.webyar.ai/ready   200      -
-            https://livekit.webyar.ai/         200      OK
-            https://livekit.respok.app/        200      OK
-            https://webyar.ai/                 200,3xx  -
-            https://respok.app/                200,3xx  -
+            https://api.webyar.ai/api/health            200      -
+            https://api.respok.app/api/health           200      -
+            https://api.webyar.ai/api/health/database   200      -
+            https://api.respok.app/api/health/database  200      -
+            https://app.webyar.ai/                      200      -
+            https://app.respok.app/                     200      -
+            https://channels.webyar.ai/ready            200      -
+            https://channels.respok.app/ready           200      -
+            https://livekit.webyar.ai/                  200      OK
+            https://livekit.respok.app/                 200      OK
+            https://webyar.ai/                          200,3xx  -
+            https://respok.app/                         200,3xx  -
         run: |
           set -eu
           dir=$(mktemp -d)

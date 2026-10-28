@@ -26,8 +26,8 @@ function blockScalar(key: string): string[] {
 }
 
 describe('uptime workflow', () => {
-  it('runs every 10 minutes and by hand, and on nothing else', () => {
-    expect(yml).toMatch(/^on:\n {2}schedule:\n {4}- cron: '\*\/10 \* \* \* \*'\n {2}workflow_dispatch:\n\n/m);
+  it('runs every 10 minutes off the hour and by hand, and on nothing else', () => {
+    expect(yml).toMatch(/^on:\n {2}schedule:\n {4}- cron: '3-59\/10 \* \* \* \*'\n {2}workflow_dispatch:\n\n/m);
     expect(yml.match(/cron:/g) ?? []).toHaveLength(1);
     expect(yml).not.toMatch(/^ {2}(push|pull_request|pull_request_target|workflow_run):/m);
   });
@@ -36,9 +36,13 @@ describe('uptime workflow', () => {
     expect(blockScalar('CHECKS').map((l) => l.split(/\s+/))).toEqual([
       ['https://api.webyar.ai/api/health', '200', '-'],
       ['https://api.respok.app/api/health', '200', '-'],
+      // /api/health answers without the database; this one asks it.
+      ['https://api.webyar.ai/api/health/database', '200', '-'],
+      ['https://api.respok.app/api/health/database', '200', '-'],
       ['https://app.webyar.ai/', '200', '-'],
       ['https://app.respok.app/', '200', '-'],
       ['https://channels.webyar.ai/ready', '200', '-'],
+      ['https://channels.respok.app/ready', '200', '-'],
       ['https://livekit.webyar.ai/', '200', 'OK'],
       ['https://livekit.respok.app/', '200', 'OK'],
       ['https://webyar.ai/', '200,3xx', '-'],

@@ -274,6 +274,26 @@ bunx vitest run src/test/security/
 Then, in the app: send a widget message (AI replies), send a Telegram message
 (appears in Inbox with the channel badge), and run an AI Playground question.
 
+### Uptime monitor (production)
+
+Every other alert runs on the production server itself, so
+`.github/workflows/uptime.yml` is what notices the host or its network going
+down. About every 10 minutes (GitHub starts scheduled runs late when it is
+busy) it asks both brands' backends (`/api/health`) and frontends,
+`channels.webyar.ai/ready`, LiveKit (`200` with the body `OK`) and the landing
+pages (`200` or a redirect) from GitHub's runners. An endpoint counts as down
+after 3 tries of 10 s, 20 s apart; the run then fails, and its summary lists
+what each endpoint answered. GitHub e-mails a failed scheduled run to the user
+who last changed the workflow's `cron` line, or who last re-enabled it, when
+Actions e-mail is on in their notification settings (Settings → Notifications
+→ Actions; "Only notify for failed workflows" keeps it to red runs), once per
+red run while it stays down. Before planned maintenance that stops one of them
+(a stopped backend answers 503), disable it: Actions → Uptime → … → Disable
+workflow, or `gh workflow disable uptime.yml`. Afterwards enable it again
+(`gh workflow enable uptime.yml`, which makes you the one GitHub e-mails) and
+run it once by hand to see it green. A check is added or changed in its
+`CHECKS` list and in `src/test/ci/uptimeWorkflow.test.ts`, which pins it.
+
 ## 9. Troubleshooting
 
 | Symptom | Likely cause |

@@ -38,6 +38,14 @@ describe('the server-rendered help center sanitizes an article with sanitize-htm
     expect(sanitizeKbArticleHtml('</article></div><p>x</p>')).toBe('<p>x</p>');
   });
 
+  it('an unclosed noscript, iframe, noembed or noframes takes the rest of the article with it; a closed one only itself', () => {
+    for (const tag of ['noscript', 'iframe', 'noembed', 'noframes']) {
+      expect(sanitizeKbArticleHtml(`<div><${tag}>x</div><p>Rest</p>`), tag).toBe('<div></div>');
+      expect(sanitizeKbArticleHtml(`<div><${tag}>x</${tag}></div><p>Rest</p>`), tag).toBe('<div></div><p>Rest</p>');
+    }
+    expect(sanitizeKbArticleHtml('<section><noscript></section><h2>Next</h2><p>body</p>')).toBe('');
+  });
+
   it.each(Object.entries(ARTICLES))('%s survives unchanged', (_name, html) => {
     expect(sanitizeKbArticleHtml(html)).toBe(xhtmlVoids(html));
   });

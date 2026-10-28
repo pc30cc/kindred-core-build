@@ -12,6 +12,16 @@
  * reachable here while svg, math, meta, textarea, xmp, noscript and template
  * stay out of KB_ARTICLE_TAGS; src/test/kb/kbArticleHtmlFixtures.ts carries
  * a payload shaped like each.
+ *
+ * What 2.18 changed in the output: an unclosed noscript, iframe, noembed or
+ * noframes inside a block now takes the rest of the article with it, as an
+ * unclosed script, style, textarea, xmp or title already did (2.17.5 picked
+ * up again at the block's end tag). The SPA (src/lib/sanitizeKbHtml.ts) does
+ * the same after an iframe, noembed or noframes, as a browser reads them, but
+ * keeps the rest after a noscript, since DOMPurify parses with scripting off,
+ * so the two help centers read such an article differently. Accepted: only
+ * malformed markup gets there, and nothing unsafe comes out either way; the
+ * help center tests pin both sides.
  */
 import sanitizeHtml from 'sanitize-html';
 import {

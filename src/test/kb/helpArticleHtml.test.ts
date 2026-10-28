@@ -52,6 +52,14 @@ describe('the SPA help center sanitizes an article with DOMPurify', () => {
     expect(sanitizeKbHtml('<p href="https://example.com" src="/a.png" colspan="2">x</p>')).toBe('<p>x</p>');
   });
 
+  it('an unclosed iframe, noembed or noframes takes the rest of the article with it, an unclosed noscript does not (the server page drops it after all four)', () => {
+    for (const tag of ['iframe', 'noembed', 'noframes']) {
+      expect(sanitizeKbHtml(`<div><${tag}>x</div><p>Rest</p>`), tag).toBe('<div></div>');
+    }
+    expect(sanitizeKbHtml('<div><noscript>x</div><p>Rest</p>')).toBe('<div></div><p>Rest</p>');
+    expect(sanitizeKbHtml('<section><noscript></section><h2>Next</h2><p>body</p>')).toBe('<h2>Next</h2><p>body</p>');
+  });
+
   it('no content is an empty string', () => {
     expect(sanitizeKbHtml('')).toBe('');
     expect(sanitizeKbHtml(null)).toBe('');

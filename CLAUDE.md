@@ -192,7 +192,13 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   `.nvmrc`, and Nixpacks gives RESPOK's DB Migrator (app 40, the only app
   not built from a Dockerfile) `nodejs_24` from them. When the host's minor
   moves, bump all seven `FROM node:` lines together
-  (`src/test/ci/nodeVersion.test.ts`).
+  (`src/test/ci/nodeVersion.test.ts`). Outbound TLS keeps Node 24's default
+  security level 2: on 2026-10-28 the 60 outside hosts the apps call (AI,
+  email, storage, payment and SMS gateways, channels, CDNs) were probed from
+  this server with Node 24.22.1 and Node 20 (`/root/node24-check/tls-probe.mjs`)
+  and connected the same way. A host offering DHE or an RSA key under 2048
+  bits is refused; if a customer's server needs that, lower it on that one
+  client, never globally.
 
 The same server also runs:
 - RESPOK, a second rebranded copy of this repo (Coolify projects "RESPOK" and

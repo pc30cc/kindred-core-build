@@ -98,7 +98,11 @@ export async function checkNewWebsite(
 ): Promise<{ ok: true; domain: string } | WebsiteRefusal> {
   const parsed = parseWebsite(raw);
   if (parsed.ok === false) return { ok: false, status: 400, code: parsed.code };
-  if (await isPlatformHost(config, parsed.domain)) return { ok: false, status: 409, code: 'PLATFORM_DOMAIN' };
+  // The raw text too: parsing turns a dotted capital I (U+0130) into punycode,
+  // while Postgres' lower() and isPlatformHost read it as a plain i.
+  if ((await isPlatformHost(config, raw)) || (await isPlatformHost(config, parsed.domain))) {
+    return { ok: false, status: 409, code: 'PLATFORM_DOMAIN' };
+  }
   if ((await isVerifiedDomain(config, parsed.domain)) || (await isOtherProfileWebsite(config, parsed.domain, userId))) {
     return { ok: false, status: 409, code: 'DOMAIN_TAKEN' };
   }

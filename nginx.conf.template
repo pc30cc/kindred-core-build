@@ -72,6 +72,9 @@ server {
         proxy_ssl_server_name on;
         proxy_read_timeout 300s;
         proxy_connect_timeout 60s;
+        # The backend (helmet) sends its own HSTS header; this host's is the
+        # server-level one below, so a response carries one, not two.
+        proxy_hide_header Strict-Transport-Security;
     }
 
     # ─────────────────────────────────────────────────────────────────
@@ -86,6 +89,7 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files /runtime-config.js =404;
     }
 
@@ -102,6 +106,7 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files /sw.js =404;
     }
     location = /registerSW.js {
@@ -109,6 +114,7 @@ server {
         types { } default_type application/javascript;
         expires -1;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files /registerSW.js =404;
     }
 
@@ -149,6 +155,7 @@ server {
         # browser still keeps its revalidated copy per the line above.
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files /widget/loader.js =404;
     }
 
@@ -164,6 +171,7 @@ server {
         # See note above — Cloudflare-aware cache bypass.
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files /widget/widget-manifest.json =404;
     }
 
@@ -247,6 +255,7 @@ server {
             add_header Access-Control-Allow-Origin "*" always;
             add_header Cross-Origin-Resource-Policy "cross-origin" always;
             add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
             try_files $uri @missing_widget_asset;
         }
 
@@ -268,6 +277,7 @@ server {
         add_header Access-Control-Allow-Origin "*" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
         add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         # Hard 404 — DO NOT fall back to index.html for /widget/* paths.
         try_files $uri =404;
     }
@@ -282,6 +292,7 @@ server {
         add_header Access-Control-Allow-Origin "*" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         return 404;
     }
 
@@ -319,6 +330,7 @@ server {
         # Cloudflare honours these even where it ignores Cache-Control.
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         # Hard 404 — a store must never receive the SPA's index.html and try
         # to unzip it.
         try_files $uri =404;
@@ -345,6 +357,7 @@ server {
         root /usr/share/nginx/html;
         gzip_static on;
         add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         # A missing file is a hard 404 (never the SPA's index.html), from
         # @missing_asset below.
         try_files $uri @missing_asset;
@@ -362,6 +375,7 @@ server {
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         return 404;
     }
 
@@ -381,6 +395,7 @@ server {
         add_header X-Frame-Options "SAMEORIGIN" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files /index.html =404;
     }
 
@@ -434,6 +449,7 @@ server {
             add_header Access-Control-Allow-Origin "*" always;
             add_header Cross-Origin-Resource-Policy "cross-origin" always;
             add_header X-Widget-Asset "call-widget-hashed" always;
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
             # Another build's name (a stale loader, or the other container
             # during a rolling deploy): a 404 nothing stores, readable
             # cross-origin (@missing_widget_asset); the loader then falls back
@@ -451,6 +467,7 @@ server {
             add_header Cache-Control "public, max-age=31536000, immutable";
             add_header Access-Control-Allow-Origin "*" always;
             add_header Cross-Origin-Resource-Policy "cross-origin" always;
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
             try_files $uri @missing_widget_asset;
         }
 
@@ -461,6 +478,7 @@ server {
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
         add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
         add_header X-Widget-Asset "call-widget" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         try_files $uri =404;
     }
 
@@ -469,8 +487,23 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Security headers
+    # Security headers. nginx drops server-level `add_header`s in a location
+    # that sets its own, so these reach only `location /` (the files at the
+    # root) and /api/; the SPA document repeats them.
+    #
+    # HSTS: the panel holds operator sessions, so a browser that has seen this
+    # host once never asks it anything over plain HTTP again, for a year.
+    # `includeSubDomains` covers names under this host only (e.g.
+    # *.app.webyar.ai), never the site's apex or api.*; no `preload`, which is
+    # slow to undo. Browsers ignore it on a plain-HTTP response, so an install
+    # without TLS is unaffected. Unlike the other three it is repeated in EVERY
+    # location that sets its own headers
+    # (src/test/security/nginxSecurityHeaders.test.ts): the service worker may
+    # answer index.html from its cache, while sw.js and runtime-config.js
+    # always come from here. On the widget files a customer's page loads, it
+    # is a policy for this host alone: the customer's own site is not affected.
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 }

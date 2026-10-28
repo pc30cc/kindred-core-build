@@ -18,6 +18,10 @@ import {
  * to actually produce real HTML, not markdown text a human has to type by
  * hand. Tiptap (ProseMirror) gives a real WYSIWYG surface that outputs
  * exactly that.
+ *
+ * Both help centers keep only the tags and attributes shared/kbArticleHtml.ts
+ * allows, so an extension that writes a new one (an image, a table, a
+ * colour) needs it added there, or visitors never see it.
  */
 
 interface RichTextEditorProps {
@@ -142,7 +146,6 @@ export default function RichTextEditor({ value, onChange, placeholder, dir = 'lt
     if (!editor) return;
     const current = editor.getHTML();
     if (value !== current) editor.commands.setContent(value || '', { emitUpdate: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, editor]);
 
   if (!editor) return null;

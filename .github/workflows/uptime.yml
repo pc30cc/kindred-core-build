@@ -1,0 +1,123 @@
+name: Uptime
+
+# Every other alert (high disk, a failed Docker cleanup) runs on the
+# production server itself, so nobody is told when the host or its network
+# goes down. This asks the public endpoints of both brands from
+# outside, every 10 minutes, and fails (GitHub e-mails the user who last
+# changed the cron line below) when one of them does not answer as expected.
+# Planned maintenance: disable this workflow first (docs/DEPLOYMENT.md,
+# "Uptime monitor"). src/test/ci/uptimeWorkflow.test.ts pins the schedule and
+# the checks. The repository is public, so its runs cost no Actions minutes.
+# The schedule is off the hour (minute 3, 13, ...): GitHub delays and drops
+# scheduled runs most at the top of the hour.
+on:
+  schedule:
+    - cron: '3-59/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time and at most one waiting, so runs never pile up behind a
+# slow one, and a run is never cancelled halfway through its retries.
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Probe the public endpoints
+    runs-on: ubuntu-24.04
+    # The checks run at once, and each gives up after 3 tries of at most 10 s,
+    # 20 s apart (70 s).
+    timeout-minutes: 5
+
+    # No checkout: nothing here needs the repository.
+    steps:
+      - name: Probe
+        env:
+          # One check per line: the URL, the statuses it may answer
+          # (comma-separated, x for any digit; redirects are not followed) and
+          # the body it must answer, spaces aside ('-' for any).
+          CHECKS: |
+            https://api.webyar.ai/api/health            200      -
+            https://api.respok.app/api/health           200      -
+            https://api.webyar.ai/api/health/database   200      -
+            https://api.respok.app/api/health/database  200      -
+            https://app.webyar.ai/                      200      -
+            https://app.respok.app/                     200      -
+            https://channels.webyar.ai/ready            200      -
+            https://channels.respok.app/ready           200      -
+            https://livekit.webyar.ai/                  200      OK
+            https://livekit.respok.app/                 200      OK
+            https://webyar.ai/                          200,3xx  -
+            https://respok.app/                         200,3xx  -
+        run: |
+          set -eu
+          dir=$(mktemp -d)
+
+          # probe <n> <url> <statuses> <body> writes "<up|down> <tries> <status>
+          # <what went wrong>" to $dir/<n>. A try counts as down when curl
+          # fails (status 000), the status is not one of those listed or the
+          # body differs.
+          probe() {
+            local n=$1 url=$2 want=$3 body=$4 try code detail
+            want=${want//,/|}
+            want=${want//x/[0-9]}
+            for try in 1 2 3; do
+              [ "$try" = 1 ] || sleep 20
+              : >"$dir/$n.body"
+              code=$(curl -sS -o "$dir/$n.body" -w '%{http_code}' --max-time 10 \
+                -A 'uptime-check (GitHub Actions)' "$url" 2>"$dir/$n.err") || true
+              if ! [[ $code =~ ^($want)$ ]]; then
+                detail=$(head -n 1 "$dir/$n.err")
+                [ -n "$detail" ] || detail="answered $code"
+              elif [ "$body" != - ] && [ "$(tr -d '[:space:]' <"$dir/$n.body")" != "$body" ]; then
+                detail="the body is not $body"
+              else
+                echo "up $try $code" >"$dir/$n"
+                return
+              fi
+            done
+            echo "down $try $code $detail" >"$dir/$n"
+          }
+
+          n=0
+          while read -r url want body; do
+            [ -n "$url" ] || continue
+            n=$((n + 1))
+            echo "$url $want $body" >"$dir/$n.check"
+            probe "$n" "$url" "$want" "$body" &
+          done <<<"$CHECKS"
+          wait
+
+          down=0
+          {
+            echo "### Uptime, $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo
+            echo '| | URL | Expected | Got | Tries | Detail |'
+            echo '|---|---|---|---|---|---|'
+          } >>"$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 "$n"); do
+            read -r url want body <"$dir/$i.check"
+            # The detail is curl's own message or ours, never the response
+            # body, so nothing the server sends reaches the log or the summary.
+            read -r state tries code detail <"$dir/$i"
+            expected=${want//,/ or }
+            [ "$body" = - ] || expected="$expected, body $body"
+            if [ "$state" = down ]; then
+              down=$((down + 1))
+              echo "::error title=Down::$url: $detail (after $tries tries)"
+              label='**DOWN**'
+            else
+              label=up
+            fi
+            printf '%-4s  %-34s  %s  try %s  %s\n' "$state" "$url" "$code" "$tries" "$detail"
+            echo "| $label | $url | $expected | $code | $tries | ${detail//|/\\|} |" >>"$GITHUB_STEP_SUMMARY"
+          done
+
+          if [ "$down" -gt 0 ]; then
+            echo "$down of $n endpoints are down."
+            exit 1
+          fi
+          echo "All $n endpoints are up."

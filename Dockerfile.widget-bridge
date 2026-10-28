@@ -8,6 +8,8 @@ RUN npm ci --omit=dev && npx playwright install --with-deps chromium \
     && useradd --create-home --uid 10001 bridge \
     && chmod -R a+rX /ms-playwright
 COPY worker/widget-bridge ./worker/widget-bridge
+# The files it imports from outside its folder, one by one;
+# src/test/ci/dockerfileModuleClosure.test.ts fails on a missing one.
 COPY shared/net/hostGuard.ts ./shared/net/hostGuard.ts
 COPY shared/widgetBridge.ts ./shared/widgetBridge.ts
 COPY shared/widgetBridgeTargets.ts ./shared/widgetBridgeTargets.ts
@@ -15,6 +17,7 @@ COPY server/db/pool.ts ./server/db/pool.ts
 COPY server/db/postgrest/types.ts ./server/db/postgrest/types.ts
 COPY server/lib/pluginCrypto.ts ./server/lib/pluginCrypto.ts
 COPY server/services/widgetBridge/config.ts ./server/services/widgetBridge/config.ts
+COPY server/services/widgetBridge/providerIds.ts ./server/services/widgetBridge/providerIds.ts
 USER bridge
 ENV NODE_ENV=production
 # Chromium sandbox must remain enabled. Configure the container's seccomp

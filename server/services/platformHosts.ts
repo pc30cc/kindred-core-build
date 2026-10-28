@@ -50,6 +50,8 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { canonicalWorkspaceId } from '../lib/workspaceId.js';
+import { toStrictOrigin } from '../utils/domain.js';
+import { isWebsiteHeldBy } from './ownerWebsite.js';
 
 const TTL_MS = 60_000;
 const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
@@ -61,6 +63,12 @@ export interface PlatformHosts {
   hosts: ReadonlySet<string>;
   /** The platform's own workspace (see the header); null while none is known. */
   workspaceId: string | null;
+  /**
+   * The platform's own sites as browser origins: the app, public, help
+   * center and canonical URLs, and CORS_ORIGINS. Only they read the platform
+   * workspace's help center across origins (isPlatformSiteOrigin).
+   */
+  origins: ReadonlySet<string>;
 }
 
 /** Strips outer dots and every leading `www.` (`www.www.x` is `x` in SQL too). */
@@ -195,10 +203,26 @@ function environmentHosts(config: ServerConfig): Set<string> {
   return hosts;
 }
 
+/** The platform's own site origins (PlatformHosts.origins), exact, never `*`. */
+function siteOrigins(config: ServerConfig, domains: Row): Set<string> {
+  const origins = new Set<string>();
+  for (const source of [
+    domains?.app_base_url,
+    domains?.public_base_url,
+    domains?.help_center_base_url,
+    domains?.canonical_base_url,
+    ...(config.corsOrigins || []),
+  ]) {
+    const origin = typeof source === 'string' ? toStrictOrigin(source) : null;
+    if (origin) origins.add(origin);
+  }
+  return origins;
+}
+
 function build(config: ServerConfig, domains: Row, widget: Row): PlatformHosts {
   const apex = apexOf(domains);
   // Nothing names the platform: nothing is protected (the header says why).
-  if (!apex) return { apex: null, hosts: new Set(), workspaceId: null };
+  if (!apex) return { apex: null, hosts: new Set(), workspaceId: null, origins: new Set() };
   const hosts = environmentHosts(config);
   for (const source of [
     domains?.primary_domain,
@@ -216,7 +240,7 @@ function build(config: ServerConfig, domains: Row, widget: Row): PlatformHosts {
     const host = asExactHost(source);
     if (host) hosts.add(host);
   }
-  return { apex, hosts, workspaceId: null };
+  return { apex, hosts, workspaceId: null, origins: siteOrigins(config, domains) };
 }
 
 const labelCount = (host: string) => host.split('.').length;
@@ -287,7 +311,7 @@ async function refresh(config: ServerConfig): Promise<void> {
     // Keep what we had; with nothing yet, refuse the environment's hosts on
     // write, but know no platform workspace, so the resolver ignores nothing.
     // Retry soon, not per request.
-    if (!cache) cache = { apex: null, hosts: environmentHosts(config), workspaceId: null };
+    if (!cache) cache = { apex: null, hosts: environmentHosts(config), workspaceId: null, origins: new Set() };
     cachedAt = Date.now() - TTL_MS + 5_000;
     console.warn('[platformHosts] refresh failed:', err instanceof Error ? err.message : err);
   } finally {
@@ -300,7 +324,7 @@ export async function getPlatformHosts(config: ServerConfig): Promise<PlatformHo
   if (!cache) {
     if (!inFlight) inFlight = refresh(config);
     await inFlight;
-    return cache ?? { apex: null, hosts: environmentHosts(config), workspaceId: null };
+    return cache ?? { apex: null, hosts: environmentHosts(config), workspaceId: null, origins: new Set() };
   }
   if (Date.now() - cachedAt > TTL_MS && !inFlight) inFlight = refresh(config);
   return cache;
@@ -312,21 +336,55 @@ export async function isPlatformHost(config: ServerConfig, raw: unknown): Promis
   return isPlatformHostIn(await getPlatformHosts(config), raw);
 }
 
+/** One spelling of a uuid (lib/workspaceId.ts), or the value itself. */
+const sameId = (a: string, b: string) => (canonicalWorkspaceId(a) ?? a) === (canonicalWorkspaceId(b) ?? b);
+
 /** Is this the platform's own workspace (see the header)? */
 export async function isPlatformWorkspace(config: ServerConfig, workspaceId: string): Promise<boolean> {
   const { workspaceId: own } = await getPlatformHosts(config);
   if (!own) return false;
-  return (canonicalWorkspaceId(own) ?? own) === (canonicalWorkspaceId(workspaceId) ?? workspaceId);
+  return sameId(own, workspaceId);
+}
+
+/**
+ * Is `origin` one of the platform's own sites (PlatformHosts.origins) and
+ * `workspaceId` the platform's own workspace? Then that origin may read the
+ * workspace's help center (middleware/widgetCors.ts): app.<brand>/help calls
+ * api.<brand>, and the platform widget's allow-list (empty: any site) says
+ * nothing about it. No other origin and no other workspace gains anything.
+ */
+export async function isPlatformSiteOrigin(config: ServerConfig, workspaceId: string, origin: string): Promise<boolean> {
+  const { origins } = await getPlatformHosts(config);
+  const strict = toStrictOrigin(origin);
+  return !!strict && origins.has(strict) && (await isPlatformWorkspace(config, workspaceId));
+}
+
+/** Does `accountId` hold the platform's own workspace? */
+async function isPlatformAccount(config: ServerConfig, accountId: string): Promise<boolean> {
+  const { workspaceId } = await getPlatformHosts(config);
+  if (!workspaceId) return false;
+  const { data, error } = await getServiceClient(config)
+    .from('workspaces')
+    .select('account_id')
+    .eq('id', workspaceId)
+    .maybeSingle();
+  if (error) throw error;
+  const holder = (data as { account_id?: string | null } | null)?.account_id;
+  return !!holder && sameId(holder, accountId);
 }
 
 /**
  * Clears the owner's website when it names a platform host, right before a
- * workspace INSERT that would have the trigger verify it for that workspace.
- * Covers values stored before the profile writers refused them (a new
- * website is checked in services/ownerWebsite.ts), or written outside the
- * app. Conditional on the value read, so a concurrent edit wins.
+ * workspace INSERT (into `accountId`, when it exists) that would have the
+ * trigger verify it for that workspace. Covers values stored before the
+ * profile writers refused them (a new website is checked in
+ * services/ownerWebsite.ts), or written outside the app. Conditional on the
+ * value read, so a concurrent edit wins. Kept for the platform's own account
+ * (its owner's website names the platform; clearing it would unfix the
+ * platform workspace's own row), and when a workspace of the account already
+ * holds it verified: the INSERT does not claim it again (migration 288).
  */
-export async function dropPlatformWebsite(config: ServerConfig, ownerId: string): Promise<void> {
+export async function dropPlatformWebsite(config: ServerConfig, ownerId: string, accountId?: string | null): Promise<void> {
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('profiles')
@@ -336,6 +394,7 @@ export async function dropPlatformWebsite(config: ServerConfig, ownerId: string)
   if (error) throw error;
   const website = (data as { website_domain?: string | null } | null)?.website_domain;
   if (!website || !(await isPlatformHost(config, website))) return;
+  if (accountId && ((await isPlatformAccount(config, accountId)) || (await isWebsiteHeldBy(config, [accountId], website)))) return;
   const { error: clearError } = await sb
     .from('profiles')
     .update({ website_domain: null, updated_at: new Date().toISOString() })

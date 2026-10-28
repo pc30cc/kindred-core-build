@@ -9,25 +9,29 @@
  * a domain (utils/workspaceDomainInput.ts), stored in that canonical form,
  * so the trigger registers exactly what was checked, and refused when it is
  * one of the platform's own hosts (services/platformHosts.ts), already
- * verified by any workspace, or another profile's website (a signup whose
+ * verified by a workspace outside the owner's own accounts or under a
+ * domain such a workspace verified with subdomains allowed (the origin
+ * resolver's suffix match), or another profile's website (a signup whose
  * workspace is not created yet).
  *
- * Once registered (the owner's account has a workspace, whose creation
- * verified it), no route writes another one: PATCH /api/account/me, Super
- * Admin's profile edit and first-run provisioning accept only the same
- * website again (forms send the whole row), and its row in the workspace's
- * domains is never removed or edited, nor loses the primary flag
- * (fixedDomainIds). Until then (no workspace yet, or provisioning found it
- * taken meanwhile) it may be replaced, checked as at signup, never cleared.
- * A profile without one (an older account) may set one, once. Removal by
- * the system is not a change and stays: the privacy anonymizer and
- * dropPlatformWebsite clear it.
+ * Once registered (a workspace of the owner's accounts holds it verified:
+ * the first workspace's creation verifies it), no route writes another one:
+ * PATCH /api/account/me, Super Admin's profile edit and first-run
+ * provisioning accept only the same website again (forms send the whole
+ * row), and its row in the workspace's domains is never removed or edited,
+ * nor loses the primary flag (fixedDomainIds). Until then (no workspace yet,
+ * provisioning found it taken meanwhile, or no workspace of the owner holds
+ * it) it may be replaced, checked as at signup, never cleared. A profile
+ * without one (an older account) may set one, the domain its own workspace
+ * verified included. Removal by the system is not a change and stays: the
+ * privacy anonymizer and dropPlatformWebsite clear it.
  */
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { parseWorkspaceDomainInput } from '../utils/workspaceDomainInput.js';
 import { isPlatformHost } from './platformHosts.js';
+import { hostSuffixCandidates } from './widget/public.js';
 
 /** A refused website: the HTTP status and the code the panel maps (src/lib/settingsErrors.ts). */
 export interface WebsiteRefusal {
@@ -68,17 +72,51 @@ function websiteKeys(stored: string | null | undefined): string[] {
   return [...new Set([parsed.ok ? parsed.domain : '', sqlKey].filter(Boolean))];
 }
 
-/** Is `domain` (canonical) verified by any workspace already? */
-async function isVerifiedDomain(config: ServerConfig, domain: string): Promise<boolean> {
-  const { data, error } = await getServiceClient(config)
-    .from('workspace_domains')
-    .select('id')
-    .eq('verified', true)
-    .eq('normalized_domain', domain)
-    .limit(1)
-    .maybeSingle();
+/** The accounts `userId` owns. */
+async function ownedAccountIds(config: ServerConfig, userId: string): Promise<string[]> {
+  const { data, error } = await getServiceClient(config).from('accounts').select('id').eq('owner_id', userId);
   if (error) throw error;
-  return !!data;
+  return ((data ?? []) as Array<{ id: string }>).map((a) => a.id);
+}
+
+/** The workspaces of `accountIds`. */
+async function workspaceIdsOf(config: ServerConfig, accountIds: string[]): Promise<string[]> {
+  if (!accountIds.length) return [];
+  const { data, error } = await getServiceClient(config).from('workspaces').select('id').in('account_id', accountIds);
+  if (error) throw error;
+  return ((data ?? []) as Array<{ id: string }>).map((w) => w.id);
+}
+
+/**
+ * Is `domain` (canonical) taken by a workspace outside the accounts `userId`
+ * owns (their own verified domain is theirs to record): verified there, or
+ * under a domain verified there whose widget allows subdomains, which the
+ * origin resolver hands to that workspace (services/widget/public.ts) until
+ * this website's exact row would take it over?
+ */
+async function isTakenDomain(config: ServerConfig, domain: string, userId?: string): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .select('workspace_id, normalized_domain')
+    .eq('verified', true)
+    .in('normalized_domain', hostSuffixCandidates(domain));
+  if (error) throw error;
+  let rows = (data ?? []) as Array<{ workspace_id: string; normalized_domain: string | null }>;
+  if (rows.length && userId) {
+    const own = new Set(await workspaceIdsOf(config, await ownedAccountIds(config, userId)));
+    rows = rows.filter((r) => !own.has(r.workspace_id));
+  }
+  if (rows.some((r) => String(r.normalized_domain ?? '').toLowerCase() === domain)) return true;
+  // The rest are parent domains of it.
+  const parents = [...new Set(rows.map((r) => r.workspace_id))];
+  if (!parents.length) return false;
+  const { data: widgets, error: widgetError } = await sb
+    .from('widget_settings')
+    .select('workspace_id, allow_subdomains')
+    .in('workspace_id', parents);
+  if (widgetError) throw widgetError;
+  return ((widgets ?? []) as Array<{ allow_subdomains: boolean | null }>).some((w) => !!w.allow_subdomains);
 }
 
 /** Is `domain` (canonical) the website another profile stores (since signup stores it canonical)? */
@@ -98,12 +136,13 @@ export async function checkNewWebsite(
 ): Promise<{ ok: true; domain: string } | WebsiteRefusal> {
   const parsed = parseWebsite(raw);
   if (parsed.ok === false) return { ok: false, status: 400, code: parsed.code };
-  // The raw text too: parsing turns a dotted capital I (U+0130) into punycode,
-  // while Postgres' lower() and isPlatformHost read it as a plain i.
+  // The raw text too, as defence in depth: what is stored is the parsed
+  // form, in which a dotted capital I (U+0130) is punycode, never the plain i
+  // Postgres' lower() would make of the raw text.
   if ((await isPlatformHost(config, raw)) || (await isPlatformHost(config, parsed.domain))) {
     return { ok: false, status: 409, code: 'PLATFORM_DOMAIN' };
   }
-  if ((await isVerifiedDomain(config, parsed.domain)) || (await isOtherProfileWebsite(config, parsed.domain, userId))) {
+  if ((await isTakenDomain(config, parsed.domain, userId)) || (await isOtherProfileWebsite(config, parsed.domain, userId))) {
     return { ok: false, status: 409, code: 'DOMAIN_TAKEN' };
   }
   return { ok: true, domain: parsed.domain };
@@ -129,21 +168,35 @@ export async function storedWebsite(config: ServerConfig, userId: string): Promi
 }
 
 /**
- * Is a website `userId` stores registered, so fixed: an account they own has
- * a workspace, whose creation verified it (the trigger), or, for an older
- * account, it was set once afterwards. Until then (no workspace yet, or
- * provisioning found it taken meanwhile, or the account's workspaces were
- * deleted) it may be replaced.
+ * Does a workspace of `accountIds` hold the website `stored` (as a profile
+ * stores it) verified: the row the trigger registered for it, read as
+ * fixedDomainIds reads it?
  */
-export async function isWebsiteRegistered(config: ServerConfig, userId: string): Promise<boolean> {
-  const sb = getServiceClient(config);
-  const { data: accounts, error } = await sb.from('accounts').select('id').eq('owner_id', userId);
+export async function isWebsiteHeldBy(config: ServerConfig, accountIds: string[], stored: string | null | undefined): Promise<boolean> {
+  const keys = websiteKeys(stored);
+  if (!keys.length) return false;
+  const workspaceIds = await workspaceIdsOf(config, accountIds);
+  if (!workspaceIds.length) return false;
+  const { data, error } = await getServiceClient(config)
+    .from('workspace_domains')
+    .select('id')
+    .eq('verified', true)
+    .in('workspace_id', workspaceIds)
+    .in('normalized_domain', keys)
+    .limit(1);
   if (error) throw error;
-  const accountIds = ((accounts ?? []) as Array<{ id: string }>).map((a) => a.id);
-  if (!accountIds.length) return false;
-  const { data: workspaces, error: wsError } = await sb.from('workspaces').select('id').in('account_id', accountIds).limit(1);
-  if (wsError) throw wsError;
-  return !!workspaces?.length;
+  return !!data?.length;
+}
+
+/**
+ * Is the website `userId` stores (`stored`) registered, so fixed: a
+ * workspace of an account they own holds it verified (the trigger verified
+ * it on the account's first workspace, or it is the domain their workspace
+ * verified). Until then (no workspace yet, provisioning found it taken
+ * meanwhile, or no workspace of theirs holds it) it may be replaced.
+ */
+export async function isWebsiteRegistered(config: ServerConfig, userId: string, stored: string | null | undefined): Promise<boolean> {
+  return isWebsiteHeldBy(config, await ownedAccountIds(config, userId), stored);
 }
 
 /**
@@ -161,7 +214,7 @@ export async function websiteEdit(
   const sent = (next ?? '').trim();
   if (stored?.trim()) {
     if (sent && sameWebsite(stored, sent)) return { ok: true };
-    if (await isWebsiteRegistered(config, userId)) return { ok: false, status: 403, code: 'WEBSITE_FIXED' };
+    if (await isWebsiteRegistered(config, userId, stored)) return { ok: false, status: 403, code: 'WEBSITE_FIXED' };
   } else if (!sent) {
     return { ok: true };
   }

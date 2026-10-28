@@ -190,7 +190,7 @@ workspacesRouter.post('/provision-account', async (req, res) => {
     .maybeSingle();
   const accountId = (firstAccount as { account_id?: string } | null)?.account_id;
   const ownerId = (accountId && (await accountOwnerId(config, accountId))) || userId;
-  await dropPlatformWebsite(config, ownerId);
+  await dropPlatformWebsite(config, ownerId, accountId);
 
   // The caller's own account: its website is the owner's, required for a NEW
   // account as at signup (owner, 2026-10-28; services/ownerWebsite.ts), so an
@@ -381,7 +381,7 @@ workspacesRouter.post('/', async (req, res) => {
   // The new workspace verifies the account OWNER's website (the trigger),
   // so a platform host stored there is dropped first.
   const ownerId = await accountOwnerId(config, parsed.data.accountId);
-  if (ownerId) await dropPlatformWebsite(config, ownerId);
+  if (ownerId) await dropPlatformWebsite(config, ownerId, parsed.data.accountId);
 
   // `create_workspace_atomic` is SECURITY DEFINER but takes `_user_id`
   // explicitly rather than reading auth.uid() — it does its own

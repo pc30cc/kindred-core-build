@@ -11,7 +11,10 @@
  *   POST  /api/workspaces/provision-account and POST /api/workspaces
  *                                          clear a stored one before the INSERT whose
  *                                          trigger would verify it (a new account
- *                                          then needs another: services/ownerWebsite.ts)
+ *                                          then needs another: services/ownerWebsite.ts),
+ *                                          but not in the platform's own account, nor
+ *                                          where a workspace of the account already
+ *                                          holds it verified (288 claims nothing then)
  *   POST  /api/workspaces/:id/domains      refuses it, but for the platform's own workspace
  *   PATCH /api/admin/management/domains/:id  the same, for Super Admin (the row keeps `verified`)
  *
@@ -126,6 +129,11 @@ vi.mock('../../../server/services/billing/signupPlan.js', () => ({
 vi.mock('../../../server/lib/cacheBus.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/lib/cacheBus.js')>()),
   publishCacheInvalidation: () => undefined,
+}));
+// The plan's workspace cap is not what is under test.
+vi.mock('../../../server/middleware/featureGating.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/middleware/featureGating.js')>()),
+  checkEntitlementFromDB: async () => ({ limitValid: true, limit: -1, plan: 'pro' }),
 }));
 
 const { __resetPlatformHostsCache } = await import('../../../server/services/platformHosts.js');
@@ -312,6 +320,56 @@ describe.each([
       expect((await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' })).status).toBe(200);
       expect(state.triggerSaw).toEqual(['shop.example', 'ninisite.com']);
       expect(profileOf(USER)!.website_domain).toBe('shop.example');
+    });
+  });
+
+  describe('the platform\'s own account, and an account already holding the website, keep it', () => {
+    const PLATFORM_OWNER = '00000000-0000-4000-8000-0000000000a0';
+    const PLATFORM_ACC = '00000000-0000-4000-8000-0000000000b0';
+    const fixedOf = async (ws: string, id: string) =>
+      (await request(app).get(`/api/workspaces/${ws}/domains`)).body.domains.find((d: Row) => d.id === id)?.fixed;
+
+    beforeEach(() => {
+      // The platform owner registered the apex; the platform workspace holds it verified.
+      state.db.profiles.push({ id: PLATFORM_OWNER, website_domain: apex });
+      state.db.accounts.push({ id: PLATFORM_ACC, owner_id: PLATFORM_OWNER });
+      state.db.account_members.push({ account_id: PLATFORM_ACC, user_id: PLATFORM_OWNER, created_at: '2026-01-01' });
+      state.db.workspaces.push({ id: PLATFORM_WS, account_id: PLATFORM_ACC });
+      state.userId = PLATFORM_OWNER;
+    });
+
+    it('POST /api/workspaces in the platform account: the website stays, the platform\'s row stays fixed', async () => {
+      expect(await fixedOf(PLATFORM_WS, 'd-platform')).toBe(true);
+      const res = await request(app).post('/api/workspaces').send({ accountId: PLATFORM_ACC, name: 'Second' });
+      expect(res.status).toBe(200);
+      expect(profileOf(PLATFORM_OWNER)!.website_domain).toBe(apex);
+      expect(await fixedOf(PLATFORM_WS, 'd-platform')).toBe(true);
+      expect((await request(app).delete(`/api/workspaces/${PLATFORM_WS}/domains/d-platform`)).status).toBe(403);
+      expect(state.db.workspace_domains.some((d) => d.id === 'd-platform')).toBe(true);
+    });
+
+    it('provision-account by the platform owner, and another platform host the account does not hold, stay too', async () => {
+      expect((await request(app).post('/api/workspaces/provision-account')).status).toBe(200);
+      expect(profileOf(PLATFORM_OWNER)!.website_domain).toBe(apex);
+      profileOf(PLATFORM_OWNER)!.website_domain = `app.${apex}`;
+      expect((await request(app).post('/api/workspaces').send({ accountId: PLATFORM_ACC, name: 'Third' })).status).toBe(200);
+      expect(profileOf(PLATFORM_OWNER)!.website_domain).toBe(`app.${apex}`);
+    });
+
+    it('a customer account whose workspace already holds the platform host verified keeps it; another account of that owner does not', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      // A row from before the guard: the trigger verified api.<apex> on that account's first workspace.
+      state.db.accounts.push({ id: ACCOUNT, owner_id: OWNER }, { id: '00000000-0000-4000-8000-0000000000a2', owner_id: OWNER });
+      state.db.account_members.push({ account_id: ACCOUNT, user_id: OWNER }, { account_id: '00000000-0000-4000-8000-0000000000a2', user_id: OWNER });
+      state.db.workspaces.push({ id: CUSTOMER_WS, account_id: ACCOUNT });
+      state.db.workspace_domains.push({ id: 'd-legacy', workspace_id: CUSTOMER_WS, domain: `api.${apex}`, normalized_domain: `api.${apex}`, verified: true, is_primary: false });
+      profileOf(OWNER)!.website_domain = `https://API.${apex.toUpperCase()}/`;
+      state.userId = OWNER;
+      expect((await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' })).status).toBe(200);
+      expect(profileOf(OWNER)!.website_domain).toBe(`https://API.${apex.toUpperCase()}/`);
+      expect((await request(app).post('/api/workspaces').send({ accountId: '00000000-0000-4000-8000-0000000000a2', name: 'Elsewhere' })).status).toBe(200);
+      warn.mockRestore();
+      expect(profileOf(OWNER)!.website_domain).toBeNull();
     });
   });
 

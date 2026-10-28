@@ -18,8 +18,14 @@
  *      recover the session is the one the browser blocks).
  *   2. Explicit `workspace_id` in query/body (bootstrap, realtime connect).
  *   3. Origin → workspace lookup, for /bootstrap and /config only.
- *   4. The request's own host → workspace, for the help center's
- *      /help-host probe only (it answers with that very workspace).
+ *   4. The request's own host → workspace, for the help center's reads
+ *      that name no workspace (/help-host, /category-articles: they answer
+ *      with that very workspace).
+ *
+ * The platform's own help center is read by the platform's own sites
+ * (app.<brand>/help calling api.<brand>), whatever its widget allow-list
+ * says: those exact origins, the help center's reads only, the platform's
+ * workspace only (services/platformHosts.ts isPlatformSiteOrigin).
  *
  * Strategy:
  *  - OPTIONS preflight → always reply 204 with the requesting Origin echoed
@@ -43,6 +49,7 @@ import { readWidgetToken, verifySessionToken, verifyTokenForRefresh } from '../s
 import { isOriginAllowed, toStrictOrigin } from '../utils/domain.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { canonicalWorkspaceId } from '../lib/workspaceId.js';
+import { isPlatformSiteOrigin } from '../services/platformHosts.js';
 
 // X-Widget-Visitor: the visitor credential, sent only by a widget whose
 // browser drops the dvsid cookie (services/widget/visitorIdentity.ts).
@@ -112,6 +119,15 @@ function getTokenContext(req: Request): { workspaceId: string; tokenOrigin: stri
   return { workspaceId: canonicalWorkspaceId(result.workspaceId) ?? result.workspaceId, tokenOrigin: (result.origin || '').toLowerCase().replace(/\/+$/, '') };
 }
 
+/** The help center's reads that resolve the request's own host (routes/kb.ts). */
+const HOST_SCOPED_READS = new Set(['/help-host', '/category-articles']);
+/** Every read of the help center (routes/kb.ts, mounted at /api/widget/kb). */
+const HELP_CENTER_READS = new Set([...HOST_SCOPED_READS, '/categories', '/articles', '/article', '/search']);
+
+function isHelpCenterRead(req: Request): boolean {
+  return (req.method === 'GET' || req.method === 'HEAD') && req.baseUrl === '/api/widget/kb' && HELP_CENTER_READS.has(req.path);
+}
+
 /**
  * Same-origin fallback: when we cannot positively authorize the origin
  * (no workspace context, or the workspace has no allow-list configured yet)
@@ -169,12 +185,13 @@ export function widgetCorsMiddleware() {
       }
     }
 
-    // 4) The help center's host probe (routes/kb.ts /help-host, mounted at
-    //    /api/widget/kb) names the workspace of the request's OWN host, so
-    //    only that workspace's origins may read the answer: app.<brand>'s
-    //    /help pages calling api.<brand> resolve the platform's workspace
-    //    there (through the guarded resolver), and its rules decide below.
-    if (!workspaceId && req.path === '/help-host') {
+    // 4) The help center's host probe and category list (routes/kb.ts
+    //    /help-host and /category-articles, mounted at /api/widget/kb) name
+    //    the workspace of the request's OWN host, so only that workspace's
+    //    origins may read the answer: app.<brand>'s /help pages calling
+    //    api.<brand> resolve the platform's workspace there (through the
+    //    guarded resolver), and the checks below decide.
+    if (!workspaceId && HOST_SCOPED_READS.has(req.path)) {
       try {
         workspaceId = await resolveWorkspaceIdFromOrigin(config, getRequestBaseUrl(req));
       } catch {
@@ -194,7 +211,12 @@ export function widgetCorsMiddleware() {
     try {
       const { domains, allowSubdomains } = await getWorkspaceOriginRules(config, workspaceId);
 
-      if (domains.length) {
+      if (isHelpCenterRead(req) && (await isPlatformSiteOrigin(config, workspaceId, origin))) {
+        // The platform's own site reading the platform's own help center
+        // (see the header): its widget allow-list, empty in production (any
+        // site, so same-origin here), never named the app host.
+        applyWidgetCorsHeaders(res, origin);
+      } else if (domains.length) {
         if (isOriginAllowed(origin, domains, allowSubdomains)) applyWidgetCorsHeaders(res, origin);
       } else if (isSameOrigin(req, origin)) {
         // Unconfigured allow-list is NOT "allow all" — same-origin only.

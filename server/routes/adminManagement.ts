@@ -117,7 +117,8 @@ adminManagementRouter.get('/users/:userId', async (req, res) => {
   // so the profile edit offers no control to change it.
   const detail = data as { profile?: { website_domain?: string | null } | null } | null;
   if (!detail) return res.json(data);
-  const fixed = !!detail.profile?.website_domain?.trim() && (await isWebsiteRegistered(config, req.params.userId));
+  const website = detail.profile?.website_domain;
+  const fixed = !!website?.trim() && (await isWebsiteRegistered(config, req.params.userId, website));
   return res.json({ ...detail, website_fixed: fixed });
 });
 

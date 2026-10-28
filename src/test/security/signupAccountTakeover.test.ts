@@ -109,6 +109,7 @@ function fakeClient() {
         eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
         neq(col: string, val: unknown) { filters.push((r) => r[col] !== val); return builder; },
         is(col: string, val: unknown) { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
+        in(col: string, vals: unknown[]) { filters.push((r) => vals.includes(r[col])); return builder; },
         order() { return builder; },
         limit() { return builder; },
         async maybeSingle() {

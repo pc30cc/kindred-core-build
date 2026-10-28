@@ -11,7 +11,8 @@
  *  - a customer's website is verified for the account's first workspace
  *    exactly as before, and a platform host stored in a profile is dropped
  *    by the server (dropPlatformWebsite) before the workspace INSERT, so the
- *    trigger never verifies it;
+ *    trigger never verifies it; but the platform's own account keeps its
+ *    owner's website, and with 288 on top its next workspace claims nothing;
  *  - the guard's reading of a value (hostCandidates) covers SQL's: every
  *    spelling SQL reduces to a platform host is one the guard refuses.
  */
@@ -68,6 +69,7 @@ const { __resetPlatformHostsCache, dropPlatformWebsite, hostCandidates, isPlatfo
   await import('../../../server/services/platformHosts.js');
 
 const MIGRATION = readFileSync('database/migrations/239_selfhost_hosted_parity.sql', 'utf8');
+const M288 = readFileSync('database/migrations/288_owner_website_registered_once.sql', 'utf8');
 
 /** `-- FUNCTION: name(` … the closing `$$;`, exactly as the migration has it. */
 function fn(name: string): string {
@@ -115,6 +117,8 @@ beforeAll(async () => {
   await pg.db.exec(statement('CREATE UNIQUE INDEX IF NOT EXISTS workspace_domains_verified_domain_uniq'));
   await pg.db.exec(statement('CREATE OR REPLACE TRIGGER trg_workspace_domains_normalize'));
   await pg.db.exec(statement('CREATE OR REPLACE TRIGGER trg_workspaces_auto_register_owner_domain'));
+  // 288 differs from 239 only for an account's later workspaces.
+  await pg.db.exec(M288);
 }, 60_000);
 
 afterAll(async () => { await pg.db?.close(); });
@@ -126,7 +130,7 @@ async function provision(website: string) {
   const account = randomUUID();
   await pg.db.query('INSERT INTO public.profiles (id, website_domain) VALUES ($1, $2)', [owner, website]);
   await pg.db.query('INSERT INTO public.accounts (id, owner_id) VALUES ($1, $2)', [account, owner]);
-  await dropPlatformWebsite(config, owner);
+  await dropPlatformWebsite(config, owner, account);
   const ws = (await pg.db.query<{ id: string }>('INSERT INTO public.workspaces (account_id) VALUES ($1) RETURNING id', [account])).rows[0].id;
   const domains = (await pg.db.query<any>(
     'SELECT domain, normalized_domain, verified, is_primary FROM public.workspace_domains WHERE workspace_id = $1', [ws],
@@ -177,6 +181,28 @@ describe('the website trigger, with the server guard in front of it', () => {
     )).rows;
     expect(rows).toEqual([{ normalized_domain: 'api.webyar.ai', verified: true }]);
     await pg.db.query("DELETE FROM public.workspace_domains WHERE normalized_domain = 'api.webyar.ai'");
+  });
+});
+
+describe('the platform\'s own account', () => {
+  it('keeps its owner\'s website, the apex: its next workspace claims nothing, the apex row stays', async () => {
+    const owner = randomUUID();
+    const account = randomUUID();
+    await pg.db.query('INSERT INTO public.profiles (id, website_domain) VALUES ($1, $2)', [owner, 'webyar.ai']);
+    await pg.db.query('INSERT INTO public.accounts (id, owner_id) VALUES ($1, $2)', [account, owner]);
+    // Production's shape: the platform workspace holds the apex verified (its INSERT registered it).
+    const platformWs = (await pg.db.query<{ id: string }>('INSERT INTO public.workspaces (account_id) VALUES ($1) RETURNING id', [account])).rows[0].id;
+    try {
+      __resetPlatformHostsCache();
+      await dropPlatformWebsite(config, owner, account);
+      const second = (await pg.db.query<{ id: string }>('INSERT INTO public.workspaces (account_id) VALUES ($1) RETURNING id', [account])).rows[0].id;
+      expect((await pg.db.query<{ website_domain: string | null }>('SELECT website_domain FROM public.profiles WHERE id = $1', [owner])).rows[0].website_domain).toBe('webyar.ai');
+      expect((await pg.db.query<{ workspace_id: string }>('SELECT workspace_id FROM public.workspace_domains WHERE normalized_domain = $1 AND verified', ['webyar.ai'])).rows)
+        .toEqual([{ workspace_id: platformWs }]);
+      expect((await pg.db.query<{ one: number }>('SELECT 1 AS one FROM public.workspace_domains WHERE workspace_id = $1', [second])).rows).toEqual([]);
+    } finally {
+      await pg.db.query('DELETE FROM public.workspace_domains WHERE workspace_id IN (SELECT id FROM public.workspaces WHERE account_id = $1)', [account]);
+    }
   });
 });
 

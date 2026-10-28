@@ -48,6 +48,7 @@ const {
   hostCandidates,
   isPlatformHost,
   isPlatformHostIn,
+  isPlatformSiteOrigin,
   isPlatformWorkspace,
 } = await import('./platformHosts.js');
 
@@ -243,7 +244,7 @@ describe('where the hosts come from', () => {
     for (const value of ['example.com', 'hooks.example.com', 'api.webyar.ai', 'shop.example']) {
       expect(await isPlatformHost(env, value)).toBe(false);
     }
-    expect(await getPlatformHosts(env)).toEqual({ apex: null, hosts: new Set(), workspaceId: null });
+    expect(await getPlatformHosts(env)).toEqual({ apex: null, hosts: new Set(), workspaceId: null, origins: new Set() });
     warn.mockRestore();
   });
 
@@ -313,5 +314,19 @@ describe('the platform\'s own workspace', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     expect(await isPlatformWorkspace(config(), PLATFORM)).toBe(false);
     warn.mockRestore();
+  });
+
+  it('is read by the platform\'s own site origins, exactly, and only for its own workspace', async () => {
+    tables.platform_domains = { ...WEBYAR, help_center_base_url: 'https://help.webyar.ai/fa' };
+    held(PLATFORM, 'webyar.ai');
+    const env = config({ corsOrigins: ['*', 'https://panel.example.com'] });
+    for (const origin of ['https://app.webyar.ai', 'https://APP.WebYar.ai/', 'https://webyar.ai', 'https://help.webyar.ai', 'https://panel.example.com']) {
+      expect(await isPlatformSiteOrigin(env, PLATFORM.toUpperCase(), origin)).toBe(true);
+    }
+    // Not another scheme or port, not every subdomain, not the API, nothing else.
+    for (const origin of ['http://app.webyar.ai', 'https://app.webyar.ai:8443', 'https://foo.webyar.ai', 'https://api.webyar.ai', 'https://evil.example', '*', 'null', 'app.webyar.ai']) {
+      expect(await isPlatformSiteOrigin(env, PLATFORM, origin)).toBe(false);
+    }
+    expect(await isPlatformSiteOrigin(env, OTHER, 'https://app.webyar.ai')).toBe(false);
   });
 });

@@ -32,9 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The repository root's .nvmrc (a `uses:` step does not take the run
+      # steps' working-directory); the app itself runs on Electron's own Node.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: windows/package-lock.json
 

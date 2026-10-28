@@ -185,6 +185,14 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   RESPOK's) takes about 15 minutes. A deploy that has not appeared yet is
   usually still queued: look at `application_deployment_queues` in the
   `coolify-db` container before assuming it failed.
+- Node: the host runs nodesource Node 24.22.1, and every image is built
+  `FROM node:24.22-alpine` (the widget bridge `node:24.22-bookworm-slim`),
+  the same minor. `.nvmrc` (`24`) and the `engines` of `package.json` and
+  `server/package.json` (`>=24`) carry the major: CI's setup-node reads
+  `.nvmrc`, and Nixpacks gives RESPOK's DB Migrator (app 40, the only app
+  not built from a Dockerfile) `nodejs_24` from them. When the host's minor
+  moves, bump all seven `FROM node:` lines together
+  (`src/test/ci/nodeVersion.test.ts`).
 
 The same server also runs:
 - RESPOK, a second rebranded copy of this repo (Coolify projects "RESPOK" and

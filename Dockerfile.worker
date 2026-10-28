@@ -28,7 +28,8 @@
 # Run (source-sync):
 #   docker run --rm -e WORKER_KIND=source-sync  --env-file .env growth-suite-worker
 
-FROM node:20-alpine
+# Node: the tag every image shares (Dockerfile.frontend says why the minor).
+FROM node:24.22-alpine
 WORKDIR /app
 
 # Install root deps. `tsx` is a runtime dependency (see package.json) so a

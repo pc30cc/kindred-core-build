@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build-smart-engine.mjs && node scripts/build-woocommerce-plugin-zip.mjs && node scripts/build-whmcs-addon-zip.mjs && node scripts/build-opencart-plugin-zip.mjs && vite build && node scripts/widget-hash.js && node scripts/call-widget-hash.js && node scripts/build/brandAudit.mjs",
@@ -148,7 +151,7 @@
     "@testing-library/react": "^16.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
-    "@types/node": "^22.16.5",
+    "@types/node": "^24.19.2",
     "@types/pg": "^8.20.3",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",

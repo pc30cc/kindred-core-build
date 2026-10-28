@@ -1074,9 +1074,10 @@ const httpServer = app.listen(config.port, () => {
 // loop turn: in the soak test at ~200 req/s it accepted about 11 a second,
 // the kernel queue sat full at 511, and a 1 ms health check waited 17-25 s
 // in it. A proxy reusing a connection Node had just closed is also the
-// classic source of stray 502s. headersTimeout must stay above it.
+// classic source of stray 502s. headersTimeout must stay above it, and Node
+// 24 keeps the idle socket keepAliveTimeoutBuffer (1 s) longer still.
 httpServer.keepAliveTimeout = 65_000;
-httpServer.headersTimeout = 66_000;
+httpServer.headersTimeout = 67_000;
 
 // Graceful shutdown closes the HTTP server; its LISTEN connection goes too.
 httpServer.on('close', () => {

@@ -1,9 +1,12 @@
 # ── Frontend Build ──────────────────────────────────────────
-# Pin to ≥ 20.11 because scripts/widget-hash.js historically relied on
-# `import.meta.dirname` (added in 20.11). We've since switched the
-# script to `fileURLToPath(import.meta.url)` which works on any Node 20,
-# but pinning the floor avoids any other 20.x quirks Coolify might cache.
-FROM node:20.18-alpine AS build
+# Node 24, the production host's line (host.respok.app runs nodesource
+# 24.22.1). The minor is pinned as a floor: a stale node:24-alpine cached on
+# the builder can never build below 24.22 (scripts/widget-hash.js tells what
+# a stale cached Node 20 patch once cost). Every node FROM in the repo
+# carries this tag (the widget bridge its -bookworm-slim twin), and .nvmrc
+# and package.json "engines" the same major: bump them together when the
+# host's Node moves (src/test/ci/nodeVersion.test.ts holds them together).
+FROM node:24.22-alpine AS build
 WORKDIR /app
 
 # zip — used by the commerce plugin packagers (scripts/build-*-zip.mjs, part

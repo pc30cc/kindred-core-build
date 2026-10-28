@@ -28,7 +28,8 @@
 #   docker run --rm -p 3021:3021 \
 #     -e AI_RUNTIME_INTERNAL_SECRET=... growth-suite-ai-runtime
 
-FROM node:20-alpine
+# Node: the tag every image shares (Dockerfile.frontend says why the minor).
+FROM node:24.22-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json* ./

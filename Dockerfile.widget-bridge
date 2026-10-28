@@ -1,5 +1,8 @@
 # Independent opt-in worker image; ordinary workers never install a browser.
-FROM node:22-bookworm-slim
+# Node: the other images' tag (Dockerfile.frontend says why the minor) on
+# Debian 12, written out: node:24-slim is trixie, and Playwright's
+# `install --with-deps` here is known on bookworm.
+FROM node:24.22-bookworm-slim
 WORKDIR /app
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY worker/widget-bridge/package.json worker/widget-bridge/package-lock.json ./

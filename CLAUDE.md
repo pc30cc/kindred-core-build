@@ -230,6 +230,15 @@ and older app images. This server has no helper script for it yet. The kit's
 While the backend is stopped, `https://api.webyar.ai` answers 503 (Coolify's
 catch-all), so plugin events and webhooks are retried.
 
+That 503 page (an unknown host, or an app stopped, deploying or unhealthy) and
+every app's maintenance page are ours since 2026-10-28 (owner): English,
+brand-neutral, stored in Coolify's own fields (Server → Proxy → Custom error
+page; each resource's Maintenance page). Change them in `deploy/error-pages/`
+and apply with its `apply.php`, never by editing
+`/data/coolify/proxy/error-pages/503.html`, which Coolify rewrites. A new
+application or service starts with Coolify's maintenance page: run `apply.php`
+again after adding one.
+
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together.
 

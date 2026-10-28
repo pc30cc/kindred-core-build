@@ -87,7 +87,11 @@ export default function HelpCategoryPage() {
         {arts.map((a) => (
           <Link
             key={a.slug}
-            to={`/help/${valid}/a/${a.slug}`}
+            // The slug is the workspace's free text. Encoded, it stays one path
+            // segment: raw, react-router 6 collapses a `../` in it and hands
+            // the `/\evil.example` left to pushState as it is, and the visitor
+            // lands on that site (GHSA-wrjc-x8rr-h8h6).
+            to={`/help/${valid}/a/${encodeURIComponent(a.slug)}`}
             className="block rounded-lg border border-border bg-card p-4 hover:bg-muted transition-colors"
           >
             <div className="font-semibold text-foreground">{a.title}</div>

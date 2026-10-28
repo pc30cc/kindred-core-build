@@ -25,6 +25,7 @@ import { MetricTile, StatusChip, type Tone } from '@/features/calls/callCenterUi
 import { useVisitorNetworkBatchBySession, type VisitorNetworkProfile } from '@/hooks/useVisitorNetwork';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
+import { httpPageUrl, pageLinkLabel } from '../../../../shared/callCenter/visitorPageUrl';
 
 type StatusKey = 'requested' | 'in_progress' | 'scheduled' | 'completed' | 'cancelled';
 
@@ -120,7 +121,11 @@ function CallbackRow({
   const name: string = meta.name || c.contact_email || c.contact_phone || t('callCenter.common.anonymousVisitor');
   const subject: string = meta.subject || '—';
   const message: string = meta.message || c.notes || '';
-  const pageUrl: string | undefined = meta.page_url;
+  // The visitor's page as an http(s) address, or none: anything else would
+  // throw while the row draws (and blank the page) or link elsewhere. A
+  // callback stores no origin; the server keeps only a page on the widget's
+  // site (shared/callCenter/visitorPageUrl.ts), and the label is its real host.
+  const page = httpPageUrl(meta.page_url);
   const urgency: string = meta.urgency || 'normal';
   const isUrgent = urgency === 'urgent';
   const isVideo = c.channel === 'video';
@@ -215,9 +220,9 @@ function CallbackRow({
               )}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
-              {pageUrl && (
-                <a href={pageUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary truncate max-w-[220px]">
-                  <Globe className="h-3 w-3" /><span className="truncate">{new URL(pageUrl).hostname}</span>
+              {page && (
+                <a href={page.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary truncate max-w-[220px]">
+                  <Globe className="h-3 w-3" /><span className="truncate" dir="ltr">{pageLinkLabel(page)}</span>
                 </a>
               )}
               <span className="inline-flex items-center gap-1" title={new Date(requested).toLocaleString()}>

@@ -66,7 +66,8 @@ export default function HelpIndexPage() {
           {cats.map((c) => (
             <Link
               key={c.id}
-              to={`/help/${valid}/c/${c.slug}`}
+              // One encoded path segment, as on the category page.
+              to={`/help/${valid}/c/${encodeURIComponent(c.slug)}`}
               className="block rounded-lg border border-border bg-card p-4 hover:bg-muted transition-colors"
             >
               <div className="font-semibold text-foreground">{c.name}</div>

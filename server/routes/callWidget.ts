@@ -71,6 +71,7 @@ import type { Edition } from '../../shared/edition.js';
 import { widgetDateHints } from '../../shared/widgetTemplates.js';
 import { callLauncherNeedsPresence, resolveCallLauncher, type CallLauncherStyle } from '../../shared/callLauncherStyles.js';
 import { CALLBACK_BOOKING_MAX_AHEAD_MS, computeCallbackSlots, isBookableSlot, type CallbackSlot } from '../../shared/callbackSlots.js';
+import { visitorPageUrl } from '../../shared/callCenter/visitorPageUrl.js';
 import { INTL_BRAND } from '../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../shared/webyarBrand.js';
 import {
@@ -1140,6 +1141,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     return res.status(403).json({ error: 'plan_forbidden', capability: 'voice_video', upgrade_required: true });
   }
   if (!(await callOriginAllowed(config, ws, getOrigin(req)))) return res.status(403).json({ error: 'origin_denied' });
+  // The page the visitor was on, kept only on the site the widget runs on:
+  // the Call Center links to it (shared/callCenter/visitorPageUrl.ts).
+  const pageUrl = visitorPageUrl(parsed.data.page_url, getOrigin(req))?.href ?? null;
   // Validate optional visitor-selected department against canonical schema.
   const dbCallTypeForDept = parsed.data.call_type === 'voice' ? 'audio' : 'video';
   let chosenDepartmentId: string | null = parsed.data.department_id || null;
@@ -1218,7 +1222,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       name: parsed.data.visitor_name,
       email: parsed.data.visitor_email,
       phone: parsed.data.visitor_phone,
-      page_url: parsed.data.page_url,
+      page_url: pageUrl,
     },
   );
   const existingActiveCall = await buildActiveCallPayload(config, req, res, ws, getOrigin(req), identity.visitorId);
@@ -1302,7 +1306,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     visitor_email: finalVisitorEmail,
     visitor_phone: finalVisitorPhone,
     subject: parsed.data.subject || null,
-    page_url: parsed.data.page_url || null,
+    page_url: pageUrl,
     page_title: parsed.data.page_title || null,
     origin: getOrigin(req),
     provider: providerId,
@@ -1372,7 +1376,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     call_session_id: call!.id,
     event_type: 'call_requested',
     actor_type: 'visitor',
-    payload: { call_type: parsed.data.call_type, page_url: parsed.data.page_url },
+    payload: { call_type: parsed.data.call_type, page_url: pageUrl },
   });
   if (recording.effective_enabled) {
     try {
@@ -1680,6 +1684,8 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   }
   const parsed = callbackSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  // As for a call: only a page on the site the widget runs on.
+  const pageUrl = visitorPageUrl(parsed.data.page_url, getOrigin(req))?.href ?? null;
   // ── Anti-spam enforcement ──────────────────────────────────────────────
   // 1) Honeypot — bots fill hidden fields. Silently 200 to avoid signal.
   if (platform.callback_honeypot_enabled && parsed.data.hp_company && parsed.data.hp_company.trim() !== '') {
@@ -1820,7 +1826,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
         name: parsed.data.name,
         email: parsed.data.email,
         phone: parsed.data.phone,
-        page_url: parsed.data.page_url,
+        page_url: pageUrl,
       },
     );
     cbIdentity = {
@@ -1848,7 +1854,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       subject: parsed.data.subject || null,
       message: parsed.data.message || null,
       urgency: parsed.data.urgency || 'normal',
-      page_url: parsed.data.page_url || null,
+      page_url: pageUrl,
       department_id: cbDepartmentId,
       visitor_id: cbIdentity?.visitorId ?? null,
       contact_id: cbIdentity?.contactId ?? null,

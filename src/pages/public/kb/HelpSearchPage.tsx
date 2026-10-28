@@ -68,7 +68,8 @@ export default function HelpSearchPage() {
             {results.map((r) => (
               <Link
                 key={r.slug}
-                to={`/help/${valid}/a/${r.slug}`}
+                // One encoded path segment, as on the category page.
+                to={`/help/${valid}/a/${encodeURIComponent(r.slug)}`}
                 className="block rounded-lg border border-border bg-card p-4 hover:bg-muted transition-colors"
               >
                 <div className="font-semibold text-foreground">{r.title}</div>

@@ -168,6 +168,11 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
   auto-deploy off, so a push does not update them; queue them by hand when a
   change needs them.
+- 42 Widget Bridge Worker (RESPOK's 43, `Dockerfile.widget-bridge`):
+  auto-deploy off too. Its Chromium runs under the seccomp profile its custom
+  Docker options name, `/root/.docker/buildx/bridge/seccomp.json` on the host
+  (the same file as `/data/coolify/bridge/seccomp.json`). A server move must
+  carry that file, or the deploy fails in its first seconds (2026-10-28).
 - LiveKit (WebYar 16, `docker-compose.livekit.yml`; RESPOK 41, the host
   script `/data/respok/livekit/start.sh`) has `LIVEKIT_NODE_IP=auto`: it finds
   the host's public IPv4 on every start (`deploy/livekit/README.md` §3), so a

@@ -15,6 +15,7 @@ import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { cn } from '@/lib/utils';
 import { useSignupEnabled } from '@/hooks/useSignupEnabled';
+import { inAppRedirect } from '@/lib/inAppRedirect';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -45,7 +46,7 @@ export default function LoginPage() {
   const { signIn, user, isLoading: authLoading } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
-  const destination = params.get('invited') === '1' ? '/invite' : (params.get('redirect') || '/app');
+  const destination = params.get('invited') === '1' ? '/invite' : inAppRedirect(params.get('redirect'), '/app');
 
   useEffect(() => {
     if (user && !authLoading) {

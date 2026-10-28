@@ -158,7 +158,11 @@ CENTRIFUGO_WS_URL= / CENTRIFUGO_API_URL= / CENTRIFUGO_API_KEY= / CENTRIFUGO_TOKE
 APP_VERSION=<git sha>                          # stamped into /internal/channels/ready
 ```
 
-Persist a volume at `/app/data` for the GeoIP `.mmdb` database.
+Persist a volume at `/app/data` for the GeoIP `.mmdb` database (the default
+path). Production keeps the Super Admin's path `/usr/share/GeoIP/GeoLite2-City.mmdb`
+on a host folder, `/data/webyar/geoip` (RESPOK: `/data/respok/geoip`), so a
+deploy no longer drops the file; Super Admin → Map & Geo → "Run update now"
+downloads it there.
 
 ### ai-runtime — `Dockerfile.ai`, port 3021 (external network)
 

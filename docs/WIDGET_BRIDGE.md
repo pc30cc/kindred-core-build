@@ -81,7 +81,12 @@ cannot read, configure or send bridge messages even by direct API calls.
 5. Run the worker as its non-root `bridge` user. Chromium sandbox is explicitly
    enabled and must stay enabled. Supply a seccomp profile permitting Chromium
    user namespaces (Playwright's [official Docker profile](https://github.com/microsoft/playwright/blob/main/utils/docker/seccomp_profile.json)),
-   an init process, and adequate `/dev/shm`. Do not use a privileged container,
+   an init process, and adequate `/dev/shm`. In production that is the custom
+   Docker option `--init --shm-size=256m --security-opt
+   seccomp=/root/.docker/buildx/bridge/seccomp.json`, a host file Coolify's
+   deploy helper mounts read-only. A server move must copy it along (a copy is
+   kept in `/data/coolify/bridge/`); without it the deploy fails before the
+   build with "bind source path does not exist". Do not use a privileged container,
    host filesystem mounts, Docker socket or `--no-sandbox`. Start with 1 CPU /
    1 GB RAM per worker, then measure actual site usage. If the host cannot run
    the browser sandbox, fix that deployment prerequisite; the worker fails

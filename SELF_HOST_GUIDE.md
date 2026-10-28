@@ -18,7 +18,7 @@
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24 (`.nvmrc`; the images run `node:24.22-alpine`)
 - PostgreSQL 15+, with pgvector for AI knowledge retrieval. It can be your own server, a managed one, the bundled `docker-compose.postgres.yml`, or a Supabase project used only as a database. Authentication is first-party and needs no Supabase Auth/GoTrue. Everything about the database, including moving it between PostgreSQL and Supabase, is in [`docs/DATABASE.md`](docs/DATABASE.md).
 - A VPS / Docker host / Coolify instance
 
@@ -121,7 +121,7 @@ previously generated invitation links have expired.
 
 ```dockerfile
 # Dockerfile.frontend
-FROM node:18-alpine AS build
+FROM node:24.22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -137,10 +137,10 @@ EXPOSE 80
 
 ```dockerfile
 # Dockerfile.server
-FROM node:18-alpine
+FROM node:24.22-alpine
 WORKDIR /app
 COPY server/package*.json ./
-RUN npm ci --production
+RUN npm ci --omit=dev
 COPY server/ .
 RUN npm run build
 EXPOSE 3001

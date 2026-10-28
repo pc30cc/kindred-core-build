@@ -5,7 +5,7 @@
 
 # ── Frontend Build ──────────────────────────────────────────
 # Pin Node — see Dockerfile.frontend for the rationale.
-FROM node:20.18-alpine AS build
+FROM node:24.22-alpine AS build
 WORKDIR /app
 
 # zip — used by scripts/build-woocommerce-plugin-zip.mjs (part of `npm run

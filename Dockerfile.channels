@@ -18,7 +18,8 @@
 # Build from repo root:
 #   docker build -f Dockerfile.channels -t growth-suite-channels .
 
-FROM node:20-alpine
+# Node: the tag every image shares (Dockerfile.frontend says why the minor).
+FROM node:24.22-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json* ./

@@ -221,7 +221,7 @@ Worker-only env: `WORKER_KIND` (see Worker section).
 
 ## Local development
 
-Prereqs: Node 18+, PostgreSQL 15+ (any: local, Docker, or a Supabase
+Prereqs: Node 24 (`.nvmrc`), PostgreSQL 15+ (any: local, Docker, or a Supabase
 project's database), Docker (optional, for compose-based dev).
 
 1. Database. Apply the whole chain:

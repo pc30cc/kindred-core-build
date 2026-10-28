@@ -185,6 +185,22 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   RESPOK's) takes about 15 minutes. A deploy that has not appeared yet is
   usually still queued: look at `application_deployment_queues` in the
   `coolify-db` container before assuming it failed.
+- Node: the host runs nodesource Node 24.22.1, and every image is built
+  `FROM node:24.22-alpine` (the widget bridge `node:24.22-bookworm-slim`),
+  the same minor. `.nvmrc` (`24`) and the `engines` of `package.json` and
+  `server/package.json` (`>=24`) carry the major, which CI's setup-node
+  reads. RESPOK's DB Migrator (app 40, the only app not built from a
+  Dockerfile) does not use Node: Nixpacks 1.41 reads the repo as C# (the
+  `windows-native/` projects) and the app runs its own bash and psql
+  commands; its plan is the same with or without `.nvmrc`. When the host's minor
+  moves, bump all seven `FROM node:` lines together
+  (`src/test/ci/nodeVersion.test.ts`). Outbound TLS keeps Node 24's default
+  security level 2: on 2026-10-28 the 60 outside hosts the apps call (AI,
+  email, storage, payment and SMS gateways, channels, CDNs) were probed from
+  this server with Node 24.22.1 and Node 20 (`/root/node24-check/tls-probe.mjs`)
+  and connected the same way. A host offering DHE or an RSA key under 2048
+  bits is refused; if a customer's server needs that, lower it on that one
+  client, never globally.
 
 The same server also runs:
 - RESPOK, a second rebranded copy of this repo (Coolify projects "RESPOK" and

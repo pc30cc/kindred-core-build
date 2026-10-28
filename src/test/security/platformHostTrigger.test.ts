@@ -50,6 +50,7 @@ vi.mock('../../../server/supabase.js', () => ({
       const builder: any = {
         select: (c?: string) => { cols = c || '*'; return builder; },
         eq: (col: string, val: unknown) => { params.push(val); where.push(`${col} = $${params.length}`); return builder; },
+        in: (col: string, vals: unknown[]) => { params.push(vals); where.push(`${col} = ANY($${params.length})`); return builder; },
         limit: () => builder,
         update: (p: Record<string, unknown>) => { patch = p; return builder; },
         maybeSingle: async () => {
@@ -153,6 +154,9 @@ describe('the website trigger, with the server guard in front of it', () => {
     'app.webyar.ai',
     'www.www.api.webyar.ai?x',
     'foo.webyar.ai',
+    // U+0130: Postgres lower() makes it a plain i, so SQL stores app.webyar.ai.
+    'app.webyar.a\u0130',
+    'https://LIVEKIT.WEBYAR.A\u0130/x',
   ])('drops the platform host %j first: no domain, the profile cleared', async (website) => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { domains, widget, profile } = await provision(website);
@@ -216,16 +220,44 @@ describe('the guard reads a value at least as widely as SQL does', () => {
     expect(values.filter((v) => sqlLandsOnPlatform(reading.get(v) ?? null)).length).toBeGreaterThan(500);
   });
 
+  /**
+   * Letters and dots outside ASCII, and their look-alikes: PGlite folds case
+   * the way production's libc does (U+0130 İ to a plain i, the Kelvin sign
+   * to k), so a letter that JavaScript folds differently shows up here.
+   */
+  const TWINS: Record<string, string[]> = {
+    i: ['\u0130', 'I', '\u0131', '\u0069\u0307', '\uff49'],
+    a: ['A', '\uff41', '\u0430'],
+    k: ['\u212a', 'K'],
+    s: ['\u017f', 'S'],
+    '.': ['\u3002', '\uff0e', '\uff61', '..'],
+  };
+  const NON_ASCII = ['\u0130', '\u212a', '\u3002', '\uff0e', '\uff61', '\uff41', '\u00a0', '\u200b', '\ufeff', '\u00ad', '\u0307', '\u0131', '\u017f'];
+
+  it('and so does every single-letter look-alike of it, non-ASCII included', async () => {
+    const values = HOSTS.flatMap((h) => Array.from(h).flatMap((ch, at) =>
+      (TWINS[ch.toLowerCase()] || []).map((twin) => h.slice(0, at) + twin + h.slice(at + 1))));
+    const reading = await sqlReading(values);
+    const missed = values.filter((v) => sqlLandsOnPlatform(reading.get(v) ?? null) && !isPlatformHostIn(PLATFORM, v));
+    expect(missed).toEqual([]);
+    // SQL does turn some of them into a platform host (the dotted I does).
+    expect(values.filter((v) => sqlLandsOnPlatform(reading.get(v) ?? null))).toContain('app.webyar.a\u0130');
+  });
+
   it('and so does every random mangling of it (seeded)', async () => {
     let seed = 0x5eed;
     const rand = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
-    const bits = [' ', '\t', '/', ':', '?', '#', '@', '.', 'www.', 'https://', 'HTTP://', '\\', '%', 'A', '1', 'x', '//', ':8443', 'u:p@'];
+    const bits = [' ', '\t', '/', ':', '?', '#', '@', '.', 'www.', 'https://', 'HTTP://', '\\', '%', 'A', '1', 'x', '//', ':8443', 'u:p@', ...NON_ASCII];
     const values: string[] = [];
     for (let i = 0; i < 4000; i += 1) {
       let v = HOSTS[rand(HOSTS.length)];
       for (let k = rand(4); k >= 0; k -= 1) {
         const at = rand(v.length + 1);
-        v = v.slice(0, at) + bits[rand(bits.length)] + v.slice(at);
+        // Insert a bit, or put a look-alike in place of a letter.
+        const twins = TWINS[v.charAt(at).toLowerCase()];
+        v = twins && rand(2)
+          ? v.slice(0, at) + twins[rand(twins.length)] + v.slice(at + 1)
+          : v.slice(0, at) + bits[rand(bits.length)] + v.slice(at);
       }
       values.push(v);
     }

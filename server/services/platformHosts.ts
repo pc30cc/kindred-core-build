@@ -14,24 +14,42 @@
  * The answer is per deployment, read from the brand's own configuration, so
  * no brand literal lives in code (WebYar and RESPOK each read their own
  * database):
- *   - the apex: `platform_domains.primary_domain`, else the host of
- *     `canonical_base_url` or `public_base_url`. The apex and every subdomain
- *     of it are platform hosts.
+ *   - the apex: of the hosts of `platform_domains` primary, canonical,
+ *     public, app and API, the one the most of them are at or under (the
+ *     earliest field on a tie). So an empty primary with the canonical URL on
+ *     `app.<brand>` and the public one on `<brand>`, or a primary of
+ *     `app.<brand>`, still gives `<brand>`, and an API on another domain
+ *     does not move it. The apex and every subdomain of it are platform
+ *     hosts.
  *   - exact hosts, for a service that lives off the apex: every URL of
  *     `platform_domains` and `widget_platform_settings`, `CORS_ORIGINS`,
- *     `PUBLIC_CHANNELS_BASE_URL` and `AI_RUNTIME_URL`.
+ *     `PUBLIC_CHANNELS_BASE_URL` and `AI_RUNTIME_URL`, but never a single
+ *     label or loopback (`localhost`, a docker service name such as
+ *     `ai-runtime`): no customer site is one, and a dev workspace's verified
+ *     `localhost` stays its own.
+ *   - the platform's own workspace, the one allowed to hold platform hosts:
+ *     the holder of the verified apex row (WebYar's "وب یار" for webyar.ai,
+ *     RESPOK's for respok.app), else of the verified row on the shortest
+ *     configured host. Found once per read, not from a request's probe.
  *
- * The one workspace allowed to hold platform hosts is the platform's own: the
- * workspace that holds the verified apex row (WebYar's "وب یار" for
- * webyar.ai, RESPOK's for respok.app). There is no other notion of it.
+ * A deployment whose platform_domains names no apex protects nothing: no
+ * host is refused and no row ignored, even those of the environment, since
+ * the platform's own workspace cannot be told from a customer's there (a
+ * self-host whose only workspace verified its site, named in CORS_ORIGINS,
+ * keeps it). While the platform's workspace is unknown, the resolver ignores
+ * nothing either; the writers still refuse the apex and the exact hosts.
  *
  * Read like platformOrigins.ts: cached in-process for a minute, served stale
  * while one refresh runs. The first call waits for the first read, so the
- * guard is never open just because the process is new.
+ * guard is never open just because the process is new: if that read fails,
+ * the environment's hosts are refused on write until a read succeeds (retried
+ * after 5 s), while the resolver, knowing no platform workspace, ignores
+ * nothing.
  */
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 
 const TTL_MS = 60_000;
 const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
@@ -41,6 +59,8 @@ export interface PlatformHosts {
   apex: string | null;
   /** Exact platform hosts, the apex's subdomains not listed one by one. */
   hosts: ReadonlySet<string>;
+  /** The platform's own workspace (see the header); null while none is known. */
+  workspaceId: string | null;
 }
 
 /** Strips outer dots and every leading `www.` (`www.www.x` is `x` in SQL too). */
@@ -63,10 +83,17 @@ function urlHost(host: string): string | null {
   }
 }
 
-/** The authority of a host-ish input: whitespace, scheme, path, query, fragment gone. */
+/**
+ * The authority of a host-ish input: whitespace, scheme, path, query, fragment
+ * gone. Lower-cased the way the database does it: Postgres `lower()` (libc,
+ * the image's en_US/C.UTF-8 default, and PGlite) folds U+0130 `İ` to a plain
+ * `i`, where JavaScript gives `i` + U+0307, so `app.webyar.aİ` is stored as
+ * `app.webyar.ai`. It is the only letter the two fold apart into ASCII (the
+ * Kelvin sign U+212A is `k` in both).
+ */
 function authorityOf(raw: unknown): string {
   if (typeof raw !== 'string') return '';
-  let value = raw.replace(/\s+/g, '').toLowerCase();
+  let value = raw.replace(/\s+/g, '').replace(/\u0130/g, 'i').toLowerCase();
   for (;;) {
     const next = value.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/^\/+/, '');
     if (next === value) break;
@@ -116,21 +143,64 @@ function asApex(raw: unknown): string | null {
   return host;
 }
 
+/** A configured exact host, but never a single label or loopback (`localhost`, `ai-runtime`). */
+function asExactHost(raw: unknown): string | null {
+  const host = canonicalHost(raw);
+  if (!host || !host.includes('.') || /^127\./.test(host)) return null;
+  return host;
+}
+
+const isAtOrUnder = (host: string, parent: string) => host === parent || host.endsWith(`.${parent}`);
+
 /** Pure check against a loaded set (the resolver and the tests use it directly). */
-export function isPlatformHostIn(platform: PlatformHosts, raw: unknown): boolean {
+export function isPlatformHostIn(platform: Pick<PlatformHosts, 'apex' | 'hosts'>, raw: unknown): boolean {
   const { apex, hosts } = platform;
-  return hostCandidates(raw).some(
-    (host) => hosts.has(host) || (!!apex && (host === apex || host.endsWith(`.${apex}`))),
-  );
+  return hostCandidates(raw).some((host) => hosts.has(host) || (!!apex && isAtOrUnder(host, apex)));
 }
 
 type Row = Record<string, unknown> | null | undefined;
 
+/**
+ * The apex (see the header): the site host the most site fields are at or
+ * under, the earliest on a tie. Only a configured host can be it, so no
+ * common parent is invented (`co.uk` is nobody's brand).
+ */
+function apexOf(domains: Row): string | null {
+  const sites = [
+    domains?.primary_domain,
+    domains?.canonical_base_url,
+    domains?.public_base_url,
+    domains?.app_base_url,
+    domains?.api_base_url,
+  ].map(asApex).filter((host): host is string => !!host);
+  let apex: string | null = null;
+  let covered = 0;
+  for (const candidate of sites) {
+    const count = sites.filter((host) => isAtOrUnder(host, candidate)).length;
+    if (count > covered) {
+      apex = candidate;
+      covered = count;
+    }
+  }
+  return apex;
+}
+
+/** The environment's own hosts: what is refused while nothing could be read. */
+function environmentHosts(config: ServerConfig): Set<string> {
+  const hosts = new Set<string>();
+  for (const source of [...(config.corsOrigins || []), config.publicChannelsBaseUrl, config.aiRuntimeBaseUrl]) {
+    const host = asExactHost(source);
+    if (host) hosts.add(host);
+  }
+  return hosts;
+}
+
 function build(config: ServerConfig, domains: Row, widget: Row): PlatformHosts {
-  const apex = asApex(domains?.primary_domain)
-    ?? asApex(domains?.canonical_base_url)
-    ?? asApex(domains?.public_base_url);
-  const sources: unknown[] = [
+  const apex = apexOf(domains);
+  // Nothing names the platform: nothing is protected (the header says why).
+  if (!apex) return { apex: null, hosts: new Set(), workspaceId: null };
+  const hosts = environmentHosts(config);
+  for (const source of [
     domains?.primary_domain,
     domains?.canonical_base_url,
     domains?.public_base_url,
@@ -142,16 +212,44 @@ function build(config: ServerConfig, domains: Row, widget: Row): PlatformHosts {
     widget?.widget_asset_base_url,
     widget?.widget_public_base_url,
     widget?.widget_api_base_url,
-    ...(config.corsOrigins || []),
-    config.publicChannelsBaseUrl,
-    config.aiRuntimeBaseUrl,
-  ];
-  const hosts = new Set<string>();
-  for (const source of sources) {
-    const host = canonicalHost(source);
+  ]) {
+    const host = asExactHost(source);
     if (host) hosts.add(host);
   }
-  return { apex, hosts };
+  return { apex, hosts, workspaceId: null };
+}
+
+const labelCount = (host: string) => host.split('.').length;
+
+/**
+ * The platform's own workspace: the holder of the verified apex row, else of
+ * the verified row on the shortest configured host (fewest labels, then
+ * characters). A customer cannot hold either once the apex is known, since
+ * every writer refuses them.
+ */
+async function platformWorkspaceOf(
+  sb: ReturnType<typeof getServiceClient>,
+  { apex, hosts }: PlatformHosts,
+): Promise<string | null> {
+  if (!apex) return null;
+  const order = [apex, ...Array.from(hosts).filter((host) => host !== apex).sort(
+    (a, b) => labelCount(a) - labelCount(b) || a.length - b.length || (a < b ? -1 : 1),
+  )];
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .select('workspace_id, normalized_domain')
+    .eq('verified', true)
+    .in('normalized_domain', order);
+  if (error) throw error;
+  const holders = new Map(
+    ((data || []) as Array<{ workspace_id: string; normalized_domain: string | null }>)
+      .map((row) => [String(row.normalized_domain || '').toLowerCase(), row.workspace_id]),
+  );
+  for (const host of order) {
+    const holder = holders.get(host);
+    if (holder) return holder;
+  }
+  return null;
 }
 
 let cache: PlatformHosts | null = null;
@@ -174,19 +272,22 @@ async function refresh(config: ServerConfig): Promise<void> {
     ]);
     if (domains.error) throw domains.error;
     if (widget.error) throw widget.error;
-    cache = build(config, domains.data as Row, widget.data as Row);
+    const next = build(config, domains.data as Row, widget.data as Row);
+    next.workspaceId = await platformWorkspaceOf(sb, next);
+    cache = next;
     cachedAt = Date.now();
     if (!cache.apex && !warnedEmpty) {
       warnedEmpty = true;
       console.warn(
-        '[platformHosts] platform_domains names no platform domain (primary, canonical or public URL): '
-        + 'subdomains of the platform are not protected from customer domain claims until Super Admin → Domains sets one.',
+        '[platformHosts] platform_domains names no platform domain (primary, canonical, public, app or API URL): '
+        + 'no platform host is protected from customer domain claims until Super Admin → Domains sets one.',
       );
     }
   } catch (err: unknown) {
-    // Keep what we had; with nothing yet, the environment's hosts still count.
+    // Keep what we had; with nothing yet, refuse the environment's hosts on
+    // write, but know no platform workspace, so the resolver ignores nothing.
     // Retry soon, not per request.
-    if (!cache) cache = build(config, null, null);
+    if (!cache) cache = { apex: null, hosts: environmentHosts(config), workspaceId: null };
     cachedAt = Date.now() - TTL_MS + 5_000;
     console.warn('[platformHosts] refresh failed:', err instanceof Error ? err.message : err);
   } finally {
@@ -199,7 +300,7 @@ export async function getPlatformHosts(config: ServerConfig): Promise<PlatformHo
   if (!cache) {
     if (!inFlight) inFlight = refresh(config);
     await inFlight;
-    return cache ?? build(config, null, null);
+    return cache ?? { apex: null, hosts: environmentHosts(config), workspaceId: null };
   }
   if (Date.now() - cachedAt > TTL_MS && !inFlight) inFlight = refresh(config);
   return cache;
@@ -211,20 +312,11 @@ export async function isPlatformHost(config: ServerConfig, raw: unknown): Promis
   return isPlatformHostIn(await getPlatformHosts(config), raw);
 }
 
-/** Is this the platform's own workspace, the one holding the verified apex row? */
+/** Is this the platform's own workspace (see the header)? */
 export async function isPlatformWorkspace(config: ServerConfig, workspaceId: string): Promise<boolean> {
-  const { apex } = await getPlatformHosts(config);
-  if (!apex) return false;
-  const { data, error } = await getServiceClient(config)
-    .from('workspace_domains')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('verified', true)
-    .eq('normalized_domain', apex)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return !!data;
+  const { workspaceId: own } = await getPlatformHosts(config);
+  if (!own) return false;
+  return (canonicalWorkspaceId(own) ?? own) === (canonicalWorkspaceId(workspaceId) ?? workspaceId);
 }
 
 /**
@@ -274,7 +366,7 @@ export async function dropPlatformWebsite(config: ServerConfig, ownerId: string)
   console.warn(`[platformHosts] cleared a platform host from the website of ${ownerId} before creating a workspace`);
 }
 
-/** Super Admin → Domains saved: read the platform's hosts again on next use. */
+/** Super Admin → Domains or a workspace's domains changed: read the platform's hosts again on next use. */
 export function invalidatePlatformHosts(): void {
   cachedAt = 0;
 }

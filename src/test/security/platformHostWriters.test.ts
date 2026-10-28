@@ -157,7 +157,11 @@ const REFUSED = (apex: string) => [
   apex,
   `foo.${apex}`,
   `ａｐｉ.${apex}`,
+  // U+0130 (dotted capital I): Postgres lower() stores it as a plain i.
+  ...(apex.includes('i') ? [`app.${apex}`.replace(/i/g, '\u0130'), `API.${apex.toUpperCase()}`.replace(/I/g, '\u0130')] : []),
 ];
+/** A spelling the website trigger would store as the platform host, but that a URL reads otherwise. */
+const SQL_ONLY = (value: string) => value.includes('\u0130');
 
 const profileOf = (id: string) => state.db.profiles.find((p) => p.id === id);
 
@@ -200,7 +204,10 @@ describe.each([
       expect(viaMetadata.status).toBe(200);
       expect(stored(viaMetadata.body.user.id)).toBeNull();
       const viaWebsite = await signup({ website: value });
-      expect(stored(viaWebsite.body.user.id)).toBeNull();
+      // `website` is stored as a URL, which reads U+0130 as punycode (xn--…),
+      // never the platform host; metadata.websiteDomain is stored as typed.
+      if (SQL_ONLY(value)) expect(stored(viaWebsite.body.user.id)).not.toMatch(new RegExp(`(^|[/.])${apex.replace('.', '\\.')}$`));
+      else expect(stored(viaWebsite.body.user.id)).toBeNull();
     });
 
     it('keeps a customer website exactly as before (metadata first, then the URL form of `website`)', async () => {
@@ -240,6 +247,8 @@ describe.each([
       const refused = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: `https://api.${apex}` });
       expect(refused.status).toBe(400);
       expect(refused.body.code).toBe('PLATFORM_DOMAIN');
+      const dotted = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: `app.${apex}`.replace(/i/g, '\u0130') });
+      expect(dotted.status).toBe(400);
       expect(profileOf(OWNER)!.website_domain).toBe('ninisite.com');
       const saved = await request(app).patch(`/api/admin/users/${OWNER}/profile`).send({ website_domain: 'shop.example', full_name: 'X' });
       expect(saved.status).toBe(200);
@@ -248,14 +257,17 @@ describe.each([
   });
 
   describe('creating a workspace', () => {
-    it('provision-account: the trigger never sees a platform host, the profile is cleared', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      profileOf(USER)!.website_domain = `HTTPS://api.${apex}:8443/x`;
-      expect((await request(app).post('/api/workspaces/provision-account')).status).toBe(200);
-      warn.mockRestore();
-      expect(state.triggerSaw).toEqual([null]);
-      expect(profileOf(USER)!.website_domain).toBeNull();
-    });
+    it.each([`HTTPS://api.${apex}:8443/x`, `app.${apex}`.replace(/i/g, '\u0130')])(
+      'provision-account: the trigger never sees the platform host %j, the profile is cleared',
+      async (website) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        profileOf(USER)!.website_domain = website;
+        expect((await request(app).post('/api/workspaces/provision-account')).status).toBe(200);
+        warn.mockRestore();
+        expect(state.triggerSaw).toEqual([null]);
+        expect(profileOf(USER)!.website_domain).toBeNull();
+      },
+    );
 
     it('provision-account into an existing account reads that account\'s owner', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -293,7 +305,8 @@ describe.each([
   describe('POST /api/workspaces/:id/domains', () => {
     const add = (ws: string, domain: string) => request(app).post(`/api/workspaces/${ws}/domains`).send({ domain });
 
-    it.each(REFUSED(apex).filter((v) => !/[:@ /]|\.$/.test(v.trim())))('refuses %j for a customer workspace', async (value) => {
+    // The domain input is stored as punycode, so U+0130 cannot become the platform host here.
+    it.each(REFUSED(apex).filter((v) => !/[:@ /]|\.$/.test(v.trim()) && !SQL_ONLY(v)))('refuses %j for a customer workspace', async (value) => {
       const res = await add(CUSTOMER_WS, value);
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('PLATFORM_DOMAIN');

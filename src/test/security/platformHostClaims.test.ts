@@ -21,6 +21,8 @@ type DomainRow = { workspace_id: string; normalized_domain: string; verified: bo
 type SettingsRow = { workspace_id: string; allow_subdomains: boolean };
 
 const db = vi.hoisted(() => ({
+  /** platform_domains and widget_platform_settings cannot be read. */
+  fail: false,
   platform_domains: [] as Array<Record<string, unknown>>,
   widget_platform_settings: [] as Array<Record<string, unknown>>,
   workspace_domains: [] as DomainRow[],
@@ -29,17 +31,21 @@ const db = vi.hoisted(() => ({
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    from(table: keyof typeof db) {
+    from(table: Exclude<keyof typeof db, 'fail'>) {
       const filters: Array<(row: any) => boolean> = [];
       const builder: any = {
         select: () => builder,
         limit: () => builder,
         eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return builder; },
         in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return builder; },
-        maybeSingle: () => builder.then((r: any) => ({ data: r.data[0] ?? null, error: null })),
-        then: (resolve: any, reject?: any) =>
-          Promise.resolve({ data: (db[table] as any[]).filter((r) => filters.every((f) => f(r))), error: null })
-            .then(resolve, reject),
+        maybeSingle: () => builder.then((r: any) => ({ data: r.data?.[0] ?? null, error: r.error })),
+        then: (resolve: any, reject?: any) => {
+          if (db.fail && (table === 'platform_domains' || table === 'widget_platform_settings')) {
+            return Promise.resolve({ data: null, error: { message: 'database unavailable' } }).then(resolve, reject);
+          }
+          return Promise.resolve({ data: (db[table] as any[]).filter((r) => filters.every((f) => f(r))), error: null })
+            .then(resolve, reject);
+        },
       };
       return builder;
     },
@@ -47,10 +53,10 @@ vi.mock('../../../server/supabase.js', () => ({
 }));
 
 const { resolveWorkspaceIdFromOrigin, __resetWidgetOriginCaches } = await import('../../../server/services/widget/public.js');
-const { __resetPlatformHostsCache } = await import('../../../server/services/platformHosts.js');
+const { __resetPlatformHostsCache, isPlatformHost, isPlatformWorkspace } = await import('../../../server/services/platformHosts.js');
 const { widgetKbRouter } = await import('../../../server/routes/kb.js');
 
-const config = { corsOrigins: ['*'] } as any;
+let config = { corsOrigins: ['*'] } as any;
 
 const PLATFORM = '00000000-0000-4000-8000-00000000000a';
 const ATTACKER = '00000000-0000-4000-8000-0000000000bb';
@@ -76,6 +82,8 @@ describe.each([
   ['RESPOK', 'respok.app'],
 ])('%s', (_brand, apex) => {
   beforeEach(() => {
+    config = { corsOrigins: ['*'] };
+    db.fail = false;
     db.platform_domains = [{
       primary_domain: apex,
       canonical_base_url: `https://${apex}`,
@@ -137,6 +145,42 @@ describe.each([
     expect(await resolveWorkspaceIdFromOrigin(config, `https://${apex}`)).toBe(PLATFORM);
   });
 
+  it.each([
+    ['primary empty, canonical on app., public on the brand', { primary_domain: null, canonical_base_url: `https://app.${apex}` }],
+    ['primary on app.', { primary_domain: `app.${apex}` }],
+  ])('with %s, the platform keeps its help center and its domains, and a claim still gains nothing', async (_case, change) => {
+    Object.assign(db.platform_domains[0], change);
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
+    expect(await resolveWorkspaceIdFromOrigin(config, `https://${apex}`)).toBe(PLATFORM);
+    expect(await isPlatformWorkspace(config, PLATFORM)).toBe(true);
+    __resetWidgetOriginCaches();
+    verified(ATTACKER, `api.${apex}`);
+    verified(ATTACKER, `help.${apex}`);
+    subdomains(ATTACKER, true);
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
+    expect(await resolveWorkspaceIdFromOrigin(config, `https://help.${apex}`)).toBe(PLATFORM);
+  });
+
+  it('the platform keeps a configured host it holds off the apex', async () => {
+    config = { corsOrigins: [`https://app.${apex}`, 'https://brand-mirror.example'] };
+    db.widget_platform_settings = [{ widget_asset_base_url: 'https://cdn.brand-mirror.example' }];
+    verified(PLATFORM, 'brand-mirror.example');
+    verified(ATTACKER, 'cdn.brand-mirror.example');
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://brand-mirror.example')).toBe(PLATFORM);
+    // Another workspace's row on the platform's CDN host is still ignored.
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://cdn.brand-mirror.example')).toBe(PLATFORM);
+  });
+
+  it('a fresh process that cannot read platform_domains keeps the platform\'s row, and refuses the environment\'s hosts on write', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    config = { corsOrigins: [`https://${apex}`, `https://app.${apex}`] };
+    db.fail = true;
+    expect(await resolveWorkspaceIdFromOrigin(config, `https://${apex}`)).toBe(PLATFORM);
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
+    expect(await isPlatformHost(config, `app.${apex}`)).toBe(true);
+    warn.mockRestore();
+  });
+
   it('customer domains resolve exactly as before', async () => {
     verified(ATTACKER, `api.${apex}`);
     verified(ATTACKER, 'shop.example');
@@ -153,18 +197,35 @@ describe.each([
 
 describe('a deployment that names no platform domain', () => {
   beforeEach(() => {
+    config = { corsOrigins: ['*'] };
+    db.fail = false;
     db.platform_domains = [];
     db.widget_platform_settings = [];
     db.workspace_domains = [];
     db.widget_settings = [];
     __resetWidgetOriginCaches();
     __resetPlatformHostsCache();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
   it('resolves every verified row as before (nothing is known to be the platform)', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     verified(CUSTOMER, 'api.webyar.ai');
     expect(await resolveWorkspaceIdFromOrigin(config, 'https://api.webyar.ai')).toBe(CUSTOMER);
-    warn.mockRestore();
+  });
+
+  it('a self-host whose site is its CORS origin keeps it (COOLIFY_DEPLOY.md layout)', async () => {
+    config = { corsOrigins: ['https://example.com'] };
+    verified(PLATFORM, 'example.com');
+    subdomains(PLATFORM, true);
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://example.com')).toBe(PLATFORM);
+    expect((await helpHost('api.example.com')).body).toEqual({ workspace_id: PLATFORM });
+    expect(await isPlatformHost(config, 'example.com')).toBe(false);
+  });
+
+  it('dev: CORS on localhost does not make a verified localhost row the platform\'s', async () => {
+    config = { corsOrigins: ['http://localhost:5173', 'http://localhost:3000'] };
+    verified(CUSTOMER, 'localhost');
+    expect(await resolveWorkspaceIdFromOrigin(config, 'http://localhost:3000')).toBe(CUSTOMER);
+    expect(await isPlatformHost(config, 'localhost:3000')).toBe(false);
   });
 });

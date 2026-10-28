@@ -9,24 +9,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerConfig } from '../config.js';
 
 type Row = Record<string, unknown> | null;
+type DomainRow = { workspace_id: string; normalized_domain: string; verified: boolean };
 const tables = vi.hoisted(() => ({
   platform_domains: null as Row,
   widget_platform_settings: null as Row,
+  workspace_domains: [] as DomainRow[],
   fail: false,
   reads: 0,
 }));
 
 vi.mock('../supabase.js', () => ({
   getServiceClient: () => ({
-    from(table: 'platform_domains' | 'widget_platform_settings') {
+    from(table: 'platform_domains' | 'widget_platform_settings' | 'workspace_domains') {
+      const filters: Array<(row: Record<string, unknown>) => boolean> = [];
       const builder = {
         select: () => builder,
         limit: () => builder,
+        eq: (col: string, val: unknown) => { filters.push((row) => row[col] === val); return builder; },
+        in: (col: string, vals: unknown[]) => { filters.push((row) => vals.includes(row[col])); return builder; },
         maybeSingle: async () => {
           tables.reads += 1;
           if (tables.fail) return { data: null, error: { message: 'database unavailable' } };
-          return { data: tables[table], error: null };
+          return { data: tables[table as 'platform_domains' | 'widget_platform_settings'], error: null };
         },
+        // The platform workspace's probe: verified workspace_domains rows.
+        then: (resolve: (value: { data: DomainRow[]; error: null }) => unknown) =>
+          Promise.resolve({ data: tables.workspace_domains.filter((row) => filters.every((f) => f(row))), error: null }).then(resolve),
       };
       return builder;
     },
@@ -40,6 +48,7 @@ const {
   hostCandidates,
   isPlatformHost,
   isPlatformHostIn,
+  isPlatformWorkspace,
 } = await import('./platformHosts.js');
 
 const config = (extra: Partial<ServerConfig> = {}) => ({ corsOrigins: ['*'], ...extra }) as ServerConfig;
@@ -101,6 +110,7 @@ beforeEach(() => {
   __resetPlatformHostsCache();
   tables.platform_domains = null;
   tables.widget_platform_settings = null;
+  tables.workspace_domains = [];
   tables.fail = false;
   tables.reads = 0;
 });
@@ -160,6 +170,30 @@ describe.each([
       expect(await isPlatformHost(config(), value)).toBe(false);
     }
   });
+
+  it.each([
+    ['primary empty, canonical on app., public on the apex', { ...row, primary_domain: null, canonical_base_url: `https://app.${apex}` }],
+    ['primary on app.', { ...row, primary_domain: `app.${apex}` }],
+    ['the API on another domain', { ...row, api_base_url: 'https://api-host.example.net' }],
+  ])('names the brand the apex with %s', async (_case, domains) => {
+    tables.platform_domains = domains;
+    expect((await getPlatformHosts(config())).apex).toBe(apex);
+  });
+});
+
+describe('the letters Postgres lower() folds apart from JavaScript', () => {
+  it('reads U+0130 (dotted capital I) as the database stores it: a plain i', async () => {
+    tables.platform_domains = WEBYAR;
+    expect(hostCandidates('app.webyar.a\u0130')).toContain('app.webyar.ai');
+    for (const value of ['app.webyar.a\u0130', 'API.WEBYAR.A\u0130', 'webyar.a\u0130', 'https://LIVEKIT.WEBYAR.A\u0130/x', '\u0130\u0130.webyar.ai']) {
+      expect(await isPlatformHost(config(), value)).toBe(true);
+    }
+  });
+
+  it('and the Kelvin sign as k, which JavaScript already does', async () => {
+    tables.platform_domains = RESPOK;
+    expect(await isPlatformHost(config(), 'api.respo\u212a.app')).toBe(true);
+  });
 });
 
 describe('where the hosts come from', () => {
@@ -199,15 +233,39 @@ describe('where the hosts come from', () => {
     expect(isPlatformHostIn(platform, 'example.net')).toBe(false);
   });
 
-  it('protects nothing while nothing is configured, so customers are untouched', async () => {
-    expect(await isPlatformHost(config(), 'api.webyar.ai')).toBe(false);
-    expect(await isPlatformHost(config(), 'shop.example')).toBe(false);
+  it('protects nothing while platform_domains names no apex, not even the environment hosts', async () => {
+    // A self-host whose frontend is its own site (CORS_ORIGINS=https://example.com,
+    // COOLIFY_DEPLOY.md) and nothing in Super Admin → Domains: its first
+    // workspace verifies example.com as before, and the platform workspace
+    // cannot be told from a customer's.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const env = config({ corsOrigins: ['https://example.com'], publicChannelsBaseUrl: 'https://hooks.example.com' });
+    for (const value of ['example.com', 'hooks.example.com', 'api.webyar.ai', 'shop.example']) {
+      expect(await isPlatformHost(env, value)).toBe(false);
+    }
+    expect(await getPlatformHosts(env)).toEqual({ apex: null, hosts: new Set(), workspaceId: null });
+    warn.mockRestore();
   });
 
-  it('keeps the environment hosts when the database cannot be read', async () => {
+  it('keeps the environment hosts on write when the database cannot be read, with no platform workspace', async () => {
     tables.fail = true;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(await isPlatformHost(config({ corsOrigins: ['https://app.webyar.ai'] }), 'https://app.webyar.ai')).toBe(true);
+    const env = config({ corsOrigins: ['https://app.webyar.ai'] });
+    expect(await isPlatformHost(env, 'https://app.webyar.ai')).toBe(true);
+    expect((await getPlatformHosts(env)).workspaceId).toBeNull();
+    warn.mockRestore();
+  });
+
+  it('never counts a single label or loopback host (localhost, a docker service name)', async () => {
+    tables.platform_domains = { ...WEBYAR, help_center_base_url: 'http://127.0.0.1:8080' };
+    const env = config({ corsOrigins: ['http://localhost:5173'], aiRuntimeBaseUrl: 'http://ai-runtime:8000' });
+    for (const value of ['localhost', 'localhost:3000', 'ai-runtime', '127.0.0.1']) {
+      expect(await isPlatformHost(env, value)).toBe(false);
+    }
+    tables.fail = true;
+    __resetPlatformHostsCache();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await isPlatformHost(env, 'localhost')).toBe(false);
     warn.mockRestore();
   });
 
@@ -217,5 +275,43 @@ describe('where the hosts come from', () => {
     const reads = tables.reads;
     for (let i = 0; i < 20; i += 1) await isPlatformHost(config(), `x${i}.webyar.ai`);
     expect(tables.reads).toBe(reads);
+  });
+});
+
+describe('the platform\'s own workspace', () => {
+  const PLATFORM = '00000000-0000-4000-8000-00000000000a';
+  const OTHER = '00000000-0000-4000-8000-0000000000bb';
+  const held = (workspace_id: string, normalized_domain: string, verified = true) =>
+    tables.workspace_domains.push({ workspace_id, normalized_domain, verified });
+
+  it('is the holder of the verified apex row, in any spelling of its id', async () => {
+    tables.platform_domains = { ...WEBYAR, primary_domain: null, canonical_base_url: 'https://app.webyar.ai' };
+    held(OTHER, 'webyar.ai', false);
+    held(PLATFORM, 'webyar.ai');
+    expect((await getPlatformHosts(config())).workspaceId).toBe(PLATFORM);
+    expect(await isPlatformWorkspace(config(), PLATFORM.toUpperCase())).toBe(true);
+    expect(await isPlatformWorkspace(config(), OTHER)).toBe(false);
+  });
+
+  it('else the holder of the shortest configured host', async () => {
+    tables.platform_domains = { primary_domain: null, canonical_base_url: 'https://app.webyar.ai', public_base_url: null };
+    held(OTHER, 'deep.help.webyar.ai');
+    held(PLATFORM, 'webyar.ai');
+    const env = config({ corsOrigins: ['https://webyar.ai', 'https://deep.help.webyar.ai'] });
+    const platform = await getPlatformHosts(env);
+    expect(platform.apex).toBe('app.webyar.ai');
+    expect(platform.workspaceId).toBe(PLATFORM);
+  });
+
+  it('is nobody while nobody holds a platform host, or nothing is configured', async () => {
+    tables.platform_domains = WEBYAR;
+    held(OTHER, 'ninisite.com');
+    expect(await isPlatformWorkspace(config(), OTHER)).toBe(false);
+    __resetPlatformHostsCache();
+    tables.platform_domains = null;
+    held(PLATFORM, 'webyar.ai');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await isPlatformWorkspace(config(), PLATFORM)).toBe(false);
+    warn.mockRestore();
   });
 });

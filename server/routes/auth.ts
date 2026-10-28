@@ -42,6 +42,7 @@ import {
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
+import { isPlatformHost } from '../services/platformHosts.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
 import { getClientIp } from '../utils/clientIp.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
@@ -400,11 +401,19 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       throw err;
     }
 
+    // The website becomes a VERIFIED domain of the first workspace
+    // (trg_workspaces_auto_register_owner_domain), so a platform host
+    // (api.<brand>, app.<brand>, the brand itself; services/platformHosts.ts)
+    // is dropped like a website that does not parse: only the platform's
+    // own workspace may answer for it.
+    const claimedWebsite = (typeof metadata?.websiteDomain === 'string' ? metadata.websiteDomain : '') || normalizedWebsite || null;
+    const websiteDomain = claimedWebsite && !(await isPlatformHost(config, claimedWebsite)) ? claimedWebsite : null;
+
     const profileFields = {
       email: normalizedEmail,
       full_name: fullName?.trim() || null,
       company_name: metadata?.companyName || null,
-      website_domain: metadata?.websiteDomain || normalizedWebsite || null,
+      website_domain: websiteDomain,
       main_goal: metadata?.mainGoal || null,
       ai_mode: metadata?.aiMode || null,
       signup_ip: getClientIp(req) || null,

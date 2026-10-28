@@ -18,6 +18,8 @@ const BY_CODE: Record<string, TranslationKey> = {
   plan_upgrade_required: 'settings.errors.plan',
   seat_locked: 'settings.errors.plan',
   domain_taken: 'settings.errors.domainTaken',
+  // A platform host (api.<brand>, app.<brand>, …) is the platform's own.
+  platform_domain: 'settings.errors.domainTaken',
   'not a member of this workspace': 'settings.errors.forbidden',
   forbidden: 'settings.errors.forbidden',
   'domain not found': 'settings.errors.notFound',

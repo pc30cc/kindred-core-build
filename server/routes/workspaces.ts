@@ -41,6 +41,7 @@ import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
+import { dropPlatformWebsite, isPlatformHost, isPlatformWorkspace } from '../services/platformHosts.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 
 export const workspacesRouter = Router();
@@ -176,6 +177,19 @@ workspacesRouter.post('/provision-account', async (req, res) => {
 
 
   const sb = getServiceClient(config);
+  // The workspace this creates verifies its account owner's website
+  // (trg_workspaces_auto_register_owner_domain). The account is the caller's
+  // first one, as the RPC picks it, or a new one the caller owns.
+  const { data: firstAccount } = await sb
+    .from('account_members')
+    .select('account_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const accountId = (firstAccount as { account_id?: string } | null)?.account_id;
+  await dropPlatformWebsite(config, (accountId && (await accountOwnerId(config, accountId))) || userId);
+
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
   if (error) return res.status(500).json({ error: error.message });
 
@@ -195,6 +209,19 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   }
   return res.json({ ok: true });
 });
+
+/**
+ * The owner of an account: the profile whose website the workspace INSERT
+ * trigger reads, which is not necessarily the member creating the workspace.
+ */
+async function accountOwnerId(config: ServerConfig, accountId: string): Promise<string | null> {
+  const { data } = await getServiceClient(config)
+    .from('accounts')
+    .select('owner_id')
+    .eq('id', accountId)
+    .maybeSingle();
+  return (data as { owner_id?: string | null } | null)?.owner_id ?? null;
+}
 
 // ── Workspace capacity (max_workspaces) ──────────────────────────────────
 // `max_workspaces` is an ACCOUNT-level cap (see usageResolvers.ts's
@@ -320,6 +347,11 @@ workspacesRouter.post('/', async (req, res) => {
       upgrade_required: true,
     });
   }
+
+  // The new workspace verifies the account OWNER's website (the trigger),
+  // so a platform host stored there is dropped first.
+  const ownerId = await accountOwnerId(config, parsed.data.accountId);
+  if (ownerId) await dropPlatformWebsite(config, ownerId);
 
   // `create_workspace_atomic` is SECURITY DEFINER but takes `_user_id`
   // explicitly rather than reading auth.uid() — it does its own
@@ -561,6 +593,11 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
     return res.status(400).json({ error: failure.message, code: failure.code });
   }
   if (!(await requireDomainManage(req, res, workspaceId))) return;
+  // The platform's own hosts (services/platformHosts.ts) belong to its own
+  // workspace only.
+  if ((await isPlatformHost(config, domainInput.domain)) && !(await isPlatformWorkspace(config, workspaceId))) {
+    return res.status(409).json({ error: 'This domain belongs to the platform.', code: 'PLATFORM_DOMAIN' });
+  }
   const sb = getServiceClient(config);
   const { error } = await sb.from('workspace_domains').insert({
     workspace_id: workspaceId,

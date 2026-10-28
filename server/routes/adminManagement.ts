@@ -29,6 +29,7 @@ import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { invalidateGlobalAdminCache } from '../lib/globalAdminCache.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
+import { invalidatePlatformHosts, isPlatformHost, isPlatformWorkspace } from '../services/platformHosts.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
 import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
@@ -800,6 +801,7 @@ adminManagementRouter.put('/platform-domains', async (req, res) => {
         .maybeSingle()
     : await sb.from('platform_domains').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  invalidatePlatformHosts();
   return res.json({ domains: data });
 });
 
@@ -1091,6 +1093,13 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     if (!input.ok) {
       const failure = input as Extract<DomainInputResult, { ok: false }>;
       return res.status(400).json({ error: failure.message, code: failure.code });
+    }
+    // The row keeps its `verified` flag, so a platform host
+    // (services/platformHosts.ts) would become a verified claim on it: only
+    // the platform's own workspace may hold one.
+    if ((await isPlatformHost(serverConfigOf(req), input.domain))
+      && !(await isPlatformWorkspace(serverConfigOf(req), existingDomain.workspace_id))) {
+      return res.status(409).json({ error: 'This domain belongs to the platform.', code: 'PLATFORM_DOMAIN' });
     }
     nextDomain = input.domain;
     update.domain = input.domain;

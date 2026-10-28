@@ -40,6 +40,7 @@ import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { disableOtherDevices } from '../services/push/devices.js';
+import { isNewPlatformWebsite } from '../services/platformHosts.js';
 
 export const accountRouter = Router();
 
@@ -172,6 +173,16 @@ accountRouter.patch('/me', async (req, res) => {
     const parsed = updateProfileSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+    }
+    // The website becomes a VERIFIED domain of the account's next workspace
+    // (trg_workspaces_auto_register_owner_domain): never one of the
+    // platform's own hosts (services/platformHosts.ts).
+    if (await isNewPlatformWebsite(config, user.id, parsed.data.website_domain)) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        code: 'PLATFORM_DOMAIN',
+        details: { website_domain: ['This address belongs to the platform, not to your website.'] },
+      });
     }
     const sb = getServiceClient(config);
 

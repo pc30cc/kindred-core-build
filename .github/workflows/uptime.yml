@@ -7,7 +7,8 @@ name: Uptime
 # changed the cron line below) when one of them does not answer as expected.
 # Planned maintenance: disable this workflow first (docs/DEPLOYMENT.md,
 # "Uptime monitor"). src/test/ci/uptimeWorkflow.test.ts pins the schedule and
-# the checks.
+# the checks. The repository is private, so each run is billed as at least a
+# minute of hosted runner: about 4,400 minutes a month at this schedule.
 on:
   schedule:
     - cron: '*/10 * * * *'

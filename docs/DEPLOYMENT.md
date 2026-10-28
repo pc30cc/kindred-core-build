@@ -293,6 +293,12 @@ workflow, or `gh workflow disable uptime.yml`. Afterwards enable it again
 (`gh workflow enable uptime.yml`, which makes you the one GitHub e-mails) and
 run it once by hand to see it green. A check is added or changed in its
 `CHECKS` list and in `src/test/ci/uptimeWorkflow.test.ts`, which pins it.
+The repository is private, so every run is billed as at least one minute of a
+GitHub-hosted runner: about 4,400 minutes a month (144 runs a day) on top of
+CI, set by the `cron` line. Once it is on `main`, run it by hand (Actions →
+Uptime → Run workflow) to see every endpoint answer GitHub's runners; if a bot
+or an app merged it, disable and enable it once as the owner, so the e-mail
+reaches a person.
 
 ## 9. Troubleshooting
 

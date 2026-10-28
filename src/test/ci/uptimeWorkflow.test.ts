@@ -59,6 +59,10 @@ describe('uptime workflow', () => {
     expect(yml).toContain('"$down" -gt 0');
     expect(yml).toContain('exit 1');
     expect(yml).toContain('>>"$GITHUB_STEP_SUMMARY"');
+    // The red run is the alert (GitHub e-mails it), so nothing may turn a
+    // failure green or skip the probe.
+    expect(yml).not.toContain('continue-on-error');
+    expect(yml).not.toMatch(/^\s+if:/m);
   });
 
   it('reads contents only, uses no secret and never piles up', () => {
@@ -68,7 +72,9 @@ describe('uptime workflow', () => {
     expect(yml).toMatch(/^concurrency:\n {2}group: uptime\n {2}cancel-in-progress: false\n/m);
     expect(yml).toContain('runs-on: ubuntu-24.04');
     const timeout = Number(/timeout-minutes: (\d+)/.exec(yml)?.[1]);
-    expect(timeout).toBeGreaterThan(0);
+    // An endpoint takes up to 70 s to be called down (3 tries of 10 s, 20 s
+    // apart): a 1-minute limit would cancel the run before it fails.
+    expect(timeout).toBeGreaterThanOrEqual(2);
     expect(timeout).toBeLessThanOrEqual(5);
   });
 });

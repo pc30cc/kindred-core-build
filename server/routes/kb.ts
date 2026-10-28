@@ -37,6 +37,7 @@ import type { ServerConfig } from '../config.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
+import { sanitizeKbArticleHtml } from '../services/knowledge-base/articleHtml.js';
 import { kbFoldedSearch } from '../services/knowledge-base/foldedSearch.js';
 import { resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
 import { publicArticles } from '../services/knowledge-base/publicArticles.js';
@@ -80,25 +81,6 @@ function escapeHtml(input: string): string {
 
 function escapeAttr(input: string): string {
   return escapeHtml(input);
-}
-
-/**
- * Article body sanitizer. The KB authoring UI accepts markdown/HTML which is
- * already trusted (operator-authored, workspace-scoped). For SSR we still
- * strip script/style/iframe/on* handlers as a defence-in-depth pass so a
- * compromised author cannot inject XSS into a public page that other
- * customers' visitors might encounter.
- */
-function sanitizeArticleHtml(input: string): string {
-  if (!input) return '';
-  return String(input)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
-    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
-    .replace(/javascript:/gi, '');
 }
 
 function dirForLocale(locale: Locale): 'rtl' | 'ltr' {
@@ -825,7 +807,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
     </nav>
     <h1>${escapeHtml(article.title)}</h1>
     <div class="kb-meta">${article.updated_at ? escapeHtml(new Date(article.updated_at).toLocaleDateString(locale === 'fa' ? persianDateTag : locale === 'tr' ? 'tr-TR' : 'en-US')) : ''}</div>
-    <article>${sanitizeArticleHtml(article.content || '')}</article>
+    <article>${sanitizeKbArticleHtml(article.content)}</article>
   `;
 
   return res.status(200).send(renderShell({

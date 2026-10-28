@@ -222,7 +222,7 @@ the express-rate-limit layers, the IP blocklist, brute-force counters, captcha
   ranges Cloudflare publishes, built into clientIp.ts), the client is
   `cf-connecting-ip` and the country `cf-ipcountry` (Cloudflare's HTTP proxy
   overwrites both). Any other edge IS the client, and cf-* headers are
-  ignored: a client that reaches the origin (192.99.68.134) without
+  ignored: a client that reaches the origin (5.39.70.213 since 2026-10-28) without
   Cloudflare can no longer choose its address or country. (Before 2026-10-17
   `cf-connecting-ip` was believed from any private peer, i.e. from Traefik for
   everyone, and `req.ip` was the Cloudflare edge, so all visitors behind one
@@ -248,9 +248,10 @@ the express-rate-limit layers, the IP blocklist, brute-force counters, captcha
   `src/test/security/clientIp.test.ts`.
 - Requests through app.*/api/ (the frontend nginx's BACKEND_URL is
   https://api.*, back through Cloudflare) and server-to-server calls through
-  the public hostnames arrive as the server's own address, 192.99.68.134
-  (RESPOK's: the same server). The SPAs call api.* directly, so browsers do
-  not use that path. Never block that address.
+  the public hostnames arrive as the server's own address, 5.39.70.213
+  since 2026-10-28 (192.99.68.134 before; RESPOK's: the same server). The
+  SPAs call api.* directly, so browsers do not use that path. Never block
+  that address.
 - **Never** give Traefik `forwardedHeaders.insecure`, or private ranges in
   `forwardedHeaders.trustedIPs`: a client's X-Forwarded-For would then
   survive, and with a private TCP peer (docker-proxy hairpin) a forged

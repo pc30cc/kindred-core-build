@@ -67,6 +67,7 @@ import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
 import { internalChannelsRouter } from './routes/internalChannels.js';
 import { emailInboxRouter } from './routes/emailInbox.js';
 import { gmailPushRouter } from './routes/gmailPush.js';
+import { emailEventsRouter } from './routes/emailEvents.js';
 
 import { phoneVerificationRouter } from './routes/phoneVerification.js';
 import { adminRouter } from './routes/admin.js';
@@ -376,6 +377,11 @@ app.use('/api/commerce/events', commerceEventsRouter);
 // before express.json() so the raw bytes survive for verification.
 app.use('/api/commerce/connection', commercePluginActionsRouter);
 
+// Bounce and complaint reports of the mail providers and of our relay
+// (docs/operations/EMAIL.md). Each is signed over its raw bytes, so this
+// mounts before express.json() with its own raw parser and rate limit.
+app.use('/api/email-events', emailEventsRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body. The widget
 // bootstrap also accepts its JSON as text/plain (a CORS-simple request, no
@@ -387,6 +393,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
   if (req.path.startsWith('/api/commerce/connection')) return next();
+  if (req.path.startsWith('/api/email-events')) return next();
   return parseJsonBody(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)

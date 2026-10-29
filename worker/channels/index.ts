@@ -14,7 +14,8 @@
  *
  * Crash-safe: a lost lease expires and the job is re-claimed. Every attempt is
  * recorded in `channel_delivery_attempts`. Bot tokens are never logged and
- * never placed in job payloads.
+ * never placed in job payloads. A mailbox reply is the exception to "run it
+ * again": it is handed to Gmail or Yahoo at most once (sendMailAtMostOnce).
  */
 
 import { createHash } from 'node:crypto';
@@ -24,6 +25,7 @@ import {
   claimChannelJobs,
   completeChannelJob,
   failChannelJob,
+  markChannelJob,
   releaseChannelJob,
   isChannelJobType,
   recordAttempt,
@@ -43,11 +45,14 @@ import {
   type GmailOutboundMessage,
 } from '../../channels/mail/gmail/client.js';
 import { GMAIL_REFRESH_TOKEN_KEY } from '../../shared/channels/gmailKeys.js';
+import { GmailError } from '../../server/services/channels/gmail/types.js';
 import {
   createYahooAdapter,
   pollYahooInbox,
   sendViaYahooSmtp,
+  YahooSmtpSendError,
   type YahooOutboundMessage,
+  type YahooParsedMessage,
 } from '../../channels/mail/yahoo/client.js';
 import { YAHOO_REFRESH_TOKEN_KEY } from '../../shared/channels/yahooKeys.js';
 import { botApiFor } from './botApi.js';
@@ -458,6 +463,186 @@ async function reportOutbound(
 }
 
 /**
+ * Mailbox replies (Gmail, Yahoo) report to their own route, keyed by the
+ * `email_messages` row, not to the chat route above: their `message_id` is
+ * the RFC Message-ID header, which that route would refuse.
+ */
+const MAIL_RESULT_ROUTES: Partial<Record<string, string>> = {
+  gmail_outbound_message: '/internal/channels/gmail/outbound-result',
+  yahoo_outbound_message: '/internal/channels/yahoo/outbound-result',
+};
+
+async function reportMailOutbound(
+  job: ChannelJob,
+  outcome: 'sent' | 'failed',
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const route = MAIL_RESULT_ROUTES[job.job_type];
+  const emailMessageId = String((job.payload as ChannelJobPayload | null)?.email_message_id || '');
+  if (!route || !emailMessageId) return;
+  await coreCall(route, {
+    email_message_id: emailMessageId,
+    integration_id: job.integration_id,
+    outcome,
+    ...extra,
+  });
+}
+
+/** Also read by tests: the job payload markers sendMailAtMostOnce writes. */
+export const MAIL_SEND_STARTED = 'mail_send_started_at';
+export const MAIL_SEND_ACCEPTED = 'mail_send_accepted_at';
+
+/**
+ * The claim on this job is gone (its lease ran out and another run may hold
+ * it). Nothing more is done with it here: not failed, not reported.
+ */
+function leaseLostError(job: ChannelJob): Error {
+  return Object.assign(new Error(`lost the claim on job ${job.id}`), { leaseLost: true } as const);
+}
+
+function isLeaseLost(err: unknown): boolean {
+  return !!err && (err as { leaseLost?: unknown }).leaseLost === true;
+}
+
+/**
+ * Hands one mailbox reply to its provider at most once.
+ *
+ * A job runs again after a failed report to Core, a worker restart or an
+ * expired lease, and each run used to send the mail again. The job's own row
+ * now says how far an earlier run got (markChannelJob, fenced by the claim):
+ *   - accepted: the provider took the mail. Only the report is retried.
+ *   - started, not accepted: a run handed the mail over and never learnt the
+ *     answer. It may have gone out, so it is not sent again; the reply fails
+ *     with `send_outcome_unknown` and the operator decides.
+ *   - neither: everything that can fail before the send (token, attachments)
+ *     runs first and may be retried freely.
+ * A send the provider definitely refused clears the start mark, so the retry
+ * sends for real.
+ */
+async function sendMailAtMostOnce(
+  job: ChannelJob,
+  prepare: () => Promise<() => Promise<{ threadId?: string | null } | void>>,
+): Promise<void> {
+  const payload = (job.payload ?? {}) as ChannelJobPayload;
+  if (payload.mail_send_accepted_at) {
+    await reportMailOutbound(job, 'sent');
+    return;
+  }
+  if (payload.mail_send_started_at) {
+    throw Object.assign(
+      new Error('send_outcome_unknown: an earlier attempt handed this mail to the provider without learning the result; it may have been sent, check the Sent folder'),
+      { permanent: true },
+    );
+  }
+
+  const send = await prepare();
+  if (!(await markChannelJob(sb, job, { [MAIL_SEND_STARTED]: new Date().toISOString() }, LEASE_SECONDS))) {
+    throw leaseLostError(job);
+  }
+  let sent: { threadId?: string | null } | void;
+  try {
+    sent = await send();
+  } catch (err) {
+    // No answer is not a refusal: Yahoo's connection ending after the whole
+    // message was written, or Gmail's call timing out or dropping, may have
+    // delivered it.
+    const unanswered = err instanceof YahooSmtpSendError
+      ? err.maybeDelivered
+      : err instanceof GmailError && (err.code === 'gmail_timeout' || err.code === 'gmail_network_error');
+    if (unanswered) {
+      throw Object.assign(
+        new Error(`send_outcome_unknown: the provider did not answer after the mail was handed over (${(err as Error & { detail?: string }).detail || (err as Error).message})`),
+        { permanent: true },
+      );
+    }
+    await markChannelJob(sb, job, { [MAIL_SEND_STARTED]: null }, LEASE_SECONDS).catch(() => false);
+    throw err;
+  }
+  // Best effort: the start mark alone already keeps it from going out twice.
+  const accepted = { [MAIL_SEND_ACCEPTED]: new Date().toISOString() };
+  await markChannelJob(sb, job, accepted, LEASE_SECONDS)
+    .catch(() => markChannelJob(sb, job, accepted, LEASE_SECONDS))
+    .catch((markErr) => console.error(`[channels-worker] job ${job.id}: could not record the accepted send:`, (markErr as Error)?.message || markErr));
+  await reportMailOutbound(job, 'sent', sent && sent.threadId !== undefined ? {
+    // Only meaningful (and only accepted by Core) for a brand-new Gmail
+    // thread that started with a `pending-` placeholder id.
+    local_thread_id: payload.local_thread_id ? String(payload.local_thread_id) : null,
+    gmail_thread_id: sent.threadId || null,
+  } : {});
+}
+
+// An attachment Core serves for a queued reply: a few MB over the internal
+// network, so a minute is generous; a stalled read must not hold the job.
+const MAIL_ATTACHMENT_TIMEOUT_MS = 60_000;
+
+/**
+ * The files of a queued mailbox reply, read in full before anything is sent.
+ * A file that cannot be read fails the job (and, once out of retries, the
+ * reply, visibly) instead of the mail going out without it. Core serves each
+ * one by id from the storage provider that is primary now
+ * (/mail/outbound-attachment), so neither a private bucket nor a provider
+ * with no public URL is a problem. Jobs queued before that carry a URL only.
+ */
+async function readMailAttachments(
+  job: ChannelJob,
+  raw: unknown,
+): Promise<Array<{ filename: string; contentType: string; bytes: Buffer }>> {
+  const list: OutboundAttachmentPayload[] = Array.isArray(raw) ? raw : [];
+  const files: Array<{ filename: string; contentType: string; bytes: Buffer }> = [];
+  for (const att of list) {
+    const filename = String(att?.filename || 'attachment');
+    const contentType = String(att?.content_type || 'application/octet-stream');
+    const attachmentId = att?.attachment_id ? String(att.attachment_id) : '';
+    let bytes: Buffer;
+    if (attachmentId) {
+      bytes = await coreDownload('/internal/channels/mail/outbound-attachment', {
+        email_message_id: String((job.payload as ChannelJobPayload | null)?.email_message_id || ''),
+        attachment_id: attachmentId,
+      });
+    } else {
+      const url = String(att?.url ?? '');
+      if (!/^https?:\/\//i.test(url)) {
+        throw Object.assign(new Error(`attachment_unreadable: ${filename} has no address to read it from`), { permanent: true });
+      }
+      const res = await fetch(url, { signal: AbortSignal.timeout(MAIL_ATTACHMENT_TIMEOUT_MS) }).catch((err: unknown) => {
+        throw new Error(`attachment_unreadable: ${filename} (${(err as Error)?.name === 'TimeoutError' ? 'timed out' : (err as Error)?.message || err})`);
+      });
+      if (!res.ok) throw new Error(`attachment_unreadable: ${filename} (HTTP ${res.status})`);
+      bytes = Buffer.from(await res.arrayBuffer());
+    }
+    files.push({ filename, contentType, bytes });
+  }
+  return files;
+}
+
+/**
+ * The /mail/outbound-attachment answer: the file's bytes. 410 means the file
+ * or its row is gone, which no retry fixes.
+ */
+async function coreDownload(path: string, body: unknown): Promise<Buffer> {
+  let response: Response;
+  try {
+    response = await fetch(`${coreBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...coreAuthHeaders() },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(MAIL_ATTACHMENT_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new Error(`attachment_unreadable: ${(err as Error)?.name === 'TimeoutError' ? 'Core did not send the file in time' : (err as Error)?.message || err}`);
+  }
+  if (response.status === 401 || response.status === 404 || response.status === 503) {
+    coreAuthReady = false;
+    throw Object.assign(new Error(`core ${path} unavailable [${response.status}]`), { infrastructure: true } as const);
+  }
+  if (response.status === 410) {
+    throw Object.assign(new Error('attachment_unreadable: the file is no longer stored'), { permanent: true });
+  }
+  if (!response.ok) throw new Error(`attachment_unreadable: core ${path} failed [${response.status}]`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/**
  * The `channel_jobs.payload` fields the handlers below read. Payloads are
  * written by Core per job type, so every field is optional and anything not
  * already narrowed by its consumer stays `unknown`.
@@ -469,7 +654,9 @@ type ChannelJobPayload = {
   email_message_id?: unknown;
   email_address?: unknown;
   since_uid?: unknown;
+  spam_since_uid?: unknown;
   from_email?: unknown;
+  from_name?: unknown;
   to?: unknown;
   cc?: unknown;
   bcc?: unknown;
@@ -486,10 +673,13 @@ type ChannelJobPayload = {
   attachments?: unknown;
   operation_id?: unknown;
   actions?: unknown;
+  mail_send_started_at?: unknown;
+  mail_send_accepted_at?: unknown;
 };
 
 /** One entry of an outbound job's `attachments` array (untrusted JSON). */
 type OutboundAttachmentPayload = {
+  attachment_id?: unknown;
   url?: unknown;
   public_url?: unknown;
   path?: unknown;
@@ -597,37 +787,17 @@ async function handleJob(job: ChannelJob): Promise<void> {
     // before that change. ───────────────────────────────────────────────
     case 'gmail_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('gmail outbound without integration'), { permanent: true });
-      const emailMessageId = String(payload.email_message_id || '');
-      if (!emailMessageId) return;
+      const integrationId = job.integration_id;
+      if (!payload.email_message_id) return;
 
-      const gmailCfg = gmailOAuthConfigOrThrow();
-      const ga = createGmailAdapter(gmailCfg);
-
-      try {
-        const refreshToken = await resolveIntegrationToken(job.integration_id, GMAIL_REFRESH_TOKEN_KEY);
+      await sendMailAtMostOnce(job, async () => {
+        const ga = createGmailAdapter(gmailOAuthConfigOrThrow());
+        const refreshToken = await resolveIntegrationToken(integrationId, GMAIL_REFRESH_TOKEN_KEY);
         const { accessToken } = await ga.refreshAccessToken(refreshToken);
-
-        const rawAttachments: OutboundAttachmentPayload[] = Array.isArray(payload.attachments) ? payload.attachments : [];
-        const attachments: GmailOutboundMessage['attachments'] = [];
-        for (const att of rawAttachments) {
-          const url = String(att?.url ?? '');
-          if (!/^https?:\/\//i.test(url)) continue;
-          try {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`http_${res.status}`);
-            const bytes = Buffer.from(await res.arrayBuffer());
-            attachments!.push({
-              filename: String(att.filename || 'attachment'),
-              contentType: String(att.content_type || 'application/octet-stream'),
-              bytes,
-            });
-          } catch (fetchErr) {
-            console.error('[channels-worker] gmail outbound attachment fetch failed:', (fetchErr as Error)?.message || fetchErr);
-          }
-        }
+        const attachments: GmailOutboundMessage['attachments'] = await readMailAttachments(job, payload.attachments);
 
         const outbound: GmailOutboundMessage = {
-          from: { email: String(payload.from_email || '') },
+          from: { email: String(payload.from_email || ''), name: payload.from_name ? String(payload.from_name) : null },
           to: (Array.isArray(payload.to) ? payload.to : []).map((email: string) => ({ email })),
           cc: (Array.isArray(payload.cc) ? payload.cc : []).map((email: string) => ({ email })),
           bcc: (Array.isArray(payload.bcc) ? payload.bcc : []).map((email: string) => ({ email })),
@@ -639,29 +809,12 @@ async function handleJob(job: ChannelJob): Promise<void> {
           attachments,
           messageId: payload.message_id ? String(payload.message_id) : undefined,
         };
-
         const gmailThreadId = payload.gmail_thread_id ? String(payload.gmail_thread_id) : undefined;
-        const result = await ga.sendMessage(accessToken, outbound, gmailThreadId);
-
-        await coreCall('/internal/channels/gmail/outbound-result', {
-          email_message_id: emailMessageId,
-          integration_id: job.integration_id,
-          outcome: 'sent',
-          // Only meaningful (and only accepted by Core) for a brand-new
-          // thread that started with a `pending-` placeholder id.
-          local_thread_id: payload.local_thread_id ? String(payload.local_thread_id) : null,
-          gmail_thread_id: result.threadId || null,
-        });
-      } catch (err) {
-        console.error('[channels-worker] gmail send failed:', (err as Error)?.message || err);
-        await coreCall('/internal/channels/gmail/outbound-result', {
-          email_message_id: emailMessageId,
-          integration_id: job.integration_id,
-          outcome: 'failed',
-          error_message: ((err as Error)?.message || 'unknown error').slice(0, 500),
-        }).catch(() => {});
-        throw err;
-      }
+        return async () => {
+          const result = await ga.sendMessage(accessToken, outbound, gmailThreadId);
+          return { threadId: result.threadId || null };
+        };
+      });
       return;
     }
 
@@ -672,12 +825,13 @@ async function handleJob(job: ChannelJob): Promise<void> {
       const emailAddress = String(payload.email_address || '');
       if (!emailAddress) throw Object.assign(new Error('yahoo poll job without email_address'), { permanent: true });
 
-      const scheduleNext = (sinceUid: number | null) =>
+      const scheduleNext = (sinceUid: number | null, spamSinceUid: number | null) =>
         coreCall('/internal/channels/yahoo/reschedule-poll', {
           integration_id: job.integration_id,
           workspace_id: job.workspace_id,
           email_address: emailAddress,
           since_uid: sinceUid,
+          spam_since_uid: spamSinceUid,
           delay_ms: YAHOO_POLL_INTERVAL_MS,
         });
 
@@ -690,62 +844,80 @@ async function handleJob(job: ChannelJob): Promise<void> {
       const refreshToken = await resolveIntegrationToken(job.integration_id, YAHOO_REFRESH_TOKEN_KEY);
 
       let sinceUid: number | null = typeof payload.since_uid === 'number' ? payload.since_uid : null;
+      let spamSinceUid: number | null = typeof payload.spam_since_uid === 'number' ? payload.spam_since_uid : null;
+
+      // `replyOnly`: a message from the spam folder, which Core keeps only
+      // when it answers one of this mailbox's threads.
+      const syncMessage = async (msg: YahooParsedMessage, replyOnly: boolean) => {
+        const participants = Array.from(
+          new Set([msg.fromAddress, ...msg.toAddresses, ...msg.ccAddresses].filter(Boolean) as string[]),
+        ).map((email) => ({ email }));
+
+        const upsertResult = await coreCall<UpsertThreadMessageResult>('/internal/channels/yahoo/upsert-thread-message', {
+          integration_id: job.integration_id,
+          workspace_id: job.workspace_id,
+          subject: msg.subject,
+          participants,
+          ...(replyOnly ? { reply_only: true } : {}),
+          message: {
+            external_message_id: msg.messageIdHeader || `yahoo-uid-${msg.uid}`,
+            in_reply_to: msg.inReplyTo,
+            references: msg.references,
+            from_address: msg.fromAddress || 'unknown@unknown',
+            to_addresses: msg.toAddresses,
+            cc_addresses: msg.ccAddresses,
+            bcc_addresses: msg.bccAddresses,
+            text_body: msg.textBody,
+            html_body: msg.htmlBody,
+            snippet: msg.snippet,
+            sent_at: msg.date || new Date().toISOString(),
+          },
+        });
+
+        if (upsertResult?.is_new_message && upsertResult?.message_id && msg.attachments.length) {
+          for (const att of msg.attachments) {
+            try {
+              const qs = new URLSearchParams({
+                message_id: String(upsertResult.message_id),
+                filename: att.filename,
+                content_type: att.contentType,
+                ...(att.contentId ? { content_id: att.contentId } : {}),
+              });
+              await coreUpload(`/internal/channels/yahoo/attachment-ingest?${qs.toString()}`, att.content, att.contentType);
+            } catch (attErr) {
+              console.error('[channels-worker] yahoo attachment ingest failed:', (attErr as Error)?.message || attErr);
+            }
+          }
+        }
+      };
 
       try {
         const { accessToken } = await ya.refreshAccessToken(refreshToken);
-        const { messages, lastUid } = await pollYahooInbox(emailAddress, accessToken, { sinceUid, maxMessages: 25 });
+        const { messages, lastUid, spam } = await pollYahooInbox(emailAddress, accessToken, {
+          sinceUid,
+          maxMessages: 25,
+          spam: { sinceUid: spamSinceUid },
+        });
 
-        for (const msg of messages) {
-          try {
-            const participants = Array.from(
-              new Set([msg.fromAddress, ...msg.toAddresses, ...msg.ccAddresses].filter(Boolean) as string[]),
-            ).map((email) => ({ email }));
-
-            const upsertResult = await coreCall<UpsertThreadMessageResult>('/internal/channels/yahoo/upsert-thread-message', {
-              integration_id: job.integration_id,
-              workspace_id: job.workspace_id,
-              subject: msg.subject,
-              participants,
-              message: {
-                external_message_id: msg.messageIdHeader || `yahoo-uid-${msg.uid}`,
-                in_reply_to: msg.inReplyTo,
-                references: msg.references,
-                from_address: msg.fromAddress || 'unknown@unknown',
-                to_addresses: msg.toAddresses,
-                cc_addresses: msg.ccAddresses,
-                bcc_addresses: msg.bccAddresses,
-                text_body: msg.textBody,
-                html_body: msg.htmlBody,
-                snippet: msg.snippet,
-                sent_at: msg.date || new Date().toISOString(),
-              },
-            });
-
-            if (upsertResult?.is_new_message && upsertResult?.message_id && msg.attachments.length) {
-              for (const att of msg.attachments) {
-                try {
-                  const qs = new URLSearchParams({
-                    message_id: String(upsertResult.message_id),
-                    filename: att.filename,
-                    content_type: att.contentType,
-                    ...(att.contentId ? { content_id: att.contentId } : {}),
-                  });
-                  await coreUpload(`/internal/channels/yahoo/attachment-ingest?${qs.toString()}`, att.content, att.contentType);
-                } catch (attErr) {
-                  console.error('[channels-worker] yahoo attachment ingest failed:', (attErr as Error)?.message || attErr);
-                }
-              }
+        for (const [list, replyOnly] of [[messages, false], [spam?.messages ?? [], true]] as const) {
+          for (const msg of list) {
+            try {
+              await syncMessage(msg, replyOnly);
+            } catch (msgErr) {
+              console.error('[channels-worker] yahoo message sync failed:', (msgErr as Error)?.message || msgErr);
             }
-          } catch (msgErr) {
-            console.error('[channels-worker] yahoo message sync failed:', (msgErr as Error)?.message || msgErr);
           }
         }
 
-        if (lastUid !== null) {
-          sinceUid = lastUid;
+        const spamLastUid = spam?.lastUid ?? null;
+        const spamMoved = spamLastUid !== null && spamLastUid !== spamSinceUid;
+        if (spamMoved) spamSinceUid = spamLastUid;
+        if (lastUid !== null || spamMoved) {
+          if (lastUid !== null) sinceUid = lastUid;
           await coreCall('/internal/channels/yahoo/poll-checkpoint', {
             integration_id: job.integration_id,
-            last_uid: lastUid,
+            ...(lastUid !== null ? { last_uid: lastUid } : {}),
+            ...(spamMoved ? { last_spam_uid: spamLastUid } : {}),
           }).catch(() => {});
         }
       } catch (err) {
@@ -755,44 +927,26 @@ async function handleJob(job: ChannelJob): Promise<void> {
         console.error('[channels-worker] yahoo poll failed:', (err as Error)?.message || err);
       }
 
-      await scheduleNext(sinceUid);
+      await scheduleNext(sinceUid, spamSinceUid);
       return;
     }
 
     // ── Yahoo outbound — a reply composed in the Email Inbox UI. ───────
     case 'yahoo_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('yahoo outbound without integration'), { permanent: true });
-      const emailMessageId = String(payload.email_message_id || '');
-      if (!emailMessageId) return;
+      const integrationId = job.integration_id;
+      if (!payload.email_message_id) return;
 
-      const yahooCfg = yahooOAuthConfigOrThrow();
-      const ya = createYahooAdapter(yahooCfg);
-
-      try {
-        const refreshToken = await resolveIntegrationToken(job.integration_id, YAHOO_REFRESH_TOKEN_KEY);
+      await sendMailAtMostOnce(job, async () => {
+        const ya = createYahooAdapter(yahooOAuthConfigOrThrow());
+        const refreshToken = await resolveIntegrationToken(integrationId, YAHOO_REFRESH_TOKEN_KEY);
         const { accessToken } = await ya.refreshAccessToken(refreshToken);
+        const attachments: YahooOutboundMessage['attachments'] = (await readMailAttachments(job, payload.attachments))
+          .map((a) => ({ filename: a.filename, contentType: a.contentType, content: a.bytes }));
 
-        const rawAttachments: OutboundAttachmentPayload[] = Array.isArray(payload.attachments) ? payload.attachments : [];
-        const attachments: YahooOutboundMessage['attachments'] = [];
-        for (const att of rawAttachments) {
-          const url = String(att?.url ?? '');
-          if (!/^https?:\/\//i.test(url)) continue;
-          try {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`http_${res.status}`);
-            const bytes = Buffer.from(await res.arrayBuffer());
-            attachments!.push({
-              filename: String(att.filename || 'attachment'),
-              contentType: String(att.content_type || 'application/octet-stream'),
-              content: bytes,
-            });
-          } catch (fetchErr) {
-            console.error('[channels-worker] yahoo outbound attachment fetch failed:', (fetchErr as Error)?.message || fetchErr);
-          }
-        }
-
-        const result = await sendViaYahooSmtp(accessToken, {
+        const outbound: YahooOutboundMessage = {
           fromEmail: String(payload.from_email || ''),
+          fromName: payload.from_name ? String(payload.from_name) : null,
           to: Array.isArray(payload.to) ? payload.to : [],
           cc: Array.isArray(payload.cc) ? payload.cc : [],
           bcc: Array.isArray(payload.bcc) ? payload.bcc : [],
@@ -802,24 +956,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
           inReplyTo: payload.in_reply_to ? String(payload.in_reply_to) : null,
           references: Array.isArray(payload.references) ? payload.references.map(String) : [],
           attachments,
-        });
-        void result;
-
-        await coreCall('/internal/channels/yahoo/outbound-result', {
-          email_message_id: emailMessageId,
-          integration_id: job.integration_id,
-          outcome: 'sent',
-        });
-      } catch (err) {
-        console.error('[channels-worker] yahoo send failed:', (err as Error)?.message || err);
-        await coreCall('/internal/channels/yahoo/outbound-result', {
-          email_message_id: emailMessageId,
-          integration_id: job.integration_id,
-          outcome: 'failed',
-          error_message: ((err as Error)?.message || 'unknown error').slice(0, 500),
-        }).catch(() => {});
-        throw err;
-      }
+          // The id Core stored as external_message_id (and, for a new
+          // thread, as its external_thread_id): the customer's answer cites
+          // it, and that is how it finds this thread again.
+          messageId: payload.message_id ? String(payload.message_id) : undefined,
+        };
+        return async () => {
+          await sendViaYahooSmtp(accessToken, outbound);
+        };
+      });
       return;
     }
 
@@ -1020,6 +1165,12 @@ async function processBatch(): Promise<number> {
     } catch (err) {
       const message = redactToken(err instanceof Error ? err.message : String(err));
 
+      // Another run holds this job now; its outcome is that run's to record.
+      if (isLeaseLost(err)) {
+        console.error(`[channels-worker] job ${job.id} (${job.job_type}) left to the run that holds it: ${message}`);
+        continue;
+      }
+
       // Deployment-level failure: requeue without spending a retry and stop
       // draining the batch, so a stale Core cannot destroy the whole queue.
       if (isInfrastructureError(err)) {
@@ -1051,7 +1202,12 @@ async function processBatch(): Promise<number> {
       // got the message; a job that died after N retries left the message row
       // looking delivered forever (and the Inbox showing it as answered).
       // Core owns the canonical write — we only report the terminal outcome.
-      if (outcome === 'failed' && isOutboundMessageJob(job.job_type)) {
+      if (outcome === 'failed' && MAIL_RESULT_ROUTES[job.job_type]) {
+        // A mailbox reply that will not be sent: its row says so, with why.
+        await reportMailOutbound(job, 'failed', { error_message: message.slice(0, 500) }).catch((reportErr) => {
+          console.error(`[channels-worker] mail failure report failed for job ${job.id}:`, reportErr);
+        });
+      } else if (outcome === 'failed' && isOutboundMessageJob(job.job_type)) {
         const failedMessageId = (job.payload as ChannelJobPayload | null)?.message_id ?? null;
         await reportOutbound(
           job,

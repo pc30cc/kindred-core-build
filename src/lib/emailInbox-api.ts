@@ -95,6 +95,12 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
   return '?' + entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
 }
 
+/**
+ * The mailbox a request is about (`?provider=`). A workspace may have Gmail
+ * and Yahoo Mail both connected; without it the server picks Gmail.
+ */
+export type EmailMailbox = 'gmail' | 'yahoo';
+
 export interface EmailThreadPage {
   threads: EmailThreadSummary[];
   nextBefore: string | null;
@@ -108,39 +114,40 @@ export interface EmailThreadPage {
 export function listEmailThreads(
   workspaceId: string,
   opts: { limit?: number; before?: string; pageToken?: string; unread?: boolean; starred?: boolean; q?: string } = {},
+  mailbox?: EmailMailbox,
 ) {
   const { pageToken, ...rest } = opts;
-  return api<EmailThreadPage>(`/api/email-inbox/${workspaceId}/threads${qs({ ...rest, page_token: pageToken })}`);
+  return api<EmailThreadPage>(`/api/email-inbox/${workspaceId}/threads${qs({ ...rest, page_token: pageToken, provider: mailbox })}`);
 }
 
-export function getEmailChanges(workspaceId: string, since: string) {
+export function getEmailChanges(workspaceId: string, since: string, mailbox?: EmailMailbox) {
   return api<{ historyId: string | null; threadIds: string[]; contentThreadIds?: string[]; reset: boolean }>(
-    `/api/email-inbox/${workspaceId}/changes${qs({ since })}`,
+    `/api/email-inbox/${workspaceId}/changes${qs({ since, provider: mailbox })}`,
   );
 }
 
-export function getEmailThread(workspaceId: string, threadId: string) {
+export function getEmailThread(workspaceId: string, threadId: string, mailbox?: EmailMailbox) {
   return api<{ thread: EmailThreadSummary; messages: EmailMessageView[] }>(
-    `/api/email-inbox/${workspaceId}/threads/${threadId}`,
+    `/api/email-inbox/${workspaceId}/threads/${threadId}${qs({ provider: mailbox })}`,
   );
 }
 
-export function setEmailThreadRead(workspaceId: string, threadId: string, isRead: boolean) {
-  return api<{ ok: true }>(`/api/email-inbox/${workspaceId}/threads/${threadId}/read`, {
+export function setEmailThreadRead(workspaceId: string, threadId: string, isRead: boolean, mailbox?: EmailMailbox) {
+  return api<{ ok: true }>(`/api/email-inbox/${workspaceId}/threads/${threadId}/read${qs({ provider: mailbox })}`, {
     method: 'POST',
     body: JSON.stringify({ is_read: isRead }),
   });
 }
 
-export function setEmailThreadStarred(workspaceId: string, threadId: string, starred: boolean) {
-  return api<{ ok: true }>(`/api/email-inbox/${workspaceId}/threads/${threadId}/star`, {
+export function setEmailThreadStarred(workspaceId: string, threadId: string, starred: boolean, mailbox?: EmailMailbox) {
+  return api<{ ok: true }>(`/api/email-inbox/${workspaceId}/threads/${threadId}/star${qs({ provider: mailbox })}`, {
     method: 'POST',
     body: JSON.stringify({ starred }),
   });
 }
 
-export async function uploadEmailAttachment(workspaceId: string, file: File): Promise<StagedEmailAttachment> {
-  const qsStr = qs({ filename: file.name, content_type: file.type || 'application/octet-stream' });
+export async function uploadEmailAttachment(workspaceId: string, file: File, mailbox?: EmailMailbox): Promise<StagedEmailAttachment> {
+  const qsStr = qs({ filename: file.name, content_type: file.type || 'application/octet-stream', provider: mailbox });
   const res = await fetch(`${API_BASE}/api/email-inbox/${workspaceId}/attachments${qsStr}`, {
     method: 'POST',
     credentials: 'include',
@@ -162,14 +169,14 @@ export interface SendEmailInput {
   textBody: string;
   htmlBody?: string | null;
   attachments?: StagedEmailAttachment[];
-  /** Live (Gmail) inbox: the same id on a retry keeps one reply from going out twice. */
+  /** The same id on a retry keeps one reply from going out twice (both mailboxes). */
   clientRequestId?: string;
   /** Live (Gmail) inbox: files sent with the reply itself, never stored. */
   inlineAttachments?: Array<{ filename: string; contentType: string; dataBase64: string }>;
 }
 
-export function sendEmail(workspaceId: string, input: SendEmailInput) {
-  return api<{ messageId: string; threadId?: string }>(`/api/email-inbox/${workspaceId}/send`, {
+export function sendEmail(workspaceId: string, input: SendEmailInput, mailbox?: EmailMailbox) {
+  return api<{ messageId: string; threadId?: string }>(`/api/email-inbox/${workspaceId}/send${qs({ provider: mailbox })}`, {
     method: 'POST',
     body: JSON.stringify({
       thread_id: input.threadId ?? null,

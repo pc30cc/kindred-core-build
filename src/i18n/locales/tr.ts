@@ -3245,6 +3245,7 @@ const tr: TranslationKeys = {
     noSubject: '(konu yok)',
     unknownSender: 'Bilinmeyen gönderen',
     selectThread: 'Okumak için bir e-posta seçin',
+    mailbox: 'Posta kutusu',
     statusQueued: 'Gönderiliyor…',
     statusSent: 'Gönderildi',
     statusFailed: 'Gönderilemedi',

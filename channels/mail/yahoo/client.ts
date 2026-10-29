@@ -30,6 +30,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail, type AddressObject } from 'mailparser';
 import nodemailer from 'nodemailer';
 import { YahooError } from '../../../server/services/channels/yahoo/types.js';
+import { SMTP_TIMEOUTS } from '../../../server/services/email/providers/smtp.js';
 
 export const YAHOO_TIMEOUT_MS = 20_000;
 export const YAHOO_AUTH_URL = 'https://api.login.yahoo.com/oauth2/request_auth';
@@ -253,6 +254,39 @@ function classifyImapError(err: unknown): YahooError {
   return new YahooError('yahoo_imap_error', undefined, message);
 }
 
+/** The UIDs of a selected folder to read: newer than `sinceUid`, or with no checkpoint yet its newest `maxMessages`. */
+async function newUids(client: ImapFlow, sinceUid: number | null | undefined, maxMessages: number): Promise<number[]> {
+  // imapflow types search() as `number[] | false` (false when the mailbox
+  // is not selected) — normalise to an array before iterating.
+  if (sinceUid) {
+    const found = await client.search({ uid: `${sinceUid + 1}:*` }, { uid: true });
+    // `n:*` always includes the highest UID, even one at or below n.
+    return (Array.isArray(found) ? found : []).filter((uid) => uid > sinceUid);
+  }
+  const exists = client.mailbox && typeof client.mailbox === 'object' ? (client.mailbox as { exists?: number }).exists ?? 0 : 0;
+  const startSeq = Math.max(1, exists - maxMessages + 1);
+  const found = exists > 0 ? await client.search({ seq: `${startSeq}:*` }, { uid: true }) : [];
+  return Array.isArray(found) ? found : [];
+}
+
+/**
+ * The folder Yahoo files spam in: the one marked `\Junk` (RFC 6154), else
+ * the one named "Bulk" or "Bulk Mail", as Yahoo calls it. Null when the
+ * account has neither.
+ */
+export function findYahooSpamFolder(folders: Array<{ path: string; name?: string; specialUse?: string | null }>): string | null {
+  const junk = folders.find((f) => f.specialUse === '\\Junk');
+  if (junk) return junk.path;
+  const bulk = folders.find((f) => /^bulk( mail)?$/i.test(f.name || f.path));
+  return bulk ? bulk.path : null;
+}
+
+/** The new messages of one folder, past a UID watermark. */
+export interface YahooFolderPoll {
+  messages: YahooParsedMessage[];
+  lastUid: number | null;
+}
+
 /**
  * Fetches messages newer than `sinceUid` (or, with no checkpoint yet, the
  * most recent `maxMessages`) from the INBOX. Returns the highest UID seen so
@@ -263,12 +297,20 @@ function classifyImapError(err: unknown): YahooError {
  * a UIDVALIDITY change is rare, and the worst case is a handful of
  * messages re-synced, harmless given the idempotent upsert on
  * (thread_id, external_message_id)).
+ *
+ * With `spam`, the spam folder is read too, past its own watermark
+ * (`spam.sinceUid`): Yahoo files some customer replies there, and they would
+ * never reach the Email Inbox. Only replies (an In-Reply-To header) are
+ * returned from it, at most `maxMessages` a poll; Core keeps only those that
+ * answer one of the mailbox's threads. A spam folder that cannot be read
+ * costs the inbox nothing: `spam` comes back null and the next poll tries
+ * again from the same watermark.
  */
 export async function pollYahooInbox(
   emailAddress: string,
   accessToken: string,
-  opts: { sinceUid?: number | null; maxMessages?: number } = {},
-): Promise<{ messages: YahooParsedMessage[]; lastUid: number | null }> {
+  opts: { sinceUid?: number | null; maxMessages?: number; spam?: { sinceUid: number | null } } = {},
+): Promise<{ messages: YahooParsedMessage[]; lastUid: number | null; spam: YahooFolderPoll | null }> {
   const client = new ImapFlow({
     host: YAHOO_IMAP_HOST,
     port: YAHOO_IMAP_PORT,
@@ -277,28 +319,16 @@ export async function pollYahooInbox(
     logger: false,
   });
 
+  const maxMessages = opts.maxMessages ?? 25;
   const messages: YahooParsedMessage[] = [];
   let lastUid: number | null = opts.sinceUid ?? null;
+  let spam: YahooFolderPoll | null = null;
 
   try {
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
-      let uidsToFetch: number[];
-      // imapflow types search() as `number[] | false` (false when the mailbox
-      // is not selected) — normalise to an array before iterating.
-      if (opts.sinceUid) {
-        const found = await client.search({ uid: `${opts.sinceUid + 1}:*` }, { uid: true });
-        uidsToFetch = Array.isArray(found) ? found : [];
-      } else {
-        const maxMessages = opts.maxMessages ?? 25;
-        const exists = client.mailbox && typeof client.mailbox === 'object' ? (client.mailbox as { exists?: number }).exists ?? 0 : 0;
-        const startSeq = Math.max(1, exists - maxMessages + 1);
-        const found = exists > 0 ? await client.search({ seq: `${startSeq}:*` }, { uid: true }) : [];
-        uidsToFetch = Array.isArray(found) ? found : [];
-      }
-
-      for (const uid of uidsToFetch) {
+      for (const uid of await newUids(client, opts.sinceUid, maxMessages)) {
         const message = await client.fetchOne(String(uid), { source: true, uid: true }, { uid: true });
         const source = message ? (message as { source?: Buffer }).source : undefined;
         if (!source) continue;
@@ -309,13 +339,46 @@ export async function pollYahooInbox(
     } finally {
       lock.release();
     }
+    if (opts.spam) {
+      try {
+        spam = await pollSpamFolder(client, opts.spam.sinceUid, maxMessages);
+      } catch (err) {
+        console.error('[yahoo] spam folder poll failed:', (err as Error)?.message || err);
+      }
+    }
     await client.logout();
   } catch (err) {
     try { await client.close(); } catch { /* best-effort */ }
     throw classifyImapError(err);
   }
 
-  return { messages, lastUid };
+  return { messages, lastUid, spam };
+}
+
+async function pollSpamFolder(client: ImapFlow, sinceUid: number | null, maxMessages: number): Promise<YahooFolderPoll | null> {
+  const path = findYahooSpamFolder(await client.list());
+  if (!path) return null;
+  const result: YahooFolderPoll = { messages: [], lastUid: sinceUid };
+  const lock = await client.getMailboxLock(path);
+  try {
+    // A flood of spam since the last poll: only the newest few are read, and
+    // the watermark moves past the rest.
+    const uids = (await newUids(client, sinceUid, maxMessages)).sort((a, b) => a - b);
+    for (const uid of uids) if (result.lastUid === null || uid > result.lastUid) result.lastUid = uid;
+    for (const uid of uids.slice(-maxMessages)) {
+      // The envelope first: spam that answers nothing is never downloaded.
+      const head = await client.fetchOne(String(uid), { envelope: true, uid: true }, { uid: true });
+      const inReplyTo = head ? (head as { envelope?: { inReplyTo?: string } }).envelope?.inReplyTo : undefined;
+      if (!inReplyTo) continue;
+      const message = await client.fetchOne(String(uid), { source: true, uid: true }, { uid: true });
+      const source = message ? (message as { source?: Buffer }).source : undefined;
+      if (!source) continue;
+      result.messages.push(toYahooParsedMessage(uid, await simpleParser(source)));
+    }
+  } finally {
+    lock.release();
+  }
+  return result;
 }
 
 // ── SMTP send (outbound) ────────────────────────────────────────────────
@@ -342,12 +405,52 @@ export interface YahooOutboundMessage {
   messageId?: string;
 }
 
-export async function sendViaYahooSmtp(accessToken: string, msg: YahooOutboundMessage): Promise<{ messageId: string }> {
+/**
+ * A failed SMTP send, and whether the mail may have gone out anyway. Until
+ * the whole message has been written to Yahoo, a failure means it was not
+ * sent, and it can be tried again. Once it has, a dropped connection or a
+ * timeout leaves the answer unknown: Yahoo may have taken it before the
+ * reply was lost, and sending it again could deliver it twice.
+ */
+export class YahooSmtpSendError extends YahooError {
+  constructor(readonly maybeDelivered: boolean, detail: string) {
+    super('yahoo_smtp_error', undefined, detail);
+    this.name = 'YahooSmtpSendError';
+  }
+}
+
+/** Test seam: where the SMTP session goes. Production uses Yahoo's server. */
+export interface YahooSmtpTarget {
+  host: string;
+  port: number;
+  secure: boolean;
+}
+
+const YAHOO_SMTP_TARGET: YahooSmtpTarget = { host: YAHOO_SMTP_HOST, port: YAHOO_SMTP_PORT, secure: true };
+
+export async function sendViaYahooSmtp(
+  accessToken: string,
+  msg: YahooOutboundMessage,
+  target: YahooSmtpTarget = YAHOO_SMTP_TARGET,
+): Promise<{ messageId: string }> {
+  // nodemailer logs one `tnx: 'message'` line when the message's last byte
+  // (the closing dot) has been written: from then on, only Yahoo's answer is
+  // missing.
+  let messageWritten = false;
+  const watch = (entry: unknown) => {
+    if ((entry as { tnx?: unknown } | null)?.tnx === 'message') messageWritten = true;
+  };
   const transporter = nodemailer.createTransport({
-    host: YAHOO_SMTP_HOST,
-    port: YAHOO_SMTP_PORT,
-    secure: true,
+    host: target.host,
+    port: target.port,
+    secure: target.secure,
     auth: { type: 'OAuth2', user: msg.fromEmail, accessToken },
+    // The platform relay's limits (server/services/email/providers/smtp.ts):
+    // without them a Yahoo server that stalls holds the job past its lease.
+    ...SMTP_TIMEOUTS,
+    logger: { info: watch, debug: () => {}, trace: () => {}, warn: () => {}, error: () => {}, fatal: () => {} },
+    disableFileAccess: true,
+    disableUrlAccess: true,
   });
   try {
     const info = await transporter.sendMail({
@@ -365,7 +468,10 @@ export async function sendViaYahooSmtp(accessToken: string, msg: YahooOutboundMe
     });
     return { messageId: msg.messageId || info.messageId || '' };
   } catch (err) {
-    throw new YahooError('yahoo_smtp_error', undefined, (err as Error)?.message);
+    // A refusal Yahoo answered with (a 4xx or 5xx reply) is definite: it did
+    // not take the message.
+    const answered = typeof (err as { responseCode?: unknown })?.responseCode === 'number';
+    throw new YahooSmtpSendError(messageWritten && !answered, (err as Error)?.message || 'unknown SMTP error');
   } finally {
     transporter.close();
   }

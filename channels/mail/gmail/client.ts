@@ -35,6 +35,14 @@ export const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 export const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
 export const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
+export const GMAIL_UPLOAD_BASE = 'https://gmail.googleapis.com/upload/gmail/v1/users/me';
+/** Above this many bytes of MIME, a send goes to the upload endpoint. */
+export const GMAIL_SIMPLE_SEND_BYTES = 4 * 1024 * 1024;
+
+/** 20 s plus one more per 250 KB, at most two minutes: time to upload, not to wait. */
+function uploadTimeoutMs(bytes: number, base: number): number {
+  return Math.min(Math.max(base, 20_000 + Math.ceil(bytes / 250_000) * 1000), 120_000);
+}
 
 // gmail.modify: read, mark read/unread, label, trash — NOT send.
 // gmail.send: send-only, cannot read the mailbox. Both are needed for a real
@@ -476,6 +484,12 @@ export interface GmailOutboundMessage {
  * single text/plain part in the rare case no HTML body was supplied at all.
  */
 export function buildRawGmailMessage(msg: GmailOutboundMessage): { raw: string; messageId: string } {
+  const { mime, messageId } = buildGmailMime(msg);
+  return { raw: base64UrlEncode(Buffer.from(mime, 'utf8')), messageId };
+}
+
+/** The same message as RFC 2822 text (ASCII: headers are encoded words, parts base64), for the upload endpoint. */
+function buildGmailMime(msg: GmailOutboundMessage): { mime: string; messageId: string } {
   const messageId = msg.messageId || generateGmailMessageId(msg.from.email);
   const boundaryMixed = `mixed_${randomBytes(12).toString('hex')}`;
   const boundaryAlt = `alt_${randomBytes(12).toString('hex')}`;
@@ -520,8 +534,7 @@ export function buildRawGmailMessage(msg: GmailOutboundMessage): { raw: string; 
       '',
       altPart,
     ].join('\r\n');
-    const full = `${headerLines.join('\r\n')}\r\n${body}`;
-    return { raw: base64UrlEncode(Buffer.from(full, 'utf8')), messageId };
+    return { mime: `${headerLines.join('\r\n')}\r\n${body}`, messageId };
   }
 
   const attachmentParts = attachments
@@ -548,8 +561,7 @@ export function buildRawGmailMessage(msg: GmailOutboundMessage): { raw: string; 
     `--${boundaryMixed}--`,
   ].join('\r\n');
 
-  const full = `${headerLines.join('\r\n')}\r\n${body}`;
-  return { raw: base64UrlEncode(Buffer.from(full, 'utf8')), messageId };
+  return { mime: `${headerLines.join('\r\n')}\r\n${body}`, messageId };
 }
 
 function chunkBase64(b64: string): string {
@@ -769,22 +781,68 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     return base64UrlDecode(data);
   }
 
+  /**
+   * Sends one message. A small one goes as base64 `raw` in JSON, as before;
+   * one with files beyond GMAIL_SIMPLE_SEND_BYTES goes to the upload
+   * endpoint as message/rfc822 (Google's documented path for large mail, up
+   * to 35 MB), with more time the larger it is: a 15 MB reply used to have
+   * 20 s for the whole upload.
+   */
   async function sendMessage(
     accessToken: string,
     outbound: GmailOutboundMessage,
     threadId?: string | null,
   ): Promise<{ gmailId: string; threadId: string; messageId: string }> {
-    const { raw, messageId } = buildRawGmailMessage(outbound);
-    const json = (await requestJson(`${GMAIL_API_BASE}/messages/send`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }),
-    }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+    const { mime, messageId } = buildGmailMime(outbound);
+    const size = Buffer.byteLength(mime, 'utf8');
+    let json: Record<string, unknown>;
+    if (size <= GMAIL_SIMPLE_SEND_BYTES) {
+      json = (await requestJson(`${GMAIL_API_BASE}/messages/send`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: base64UrlEncode(Buffer.from(mime, 'utf8')), ...(threadId ? { threadId } : {}) }),
+      }, fetchImpl, timeoutMs)) as Record<string, unknown>;
+    } else {
+      const boundary = `upload_${randomBytes(12).toString('hex')}`;
+      const body = [
+        `--${boundary}`,
+        'Content-Type: application/json; charset=UTF-8',
+        '',
+        JSON.stringify(threadId ? { threadId } : {}),
+        `--${boundary}`,
+        'Content-Type: message/rfc822',
+        '',
+        mime,
+        `--${boundary}--`,
+        '',
+      ].join('\r\n');
+      json = (await requestJson(`${GMAIL_UPLOAD_BASE}/messages/send?uploadType=multipart`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body,
+      }, fetchImpl, uploadTimeoutMs(size, timeoutMs))) as Record<string, unknown>;
+    }
     return {
       gmailId: String(json.id ?? ''),
       threadId: String(json.threadId ?? threadId ?? ''),
       messageId,
     };
+  }
+
+  /**
+   * The mailbox's copy of a message we sent with this Message-ID (Sent
+   * included), or null. A send that timed out on our side may still have
+   * gone out; this is how a retry finds out before sending again.
+   */
+  async function findMessageByRfc822Id(accessToken: string, rfc822MessageId: string): Promise<{ gmailId: string; threadId: string } | null> {
+    const bare = rfc822MessageId.replace(/^<|>$/g, '');
+    if (!bare) return null;
+    const params = new URLSearchParams({ q: `rfc822msgid:${bare}`, maxResults: '1', includeSpamTrash: 'true' });
+    const json = (await requestJson(`${GMAIL_API_BASE}/messages?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }, fetchImpl, timeoutMs)) as { messages?: Array<{ id?: unknown; threadId?: unknown }> };
+    const first = Array.isArray(json.messages) ? json.messages[0] : undefined;
+    return first && typeof first.id === 'string' ? { gmailId: first.id, threadId: String(first.threadId ?? '') } : null;
   }
 
   // ── Live-read surface (Email Inbox without server-side content storage) ──
@@ -935,6 +993,7 @@ export function createGmailAdapter(config: GmailOAuthConfig, options: GmailAdapt
     getMessage,
     getAttachmentBytes,
     sendMessage,
+    findMessageByRfc822Id,
   };
 }
 

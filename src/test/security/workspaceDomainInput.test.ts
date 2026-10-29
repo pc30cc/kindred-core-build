@@ -84,6 +84,15 @@ describe('parseWorkspaceDomainInput', () => {
     expect(ok('a.b.github.io')).toBe('a.b.github.io');
     expect(ok('فروشگاه.ایران.ir')).toBe('xn--mgbtj4c7ad63e.xn--mgba3a4f16a.ir');
     expect(ok('city.kawasaki.jp')).toBe('city.kawasaki.jp');
+    // The base of a wildcard rule (*.paywhirl.com) is a site; the name under it is a suffix.
+    expect(ok('paywhirl.com')).toBe('paywhirl.com');
+    expect(ok('https://www.Uberspace.de/')).toBe('uberspace.de');
+    rejected('x.paywhirl.com', 'MALFORMED');
+    expect(ok('a.x.paywhirl.com')).toBe('a.x.paywhirl.com');
+    // Every leading www. goes before the check, as the row's normalize steps strip them.
+    for (const suffix of ['www.www.www.com.tr', 'WWW.www.WWW.co.ir', 'www.www.www.github.io', 'www.www.www.www.vercel.app']) {
+      rejected(suffix, 'MALFORMED');
+    }
     // A TLD the list does not know, as before.
     expect(ok('shop.example')).toBe('shop.example');
     expect(ok('Printer.Local')).toBe('printer.local');
@@ -96,7 +105,9 @@ describe('parseWorkspaceDomainInput', () => {
     expect(registrableDomain('shop.xn--mgba3a4f16a.ir')).toBe('shop.xn--mgba3a4f16a.ir');
     expect(registrableDomain('a.shop.example')).toBe('shop.example');
     expect(registrableDomain('a.printer.local')).toBe('printer.local');
-    for (const suffix of ['com.tr', 'github.io', 'xn--mgba3a4f16a.ir', 'x.kawasaki.jp', 'com', 'example', 'local']) {
+    expect(registrableDomain('paywhirl.com')).toBe('paywhirl.com');
+    expect(registrableDomain('a.b.paywhirl.com')).toBe('a.b.paywhirl.com');
+    for (const suffix of ['com.tr', 'github.io', 'xn--mgba3a4f16a.ir', 'x.kawasaki.jp', 'x.paywhirl.com', 'com', 'example', 'local']) {
       expect(registrableDomain(suffix), suffix).toBeNull();
     }
   });

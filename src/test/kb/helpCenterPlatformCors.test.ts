@@ -71,6 +71,7 @@ const { createSessionToken } = await import('../../../server/services/widget/sec
 
 const PLATFORM = '00000000-0000-4000-8000-0000000000f1';
 const CUSTOMER = '00000000-0000-4000-8000-0000000000c1';
+const STRANGER = '00000000-0000-4000-8000-0000000000e1';
 /** Only in CORS_ORIGINS, not in Super Admin → Domains. */
 const ENV_ORIGIN = 'https://console.example.net';
 // Billing locks off (the KB lock reads nothing): not what is under test.
@@ -186,6 +187,23 @@ describe.each([
     // The reads that name their workspace keep reading it from the request.
     const listed = await get(`/api/widget/kb/categories?workspace_id=${CUSTOMER}&locale=fa`, 'https://ninisite.com');
     expect(listed.headers[ACAO]).toBe('https://ninisite.com');
+  });
+
+  it('a widget token of another workspace lends its origin to no help center read of the platform', async () => {
+    const reads = (ws: string) => [`categories?workspace_id=${ws}&locale=fa`, `articles?workspace_id=${ws}`, `article?workspace_id=${ws}&slug=hello`, `search?workspace_id=${ws}&q=hello`];
+    // The customer's own site, its token and its own workspace_id: read as before.
+    const token = createSessionToken(CUSTOMER, 'https://ninisite.com');
+    for (const path of reads(CUSTOMER)) {
+      expect((await get(`/api/widget/kb/${path}`, 'https://ninisite.com').set('X-Widget-Token', token)).headers[ACAO], path).toBe('https://ninisite.com');
+    }
+    // A workspace without an allow-list, whose token is bound to its own site.
+    db.tables.widget_settings.push({ workspace_id: STRANGER, allowed_domains: [], allow_subdomains: true });
+    const stranger = createSessionToken(STRANGER, 'https://evil.example');
+    expect((await get(`/api/widget/kb/${reads(STRANGER)[0]}`, 'https://evil.example').set('X-Widget-Token', stranger)).headers[ACAO]).toBe('https://evil.example');
+    for (const path of reads(PLATFORM)) {
+      expect((await get(`/api/widget/kb/${path}`, 'https://evil.example').set('X-Widget-Token', stranger)).headers[ACAO], path).toBeUndefined();
+      expect((await get(`/api/widget/kb/${path}`, 'https://ninisite.com').set('X-Widget-Token', token)).headers[ACAO], path).toBeUndefined();
+    }
   });
 
   it('the widget\'s other routes for the platform workspace gain nothing', async () => {

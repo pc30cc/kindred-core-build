@@ -185,7 +185,13 @@ export function widgetCorsMiddleware() {
     // 1) Server-signed workspace from the widget session token. This is the
     //    only resolution path available to token-secured routes that carry
     //    no workspace_id at all (notably /session/refresh).
-    const tokenCtx = hostScoped ? null : getTokenContext(req);
+    let tokenCtx = hostScoped ? null : getTokenContext(req);
+    // The other help center reads answer for their workspace_id (routes/kb.ts),
+    // so a token of another workspace decides nothing for them.
+    if (tokenCtx && isHelpCenterRead(req)) {
+      const declared = getWorkspaceId(req);
+      if (declared && declared !== tokenCtx.workspaceId) tokenCtx = null;
+    }
     let workspaceId = tokenCtx?.workspaceId || null;
 
     // 2) Client-declared workspace. Only consulted when the token did not

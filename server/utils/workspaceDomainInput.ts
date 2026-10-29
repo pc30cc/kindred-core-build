@@ -70,7 +70,12 @@ export function registrableDomain(host: string): string | null {
   if ('error' in parsed) return null;
   if (parsed.domain) return parsed.domain;
   const labels = host.split('.');
-  return parsed.listed || labels.length < 2 ? null : labels.slice(-2).join('.');
+  if (labels.length < 2) return null;
+  if (!parsed.listed) return labels.slice(-2).join('.');
+  // The base of a wildcard rule (`*.paywhirl.com`) is registrable itself,
+  // though the library reads it as listed: one more label is a suffix too.
+  const deeper = parseDomainName(`x.${host}`);
+  return !('error' in deeper) && deeper.domain === null ? host : null;
 }
 
 export function parseWorkspaceDomainInput(rawInput: unknown): DomainInputResult {
@@ -150,7 +155,10 @@ export function parseWorkspaceDomainInput(rawInput: unknown): DomainInputResult 
   if (!TLD_RE.test(labels[labels.length - 1])) {
     return fail('MALFORMED', 'This does not look like a valid domain extension.');
   }
-  if (!registrableDomain(ascii)) return fail('MALFORMED', 'This does not look like a valid domain.');
+  // Checked without any leading www., as the row's normalize steps store it.
+  let bare = ascii;
+  while (bare.startsWith('www.')) bare = bare.slice(4);
+  if (!registrableDomain(bare)) return fail('MALFORMED', 'This does not look like a valid domain.');
 
   return { ok: true, domain: ascii };
 }

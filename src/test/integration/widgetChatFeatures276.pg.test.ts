@@ -574,8 +574,10 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(mail.text).toContain(visitorText);
 
     // Per-part data (htmlData): the owners' offline-message mail takes the
-    // visitor's text as typed in its subject and text part, and the escaped
-    // copy in its HTML only, so neither shows an entity nor runs markup.
+    // escaped copy of the visitor's text in its HTML only, so it never runs
+    // markup. Since 289d its seeded subject names no visitor field and its
+    // seeded text part is made from that HTML, so the text shows what was
+    // typed, with no entity.
     const name = '<b>Ali</b> & "co"';
     const body = '<img src=x onerror="alert(1)"> & 5 > 3';
     const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -589,7 +591,7 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     });
     expect(offline.success).toBe(true);
     const owner = sent[sent.length - 1];
-    expect(owner.subject).toBe(`New offline message from ${name}`);
+    expect(owner.subject).toBe('New offline message');
     expect(owner.text).toContain(name);
     expect(owner.text).toContain(body);
     expect(owner.text).not.toContain('&amp;');
@@ -598,16 +600,16 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(owner.html).not.toContain('<img src=x');
     expect(owner.html).not.toContain('<b>Ali</b>');
 
-    // A name typed with line breaks: the subject stays one header line.
+    // A value typed with line breaks: the subject stays one header line.
     const broken = await sendEmail(loadConfig(), {
       workspaceId: null,
       to: 'owner@example.test',
-      templateSlug: 'offline_message_received',
-      locale: 'en',
-      templateData: { contact_name: 'Ali\r\nBcc: x@evil.test\nX', contact_email: 'ali@example.test', message_body: 'hi', action_url: '' },
+      templateSlug: 'visitor_conversation_transcript',
+      locale: 'tr',
+      templateData: { workspace: 'Acme', workspace_name: 'Acme\r\nBcc: x@evil.test\nX', date: '18.10.2026', transcript: '', transcript_text: '' },
     });
     expect(broken.success).toBe(true);
-    expect(sent[sent.length - 1].subject).toBe('New offline message from Ali Bcc: x@evil.test X');
+    expect(sent[sent.length - 1].subject).toBe('Acme Bcc: x@evil.test X ile sohbetiniz');
   });
 
   it('T9 276 runs twice: every check, policy and trigger once, and a re-run waits for no ordinary writer', async () => {

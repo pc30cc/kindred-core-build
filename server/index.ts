@@ -466,7 +466,7 @@ app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorPreA
 // auth+membership enforced per-route. Lower rate-limit footprint vs widget.
 app.use('/api/visitor-intel', visitorsAdminRouter);
 
-// Email — workspace-scoped rate limit
+// Email — the test buttons: a per-IP limit here, per member and workspace in the routes
 app.use('/api/email', emailRateLimiter, emailRouter);
 
 // AI — auth required, workspace rate limiting built into routes

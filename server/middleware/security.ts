@@ -302,20 +302,23 @@ export const authRateLimiter = rateLimit({
 });
 
 /**
- * Bucket for emailRateLimiter: the workspace on /api/email, the IP elsewhere.
+ * Bucket for emailRateLimiter: the caller's IP, on every route it guards.
  *
- * The workspace key is only honest where the route then proves access to
- * that workspace (/api/email). On the unauthenticated /api/auth-email routes
- * it let a caller pick a fresh bucket per request just by sending any
- * `workspaceId`: unlimited reset and verification emails, and token or code
- * guesses, from a single IP.
+ * This limiter runs before any route has authenticated anybody, so nothing
+ * in the request body can be its key. It used to be the body's
+ * `workspaceId`: on the public /api/auth-email routes a caller got a fresh
+ * bucket per request by sending any value (unlimited reset and verification
+ * mails, and token or code guesses, from one IP), and on /api/email anyone
+ * could use up a workspace's bucket without being a member of it. The
+ * limits per member, per workspace and per recipient are counted by the
+ * routes themselves, once they know who is asking (services/email/
+ * sendQuota.ts).
  */
 export function emailRateLimitKey(req: Request): string {
-  const workspaceId = req.baseUrl === '/api/email' ? req.body?.workspaceId : undefined;
-  return `email:${workspaceId || ipBucket(req)}`;
+  return `email:${ipBucket(req)}`;
 }
 
-// Email: 10 per minute per workspace on /api/email, per IP everywhere else.
+// Email: 10 per minute per IP on /api/email and /api/auth-email.
 export const emailRateLimiter = rateLimit({
   windowMs: 60_000,
   max: 10,
@@ -323,7 +326,7 @@ export const emailRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: emailRateLimitKey,
   handler: async (req, res) => {
-    logRateLimited(req, 'warn', { endpoint: '/api/email', limit: '10/min' });
+    logRateLimited(req, 'warn', { endpoint: req.baseUrl || '/api/email', limit: '10/min' });
     res.status(429).json({ error: 'Email rate limit exceeded.' });
   },
 });

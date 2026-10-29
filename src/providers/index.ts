@@ -1,5 +1,4 @@
 export { selfHostedAuthProvider } from './selfHosted/auth';
-export { createApiEmailProvider } from './email/api';
 export { providerRegistry, PROVIDER_TYPE_KEYS } from './registry';
 export type { ProviderTypeKey, ProviderTypeMap, ProviderHealth, RegisteredProvider } from './registry';
 export { bootstrapProviders } from './bootstrap';

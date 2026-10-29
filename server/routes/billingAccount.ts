@@ -46,6 +46,7 @@ import { logBillingEvent } from '../services/billing/index.js';
 import { isAllowedBillingCallbackUrl, resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
 import { allowedOrigins } from '../services/platformOrigins.js';
 import { resolveAppBaseUrl } from '../services/auth-email.js';
+import { parseEmailAddress } from '../../shared/emailProviders.js';
 import { editionErrorResponse } from '../services/billing/edition.js';
 import {
   AccountBillingError,
@@ -382,6 +383,14 @@ billingAccountRouter.put('/account/:workspaceId/profile', async (req, res) => {
   if (!auth) return;
   const parsed = profileSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  // Receipts go to `invoice_email`: blank (the owner's address is used) or
+  // exactly one plain address. Any text with an "@" used to be taken, and a
+  // comma list went, over SMTP, to every address in it.
+  // updateBillingProfile checks it again, with the same answer.
+  const invoiceEmail = parsed.data.profile.invoice_email?.trim();
+  if (invoiceEmail && !parseEmailAddress(invoiceEmail)) {
+    return res.status(400).json({ error: 'INVALID_INVOICE_EMAIL', details: { field: 'invoice_email' } });
+  }
   try {
     const account = await updateBillingProfile(serverConfigOf(req), req.params.workspaceId, parsed.data.profile);
     res.json({ billing_profile: account.billing_profile });

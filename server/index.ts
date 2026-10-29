@@ -35,6 +35,7 @@ import { widgetSettingsRouter } from './routes/widgetSettings.js';
 import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { notificationEmailRouter } from './routes/notificationEmail.js';
+import { notificationEmailUnsubscribeRouter } from './routes/notificationEmailUnsubscribe.js';
 import { pushRouter } from './routes/push.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
@@ -501,6 +502,9 @@ app.use('/api/workspaces', commerceConnectionsRouter);
 app.use('/api/widget/commerce/guest-verification', widgetCorsMiddleware(), commerceGuestVerificationRouter);
 app.use('/api/widget/commerce/identity', widgetCorsMiddleware(), commerceIdentityRouter);
 
+// The notification emails' unsubscribe link: public, the signed link is the
+// credential, so it is mounted ahead of the signed-in router below.
+app.use('/api/notifications/email/unsubscribe', notificationEmailUnsubscribeRouter);
 // Self-service notification preferences
 app.use('/api/notifications/email', notificationEmailRouter);
 app.use('/api/notifications', notificationsRouter);

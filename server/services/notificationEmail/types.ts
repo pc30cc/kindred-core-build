@@ -56,6 +56,12 @@ export interface NotificationEmailDefinition {
    * urgent is what push is for — so all of them wait.
    */
   respectsQuietHours: boolean;
+  /**
+   * What kind of mail it is for the email core (email_logs, a provider that
+   * tags mail): every one is a notification a person subscribed to, but an
+   * announcement is the platform telling everybody about itself.
+   */
+  category: 'notification' | 'marketing';
 }
 
 export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmailDefinition> = {
@@ -65,6 +71,7 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'inbox',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   transcripts: {
     type: 'transcripts',
@@ -72,6 +79,7 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'members',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   paid_invoices: {
     type: 'paid_invoices',
@@ -79,13 +87,16 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'admins',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   weekly_summary: {
     type: 'weekly_summary',
     slug: 'operator_weekly_summary',
-    audience: 'members',
+    // Its link is the Inbox, which staff cannot open.
+    audience: 'inbox',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   product_updates: {
     type: 'product_updates',
@@ -93,6 +104,7 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'members',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'marketing',
   },
 };
 

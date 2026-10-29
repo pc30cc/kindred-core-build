@@ -10,6 +10,8 @@
  * those is an ordinary Tuesday, and each would otherwise be a second copy of
  * the same mail in somebody's inbox. The key names the THING the mail is
  * about, so the second write is refused by the index rather than by a lock.
+ * A second index (migration 289c) keeps one open digest per operator and
+ * workspace; a refusal by either reads `duplicate`.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -27,6 +29,14 @@ export interface EnqueueRequest {
   dedupeKey: string;
   /** Earliest it may go. Quiet hours move this, they do not drop the job. */
   scheduledFor?: Date;
+  /**
+   * The conversations the mail tells about (a transcript's one, a digest's
+   * list): a privacy erasure finds the jobs about the erased conversations
+   * by them (erasure.ts). Ids only, never what the visitor wrote.
+   */
+  conversationIds?: string[];
+  /** A digest's newest waiting message (producers.ts, sweepUnreadDigest). */
+  coveredThrough?: Date | null;
 }
 
 export interface EnqueueResult {
@@ -34,6 +44,8 @@ export interface EnqueueResult {
   /** Why not, when it was not. Never an error: none of these are faults. */
   reason?: 'platform_disabled' | 'operator_opted_out' | 'duplicate' | 'error';
 }
+
+let warnedMissingColumns = false;
 
 /**
  * Both gates, then the row.
@@ -57,7 +69,7 @@ export async function enqueueNotificationEmail(
     if (!wanted) return { queued: false, reason: 'operator_opted_out' };
   }
 
-  const { error } = await sb.from('notification_email_jobs').insert({
+  const row: Record<string, unknown> = {
     user_id: request.userId,
     workspace_id: request.workspaceId ?? null,
     type: request.type,
@@ -65,7 +77,22 @@ export async function enqueueNotificationEmail(
     locale: request.locale ?? null,
     dedupe_key: request.dedupeKey,
     scheduled_for: (request.scheduledFor ?? new Date()).toISOString(),
-  });
+  };
+  if (request.conversationIds?.length) row.conversation_ids = [...new Set(request.conversationIds)];
+  if (request.coveredThrough) row.covered_through = request.coveredThrough.toISOString();
+
+  let { error } = await sb.from('notification_email_jobs').insert(row);
+  if (error && isMissingColumn(error) && ('conversation_ids' in row || 'covered_through' in row)) {
+    // A database before migration 289c: the mail still goes, without what
+    // the newer columns add (the digest's memory, the erasure's lookup).
+    if (!warnedMissingColumns) {
+      warnedMissingColumns = true;
+      console.warn('[notification-email] migration 289c is not applied; queuing without conversation_ids');
+    }
+    delete row.conversation_ids;
+    delete row.covered_through;
+    ({ error } = await sb.from('notification_email_jobs').insert(row));
+  }
 
   if (error) {
     // 23505 is the dedupe index doing its job, which is a success with a
@@ -76,6 +103,12 @@ export async function enqueueNotificationEmail(
   }
 
   return { queued: true };
+}
+
+/** Undefined column: PostgreSQL's 42703, or PostgREST's PGRST204 (not in its schema cache). */
+export function isMissingColumn(error: { code?: unknown; message?: unknown } | null | undefined): boolean {
+  const code = String(error?.code ?? '');
+  return code === '42703' || code === 'PGRST204';
 }
 
 /**

@@ -3,7 +3,8 @@
  *
  * What a platform admin owns: which operator notification emails exist at
  * all, which transport carries them, when the two scheduled ones go out, and
- * the announcement.
+ * the announcement (plain text, queued to the operators by the server a page
+ * at a time, at most `announcements_per_hour` an hour).
  *
  * What they do not own is any operator's own answer. Every type enabled here
  * is still a switch on the operator's own page — a platform that can mail
@@ -47,12 +48,31 @@ interface Settings {
   weekly_summary_hour: number;
 }
 
+interface Announcement {
+  id: string;
+  title: string;
+  status: 'sending' | 'done' | 'cancelled';
+  recipients_queued: number;
+  created_at: string;
+}
+
 interface AdminEmailState {
   settings: Settings;
   providers: string[];
+  /** The separate notification provider as stored: its name, and whether it can send. */
+  notification_provider: { provider_name: string | null; configured: boolean };
+  /** The chosen provider is the stored one and can send. */
   provider_configured: boolean;
+  announcements: Announcement[];
+  announcements_per_hour: number;
   types: Array<{ type: EmailType; slug: string; audience: string }>;
 }
+
+const ANNOUNCEMENT_STATUS: Record<Announcement['status'], TranslationKey> = {
+  sending: 'admin.notifications.email.announceStatusSending',
+  done: 'admin.notifications.email.announceStatusDone',
+  cancelled: 'admin.notifications.email.announceStatusCancelled',
+};
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -119,14 +139,19 @@ export function NotificationEmailTab() {
 
   const announce = useMutation({
     mutationFn: () =>
-      api<{ queued: number }>('/api/admin/notification-email/announce', {
+      api<{ queued: boolean; duplicate?: boolean; per_hour: number }>('/api/admin/notification-email/announce', {
         method: 'POST',
         body: JSON.stringify({ title, body }),
       }),
     onSuccess: (resp) => {
       setTitle('');
       setBody('');
-      toast({ title: t('admin.notifications.email.announceSent').replace('{count}', String(resp.queued)) });
+      qc.invalidateQueries({ queryKey: ['admin-notification-email'] });
+      toast({
+        title: resp.duplicate
+          ? t('admin.notifications.email.announceDuplicate')
+          : t('admin.notifications.email.announceSent').replace('{cap}', String(resp.per_hour)),
+      });
     },
     onError: (err: Error) => {
       toast({
@@ -166,6 +191,13 @@ export function NotificationEmailTab() {
   };
 
   const announcementsOn = local.enabled && local.product_updates_enabled;
+  const storedProvider = data.notification_provider?.provider_name ?? null;
+  // Shown under the provider choice when the mail still goes out the default one.
+  const providerWarning = !local.provider_override || data.provider_configured
+    ? null
+    : storedProvider && storedProvider !== local.provider_override
+      ? t('admin.notifications.email.providerMismatch').replace('{name}', storedProvider)
+      : t('admin.notifications.email.providerMissing');
 
   return (
     <div className="space-y-4">
@@ -216,6 +248,7 @@ export function NotificationEmailTab() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t('admin.notifications.email.timingTitle')}</CardTitle>
+          <CardDescription>{t('admin.notifications.email.timingHelp')}</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -304,10 +337,8 @@ export function NotificationEmailTab() {
               </Button>
             ))}
           </div>
-          {local.provider_override && !data.provider_configured && (
-            <p className="text-[12.5px] text-amber-600 dark:text-amber-500">
-              {t('admin.notifications.email.providerMissing')}
-            </p>
+          {providerWarning && (
+            <p className="text-[12.5px] text-amber-600 dark:text-amber-500">{providerWarning}</p>
           )}
         </CardContent>
       </Card>
@@ -317,7 +348,7 @@ export function NotificationEmailTab() {
           <CardTitle className="text-base">{t('admin.notifications.email.announceTitle')}</CardTitle>
           <CardDescription>
             {announcementsOn
-              ? t('admin.notifications.email.announceHelp')
+              ? t('admin.notifications.email.announceHelp').replace('{cap}', String(data.announcements_per_hour))
               : t('admin.notifications.email.announceDisabled')}
           </CardDescription>
         </CardHeader>
@@ -356,6 +387,21 @@ export function NotificationEmailTab() {
             {announce.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {t('admin.notifications.email.announceSend')}
           </Button>
+          {data.announcements?.length > 0 && (
+            <div className="space-y-1 border-t border-border/60 pt-3">
+              <div className="text-[13px] font-semibold">{t('admin.notifications.email.announceRecent')}</div>
+              <ul className="divide-y divide-border/60">
+                {data.announcements.map((a) => (
+                  <li key={a.id} className="flex items-start justify-between gap-4 py-2 text-[12.5px]">
+                    <span className="min-w-0 truncate">{a.title}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {t(ANNOUNCEMENT_STATUS[a.status] ?? ANNOUNCEMENT_STATUS.sending).replace('{count}', String(a.recipients_queued))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

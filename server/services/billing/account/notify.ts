@@ -45,6 +45,15 @@ export type BillingEmailSlug =
   // An AI credit pack was bought (phase 5, migration 264), every edition.
   | 'billing_ai_pack_purchased';
 
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /** Decimal places of a currency's minor unit; IRR is kept in whole Rial. */
 const DECIMALS: Record<string, number> = { IRR: 0, USD: 2, EUR: 2, GBP: 2, TRY: 2 };
 
@@ -213,6 +222,9 @@ export async function sendBillingEmail(
       to: recipient.email,
       templateSlug: slug,
       templateData: data,
+      // The HTML part shows every value as text: the workspace's name is
+      // what its admin typed, a plan's what a Super Admin typed.
+      htmlData: Object.fromEntries(Object.entries(data).map(([key, value]) => [key, escapeHtml(value)])),
       locale: recipient.locale,
     };
     if (options.queue) {

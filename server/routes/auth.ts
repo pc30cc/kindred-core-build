@@ -42,6 +42,7 @@ import {
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
+import { checkNewWebsite } from '../services/ownerWebsite.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
 import { getClientIp } from '../utils/clientIp.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
@@ -104,21 +105,6 @@ const signupSchema = z.object({
   captchaToken: z.string().optional(),
   metadata: z.record(z.any()).optional(),
 });
-
-function normalizeWebsiteUrl(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const withProtocol = /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-
-  try {
-    const url = new URL(withProtocol);
-    if (!url.hostname || !url.hostname.includes('.')) return null;
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return null;
-  }
-}
 
 /**
  * POST /api/auth/check-brute-force
@@ -349,7 +335,6 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
     }
 
     const { password, fullName, website, locale, metadata } = parsed.data;
-    const normalizedWebsite = website ? normalizeWebsiteUrl(website) : null;
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const sb = getServiceClient(config);
 
@@ -390,6 +375,19 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
+    // THE WEBSITE IS REQUIRED, REGISTERED ONCE AND FIXED (owner, 2026-10-28;
+    // services/ownerWebsite.ts). It becomes the verified primary domain of the
+    // first workspace (trg_workspaces_auto_register_owner_domain), so it is
+    // refused here, before any row exists, when it is missing or does not
+    // parse, names a platform host, or is verified by a workspace already;
+    // and it is stored in the canonical form that was checked. `error` is the
+    // code, as the panel's signup reads only `error` (settingsErrorMessage).
+    const claimedWebsite = website || (typeof metadata?.websiteDomain === 'string' ? metadata.websiteDomain : '');
+    const checkedWebsite = await checkNewWebsite(config, claimedWebsite);
+    if (checkedWebsite.ok === false) {
+      return res.status(checkedWebsite.status).json({ error: checkedWebsite.code, code: checkedWebsite.code });
+    }
+
     let passwordHash: string;
     try {
       passwordHash = await hashPassword(password);
@@ -404,7 +402,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       email: normalizedEmail,
       full_name: fullName?.trim() || null,
       company_name: metadata?.companyName || null,
-      website_domain: metadata?.websiteDomain || normalizedWebsite || null,
+      website_domain: checkedWebsite.domain,
       main_goal: metadata?.mainGoal || null,
       ai_mode: metadata?.aiMode || null,
       signup_ip: getClientIp(req) || null,

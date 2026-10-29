@@ -4,6 +4,7 @@ import { getServiceClient } from '../../supabase.js';
 import { extractHostname, isOriginAllowed, normalizeDomain } from '../../utils/domain.js';
 import { onInvalidate } from '../../lib/cacheBus.js';
 import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
+import { getPlatformHosts, invalidatePlatformHosts, isPlatformHostIn } from '../platformHosts.js';
 
 const CACHE_TTL = 60_000;
 /** Negative (host → no workspace) answers expire faster: a customer that just
@@ -69,6 +70,8 @@ export function invalidateWorkspaceOriginCache(workspaceId: string): void {
   workspaceId = canonicalWorkspaceId(workspaceId) ?? workspaceId;
   originRulesCache.delete(workspaceId);
   domainGeneration += 1;
+  // Its domains may make it, or stop it being, the platform's own workspace.
+  invalidatePlatformHosts();
   for (const [host, entry] of workspaceByHostCache) {
     if (entry.workspaceId === workspaceId) workspaceByHostCache.delete(host);
   }
@@ -86,6 +89,7 @@ function clearAllOriginCaches(): void {
   workspaceByHostCache.clear();
   originRulesCache.clear();
   domainGeneration += 1;
+  invalidatePlatformHosts();
 }
 
 /** Test-only: wipe every cached origin decision. */
@@ -269,10 +273,27 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
   if (error) throw error;
 
-  const rows = ((domainRows || []) as Array<{ workspace_id: string; normalized_domain: string | null }>).map((row) => ({
+  const allRows = ((domainRows || []) as Array<{ workspace_id: string; normalized_domain: string | null }>).map((row) => ({
     workspace_id: row.workspace_id as string,
     domain: String(row.normalized_domain || '').toLowerCase(),
   }));
+
+  /**
+   * PLATFORM HOSTS ARE THE PLATFORM'S (services/platformHosts.ts). A verified
+   * row naming `api.<brand>`, `app.<brand>` or any other platform host counts
+   * only for the platform's own workspace (found with the hosts, not from
+   * this probe). Any other such row, however it was written (the signup
+   * website trigger, a Super Admin edit, an import, SQL), is ignored, so it
+   * can neither beat the platform's suffix match nor own a platform host on
+   * its own. While no platform workspace is known (nothing configured, or
+   * not read yet), nothing is ignored. (Read only when there is a row to
+   * judge; the hosts are cached for a minute.)
+   */
+  if (!allRows.length) return rememberHost(null);
+  const platform = await getPlatformHosts(config);
+  const rows = platform.workspaceId
+    ? allRows.filter((row) => row.workspace_id === platform.workspaceId || !isPlatformHostIn(platform, row.domain))
+    : allRows;
 
   /**
    * AMBIGUITY IS FAIL-CLOSED. A verified domain may belong to exactly one

@@ -18,6 +18,16 @@
  *      recover the session is the one the browser blocks).
  *   2. Explicit `workspace_id` in query/body (bootstrap, realtime connect).
  *   3. Origin → workspace lookup, for /bootstrap and /config only.
+ *   4. The request's own host → workspace, for the help center's reads
+ *      that answer with that very workspace (/help-host, /category-articles
+ *      under /api/widget/kb), and for them only that: a token or a
+ *      `workspace_id` sent along names some other workspace, whose origins
+ *      must not read this host's answer.
+ *
+ * The platform's own help center is read by the platform's own sites
+ * (app.<brand>/help calling api.<brand>), whatever its widget allow-list
+ * says: those exact origins, the help center's reads only, the platform's
+ * workspace only (services/platformHosts.ts isPlatformSiteOrigin).
  *
  * Strategy:
  *  - OPTIONS preflight → always reply 204 with the requesting Origin echoed
@@ -41,6 +51,7 @@ import { readWidgetToken, verifySessionToken, verifyTokenForRefresh } from '../s
 import { isOriginAllowed, toStrictOrigin } from '../utils/domain.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { canonicalWorkspaceId } from '../lib/workspaceId.js';
+import { isPlatformSiteOrigin } from '../services/platformHosts.js';
 
 // X-Widget-Visitor: the visitor credential, sent only by a widget whose
 // browser drops the dvsid cookie (services/widget/visitorIdentity.ts).
@@ -110,6 +121,27 @@ function getTokenContext(req: Request): { workspaceId: string; tokenOrigin: stri
   return { workspaceId: canonicalWorkspaceId(result.workspaceId) ?? result.workspaceId, tokenOrigin: (result.origin || '').toLowerCase().replace(/\/+$/, '') };
 }
 
+/** The help center's reads that resolve the request's own host (routes/kb.ts). */
+const HOST_SCOPED_READS = new Set(['/help-host', '/category-articles']);
+/** Every read of the help center (routes/kb.ts, mounted at /api/widget/kb). */
+const HELP_CENTER_READS = new Set([...HOST_SCOPED_READS, '/categories', '/articles', '/article', '/search']);
+
+/** The help center route `req` reaches, as Express matches it (any case, one trailing slash), or null. */
+function helpCenterRead(req: Request): string | null {
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || (req.baseUrl || '').toLowerCase() !== '/api/widget/kb') return null;
+  const path = (req.path || '').toLowerCase().replace(/(.)\/$/, '$1');
+  return HELP_CENTER_READS.has(path) ? path : null;
+}
+
+function isHelpCenterRead(req: Request): boolean {
+  return helpCenterRead(req) !== null;
+}
+
+/** A help center read that answers for the request's own host (step 4). */
+function isHostScopedRead(req: Request): boolean {
+  return HOST_SCOPED_READS.has(helpCenterRead(req) ?? '');
+}
+
 /**
  * Same-origin fallback: when we cannot positively authorize the origin
  * (no workspace context, or the workspace has no allow-list configured yet)
@@ -146,22 +178,46 @@ export function widgetCorsMiddleware() {
       return next();
     }
 
+    // A read answering for the request's own host takes its workspace from
+    // that host only (step 4): neither a token nor a workspace_id applies.
+    const hostScoped = isHostScopedRead(req);
+
     // 1) Server-signed workspace from the widget session token. This is the
     //    only resolution path available to token-secured routes that carry
     //    no workspace_id at all (notably /session/refresh).
-    const tokenCtx = getTokenContext(req);
+    let tokenCtx = hostScoped ? null : getTokenContext(req);
+    // The other help center reads answer for their workspace_id (routes/kb.ts),
+    // so a token of another workspace decides nothing for them.
+    if (tokenCtx && isHelpCenterRead(req)) {
+      const declared = getWorkspaceId(req);
+      if (declared && declared !== tokenCtx.workspaceId) tokenCtx = null;
+    }
     let workspaceId = tokenCtx?.workspaceId || null;
 
     // 2) Client-declared workspace. Only consulted when the token did not
     //    already pin one — a token for workspace A can never be used to
     //    resolve workspace B's allow-list.
-    if (!workspaceId) workspaceId = getWorkspaceId(req);
+    if (!workspaceId && !hostScoped) workspaceId = getWorkspaceId(req);
 
     // 3) For bootstrap and config endpoints we may not have an explicit
     //    workspace yet — resolve it from the origin / referrer header.
     if (!workspaceId && (req.path === '/bootstrap' || req.path === '/boot' || req.path === '/config')) {
       try {
         workspaceId = await resolveWorkspaceIdFromOrigin(config, getBootstrapOrigin(req));
+      } catch {
+        workspaceId = null;
+      }
+    }
+
+    // 4) The help center's host probe and category list (routes/kb.ts
+    //    /help-host and /category-articles, mounted at /api/widget/kb) name
+    //    the workspace of the request's OWN host, so only that workspace's
+    //    origins may read the answer: app.<brand>'s /help pages calling
+    //    api.<brand> resolve the platform's workspace there (through the
+    //    guarded resolver), and the checks below decide.
+    if (hostScoped) {
+      try {
+        workspaceId = await resolveWorkspaceIdFromOrigin(config, getRequestBaseUrl(req));
       } catch {
         workspaceId = null;
       }
@@ -179,7 +235,12 @@ export function widgetCorsMiddleware() {
     try {
       const { domains, allowSubdomains } = await getWorkspaceOriginRules(config, workspaceId);
 
-      if (domains.length) {
+      if (isHelpCenterRead(req) && (await isPlatformSiteOrigin(config, workspaceId, origin))) {
+        // The platform's own site reading the platform's own help center
+        // (see the header): its widget allow-list, empty in production (any
+        // site, so same-origin here), never named the app host.
+        applyWidgetCorsHeaders(res, origin);
+      } else if (domains.length) {
         if (isOriginAllowed(origin, domains, allowSubdomains)) applyWidgetCorsHeaders(res, origin);
       } else if (isSameOrigin(req, origin)) {
         // Unconfigured allow-list is NOT "allow all" — same-origin only.

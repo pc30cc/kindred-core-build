@@ -74,6 +74,11 @@ export default function SettingsDomainsPage() {
     if (value && !addDomain.isPending) addDomain.mutate(value);
   };
 
+  // The registered website is fixed for good (owner, 2026-10-28): it is not
+  // removed, and while it is the primary no other row takes the flag (the
+  // server refuses both too). Other domains are managed as before.
+  const primaryFixed = !!domains?.some(d => d.is_primary && d.fixed);
+
   return (
     <div className="space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold text-foreground">{t('settings.domains')}</h1>
@@ -132,20 +137,22 @@ export default function SettingsDomainsPage() {
                   )}
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  {!domain.is_primary && (
+                  {!domain.is_primary && !primaryFixed && (
                     <Button variant="ghost" size="sm" onClick={() => setPrimary.mutate(domain.id)}>
                       {t('settings.domainsPage.setPrimary')}
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={t('settings.domainsPage.remove', { domain: domain.domain })}
-                    title={t('settings.domainsPage.remove', { domain: domain.domain })}
-                    onClick={() => deleteDomain.mutate(domain.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
-                  </Button>
+                  {!domain.fixed && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('settings.domainsPage.remove', { domain: domain.domain })}
+                      title={t('settings.domainsPage.remove', { domain: domain.domain })}
+                      onClick={() => deleteDomain.mutate(domain.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
+                    </Button>
+                  )}
                 </div>
               </div>
             ))

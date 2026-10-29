@@ -34,6 +34,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { createFullChainDatabase, type FullChainDatabase } from './fullChainDatabase';
+import { websiteFor } from './testWebsite';
 
 const DSN = process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
@@ -264,7 +265,7 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
 
   it('signs up, verifies the e-mail, logs in, and the session cookie identifies the user', async () => {
     const email = `owner-${Date.now()}@example.test`;
-    const signup = await call('POST', '/api/auth/signup', { email, password: 'correct horse battery 9', fullName: 'Owner' });
+    const signup = await call('POST', '/api/auth/signup', { email, password: 'correct horse battery 9', fullName: 'Owner', website: websiteFor(email) });
     expect(signup.status).toBe(200);
     const link = captured.emails.find((e) => e.to === email && e.templateSlug === 'email_verify')?.actionUrl;
     expect(link).toBeTruthy();
@@ -305,6 +306,13 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
     const allowed = await call('POST', '/api/workspaces', { accountId: state.accountId, name: 'Second' });
     expect(allowed.status).toBe(200);
     expect((await call('GET', '/api/workspaces')).json.workspaces).toHaveLength(2);
+    // The website is registered once (migration 288): the first workspace
+    // holds it verified and primary, the second does not claim it again.
+    const domains = await chain.db.query(
+      `SELECT workspace_id, verified, is_primary FROM public.workspace_domains WHERE workspace_id IN ($1, $2)`,
+      [state.workspaceId, allowed.json.workspaceId],
+    );
+    expect(domains.rows).toEqual([{ workspace_id: state.workspaceId, verified: true, is_primary: true }]);
   });
 
   it('an operator message is stored, counted, and published through Centrifugo', async () => {

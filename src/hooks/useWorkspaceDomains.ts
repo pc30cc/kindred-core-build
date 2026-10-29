@@ -7,6 +7,8 @@ export interface WorkspaceDomain {
   domain: string;
   verified: boolean;
   is_primary: boolean | null;
+  /** The registered website (the account owner's, verified): never removed, keeps the primary flag. */
+  fixed?: boolean;
 }
 
 /**

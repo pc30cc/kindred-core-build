@@ -40,6 +40,7 @@ import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { disableOtherDevices } from '../services/push/devices.js';
+import { storeWebsite, websiteEdit } from '../services/ownerWebsite.js';
 
 export const accountRouter = Router();
 
@@ -173,7 +174,14 @@ accountRouter.patch('/me', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
+    // The website is fixed once registered (owner, 2026-10-28;
+    // services/ownerWebsite.ts): the same one again saves, any other value
+    // (null and '' included) is refused; until a workspace holds it, it may
+    // be set or replaced, checked as at signup, never cleared.
+    const website = await websiteEdit(config, user.id, parsed.data.website_domain);
+    if (website.ok === false) return res.status(website.status).json({ error: website.code, code: website.code });
     const sb = getServiceClient(config);
+    if (website.write) await storeWebsite(config, user.id, website.write);
 
     // Compose full_name from first/last if provided explicitly
     const updates: Record<string, unknown> = {};
@@ -183,7 +191,7 @@ accountRouter.patch('/me', async (req, res) => {
       const combined = [first, last].filter(Boolean).join(' ').trim();
       if (combined) updates.full_name = combined;
     }
-    for (const k of ['full_name', 'preferred_locale', 'company_name', 'website_domain'] as const) {
+    for (const k of ['full_name', 'preferred_locale', 'company_name'] as const) {
       if (parsed.data[k] !== undefined) updates[k] = parsed.data[k];
     }
 

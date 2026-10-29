@@ -10,6 +10,18 @@ import { useTranslation } from '@/i18n';
 import { toast } from '@/hooks/use-toast';
 import { Check, Pencil, Star, X } from 'lucide-react';
 
+/** A row of GET /api/admin/management/domains. */
+interface AdminDomainRow {
+  id: string;
+  domain: string | null;
+  workspace_id: string;
+  verified: boolean | null;
+  is_primary: boolean | null;
+  /** The workspace's registered website (server/services/ownerWebsite.ts). */
+  fixed?: boolean;
+  workspaces?: { name: string | null } | null;
+}
+
 export default function AdminDomainsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -19,7 +31,7 @@ export default function AdminDomainsPage() {
   const { data: domains, isLoading } = useQuery({
     queryKey: ['admin-all-domains'],
     queryFn: async () => {
-      const body = await adminFetch<{ domains: any[] }>('/api/admin/management/domains');
+      const body = await adminFetch<{ domains: AdminDomainRow[] }>('/api/admin/management/domains');
       return body.domains;
     },
   });
@@ -33,38 +45,43 @@ export default function AdminDomainsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-all-domains'] });
       setEditingId(null);
-      toast({ description: t('admin.domains.updated' as any) });
+      toast({ description: t('admin.domains.updated') });
     },
-    onError: (err: any) => {
-      toast({ variant: 'destructive', description: String(err?.message ?? err) });
+    onError: (err: unknown) => {
+      toast({ variant: 'destructive', description: err instanceof Error ? err.message : String(err) });
     },
   });
 
+  // A registered website is fixed for good (owner, 2026-10-28): it is not
+  // edited, and while it is its workspace's primary no other row takes the
+  // flag (the server refuses both too). Other rows edit as before.
+  const primaryFixed = new Set((domains ?? []).filter((d) => d.is_primary && d.fixed).map((d) => d.workspace_id));
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">{t('admin.domains.title' as any)}</h1>
-      <p className="text-muted-foreground text-sm">{t('admin.domains.subtitle' as any)}</p>
+      <h1 className="text-2xl font-bold text-foreground">{t('admin.domains.title')}</h1>
+      <p className="text-muted-foreground text-sm">{t('admin.domains.subtitle')}</p>
 
       <Card className="bg-card border-border">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="border-border">
-                <TableHead className="text-muted-foreground">{t('admin.domains.domain' as any)}</TableHead>
-                <TableHead className="text-muted-foreground">{t('admin.common.workspace' as any)}</TableHead>
-                <TableHead className="text-muted-foreground">{t('admin.domains.verified' as any)}</TableHead>
-                <TableHead className="text-muted-foreground">{t('admin.domains.primary' as any)}</TableHead>
-                <TableHead className="text-muted-foreground text-end">{t('admin.domains.actions' as any)}</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.domains.domain')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.common.workspace')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.domains.verified')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('admin.domains.primary')}</TableHead>
+                <TableHead className="text-muted-foreground text-end">{t('admin.domains.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t('admin.common.loading' as any)}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t('admin.common.loading')}</TableCell></TableRow>
               )}
               {(!isLoading && (!domains || domains.length === 0)) && (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t('admin.domains.empty' as any)}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t('admin.domains.empty')}</TableCell></TableRow>
               )}
-              {domains?.map((d: any) => (
+              {domains?.map((d) => (
                 <TableRow key={d.id} className="border-border hover:bg-muted/50">
                   <TableCell className="text-foreground font-mono text-sm">
                     {editingId === d.id ? (
@@ -86,10 +103,10 @@ export default function AdminDomainsPage() {
                   <TableCell className="text-foreground/80 text-sm">{d.workspaces?.name ?? '—'}</TableCell>
                   <TableCell>
                     <Badge className={d.verified ? 'bg-green-900/50 text-green-400 border-green-500/30' : 'bg-yellow-900/50 text-yellow-400 border-yellow-500/30'}>
-                      {d.verified ? t('admin.domains.verified' as any) : t('admin.common.pending' as any)}
+                      {d.verified ? t('admin.domains.verified') : t('admin.common.pending')}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{d.is_primary ? t('admin.common.yes' as any) : t('admin.common.no' as any)}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{d.is_primary ? t('admin.common.yes') : t('admin.common.no')}</TableCell>
                   <TableCell className="text-end">
                     {editingId === d.id ? (
                       <div className="flex justify-end gap-1">
@@ -103,17 +120,19 @@ export default function AdminDomainsPage() {
                       </div>
                     ) : (
                       <div className="flex justify-end gap-1">
-                        {!d.is_primary && (
+                        {!d.is_primary && !primaryFixed.has(d.workspace_id) && (
                           <Button size="sm" variant="ghost" disabled={patch.isPending}
                             onClick={() => patch.mutate({ id: d.id, is_primary: true })}>
                             <Star className="h-4 w-4 me-1" />
-                            {t('admin.domains.setPrimary' as any)}
+                            {t('admin.domains.setPrimary')}
                           </Button>
                         )}
-                        <Button size="icon" variant="ghost"
-                          onClick={() => { setEditingId(d.id); setDraft(d.domain ?? ''); }}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
+                        {!d.fixed && (
+                          <Button size="icon" variant="ghost"
+                            onClick={() => { setEditingId(d.id); setDraft(d.domain ?? ''); }}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     )}
                   </TableCell>

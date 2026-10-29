@@ -12,12 +12,14 @@
  * Each suite declares the `vi.mock` calls itself (mock registration is
  * per-file) and points them at `harnessState`, which this module owns.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any -- the PostgREST and HTTP doubles and the JSON and row shapes the suites read are untyped since this harness was written, before the changed-file lint gate. */
 import { expect } from 'vitest';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
+import { websiteFor } from './testWebsite';
 import type { PgQueryable } from './pgMigrationChain';
 
 process.env.INVITATION_LINK_SECRET ||= 'test-invitation-link-secret-value-32b!!';
@@ -397,7 +399,7 @@ export async function startHarness(dsn: string): Promise<Harness> {
 
   async function signupAndVerify(email: string) {
     const signup = await call('POST', '/api/auth/signup', {
-      body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User' },
+      body: { email, password: 'CorrectHorseBattery1', fullName: 'Invite Test User', website: websiteFor(email) },
     });
     expect(signup.status, JSON.stringify(signup.json)).toBe(200);
     let sent: CapturedEmail | undefined;

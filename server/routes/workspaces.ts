@@ -41,6 +41,8 @@ import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
+import { dropPlatformWebsite, isPlatformHost, isPlatformWorkspace } from '../services/platformHosts.js';
+import { fixedDomainIds, isOwnerWebsiteTaken, storeWebsite, storedWebsite, websiteEdit, type DomainRowKey } from '../services/ownerWebsite.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 
 export const workspacesRouter = Router();
@@ -176,7 +178,47 @@ workspacesRouter.post('/provision-account', async (req, res) => {
 
 
   const sb = getServiceClient(config);
+  // The workspace this creates verifies its account owner's website
+  // (trg_workspaces_auto_register_owner_domain). The account is the caller's
+  // first one, as the RPC picks it, or a new one the caller owns.
+  const { data: firstAccount } = await sb
+    .from('account_members')
+    .select('account_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const accountId = (firstAccount as { account_id?: string } | null)?.account_id;
+  const ownerId = (accountId && (await accountOwnerId(config, accountId))) || userId;
+  await dropPlatformWebsite(config, ownerId, accountId);
+
+  // The caller's own account: its website is the owner's, required for a NEW
+  // account as at signup (owner, 2026-10-28; services/ownerWebsite.ts), so an
+  // invited or offboarded member gets one only with a website. One no
+  // workspace holds yet (missing, or taken meanwhile) may come with this
+  // request: WorkspaceRedirect asks for it after such a refusal.
+  if (ownerId === userId) {
+    const sent = typeof req.body?.website === 'string' ? req.body.website : undefined;
+    const website = await websiteEdit(config, userId, sent);
+    if (website.ok === false) return res.status(website.status).json({ error: website.code, code: website.code });
+    if (website.write) await storeWebsite(config, userId, website.write);
+    else if (!accountId && !(await storedWebsite(config, userId))?.trim()) {
+      return res.status(400).json({ error: 'EMPTY', code: 'EMPTY' });
+    }
+  }
+
+  // The RPC creates a workspace only while the account has none, and that
+  // INSERT verifies the owner's website unchecked (the trigger): refused
+  // first while the origin resolver hands it to another account's workspace.
+  const { data: firstWorkspace } = accountId
+    ? await sb.from('workspaces').select('id').eq('account_id', accountId).limit(1).maybeSingle()
+    : { data: null };
+  if (!firstWorkspace && (await isOwnerWebsiteTaken(config, ownerId))) {
+    return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+  }
+
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
+  if (isVerifiedDomainConflict(error)) return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
   if (error) return res.status(500).json({ error: error.message });
 
   // NEW signups only: give the freshly created workspace its starting plan
@@ -195,6 +237,31 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   }
   return res.json({ ok: true });
 });
+
+/**
+ * The workspace INSERT trigger verified the owner's website, and another
+ * workspace already holds it verified (workspace_domains_verified_domain_uniq).
+ * Signup refuses such a website first (services/ownerWebsite.ts); this is a
+ * claim made in between, or a website stored before. The RPC rolls back as a
+ * whole, so no account or workspace is left behind, and the website, not
+ * registered, may still be replaced.
+ */
+function isVerifiedDomainConflict(error: { message?: string } | null): boolean {
+  return !!error && /workspace_domains_verified_domain_uniq/.test(error.message || '');
+}
+
+/**
+ * The owner of an account: the profile whose website the workspace INSERT
+ * trigger reads, which is not necessarily the member creating the workspace.
+ */
+async function accountOwnerId(config: ServerConfig, accountId: string): Promise<string | null> {
+  const { data } = await getServiceClient(config)
+    .from('accounts')
+    .select('owner_id')
+    .eq('id', accountId)
+    .maybeSingle();
+  return (data as { owner_id?: string | null } | null)?.owner_id ?? null;
+}
 
 // ── Workspace capacity (max_workspaces) ──────────────────────────────────
 // `max_workspaces` is an ACCOUNT-level cap (see usageResolvers.ts's
@@ -321,6 +388,15 @@ workspacesRouter.post('/', async (req, res) => {
     });
   }
 
+  // The new workspace verifies the account OWNER's website (the trigger),
+  // so a platform host stored there is dropped first, and one the origin
+  // resolver hands to another account's workspace is refused.
+  const ownerId = await accountOwnerId(config, parsed.data.accountId);
+  if (ownerId) await dropPlatformWebsite(config, ownerId, parsed.data.accountId);
+  if (ownerId && (await isOwnerWebsiteTaken(config, ownerId))) {
+    return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+  }
+
   // `create_workspace_atomic` is SECURITY DEFINER but takes `_user_id`
   // explicitly rather than reading auth.uid() — it does its own
   // is_account_member(_account_id, _user_id) check internally, so a caller
@@ -332,6 +408,7 @@ workspacesRouter.post('/', async (req, res) => {
     _slug: '',
     _user_id: userId,
   });
+  if (isVerifiedDomainConflict(error)) return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
   if (error) return res.status(400).json({ error: error.message });
 
 
@@ -543,7 +620,11 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRe
     .eq('workspace_id', req.params.workspaceId)
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ domains: data });
+  // `fixed`: the registered website (services/ownerWebsite.ts), which the
+  // page offers no control to remove or replace.
+  const rows = (data ?? []) as Array<DomainRowKey & Record<string, unknown>>;
+  const fixed = await fixedDomainIds(config, rows);
+  return res.json({ domains: rows.map((d) => ({ ...d, fixed: fixed.has(d.id) })) });
 });
 
 const addDomainSchema = z.object({ domain: z.string().min(1).max(300) });
@@ -561,6 +642,11 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
     return res.status(400).json({ error: failure.message, code: failure.code });
   }
   if (!(await requireDomainManage(req, res, workspaceId))) return;
+  // The platform's own hosts (services/platformHosts.ts) belong to its own
+  // workspace only.
+  if ((await isPlatformHost(config, domainInput.domain)) && !(await isPlatformWorkspace(config, workspaceId))) {
+    return res.status(409).json({ error: 'This domain belongs to the platform.', code: 'PLATFORM_DOMAIN' });
+  }
   const sb = getServiceClient(config);
   const { error } = await sb.from('workspace_domains').insert({
     workspace_id: workspaceId,
@@ -584,12 +670,20 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
 async function loadDomainForWorkspace(sb: ReturnType<typeof getServiceClient>, workspaceId: string, domainId: string) {
   const { data } = await sb
     .from('workspace_domains')
-    .select('id, domain')
+    .select('id, domain, is_primary, workspace_id, verified, normalized_domain')
     .eq('id', domainId)
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  return data;
+  return data as (DomainRowKey & { domain: string | null; is_primary: boolean | null }) | null;
 }
+
+/**
+ * THE REGISTERED WEBSITE IS FIXED (owner, 2026-10-28): the row that holds
+ * the account owner's website, verified (services/ownerWebsite.ts
+ * fixedDomainIds), is never removed and keeps the primary flag. Other
+ * domains are added, removed and made primary as before.
+ */
+const PRIMARY_DOMAIN_FIXED = { error: 'The primary domain cannot be changed.', code: 'PRIMARY_DOMAIN_FIXED' };
 
 workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: WorkspaceDomainRequest, res) => {
   const config: ServerConfig = serverConfigOf(req);
@@ -598,6 +692,7 @@ workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: 
   const sb = getServiceClient(config);
   const existing = await loadDomainForWorkspace(sb, workspaceId, domainId);
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  if ((await fixedDomainIds(config, [existing])).size) return res.status(403).json(PRIMARY_DOMAIN_FIXED);
   const { error } = await sb.from('workspace_domains').delete().eq('id', domainId);
   if (error) return res.status(500).json({ error: error.message });
   // Removal must take effect immediately — a removed domain keeps working
@@ -619,6 +714,15 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/domains/:domainId/primary`, async
   const sb = getServiceClient(config);
   const existing = await loadDomainForWorkspace(sb, workspaceId, domainId);
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  if (existing.is_primary) return res.json({ success: true });
+  // The registered website keeps the flag; any other primary moves as before.
+  const { data: primary, error: primaryError } = await sb
+    .from('workspace_domains')
+    .select('id, workspace_id, verified, normalized_domain')
+    .eq('workspace_id', workspaceId)
+    .eq('is_primary', true);
+  if (primaryError) return res.status(500).json({ error: primaryError.message });
+  if ((await fixedDomainIds(config, (primary ?? []) as DomainRowKey[])).size) return res.status(403).json(PRIMARY_DOMAIN_FIXED);
   await sb.from('workspace_domains').update({ is_primary: false }).eq('workspace_id', workspaceId);
   const { error } = await sb.from('workspace_domains').update({ is_primary: true }).eq('id', domainId);
   if (error) return res.status(500).json({ error: error.message });

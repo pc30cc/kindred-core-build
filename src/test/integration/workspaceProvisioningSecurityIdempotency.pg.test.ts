@@ -44,6 +44,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { ensureAuthChainInstalled } from './authStubSchema';
 import type { PgQueryable } from './pgMigrationChain';
+import { websiteFor } from './testWebsite';
 
 const DSN = process.env.TEST_DATABASE_URL || process.env.CLEAN_INSTALL_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
@@ -322,7 +323,7 @@ function call(method: string, path: string, opts: { body?: unknown; cookie?: str
 function extractTokenFromUrl(url: string): string { return new URL(url).searchParams.get('token')!; }
 
 async function signupOnly(email: string): Promise<void> {
-  const res = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Provisioning Test User' } });
+  const res = await call('POST', '/api/auth/signup', { body: { email, password: 'CorrectHorseBattery1', fullName: 'Provisioning Test User', website: websiteFor(email) } });
   expect(res.status).toBe(200);
 }
 

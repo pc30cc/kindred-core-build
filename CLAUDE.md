@@ -423,7 +423,13 @@ over unchanged. A full disk stops Postgres too.
     flagged conversations, both assigned, read `needs_reply` on both sides;
     RESPOK, which had no flagged conversation in its dry run
     (`/root/respok-migrate-287/`), by its migrator on push; steps in
-    `docs/operations/CHAT_ROUTING.md`, "Rollout of 287").
+    `docs/operations/CHAT_ROUTING.md`, "Rollout of 287"). Then
+    `288_owner_website_registered_once.sql` (an account's later workspaces
+    no longer re-claim the owner's website, which made them fail with the
+    verified-domain index; it writes no data), applied by hand on
+    host.respok.app before the merge of the website rule, 2026-10-28
+    21:59 UTC (a schema dump and the dry run in `/root/webyar-migrate-288/`;
+    the 3 verified domain rows unchanged); RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

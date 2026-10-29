@@ -14,6 +14,7 @@ import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import SignupStepAccount from '@/components/auth/SignupStepAccount';
 import SignupStepCompany from '@/components/auth/SignupStepCompany';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
+import { isDomainRefusal, settingsErrorMessage } from '@/lib/settingsErrors';
 import { useSignupEnabled } from '@/hooks/useSignupEnabled';
 import { Button } from '@/components/ui/button';
 
@@ -65,7 +66,7 @@ export default function SignupPage() {
   // Step 2: register + create workspace
   const handleStep2 = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyName.trim()) return;
+    if (!companyName.trim() || !websiteDomain.trim()) return;
 
     setLoading(true);
     const trimmedEmail = email.trim().toLowerCase();
@@ -90,6 +91,10 @@ export default function SignupPage() {
           toast.error(t('auth.signupDisabledTitle'), { description: t('auth.signupDisabledDesc') });
         } else if (error.message.toLowerCase().includes('already exists')) {
           toast.error(t('auth.accountExists'), { description: t('auth.accountExistsHint') });
+        } else if (isDomainRefusal(error)) {
+          // The website is refused before anything is created: taken by
+          // another workspace, a platform host, or not a domain.
+          toast.error(t('auth.signupFailed'), { description: settingsErrorMessage(error, t) });
         } else {
           toast.error(t('auth.signupFailed'), { description: error.message });
         }

@@ -41,6 +41,7 @@ import {
   startYahooOAuth,
   disconnectYahoo,
   type SendEmailInput,
+  type EmailMailbox,
 } from '@/lib/emailInbox-api';
 
 type ThreadFilter = { unread?: boolean; starred?: boolean; q?: string };
@@ -82,7 +83,7 @@ function forgetOnRevoked(err: unknown, scope: string | null): void {
  *
  * Table-backed (Yahoo, `scope` null): read from the server and polled, as before.
  */
-export function useEmailThreads(workspaceId: string | undefined, scope: string | null, opts: ThreadFilter = {}) {
+export function useEmailThreads(workspaceId: string | undefined, scope: string | null, opts: ThreadFilter = {}, mailbox?: EmailMailbox) {
   const filter = filterKeyOf(opts);
   const firstKey = scope ? listKey(scope, `${filter}|`) : null;
 
@@ -95,11 +96,11 @@ export function useEmailThreads(workspaceId: string | undefined, scope: string |
   });
 
   return useInfiniteQuery({
-    queryKey: ['email-inbox-threads', workspaceId, filter, scope],
+    queryKey: ['email-inbox-threads', workspaceId, filter, scope, mailbox],
     initialPageParam: '',
     queryFn: async ({ pageParam }) => {
       const fetchPage = async () => {
-        const page = await listEmailThreads(workspaceId!, { ...opts, pageToken: pageParam || undefined });
+        const page = await listEmailThreads(workspaceId!, { ...opts, pageToken: pageParam || undefined }, mailbox);
         return { value: page, version: page.historyId ?? null };
       };
       try {
@@ -137,6 +138,7 @@ export function useEmailThread(
   scope: string | null,
   threadId: string | undefined,
   row: (ThreadFlags & { version: string | null }) | null = null,
+  mailbox?: EmailMailbox,
 ) {
   const expectVersion = row?.version ?? null;
   // Read by the query function at fetch time: the key stays stable when the
@@ -157,10 +159,10 @@ export function useEmailThread(
   });
 
   const query = useQuery({
-    queryKey: ['email-inbox-thread', workspaceId, threadId, scope],
+    queryKey: ['email-inbox-thread', workspaceId, threadId, scope, mailbox],
     queryFn: async () => {
       const fetchThread = async () => {
-        const detail = await getEmailThread(workspaceId!, threadId!);
+        const detail = await getEmailThread(workspaceId!, threadId!, mailbox);
         return { value: detail, version: threadBodyVersion(detail.thread) };
       };
       try {
@@ -257,7 +259,8 @@ export function useEmailMailboxSync(workspaceId: string | undefined, scope: stri
           }
           try {
             const startedAt = cacheEpoch();
-            const changes = await getEmailChanges(workspaceId, cursor);
+            // Only the live (Gmail) mailbox keeps a cursor (`scope`).
+            const changes = await getEmailChanges(workspaceId, cursor, 'gmail');
             if (changes.historyId) await writeEntry(scope, cursorKey(scope), changes.historyId, changes.historyId, startedAt);
             if (changes.reset) {
               await dropLists(scope);
@@ -349,11 +352,11 @@ function patchThreadEverywhere(
   }
 }
 
-export function useSetEmailThreadRead(workspaceId?: string, scope: string | null = null) {
+export function useSetEmailThreadRead(workspaceId?: string, scope: string | null = null, mailbox?: EmailMailbox) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ threadId, isRead }: { threadId: string; isRead: boolean }) =>
-      setEmailThreadRead(workspaceId!, threadId, isRead),
+      setEmailThreadRead(workspaceId!, threadId, isRead, mailbox),
     onSuccess: (_data, { threadId, isRead }) => {
       patchThreadEverywhere(qc, workspaceId, scope, threadId, { isRead });
       if (!scope) qc.invalidateQueries({ queryKey: ['email-inbox-threads', workspaceId] });
@@ -361,11 +364,11 @@ export function useSetEmailThreadRead(workspaceId?: string, scope: string | null
   });
 }
 
-export function useSetEmailThreadStarred(workspaceId?: string, scope: string | null = null) {
+export function useSetEmailThreadStarred(workspaceId?: string, scope: string | null = null, mailbox?: EmailMailbox) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ threadId, starred }: { threadId: string; starred: boolean }) =>
-      setEmailThreadStarred(workspaceId!, threadId, starred),
+      setEmailThreadStarred(workspaceId!, threadId, starred, mailbox),
     onSuccess: (_data, { threadId, starred }) => {
       patchThreadEverywhere(qc, workspaceId, scope, threadId, { isStarred: starred });
       if (!scope) qc.invalidateQueries({ queryKey: ['email-inbox-threads', workspaceId] });
@@ -373,10 +376,10 @@ export function useSetEmailThreadStarred(workspaceId?: string, scope: string | n
   });
 }
 
-export function useSendEmail(workspaceId?: string, scope: string | null = null) {
+export function useSendEmail(workspaceId?: string, scope: string | null = null, mailbox?: EmailMailbox) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: SendEmailInput) => sendEmail(workspaceId!, input),
+    mutationFn: (input: SendEmailInput) => sendEmail(workspaceId!, input, mailbox),
     onSuccess: async (_data, variables) => {
       // The sent reply exists only in Gmail: drop this device's copies so the
       // next read picks it up.

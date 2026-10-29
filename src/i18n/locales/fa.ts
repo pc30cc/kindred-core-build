@@ -3231,6 +3231,7 @@ const fa: TranslationKeys = {
     noSubject: '(بدون موضوع)',
     unknownSender: 'فرستنده نامشخص',
     selectThread: 'یک ایمیل را برای مطالعه انتخاب کنید',
+    mailbox: 'صندوق ایمیل',
     statusQueued: 'در حال ارسال…',
     statusSent: 'ارسال شد',
     statusFailed: 'ارسال ناموفق بود',

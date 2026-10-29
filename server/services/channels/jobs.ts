@@ -248,6 +248,38 @@ export async function completeChannelJob(sb: SupabaseClient, job: ChannelJob): P
 }
 
 /**
+ * Records progress on a claimed job (merged into its payload) and renews its
+ * lease, but only while this worker still holds the claim. False means the
+ * claim is gone (the lease ran out and another run may hold the job now), so
+ * the caller must stop before doing anything it could not undo.
+ *
+ * A mailbox send is the reason: the marker it writes before handing a mail to
+ * the provider, and the one after, are what keep a later run of the same job
+ * (a failed report, an expired lease, a restart) from sending it again.
+ */
+export async function markChannelJob(
+  sb: SupabaseClient,
+  job: ChannelJob,
+  patch: Record<string, unknown>,
+  leaseSeconds: number,
+): Promise<boolean> {
+  const payload = { ...(job.payload ?? {}), ...patch };
+  const claimExpiresAt = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+  const { data, error } = await sb
+    .from('channel_jobs')
+    .update({ payload, claim_expires_at: claimExpiresAt, updated_at: new Date().toISOString() })
+    .eq('id', job.id)
+    .eq('claim_token', job.claim_token)
+    .eq('status', 'running')
+    .select('id');
+  if (error) throw new Error(`channel job progress update failed: ${error.message}`);
+  if (!(data ?? []).length) return false;
+  job.payload = payload;
+  job.claim_expires_at = claimExpiresAt;
+  return true;
+}
+
+/**
  * Put a claimed job back on the queue WITHOUT consuming a retry.
  *
  * Used only for failures that are provably not the job's fault — Core

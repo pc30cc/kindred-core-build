@@ -54,6 +54,7 @@ function sendEmailInboxError(res: Response, err: unknown) {
       err.code === 'email_rate_limited' ? 429 :
       err.code === 'email_missing_recipient' ? 400 :
       err.code === 'unsupported_folder' ? 400 :
+      err.code === 'invalid_attachment' ? 400 :
       500;
     return res.status(status).json({ error: err.code, message: err.message });
   }
@@ -310,7 +311,9 @@ const sendSchema = z.object({
     contentType: z.string(),
     sizeBytes: z.number(),
   })).optional(),
-  // Live (Gmail) inbox only: a retry with the same id does not send twice.
+  // A retry with the same id does not send twice: a live (Gmail) inbox
+  // replays the first result, a queued (Yahoo) one returns the reply it
+  // already queued.
   client_request_id: z.string().min(8).max(100).regex(/^[A-Za-z0-9-]+$/).optional(),
   // Live (Gmail) inbox only: bytes sent with the reply, never stored.
   inline_attachments: z.array(z.object({
@@ -383,6 +386,7 @@ emailInboxRouter.post('/:workspaceId/send', async (req, res) => {
       textBody: parsed.data.text_body,
       htmlBody: parsed.data.html_body,
       attachments,
+      clientRequestId: parsed.data.client_request_id ?? null,
     }, provider);
     res.json(result);
   } catch (err) {

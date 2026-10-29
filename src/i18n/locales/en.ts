@@ -3248,6 +3248,7 @@ const en = {
     noSubject: '(no subject)',
     unknownSender: 'Unknown sender',
     selectThread: 'Select an email to read it',
+    mailbox: 'Mailbox',
     statusQueued: 'Sending…',
     statusSent: 'Sent',
     statusFailed: 'Failed to send',

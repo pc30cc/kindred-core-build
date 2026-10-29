@@ -19,6 +19,7 @@
 import type { ServerConfig } from '../../config.js';
 import { updateIntegration, type ChannelIntegration } from '../channels/integrations.js';
 import { createHash } from 'node:crypto';
+import { mailboxSenderName } from './mailboxSender.js';
 import { getGmailAccessToken, evictGmailAccessToken } from '../channels/gmail/oauth.js';
 import { getGmailOAuthConfig } from '../channels/gmail/oauthConfig.js';
 import { GmailError, isGmailGrantRevoked } from '../channels/gmail/types.js';
@@ -540,8 +541,29 @@ export interface GmailSendInput {
 // A send the client gave up on (timeout, dropped connection) may still have
 // gone out; its retry must not send the mail twice. Results are kept by
 // client request id for a few minutes, in this process only — ids, not content.
+//
+// Our own Gmail call can time out too (GMAIL_TIMEOUT_MS) after Google has
+// already taken the mail; a large one is the likely case. Such a send is not
+// a definite failure: its entry stays, marked `uncertain`, and a retry first
+// asks Gmail for the copy carrying this send's Message-ID, sending again only
+// when there is none. The Message-ID is derived from the request id and the
+// mail itself, so even a retry this process cannot see (another backend, or
+// after a deploy) goes out with the same Message-ID, which a recipient's mail
+// service treats as the same message.
 const SEND_REPLAY_MS = 10 * 60 * 1000;
-const recentSends = new Map<string, { at: number; result: Promise<{ messageId: string; threadId: string }> }>();
+type ReplayEntry = { at: number; result: Promise<{ messageId: string; threadId: string }>; uncertain: boolean };
+const recentSends = new Map<string, ReplayEntry>();
+
+/** What one send attempt learnt about its own outcome. */
+interface SendProgress {
+  /** The mail was handed to Gmail and no answer came back (our timeout, a dropped connection). */
+  outcomeUnknown: boolean;
+}
+
+function stableMessageId(replayKey: string, fromEmail: string): string {
+  const domain = fromEmail.split('@')[1] || 'localhost';
+  return `<${createHash('sha256').update(`gmail-send:${replayKey}`).digest('hex').slice(0, 40)}@${domain}>`;
+}
 
 export async function sendGmail(
   config: ServerConfig,
@@ -561,13 +583,25 @@ export async function sendGmail(
     : null;
   const replayKey = input.clientRequestId ? `${integration.id}:${input.clientRequestId}:${fingerprint}` : null;
   const previous = replayKey ? recentSends.get(replayKey) : undefined;
-  if (previous) return previous.result;
-  const result = sendGmailOnce(config, integration, input, subjectForReply);
-  if (replayKey) {
-    recentSends.set(replayKey, { at: now, result });
-    // A definite failure may be retried for real.
-    result.catch(() => recentSends.delete(replayKey));
-  }
+  if (previous && !previous.uncertain) return previous.result;
+  if (!replayKey) return sendGmailOnce(config, integration, input, subjectForReply, { outcomeUnknown: false });
+
+  const messageIdHeader = integration.external_account_id ? stableMessageId(replayKey, integration.external_account_id) : undefined;
+  const progress: SendProgress = { outcomeUnknown: false };
+  const result = (async () => {
+    if (previous?.uncertain && messageIdHeader) {
+      const found = await withGmail(config, integration, (ga, accessToken) => ga.findMessageByRfc822Id(accessToken, messageIdHeader));
+      if (found) return { messageId: found.gmailId, threadId: found.threadId };
+    }
+    return sendGmailOnce(config, integration, input, subjectForReply, progress, messageIdHeader);
+  })();
+  const entry: ReplayEntry = { at: now, result, uncertain: false };
+  recentSends.set(replayKey, entry);
+  result.catch(() => {
+    // A definite failure may be retried for real; an unknown one is checked first.
+    if (progress.outcomeUnknown) entry.uncertain = true;
+    else if (recentSends.get(replayKey) === entry) recentSends.delete(replayKey);
+  });
   return result;
 }
 
@@ -576,10 +610,13 @@ async function sendGmailOnce(
   integration: ChannelIntegration,
   input: GmailSendInput,
   subjectForReply: (subject: string) => string,
+  progress: SendProgress,
+  messageIdHeader?: string,
 ): Promise<{ messageId: string; threadId: string }> {
   const fromEmail = integration.external_account_id;
   if (!fromEmail) throw new GmailLiveError('email_not_connected');
   if (input.threadId && !GMAIL_ID.test(input.threadId)) throw new GmailLiveError('email_thread_not_found');
+  const fromName = await mailboxSenderName(config, integration);
   return withGmail(config, integration, async (ga, accessToken) => {
     let subject = input.subject;
     let inReplyTo: string | null = null;
@@ -593,8 +630,8 @@ async function sendGmailOnce(
       inReplyTo = last.messageIdHeader;
       references = [...last.references, ...(last.messageIdHeader ? [last.messageIdHeader] : [])];
     }
-    const sent = await ga.sendMessage(accessToken, {
-      from: { email: fromEmail },
+    const outbound = {
+      from: { email: fromEmail, name: fromName },
       to: input.to.map((email) => ({ email })),
       cc: (input.cc ?? []).map((email) => ({ email })),
       bcc: (input.bcc ?? []).map((email) => ({ email })),
@@ -604,7 +641,17 @@ async function sendGmailOnce(
       inReplyTo,
       references,
       attachments: input.attachments,
-    }, input.threadId);
-    return { messageId: sent.gmailId, threadId: sent.threadId };
+      messageId: messageIdHeader,
+    };
+    try {
+      const sent = await ga.sendMessage(accessToken, outbound, input.threadId);
+      return { messageId: sent.gmailId, threadId: sent.threadId };
+    } catch (err) {
+      // No answer is not a refusal: Google may have taken it.
+      if (err instanceof GmailError && (err.code === 'gmail_timeout' || err.code === 'gmail_network_error')) {
+        progress.outcomeUnknown = true;
+      }
+      throw err;
+    }
   });
 }

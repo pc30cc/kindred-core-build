@@ -28,7 +28,8 @@ import { getInstallation } from '../plugins/state.js';
 import { getIntegrationForInstallation, type ChannelIntegration } from '../channels/integrations.js';
 import { enqueueChannelJob } from '../channels/jobs.js';
 import { uploadFile, getFileUrl, downloadFile } from '../storage/index.js';
-import { emailAttachmentKey } from '../storage/keys.js';
+import { assertSafeStorageKey, emailAttachmentKey, workspaceRoot } from '../storage/keys.js';
+import { mailboxSenderName } from './mailboxSender.js';
 import { GMAIL_PLUGIN_ID } from '../channels/gmail/oauth.js';
 import { YAHOO_PLUGIN_ID } from '../../../shared/channels/yahooKeys.js';
 import {
@@ -353,7 +354,11 @@ export async function getAttachmentFile(
     .maybeSingle();
   const found = row as Pick<EmailAttachmentRow, 'id' | 'filename' | 'content_type' | 'storage_key'> | null;
   if (!found?.storage_key) return null;
-  const file = await downloadFile(config, workspaceId, found.storage_key, { allowLegacyKey: true });
+  // Only this workspace's own pre-migration keys need the legacy allowance;
+  // every other key is held to the workspace's scope.
+  const file = await downloadFile(config, workspaceId, found.storage_key, {
+    allowLegacyKey: isOwnLegacyEmailAttachmentKey(workspaceId, found.storage_key),
+  });
   if (!file.success || !file.data) return null;
   return {
     data: file.data,
@@ -630,6 +635,63 @@ export async function stageComposeAttachment(
   return { storageKey: result.fileKey, filename: safeName, contentType, sizeBytes: bytes.byteLength };
 }
 
+/** A key stageComposeAttachment (or inbound ingest) writes for this workspace. */
+export function isComposeAttachmentKey(workspaceId: string, key: string): boolean {
+  try {
+    assertSafeStorageKey(key);
+  } catch {
+    return false;
+  }
+  return key.startsWith(`${workspaceRoot(workspaceId)}/attachments/email/`);
+}
+
+/** A row written before the canonical layout, under this workspace's own legacy prefix. */
+export function isOwnLegacyEmailAttachmentKey(workspaceId: string, key: string): boolean {
+  try {
+    assertSafeStorageKey(key);
+  } catch {
+    return false;
+  }
+  return key.toLowerCase().startsWith(`email-attachments/${workspaceId.toLowerCase()}/`);
+}
+
+/**
+ * The files a reply names must be ones this workspace staged, or files of the
+ * same conversation being sent on again. The key comes from the client, and
+ * it decides what the Worker reads from storage and mails out, and what the
+ * download route serves: any other key would let a member mail or download
+ * a file they were never given.
+ */
+async function assertComposeAttachments(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  threadId: string | null,
+  attachments: StagedAttachment[],
+): Promise<void> {
+  if (!attachments.length) return;
+  if (attachments.some((a) => !isComposeAttachmentKey(workspaceId, a.storageKey))) {
+    throw new EmailInboxError('invalid_attachment');
+  }
+  const keys = Array.from(new Set(attachments.map((a) => a.storageKey)));
+  const { data: known, error } = await sb
+    .from('email_attachments')
+    .select('message_id')
+    .eq('workspace_id', workspaceId)
+    .in('storage_key', keys);
+  if (error) throw new EmailInboxError('email_provider_error', error.message);
+  const messageIds = Array.from(new Set(((known ?? []) as Array<{ message_id: string }>).map((r) => r.message_id)));
+  if (!messageIds.length) return;
+  if (!threadId) throw new EmailInboxError('invalid_attachment');
+  const { data: messages, error: messagesError } = await sb
+    .from('email_messages')
+    .select('thread_id')
+    .in('id', messageIds);
+  if (messagesError) throw new EmailInboxError('email_provider_error', messagesError.message);
+  if (((messages ?? []) as Array<{ thread_id: string }>).some((m) => m.thread_id !== threadId)) {
+    throw new EmailInboxError('invalid_attachment');
+  }
+}
+
 // ─── Compose / reply ────────────────────────────────────────────────────
 
 export interface ComposeReplyInput {
@@ -641,6 +703,12 @@ export interface ComposeReplyInput {
   textBody: string;
   htmlBody?: string | null;
   attachments?: StagedAttachment[];
+  /**
+   * Client-chosen key for this reply (the web keeps one per reply across
+   * retries): a retry after a timeout or an error returns the reply already
+   * queued instead of queueing it again.
+   */
+  clientRequestId?: string | null;
 }
 
 /**
@@ -668,6 +736,28 @@ function generateEmailMessageId(fromEmail: string): string {
   return `<${randomBytes(16).toString('hex')}.${Date.now()}@${domain}>`;
 }
 
+/** Before migration 289f the column is not there: replies are then queued without it, as before. */
+function isMissingRequestIdColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && error.code !== '23505' && /client_request_id/.test(error.message ?? '');
+}
+
+/** The reply this client request already queued; `undefined` when the database cannot tell (no 289f yet). */
+async function messageForRequest(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  clientRequestId: string,
+): Promise<{ id: string } | null | undefined> {
+  const { data, error } = await sb
+    .from('email_messages')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('client_request_id', clientRequestId)
+    .maybeSingle();
+  if (isMissingRequestIdColumn(error)) return undefined;
+  if (error) throw new EmailInboxError('email_provider_error', error.message);
+  return (data as { id: string } | null) ?? null;
+}
+
 export async function composeReply(
   config: ServerConfig,
   workspaceId: string,
@@ -681,6 +771,12 @@ export async function composeReply(
   if (!fromEmail) throw new EmailInboxError('email_not_connected');
 
   const sb = getServiceClient(config);
+  let clientRequestId = input.clientRequestId || null;
+  if (clientRequestId) {
+    const earlier = await messageForRequest(sb, workspaceId, clientRequestId);
+    if (earlier) return { messageId: earlier.id };
+    if (earlier === undefined) clientRequestId = null;
+  }
 
   let threadId = input.threadId;
   let externalThreadId: string | null = null;
@@ -712,118 +808,153 @@ export async function composeReply(
     }
   }
 
+  await assertComposeAttachments(sb, workspaceId, threadId, input.attachments ?? []);
+
   const messageId = generateEmailMessageId(fromEmail);
   const sentAt = new Date().toISOString();
   const isGmail = integration.provider === 'gmail';
+  const fromName = await mailboxSenderName(config, integration);
 
-  // A brand-new (non-reply) thread has no server-side row yet — one is
-  // created here so the outbound message always has a thread_id to attach
-  // to. Gmail assigns its OWN thread id only once the message is actually
-  // sent, so its external_thread_id starts as a `pending-` placeholder the
-  // Worker's send response patches (see /gmail/outbound-result). Yahoo has
-  // no provider-side thread id at all — Core derives one from headers the
-  // same way inbound sync does (deriveYahooThreadId in
-  // internalChannels.ts): a message with no References/In-Reply-To yet is
-  // the root of its own thread, so its own Message-ID IS the thread id,
-  // final from the start — no patch-up needed.
-  if (!threadId) {
-    const { data: newThread, error: threadError } = await sb
-      .from('email_threads')
+  // What this request has written so far. A reply that does not reach the
+  // queue is taken out again: a 'queued' row nothing will ever send would
+  // show as pending forever, and the client's retry writes it afresh.
+  let createdThreadId: string | null = null;
+  let messageRowId: string | null = null;
+  const undo = async () => {
+    if (messageRowId) await sb.from('email_messages').delete().eq('id', messageRowId);
+    if (createdThreadId) await sb.from('email_threads').delete().eq('id', createdThreadId);
+  };
+
+  try {
+    // A brand-new (non-reply) thread has no server-side row yet — one is
+    // created here so the outbound message always has a thread_id to attach
+    // to. Gmail assigns its OWN thread id only once the message is actually
+    // sent, so its external_thread_id starts as a `pending-` placeholder the
+    // Worker's send response patches (see /gmail/outbound-result). Yahoo has
+    // no provider-side thread id at all — Core derives one from headers the
+    // same way inbound sync does (deriveYahooThreadId in
+    // internalChannels.ts): a message with no References/In-Reply-To yet is
+    // the root of its own thread, so its own Message-ID IS the thread id,
+    // final from the start — no patch-up needed.
+    if (!threadId) {
+      const { data: newThread, error: threadError } = await sb
+        .from('email_threads')
+        .insert({
+          workspace_id: workspaceId,
+          integration_id: integration.id,
+          provider: integration.provider,
+          external_thread_id: isGmail ? `pending-${messageId}` : messageId,
+          subject,
+          participants: input.to.map((email) => ({ email })),
+          last_message_at: sentAt,
+          is_read: true,
+        })
+        .select('id')
+        .single();
+      if (threadError || !newThread) throw new EmailInboxError('email_provider_error', threadError?.message);
+      threadId = newThread.id;
+      createdThreadId = newThread.id;
+    } else {
+      await sb.from('email_threads').update({ last_message_at: sentAt, is_read: true }).eq('id', threadId);
+    }
+
+    const { data: messageRow, error: messageError } = await sb
+      .from('email_messages')
       .insert({
+        thread_id: threadId,
         workspace_id: workspaceId,
-        integration_id: integration.id,
-        provider: integration.provider,
-        external_thread_id: isGmail ? `pending-${messageId}` : messageId,
-        subject,
-        participants: input.to.map((email) => ({ email })),
-        last_message_at: sentAt,
+        external_message_id: messageId,
+        in_reply_to: inReplyTo,
+        message_references: references,
+        direction: 'outbound',
+        from_address: fromEmail,
+        to_addresses: input.to.map((email) => ({ email })),
+        cc_addresses: (input.cc ?? []).map((email) => ({ email })),
+        bcc_addresses: (input.bcc ?? []).map((email) => ({ email })),
+        text_body: input.textBody,
+        html_body: input.htmlBody ?? null,
+        snippet: input.textBody.slice(0, 200),
         is_read: true,
+        sent_by: userId,
+        sent_at: sentAt,
+        delivery_status: 'queued',
+        ...(clientRequestId ? { client_request_id: clientRequestId } : {}),
       })
       .select('id')
       .single();
-    if (threadError || !newThread) throw new EmailInboxError('email_provider_error', threadError?.message);
-    threadId = newThread.id;
-  } else {
-    await sb.from('email_threads').update({ last_message_at: sentAt, is_read: true }).eq('id', threadId);
-  }
+    if (messageError?.code === '23505' && clientRequestId) {
+      // The same request, in flight twice at once: the other one queued it.
+      const earlier = await messageForRequest(sb, workspaceId, clientRequestId);
+      if (earlier) {
+        await undo();
+        return { messageId: earlier.id };
+      }
+    }
+    if (messageError || !messageRow) throw new EmailInboxError('email_provider_error', messageError?.message);
+    messageRowId = messageRow.id;
 
-  const { data: messageRow, error: messageError } = await sb
-    .from('email_messages')
-    .insert({
-      thread_id: threadId,
-      workspace_id: workspaceId,
-      external_message_id: messageId,
-      in_reply_to: inReplyTo,
-      message_references: references,
-      direction: 'outbound',
-      from_address: fromEmail,
-      to_addresses: input.to.map((email) => ({ email })),
-      cc_addresses: (input.cc ?? []).map((email) => ({ email })),
-      bcc_addresses: (input.bcc ?? []).map((email) => ({ email })),
+    // Each file goes by its row id: the Worker asks Core for its bytes
+    // (/internal/channels/mail/outbound-attachment). `url` is for a Worker
+    // that predates that route, during a rollout.
+    const attachmentRefs: Array<{ attachment_id: string; filename: string; content_type: string; url: string | null }> = [];
+    for (const att of input.attachments ?? []) {
+      const { data: attRow, error: attError } = await sb.from('email_attachments').insert({
+        message_id: messageRow.id,
+        workspace_id: workspaceId,
+        filename: att.filename,
+        content_type: att.contentType,
+        size_bytes: att.sizeBytes,
+        storage_key: att.storageKey,
+      }).select('id').single();
+      if (attError || !attRow) throw new EmailInboxError('email_provider_error', attError?.message);
+      attachmentRefs.push({
+        attachment_id: (attRow as { id: string }).id,
+        filename: att.filename,
+        content_type: att.contentType,
+        url: await getFileUrl(config, workspaceId, att.storageKey).catch(() => null),
+      });
+    }
+
+    const commonOutboundPayload = {
+      email_message_id: messageRow.id,
+      message_id: messageId,
+      from_email: fromEmail,
+      from_name: fromName,
+      to: input.to,
+      cc: input.cc ?? [],
+      bcc: input.bcc ?? [],
+      subject,
       text_body: input.textBody,
       html_body: input.htmlBody ?? null,
-      snippet: input.textBody.slice(0, 200),
-      is_read: true,
-      sent_by: userId,
-      sent_at: sentAt,
-      delivery_status: 'queued',
-    })
-    .select('id')
-    .single();
-  if (messageError || !messageRow) throw new EmailInboxError('email_provider_error', messageError?.message);
+      in_reply_to: inReplyTo,
+      references,
+      attachments: attachmentRefs,
+    };
 
-  const attachmentRefs: Array<{ filename: string; content_type: string; url: string | null }> = [];
-  for (const att of input.attachments ?? []) {
-    const { error: attError } = await sb.from('email_attachments').insert({
-      message_id: messageRow.id,
-      workspace_id: workspaceId,
-      filename: att.filename,
-      content_type: att.contentType,
-      size_bytes: att.sizeBytes,
-      storage_key: att.storageKey,
-    });
-    if (attError) throw new EmailInboxError('email_provider_error', attError.message);
-    attachmentRefs.push({
-      filename: att.filename,
-      content_type: att.contentType,
-      url: await getFileUrl(config, workspaceId, att.storageKey).catch(() => null),
-    });
+    await enqueueChannelJob(sb, isGmail
+      ? {
+          provider: 'gmail',
+          jobType: 'gmail_outbound_message',
+          workspaceId,
+          integrationId: integration.id,
+          payload: {
+            ...commonOutboundPayload,
+            local_thread_id: threadId,
+            gmail_thread_id: externalThreadId,
+          },
+        }
+      : {
+          provider: 'yahoo',
+          jobType: 'yahoo_outbound_message',
+          workspaceId,
+          integrationId: integration.id,
+          payload: commonOutboundPayload,
+        });
+
+    return { messageId: messageRow.id };
+  } catch (err) {
+    await undo().catch((undoErr) => console.error('[email-inbox] could not take back an unqueued reply:', undoErr));
+    if (err instanceof EmailInboxError) throw err;
+    throw new EmailInboxError('email_provider_error', (err as Error)?.message);
   }
-
-  const commonOutboundPayload = {
-    email_message_id: messageRow.id,
-    message_id: messageId,
-    from_email: fromEmail,
-    to: input.to,
-    cc: input.cc ?? [],
-    bcc: input.bcc ?? [],
-    subject,
-    text_body: input.textBody,
-    html_body: input.htmlBody ?? null,
-    in_reply_to: inReplyTo,
-    references,
-    attachments: attachmentRefs,
-  };
-
-  await enqueueChannelJob(sb, isGmail
-    ? {
-        provider: 'gmail',
-        jobType: 'gmail_outbound_message',
-        workspaceId,
-        integrationId: integration.id,
-        payload: {
-          ...commonOutboundPayload,
-          local_thread_id: threadId,
-          gmail_thread_id: externalThreadId,
-        },
-      }
-    : {
-        provider: 'yahoo',
-        jobType: 'yahoo_outbound_message',
-        workspaceId,
-        integrationId: integration.id,
-        payload: commonOutboundPayload,
-      });
-
-  return { messageId: messageRow.id };
 }

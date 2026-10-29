@@ -22,11 +22,14 @@
  * in the workspace's domains is never removed or edited, nor loses the
  * primary flag (fixedDomainIds; a row naming a platform host only in the
  * platform's own workspace). Until then (the account has no workspace, or
- * only a workspace of another account holds it verified: provisioning found
- * it taken meanwhile, or it was stored before) it may be replaced, checked
- * as at signup, never cleared. A profile without one (an older account) may
- * set one, once, the domain its own workspace verified included. Removal by
- * the system is not a change and stays: the privacy anonymizer and
+ * none of the owner's holds it verified and the origin resolver hands it to
+ * a workspace of another account: provisioning found it taken meanwhile, or
+ * it was stored before) it may be replaced, checked as at signup, never
+ * cleared. The trigger registers the stored website unchecked, so a new
+ * workspace is refused first while the resolver hands it to another
+ * account's (isOwnerWebsiteTaken). A profile without one (an older account)
+ * may set one, once, the domain its own workspace verified included. Removal
+ * by the system is not a change and stays: the privacy anonymizer and
  * dropPlatformWebsite clear it.
  */
 
@@ -133,6 +136,27 @@ async function isTakenDomain(config: ServerConfig, domain: string, userId?: stri
   return eligible.some((r) => r.domain.length === longest && foreign(r));
 }
 
+/** Is the website whose keys (websiteKeys) are `keys` taken for `userId` (isTakenDomain)? */
+async function isTakenWebsite(config: ServerConfig, keys: string[], userId: string): Promise<boolean> {
+  for (const key of keys) if (await isTakenDomain(config, key, userId)) return true;
+  return false;
+}
+
+/**
+ * Would a new workspace of an account `ownerId` owns take a host away from
+ * another account's workspace? Its INSERT trigger (migrations 239, 288)
+ * verifies the owner's stored website unchecked, and the unique index
+ * refuses only the same name; a website checked when it was stored (a
+ * signup's, its workspace not created yet; an older account's, set before
+ * its next workspace) may since fall under a domain another account verified
+ * with subdomains allowed, and its exact row would then take that host and
+ * everything under it. Not while a workspace of the owner holds it: the
+ * exact row is already theirs.
+ */
+export async function isOwnerWebsiteTaken(config: ServerConfig, ownerId: string): Promise<boolean> {
+  return isTakenWebsite(config, websiteKeys(await storedWebsite(config, ownerId)), ownerId);
+}
+
 /** Is `domain` (canonical) the website another profile stores (since signup stores it canonical)? */
 async function isOtherProfileWebsite(config: ServerConfig, domain: string, userId?: string): Promise<boolean> {
   let query = getServiceClient(config).from('profiles').select('id').eq('website_domain', domain);
@@ -208,9 +232,11 @@ export async function isWebsiteHeldBy(config: ServerConfig, accountIds: string[]
  * older account, the next workspace's creation will), so it was set once and
  * stays, even when the workspace that held it is deleted and another
  * remains. Not while no account of theirs has a workspace (before the first,
- * or once none is left), nor while a workspace outside their accounts holds
- * it verified and none of theirs does (stored before, or taken meanwhile):
- * no workspace can register it for them, so it may be replaced.
+ * or once none is left), nor while none of theirs holds it verified and the
+ * origin resolver hands it to a workspace outside their accounts (verified
+ * there, or under a domain verified there with subdomains allowed: stored
+ * before, or taken meanwhile): no workspace can register it for them, so it
+ * may be replaced.
  */
 export async function isWebsiteRegistered(config: ServerConfig, userId: string, stored: string | null | undefined): Promise<boolean> {
   const keys = websiteKeys(stored);
@@ -224,7 +250,8 @@ export async function isWebsiteRegistered(config: ServerConfig, userId: string, 
     .in('normalized_domain', keys);
   if (error) throw error;
   const holders = ((data ?? []) as Array<{ workspace_id: string }>).map((r) => r.workspace_id);
-  return !holders.length || holders.some((id) => own.has(id));
+  if (holders.some((id) => own.has(id))) return true;
+  return !holders.length && !(await isTakenWebsite(config, keys, userId));
 }
 
 /**

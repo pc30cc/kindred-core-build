@@ -25,9 +25,11 @@
  *                                            and keeps the flag; other rows as before
  *   GET/PATCH /api/admin/management/domains  the same, for Super Admin
  *   POST  /api/workspaces/provision-account  a new account needs a website, which may come
- *                                            with the request; a website verified elsewhere
- *   POST  /api/workspaces                    meanwhile is a clean DOMAIN_TAKEN, never the
- *                                            raw index error
+ *                                            with the request; a website the resolver hands
+ *   POST  /api/workspaces                    to another account's workspace meanwhile is a
+ *                                            clean DOMAIN_TAKEN before the workspace INSERT
+ *                                            (whose trigger registers it unchecked), never
+ *                                            the raw index error
  *
  * The data layer is an in-memory double.
  */
@@ -415,6 +417,20 @@ describe('PATCH /api/account/me: a registered website is fixed', () => {
     expect(profileOf(OWNER)!.website_domain).toBe('second.example');
   });
 
+  it('an older account whose website the resolver hands to another account\'s workspace since may replace it', async () => {
+    // Set once while nobody held it; no workspace of the account registered it yet.
+    profileOf(USER)!.website_domain = 'blog.ninisite.com';
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: false }];
+    expect((await patch({ website_domain: 'second.example' })).status).toBe(403);
+    expect((await request(app).get(`/api/admin/management/users/${USER}`)).body.website_fixed).toBe(true);
+    // ninisite.com's widget allows subdomains since: no workspace can register it for this account.
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }];
+    expect((await request(app).get(`/api/admin/management/users/${USER}`)).body.website_fixed).toBe(false);
+    expect((await patch({ website_domain: null })).body.code).toBe('EMPTY');
+    expect((await patch({ website_domain: 'second.example' })).status).toBe(200);
+    expect(profileOf(USER)!.website_domain).toBe('second.example');
+  });
+
   it('a website another account registered is not this profile\'s registration', async () => {
     profileOf(OWNER)!.website_domain = 'ninisite.com';
     state.userId = OWNER;
@@ -549,9 +565,52 @@ describe('creating a workspace when the website was verified elsewhere meanwhile
   it('POST /api/workspaces answers DOMAIN_TAKEN, not the raw index error', async () => {
     state.rpcError = INDEX_ERROR;
     state.db.workspaces = []; // under the plan's workspace cap
+    state.db.workspace_domains = [];
     const res = await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('DOMAIN_TAKEN');
+    expect(state.rpcCalls).toEqual(['create_workspace_atomic']);
+  });
+
+  it('provision-account: a signup\'s website the resolver hands to another account\'s workspace since is refused before the RPC, then replaced', async () => {
+    // Signed up under a site nobody held; that site's workspace has verified it since, subdomains allowed.
+    state.userId = OWNER;
+    profileOf(OWNER)!.website_domain = 'shop.ninisite.com';
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }];
+    const res = await request(app).post('/api/workspaces/provision-account').send({});
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+    expect(state.rpcCalls).toEqual([]);
+    // Not registered: the next request's website replaces it.
+    expect((await request(app).post('/api/workspaces/provision-account').send({ website: 'own-site.example' })).status).toBe(200);
+    expect(profileOf(OWNER)!.website_domain).toBe('own-site.example');
+    expect(state.rpcCalls).toEqual(['provision_account_on_signup']);
+  });
+
+  it('provision-account: subdomains off there, or an account that has a workspace (the RPC creates none), passes', async () => {
+    state.userId = OWNER;
+    profileOf(OWNER)!.website_domain = 'shop.ninisite.com';
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: false }];
+    expect((await request(app).post('/api/workspaces/provision-account').send({})).status).toBe(200);
+    state.userId = USER;
+    profileOf(USER)!.website_domain = 'blog.ninisite.com';
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }];
+    expect((await request(app).post('/api/workspaces/provision-account').send({})).status).toBe(200);
+    expect(state.rpcCalls).toEqual(['provision_account_on_signup', 'provision_account_on_signup']);
+  });
+
+  it('POST /api/workspaces: an owner\'s website the resolver hands to another account\'s workspace is refused before the RPC', async () => {
+    // An older account set it once, checked then; ninisite.com's widget allows subdomains since.
+    profileOf(USER)!.website_domain = 'blog.ninisite.com';
+    state.db.workspaces = state.db.workspaces.filter((w) => w.account_id !== ACCOUNT); // under the plan's workspace cap
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }];
+    const res = await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+    expect(state.rpcCalls).toEqual([]);
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: false }];
+    expect((await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' })).status).toBe(200);
+    expect(state.rpcCalls).toEqual(['create_workspace_atomic']);
   });
 
   it('other failures keep their answer', async () => {

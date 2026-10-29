@@ -9,6 +9,9 @@
  *     taken at signup;
  *   - a website taken meanwhile is replaced on the next provisioning, then
  *     fixed once its workspace registers it;
+ *   - a website the origin resolver hands to another account's workspace
+ *     since signup (under a domain verified there, subdomains allowed) is
+ *     refused before the workspace INSERT, whose trigger would register it;
  *   - only the registered website's row is fixed: a later workspace's own
  *     domains are made primary, moved and removed as before.
  *
@@ -163,6 +166,29 @@ suite('the owner\'s website on real PostgreSQL', () => {
     expect(await h.rows('SELECT domain, verified, is_primary FROM public.workspace_domains WHERE workspace_id = $1', [ws.id]))
       .toEqual([{ domain: fresh, verified: true, is_primary: true }]);
     expect(await websiteEdit(CONFIG, late.userId, `again-${Date.now()}.example`)).toMatchObject({ ok: false, code: 'WEBSITE_FIXED' });
+  });
+
+  it('a website under a domain another account verified since, subdomains allowed, is refused before the workspace INSERT', async () => {
+    h.freshAddr();
+    const apex = `apex-${Date.now()}.example`;
+    const email = `ow.e.${Date.now()}@example.test`;
+    expect((await h.call('POST', '/api/auth/signup', { body: { email, password: PASSWORD, fullName: 'E', website: `shop.${apex}` } })).status).toBe(200);
+    const late = await verifyAndLogin(email);
+    // The apex's own workspace verifies it since, its widget allowing subdomains.
+    const other = await h.makeOwner(`ow.apex.${Date.now()}@example.test`);
+    await h.db.query('INSERT INTO public.workspace_domains (workspace_id, domain, verified) VALUES ($1, $2, true)', [other.workspaceId, apex]);
+    await h.db.query('UPDATE public.widget_settings SET allow_subdomains = true WHERE workspace_id = $1', [other.workspaceId]);
+
+    const taken = await h.call('POST', '/api/workspaces/provision-account', { cookie: late.cookie });
+    expect(taken.status).toBe(409);
+    expect(taken.json).toEqual({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+    expect(await h.countOf('SELECT count(*)::int AS n FROM public.account_members WHERE user_id = $1', [late.userId])).toBe(0);
+    expect(await h.countOf('SELECT count(*)::int AS n FROM public.workspace_domains WHERE normalized_domain = $1', [`shop.${apex}`])).toBe(0);
+    // Not registered: replaced on the next provisioning.
+    const fresh = `own-${Date.now()}.example`;
+    const made = await h.call('POST', '/api/workspaces/provision-account', { cookie: late.cookie, body: { website: fresh } });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    expect((await h.one('SELECT website_domain FROM public.profiles WHERE id = $1', [late.userId]))!.website_domain).toBe(fresh);
   });
 
   it('only the registered website\'s row is fixed: a later workspace\'s domains are managed as before', async () => {

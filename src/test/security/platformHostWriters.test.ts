@@ -318,8 +318,11 @@ describe.each([
       state.db.accounts.push({ id: ACCOUNT, owner_id: OWNER });
       state.db.account_members.push({ account_id: ACCOUNT, user_id: OWNER });
       state.userId = OWNER;
+      // ninisite.com is another account's verified domain: refused before the INSERT.
+      expect((await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' })).body.code).toBe('DOMAIN_TAKEN');
+      profileOf(OWNER)!.website_domain = 'owner-shop.example';
       expect((await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' })).status).toBe(200);
-      expect(state.triggerSaw).toEqual(['shop.example', 'ninisite.com']);
+      expect(state.triggerSaw).toEqual(['shop.example', 'owner-shop.example']);
       expect(profileOf(USER)!.website_domain).toBe('shop.example');
     });
   });

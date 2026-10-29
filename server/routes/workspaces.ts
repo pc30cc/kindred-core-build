@@ -42,7 +42,7 @@ import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { dropPlatformWebsite, isPlatformHost, isPlatformWorkspace } from '../services/platformHosts.js';
-import { fixedDomainIds, storeWebsite, storedWebsite, websiteEdit, type DomainRowKey } from '../services/ownerWebsite.js';
+import { fixedDomainIds, isOwnerWebsiteTaken, storeWebsite, storedWebsite, websiteEdit, type DomainRowKey } from '../services/ownerWebsite.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 
 export const workspacesRouter = Router();
@@ -205,6 +205,16 @@ workspacesRouter.post('/provision-account', async (req, res) => {
     else if (!accountId && !(await storedWebsite(config, userId))?.trim()) {
       return res.status(400).json({ error: 'EMPTY', code: 'EMPTY' });
     }
+  }
+
+  // The RPC creates a workspace only while the account has none, and that
+  // INSERT verifies the owner's website unchecked (the trigger): refused
+  // first while the origin resolver hands it to another account's workspace.
+  const { data: firstWorkspace } = accountId
+    ? await sb.from('workspaces').select('id').eq('account_id', accountId).limit(1).maybeSingle()
+    : { data: null };
+  if (!firstWorkspace && (await isOwnerWebsiteTaken(config, ownerId))) {
+    return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
   }
 
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
@@ -379,9 +389,13 @@ workspacesRouter.post('/', async (req, res) => {
   }
 
   // The new workspace verifies the account OWNER's website (the trigger),
-  // so a platform host stored there is dropped first.
+  // so a platform host stored there is dropped first, and one the origin
+  // resolver hands to another account's workspace is refused.
   const ownerId = await accountOwnerId(config, parsed.data.accountId);
   if (ownerId) await dropPlatformWebsite(config, ownerId, parsed.data.accountId);
+  if (ownerId && (await isOwnerWebsiteTaken(config, ownerId))) {
+    return res.status(409).json({ error: 'DOMAIN_TAKEN', code: 'DOMAIN_TAKEN' });
+  }
 
   // `create_workspace_atomic` is SECURITY DEFINER but takes `_user_id`
   // explicitly rather than reading auth.uid() — it does its own

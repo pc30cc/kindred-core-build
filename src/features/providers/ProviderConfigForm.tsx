@@ -35,6 +35,8 @@ interface ProviderConfigFormProps {
    * count as filled — leaving one empty keeps the stored value.
    */
   savedSecretKeys?: string[];
+  /** What the server said about a field on the last save, shown under it. */
+  fieldErrors?: Record<string, string>;
 }
 
 function FieldInput({
@@ -128,12 +130,13 @@ export function ProviderConfigForm({
   hideVendorHeader,
   extraActions,
   savedSecretKeys,
+  fieldErrors,
 }: ProviderConfigFormProps) {
   const { t } = useI18n();
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     for (const f of vendor.fields) {
-      init[f.key] = initialValues[f.key] ?? '';
+      init[f.key] = initialValues[f.key] ?? f.defaultValue ?? '';
     }
     return init;
   });
@@ -145,16 +148,19 @@ export function ProviderConfigForm({
 
   // Credentials travel in HTTP headers: a masked placeholder ("••••") or any
   // non-ASCII char (RTL/zero-width paste artifacts) makes the gateway reject
-  // the request with "invalid credentials" — block it at the source.
+  // the request with "invalid credentials" — block it at the source. Only a
+  // credential is checked (a sender name may hold "**"), and never a
+  // `verbatim` one: a password may hold anything, and since a stored secret
+  // is never sent back to this form, what is typed there is never a mask.
   const isCredentialField = (f: ProviderField) =>
     f.type === 'password' ||
     /token|key|secret|password|merchant/i.test(f.key);
 
   const invalidCredential = vendor.fields.filter((f) => {
+    if (f.verbatim || !isCredentialField(f)) return false;
     const v = values[f.key]?.trim();
     if (!v) return false;
-    if (/[•●∙·*]{2,}/.test(v)) return true;
-    return isCredentialField(f) && !/^[\x21-\x7E]+$/.test(v);
+    return /[•●∙·*]{2,}/.test(v) || !/^[\x21-\x7E]+$/.test(v);
   });
 
   // Fields keep their declared order inside each group; groupless fields come first.
@@ -173,8 +179,13 @@ export function ProviderConfigForm({
     e.preventDefault();
     if (invalidCredential.length > 0) return;
     const cleaned: Record<string, string> = {};
-    for (const [k, v] of Object.entries(values)) {
-      if (v.trim()) cleaned[k] = v.trim();
+    for (const field of vendor.fields) {
+      const v = values[field.key] ?? '';
+      if (field.verbatim) {
+        if (v !== '') cleaned[field.key] = v;
+      } else if (v.trim()) {
+        cleaned[field.key] = v.trim();
+      }
     }
     onSubmit(cleaned);
   };
@@ -249,7 +260,8 @@ export function ProviderConfigForm({
           )}
           <div className={cn('grid gap-4', dense && 'sm:grid-cols-2')}>
             {group.fields.map((field) => {
-              const invalid = invalidCredential.some((f) => f.key === field.key);
+              const serverError = fieldErrors?.[field.key];
+              const invalid = invalidCredential.some((f) => f.key === field.key) || !!serverError;
               const isWide = field.type === 'url' || /json|connection_string/.test(field.key);
               return (
                 <div
@@ -284,7 +296,7 @@ export function ProviderConfigForm({
                   {invalid && (
                     <p className="flex items-start gap-1 text-[11px] text-destructive">
                       <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                      {t('adminProviders.form.maskedValue')}
+                      {serverError ?? t('adminProviders.form.maskedValue')}
                     </p>
                   )}
                 </div>

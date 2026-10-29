@@ -93,7 +93,12 @@ describe('the email provider resolves from platform config only', () => {
     };
     walk('server');
 
-    expect(callers).toEqual(['server/services/notificationEmail/dispatcher.ts']);
+    // The Super Admin's "Send test email" of the notification slot names the
+    // same row, from its own slot table, never from the request.
+    expect(callers.sort()).toEqual(['server/routes/adminEmailProviders.ts', 'server/services/notificationEmail/dispatcher.ts']);
+    const route = stripTs(read('server/routes/adminEmailProviders.ts'));
+    expect(route).toContain('providerConfigKey: key');
+    expect(route).toContain('const key = EMAIL_PROVIDER_SLOTS[slot]');
   });
 
   it('no other email module reaches for a workspace provider', () => {
@@ -135,12 +140,15 @@ describe('workspace provider settings still cover everything except email', () =
 
 describe('Super Admin shows no email setting the runtime ignores', () => {
   const page = read('src/pages/admin/BrandingPage.tsx');
-  const section = page.slice(page.indexOf('function EmailSettingsSection'));
   const admin = read('server/routes/adminManagement.ts');
 
   /**
    * Every field that used to sit in Super Admin → Branding → Email Settings
-   * and was read by nothing. Six of the seven.
+   * and was read by nothing. The last of the seven, `reply_to_email`, went
+   * too (2026-10-29): it set no Reply-To on any message, and the one reader
+   * of that column (the offline-message fallback in widget.ts) reads the
+   * workspace's own row, never the platform's. Reply-To is the provider's
+   * `reply_to` now, like From.
    */
   const DEAD = [
     'sender_email',        // From identity lives on the email provider
@@ -149,44 +157,30 @@ describe('Super Admin shows no email setting the runtime ignores', () => {
     'email_footer_text',   // no template has a footer placeholder
     'footer_text',         // localized copy of the above
     'support_contact_label',
+    'reply_to_email',      // Reply-To lives on the email provider
   ];
 
-  it('the section renders none of them', () => {
+  it('the Branding page renders none of them, and has no email settings section', () => {
     for (const field of DEAD) {
-      expect(stripTs(section), `${field} still rendered`).not.toMatch(new RegExp(`\\b${field}\\b`));
+      expect(stripTs(page), `${field} still rendered`).not.toMatch(new RegExp(`\\b${field}\\b`));
     }
+    expect(stripTs(page)).not.toContain('EmailSettingsSection');
+    expect(stripTs(page)).not.toContain('/email-settings');
   });
 
-  it('the admin API accepts none of them', () => {
-    const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
-    const body = schema.slice(0, schema.indexOf('});'));
-    for (const field of DEAD) {
-      expect(body, `${field} still accepted`).not.toMatch(new RegExp(`\\b${field}:`));
-    }
-  });
-
-  it('the localized email-settings routes are gone', () => {
-    // The table has no runtime consumer at all, so the routes only ever wrote
-    // a row nobody would read.
+  it('the admin API has no email-settings route, localized or not', () => {
+    // The table has no platform-level consumer at all, so the routes only
+    // ever wrote a row nobody would read.
+    expect(stripTs(admin)).not.toContain("'/email-settings'");
     expect(stripTs(admin)).not.toContain("'/email-settings-localized'");
-    expect(stripTs(read('src/pages/admin/BrandingPage.tsx'))).not.toContain('email-settings-localized');
+    expect(stripTs(admin)).not.toContain('emailSettingsSchema');
+    expect(stripTs(page)).not.toContain('email-settings-localized');
   });
 
-  it('keeps reply_to_email, which has a real consumer', () => {
-    expect(section).toContain('reply_to_email');
-    const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
-    expect(schema.slice(0, schema.indexOf('});'))).toContain('reply_to_email');
-    // The owners' offline-message notice goes here when no owner or admin who
-    // may read it has an address — a recipient, not a sender.
-    expect(read('server/services/widget/offlineNotice.ts')).toContain('reply_to_email');
-  });
-
-  it('labels it as a recipient, not as the From address', () => {
-    const en = read('src/i18n/locales/en.ts');
-    const block = en.slice(en.indexOf('emailSettings: {'));
-    const hint = block.slice(0, block.indexOf('}'));
-    expect(hint).toContain('replyToEmailHint');
-    expect(hint).toMatch(/NOT the From address/i);
+  it('Reply-To is a field of every email provider, and the send path reads it there', () => {
+    expect(read('shared/emailProviders.ts')).toMatch(/EMAIL_PROVIDER_COMMON_FIELDS = \[[^\]]*'reply_to'/);
+    expect(stripTs(read(SERVICE))).toContain('effective.config.reply_to');
+    expect(stripTs(read(SERVICE))).not.toContain('reply_to_email');
   });
 
   it('the send path never reads the localized table', () => {

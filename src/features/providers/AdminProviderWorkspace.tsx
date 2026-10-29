@@ -12,7 +12,7 @@
  *  - Runtime  : resolution chain, registered instances, health, fallbacks
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowRight, CheckCircle2, ChevronRight, ExternalLink, Info,
@@ -173,11 +173,8 @@ export function AdminProviderWorkspace({ type, extra, initialVendor }: Props) {
   const summary = useProviderSummary();
 
   const [section, setSection] = useState<Section>('vendors');
-  const [selectedVendor, setSelectedVendor] = useState<string>(() => (
-    initialVendor && schema?.vendors.some((v) => v.name === initialVendor)
-      ? initialVendor
-      : schema?.vendors[0]?.name ?? ''
-  ));
+  // The vendor picked on the rail; until then, the one a deep link names.
+  const [pickedVendor, setSelectedVendor] = useState<string | null>(initialVendor ?? null);
   const [healthMap, setHealthMap] = useState<HealthMap>({});
   const [checking, setChecking] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
@@ -202,18 +199,21 @@ export function AdminProviderWorkspace({ type, extra, initialVendor }: Props) {
 
   const configuredVendor = globalConfig?.provider_name ?? null;
 
-  // Open on whatever is actually configured — not on the first vendor in the catalogue.
-  useEffect(() => {
-    if (!configuredVendor) return;
-    // A configured vendor hidden in this edition is not opened.
-    if (edition === 'iran' || schema?.vendors.some((v) => v.name === configuredVendor)) setSelectedVendor(configuredVendor);
-  }, [configuredVendor, schema, edition]);
-
-  useEffect(() => {
-    setSection('vendors');
-    setHealthMap({});
-    setSelectedVendor(getSchemaForEdition(type, edition)?.vendors[0]?.name ?? '');
-  }, [type, edition]);
+  // The vendor the Vendors tab shows, worked out on every render instead of
+  // set by effects: the one picked on the rail (or named by a deep link),
+  // else whatever is actually configured, else the first in the catalogue,
+  // and always one this edition lists (a configured vendor hidden in it is
+  // not opened). Two effects used to set it on mount, and the second, "the
+  // first vendor", won whenever the saved provider was already cached:
+  // reopening a panel landed on another vendor's empty form with "Save &
+  // activate". The panel is mounted per type, so a type starts afresh.
+  const listed = (name: string | null): name is string => !!name && !!schema?.vendors.some((v) => v.name === name);
+  const selectedVendor = listed(pickedVendor)
+    ? pickedVendor
+    : listed(configuredVendor) ? configuredVendor : schema?.vendors[0]?.name ?? '';
+  // The credentials the server holds for the configured vendor: shown as
+  // saved, never filled in (they never reach the browser).
+  const savedSecretKeys = useMemo(() => new Set(globalConfig?.secretKeysSet ?? []), [globalConfig]);
 
   const saveConfig = useMutation({
     mutationFn: async ({ vendor, config }: { vendor: string; config: Record<string, string> }) => {
@@ -464,7 +464,7 @@ export function AdminProviderWorkspace({ type, extra, initialVendor }: Props) {
                     const fields = configuredVendorSchema.fields;
                     const rows = fields.length > 0
                       ? fields.map((f) => ({ key: f.key, label: f.label, field: f, raw: raw[f.key] }))
-                      : Object.keys(raw).map((k) => ({ key: k, label: k, field: undefined, raw: raw[k] }));
+                      : [...Object.keys(raw), ...savedSecretKeys].map((k) => ({ key: k, label: k, field: undefined, raw: raw[k] }));
 
                     if (rows.length === 0) {
                       return (
@@ -477,8 +477,11 @@ export function AdminProviderWorkspace({ type, extra, initialVendor }: Props) {
                     return (
                       <dl className="grid gap-px sm:grid-cols-2 rounded-lg border border-border/60 bg-border/60 overflow-hidden">
                         {rows.map((row) => {
-                          const present = row.raw !== undefined && row.raw !== null && String(row.raw) !== '';
-                          const { text, secret } = displayValue(row.field, row.raw, boolLabels);
+                          const savedSecret = savedSecretKeys.has(row.key);
+                          const present = savedSecret || (row.raw !== undefined && row.raw !== null && String(row.raw) !== '');
+                          const { text, secret } = savedSecret
+                            ? { text: '••••••••••••', secret: true }
+                            : displayValue(row.field, row.raw, boolLabels);
                           return (
                             <div key={row.key} className="bg-card px-3 py-2 min-w-0">
                               <dt className="text-[10px] uppercase tracking-wider text-muted-foreground/70 truncate">
@@ -660,6 +663,7 @@ export function AdminProviderWorkspace({ type, extra, initialVendor }: Props) {
                         key={`${type}:${activeVendorSchema.name}:${configuredVendor ?? ''}`}
                         vendor={activeVendorSchema}
                         initialValues={initialValues}
+                        savedSecretKeys={activeVendorSchema.name === configuredVendor ? [...savedSecretKeys] : undefined}
                         dense
                         hideVendorHeader
                         isPending={saveConfig.isPending}

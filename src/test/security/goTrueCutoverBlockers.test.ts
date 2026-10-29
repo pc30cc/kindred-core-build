@@ -204,12 +204,9 @@ const ORDINARY_USER = crypto.randomUUID();
 const MIGRATED_ROUTES: Array<[string, string, unknown?]> = [
   ['GET', '/api/admin/management/platform-settings'],
   ['PUT', '/api/admin/management/platform-settings', { timezone: 'UTC' }],
-  ['GET', '/api/admin/management/email-settings'],
-  // `reply_to_email` is the only field this route still takes; the rest were
-  // settings nothing read. `/email-settings-localized` is gone entirely —
-  // that table has no runtime consumer, so the routes only ever wrote a row
-  // nobody would look at.
-  ['PUT', '/api/admin/management/email-settings', { reply_to_email: 'a@b.co' }],
+  // `/email-settings` and `/email-settings-localized` are gone: that table
+  // has no platform-level consumer, so the routes only ever wrote a row
+  // nobody would look at (Reply-To is the email provider's `reply_to`).
   ['PATCH', '/api/admin/management/feature-flags/f1', { enabled: true }],
   ['GET', '/api/admin/management/domains'],
   ['GET', '/api/admin/management/login-attempts?email=a@b.co'],

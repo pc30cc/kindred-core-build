@@ -77,7 +77,8 @@ to avoid breaking deploy scripts and image caches. See `NAMING.md`.
   supabase-js API and run by an in-process PostgREST-compatible engine
   (`server/db`). Details in [`docs/DATABASE.md`](docs/DATABASE.md).
 - JWT (`jsonwebtoken`), `crypto-js`
-- Email providers: Resend, SendGrid, SMTP (configured via env or DB)
+- Email providers: our own SMTP relay (production), Resend, SendGrid; chosen
+  in Super Admin → Providers → Email (see `docs/operations/EMAIL.md`)
 - MaxMind GeoIP (`maxmind`) for visitor geolocation
 - PDF parsing (`pdf-parse`) for AI ingestion
 
@@ -204,8 +205,11 @@ Optional / common:
 - `CORS_ORIGINS` (comma-separated list of frontend origins)
 - `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` — accepted but currently have no
   effect: rate limits are fixed per route in `server/middleware/security.ts`
-- Email: `RESEND_API_KEY`, `SENDGRID_API_KEY`, `SMTP_HOST`, `SMTP_PORT`,
-  `SMTP_USER`, `SMTP_PASS`, `SMTP_TLS_REJECT_UNAUTHORIZED`
+- Email: none needed. The provider is a Super Admin setting stored in the
+  database (`docs/operations/EMAIL.md`). `RESEND_API_KEY`, `SENDGRID_API_KEY`,
+  `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` and `SMTP_PASS` only fill a field the
+  setting leaves blank; `SMTP_TLS_REJECT_UNAUTHORIZED=false` turns off an SMTP
+  server's certificate check (test servers only)
 - Widget asset resolution (split deploy):
   - `WIDGET_MANIFEST_URL` — explicit URL to `widget-manifest.json`
   - `WIDGET_ASSET_BASE_URL` — base URL where the frontend serves `/widget/`

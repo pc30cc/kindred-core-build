@@ -1,0 +1,4 @@
+# The relay's secrets and DKIM private keys live only on the host.
+.env
+dkim/
+!.env.example

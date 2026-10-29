@@ -20,6 +20,10 @@ not include the email channel. That risk was explicitly recorded in
 `ENFORCEMENT_COVERAGE_AUDIT.md` as the reason this surface stayed
 deferred during earlier rollouts.
 
+Which provider carries these mails (the platform's one, chosen by the Super
+Admin: our own relay since 2026-10-29), retries, suppressions and bounces:
+[`docs/operations/EMAIL.md`](operations/EMAIL.md).
+
 ## Route truth audit (current callers)
 
 | Caller                                                 | Path                          | Class              |
@@ -29,7 +33,7 @@ deferred during earlier rollouts.
 | `server/routes/widget.ts` offline-message notification | in-process `sendEmail()`      | PLATFORM (ops)     |
 | `server/routes/widget.ts` admin-test offline email     | in-process `sendEmail()`      | PLATFORM (test)    |
 | `server/services/visitorTranscript.ts` transcript by email (the visitor asks, from the widget) | in-process `sendEmail()` | PLATFORM (visitor's request) |
-| `src/providers/email/api.ts` → `EmailPage` test send   | `POST /api/email/send`        | PLATFORM (test)    |
+| `src/providers/email/api.ts` (registered as `__default__`; nothing uses it) | `POST /api/email/send-channel` | CHANNEL (unused) |
 | (future) workspace channel-email customer comms        | `POST /api/email/send-channel` or `sendChannelEmail()` | CHANNEL |
 
 No current caller of the HTTP route is unambiguously a channel-email
@@ -40,7 +44,9 @@ callers on the platform surface.
 ## Canonical split
 
 - `POST /api/email/send` — **retired arbitrary relay**; always returns 410.
-- `POST /api/email/test-send` — manager-gated provider test surface.
+- `POST /api/email/test-send` — manager-gated test send through the
+  platform's provider (workspaces have no provider of their own; no screen
+  calls it today).
 - `POST /api/email/send-channel` — **channel email**. Gated with
   `requireChannel('email')` from the canonical
   `server/middleware/featureGating.ts`. The dedicated boundary that

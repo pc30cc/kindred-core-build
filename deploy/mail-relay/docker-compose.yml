@@ -1,0 +1,90 @@
+# mail-relay: the platform's outgoing mail (both brands), on host.respok.app.
+#
+# Postfix (boky/postfix) on the coolify network, where the backends reach it
+# as mail-relay:587 with SASL (default_email_provider = smtp). It relays for
+# @webyar.ai and @respok.app only and DKIM-signs with selector mx2026. It
+# never receives mail: both domains' MX is iCloud.
+#
+# The relay service below is production's as it was set up on 2026-10-29;
+# the maillog_file line and the bounce-watcher sidecar were added after it
+# (docs/operations/EMAIL.md, deploy/mail-relay/README.md). Secrets come from
+# .env next to this file (names in .env.example), never from this file.
+name: mail-relay
+
+services:
+  mail-relay:
+    image: boky/postfix:5.1.0@sha256:aafc772384232497bed875e1eb66b4d3e54ba1ebc86e2e185a6dc1dbc48182ef
+    container_name: mail-relay
+    hostname: mail.respok.app
+    restart: unless-stopped
+    environment:
+      ALLOWED_SENDER_DOMAINS: "webyar.ai respok.app"
+      DKIM_AUTOGENERATE: "true"
+      DKIM_SELECTOR: mx2026
+      POSTFIX_inet_protocols: ipv4
+      POSTFIX_mynetworks: 127.0.0.0/8
+      POSTFIX_message_size_limit: "26214400"
+      POSTFIX_smtpd_sender_restrictions: "check_sender_access lmdb:/etc/postfix/allowed_senders,reject"
+      POSTFIX_smtp_tls_security_level: may
+      POSTFIX_smtpd_tls_security_level: none
+      # One "user:password" per brand, comma-separated (noreply@webyar.ai,
+      # noreply@respok.app); each backend signs in as its own.
+      SMTPD_SASL_USERS: ${SMTPD_SASL_USERS:?set SMTPD_SASL_USERS in .env}
+      # Added for the bounce watcher: Postfix writes its log to this file on
+      # the shared volume instead of the container's stdout.
+      POSTFIX_maillog_file: /var/log/postfix/mail.log
+    volumes:
+      - ./dkim:/etc/opendkim/keys
+      - spool:/var/spool/postfix
+      - maillog:/var/log/postfix
+    networks:
+      - coolify
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  bounce-watcher:
+    build: ./bounce-watcher
+    image: mail-relay-bounce-watcher:local
+    container_name: mail-relay-bounce-watcher
+    restart: unless-stopped
+    depends_on:
+      - mail-relay
+    environment:
+      MAILLOG_PATH: /var/log/postfix/mail.log
+      SPOOL_DIR: /var/spool/postfix
+      STATE_DIR: /state
+      BRAND_DOMAINS: "webyar.ai respok.app"
+      EVENTS_TOKEN_WEBYAR_AI: ${EVENTS_TOKEN_WEBYAR_AI:-}
+      EVENTS_TOKEN_RESPOK_APP: ${EVENTS_TOKEN_RESPOK_APP:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      QUEUE_ALERT_THRESHOLD: ${QUEUE_ALERT_THRESHOLD:-20}
+      ALERT_INTERVAL_MINUTES: ${ALERT_INTERVAL_MINUTES:-60}
+    volumes:
+      - maillog:/var/log/postfix:ro
+      - spool:/var/spool/postfix:ro
+      - watcher-state:/state
+    # Its own default network: it only calls the brands' public APIs and
+    # Telegram, and never needs the coolify network.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  # The queue. Its name must stay the one production's relay already uses,
+  # or mail waiting in the queue is left behind (README, "Deploy").
+  spool:
+    name: ${SPOOL_VOLUME:-mail-relay_spool}
+  maillog:
+    name: mail-relay_maillog
+  watcher-state:
+    name: mail-relay_watcher-state
+
+networks:
+  coolify:
+    external: true

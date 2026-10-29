@@ -53,9 +53,12 @@ const TABLES = ['conversation_ratings', 'conversation_transcript_emails', 'conve
 
 const sent = vi.hoisted(() => [] as Array<{ to: string; subject: string; html: string; text: string }>);
 vi.mock('../../../server/services/email/providers/resend.js', () => ({
-  sendViaResend: async (_cfg: unknown, to: string, subject: string, html: string, text: string) => {
-    sent.push({ to, subject, html, text });
-    return { success: true, provider: 'resend', id: `m-${sent.length}` };
+  resendAdapter: {
+    name: 'resend',
+    send: async (_cfg: unknown, message: { to: string; subject: string; html: string; text: string }) => {
+      sent.push({ to: message.to, subject: message.subject, html: message.html, text: message.text });
+      return { success: true, provider: 'resend', id: `m-${sent.length}` };
+    },
   },
 }));
 

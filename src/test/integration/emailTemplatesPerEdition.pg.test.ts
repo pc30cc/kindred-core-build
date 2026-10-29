@@ -25,9 +25,12 @@ const suite = DSN ? describe : describe.skip;
 
 const sent = vi.hoisted(() => [] as Array<{ to: string; subject: string; html: string; from: string }>);
 vi.mock('../../../server/services/email/providers/resend.js', () => ({
-  sendViaResend: async (_cfg: unknown, to: string, subject: string, html: string, _text: string, from: string) => {
-    sent.push({ to, subject, html, from });
-    return { success: true, provider: 'resend', id: `m-${sent.length}` };
+  resendAdapter: {
+    name: 'resend',
+    send: async (_cfg: unknown, message: { to: string; subject: string; html: string; from: { name: string; address: string } }) => {
+      sent.push({ to: message.to, subject: message.subject, html: message.html, from: `${message.from.name} <${message.from.address}>` });
+      return { success: true, provider: 'resend', id: `m-${sent.length}` };
+    },
   },
 }));
 

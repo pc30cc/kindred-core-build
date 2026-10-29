@@ -4,8 +4,9 @@
  * feature that mails a visitor on request (the transcript by email) is
  * offered. It reads the platform's `default_email_provider` exactly as
  * sendEmail does, so it answers false for every value sendEmail would not
- * send with: none, `disabled`, and `stub` (sendEmail's "Email provider is not
- * configured"), and when the setting cannot be read.
+ * send with: none, `disabled`, `stub` (sendEmail's "not configured"), a
+ * provider with no adapter on this server or without its required fields
+ * and sender, and when the setting cannot be read.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,11 +35,24 @@ beforeEach(() => {
 });
 
 describe('isEmailProviderConfigured', () => {
-  it('true for a real provider', async () => {
-    state.value = { provider_name: 'resend', config: { from_email: 'no-reply@example.test' } };
+  it('true for a provider that can send', async () => {
+    state.value = { provider_name: 'resend', config: { from_email: 'no-reply@example.test', api_key: 're_1' } };
     expect(await isEmailProviderConfigured(config)).toBe(true);
-    state.value = { provider: 'SMTP' };
+    state.value = { provider: 'SMTP', config: { smtp_host: 'mail-relay', from_email: 'no-reply@example.test' } };
     expect(await isEmailProviderConfigured(config)).toBe(true);
+  });
+
+  it('false for a provider sendEmail could not send with (no adapter, no key, no sender)', async () => {
+    delete process.env.RESEND_API_KEY;
+    for (const value of [
+      { provider_name: 'resend', config: { from_email: 'no-reply@example.test' } },
+      { provider_name: 'smtp', config: { smtp_host: 'mail-relay' } },
+      { provider_name: 'smtp', config: { smtp_host: 'mail-relay', from_email: 'no-reply@example.test', smtp_user: 'u' } },
+      { provider_name: 'mailgun', config: { api_key: 'k', from_email: 'no-reply@example.test' } },
+    ]) {
+      state.value = value;
+      expect(await isEmailProviderConfigured(config), JSON.stringify(value)).toBe(false);
+    }
   });
 
   it('false for none, disabled and the stub sendEmail refuses to send with', async () => {

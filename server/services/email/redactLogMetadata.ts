@@ -82,21 +82,83 @@ export function redactSecrets<T>(value: T): T {
 /**
  * Metadata for an `email_logs` row. `messageId` is the provider's delivery id
  * (not a secret) and is kept explicitly even though its name would otherwise
- * be innocuous; template data is redacted.
+ * be innocuous; template data is redacted. `serverMessageId` (the relay's
+ * queue id) and `category` (transactional, notification, marketing) are kept
+ * when the send had them, so a row can be matched with the relay's log.
  */
 export function buildEmailLogMetadata(
   templateData: Record<string, string> | undefined,
   messageId: string | undefined,
+  extra: { serverMessageId?: string; category?: string } = {},
 ): Record<string, unknown> {
   return {
     templateData: templateData ? redactSecrets(templateData) : undefined,
     messageId,
+    ...(extra.serverMessageId ? { serverMessageId: extra.serverMessageId } : {}),
+    ...(extra.category ? { category: extra.category } : {}),
   };
 }
 
-/** Redacts the `metadata` field of rows read back from `email_logs`. */
+/**
+ * The subject as `email_logs` keeps it. A template may print a credential in
+ * its subject: the verification code's is "Your verification code: {code}",
+ * and a shop's guest order lookup sends it with the shop's workspace, whose
+ * owners read that log. Every value the metadata redaction would hide (a
+ * credential-named key, a URL with a query) is cut out of the subject the
+ * same way.
+ */
+export function redactEmailLogSubject(subject: string, templateData: Record<string, string> | undefined): string {
+  let out = String(subject ?? '');
+  for (const [key, value] of Object.entries(templateData ?? {})) {
+    const text = value == null ? '' : String(value);
+    if (text.length < 3) continue;
+    if (SENSITIVE_KEY.test(key) || URL_WITH_PARAMS.test(text)) out = out.split(text).join(REDACTED);
+  }
+  return out;
+}
+
+/** The only shape `email_logs.error_message` holds since 2026-10-29: "<errorCode>: <short reason>". */
+const SAFE_ERROR = /^(unconfigured|invalid_recipient|suppressed|timeout|connection|auth|rejected|provider_error|template_missing|edition_unavailable): /;
+
+/**
+ * An older row's error, as a workspace may see it. Before the codes, a row
+ * held the provider's own text ("SMTP error: connect ECONNREFUSED
+ * 172.18.0.5:587", a relay's reply): internal names and addresses that are
+ * nobody's business outside the platform. Anything not in today's shape
+ * reads as a generic provider error.
+ */
+export function redactEmailLogError(message: unknown): string | null {
+  if (message == null || message === '') return null;
+  const text = String(message);
+  return SAFE_ERROR.test(text) ? text : 'provider_error: the provider refused or failed (details are in the server log)';
+}
+
+/**
+ * A digit run in an older row's subject, when its template data had a code:
+ * the row's own value was never kept (the metadata holds [REDACTED]), so the
+ * subject's code is found by its shape.
+ */
+const CODE_IN_SUBJECT = /\d{4,10}/g;
+const CODE_KEY = /code|otp|(^|[_-])pin($|[_-])/i;
+
+function hadCode(metadata: unknown): boolean {
+  const data = (metadata as { templateData?: unknown } | null)?.templateData;
+  if (!isPlainObject(data)) return false;
+  return Object.keys(data).some((key) => CODE_KEY.test(key));
+}
+
+/**
+ * Redacts rows read back from `email_logs`: the `metadata`, the error (see
+ * redactEmailLogError) and, for a row whose template data carried a code,
+ * the code in its subject.
+ */
 export function redactEmailLogRows<T extends { metadata?: unknown }>(rows: T[] | null | undefined): T[] {
-  return (rows ?? []).map((row) =>
-    row && 'metadata' in row ? { ...row, metadata: redactSecrets(row.metadata) } : row,
-  );
+  return (rows ?? []).map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const out: Record<string, unknown> = { ...row };
+    if ('metadata' in row) out.metadata = redactSecrets(row.metadata);
+    if ('error_message' in out) out.error_message = redactEmailLogError(out.error_message);
+    if (typeof out.subject === 'string' && hadCode(row.metadata)) out.subject = out.subject.replace(CODE_IN_SUBJECT, REDACTED);
+    return out as T;
+  });
 }

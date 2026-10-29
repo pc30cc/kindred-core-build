@@ -7,13 +7,46 @@
 import type { ServerConfig } from '../../config.js';
 import { type SupabaseClient } from '@supabase/supabase-js';
 import { serviceClientFor } from '../../lib/serviceClient.js';
-import { sendViaResend } from './providers/resend.js';
-import { sendViaSendGrid } from './providers/sendgrid.js';
-import { sendViaSMTP } from './providers/smtp.js';
-import { buildEmailLogMetadata } from './redactLogMetadata.js';
+import {
+  describeEmailProviderProblem,
+  effectiveEmailProviderConfig,
+  emailProviderProblems,
+  emailProviderReadiness,
+  getEmailAdapter,
+} from './providers/index.js';
+import {
+  configText,
+  emailFailure,
+  type EmailCategory,
+  type OutboundMessage,
+  type ProviderConfig,
+  type SendResult,
+} from './providers/types.js';
+import { isEmailProviderKey, loadEmailProviderConfig, type LoadedEmailProvider } from './providerConfigStore.js';
+import { isEmailSuppressed } from './suppressions.js';
+import { buildEmailLogMetadata, redactEmailLogError, redactEmailLogSubject } from './redactLogMetadata.js';
 import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../platformRegion.js';
 import type { Edition } from '../../../shared/edition.js';
 import { IRAN_BRAND, brandContactFromDomains } from '../../../shared/brand.js';
+import { parseEmailAddress } from '../../../shared/emailProviders.js';
+
+export type {
+  EmailCategory,
+  EmailErrorCode,
+  OutboundMessage,
+  ProviderConfig,
+  SendResult,
+} from './providers/types.js';
+
+/**
+ * Whether a failed send may succeed if the same message is tried again (a
+ * timeout, a dropped connection, a provider's own outage), as opposed to a
+ * failure that would only repeat (a bad or suppressed address, a refused
+ * sign-in, a missing setting).
+ */
+export function isTransientEmailFailure(r: SendResult): boolean {
+  return !r.success && !r.permanent;
+}
 
 /**
  * What a caller may ask this service to send.
@@ -30,11 +63,10 @@ import { IRAN_BRAND, brandContactFromDomains } from '../../../shared/brand.js';
  * Closing the route alone would not have been enough. The rule has to live
  * here, in the service, or the next caller re-opens it.
  *
- * `replyTo` went for a different reason: it was accepted, typed and threaded
- * all the way down — then dropped, because not one of the three providers ever
- * put it in a payload. It is also not the same thing as
- * `email_settings.reply_to_email`, which is a notification RECIPIENT, not a
- * `Reply-To` header.
+ * `replyTo` is the provider's too: a message carries a Reply-To when the
+ * provider config sets `reply_to`, and only then. It is also not the same
+ * thing as `email_settings.reply_to_email`, which is a notification
+ * RECIPIENT, not a `Reply-To` header.
  */
 export interface EmailRequest {
   /**
@@ -76,34 +108,19 @@ export interface EmailRequest {
    * wire it went down.
    */
   providerConfigKey?: string;
-}
-
-export interface ProviderConfig {
-  provider_name: string;
-  config: Record<string, unknown>;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
-function normalizeProviderConfig(value: unknown): ProviderConfig | null {
-  const row = asRecord(value);
-  const providerName = String(row.provider_name || row.provider || '').trim().toLowerCase();
-  if (!providerName || providerName === 'disabled') return null;
-  return {
-    provider_name: providerName,
-    config: { ...asRecord(row.config), ...asRecord(row.secrets) },
-  };
-}
-
-export interface SendResult {
-  success: boolean;
-  id?: string;
-  provider: string;
-  error?: string;
+  /**
+   * What kind of mail this is (default `transactional`: a reset, a code, a
+   * receipt). Recorded in `email_logs`, and passed to a provider that can tag
+   * it; it never changes who receives the mail.
+   */
+  category?: EmailCategory;
+  /**
+   * One-click unsubscribe (RFC 8058) for mail a person subscribed to: adds
+   * `List-Unsubscribe: <url>[, <mailto:…>]` and
+   * `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. The URL must be
+   * https; anything else is left out (and said so in the console).
+   */
+  listUnsubscribe?: { url: string; mailto?: string };
 }
 
 /**
@@ -112,7 +129,8 @@ export interface SendResult {
  * PLATFORM ONLY, and that is the whole point. There is exactly one email
  * transport and the platform admin owns it:
  * `app_runtime_config.default_email_provider`, written by
- * Super Admin → Providers → Communication → Email.
+ * Super Admin → Providers → Communication → Email and read, secrets
+ * decrypted, by the config store (./providerConfigStore.ts).
  *
  * This used to resolve workspace-first —
  * `workspace_provider_settings` → `provider_configs` → platform — which meant
@@ -127,43 +145,35 @@ export interface SendResult {
  * infrastructure.
  */
 async function resolveProviderConfig(
-  supabase: SupabaseClient,
+  config: ServerConfig,
   overrideKey?: string,
-): Promise<ProviderConfig | null> {
-  if (overrideKey && overrideKey !== 'default_email_provider') {
-    const { data, error } = await supabase
-      .from('app_runtime_config')
-      .select('value')
-      .eq('key', overrideKey)
-      .maybeSingle();
-    if (error) console.warn('[email] override provider lookup failed:', error.message);
-    const override = normalizeProviderConfig((data as { value?: unknown } | null)?.value);
-    // A named-but-unconfigured override falls through to the default. The
+): Promise<LoadedEmailProvider> {
+  // Only the store's own keys can be named: the override is another
+  // platform row, never an arbitrary one.
+  if (overrideKey && overrideKey !== 'default_email_provider' && isEmailProviderKey(overrideKey)) {
+    const override = await loadEmailProviderConfig(config, overrideKey);
+    if (override.status === 'error') console.warn('[email] override provider lookup failed:', override.message);
+    // A named-but-unusable override falls through to the default. The
     // alternative is a silent stop on mail somebody asked for, because an
     // admin picked a provider and never filled in its key.
-    if (override) return override;
+    if (override.status === 'ok' && emailProviderReadiness(override.provider) === 'configured') return override;
   }
-
-  const { data, error } = await supabase
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'default_email_provider')
-    .maybeSingle();
-  if (error) console.warn('[email] platform provider lookup failed:', error.message);
-  return normalizeProviderConfig((data as { value?: unknown } | null)?.value);
+  const loaded = await loadEmailProviderConfig(config, 'default_email_provider');
+  if (loaded.status === 'error') console.warn('[email] platform provider lookup failed:', loaded.message);
+  return loaded;
 }
 
 /**
- * Whether the platform has an email provider at all (the same reading
- * sendEmail makes, never the override key; `stub` is sendEmail's "not
- * configured"): a feature that mails a visitor on request (the transcript by
- * email) is offered only then. False when the setting cannot be read.
+ * Whether the platform can send email at all (the same reading sendEmail
+ * makes, never the override key): a provider this server has an adapter for,
+ * with its required fields and a valid from_email. A feature that mails a
+ * visitor on request (the transcript by email) is offered only then. False
+ * when the setting cannot be read.
  */
 export async function isEmailProviderConfigured(config: ServerConfig): Promise<boolean> {
   try {
-    const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
-    const provider = await resolveProviderConfig(supabase);
-    return !!provider && provider.provider_name !== 'stub';
+    const loaded = await loadEmailProviderConfig(config, 'default_email_provider');
+    return loaded.status === 'ok' && emailProviderReadiness(loaded.provider) === 'configured';
   } catch {
     return false;
   }
@@ -180,28 +190,157 @@ export async function isEmailProviderConfigured(config: ServerConfig): Promise<b
  * missing `from_email`, which meant a half-configured provider silently sent
  * mail that every receiver rejected — a failure that looked like a delivery
  * problem for as long as nobody read the logs. A missing `from_email` is a
- * configuration error and says so.
+ * configuration error, and the provider's readiness check (run before this)
+ * says so.
  *
  * `from_name` is the one part that may fall back: the provider config still
  * owns it, but a blank one becomes the platform's own brand name, which is
- * the same name the template body already prints.
+ * the same name the template body already prints. The name and the address
+ * travel apart, and each adapter quotes the name the way its wire needs, so
+ * a comma, a quote or an `@` in a brand name can never split the header.
  */
 async function resolveFromAddress(
   supabase: SupabaseClient,
   provider: ProviderConfig,
   locale: string,
-): Promise<{ from: string; error?: undefined } | { from?: undefined; error: string }> {
-  const cfg = provider.config as Record<string, unknown>;
-  const email = String(cfg.from_email ?? '').trim();
-  if (!email) {
-    return {
-      error:
-        `Email provider "${provider.provider_name}" has no from_email configured. ` +
-        'Set it in Super Admin → Providers → Email.',
-    };
+): Promise<{ name: string; address: string }> {
+  const cfg = provider.config;
+  const address = parseEmailAddress(cfg.from_email) as string;
+  const name = configText(cfg, 'from_name') || (await resolveBrandName(supabase, locale));
+  // A header is one line, whatever the name holds.
+  return { name: name.replace(/[\r\n]+/g, ' ').trim(), address };
+}
+
+/**
+ * `List-Unsubscribe` and its one-click partner, or nothing. RFC 8058 wants
+ * the one-click target to be https; a mailto is offered beside it only when
+ * it is one plain address.
+ */
+function listUnsubscribeHeaders(value: EmailRequest['listUnsubscribe']): Record<string, string> {
+  if (!value) return {};
+  let url: URL;
+  try {
+    url = new URL(String(value.url ?? '').trim());
+  } catch {
+    console.warn('[email] List-Unsubscribe left out: the URL is not valid');
+    return {};
   }
-  const name = String(cfg.from_name ?? '').trim() || (await resolveBrandName(supabase, locale));
-  return { from: `${name} <${email}>` };
+  if (url.protocol !== 'https:') {
+    console.warn('[email] List-Unsubscribe left out: the URL is not https');
+    return {};
+  }
+  const targets = [`<${url.href}>`];
+  const mailto = parseEmailAddress(String(value.mailto ?? '').replace(/^mailto:/i, '').split('?')[0]);
+  if (mailto) targets.push(`<mailto:${mailto}>`);
+  return { 'List-Unsubscribe': targets.join(', '), 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
+}
+
+const ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', zwnj: '\u200c', zwj: '\u200d', lrm: '\u200e', rlm: '\u200f',
+};
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
+    if (entity[0] === '#') {
+      const code = entity[1] === 'x' || entity[1] === 'X' ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }
+    return ENTITIES[entity.toLowerCase()] ?? match;
+  });
+}
+
+/**
+ * `html` without the elements named (and everything inside them) and without
+ * comments. A scan rather than one lazy regex: an opener with no closer
+ * would make `<style[\s\S]*?</style>` read to the end of the text once for
+ * every opener, and a hostile body can hold thousands. Once no closer is
+ * left after an opener, none is left after a later one either, so the rest
+ * is cut and the scan stops.
+ */
+function stripElements(html: string, names: readonly string[]): string {
+  let s = html;
+  for (let at = s.indexOf('<!--'); at >= 0; at = s.indexOf('<!--', at)) {
+    const close = s.indexOf('-->', at + 4);
+    if (close < 0) {
+      s = s.slice(0, at);
+      break;
+    }
+    s = s.slice(0, at) + s.slice(close + 3);
+  }
+  for (const name of names) {
+    const opener = new RegExp(`<${name}(?=[\\s/>])`, 'gi');
+    const lower = s.toLowerCase();
+    let out = '';
+    let from = 0;
+    for (let m = opener.exec(s); m; m = opener.exec(s)) {
+      const close = lower.indexOf(`</${name}`, m.index);
+      if (close < 0) {
+        out += s.slice(from, m.index);
+        from = s.length;
+        break;
+      }
+      const end = lower.indexOf('>', close);
+      out += s.slice(from, m.index);
+      from = end < 0 ? s.length : end + 1;
+      opener.lastIndex = from;
+    }
+    s = out + s.slice(from);
+  }
+  return s;
+}
+
+/**
+ * Each link as its text and its target ("Reset password (https://…)"), the
+ * same scan for the same reason: an `<a` with no `</a>` after it ends the
+ * links, it does not restart the search.
+ */
+function inlineLinks(html: string): string {
+  const opener = /<a\b([^<>]*)>/gi;
+  const lower = html.toLowerCase();
+  let out = '';
+  let from = 0;
+  for (let m = opener.exec(html); m; m = opener.exec(html)) {
+    const close = lower.indexOf('</a', opener.lastIndex);
+    if (close < 0) break;
+    const end = lower.indexOf('>', close);
+    const href = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(m[1]);
+    const target = (href?.[1] ?? href?.[2] ?? href?.[3] ?? '').trim();
+    const label = html.slice(opener.lastIndex, close).replace(/<[^<>]*>/g, '').replace(/\s+/g, ' ').trim();
+    let text = label;
+    if (target && !target.startsWith('#') && !/^(javascript|data):/i.test(target)) {
+      const shown = target.replace(/^mailto:/i, '');
+      const same = !label || decodeEntities(label) === decodeEntities(target) || decodeEntities(label) === decodeEntities(shown);
+      text = same ? shown : `${label} (${shown})`;
+    }
+    out += html.slice(from, m.index) + text;
+    from = end < 0 ? html.length : end + 1;
+    opener.lastIndex = from;
+  }
+  return out + html.slice(from);
+}
+
+/**
+ * A text part for a message that has only HTML. Every mail carries one: a
+ * client that shows text, a screen reader, and the spam filters that score
+ * an HTML-only message all read it. Links keep their target ("Reset your
+ * password (https://…)"), because in a reset or an invitation the link is
+ * the message; blocks become lines, and styles and scripts go. Linear in
+ * the length of the HTML, whatever it holds.
+ */
+export function htmlToText(html: string): string {
+  if (!html) return '';
+  const s = inlineLinks(stripElements(html, ['head', 'style', 'script', 'title']))
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li\b[^<>]*>/gi, '\n- ')
+    .replace(/<\/?(p|div|h[1-6]|tr|table|tbody|thead|ul|ol|blockquote|section|article|header|footer|hr)\b[^<>]*>/gi, '\n')
+    .replace(/<\/t[dh]\s*>/gi, ' ')
+    .replace(/<[^<>]*>/g, '');
+  return decodeEntities(s)
+    .split('\n')
+    .map((line) => line.replace(/[ \t\f\v\u00a0]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
@@ -374,6 +513,156 @@ export interface PlatformEmailRequest {
   /** As in EmailRequest: the HTML part's escaped values. */
   htmlData?: Record<string, string>;
   locale?: string;
+  /** As in EmailRequest. */
+  category?: EmailCategory;
+  /** As in EmailRequest. */
+  listUnsubscribe?: { url: string; mailto?: string };
+}
+
+interface Delivery {
+  result: SendResult;
+  /** The subject that was (or would have been) sent, for the log. */
+  subject: string;
+  providerName: string;
+}
+
+/**
+ * Everything a send does, the same for every provider and for both entry
+ * points, in this order:
+ *
+ *   1. `to` is one plain address (shared/emailProviders.ts), or nothing is
+ *      sent: a comma list handed to SMTP becomes several RCPT TO.
+ *   2. A suppressed address (it hard-bounced, complained, or a Super Admin
+ *      held it back) is not mailed.
+ *   3. The platform's provider (no provider: `stub`, as callers expect).
+ *   4. The running edition's template, filled in.
+ *   5. The provider must be able to send: an adapter for its name, its
+ *      required fields, a valid from_email (the same reading as readiness).
+ *   6. One OutboundMessage: From as name and address, a text part always
+ *      (derived from the HTML when the template has none), the provider's
+ *      `reply_to`, `Auto-Submitted: auto-generated` on every message (an
+ *      auto-responder must not answer it), and the one-click unsubscribe
+ *      pair when the caller gives one.
+ *   7. The adapter sends it, within its own timeouts.
+ *
+ * Every failure is a SendResult with an errorCode, `permanent` when a retry
+ * of the same message cannot succeed, and an `error` that is ours alone.
+ */
+async function deliver(
+  config: ServerConfig,
+  supabase: SupabaseClient,
+  input: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    templateSlug?: string;
+    templateData?: Record<string, string>;
+    htmlData?: Record<string, string>;
+    locale?: string;
+    category: EmailCategory;
+    listUnsubscribe?: EmailRequest['listUnsubscribe'];
+    providerConfigKey?: string;
+  },
+): Promise<Delivery> {
+  let { subject, html, text } = input;
+
+  const to = parseEmailAddress(input.to);
+  if (!to) {
+    return {
+      result: emailFailure('none', 'invalid_recipient', 'the recipient must be exactly one plain address'),
+      subject,
+      providerName: 'none',
+    };
+  }
+  if (await isEmailSuppressed(config, to)) {
+    return {
+      result: emailFailure('none', 'suppressed', 'the address is on the suppression list (it bounced or complained)'),
+      subject,
+      providerName: 'none',
+    };
+  }
+
+  const loaded = await resolveProviderConfig(config, input.providerConfigKey);
+  if (loaded.status === 'error') {
+    return {
+      result: emailFailure('none', 'provider_error', 'the email provider setting could not be read', { permanent: false }),
+      subject,
+      providerName: 'none',
+    };
+  }
+  const provider = loaded.status === 'ok' ? loaded.provider : null;
+  const providerName = provider?.provider_name || 'stub';
+
+  let tplLocale = input.locale || 'en';
+  if (input.templateSlug) {
+    const rendered = await renderEditionTemplate(config, supabase, input.templateSlug, input.templateData, input.locale, input.htmlData);
+    if (rendered.status === 'ok') {
+      ({ subject, html, text } = rendered);
+      tplLocale = rendered.locale;
+    } else if (rendered.status === 'edition_unavailable' && !subject && !html) {
+      // Which brand's text to send cannot be told: retry later rather than
+      // guess. With the caller's own text, that text goes out instead.
+      return {
+        result: emailFailure(providerName, 'edition_unavailable', 'the platform edition could not be read; try again'),
+        subject,
+        providerName,
+      };
+    }
+  }
+
+  if (!subject && !html) {
+    return {
+      result: input.templateSlug
+        ? emailFailure(providerName, 'template_missing', `no active template "${input.templateSlug}" and no subject or body of its own`)
+        : emailFailure(providerName, 'rejected', 'no subject or body was given'),
+      subject,
+      providerName,
+    };
+  }
+
+  if (!provider) {
+    // Never claim delivery when no provider is active. Invitation/OTP
+    // workers use this result to fail closed and keep their delivery state
+    // truthful instead of reporting a message that was never sent.
+    return {
+      result: emailFailure('stub', 'unconfigured', 'no email provider is configured. Set one in Super Admin → Providers → Email.'),
+      subject,
+      providerName,
+    };
+  }
+  const adapter = getEmailAdapter(provider.provider_name);
+  const effective = effectiveEmailProviderConfig(provider);
+  const problems = adapter ? emailProviderProblems(effective) : [{ field: 'provider_name', problem: 'invalid' as const }];
+  if (!adapter || problems.length) {
+    return {
+      result: emailFailure(providerName, 'unconfigured', describeEmailProviderProblem(problems[0])),
+      subject,
+      providerName,
+    };
+  }
+
+  const replyTo = parseEmailAddress(effective.config.reply_to);
+  const message: OutboundMessage = {
+    from: await resolveFromAddress(supabase, effective, tplLocale),
+    to,
+    subject: subject.replace(/[\r\n]+/g, ' '),
+    html,
+    text: text.trim() ? text : htmlToText(html),
+    ...(replyTo ? { replyTo } : {}),
+    headers: { 'Auto-Submitted': 'auto-generated', ...listUnsubscribeHeaders(input.listUnsubscribe) },
+    category: input.category,
+  };
+
+  let result: SendResult;
+  try {
+    result = await adapter.send(effective, message);
+  } catch (err) {
+    result = emailFailure(providerName, 'provider_error', 'the provider failed unexpectedly', {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return { result, subject, providerName };
 }
 
 /**
@@ -392,43 +681,19 @@ export async function sendPlatformEmail(
   request: PlatformEmailRequest,
 ): Promise<SendResult> {
   const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
-
-  const providerConfig = await resolveProviderConfig(supabase);
-  const providerName = providerConfig?.provider_name || 'stub';
-
-  let subject = request.subject;
-  let html = request.html || '';
-  let text = request.text || '';
-  let fromLocale = 'en';
-  if (request.templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, request.templateSlug, request.templateData, request.locale, request.htmlData);
-    if (rendered.status === 'ok') {
-      ({ subject, html, text } = rendered);
-      fromLocale = rendered.locale;
-    } else if (rendered.status === 'edition_unavailable' && !subject && !html) {
-      return { success: false, provider: providerName, error: 'EDITION_UNAVAILABLE' };
-    }
-  }
-
-  let fromAddr = '';
-  if (providerConfig) {
-    const resolved = await resolveFromAddress(supabase, providerConfig, fromLocale);
-    if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
-    fromAddr = resolved.from;
-  }
-
-  switch (providerName) {
-    case 'resend':
-      return sendViaResend(providerConfig!, request.to, subject, html, text, fromAddr);
-    case 'sendgrid':
-      return sendViaSendGrid(providerConfig!, request.to, subject, html, text, fromAddr);
-    case 'smtp':
-      return sendViaSMTP(providerConfig!, request.to, subject, html, text, fromAddr);
-    case 'stub':
-      return { success: false, provider: 'stub', error: 'Email provider is not configured' };
-    default:
-      return { success: false, provider: providerName, error: `Unknown provider: ${providerName}` };
-  }
+  const { result } = await deliver(config, supabase, {
+    to: request.to,
+    subject: request.subject || '',
+    html: request.html || '',
+    text: request.text || '',
+    templateSlug: request.templateSlug,
+    templateData: request.templateData,
+    htmlData: request.htmlData,
+    locale: request.locale,
+    category: request.category ?? 'transactional',
+    listUnsubscribe: request.listUnsubscribe,
+  });
+  return result;
 }
 
 /**
@@ -442,92 +707,53 @@ export async function sendEmail(
 ): Promise<SendResult> {
   const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 
-  const { workspaceId, to, templateSlug, templateData, htmlData, locale } = request;
+  const { workspaceId, to, templateSlug, templateData } = request;
 
   // `workspaceId === null` is an explicit platform send; an empty string or a
   // missing field is still a caller bug.
   if (workspaceId === undefined || workspaceId === '' || !to) {
-    return { success: false, provider: 'none', error: 'workspaceId and to are required' };
+    return emailFailure('none', to ? 'rejected' : 'invalid_recipient', 'workspaceId and to are required');
   }
 
-  // --- Resolve provider config ---
-  const providerConfig = await resolveProviderConfig(supabase, request.providerConfigKey);
-  const providerName = providerConfig?.provider_name || 'stub';
-
-  // --- Resolve template if slug provided ---
-  let subject = request.subject || '';
-  let html = request.html || '';
-  let text = request.text || '';
-  let fromAddr = '';
-
-  let tplLocale = locale || 'en';
-  if (templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, templateSlug, templateData, locale, htmlData);
-    if (rendered.status === 'ok') {
-      ({ subject, html, text } = rendered);
-      tplLocale = rendered.locale;
-    } else if (rendered.status === 'edition_unavailable' && !subject && !html) {
-      // Which brand's text to send cannot be told: retry later rather than
-      // guess. With the caller's own text, that text goes out instead.
-      return { success: false, provider: providerName, error: 'EDITION_UNAVAILABLE' };
-    }
-  }
-
-  if (!subject && !html) {
-    return { success: false, provider: providerName, error: 'No subject/body provided and template not found' };
-  }
-
-  // --- Resolve from address ---
-  if (providerConfig) {
-    const resolved = await resolveFromAddress(supabase, providerConfig, tplLocale);
-    if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
-    fromAddr = resolved.from;
-  }
-
-  // --- Send via resolved provider ---
-  let result: SendResult;
-
-  switch (providerName) {
-    case 'resend':
-      result = await sendViaResend(providerConfig!, to, subject, html, text, fromAddr);
-      break;
-    case 'sendgrid':
-      result = await sendViaSendGrid(providerConfig!, to, subject, html, text, fromAddr);
-      break;
-    case 'smtp':
-      result = await sendViaSMTP(providerConfig!, to, subject, html, text, fromAddr);
-      break;
-    case 'stub':
-      // Never claim delivery when no provider is active. Invitation/OTP
-      // workers use this result to fail closed and keep their delivery state
-      // truthful instead of reporting a message that was never sent.
-      result = { success: false, provider: 'stub', error: 'Email provider is not configured' };
-      break;
-    default:
-      result = { success: false, provider: providerName, error: `Unknown provider: ${providerName}` };
-  }
+  const category = request.category ?? 'transactional';
+  const { result, subject, providerName } = await deliver(config, supabase, {
+    to,
+    subject: request.subject || '',
+    html: request.html || '',
+    text: request.text || '',
+    templateSlug,
+    templateData,
+    htmlData: request.htmlData,
+    locale: request.locale,
+    category,
+    listUnsubscribe: request.listUnsubscribe,
+    providerConfigKey: request.providerConfigKey,
+  });
 
   // --- Log delivery attempt ---
   // DELIVERY_DIAGNOSTICS_LOGGING — the single writer of email_logs (platform
-  // -level email at line ~213 deliberately never writes here). This row is
-  // the only evidence that a transactional email was actually handed to a
-  // provider; the send itself, and the SendResult every caller branches on,
-  // are already decided above and are unaffected either way.
+  // -level email, sendPlatformEmail, deliberately never writes here). This
+  // row is the only evidence that a transactional email was actually handed
+  // to a provider, or why it was not; the send itself, and the SendResult
+  // every caller branches on, are already decided above and are unaffected
+  // either way.
   //
   // Platform mail (workspaceId null) is never logged against a tenant, and
-  // template data is redacted before it is persisted: it carries reset /
-  // verify links with raw tokens, OTP codes and invite links, and this table
-  // is readable by workspace admins.
+  // what the row keeps is scrubbed first, because this table is readable by
+  // workspace admins: template data carries reset / verify links with raw
+  // tokens, OTP codes and invite links (redacted, and cut out of the subject
+  // too), and the error is our "<errorCode>: <reason>", never the provider's
+  // own text, which can name internal hosts and addresses.
   if (config.deliveryDiagnosticsLoggingEnabled !== false && workspaceId) {
     await supabase.from('email_logs').insert({
       workspace_id: workspaceId,
       template_slug: templateSlug || null,
-      recipient_email: to,
-      subject,
+      recipient_email: String(to).trim().slice(0, 320),
+      subject: redactEmailLogSubject(subject, templateData),
       status: result.success ? 'sent' : 'failed',
       provider_name: providerName,
-      error_message: result.error || null,
-      metadata: buildEmailLogMetadata(templateData, result.id),
+      error_message: result.success ? null : redactEmailLogError(result.error),
+      metadata: buildEmailLogMetadata(templateData, result.id, { serverMessageId: result.serverMessageId, category }),
       sent_at: result.success ? new Date().toISOString() : null,
     });
   }

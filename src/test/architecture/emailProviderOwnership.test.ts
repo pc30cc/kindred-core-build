@@ -27,6 +27,8 @@ const read = (p: string) => readFileSync(p, 'utf8');
 const stripTs = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
 
 const SERVICE = 'server/services/email/index.ts';
+/** The one reader and writer of the provider rows (secrets decrypted there). */
+const STORE = 'server/services/email/providerConfigStore.ts';
 
 // ───────────────────────────────────────────────────────────────────────────
 // 2 + 3. The provider is resolved from the platform config and nowhere else.
@@ -35,14 +37,19 @@ const SERVICE = 'server/services/email/index.ts';
 describe('the email provider resolves from platform config only', () => {
   const code = stripTs(read(SERVICE));
 
-  it('reads app_runtime_config.default_email_provider', () => {
+  it('reads app_runtime_config.default_email_provider, through the config store', () => {
     expect(code).toContain('default_email_provider');
-    expect(code).toContain("from('app_runtime_config')");
+    expect(code).toMatch(/loadEmailProviderConfig\(config, 'default_email_provider'\)/);
+    const store = stripTs(read(STORE));
+    expect(store).toContain('default_email_provider');
+    expect(store).toContain("from('app_runtime_config')");
   });
 
   it('never consults a workspace-scoped provider table', () => {
-    expect(code).not.toContain('workspace_provider_settings');
-    expect(code).not.toContain('provider_configs');
+    for (const body of [code, stripTs(read(STORE))]) {
+      expect(body).not.toContain('workspace_provider_settings');
+      expect(body).not.toContain('provider_configs');
+    }
   });
 
   it('the resolver does not even take a workspace id', () => {
@@ -55,11 +62,15 @@ describe('the email provider resolves from platform config only', () => {
     // platform infrastructure, chosen by a platform admin in Super Admin →
     // Notifications, so operator notification emails can leave by a
     // different transport than password resets. A key is not a tenant, and
-    // the assertion still refuses anything that looks like one.
+    // the assertion still refuses anything that looks like one. The first
+    // argument is the server config (the config store reads the row, secrets
+    // decrypted), not a workspace either.
     expect(code).toMatch(
-      /async function resolveProviderConfig\(\s*supabase: \w+,\s*overrideKey\?: string,?\s*\)/,
+      /async function resolveProviderConfig\(\s*config: ServerConfig,\s*overrideKey\?: string,?\s*\)/,
     );
     expect(code).not.toMatch(/resolveProviderConfig\([^)]*workspace/i);
+    // and the store's own reader takes a platform key, never a workspace
+    expect(stripTs(read(STORE))).toMatch(/async function loadEmailProviderConfig\(config: ServerConfig, key: EmailProviderKey\)/);
   });
 
   it('and only the platform can name the override', () => {
@@ -449,7 +460,9 @@ describe('a caller cannot set the sender identity', () => {
     // request short-circuited the resolver entirely.
     expect(code).not.toMatch(/request\.from/);
     expect(code).not.toMatch(/if \(!fromAddr/);
-    expect(code).not.toMatch(/\breplyTo\b/);
+    // Reply-To is the provider's too (its `reply_to`), never the request's.
+    expect(code).not.toMatch(/request\.replyTo|input\.replyTo/);
+    expect(code).toMatch(/const replyTo = parseEmailAddress\(effective\.config\.reply_to\)/);
   });
 
   it('neither request type still offers the escape hatch', () => {
@@ -479,12 +492,32 @@ describe('a caller cannot set the sender identity', () => {
     expect(stripTs(read('src/providers/email/api.ts'))).not.toMatch(/from: message\.from|replyTo: message\.replyTo/);
   });
 
-  it('replyTo reaches no provider, which is why it is gone', () => {
-    // It was accepted, typed and threaded all the way down, then dropped.
-    for (const file of readdirSync('server/services/email/providers')) {
-      if (!file.endsWith('.ts')) continue;
+  it('every adapter carries the provider\'s Reply-To, and nothing else sets one', () => {
+    // It was once accepted from callers, typed and threaded all the way down,
+    // then dropped. Now it comes from the provider config alone (`reply_to`,
+    // read once by the service) and every adapter puts it on the wire.
+    for (const file of ['resend.ts', 'sendgrid.ts', 'smtp.ts']) {
       const body = stripTs(read(join('server/services/email/providers', file)));
-      expect(body, file).not.toMatch(/reply_to|replyTo/);
+      expect(body, file).toMatch(/message\.replyTo/);
+      expect(body, file).not.toMatch(/config\.reply_to|cfg\.reply_to/);
     }
+  });
+
+  it('a Reply-To smuggled onto the request never reaches the provider', async () => {
+    const { sendEmail } = await import('../../../server/services/email/index');
+    const smuggled = {
+      workspaceId: 'ws-1', to: 'victim@example.com', subject: 'S', html: '<p>b</p>',
+      replyTo: 'spoofed@attacker.example',
+    } as unknown as Parameters<typeof sendEmail>[1];
+    await sendEmail(CONFIG, smuggled);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.reply_to).toBeUndefined();
+
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { api_key: 'platform_key', from_email: 'platform@example.com', from_name: 'Platform Mail', reply_to: 'support@example.com' },
+    };
+    await sendEmail(CONFIG, smuggled);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reply_to).toEqual(['support@example.com']);
   });
 });

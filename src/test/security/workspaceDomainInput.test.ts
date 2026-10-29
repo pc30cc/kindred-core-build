@@ -5,18 +5,18 @@
  * never store a value that column cannot reduce to a plain hostname.
  */
 import { describe, it, expect } from 'vitest';
-import { parseWorkspaceDomainInput } from '../../../server/utils/workspaceDomainInput.js';
+import { parseWorkspaceDomainInput, registrableDomain } from '../../../server/utils/workspaceDomainInput.js';
 
 function ok(input: string) {
   const r = parseWorkspaceDomainInput(input);
-  expect(r.ok, `${input} should be accepted: ${(r as any).message}`).toBe(true);
-  return (r as any).domain as string;
+  expect(r.ok, `${input} should be accepted: ${r.ok === false ? r.message : ''}`).toBe(true);
+  return r.ok === false ? '' : r.domain;
 }
 
 function rejected(input: string, code: string) {
   const r = parseWorkspaceDomainInput(input);
   expect(r.ok, `${input} should be rejected`).toBe(false);
-  expect((r as any).code).toBe(code);
+  expect(r.ok === false ? r.code : null).toBe(code);
 }
 
 describe('parseWorkspaceDomainInput', () => {
@@ -71,6 +71,34 @@ describe('parseWorkspaceDomainInput', () => {
     rejected('example', 'MALFORMED');
     rejected('example.c', 'MALFORMED');
     rejected('', 'EMPTY');
+  });
+
+  it('rejects a public suffix (the private part of the list too), never a site under one', () => {
+    // A wildcard rule's name (x.kawasaki.jp) is a suffix too; in punycode or Unicode, any case.
+    for (const suffix of ['com.tr', 'co.ir', 'https://www.CO.UK/', 'vercel.app', 'myshopify.com', 'github.io', 'ایران.ir', 'XN--MGBA3A4F16A.IR', 'x.kawasaki.jp']) {
+      rejected(suffix, 'MALFORMED');
+    }
+    expect(ok('My-Shop.com.tr')).toBe('my-shop.com.tr');
+    expect(ok('bakery.co.ir')).toBe('bakery.co.ir');
+    expect(ok('shop.vercel.app')).toBe('shop.vercel.app');
+    expect(ok('a.b.github.io')).toBe('a.b.github.io');
+    expect(ok('فروشگاه.ایران.ir')).toBe('xn--mgbtj4c7ad63e.xn--mgba3a4f16a.ir');
+    expect(ok('city.kawasaki.jp')).toBe('city.kawasaki.jp');
+    // A TLD the list does not know, as before.
+    expect(ok('shop.example')).toBe('shop.example');
+    expect(ok('Printer.Local')).toBe('printer.local');
+  });
+
+  it('registrableDomain: the site a host belongs to, null for a public suffix', () => {
+    expect(registrableDomain('a.b.shop.com.tr')).toBe('shop.com.tr');
+    expect(registrableDomain('a.b.github.io')).toBe('b.github.io');
+    expect(registrableDomain('x.y.ninisite.com')).toBe('ninisite.com');
+    expect(registrableDomain('shop.xn--mgba3a4f16a.ir')).toBe('shop.xn--mgba3a4f16a.ir');
+    expect(registrableDomain('a.shop.example')).toBe('shop.example');
+    expect(registrableDomain('a.printer.local')).toBe('printer.local');
+    for (const suffix of ['com.tr', 'github.io', 'xn--mgba3a4f16a.ir', 'x.kawasaki.jp', 'com', 'example', 'local']) {
+      expect(registrableDomain(suffix), suffix).toBeNull();
+    }
   });
 
   it('every accepted value survives the database normalization expression', () => {

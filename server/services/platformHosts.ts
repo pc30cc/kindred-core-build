@@ -379,10 +379,12 @@ async function isPlatformAccount(config: ServerConfig, accountId: string): Promi
  * trigger verify it for that workspace. Covers values stored before the
  * profile writers refused them (a new website is checked in
  * services/ownerWebsite.ts), or written outside the app. Conditional on the
- * value read, so a concurrent edit wins. Kept for the platform's own account
- * (its owner's website names the platform; clearing it would unfix the
- * platform workspace's own row), and when a workspace of the account already
- * holds it verified: the INSERT does not claim it again (migration 288).
+ * value read, so a concurrent edit wins. Kept only in the platform's own
+ * account while a workspace of it already holds the website verified (its
+ * owner's website names the platform; clearing it would unfix the platform
+ * workspace's own row): the INSERT does not claim it again (migration 288).
+ * A customer account is cleared even when its workspace holds such a row:
+ * an old claim, which is never fixed (ownerWebsite.ts fixedDomainIds).
  */
 export async function dropPlatformWebsite(config: ServerConfig, ownerId: string, accountId?: string | null): Promise<void> {
   const sb = getServiceClient(config);
@@ -394,7 +396,7 @@ export async function dropPlatformWebsite(config: ServerConfig, ownerId: string,
   if (error) throw error;
   const website = (data as { website_domain?: string | null } | null)?.website_domain;
   if (!website || !(await isPlatformHost(config, website))) return;
-  if (accountId && ((await isPlatformAccount(config, accountId)) || (await isWebsiteHeldBy(config, [accountId], website)))) return;
+  if (accountId && (await isPlatformAccount(config, accountId)) && (await isWebsiteHeldBy(config, [accountId], website))) return;
   const { error: clearError } = await sb
     .from('profiles')
     .update({ website_domain: null, updated_at: new Date().toISOString() })

@@ -12,7 +12,9 @@
  *    exactly as before, and a platform host stored in a profile is dropped
  *    by the server (dropPlatformWebsite) before the workspace INSERT, so the
  *    trigger never verifies it; but the platform's own account keeps its
- *    owner's website, and with 288 on top its next workspace claims nothing;
+ *    owner's website while it holds it verified, and with 288 on top its
+ *    next workspace claims nothing (a customer account's old claim is
+ *    cleared all the same);
  *  - the guard's reading of a value (hostCandidates) covers SQL's: every
  *    spelling SQL reduces to a platform host is one the guard refuses.
  */
@@ -202,6 +204,43 @@ describe('the platform\'s own account', () => {
       expect((await pg.db.query<{ one: number }>('SELECT 1 AS one FROM public.workspace_domains WHERE workspace_id = $1', [second])).rows).toEqual([]);
     } finally {
       await pg.db.query('DELETE FROM public.workspace_domains WHERE workspace_id IN (SELECT id FROM public.workspaces WHERE account_id = $1)', [account]);
+    }
+  });
+
+  it('a platform host it does not hold, and a customer account\'s old claim, are cleared: the next workspace claims nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const accounts: string[] = [];
+    /** An account whose first workspace was created before the guard: the trigger verified `website` for it. */
+    const before = async (website: string) => {
+      const owner = randomUUID();
+      const account = randomUUID();
+      accounts.push(account);
+      await pg.db.query('INSERT INTO public.profiles (id, website_domain) VALUES ($1, $2)', [owner, website]);
+      await pg.db.query('INSERT INTO public.accounts (id, owner_id) VALUES ($1, $2)', [account, owner]);
+      await pg.db.query('INSERT INTO public.workspaces (account_id) VALUES ($1)', [account]);
+      return { owner, account };
+    };
+    const websiteOf = async (owner: string) =>
+      (await pg.db.query<{ website_domain: string | null }>('SELECT website_domain FROM public.profiles WHERE id = $1', [owner])).rows[0].website_domain;
+    const next = async (owner: string, account: string) => {
+      __resetPlatformHostsCache();
+      await dropPlatformWebsite(config, owner, account);
+      const ws = (await pg.db.query<{ id: string }>('INSERT INTO public.workspaces (account_id) VALUES ($1) RETURNING id', [account])).rows[0].id;
+      return (await pg.db.query<{ one: number }>('SELECT 1 AS one FROM public.workspace_domains WHERE workspace_id = $1', [ws])).rows;
+    };
+    try {
+      // The platform workspace holds the apex, as in production.
+      const platform = await before('webyar.ai');
+      const customer = await before('api.webyar.ai');
+      expect((await pg.db.query('SELECT 1 FROM public.workspace_domains WHERE normalized_domain = $1 AND verified', ['api.webyar.ai'])).rows).toHaveLength(1);
+      expect(await next(customer.owner, customer.account)).toEqual([]);
+      expect(await websiteOf(customer.owner)).toBeNull();
+      await pg.db.query('UPDATE public.profiles SET website_domain = $2 WHERE id = $1', [platform.owner, 'app.webyar.ai']);
+      expect(await next(platform.owner, platform.account)).toEqual([]);
+      expect(await websiteOf(platform.owner)).toBeNull();
+    } finally {
+      warn.mockRestore();
+      await pg.db.query('DELETE FROM public.workspace_domains WHERE workspace_id IN (SELECT id FROM public.workspaces WHERE account_id = ANY($1))', [accounts]);
     }
   });
 });

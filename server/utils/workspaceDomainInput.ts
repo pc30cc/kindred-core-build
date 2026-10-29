@@ -35,7 +35,16 @@
  *                origins and not uniquely ownable.
  *  - IDN       : accepted and converted to punycode (`xn--`), so the stored
  *                value matches what a browser sends in `Origin`.
+ *  - public suffix: `com.tr`, `co.ir`, `vercel.app`, `github.io` (the Public
+ *                Suffix List, its private part included) REJECTED — nobody's
+ *                own site, and as a verified domain whose widget allows
+ *                subdomains (every signup website's, migration 239) it would
+ *                hold every site under it (services/ownerWebsite.ts). A name
+ *                under a TLD the list does not know (`shop.example`,
+ *                `shop.local`) is accepted as before.
  */
+
+import { parse as parseDomainName } from 'psl';
 
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const TLD_RE = /^(?:[a-z]{2,}|xn--[a-z0-9-]+)$/;
@@ -47,6 +56,21 @@ export type DomainInputResult =
 
 function fail(code: string, message: string): DomainInputResult {
   return { ok: false, code, message };
+}
+
+/**
+ * The registrable domain of a canonical host by the Public Suffix List
+ * (`a.shop.com.tr` → `shop.com.tr`, `a.b.github.io` → `b.github.io`), or
+ * null when the host is itself a public suffix. A TLD the list does not know
+ * counts as one label (`a.shop.example` → `shop.example`), `.local` too,
+ * which the library leaves unread.
+ */
+export function registrableDomain(host: string): string | null {
+  const parsed = parseDomainName(host);
+  if ('error' in parsed) return null;
+  if (parsed.domain) return parsed.domain;
+  const labels = host.split('.');
+  return parsed.listed || labels.length < 2 ? null : labels.slice(-2).join('.');
 }
 
 export function parseWorkspaceDomainInput(rawInput: unknown): DomainInputResult {
@@ -126,6 +150,7 @@ export function parseWorkspaceDomainInput(rawInput: unknown): DomainInputResult 
   if (!TLD_RE.test(labels[labels.length - 1])) {
     return fail('MALFORMED', 'This does not look like a valid domain extension.');
   }
+  if (!registrableDomain(ascii)) return fail('MALFORMED', 'This does not look like a valid domain.');
 
   return { ok: true, domain: ascii };
 }

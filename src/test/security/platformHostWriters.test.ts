@@ -12,9 +12,10 @@
  *                                          clear a stored one before the INSERT whose
  *                                          trigger would verify it (a new account
  *                                          then needs another: services/ownerWebsite.ts),
- *                                          but not in the platform's own account, nor
- *                                          where a workspace of the account already
- *                                          holds it verified (288 claims nothing then)
+ *                                          but not in the platform's own account while a
+ *                                          workspace of it holds it verified (288 claims
+ *                                          nothing then); a customer's row of a platform
+ *                                          host is never fixed (it may be removed)
  *   POST  /api/workspaces/:id/domains      refuses it, but for the platform's own workspace
  *   PATCH /api/admin/management/domains/:id  the same, for Super Admin (the row keeps `verified`)
  *
@@ -323,7 +324,7 @@ describe.each([
     });
   });
 
-  describe('the platform\'s own account, and an account already holding the website, keep it', () => {
+  describe('the platform\'s own account keeps the website it holds; any other claim is cleared and not fixed', () => {
     const PLATFORM_OWNER = '00000000-0000-4000-8000-0000000000a0';
     const PLATFORM_ACC = '00000000-0000-4000-8000-0000000000b0';
     const fixedOf = async (ws: string, id: string) =>
@@ -348,28 +349,35 @@ describe.each([
       expect(state.db.workspace_domains.some((d) => d.id === 'd-platform')).toBe(true);
     });
 
-    it('provision-account by the platform owner, and another platform host the account does not hold, stay too', async () => {
+    it('provision-account by the platform owner keeps it; a platform host the account does not hold is cleared', async () => {
       expect((await request(app).post('/api/workspaces/provision-account')).status).toBe(200);
       expect(profileOf(PLATFORM_OWNER)!.website_domain).toBe(apex);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       profileOf(PLATFORM_OWNER)!.website_domain = `app.${apex}`;
       expect((await request(app).post('/api/workspaces').send({ accountId: PLATFORM_ACC, name: 'Third' })).status).toBe(200);
-      expect(profileOf(PLATFORM_OWNER)!.website_domain).toBe(`app.${apex}`);
+      warn.mockRestore();
+      expect(state.triggerSaw).toEqual([apex, null]);
+      expect(profileOf(PLATFORM_OWNER)!.website_domain).toBeNull();
     });
 
-    it('a customer account whose workspace already holds the platform host verified keeps it; another account of that owner does not', async () => {
+    it('a customer account\'s old claim of a platform host is not fixed, and the website is cleared before its next workspace', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       // A row from before the guard: the trigger verified api.<apex> on that account's first workspace.
-      state.db.accounts.push({ id: ACCOUNT, owner_id: OWNER }, { id: '00000000-0000-4000-8000-0000000000a2', owner_id: OWNER });
-      state.db.account_members.push({ account_id: ACCOUNT, user_id: OWNER }, { account_id: '00000000-0000-4000-8000-0000000000a2', user_id: OWNER });
+      state.db.accounts.push({ id: ACCOUNT, owner_id: OWNER });
+      state.db.account_members.push({ account_id: ACCOUNT, user_id: OWNER });
       state.db.workspaces.push({ id: CUSTOMER_WS, account_id: ACCOUNT });
       state.db.workspace_domains.push({ id: 'd-legacy', workspace_id: CUSTOMER_WS, domain: `api.${apex}`, normalized_domain: `api.${apex}`, verified: true, is_primary: false });
       profileOf(OWNER)!.website_domain = `https://API.${apex.toUpperCase()}/`;
       state.userId = OWNER;
+      expect(await fixedOf(CUSTOMER_WS, 'd-legacy')).toBe(false);
+      const listed = await request(app).get('/api/admin/management/domains');
+      expect(listed.body.domains.filter((d: Row) => d.fixed).map((d: Row) => d.id)).toEqual(['d-platform']);
       expect((await request(app).post('/api/workspaces').send({ accountId: ACCOUNT, name: 'Second' })).status).toBe(200);
-      expect(profileOf(OWNER)!.website_domain).toBe(`https://API.${apex.toUpperCase()}/`);
-      expect((await request(app).post('/api/workspaces').send({ accountId: '00000000-0000-4000-8000-0000000000a2', name: 'Elsewhere' })).status).toBe(200);
       warn.mockRestore();
+      expect(state.triggerSaw).toEqual([null]);
       expect(profileOf(OWNER)!.website_domain).toBeNull();
+      expect((await request(app).delete(`/api/workspaces/${CUSTOMER_WS}/domains/d-legacy`)).status).toBe(200);
+      expect(state.db.workspace_domains.some((d) => d.id === 'd-legacy')).toBe(false);
     });
   });
 

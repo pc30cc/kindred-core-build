@@ -4,16 +4,21 @@
  * registered once and fixed for good, with no ownership proof
  * (server/services/ownerWebsite.ts). Every server path:
  *
- *   POST  /api/auth/signup                   refuses a missing, invalid, platform or
- *                                            taken website (verified, under a domain
- *                                            verified with subdomains allowed, or
- *                                            another profile's) before any row exists,
- *                                            and stores the canonical host it checked
- *   PATCH /api/account/me                    once registered (a workspace of the owner's
- *                                            accounts holds it verified), the same website
- *                                            saves and any other value is refused; until
- *                                            then it is set or replaced, never cleared;
- *                                            the owner's own verified domain is theirs
+ *   POST  /api/auth/signup                   refuses a missing, invalid (a public suffix
+ *                                            included), platform or taken website (the
+ *                                            origin resolver hands it to another
+ *                                            account's workspace: verified there, or
+ *                                            under a domain verified there with
+ *                                            subdomains allowed, within its registrable
+ *                                            domain; or another profile's) before any
+ *                                            row exists, and stores the canonical host
+ *                                            it checked
+ *   PATCH /api/account/me                    once registered (an account of the owner has
+ *                                            a workspace, and no other account's holds it
+ *                                            verified), the same website saves and any
+ *                                            other value is refused; until then it is set
+ *                                            or replaced, never cleared; the owner's own
+ *                                            verified domain is theirs
  *   PATCH /api/admin/users/:id/profile       the same, for Super Admin
  *   GET   /api/admin/management/users/:id    says whether it is registered
  *   GET/DELETE/PATCH …/domains(/:id/primary) the registered website's row is never removed
@@ -210,6 +215,10 @@ describe('POST /api/auth/signup: the website is required and checked before anyt
     ['taken, through metadata only', { metadata: { websiteDomain: 'ninisite.com' } }, 409, 'DOMAIN_TAKEN'],
     ['under a domain verified with subdomains allowed', { website: 'shop.ninisite.com' }, 409, 'DOMAIN_TAKEN'],
     ['deeper under it', { website: 'https://a.b.NiniSite.com/' }, 409, 'DOMAIN_TAKEN'],
+    ['a public suffix', { website: 'com.tr' }, 400, 'MALFORMED'],
+    ['a public suffix, spelled otherwise', { website: 'https://WWW.Co.IR/' }, 400, 'MALFORMED'],
+    ['a shared host (the list\'s private part)', { website: 'vercel.app' }, 400, 'MALFORMED'],
+    ['another shared host', { website: 'myshopify.com' }, 400, 'MALFORMED'],
   ])('%s: refused, nothing created', async (_case, body, status, code) => {
     // ninisite.com's widget allows subdomains: the origin resolver hands
     // shop.ninisite.com to its workspace, until an exact row would beat it.
@@ -245,6 +254,16 @@ describe('POST /api/auth/signup: the website is required and checked before anyt
     for (const website of ['ninisite.co', 'myninisite.com', 'ninisite.com.example']) {
       expect((await signup({ website })).status).toBe(200);
     }
+  });
+
+  it('a public suffix someone verified before (subdomains allowed) keeps no website under it out', async () => {
+    for (const [suffix, website] of [['com.tr', 'my-shop.com.tr'], ['co.ir', 'https://www.My-Bakery.co.ir/'], ['vercel.app', 'my-shop.vercel.app'], ['github.io', 'a.b.github.io']]) {
+      state.db.workspace_domains.push({ id: `d-${suffix}`, workspace_id: 'ws-other', domain: suffix, normalized_domain: suffix, verified: true, is_primary: false });
+      state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }];
+      expect((await signup({ website })).status).toBe(200);
+    }
+    // Within the registrable domain, the parent still counts.
+    expect((await signup({ website: 'a.b.ninisite.com' })).body.code).toBe('DOMAIN_TAKEN');
   });
 
   it('another signup\'s website, its workspace not created yet, is taken', async () => {
@@ -294,6 +313,20 @@ describe('PATCH /api/account/me: a registered website is fixed', () => {
     expect((await patch({ website_domain: 'other.example' })).status).toBe(403);
   });
 
+  it('an older account without one sets it once, checked as at signup, then it is fixed', async () => {
+    profileOf(USER)!.website_domain = null;
+    expect((await patch({ website_domain: null })).status).toBe(200);
+    expect(profileOf(USER)!.website_domain).toBeNull();
+    expect((await patch({ website_domain: 'ninisite.com' })).body.code).toBe('DOMAIN_TAKEN');
+    expect((await patch({ website_domain: 'app.webyar.ai' })).body.code).toBe('PLATFORM_DOMAIN');
+    expect((await patch({ website_domain: 'not a site' })).status).toBe(400);
+    expect(profileOf(USER)!.website_domain).toBeNull();
+    expect((await patch({ website_domain: 'WWW.First.example' })).status).toBe(200);
+    expect(profileOf(USER)!.website_domain).toBe('first.example');
+    expect((await patch({ website_domain: 'second.example' })).status).toBe(403);
+    expect(profileOf(USER)!.website_domain).toBe('first.example');
+  });
+
   it('an older account without one records the domain its own workspace verified, then it is fixed', async () => {
     profileOf(USER)!.website_domain = null;
     expect((await patch({ website_domain: null })).status).toBe(200);
@@ -314,19 +347,44 @@ describe('PATCH /api/account/me: a registered website is fixed', () => {
     state.db.widget_settings = [{ workspace_id: WS, allow_subdomains: true }];
     expect((await patch({ website_domain: 'blog.shop.example' })).status).toBe(200);
     expect(profileOf(USER)!.website_domain).toBe('blog.shop.example');
+    // Under a closer parent another account verified there, subdomains allowed, it is that account's.
+    profileOf(USER)!.website_domain = null;
+    state.db.workspace_domains.push({ id: 'd-other-sub', workspace_id: 'ws-other', domain: 'blog.shop.example', normalized_domain: 'blog.shop.example', verified: true, is_primary: false });
+    state.db.widget_settings.push({ workspace_id: 'ws-other', allow_subdomains: true });
+    expect((await patch({ website_domain: 'x.blog.shop.example' })).body.code).toBe('DOMAIN_TAKEN');
+    expect(profileOf(USER)!.website_domain).toBeNull();
   });
 
-  it('a website no workspace of the owner holds verified is replaced, never cleared, until one holds it', async () => {
+  it('its own verified domain under another account\'s, subdomains allowed there, is the owner\'s: the exact row wins', async () => {
     profileOf(USER)!.website_domain = null;
-    expect((await patch({ website_domain: 'first.example' })).status).toBe(200);
-    expect((await patch({ website_domain: 'second.example' })).status).toBe(200);
-    expect(profileOf(USER)!.website_domain).toBe('second.example');
-    expect((await patch({ website_domain: '' })).body).toEqual({ error: 'EMPTY', code: 'EMPTY' });
-    expect(profileOf(USER)!.website_domain).toBe('second.example');
-    // A workspace of the account verifies it (Settings → Domains): registered, fixed.
-    state.db.workspace_domains.push({ id: 'd-second', workspace_id: BARE_WS, domain: 'second.example', normalized_domain: 'second.example', verified: true, is_primary: false });
-    expect((await patch({ website_domain: 'third.example' })).status).toBe(403);
-    expect(profileOf(USER)!.website_domain).toBe('second.example');
+    state.db.workspace_domains.push({ id: 'd-own-sub', workspace_id: WS, domain: 'shop.ninisite.com', normalized_domain: 'shop.ninisite.com', verified: true, is_primary: false });
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }];
+    expect((await request(app).patch(`/api/admin/users/${USER}/profile`).send({ website_domain: 'shop.ninisite.com' })).status).toBe(200);
+    profileOf(USER)!.website_domain = null;
+    expect((await patch({ website_domain: 'shop.ninisite.com' })).status).toBe(200);
+    expect(profileOf(USER)!.website_domain).toBe('shop.ninisite.com');
+  });
+
+  it('under its own closer parent the owner\'s website is free, unless that parent keeps subdomains off', async () => {
+    profileOf(USER)!.website_domain = null;
+    state.db.workspace_domains.push({ id: 'd-own-sub', workspace_id: WS, domain: 'shop.ninisite.com', normalized_domain: 'shop.ninisite.com', verified: true, is_primary: false });
+    // ninisite.com (another account's) also allows subdomains: the longest match is the owner's.
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }, { workspace_id: WS, allow_subdomains: false }];
+    expect((await patch({ website_domain: 'blog.shop.ninisite.com' })).body.code).toBe('DOMAIN_TAKEN');
+    state.db.widget_settings = [{ workspace_id: 'ws-other', allow_subdomains: true }, { workspace_id: WS, allow_subdomains: true }];
+    expect((await patch({ website_domain: 'blog.shop.ninisite.com' })).status).toBe(200);
+    expect(profileOf(USER)!.website_domain).toBe('blog.shop.ninisite.com');
+  });
+
+  it('it stays fixed when the workspace that held it is deleted and another remains', async () => {
+    state.db.workspaces = state.db.workspaces.filter((w) => w.id !== WS);
+    state.db.workspace_domains = state.db.workspace_domains.filter((d) => d.workspace_id !== WS);
+    expect((await patch({ website_domain: 'elsewhere.example' })).status).toBe(403);
+    expect(profileOf(USER)!.website_domain).toBe('shop.example');
+    expect((await request(app).get(`/api/admin/management/users/${USER}`)).body.website_fixed).toBe(true);
+    // With no workspace left in the account, it may be replaced, as before the first one.
+    state.db.workspaces = state.db.workspaces.filter((w) => w.account_id !== ACCOUNT);
+    expect((await patch({ website_domain: 'elsewhere.example' })).status).toBe(200);
   });
 
   it('an owner whose website another account holds verified, with a workspace of their own, may replace it', async () => {
@@ -451,6 +509,14 @@ describe('the registered website\'s row is never removed and keeps the primary f
   it('POST …/domains: adding another domain stays as it is', async () => {
     expect((await request(app).post(`/api/workspaces/${WS}/domains`).send({ domain: 'second-site.example' })).status).toBe(200);
     expect(state.db.workspace_domains.some((d) => d.domain === 'second-site.example' && !d.verified && !d.is_primary)).toBe(true);
+  });
+
+  it('a public suffix is refused as a domain too, in Settings → Domains and for Super Admin', async () => {
+    const added = await request(app).post(`/api/workspaces/${WS}/domains`).send({ domain: 'vercel.app' });
+    expect([added.status, added.body.code]).toEqual([400, 'MALFORMED']);
+    const edited = await request(app).patch('/api/admin/management/domains/d-extra').send({ domain: 'co.ir' });
+    expect([edited.status, edited.body.code]).toEqual([400, 'MALFORMED']);
+    expect(state.db.workspace_domains.map((d) => d.domain)).not.toEqual(expect.arrayContaining(['vercel.app', 'co.ir']));
   });
 
   it('Super Admin: the website\'s row keeps its value and flag, no other row takes the flag; other rows as before', async () => {

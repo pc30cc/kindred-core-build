@@ -14,6 +14,11 @@
  * center; another origin, a subdomain, another scheme or port, another
  * workspace and the widget's other routes are as before.
  *
+ * The two reads that answer for the request's own host (/help-host,
+ * /category-articles) take the workspace their CORS is read for from that
+ * host only: a workspace_id or a widget token sent along names another
+ * workspace, whose allowed origins must not read this host's answer.
+ *
  * The data layer is an in-memory double.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -62,6 +67,7 @@ const { widgetCorsMiddleware } = await import('../../../server/middleware/widget
 const { widgetKbRouter } = await import('../../../server/routes/kb.js');
 const { __resetPlatformHostsCache } = await import('../../../server/services/platformHosts.js');
 const { __resetWidgetOriginCaches } = await import('../../../server/services/widget/public.js');
+const { createSessionToken } = await import('../../../server/services/widget/security.js');
 
 const PLATFORM = '00000000-0000-4000-8000-0000000000f1';
 const CUSTOMER = '00000000-0000-4000-8000-0000000000c1';
@@ -162,6 +168,24 @@ describe.each([
       expect((await get(path, 'https://evil.example', host)).headers[ACAO], path).toBeUndefined();
     }
     expect((await get('/api/widget/kb/help-host', 'https://ninisite.com', 'help.ninisite.com')).body).toEqual({ workspace_id: CUSTOMER });
+  });
+
+  it('a host-scoped read answers for its host: a workspace_id or a token sent along lends no other workspace\'s origins', async () => {
+    const token = createSessionToken(CUSTOMER, 'https://ninisite.com');
+    // Spelled as the router still serves them: another case, a trailing slash.
+    for (const path of ['/api/widget/kb/help-host', '/api/widget/kb/help-host/', '/api/widget/kb/HELP-HOST', '/API/Widget/KB/help-host', '/api/widget/kb/category-articles']) {
+      const query = `?locale=fa&slug=start&workspace_id=${CUSTOMER}`;
+      const named = await get(`${path}${query}`, 'https://ninisite.com');
+      expect(named.status, path).toBe(200);
+      expect(named.headers[ACAO], path).toBeUndefined();
+      expect((await get(path, 'https://ninisite.com').set('X-Widget-Token', token)).headers[ACAO], path).toBeUndefined();
+      // The host's own workspace decides, whatever is sent along.
+      expect((await get(`${path}${query}`, `https://app.${apex}`).set('X-Widget-Token', token)).headers[ACAO], path).toBe(`https://app.${apex}`);
+    }
+    expect((await get(`/api/widget/kb/help-host?workspace_id=${CUSTOMER}`, 'https://ninisite.com')).body).toEqual({ workspace_id: PLATFORM });
+    // The reads that name their workspace keep reading it from the request.
+    const listed = await get(`/api/widget/kb/categories?workspace_id=${CUSTOMER}&locale=fa`, 'https://ninisite.com');
+    expect(listed.headers[ACAO]).toBe('https://ninisite.com');
   });
 
   it('the widget\'s other routes for the platform workspace gain nothing', async () => {

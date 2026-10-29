@@ -123,6 +123,7 @@
     "nodemailer": "^10.2.1",
     "pdf-parse": "^2.4.5",
     "pg": "^8.22.0",
+    "psl": "^1.15.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

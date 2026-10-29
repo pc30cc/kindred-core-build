@@ -18,6 +18,7 @@ import { useEdition } from '@/hooks/useEdition';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
 import { AdminProviderWorkspace, ProviderPanelHeader } from '@/features/providers/AdminProviderWorkspace';
 import { AdminSmsProviderPanel } from '@/features/providers/AdminSmsProviderCard';
+import { AdminEmailProvidersPanel } from '@/features/providers/AdminEmailProvidersPanel';
 import { AdminStorageProvidersPanel } from '@/features/providers/AdminStorageProvidersPanel';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { AdminAuthStatusCard } from '@/features/providers/AdminAuthStatusCard';
@@ -44,6 +45,10 @@ const CUSTOM_PANELS: Partial<Record<ProviderTypeKey, React.ComponentType>> = {
   auth: AdminAuthStatusCard,
   realtime: AdminRealtimeCard,
   sms: AdminSmsProviderPanel,
+  // Email credentials are server-only, the platform's mail has two slots
+  // (every mail, and optionally the notification mails), and a vendor can be
+  // saved only when the server has an adapter for it.
+  email: AdminEmailProvidersPanel,
   // Storage runs several vendors at once (primary + mirrors), so it has its
   // own pool panel instead of the single-default vendor workspace.
   storage: AdminStorageProvidersPanel,

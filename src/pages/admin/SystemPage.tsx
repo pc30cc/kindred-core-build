@@ -281,11 +281,20 @@ export default function AdminSystemPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {config?.length === 0 && <p className="text-muted-foreground text-sm">{t('admin.system.noRuntimeConfig' as any)}</p>}
+            {/* The server leaves every credential out of these values and
+                lists it in secretKeysSet: what is set shows, never its value. */}
             {config?.map(c => (
-              <div key={c.key} className="flex items-center justify-between">
+              <div key={c.key} className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground font-mono text-sm">{c.key}</span>
-                <span className="text-muted-foreground text-xs truncate max-w-[200px]">
-                  {JSON.stringify(c.value)}
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-muted-foreground text-xs truncate max-w-[200px]">
+                    {JSON.stringify(c.value)}
+                  </span>
+                  {Array.isArray(c.secretKeysSet) && c.secretKeysSet.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {t('admin.system.secretsHidden', { count: c.secretKeysSet.length })}
+                    </Badge>
+                  )}
                 </span>
               </div>
             ))}

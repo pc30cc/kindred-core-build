@@ -45,9 +45,14 @@ export function logFallback(
  * All provider metadata now comes from first-party Express endpoints:
  *  - GET  /api/account/provider-defaults          (authenticated read)
  *  - GET  /api/workspaces/:id/provider-selection  (workspace member read)
- *  - PUT/DELETE /api/admin/management/runtime-config/:key (platform admin)
+ *  - GET/PUT/DELETE /api/admin/management/runtime-config/:key (platform admin)
  * The browser never reads `app_runtime_config`/`provider_configs` directly,
- * and provider credentials never leave the backend.
+ * and provider credentials never leave the backend: the admin read leaves
+ * every credential out and names it in `secretKeysSet` instead, and a save
+ * that leaves one blank keeps the stored value (server/routes/
+ * adminManagement.ts). The email provider rows are the email store's, which
+ * keeps the same promise (Super Admin → Providers → Email uses its own
+ * routes, server/routes/adminEmailProviders.ts).
  */
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -174,14 +179,19 @@ export async function removeGlobalDefaultProvider(
  */
 export async function getGlobalDefaultProvider(
   type: ProviderTypeKey
-): Promise<{ provider_name: string; config: Record<string, unknown> } | null> {
+): Promise<{ provider_name: string; config: Record<string, unknown>; secretKeysSet: string[] } | null> {
   const key = `default_${type}_provider`;
   try {
-    const { value } = await apiFetch<{ value: unknown }>(
+    const { value, secretKeysSet } = await apiFetch<{ value: unknown; secretKeysSet?: string[] }>(
       `/api/admin/management/runtime-config/${key}`,
     );
     const pointer = value as { provider_name: string; config?: Record<string, unknown> } | null;
     if (!pointer?.provider_name) return null;
+    // The server names each credential it left out by its path in the
+    // value; the form's fields are the ones under `config`.
+    const savedSecrets = (secretKeysSet ?? [])
+      .filter((path) => path.startsWith('config.') && !path.slice(7).includes('.'))
+      .map((path) => path.slice(7));
 
     // Billing's runtime-config value is name-only (see setGlobalDefaultProvider);
     // its credentials live in the canonical billing_provider_credentials store.
@@ -190,12 +200,12 @@ export async function getGlobalDefaultProvider(
         const credentials = await apiFetch<{ config: Record<string, unknown> }>(
           `/api/admin/billing/providers/${encodeURIComponent(pointer.provider_name)}`,
         );
-        return { provider_name: pointer.provider_name, config: credentials.config ?? {} };
+        return { provider_name: pointer.provider_name, config: credentials.config ?? {}, secretKeysSet: [] };
       } catch {
-        return { provider_name: pointer.provider_name, config: {} };
+        return { provider_name: pointer.provider_name, config: {}, secretKeysSet: [] };
       }
     }
-    return { provider_name: pointer.provider_name, config: pointer.config ?? {} };
+    return { provider_name: pointer.provider_name, config: pointer.config ?? {}, secretKeysSet: savedSecrets };
   } catch {
     return null;
   }

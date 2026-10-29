@@ -5,6 +5,14 @@
 // ============================================
 
 import { isProviderAllowedInEdition, type Edition } from '../../../shared/edition';
+import {
+  EMAIL_PROVIDER_COMMON_FIELDS,
+  EMAIL_PROVIDER_FIELDS,
+  EMAIL_PROVIDER_REQUIRED_FIELDS,
+  EMAIL_PROVIDER_SECRET_FIELDS,
+  isEmailProviderAdapter,
+  type EmailProviderAdapter,
+} from '../../../shared/emailProviders';
 
 export interface ProviderField {
   key: string;
@@ -15,6 +23,15 @@ export interface ProviderField {
   options?: { value: string; label: string }[];
   hint?: string;
   group?: string;
+  /** Shown, and saved, when nothing is stored yet (a select's usual choice). */
+  defaultValue?: string;
+  /**
+   * Taken exactly as typed: never trimmed and never checked for masks or
+   * characters. A password may hold spaces, `**` or any letter, and the
+   * stored one is never sent back to the form, so nothing here can be a
+   * pasted mask.
+   */
+  verbatim?: boolean;
 }
 
 export interface ProviderVendor {
@@ -56,40 +73,117 @@ export interface ProviderTypeSchema {
 // =============================================
 // EMAIL VENDORS
 // =============================================
+// The server sends through the adapters of shared/emailProviders.ts and
+// through nothing else, and their forms are built from the same lists: which
+// fields each reads, which of them are secrets (a password input, never
+// filled from the server) and which a send cannot go without. So the page can
+// neither offer a field the server ignores (the old "Use TLS" switch, which
+// nothing read) nor leave out one it needs. Every other vendor stays listed,
+// as not available yet: saving one used to replace the working provider with
+// a name no code could send through, and every mail stopped.
+
+export const EMAIL_FIELD_GROUPS = { connection: 'Connection', sender: 'Sender', reports: 'Delivery reports' } as const;
+
+type EmailFieldDef = Omit<ProviderField, 'key' | 'required'>;
+
+/** The fields every email provider reads. */
+const EMAIL_COMMON_FIELD_DEFS: Record<(typeof EMAIL_PROVIDER_COMMON_FIELDS)[number], EmailFieldDef> = {
+  from_email: {
+    label: 'From Email', type: 'text', placeholder: 'noreply@yourdomain.com', group: EMAIL_FIELD_GROUPS.sender,
+    hint: 'One plain address. The provider (or the relay) must accept mail from its domain.',
+  },
+  from_name: {
+    label: 'From Name', type: 'text', placeholder: 'Your Platform', group: EMAIL_FIELD_GROUPS.sender,
+    hint: 'Leave blank to use the platform name.',
+  },
+  reply_to: {
+    label: 'Reply-To', type: 'text', placeholder: 'support@yourdomain.com', group: EMAIL_FIELD_GROUPS.sender,
+    hint: 'Where replies to platform mail go. Leave blank to send none.',
+  },
+};
+
+/** Each adapter's own fields, in the order the form shows them. */
+const EMAIL_ADAPTER_FIELD_DEFS: Record<EmailProviderAdapter, Record<string, EmailFieldDef>> = {
+  resend: {
+    api_key: { label: 'API Key', type: 'password', group: EMAIL_FIELD_GROUPS.connection },
+    webhook_secret: {
+      label: 'Webhook Signing Secret', type: 'password', group: EMAIL_FIELD_GROUPS.reports,
+      hint: 'Resend → Webhooks → signing secret (whsec_…). Checks the bounce and complaint reports Resend sends back.',
+    },
+  },
+  sendgrid: {
+    api_key: { label: 'API Key', type: 'password', group: EMAIL_FIELD_GROUPS.connection },
+    webhook_public_key: {
+      label: 'Event Webhook Public Key', type: 'text', group: EMAIL_FIELD_GROUPS.reports,
+      hint: 'SendGrid → Mail Settings → Signed Event Webhook. Checks the bounce and complaint reports SendGrid sends back.',
+    },
+  },
+  smtp: {
+    smtp_host: { label: 'SMTP Host', type: 'text', placeholder: 'mail.yourdomain.com', group: EMAIL_FIELD_GROUPS.connection },
+    smtp_port: { label: 'SMTP Port', type: 'number', placeholder: '587', group: EMAIL_FIELD_GROUPS.connection, hint: 'Blank means 587.' },
+    smtp_user: {
+      label: 'SMTP Username', type: 'text', group: EMAIL_FIELD_GROUPS.connection,
+      hint: 'Leave blank for a server that takes mail without signing in.',
+    },
+    smtp_pass: { label: 'SMTP Password', type: 'password', group: EMAIL_FIELD_GROUPS.connection, verbatim: true },
+    encryption: {
+      label: 'Encryption', type: 'select', group: EMAIL_FIELD_GROUPS.connection, defaultValue: 'auto',
+      options: [
+        { value: 'auto', label: 'Auto: STARTTLS when the server offers it' },
+        { value: 'starttls', label: 'STARTTLS required' },
+        { value: 'ssl', label: 'SSL/TLS from the first byte (port 465)' },
+        { value: 'none', label: 'None: never encrypt' },
+      ],
+      hint: 'Auto goes on in plain text with a server that offers no STARTTLS. Choose "STARTTLS required" once the server has a certificate.',
+    },
+    tls_servername: {
+      label: 'TLS Server Name', type: 'text', placeholder: 'mail.yourdomain.com', group: EMAIL_FIELD_GROUPS.connection,
+      hint: 'The name on the server\'s certificate, when it differs from the host (a relay reached by a service name).',
+    },
+    events_token: {
+      label: 'Events Token', type: 'password', group: EMAIL_FIELD_GROUPS.reports,
+      hint: 'The shared secret the relay\'s bounce reports must carry.',
+    },
+  },
+};
+
+function emailAdapterVendor(
+  name: EmailProviderAdapter,
+  meta: Omit<ProviderVendor, 'name' | 'fields'>,
+): ProviderVendor {
+  const keys = [...EMAIL_PROVIDER_FIELDS[name], ...EMAIL_PROVIDER_COMMON_FIELDS];
+  return {
+    ...meta,
+    name,
+    fields: keys.map((key): ProviderField => {
+      const def = EMAIL_ADAPTER_FIELD_DEFS[name][key] ?? (EMAIL_COMMON_FIELD_DEFS as Record<string, EmailFieldDef>)[key];
+      return {
+        ...def,
+        key,
+        // A secret is a password input whatever its definition says, so a
+        // stored one is shown as saved and never filled back in.
+        type: EMAIL_PROVIDER_SECRET_FIELDS[name].includes(key) ? 'password' : def.type,
+        required: key === 'from_email' || EMAIL_PROVIDER_REQUIRED_FIELDS[name].includes(key),
+      };
+    }),
+  };
+}
+
 const emailVendors: ProviderVendor[] = [
-  {
-    name: 'resend', label: 'Resend',
+  emailAdapterVendor('smtp', {
+    label: 'SMTP (Self-Hosted)',
+    description: 'Connect your own SMTP server — Postfix, hMailServer, Mail-in-a-Box, etc.',
+  }),
+  emailAdapterVendor('resend', {
+    label: 'Resend',
     description: 'Modern email API with excellent deliverability',
     docsUrl: 'https://resend.com/docs',
-    fields: [
-      { key: 'api_key', label: 'API Key', type: 'password', required: true, hint: 'Stored server-side only' },
-      { key: 'from_email', label: 'From Email', type: 'text', required: true, placeholder: 'noreply@yourdomain.com' },
-      { key: 'from_name', label: 'From Name', type: 'text', placeholder: 'Your Platform' },
-    ],
-  },
-  {
-    name: 'sendgrid', label: 'SendGrid',
+  }),
+  emailAdapterVendor('sendgrid', {
+    label: 'SendGrid',
     description: 'Enterprise email delivery by Twilio',
     docsUrl: 'https://docs.sendgrid.com',
-    fields: [
-      { key: 'api_key', label: 'API Key', type: 'password', required: true, hint: 'Stored server-side only' },
-      { key: 'from_email', label: 'From Email', type: 'text', required: true, placeholder: 'noreply@yourdomain.com' },
-      { key: 'from_name', label: 'From Name', type: 'text', placeholder: 'Your Platform' },
-    ],
-  },
-  {
-    name: 'smtp', label: 'SMTP (Self-Hosted)',
-    description: 'Connect your own SMTP server — Postfix, hMailServer, Mail-in-a-Box, etc.',
-    fields: [
-      { key: 'smtp_host', label: 'SMTP Host', type: 'text', required: true, placeholder: 'mail.yourdomain.com' },
-      { key: 'smtp_port', label: 'SMTP Port', type: 'number', required: true, placeholder: '587' },
-      { key: 'smtp_user', label: 'SMTP Username', type: 'text', required: true },
-      { key: 'smtp_pass', label: 'SMTP Password', type: 'password', hint: 'Stored server-side only' },
-      { key: 'from_email', label: 'From Email', type: 'text', required: true, placeholder: 'noreply@yourdomain.com' },
-      { key: 'from_name', label: 'From Name', type: 'text', placeholder: 'Your Platform' },
-      { key: 'smtp_secure', label: 'Use TLS', type: 'toggle' },
-    ],
-  },
+  }),
   {
     name: 'mailgun', label: 'Mailgun',
     description: 'Email API by Sinch for transactional & marketing email',
@@ -161,6 +255,12 @@ const emailVendors: ProviderVendor[] = [
     ],
   },
 ];
+
+// A vendor without a server adapter is never saved (the server refuses it
+// too, providerConfigStore.ts): it is shown, marked not available yet.
+for (const vendor of emailVendors) {
+  if (!isEmailProviderAdapter(vendor.name)) vendor.comingSoon = true;
+}
 
 // =============================================
 // AI VENDORS
@@ -924,10 +1024,9 @@ const authVendors: ProviderVendor[] = [
       { key: 'jwt_secret', label: 'JWT Secret', type: 'password', hint: 'HMAC secret for token signing' },
       { key: 'jwt_expiry', label: 'JWT Expiry (seconds)', type: 'number', placeholder: '3600' },
       { key: 'enable_signup', label: 'Enable Sign-Up', type: 'toggle' },
-      { key: 'smtp_host', label: 'Auth SMTP Host', type: 'text', hint: 'SMTP for auth emails (verify, reset)', placeholder: 'smtp.yourdomain.com' },
-      { key: 'smtp_port', label: 'Auth SMTP Port', type: 'number', placeholder: '587' },
-      { key: 'smtp_user', label: 'Auth SMTP User', type: 'text' },
-      { key: 'smtp_pass', label: 'Auth SMTP Password', type: 'password' },
+      // No SMTP here: verification codes and password resets are sent by
+      // the platform's own code through Providers → Email (auth-email.ts),
+      // never by GoTrue, so an "Auth SMTP" server was read by nothing.
     ],
   },
   {
@@ -1776,7 +1875,9 @@ export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
   email: {
     type: 'email', label: 'Email Provider', icon: 'Mail',
     description: 'Transactional and notification emails',
-    vendors: emailVendors, allowWorkspaceOverride: true,
+    // Platform mail only: the server never resolves a workspace's email
+    // provider, and the workspace provider routes refuse the type.
+    vendors: emailVendors, allowWorkspaceOverride: false,
   },
   sms: {
     type: 'sms', label: 'SMS Provider', icon: 'Smartphone',

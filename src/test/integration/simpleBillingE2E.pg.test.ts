@@ -285,8 +285,13 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
   // ── Plans (phase 3), Iran ───────────────────────────────────────────────
 
   const plans = { basic: '', plus: '', usd: '' };
-  const mails = (slug: string) => captured.emails.filter((e) => e.templateSlug === slug);
   const loadServerConfig = async () => (await import('../../../server/config.js')).loadConfig();
+  /** The mails of one template, once what the billing mails queued (the email outbox, 289b) is sent. */
+  const mails = async (slug: string) => {
+    const { drainEmailOutbox } = await import('../../../server/services/email/outbox.js');
+    await drainEmailOutbox(await loadServerConfig());
+    return captured.emails.filter((e) => e.templateSlug === slug);
+  };
 
   it('Iran: plans are listed in the account currency; a trial buys a plan from the balance, once', async () => {
     const insertPlan = async (slug: string, name: string, fa: string, monthly: number, ai: number) => String((await chain.db.query(
@@ -323,7 +328,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(view.json.renewal).toMatchObject({ plan_id: plans.basic, billing_interval: 'monthly', price_minor: 2_000_000 });
     expect(Number(view.json.days_left)).toBeGreaterThanOrEqual(27);
 
-    const mail = mails('billing_plan_activated').at(-1)!;
+    const mail = (await mails('billing_plan_activated')).at(-1)!;
     expect(mail.data.plan_name).toBe('پایه');
     expect(mail.data.amount).toMatch(/^[۰-۹٬]+ تومان$/);
     expect(mail.data.amount).toContain('۲۰۰');
@@ -356,7 +361,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
       await chain.db.query(`UPDATE public.billing_plans SET is_active = true WHERE id = $1`, [plans.plus]);
     }
     expect(view.json.renewal).toMatchObject({ plan_id: plans.basic, price_minor: 2_000_000 });
-    expect(mails('billing_change_scheduled').at(-1)!.data).toMatchObject({ plan_name: 'پلاس', new_plan_name: 'پایه' });
+    expect((await mails('billing_change_scheduled')).at(-1)!.data).toMatchObject({ plan_name: 'پلاس', new_plan_name: 'پایه' });
 
     const cancel = await call('POST', `/api/billing/account/${state.iranWs}/change`, { planId: plans.plus, interval: 'monthly' });
     expect(cancel.json).toMatchObject({ action: 'change_cancelled' });
@@ -364,10 +369,10 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(view.json.scheduled_plan).toBeNull();
 
     // Choosing the same change again mails nothing new.
-    const sent = mails('billing_change_scheduled').length;
+    const sent = (await mails('billing_change_scheduled')).length;
     expect((await call('POST', `/api/billing/account/${state.iranWs}/change`, { planId: plans.basic, interval: 'monthly' })).json)
       .toMatchObject({ action: 'change_scheduled' });
-    expect(mails('billing_change_scheduled').length).toBe(sent);
+    expect((await mails('billing_change_scheduled')).length).toBe(sent);
     expect((await call('POST', `/api/billing/account/${state.iranWs}/change`, { planId: plans.plus, interval: 'monthly' })).json)
       .toMatchObject({ action: 'change_cancelled' });
   });
@@ -392,8 +397,8 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(status.json).toMatchObject({ status: 'succeeded', purpose: 'renewal', purpose_result: { action: 'prepaid' } });
     const view = await call('GET', `/api/billing/account/${state.iranWs}`);
     expect(view.json).toMatchObject({ balance_minor: 0, next_period_prepaid_minor: 3_000_000 });
-    await vi.waitFor(() => expect(mails('billing_payment_receipt').length).toBeGreaterThan(0));
-    await vi.waitFor(() => expect(mails('billing_renewed').length).toBeGreaterThan(0));
+    await vi.waitFor(async () => expect((await mails('billing_payment_receipt')).length).toBeGreaterThan(0));
+    await vi.waitFor(async () => expect((await mails('billing_renewed')).length).toBeGreaterThan(0));
 
     const twice = await call('POST', `/api/billing/account/${state.iranWs}/checkout`, {
       purpose: 'renewal', providerName: 'internal_test', callbackUrl: `${ORIGIN}/ws/billing`,
@@ -431,7 +436,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     view = await call('GET', `/api/billing/account/${state.iranWs}`);
     expect(view.json.plan).toMatchObject({ slug: 'free', is_free: true });
     expect(view.json.paid_period).toBeNull();
-    expect(mails('billing_expired').at(-1)!.data.plan_name).toBe('پلاس');
+    expect((await mails('billing_expired')).at(-1)!.data.plan_name).toBe('پلاس');
   });
 
   it('Iran: the page offers the plan that ran out, renews only the period it saw, and starts a period that ended before the job', async () => {
@@ -650,7 +655,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const view = await call('GET', `/api/billing/account/${state.intlWs}`);
     expect(view.json.plan).toMatchObject({ slug: 'e2e-usd', status: 'active' });
     expect(view.json.balance_minor).toBe(0);
-    await vi.waitFor(() => expect(mails('billing_plan_activated').some((m) => m.data.amount === '$29.00')).toBe(true));
+    await vi.waitFor(async () => expect((await mails('billing_plan_activated')).some((m) => m.data.amount === '$29.00')).toBe(true));
   });
 
   it('Multi Region: renewal reminders go out before the due date, once each', async () => {
@@ -662,15 +667,15 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
               current_period_start = public.billing_add_months(now() + make_interval(hours => $2), -1)
         WHERE workspace_id = $1`, [state.intlWs, hours]);
     await endIn(50);
-    const count = () => mails('billing_renewal_reminder').length;
-    const before = count();
+    const count = async () => (await mails('billing_renewal_reminder')).length;
+    const before = await count();
     expect((await runSimpleBillingJob(config)).reminders).toBe(1);
-    expect(mails('billing_renewal_reminder').at(-1)!.data).toMatchObject({ days_left: '3', amount: '$29.00', plan_name: 'Team' });
+    expect((await mails('billing_renewal_reminder')).at(-1)!.data).toMatchObject({ days_left: '3', amount: '$29.00', plan_name: 'Team' });
     await runSimpleBillingJob(config);
-    expect(count()).toBe(before + 1);
+    expect(await count()).toBe(before + 1);
     await endIn(20);
     expect((await runSimpleBillingJob(config)).reminders).toBe(1);
-    expect(count()).toBe(before + 2);
+    expect(await count()).toBe(before + 2);
   });
 
   it('a trial is reminded before it ends, then ended, once', async () => {
@@ -685,12 +690,12 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
       `INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, trial_end, current_period_start, current_period_end)
        VALUES ($1, $2, 'trialing', now() + interval '40 hours', now() - interval '5 days', now() + interval '40 hours')`, [ws, trialPlan]);
     expect((await runSimpleBillingJob(config)).trials.reminded).toBe(1);
-    expect(mails('billing_trial_ending').at(-1)).toMatchObject({ to: 'trial-owner@example.test' });
+    expect((await mails('billing_trial_ending')).at(-1)).toMatchObject({ to: 'trial-owner@example.test' });
     expect((await runSimpleBillingJob(config)).trials.reminded).toBe(0);
 
     await chain.db.query(`UPDATE public.workspace_subscriptions SET trial_end = now() - interval '1 hour' WHERE workspace_id = $1`, [ws]);
     expect((await runSimpleBillingJob(config)).trials.ended).toBe(1);
-    expect(mails('billing_trial_ended').at(-1)).toMatchObject({ to: 'trial-owner@example.test' });
+    expect((await mails('billing_trial_ended')).at(-1)).toMatchObject({ to: 'trial-owner@example.test' });
     expect((await chain.db.query(`SELECT status FROM public.workspace_subscriptions WHERE workspace_id = $1`, [ws])).rows[0].status).toBe('expired');
     expect((await runSimpleBillingJob(config)).trials.ended).toBe(0);
   });

@@ -32,7 +32,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { acquireTickerLease, releaseTickerLease } from '../../observability/tickerLease.js';
 import { handleWorkspaceEntitlementChanged } from '../entitlementChange.js';
 import { SHORT_LIVED_CHECKOUT_PROVIDERS } from './index.js';
-import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
+import { billingIntervalLabel, billingMailKey, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { afterPlanChange, processDue } from './plans.js';
 import { runCardJob, type CardJobReport } from './card.js';
 import { runLockRetention, type LockRetentionReport } from '../locks/retention.js';
@@ -267,7 +267,12 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
           if (ended !== true) continue;
           report.trials.ended += 1;
           await handleWorkspaceEntitlementChanged(config, { workspaceId: row.workspace_id, source: 'trial_expired' });
-          await sendBillingEmail(config, row.workspace_id, 'billing_trial_ended', () => ({}));
+          // Queued: the trial is ended once and never looked at again, so
+          // this mail has no later run to retry it (the reminders do).
+          await sendBillingEmail(config, row.workspace_id, 'billing_trial_ended', () => ({}), {
+            queue: true,
+            dedupeKey: billingMailKey('billing_trial_ended', row.workspace_id, row.trial_end),
+          });
           continue;
         }
         const daysLeft = Math.max(Math.ceil((Date.parse(row.trial_end) - now.getTime()) / DAY_MS), 0);

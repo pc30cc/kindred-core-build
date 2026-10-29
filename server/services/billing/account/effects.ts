@@ -18,7 +18,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { sendBillingEmail } from './notify.js';
+import { billingMailKey, sendBillingEmail } from './notify.js';
 import { afterPlanChange } from './plans.js';
 import { afterAiPack } from './aiPacks.js';
 
@@ -86,7 +86,11 @@ export async function afterAccountSettlement(config: ServerConfig, settled: Sett
           amount: ctx.money(Number(payment.amount_minor), payment.currency),
           balance: ctx.money(Number(settled.balance_minor ?? 0), payment.currency),
         }),
-        { receiptLedgerId: settled.ledger_id ?? null },
+        {
+          receiptLedgerId: settled.ledger_id ?? null,
+          queue: true,
+          dedupeKey: billingMailKey('billing_payment_receipt', payment.workspace_id, settled.ledger_id ?? settled.payment_id),
+        },
       );
     }
     if (settled.purpose === 'ai_pack') {

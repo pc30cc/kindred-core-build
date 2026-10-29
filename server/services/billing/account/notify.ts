@@ -7,14 +7,23 @@
 // hard-coded copy. This module only fills the template's variables, in the
 // edition's own way: Toman and the Persian calendar in the Iranian edition,
 // the account's currency and the Gregorian calendar otherwise.
+//
+// A mail about something that already happened (a receipt, a plan change, a
+// trial's end) is queued (`queue`), so the email outbox sends it and tries
+// again when the provider fails for a moment; it used to be one attempt,
+// lost on any relay hiccup. The notices that already try again on their own
+// (the reminders, the card and locked-data notices unmark and go out on the
+// next run) keep their single attempt here, or each would be tried twice.
 // ============================================================================
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { resolveEmailScope, sendEmail } from '../../email/index.js';
+import { resolveEmailScope, sendEmail, type EmailRequest } from '../../email/index.js';
+import { enqueueEmail } from '../../email/outbox.js';
 import { getPlatformEditionOrNull } from '../../platformRegion.js';
 import { resolveWorkspaceAppUrl } from '../../auth-email.js';
 import type { Edition } from '../../../../shared/edition.js';
+import { parseEmailAddress } from '../../../../shared/emailProviders.js';
 
 export type BillingEmailSlug =
   | 'billing_renewal_reminder'
@@ -98,7 +107,10 @@ export interface BillingRecipient {
 
 /**
  * Who gets a workspace's billing mail: the billing profile's invoice email
- * when set, else the owner; in the owner's language, else the platform's.
+ * when it is one plain address, else the owner; in the owner's language,
+ * else the platform's. An invoice email saved before it was checked (any
+ * text with an "@", a comma list) is passed over for the owner rather than
+ * failing every billing mail of the workspace.
  */
 export async function billingRecipient(config: ServerConfig, workspaceId: string): Promise<BillingRecipient | null> {
   const sb = getServiceClient(config);
@@ -114,9 +126,12 @@ export async function billingRecipient(config: ServerConfig, workspaceId: string
   }
   const { data: account } = await sb.from('billing_accounts').select('billing_profile').eq('workspace_id', workspaceId).maybeSingle();
   const profile = ((account as { billing_profile?: Record<string, unknown> } | null)?.billing_profile ?? {}) as Record<string, unknown>;
-  const invoiceEmail = typeof profile.invoice_email === 'string' ? profile.invoice_email.trim() : '';
-  const email = invoiceEmail.includes('@') ? invoiceEmail : ownerEmail;
-  if (!email.includes('@')) return null;
+  const invoiceEmail = parseEmailAddress(profile.invoice_email);
+  if (!invoiceEmail && typeof profile.invoice_email === 'string' && profile.invoice_email.trim()) {
+    console.warn(`[billing-email] ${workspaceId}: the invoice email is not one plain address; mailing the owner`);
+  }
+  const email = invoiceEmail ?? parseEmailAddress(ownerEmail);
+  if (!email) return null;
   let locale = ownerLocale;
   if (!locale) {
     const { data: settings } = await sb.from('platform_settings').select('default_locale').limit(1).maybeSingle();
@@ -133,18 +148,43 @@ export interface BillingEmailContext {
   number: (value: number) => string;
 }
 
+export interface BillingEmailOptions {
+  receiptLedgerId?: string | null;
+  /**
+   * Queue the mail for the email outbox instead of sending it here: it goes
+   * out within moments and is tried again if the provider fails. If the queue
+   * cannot take it (before migration 289b), it is sent here as before.
+   */
+  queue?: boolean;
+  /** With `queue`: one mail per key (see billingMailKey). */
+  dedupeKey?: string;
+}
+
 /**
- * Sends one billing email to the workspace's billing recipient. `build`
- * receives the edition's formatters and returns the template's variables;
- * billing_url (and receipt_url for a ledger id) are added here.
+ * The dedupe key of a queued billing mail, from what names the event: or
+ * none when a part is missing, because a key built from blanks would make
+ * two different events one mail.
+ */
+export function billingMailKey(slug: BillingEmailSlug, workspaceId: string, ...parts: Array<unknown>): string | undefined {
+  const named = parts.map((part) => (part === null || part === undefined ? '' : String(part).trim()));
+  if (!workspaceId || named.some((part) => !part)) return undefined;
+  return [slug, workspaceId, ...named].join(':');
+}
+
+/**
+ * Sends (or, with `queue`, queues) one billing email to the workspace's
+ * billing recipient. `build` receives the edition's formatters and returns
+ * the template's variables; billing_url (and receipt_url for a ledger id)
+ * are added here. `sent` is a hand-over to the provider now; `queued` a mail
+ * the outbox holds.
  */
 export async function sendBillingEmail(
   config: ServerConfig,
   workspaceId: string,
   slug: BillingEmailSlug,
   build: (ctx: BillingEmailContext) => Record<string, string>,
-  options: { receiptLedgerId?: string | null } = {},
-): Promise<{ sent: boolean; error?: string }> {
+  options: BillingEmailOptions = {},
+): Promise<{ sent: boolean; queued?: boolean; error?: string }> {
   try {
     const recipient = await billingRecipient(config, workspaceId);
     if (!recipient) return { sent: false, error: 'no_recipient' };
@@ -168,13 +208,19 @@ export async function sendBillingEmail(
     if (options.receiptLedgerId) {
       data.receipt_url = await resolveWorkspaceAppUrl(config, workspaceId, `/billing/receipts/${options.receiptLedgerId}`);
     }
-    const result = await sendEmail(config, {
+    const request: EmailRequest = {
       workspaceId,
       to: recipient.email,
       templateSlug: slug,
       templateData: data,
       locale: recipient.locale,
-    });
+    };
+    if (options.queue) {
+      const queued = await enqueueEmail(config, request, { dedupeKey: options.dedupeKey });
+      if (queued.queued) return { sent: false, queued: true };
+      console.warn(`[billing-email] ${slug} for ${workspaceId} not queued (${queued.error ?? 'unknown'}); sending it now`);
+    }
+    const result = await sendEmail(config, request);
     if (!result.success) {
       console.warn(`[billing-email] ${slug} for ${workspaceId} not sent: ${result.error ?? 'unknown'}`);
       return { sent: false, error: result.error };

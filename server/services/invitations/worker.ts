@@ -15,7 +15,8 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { sendEmail } from '../email/index.js';
+import { sendEmail, type SendResult } from '../email/index.js';
+import { emailRetryDelayMs } from '../email/outbox.js';
 import { sendSms } from '../sms/index.js';
 import { toProviderFormat } from '../phoneVerification/phone.js';
 import {
@@ -23,6 +24,7 @@ import {
   renderInviteEmail,
   renderInviteSms,
   renderDeliveryFailure,
+  renderInviterFallback,
   normalizeNotificationLocale,
 } from './notificationTemplates.js';
 import {
@@ -39,6 +41,7 @@ import {
   hasOtpKey,
 } from './tokens.js';
 import { IdleBackoff, IntervalGate } from '../jobs/idleBackoff.js';
+import { onProcessShutdown } from '../jobs/processShutdown.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
 import { EDITION_PROFILE } from '../../../shared/edition.js';
 
@@ -84,7 +87,6 @@ let timer: NodeJS.Timeout | null = null;
 let running = false;
 let phase: InvitationWorkerPhase = 'stopped';
 let activeDrain: Promise<unknown> | null = null;
-let signalsInstalled = false;
 let shuttingDown = false;
 /** Slow cadence for the reaper/TTL sweeps; see MAINTENANCE_SWEEP_MS. */
 let maintenanceGate = new IntervalGate(MAINTENANCE_SWEEP_MS);
@@ -109,6 +111,51 @@ function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
   })[char] || char);
+}
+
+/**
+ * A name typed by a person (the invitee's, the workspace's, the inviter's) as
+ * one short line: it is printed in the subject and the text part, where a
+ * line break would start a line of its own.
+ */
+function oneLine(value: unknown, max = 120): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * Whether a failed e-mail send can only fail again: no provider (the stub)
+ * or one missing its settings is `unconfigured`; anything else the email
+ * service marks permanent (a refused or suppressed address, a refused
+ * sign-in) is a delivery that retrying the same message cannot fix. Both are
+ * terminal at once instead of using up the attempts. A failure that can pass
+ * (a timeout, a dropped connection) is neither.
+ */
+function terminalEmailOutcome(result: SendResult): 'unconfigured' | 'permanently_failed' | null {
+  if (result.provider === 'stub' || result.errorCode === 'unconfigured') return 'unconfigured';
+  if (result.permanent) return 'permanently_failed';
+  return null;
+}
+
+/**
+ * The inviter's own name for {inviter}, or null when it cannot be read (the
+ * caller prints the localized "a team member" instead of leaving it blank).
+ */
+async function inviterName(config: ServerConfig, invitationId: string): Promise<string | null> {
+  try {
+    const sb = getServiceClient(config);
+    const { data: invitation } = await sb
+      .from('workspace_invitations')
+      .select('created_by')
+      .eq('id', invitationId)
+      .maybeSingle();
+    const createdBy = (invitation as { created_by?: string | null } | null)?.created_by;
+    if (!createdBy) return null;
+    const { data: profile } = await sb.from('profiles').select('full_name').eq('id', createdBy).maybeSingle();
+    const name = oneLine((profile as { full_name?: string | null } | null)?.full_name, 80);
+    return name || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -346,21 +393,20 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
       return;
     }
 
-    const terminal = result.provider === 'stub' || job.attempt_count + 1 >= (job.max_attempts ?? 3);
+    const terminalOutcome = terminalEmailOutcome(result);
+    const terminal = terminalOutcome !== null || job.attempt_count + 1 >= (job.max_attempts ?? 3);
     if (terminal) {
       // No human can receive this code: revoking it and recording the terminal
       // delivery state happen in ONE claim-guarded transaction, so a crash can
       // never leave a revoked OTP behind a still-claimed job.
+      const unconfigured = terminalOutcome === 'unconfigured';
       await failOtpAtomically(
         config, job, claimToken,
-        result.provider === 'stub' ? 'unconfigured' : 'permanently_failed',
+        unconfigured ? 'unconfigured' : 'permanently_failed',
         {
           provider: result.provider,
-          errorCode: result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
-          message: renderDeliveryFailure(
-            otpLocale,
-            result.provider === 'stub' ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
-          ),
+          errorCode: unconfigured ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED',
+          message: renderDeliveryFailure(otpLocale, unconfigured ? 'EMAIL_PROVIDER_UNCONFIGURED' : 'OTP_SEND_FAILED'),
         },
       );
       return;
@@ -389,38 +435,58 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
       // Jalali in the Iranian edition (and while unknown, as before), Gregorian elsewhere.
       calendar: EDITION_PROFILE[(await getPlatformEditionOrNull(config)) ?? 'iran'].calendar,
     });
+    // The subject and the text part get each value as typed, the HTML part
+    // its escaped copy (htmlData): escaped values in templateData printed
+    // "A&amp;B" in the subject and "&amp;p=e" in the text part's link.
+    // {brand} is left to the email service, which fills in the platform's own
+    // name: the mail is From the platform, so it says whose it is ("Acme on
+    // Webyar"), never a workspace name standing in for the brand.
+    const values = {
+      name: oneLine(payload.first_name),
+      workspace: oneLine(payload.workspace_name),
+      inviter: (await inviterName(config, job.invitation_id)) ?? renderInviterFallback(mailLocale),
+      role: oneLine(payload.role, 40),
+      action_url: link,
+    };
     const result = await sendEmail(config, {
       workspaceId: payload.workspace_id,
       to: payload.email,
       templateSlug: 'invite_member',
       locale: mailLocale,
-      templateData: {
-        name: escapeHtml(payload.first_name), brand: escapeHtml(payload.workspace_name),
-        workspace: escapeHtml(payload.workspace_name), inviter: '', role: escapeHtml(payload.role),
-        action_url: escapeHtml(link),
-      },
+      templateData: values,
+      htmlData: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, escapeHtml(value)])),
       subject: mail.subject,
       text: mail.text,
       html: mail.html,
     });
 
+    const terminal = result.success ? null : terminalEmailOutcome(result);
     if (result.success && result.provider !== 'stub') {
       await complete(config, job.id, claimToken, 'provider_accepted', {
         provider: result.provider,
         messageId: result.id,
       });
-    } else if (result.provider === 'stub') {
+    } else if (terminal === 'unconfigured') {
       await complete(config, job.id, claimToken, 'unconfigured', {
-        provider: 'stub',
+        provider: result.provider,
         errorCode: 'EMAIL_PROVIDER_UNCONFIGURED',
         message: renderDeliveryFailure(mailLocale, 'EMAIL_PROVIDER_UNCONFIGURED'),
       });
+    } else if (terminal === 'permanently_failed') {
+      await complete(config, job.id, claimToken, 'permanently_failed', {
+        provider: result.provider,
+        errorCode: 'EMAIL_SEND_FAILED',
+        message: renderDeliveryFailure(mailLocale, 'EMAIL_SEND_FAILED'),
+      });
     } else {
+      // The same schedule as the email outbox (1, 5, 15, 60 minutes, then
+      // every 3 hours): seconds apart, the eight attempts were spent within
+      // the hour a relay restart or a provider's outage can last.
       await complete(config, job.id, claimToken, 'retry', {
         provider: result.provider,
         errorCode: 'EMAIL_SEND_FAILED',
         message: renderDeliveryFailure(mailLocale, 'EMAIL_SEND_FAILED'),
-        retryIn: backoffSeconds(job.attempt_count),
+        retryIn: Math.round(emailRetryDelayMs(job.attempt_count) / 1000),
       });
     }
     return;
@@ -610,7 +676,9 @@ export function startInvitationWorker(config: ServerConfig): void {
   pollBackoff = new IdleBackoff({ busyMs: POLL_MS, idleMs: POLL_MS, maxIdleMs: MAX_IDLE_POLL_MS });
   maintenanceGate = new IntervalGate(MAINTENANCE_SWEEP_MS);
   scheduleNextPoll(config, POLL_MS);
-  installSignalHandlers();
+  // SIGTERM/SIGINT drain this worker, then the process exits
+  // (processShutdown.ts). Never logs job payloads or secrets.
+  onProcessShutdown('invitations', () => shutdownInvitationWorker());
   console.log(`[invitationWorker] started (${WORKER_ID})`);
 }
 
@@ -667,17 +735,5 @@ export async function shutdownInvitationWorker(
     console.log('[invitationWorker] stopped cleanly');
   }
   return { drained };
-}
-
-/** SIGTERM/SIGINT wiring, installed once. Never logs job payloads or secrets. */
-function installSignalHandlers(): void {
-  if (signalsInstalled) return;
-  signalsInstalled = true;
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.once(signal, () => {
-      console.log(`[invitationWorker] ${signal} received — draining`);
-      void shutdownInvitationWorker().catch(() => undefined);
-    });
-  }
 }
 

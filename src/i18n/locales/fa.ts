@@ -406,6 +406,7 @@ const fa: TranslationKeys = {
         CHECKOUT_PROVIDER_ERROR: 'درگاه پرداخت صفحه‌ی پرداخت را باز نکرد:',
         CHECKOUT_REFERENCE_BINDING_FAILED: 'آماده‌سازی صفحه‌ی پرداخت انجام نشد. لطفاً دوباره تلاش کنید.',
         INVALID_CALLBACK_URL: 'از این نشانی نمی‌توان پرداخت انجام داد.',
+        INVALID_INVOICE_EMAIL: 'برای رسید فقط یک ایمیل بنویسید، مثل name@example.com.',
         CURRENCY_CHANGED: 'ارز این حساب تغییر کرده است. صفحه به‌روز شد؛ لطفاً مبلغ را بررسی کنید و دوباره تلاش کنید.',
         INSUFFICIENT_BALANCE: 'موجودی کافی نیست. موجودی را افزایش دهید یا آنلاین پرداخت کنید.',
         PLAN_ACTIVE: 'این فضای کاری پلن فعال دارد. به‌جای خرید، پلن را تغییر دهید.',

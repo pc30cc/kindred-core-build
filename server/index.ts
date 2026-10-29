@@ -106,6 +106,8 @@ import { startRecordingRetentionJanitor } from './services/recordings/retentionJ
 import { startVisitorDataRetention } from './services/privacy/visitorRetention.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startInvitationWorker } from './services/invitations/worker.js';
+import { startEmailOutboxWorker } from './services/email/outbox.js';
+import { onProcessShutdown } from './services/jobs/processShutdown.js';
 import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
 import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.js';
 
@@ -753,6 +755,12 @@ const httpServer = app.listen(config.port, () => {
       else console.error('[invitations] worker not started: entitlement bootstrap failed');
     });
   }
+  // The email outbox (migration 289b): receipts, plan mails and the reset and
+  // verification links whose first attempt failed are sent, and retried, from
+  // here. In the backend by default, because only the backend reaches the
+  // mail relay; EMAIL_OUTBOX_INPROC=0 only when a WORKER_KIND=email-outbox
+  // container on the relay's network runs it instead.
+  if (process.env.EMAIL_OUTBOX_INPROC !== '0') startEmailOutboxWorker(config);
 
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
@@ -1083,5 +1091,8 @@ httpServer.headersTimeout = 67_000;
 httpServer.on('close', () => {
   void stopCacheBusListener();
 });
+// SIGTERM (a container being replaced) drains the outboxes and stops taking
+// requests, then exits (services/jobs/processShutdown.ts).
+onProcessShutdown('http', () => new Promise<void>((resolve) => httpServer.close(() => resolve())));
 
 export default app;

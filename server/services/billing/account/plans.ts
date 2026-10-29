@@ -13,7 +13,7 @@ import { handleWorkspaceEntitlementChanged } from '../entitlementChange.js';
 import { getBillingRegion } from '../edition.js';
 import { assignedPlanApplies } from '../planSelection.js';
 import { AccountBillingError, readAccount, type AccountRow } from './index.js';
-import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
+import { billingIntervalLabel, billingMailKey, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { cancelCardNow, cardLabel, pullCardRenewal, readLiveCard, setCardAutoRenew } from './card.js';
 import { buildLockReport, reportNeedsAcknowledgement, type LockReport } from '../locks/report.js';
 import { locksEnabled } from '../locks/state.js';
@@ -531,7 +531,11 @@ export async function rpc(config: ServerConfig, name: string, args: Record<strin
 }
 
 /**
- * After a plan or period changed: entitlements now, and the mail. Never throws.
+ * After a plan or period changed: entitlements now, and the mail (queued for
+ * the email outbox: nobody waits for it, and a provider's hiccup must not
+ * lose it; one per ledger row, the money movement it reports, when it has
+ * one — a prepaid period's start has none, and is a mail of its own). Never
+ * throws.
  * `options.card` is the saved card that paid (its type, last digits and the
  * amount charged to it, VAT included): a renewal it paid is mailed as
  * billing_card_renewed, with {card} and that amount.
@@ -564,7 +568,10 @@ export async function afterPlanChange(
         period_end: ctx.date(result.period_end as string),
         amount: ctx.money(Number(result.amount_minor ?? 0), currency),
         balance: ctx.money(Number(result.balance_minor ?? 0), currency),
-      }));
+      }), {
+        queue: true,
+        dedupeKey: billingMailKey('billing_plan_activated', workspaceId, result.ledger_id),
+      });
     } else if (action === 'renewed' || action === 'prepaid') {
       const changed = action === 'renewed' && result.previous_plan_id && result.previous_plan_id !== result.plan_id;
       // A renewal the saved card paid has its own mail, naming the card.
@@ -578,18 +585,21 @@ export async function afterPlanChange(
         period_start: ctx.date(result.period_start as string),
         period_end: ctx.date(result.period_end as string),
         ...(card ? { card: cardLabel(card.brand, card.last4, ctx.locale) } : {}),
-      }));
+      }), { queue: true, dedupeKey: billingMailKey(slug, workspaceId, result.ledger_id) });
     } else if (action === 'expired') {
       await sendBillingEmail(config, workspaceId, 'billing_expired', (ctx) => ({
         plan_name: planName(ctx.locale),
         expired_at: ctx.date(result.expired_at as string),
-      }));
+      }), { queue: true, dedupeKey: billingMailKey('billing_expired', workspaceId, result.plan_id, result.expired_at) });
     } else if (action === 'change_scheduled') {
       // One mail per change and period: choosing back and forth mails each target once.
-      const { data: marked } = await getServiceClient(config).rpc('billing_account_mark_notice', {
+      const noticeKey = `change:${new Date(String(result.effective_at)).toISOString()}`;
+      const notice = `${String(result.plan_id)}:${String(result.billing_interval)}`;
+      const sb = getServiceClient(config);
+      const { data: marked } = await sb.rpc('billing_account_mark_notice', {
         p_workspace_id: workspaceId,
-        p_key: `change:${new Date(String(result.effective_at)).toISOString()}`,
-        p_notices: [`${String(result.plan_id)}:${String(result.billing_interval)}`],
+        p_key: noticeKey,
+        p_notices: [notice],
       });
       if (marked !== true) return;
       // An interval change names the interval too ("Pro (monthly)" → "Pro (yearly)").
@@ -598,11 +608,17 @@ export async function afterPlanChange(
         const name = localizedPlanName(plans.get(String(planId ?? '')), locale);
         return withInterval ? `${name} (${billingIntervalLabel(String(interval ?? ''), locale)})` : name;
       };
-      await sendBillingEmail(config, workspaceId, 'billing_change_scheduled', (ctx) => ({
+      const mail = await sendBillingEmail(config, workspaceId, 'billing_change_scheduled', (ctx) => ({
         plan_name: named(result.previous_plan_id, result.previous_interval, ctx.locale),
         new_plan_name: named(result.plan_id, result.billing_interval, ctx.locale),
         effective_at: ctx.date(result.effective_at as string),
-      }));
+      }), { queue: true });
+      // Marked before the mail so two requests cannot both send it; a mail
+      // that neither went nor was queued gives the mark back, or choosing
+      // the same change again would never mail it.
+      if (!mail.sent && !mail.queued) {
+        await sb.rpc('billing_account_unmark_notice', { p_workspace_id: workspaceId, p_key: noticeKey, p_notice: notice });
+      }
     }
   } catch (e) {
     console.warn('[billing-account] after plan change:', e instanceof Error ? e.message : e);

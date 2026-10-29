@@ -11,6 +11,9 @@
  *   commerce-sync           → Commerce catalog sync (public.commerce_sync_jobs)
  *   seo-crawler,channels    → e.g. these two kinds sharing one container
  *   invitations             → a different kind in another container
+ *   email-outbox            → the email outbox (public.email_outbox); the
+ *                             container must be on the mail relay's network,
+ *                             and the backend's own loop off (EMAIL_OUTBOX_INPROC=0)
  *   all                     → every loop in the same process (dev/small deploys only)
  *
  * Default is "intelligence" so existing Coolify deployments built from the
@@ -38,6 +41,7 @@ const ALLOWED = new Set([
   'regression-runner',
   'channels',
   'invitations',
+  'email-outbox',
   'seo-crawler',
   'commerce-sync',
   'retention',
@@ -118,6 +122,13 @@ async function main() {
     const entitlement = await bootstrap.syncSeatEntitlementMode(config);
     if (!entitlement.ok) throw new Error('invitation entitlement bootstrap failed');
     worker.startInvitationWorker(config);
+  }
+  if (runs('email-outbox')) {
+    const [{ loadConfig }, outbox] = await Promise.all([
+      import('../server/config.js'),
+      import('../server/services/email/outbox.js'),
+    ]);
+    outbox.startEmailOutboxWorker(loadConfig());
   }
   if (runs('seo-crawler')) {
     const mod = await import('./seo-crawler/index.js');

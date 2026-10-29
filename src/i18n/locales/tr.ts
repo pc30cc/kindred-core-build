@@ -406,6 +406,7 @@ const tr: TranslationKeys = {
         CHECKOUT_PROVIDER_ERROR: 'Ödeme sağlayıcısı ödeme sayfasını açmadı:',
         CHECKOUT_REFERENCE_BINDING_FAILED: 'Ödeme sayfası hazırlanamadı. Lütfen tekrar deneyin.',
         INVALID_CALLBACK_URL: 'Bu adresten ödeme alınamaz.',
+        INVALID_INVOICE_EMAIL: 'Makbuzlar için tek bir e-posta adresi girin, örneğin name@example.com.',
         CURRENCY_CHANGED: 'Bu hesabın para birimi değişti. Sayfa yenilendi; lütfen tutarı kontrol edip tekrar deneyin.',
         INSUFFICIENT_BALANCE: 'Bakiyeniz yetmiyor. Bakiye yükleyin veya çevrimiçi ödeyin.',
         PLAN_ACTIVE: 'Bu çalışma alanında zaten etkin bir plan var. Bunun yerine planı değiştirin.',

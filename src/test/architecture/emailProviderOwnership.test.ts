@@ -387,6 +387,7 @@ describe('every send path uses the shared sender', () => {
     'server/services/verification/service.ts',
     'server/services/invitations/worker.ts',
     'server/services/email/sendChannelEmail.ts',
+    'server/services/email/outbox.ts',
     'server/routes/widget.ts',
     'server/routes/email.ts',
   ];
@@ -400,11 +401,12 @@ describe('every send path uses the shared sender', () => {
     }
   });
 
-  it('they all call sendEmail or sendPlatformEmail', () => {
+  it('they all call sendEmail or sendPlatformEmail (the outbox\'s two entry points send through sendEmail)', () => {
     for (const file of SENDERS) {
       const body = stripTs(read(file));
-      expect(/sendEmail\(|sendPlatformEmail\(/.test(body), file).toBe(true);
+      expect(/sendEmail\(|sendPlatformEmail\(|sendEmailWithRetry\(|enqueueEmail\(/.test(body), file).toBe(true);
     }
+    expect(stripTs(read('server/services/email/outbox.ts'))).toMatch(/await sendEmail\(config, request\)/);
   });
 });
 

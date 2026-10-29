@@ -213,8 +213,15 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
   /** The billing mails about one workspace (its billing_url names its slug). */
   const mailsOf = (ws: string, slug: string) =>
     captured.emails.filter((e) => e.templateSlug === slug && (e.data.billing_url ?? '').endsWith(`/${slugs.get(ws)}/billing`));
-  /** Mails are sent after the money is committed: give them a moment. */
-  const mailsSettle = () => new Promise((r) => setTimeout(r, 150));
+  /**
+   * Mails are sent after the money is committed: give them a moment, then
+   * send what the billing mails queued (the email outbox, migration 289b).
+   */
+  const mailsSettle = async () => {
+    await new Promise((r) => setTimeout(r, 150));
+    const { drainEmailOutbox } = await import('../../../server/services/email/outbox.js');
+    await drainEmailOutbox(config);
+  };
 
   /** Calls made to Paddle from `mark` on. */
   const callsSince = (mark: number) => fake.calls.slice(mark);

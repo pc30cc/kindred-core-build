@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { sendEmail } from './email/index.js';
+import { sendEmailWithRetry } from './email/outbox.js';
 
 /**
  * Platform auth mail (verification, password reset) belongs to no tenant.
@@ -142,63 +142,110 @@ function expiryLabel(locale: string | undefined, hours: number): string {
 }
 
 
-export async function issueVerificationEmail(
+/** How long a verification or reset link works. */
+const AUTH_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** The two kinds of link this module mails, and where each one lives. */
+const AUTH_LINKS = {
+  verify: { table: 'auth_verify_tokens', slug: 'email_verify', path: '/auth/email-confirmed' },
+  reset: { table: 'auth_reset_tokens', slug: 'password_reset', path: '/auth/reset-password' },
+} as const;
+
+/**
+ * `success` means the link was handed to the email provider, or, when that
+ * attempt failed in a way that can pass (the relay restarting, a timeout),
+ * that the same mail is queued and will be tried again for as long as the
+ * link works (`queued: true`). A failure that cannot pass (no provider, an
+ * address that cannot be mailed) is `success: false`.
+ */
+export interface AuthEmailResult {
+  success: boolean;
+  queued?: boolean;
+  error?: string;
+}
+
+/**
+ * Issues a new link of one kind and mails it.
+ *
+ * The user's earlier links are revoked only once the new one has reached the
+ * provider (the outbox's after-sent step, inline or from the queue). They
+ * used to be revoked first, so a send that failed left the user with no
+ * working link at all while the routes said it was sent. An older mail of
+ * the same kind still waiting in the queue is cancelled by the newer one
+ * (its supersede key): it carries a link the newer one replaces. A link
+ * nobody will receive (the send failed for good) is revoked at once.
+ */
+async function issueAuthLink(
   config: ServerConfig,
-  options: VerificationEmailOptions,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const sb = getServiceClient(config);
+  kind: keyof typeof AUTH_LINKS,
+  options: { userId: string; email: string; fullName?: string | null; locale?: string; ipAddress?: string | null },
+): Promise<AuthEmailResult> {
+  const link = AUTH_LINKS[kind];
+  const sb = getServiceClient(config);
 
-    await sb.from('auth_verify_tokens')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('user_id', options.userId)
-      .is('used_at', null)
-      .is('revoked_at', null);
+  // Both before the token: a base URL that cannot be resolved must not
+  // leave a fresh token behind.
+  const [appBaseUrl, brandName] = await Promise.all([
+    resolveAppBaseUrl(config),
+    resolveBrandName(config, options.locale),
+  ]);
 
-    const rawToken = generateToken();
-    const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-    const { error: tokenInsertError } = await sb.from('auth_verify_tokens').insert({
+  const rawToken = generateToken();
+  const expiresAt = new Date(Date.now() + AUTH_LINK_TTL_MS);
+  const { data: inserted, error: tokenInsertError } = await sb
+    .from(link.table)
+    .insert({
       user_id: options.userId,
       email: options.email,
-      token_hash: tokenHash,
-      expires_at: expiresAt,
+      token_hash: hashToken(rawToken),
+      expires_at: expiresAt.toISOString(),
       ip_address: options.ipAddress || null,
-    });
+    })
+    .select('id, created_at')
+    .single();
+  if (tokenInsertError || !inserted) {
+    return { success: false, error: tokenInsertError?.message || 'the link could not be stored' };
+  }
+  const token = inserted as { id: string; created_at: string };
 
-    if (tokenInsertError) {
-      return { success: false, error: tokenInsertError.message };
-    }
-
-    const [appBaseUrl, brandName] = await Promise.all([
-      resolveAppBaseUrl(config),
-      resolveBrandName(config, options.locale),
-    ]);
-
-    const verifyUrl = `${appBaseUrl}/auth/email-confirmed?token=${rawToken}`;
-    const userName = options.fullName || options.email.split('@')[0];
-
-    const result = await sendEmail(config, {
+  const actionUrl = `${appBaseUrl}${link.path}?token=${rawToken}`;
+  const userName = options.fullName || options.email.split('@')[0];
+  const result = await sendEmailWithRetry(
+    config,
+    {
       workspaceId: PLATFORM_EMAIL_WORKSPACE,
       to: options.email,
-      templateSlug: 'email_verify',
+      templateSlug: link.slug,
       templateData: {
         name: userName,
         brand: brandName,
-        action_url: verifyUrl,
+        action_url: actionUrl,
         email: options.email,
-        expiry_time: expiryLabel(options.locale, 24),
+        expiry_time: expiryLabel(options.locale, AUTH_LINK_TTL_MS / 3_600_000),
         year: new Date().getFullYear().toString(),
       },
       locale: options.locale || 'en',
-    });
+    },
+    {
+      // A retry is pointless once the link has expired.
+      expiresAt,
+      supersedeKey: `${link.slug}:${options.userId}`,
+      afterSent: { action: 'revoke_earlier_tokens', table: link.table, userId: options.userId, issuedAt: token.created_at },
+    },
+  );
 
-    if (!result.success) {
-      return { success: false, error: result.error };
-    }
+  if (result.success) return { success: true };
+  if (result.queuedRetry) return { success: true, queued: true };
+  await sb.from(link.table).update({ revoked_at: new Date().toISOString() }).eq('id', token.id);
+  return { success: false, error: result.error };
+}
 
-    return { success: true };
+export async function issueVerificationEmail(
+  config: ServerConfig,
+  options: VerificationEmailOptions,
+): Promise<AuthEmailResult> {
+  try {
+    return await issueAuthLink(config, 'verify', options);
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to send verification email' };
   }
@@ -211,62 +258,9 @@ export async function issueVerificationEmail(
 export async function issueRecoveryEmail(
   config: ServerConfig,
   options: RecoveryEmailOptions,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<AuthEmailResult> {
   try {
-    const sb = getServiceClient(config);
-
-    // Revoke any existing unused reset tokens for this user
-    await sb.from('auth_reset_tokens')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('user_id', options.userId)
-      .is('used_at', null)
-      .is('revoked_at', null);
-
-    // Generate and store custom reset token
-    const rawToken = generateToken();
-    const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
-
-    const { error: tokenInsertError } = await sb.from('auth_reset_tokens').insert({
-      user_id: options.userId,
-      email: options.email,
-      token_hash: tokenHash,
-      expires_at: expiresAt,
-      ip_address: null,
-    });
-
-    if (tokenInsertError) {
-      return { success: false, error: tokenInsertError.message };
-    }
-
-    const [appBaseUrl, brandName] = await Promise.all([
-      resolveAppBaseUrl(config),
-      resolveBrandName(config, options.locale),
-    ]);
-
-    const resetUrl = `${appBaseUrl}/auth/reset-password?token=${rawToken}`;
-    const userName = options.fullName || options.email.split('@')[0];
-
-    const result = await sendEmail(config, {
-      workspaceId: PLATFORM_EMAIL_WORKSPACE,
-      to: options.email,
-      templateSlug: 'password_reset',
-      templateData: {
-        name: userName,
-        brand: brandName,
-        action_url: resetUrl,
-        email: options.email,
-        expiry_time: expiryLabel(options.locale, 24),
-        year: new Date().getFullYear().toString(),
-      },
-      locale: options.locale || 'en',
-    });
-
-    if (!result.success) {
-      return { success: false, error: result.error };
-    }
-
-    return { success: true };
+    return await issueAuthLink(config, 'reset', options);
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to send recovery email' };
   }

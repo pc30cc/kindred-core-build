@@ -404,6 +404,7 @@ const en = {
         CHECKOUT_PROVIDER_ERROR: 'The payment gateway did not open the payment page:',
         CHECKOUT_REFERENCE_BINDING_FAILED: 'The payment page could not be prepared. Please try again.',
         INVALID_CALLBACK_URL: 'This address cannot receive payments.',
+        INVALID_INVOICE_EMAIL: 'Enter one email address for receipts, like name@example.com.',
         CURRENCY_CHANGED: 'This account\'s currency changed. The page was refreshed; please check the amount and try again.',
         INSUFFICIENT_BALANCE: 'Your balance is not enough. Top up or pay online.',
         PLAN_ACTIVE: 'This workspace already has a plan running. Change the plan instead.',

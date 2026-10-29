@@ -209,7 +209,12 @@ suite('card-to-card service against the real chain', () => {
     const entry = await one(`SELECT kind, amount_minor, tax_minor, description FROM public.billing_account_ledger WHERE id = $1`, [r.ledger_id]);
     expect(entry).toMatchObject({ kind: 'topup' });
     expect(Number(entry.tax_minor)).toBe(500_000);
-    await vi.waitFor(() => expect(captured.emails.map((m) => m.templateSlug)).toContain('billing_payment_receipt'), { timeout: 8000 });
+    // The receipt is queued for the email outbox (289b): drained here.
+    const { drainEmailOutbox } = await import('../../../server/services/email/outbox.js');
+    await vi.waitFor(async () => {
+      await drainEmailOutbox(config);
+      expect(captured.emails.map((m) => m.templateSlug)).toContain('billing_payment_receipt');
+    }, { timeout: 8000 });
     const audit = await one(`SELECT action, user_id, workspace_id FROM public.audit_logs WHERE entity_id = $1`, [item.id]);
     expect(audit).toMatchObject({ action: 'billing.card_transfer_approved', user_id: admin, workspace_id: ws });
 

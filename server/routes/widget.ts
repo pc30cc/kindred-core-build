@@ -149,8 +149,8 @@ import {
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { applyKbUnlockedFilter, resolveKbLock } from '../services/knowledge-base/locks.js';
-import { sendEmail } from '../services/email/index.js';
-import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
+import { notifyOfflineCapture } from '../services/widget/offlineNotice.js';
+export { escapeMailText } from '../services/widget/offlineNotice.js';
 
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { trackEvent } from '../services/webAnalytics/eventsService.js';
@@ -195,7 +195,6 @@ import {
   visitorReactionList,
 } from '../../shared/messageReactions.js';
 import { visitorSystemPreview, type VisitorSystemPreview } from '../../shared/systemMessages.js';
-import { operatorFallbackLocale, operatorLocale, operatorLocales } from '../services/operatorLocale.js';
 
 /**
  * Internal staffing notices never reach the visitor.
@@ -4190,12 +4189,14 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
 // ═══════════════════════════════════════════════
 // POST /offline-messages — Capture a message while the workspace is offline
 // ───────────────────────────────────────────────
-// Server is the source of truth for availability — we re-resolve here and
-// reject if the workspace is currently online (the widget should send a
-// regular message instead). When accepted, this creates a normal
+// Server is the source of truth for availability — we re-resolve here. A
+// capture while the workspace is online is still taken (the widget's view
+// was stale: the answer's `transitioning` says so, and routing gives it to
+// someone who is there), but mails nobody. Otherwise this creates a normal
 // conversation tagged 'offline' with a `captured_offline` event so it shows
-// up in the inbox like any other thread, and notifies workspace admins by
-// email when an email provider is configured.
+// up in the inbox like any other thread, and the workspace's owners and
+// admins are mailed (services/widget/offlineNotice.ts: batched and capped
+// per workspace, through the outbox).
 // ═══════════════════════════════════════════════
 const offlineMessageSchema = z.object({
   workspace_id: z.string().uuid(),
@@ -4379,6 +4380,7 @@ async function appendAwayMessage(
   }
   void notifyOfflineCapture(config, input.workspaceId, {
     conversationId: input.conversationId,
+    messageId: row.id as string,
     message: input.message,
     email: input.email,
     name: input.name,
@@ -4466,8 +4468,8 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     }
   }
 
-  // Re-resolve availability server-side. Reject when online — the widget
-  // should be sending a normal /message in that case.
+  // Re-resolve availability server-side. Online, the widget should have
+  // sent a normal /message: the capture is kept, and no owner is mailed.
   const snap = await resolveAvailability(config, { workspaceId: workspace_id, locale });
   const transitioning = snap.state === 'online';
 
@@ -4658,15 +4660,21 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     },
   });
 
-  // Best-effort email notification to workspace owners/admins, each in
-  // their own language (not the visitor's).
+  // The owners' and admins' mail, each in their own language (not the
+  // visitor's), batched and capped per workspace (services/widget/
+  // offlineNotice.ts). Not while the team is online: the capture is then
+  // accepted all the same (a widget whose view of the team was stale must
+  // not lose the message; `transitioning` tells it so) and routing has just
+  // given it to someone who is there, so a mail saying the workspace was
+  // offline would be wrong.
   void notifyOfflineCapture(config, workspace_id, {
     conversationId: conv.id,
+    messageId: (offlineMessage?.id as string | undefined) ?? null,
     message,
     email: email || null,
     name: typedName,
     phone: typedPhone,
-  }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
+  }, { teamOnline: transitioning }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
 
   return res.json({
     ok: true,
@@ -4691,168 +4699,6 @@ function normalizeVisitorPhone(value?: string | null): string | null {
   const s = toAsciiDigits(value).trim().replace(/[^\d+]/g, '');
   return s || null;
 }
-
-/** Visitor text for an HTML mail body: `&`, `<`, `>` and `"` as entities. */
-export function escapeMailText(value: string): string {
-  return String(value).replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
-}
-
-async function notifyOfflineCapture(
-  config: ServerConfig,
-  workspaceId: string,
-  payload: { conversationId: string; message: string; email: string | null; name: string | null; phone?: string | null },
-): Promise<void> {
-  const supabase = getServiceClient(config);
-  // Resolve workspace owners/admins. The codebase uses `workspace_members`
-  // (with `workspace_role` enum) — fall through gracefully if the table or
-  // column shape isn't what we expect, so notification is purely best-effort.
-  let recipientIds: string[] = [];
-  try {
-    const { data: wsMembers } = await supabase
-      .from('workspace_members')
-      .select('user_id, role')
-      .eq('workspace_id', workspaceId)
-      .in('role', ['owner', 'admin']);
-    if (Array.isArray(wsMembers)) {
-      recipientIds = wsMembers.map((m) => m.user_id).filter(Boolean);
-    }
-  } catch {
-    // ignore — will check email_settings.reply_to_email below
-  }
-
-  // Each mail in its recipient's language (operatorLocale.ts:
-  // preferred_locale, else the platform's), never the visitor's.
-  let recipients: Array<{ to: string; locale: string }> = [];
-  if (recipientIds.length) {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, email')
-      .in('id', recipientIds);
-    const withEmail = (profiles || []).filter((p) => p.email);
-    const locales = await operatorLocales(config, withEmail.map((p) => String(p.id)));
-    recipients = withEmail.map((p) => ({ to: p.email, locale: locales.get(String(p.id)) || 'en' }));
-  }
-
-  if (!recipients.length) {
-    const { data: settings } = await supabase
-      .from('email_settings')
-      .select('reply_to_email')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    if (settings?.reply_to_email) recipients = [{ to: settings.reply_to_email, locale: await operatorFallbackLocale(config) }];
-  }
-
-  if (!recipients.length) return;
-
-  const subject = `New offline message`;
-  // Deep-link straight into the conversation inside THIS workspace.
-  let inboxUrl = '';
-  try {
-    inboxUrl = await resolveWorkspaceAppUrl(
-      config,
-      workspaceId,
-      `/inbox?c=${encodeURIComponent(payload.conversationId)}`,
-    );
-  } catch {
-    inboxUrl = '';
-  }
-  // What the visitor typed is text, never markup: in this fallback body and
-  // in the template's HTML alike.
-  const html = `
-    <p>A visitor left a message while your workspace was offline.</p>
-    <p><strong>From:</strong> ${escapeMailText(payload.name || 'Anonymous')} ${payload.email ? `&lt;${escapeMailText(payload.email)}&gt;` : ''}</p>
-    ${payload.phone ? `<p><strong>Phone:</strong> <span dir="ltr">${escapeMailText(payload.phone)}</span></p>` : ''}
-    <p><strong>Message:</strong></p>
-    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${escapeMailText(payload.message)}</blockquote>
-    <p>${inboxUrl ? `<a href="${escapeMailText(inboxUrl)}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
-  `;
-  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}${payload.phone ? `\nPhone: ${payload.phone}` : ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
-
-  for (const { to, locale } of recipients) {
-    try {
-      await sendEmail(config, {
-        workspaceId,
-        to,
-        subject,
-        html,
-        text,
-        templateSlug: 'offline_message_received',
-        // What the visitor typed, as typed, for the template's subject and
-        // text part; its HTML part gets the escaped copies (htmlData), so
-        // there it is text, never markup, and nowhere does an `&` read as
-        // `&amp;`.
-        templateData: {
-          conversation_id: payload.conversationId,
-          contact_name: payload.name || '',
-          contact_email: payload.email || '',
-          contact_phone: payload.phone || '',
-          message_body: payload.message,
-          action_url: inboxUrl,
-        },
-        htmlData: {
-          contact_name: escapeMailText(payload.name || ''),
-          contact_email: escapeMailText(payload.email || ''),
-          contact_phone: escapeMailText(payload.phone || ''),
-          message_body: escapeMailText(payload.message),
-          action_url: escapeMailText(inboxUrl),
-        },
-        locale,
-      });
-    } catch (err) {
-      console.warn('[offline-messages] email to', to, 'failed:', err?.message);
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════
-// POST /admin/test-offline-email — Workspace member-only test send
-// ───────────────────────────────────────────────
-// Used by the Workspace → Widget → Availability tab to verify the
-// `offline_message_received` template + active email provider.
-// Always sends a sample payload; never touches conversations.
-// ═══════════════════════════════════════════════
-const testEmailSchema = z.object({
-  workspace_id: z.string().uuid(),
-  to: z.string().email().max(255),
-  locale: z.enum(['en', 'fa', 'tr']).optional(),
-});
-
-widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Response) => {
-  const config = serverConfigOf(req);
-  const parsed = testEmailSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
-  }
-  const { workspace_id, to, locale } = parsed.data;
-
-  const auth = await authorizeWorkspaceAccess(req, res, workspace_id);
-  if (!auth) return;
-
-  try {
-    await sendEmail(config, {
-      workspaceId: workspace_id,
-      to,
-      subject: '[TEST] New offline message',
-      html: '<p>This is a test of your offline message notification email.</p>',
-      text: 'This is a test of your offline message notification email.',
-      templateSlug: 'offline_message_received',
-      templateData: {
-        conversation_id: 'test-conversation-id',
-        contact_name: 'Test Visitor',
-        contact_email: 'visitor@example.com',
-        contact_phone: '+989121234567',
-        message_body:
-          'Hello — this is a test message confirming your offline notification pipeline works.',
-      },
-      // As the real mail: the requesting member's language unless asked.
-      locale: locale || await operatorLocale(config, auth.userId),
-    });
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('[admin/test-offline-email] failed:', err?.message);
-    return res.status(500).json({ error: 'send_failed', message: err?.message || 'unknown' });
-  }
-});
 
 // ═══════════════════════════════════════════════════════════════════
 // Phase 8C — Widget call channels & queue (visitor-facing)

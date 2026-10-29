@@ -11,10 +11,11 @@
  *        Without client_message_id (the leave-a-message form) the request is
  *        checked, stored and answered exactly as before.
  *   The owners' mail (`offline_message_received`): the visitor's name, address
- *   and message are text, never markup.
+ *   and message are text, never markup, and never in the subject or the
+ *   template's text part.
  *
  * The REAL widgetRouter runs in-process against fakeServiceDb.ts; availability,
- * billing limits, push, the timeline and the email service are stand-ins.
+ * billing limits, push, the timeline and the email outbox are stand-ins.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -71,9 +72,8 @@ vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordConversationEvent: async (_c: unknown, input: Record<string, unknown>) => { state.events.push(input); return { ok: true }; },
   recordAuditAndEvent: async () => undefined,
 }));
-vi.mock('../../../server/services/email/index.js', async (orig) => ({
-  ...(await orig<typeof import('../../../server/services/email/index.js')>()),
-  sendEmail: async (_c: unknown, request: Record<string, unknown>) => { state.sent.push(request); return { success: true, provider: 'resend' }; },
+vi.mock('../../../server/services/email/outbox.js', () => ({
+  enqueueEmail: async (_c: unknown, request: Record<string, unknown>) => { state.sent.push(request); return { queued: true, id: 'q' }; },
 }));
 vi.mock('../../../server/services/auth-email.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/auth-email.js')>()),
@@ -91,6 +91,7 @@ vi.mock('../../../server/routes/widgetAttachments.js', async (orig) => ({
 
 const { widgetRouter, escapeMailText } = await import('../../../server/routes/widget.js');
 const { __resetWidgetRateLimitsForTests } = await import('../../../server/services/widget/security.js');
+const { __resetEmailQuotaMemoryForTests } = await import('../../../server/services/email/sendQuota.js');
 
 const app = express();
 app.use((req, _res, next) => { Object.assign(req, { serverConfig: { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } }); next(); });
@@ -133,6 +134,7 @@ beforeEach(() => {
   state.events.length = 0;
   state.routed.length = 0;
   __resetWidgetRateLimitsForTests();
+  __resetEmailQuotaMemoryForTests();
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -243,8 +245,9 @@ describe('POST /offline-messages: whatever way to reach the visitor the form col
     expect(captured.payload).toMatchObject({ contact_email: null, contact_phone: '09123456789' });
     await tick();
     const mail = state.sent[0] as { templateData: Record<string, string>; htmlData: Record<string, string>; html: string; text: string };
-    expect(mail.templateData).toMatchObject({ contact_name: 'علی', contact_email: '', contact_phone: '09123456789' });
-    expect(mail.htmlData.contact_phone).toBe('09123456789');
+    expect(mail.htmlData).toMatchObject({ contact_name: 'علی', contact_email: '', contact_phone: '09123456789' });
+    // Nothing the visitor typed is offered to the subject or the template's text part.
+    expect(mail.templateData).toMatchObject({ contact_name: '', contact_email: '', contact_phone: '' });
     expect(mail.html).toContain('09123456789');
     expect(mail.text).toContain('Phone: 09123456789');
   });
@@ -342,7 +345,7 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
     expect(contacts).toHaveLength(1);
     expect(contacts[0].row).toMatchObject({ name: 'ن'.repeat(120), email: null, phone: null });
     await tick();
-    expect((state.sent[0] as { templateData: Record<string, string> }).templateData).toMatchObject({ contact_name: 'ن'.repeat(120), contact_email: '' });
+    expect((state.sent[0] as { htmlData: Record<string, string> }).htmlData).toMatchObject({ contact_name: 'ن'.repeat(120), contact_email: '' });
     // The leave-a-message form keeps its checks.
     state.db.inserts.length = 0;
     expect((await leave({ message: 'hi there', name: 'ن'.repeat(200) })).status).toBe(400);
@@ -367,17 +370,21 @@ describe('POST /offline-messages with client_message_id (the away thread)', () =
 });
 
 describe('the offline-message mail to the owners', () => {
-  it('the visitor\'s name, address and message: as typed for the subject and text, escaped for the HTML and the fallback HTML', async () => {
+  it('the visitor\'s name, address and message: never in the subject or the template\'s text part, escaped for the HTML and the fallback HTML', async () => {
     const evil = '<img src=x onerror="alert(1)"> & "co"';
     await leave({ message: `${evil}\nسلام`, name: '<b>Ali</b> & "co"', email: 'ali@example.com' });
     await tick();
     expect(state.sent).toHaveLength(1);
-    const mail = state.sent[0] as { html: string; templateSlug: string; templateData: Record<string, string>; htmlData: Record<string, string> };
+    const mail = state.sent[0] as { html: string; text: string; subject: string; templateSlug: string; templateData: Record<string, string>; htmlData: Record<string, string> };
     expect(mail.templateSlug).toBe('offline_message_received');
-    // The subject and the text part: what the visitor typed, no entities.
-    expect(mail.templateData.contact_name).toBe('<b>Ali</b> & "co"');
-    expect(mail.templateData.message_body).toBe(`${evil}\nسلام`);
-    expect(mail.templateData.contact_email).toBe('ali@example.com');
+    // The subject and the template's text part get nothing the visitor typed:
+    // its keys are there, empty (migration 289d makes the platform's text part
+    // from the HTML); the fallback subject is fixed.
+    expect(mail.templateData).toMatchObject({ contact_name: '', contact_email: '', contact_phone: '', message_body: '' });
+    expect(JSON.stringify(mail.templateData)).not.toMatch(/Ali|alert|ali@example/);
+    expect(mail.subject).toBe('New offline message');
+    // The fallback text part has it as typed, no entities.
+    expect(mail.text).toContain('<b>Ali</b> & "co"');
     // The template's HTML part: text, never markup.
     expect(mail.htmlData.contact_name).toBe('&lt;b&gt;Ali&lt;/b&gt; &amp; &quot;co&quot;');
     expect(mail.htmlData.message_body).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &quot;co&quot;\nسلام');

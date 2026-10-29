@@ -1,12 +1,11 @@
 // ============================================
 // PROVIDER BOOTSTRAP
 // Registers all default (Supabase + stub) providers at app startup.
-// Email uses self-hosted API provider — NO Edge Functions.
+// Email is the server's own: the browser sends no mail.
 // ============================================
 
 import { providerRegistry } from './registry';
 import { selfHostedAuthProvider } from './selfHosted/auth';
-import { createApiEmailProvider } from './email/api';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import {
   stubDatabaseProvider,
@@ -104,16 +103,19 @@ export function bootstrapProviders(): void {
     },
   });
 
-  // --- Email: Self-hosted API provider ---
-  // Routes through the self-hosted backend server (server/routes/email.ts).
-  // The backend resolves the actual vendor (Resend/SendGrid/SMTP) from DB config.
-  const defaultEmailProvider = createApiEmailProvider('__default__');
-  providerRegistry.register('email', 'api', defaultEmailProvider, {
-    priority: 5,
+  // --- Email: owned by the server ---
+  // The browser sends no mail. The server sends every platform mail itself,
+  // for something that happened (a reset, an invitation, a receipt), through
+  // the provider chosen in Super Admin → Providers → Email. This entry exists
+  // so Super Admin → Providers shows what is in use and can probe it, like
+  // the database's; it has nothing to send with (the stub refuses). The
+  // browser's own sender, which posted any recipient and body to
+  // /api/email/send-channel, is gone with that route.
+  providerRegistry.register('email', 'self-hosted', stubEmailProvider, {
+    priority: 0,
     healthCheck: async () => {
       try {
-        const API_BASE = RESOLVED_API_BASE;
-        const res = await fetch(`${API_BASE}/api/email/health`);
+        const res = await fetch(`${RESOLVED_API_BASE}/api/email/health`);
         return res.ok ? 'healthy' : 'down';
       } catch {
         return 'down';
@@ -122,7 +124,7 @@ export function bootstrapProviders(): void {
     meta: {
       vendor: 'self-hosted',
       builtIn: true,
-      description: 'Routes email via self-hosted backend → Resend/SendGrid/SMTP based on DB config',
+      description: 'Sent by the server through the provider chosen in Super Admin → Providers → Email; the browser sends no mail.',
     },
   });
 
@@ -227,7 +229,7 @@ export function bootstrapProviders(): void {
   providerRegistry.setActive('auth', 'self-hosted');
   providerRegistry.setActive('database', 'self-hosted');
   providerRegistry.setActive('realtime', 'self-hosted');
-  providerRegistry.setActive('email', 'api');
+  providerRegistry.setActive('email', 'self-hosted');
   providerRegistry.setActive('map_tiles', 'osm');
 
   console.info('[Providers] Bootstrap complete:', providerRegistry.getSummary());

@@ -176,9 +176,9 @@ describe('Super Admin shows no email setting the runtime ignores', () => {
     expect(section).toContain('reply_to_email');
     const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
     expect(schema.slice(0, schema.indexOf('});'))).toContain('reply_to_email');
-    // widget.ts sends an offline visitor message here when no operator has an
-    // address — a recipient, not a sender.
-    expect(read('server/routes/widget.ts')).toContain('reply_to_email');
+    // The owners' offline-message notice goes here when no owner or admin who
+    // may read it has an address — a recipient, not a sender.
+    expect(read('server/services/widget/offlineNotice.ts')).toContain('reply_to_email');
   });
 
   it('labels it as a recipient, not as the From address', () => {
@@ -386,9 +386,8 @@ describe('every send path uses the shared sender', () => {
     'server/services/auth-email.ts',
     'server/services/verification/service.ts',
     'server/services/invitations/worker.ts',
-    'server/services/email/sendChannelEmail.ts',
     'server/services/email/outbox.ts',
-    'server/routes/widget.ts',
+    'server/services/widget/offlineNotice.ts',
     'server/routes/email.ts',
   ];
 
@@ -477,21 +476,40 @@ describe('a caller cannot set the sender identity', () => {
     }
   });
 
-  it('the send-channel route rejects the fields instead of dropping them', () => {
-    const route = read('server/routes/email.ts');
-    expect(route).toContain('.strict()');
-    expect(route).toContain('UNSUPPORTED_FIELDS');
-    // and no longer reads them off the body
-    expect(stripTs(route)).not.toMatch(/\bfrom\b\s*,|\breplyTo\b/);
+  it('no email route sends what a caller composes: /send and /send-channel are retired', () => {
+    const route = stripTs(read('server/routes/email.ts'));
+    expect(route).toMatch(/emailRouter\.post\('\/send', retired\)/);
+    expect(route).toMatch(/emailRouter\.post\('\/send-channel', retired\)/);
+    // What is left (the test buttons) takes a workspace and a language, and
+    // mails the caller's own verified address: no recipient, subject, body,
+    // template or sender off the body.
+    expect(route).not.toMatch(/req\.body\??\.(to|subject|html|text|templateSlug|templateData|from|replyTo)\b/);
+    expect(route).toMatch(/const testSchema = z\.object\(\{\s*workspaceId: z\.string\(\)\.uuid\(\),\s*locale: z\.enum\(\['en', 'fa', 'tr'\]\)\.optional\(\),\s*\}\)\.strict\(\)/);
+    expect(existsSync('server/services/email/sendChannelEmail.ts')).toBe(false);
   });
 
-  it('the browser cannot even express it', () => {
+  it('the browser cannot even express it, and sends no mail of its own', () => {
     const types = read('src/types/providers.ts');
     const block = types.slice(types.indexOf('export interface EmailMessage {'));
     const body = block.slice(0, block.indexOf('}'));
     expect(body).not.toMatch(/\bfrom\?:/);
     expect(body).not.toMatch(/\breplyTo\?:/);
-    expect(stripTs(read('src/providers/email/api.ts'))).not.toMatch(/from: message\.from|replyTo: message\.replyTo/);
+    // Its own sender, which posted any recipient and body to send-channel, is gone.
+    expect(existsSync('src/providers/email/api.ts')).toBe(false);
+    const callers: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || full.includes('/test')) continue;
+          walk(full);
+        } else if (/\.(ts|tsx)$/.test(entry.name) && /\/api\/email\/send/.test(stripTs(read(full)))) {
+          callers.push(full);
+        }
+      }
+    };
+    walk('src');
+    expect(callers).toEqual([]);
   });
 
   it('every adapter carries the provider\'s Reply-To, and nothing else sets one', () => {

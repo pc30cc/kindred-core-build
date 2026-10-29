@@ -50,6 +50,7 @@ import {
   CONTEXT_COOKIE_NAME,
 } from '../services/invitations/tokens.js';
 import { isEmailVerified } from '../services/auth/identity.js';
+import { peekEmailQuota, takeEmailQuota } from '../services/email/sendQuota.js';
 import {
   peekCommitted,
   runIdempotent,
@@ -275,6 +276,42 @@ const acceptLimiter = rateLimit({
 // MANAGEMENT SURFACE (owner/admin, gs_session)
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Invitation mails a workspace may send in a day, and one inviter in an
+ * hour, new invitations and resends together. Each one is a mail From the
+ * platform's own address to a person the inviter chose; without a limit an
+ * owner could mail any number of strangers in the workspace's name. Only
+ * invitations that were made count (a create the RPC refuses, a replay of a
+ * committed request: nothing), so a member who may not invite cannot use up
+ * the workspace's allowance by trying.
+ */
+const INVITATION_LIMITS = [
+  { scope: 'invitations_workspace_day', windowSeconds: 24 * 60 * 60, max: 50, of: 'workspace' },
+  { scope: 'invitations_actor_hour', windowSeconds: 60 * 60, max: 20, of: 'actor' },
+] as const;
+
+function invitationQuotas(workspaceId: string, actorId: string) {
+  return INVITATION_LIMITS.map(({ of, ...q }) => ({ ...q, key: of === 'workspace' ? workspaceId : actorId }));
+}
+
+/** 429 INVITATION_RATE_LIMITED when either allowance is used up; true when the request may go on. */
+async function invitationAllowance(config: ServerConfig, res: Response, workspaceId: string, actorId: string): Promise<boolean> {
+  for (const quota of invitationQuotas(workspaceId, actorId)) {
+    const verdict = await peekEmailQuota(config, quota);
+    if (!verdict.allowed) {
+      res.setHeader('Retry-After', String(verdict.retryAfterSeconds));
+      res.status(429).json({ error: 'INVITATION_RATE_LIMITED', retry_after_seconds: verdict.retryAfterSeconds });
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Counts one invitation mail that was made. */
+async function countInvitationMail(config: ServerConfig, workspaceId: string, actorId: string): Promise<void> {
+  for (const quota of invitationQuotas(workspaceId, actorId)) await takeEmailQuota(config, quota);
+}
+
 const createSchema = z.object({
   workspaceId: z.string().uuid(),
   firstName: z.string().trim().min(1).max(80),
@@ -357,6 +394,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
 
   const body = parsed.data;
   const config = cfg(req);
+  if (!(await invitationAllowance(config, res, body.workspaceId, authUserOf(req).id))) return;
 
   const email = body.email.toLowerCase();
   const manualToken = randomToken();
@@ -424,6 +462,8 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
       invitation: outcome.safeResult,
     });
   }
+
+  await countInvitationMail(config, body.workspaceId, authUserOf(req).id);
 
   // Persist the resolved locale snapshot for the notification worker. The
   // create RPC's signature is unchanged; this is a backend-only follow-up
@@ -588,10 +628,12 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
 
   const { data: inv } = await sb
     .from('workspace_invitations')
-    .select('invited_email_normalized')
+    .select('invited_email_normalized, workspace_id')
     .eq('id', id)
     .maybeSingle();
   if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
+  const workspaceId = String(inv.workspace_id || '');
+  if (workspaceId && !(await invitationAllowance(config, res, workspaceId, authUserOf(req).id))) return;
 
   const outcome = await runIdempotent(config, {
     operation: 'resend',
@@ -611,6 +653,7 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
     return res.status(mapped.status).json({ error: mapped.code });
   }
   if (outcome.replayed) return res.json({ ...outcome.safeResult, replayed: true });
+  if (workspaceId) await countInvitationMail(config, workspaceId, authUserOf(req).id);
   return res.json({ ...(outcome.result as RpcRecord | null), replayed: false });
 });
 

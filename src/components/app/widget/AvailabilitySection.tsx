@@ -225,7 +225,6 @@ export function AvailabilitySection({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLocales.join(',')]);
-  const [testEmail, setTestEmail] = useState('');
   const [testing, setTesting] = useState(false);
 
   // Hours on with an interval that would never match are kept as a draft
@@ -253,21 +252,34 @@ export function AvailabilitySection({
     onChange({ offline_message_localized: next });
   };
 
+  // The sample notice goes to the signed-in owner's own verified address
+  // (server/routes/email.ts), and the answer is the provider's: a refusal,
+  // a timeout or a missing provider shows as a failure, with its reason.
   const sendTestEmail = async () => {
-    if (!testEmail || !workspaceId) return;
+    if (!workspaceId) return;
     setTesting(true);
     try {
-      const apiBase = API_BASE;
-      const res = await fetch(`${apiBase}/api/widget/admin/test-offline-email`, {
+      const res = await fetch(`${API_BASE}/api/email/test-offline-notice`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId, to: testEmail, locale: activeLocale }),
+        body: JSON.stringify({ workspaceId, locale: activeLocale }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast({ title: t('widgetPage.availability.testSent'), description: t('widgetPage.availability.testSentDescription', { email: testEmail }) });
-    } catch (e: unknown) {
-      toast({ title: t('widgetPage.availability.testFailed'), description: (e instanceof Error && e.message) || t('common.error'), variant: 'destructive' });
+      const body = (await res.json().catch(() => ({}))) as { sent_to?: string; error?: string; error_code?: string };
+      if (res.ok) {
+        toast({ title: t('widgetPage.availability.testSent'), description: t('widgetPage.availability.testSentDescription', { email: body.sent_to || '' }) });
+        return;
+      }
+      const description =
+        body.error === 'verified_email_required' ? t('widgetPage.availability.testNeedsVerifiedEmail')
+        : res.status === 429 ? t('widgetPage.availability.testTooMany')
+        : res.status === 403 ? t('widgetPage.availability.testNotAllowed')
+        : body.error_code === 'unconfigured' ? t('widgetPage.availability.testNoProvider')
+        : body.error_code === 'suppressed' ? t('widgetPage.availability.testSuppressed')
+        : t('widgetPage.availability.testProviderFailed', { code: body.error_code || `HTTP ${res.status}` });
+      toast({ title: t('widgetPage.availability.testFailed'), description, variant: 'destructive' });
+    } catch {
+      toast({ title: t('widgetPage.availability.testFailed'), description: t('common.error'), variant: 'destructive' });
     } finally {
       setTesting(false);
     }
@@ -486,16 +498,7 @@ export function AvailabilitySection({
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-1.5">
-              <Label className="text-xs">{t('widgetPage.availability.recipient')}</Label>
-              <Input
-                type="email"
-                placeholder="you@example.com"
-                value={testEmail}
-                onChange={(e) => setTestEmail(e.target.value)}
-              />
-            </div>
-            <Button onClick={sendTestEmail} disabled={!testEmail || testing || saving}>
+            <Button onClick={sendTestEmail} disabled={testing || saving}>
               {testing ? t('widgetPage.availability.sending') : t('widgetPage.availability.send')}
             </Button>
           </div>

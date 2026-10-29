@@ -121,6 +121,14 @@ export interface EmailRequest {
    * https; anything else is left out (and said so in the console).
    */
   listUnsubscribe?: { url: string; mailto?: string };
+  /**
+   * A closing line the caller adds in code below the mail's own text,
+   * whatever the template says: the operator notification emails' visible
+   * unsubscribe line. `html` goes at the end of the HTML part (before
+   * `</body>` in a whole document) and the caller escapes what it puts in
+   * it; `text` goes at the end of the text part.
+   */
+  footer?: { html: string; text: string };
 }
 
 /**
@@ -233,6 +241,21 @@ function listUnsubscribeHeaders(value: EmailRequest['listUnsubscribe']): Record<
   const mailto = parseEmailAddress(String(value.mailto ?? '').replace(/^mailto:/i, '').split('?')[0]);
   if (mailto) targets.push(`<mailto:${mailto}>`);
   return { 'List-Unsubscribe': targets.join(', '), 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
+}
+
+/**
+ * The caller's closing line (EmailRequest.footer) under the mail's own text.
+ * A mail with no HTML part gets none from it: its text part carries the line.
+ */
+function withFooter(html: string, text: string, footer: EmailRequest['footer']): { html: string; text: string } {
+  if (!footer) return { html, text };
+  let nextHtml = html;
+  if (html && footer.html) {
+    const close = html.toLowerCase().lastIndexOf('</body');
+    nextHtml = close >= 0 ? `${html.slice(0, close)}${footer.html}${html.slice(close)}` : `${html}${footer.html}`;
+  }
+  const nextText = text.trim() && footer.text ? `${text.trimEnd()}\n\n${footer.text}` : text;
+  return { html: nextHtml, text: nextText };
 }
 
 const ENTITIES: Record<string, string> = {
@@ -541,8 +564,8 @@ interface Delivery {
  *   6. One OutboundMessage: From as name and address, a text part always
  *      (derived from the HTML when the template has none), the provider's
  *      `reply_to`, `Auto-Submitted: auto-generated` on every message (an
- *      auto-responder must not answer it), and the one-click unsubscribe
- *      pair when the caller gives one.
+ *      auto-responder must not answer it), the one-click unsubscribe pair
+ *      and the closing line (`footer`) when the caller gives them.
  *   7. The adapter sends it, within its own timeouts.
  *
  * Every failure is a SendResult with an errorCode, `permanent` when a retry
@@ -562,6 +585,7 @@ async function deliver(
     locale?: string;
     category: EmailCategory;
     listUnsubscribe?: EmailRequest['listUnsubscribe'];
+    footer?: EmailRequest['footer'];
     providerConfigKey?: string;
   },
 ): Promise<Delivery> {
@@ -642,6 +666,7 @@ async function deliver(
     };
   }
 
+  ({ html, text } = withFooter(html, text, input.footer));
   const replyTo = parseEmailAddress(effective.config.reply_to);
   const message: OutboundMessage = {
     from: await resolveFromAddress(supabase, effective, tplLocale),
@@ -727,6 +752,7 @@ export async function sendEmail(
     locale: request.locale,
     category,
     listUnsubscribe: request.listUnsubscribe,
+    footer: request.footer,
     providerConfigKey: request.providerConfigKey,
   });
 

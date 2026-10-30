@@ -97,6 +97,15 @@ export interface EmailRequest {
   html?: string;
   text?: string;
   templateSlug?: string;
+  /**
+   * The template itself, in place of the running edition's stored row of
+   * `templateSlug`: Super Admin's test of a template as it is being edited
+   * (Branding → Email templates), or of exactly one language's row, which the
+   * platform's languages would otherwise choose for it (Iran sends Persian
+   * only). Filled and laid out as a stored row is, in its own language; the
+   * edition is still the running one. Server-made only, never a request body.
+   */
+  template?: { subject: string; html_body: string; text_body: string | null; locale: string };
   templateData?: Record<string, string>;
   /**
    * Values for the template's HTML part only, over `templateData`, inserted
@@ -676,7 +685,8 @@ function coreData(edition: Edition, locale: string, basics: BrandBasics): Record
 }
 
 /**
- * The running edition's Super Admin template for `slug`, filled in
+ * The running edition's Super Admin template for `slug` (or the one the
+ * request carries itself, EmailRequest.template), filled in
  * (fillEmailTemplate), or the caller's own text when there is no active row
  * (or no slug). The core's values ({brand}, {year}, {support_email}) are
  * added under the caller's templateData, and the caller's values for the
@@ -696,6 +706,7 @@ async function prepareMessage(
     html: string;
     text: string;
     templateSlug?: string;
+    template?: EmailRequest['template'];
     templateData?: Record<string, string>;
     htmlData?: Record<string, string>;
     localizedData?: Record<string, Record<string, string>>;
@@ -704,7 +715,9 @@ async function prepareMessage(
 ): Promise<Prepared> {
   const scope = await resolveEmailScope(config, input.locale);
   if (!scope) return { status: 'edition_unavailable' };
-  const tpl = input.templateSlug ? await resolveTemplate(supabase, scope.edition, input.templateSlug, scope.locales) : null;
+  const tpl = input.template
+    ? { ...input.template, locale: baseLocale(input.template.locale) }
+    : input.templateSlug ? await resolveTemplate(supabase, scope.edition, input.templateSlug, scope.locales) : null;
   if (!tpl && !input.subject && !input.html) return { status: 'missing' };
   // The caller's own text is in the language it asked for, when that is one
   // the platform writes; the row is in its own.
@@ -771,7 +784,8 @@ function logContentProblems(message: PreparedMessage, content: string, brand: Em
  * The text part is the row's own when it has one (the closing line under
  * it); else, for a laid-out mail, its content as text with the footer's
  * lines, never the layout around it. A content is checked before it is
- * laid out (logContentProblems), unless `check` is false (a preview).
+ * laid out (logContentProblems), unless `check` is false: a preview, or a
+ * Super Admin's test, whose content need not be the stored row's.
  */
 async function composeMessage(
   config: ServerConfig,
@@ -921,6 +935,7 @@ async function deliver(
     html: string;
     text: string;
     templateSlug?: string;
+    template?: EmailRequest['template'];
     templateData?: Record<string, string>;
     htmlData?: Record<string, string>;
     localizedData?: Record<string, Record<string, string>>;
@@ -1003,7 +1018,11 @@ async function deliver(
     };
   }
 
-  const { html, text } = await composeMessage(config, ready, { category: input.category, footer: input.footer });
+  // A template carried by the request (Super Admin's test: the text being
+  // edited, or one language's row) is not checked here: its problems would
+  // be logged under the stored row's name, and use up that row's one line
+  // until a restart. The Super Admin sees them in the preview.
+  const { html, text } = await composeMessage(config, ready, { category: input.category, footer: input.footer, check: !input.template });
   const replyTo = parseEmailAddress(effective.config.reply_to);
   const message: OutboundMessage = {
     from: resolveFromAddress(effective, ready.basics.name),
@@ -1085,6 +1104,7 @@ export async function sendEmail(
     html: request.html || '',
     text: request.text || '',
     templateSlug,
+    template: request.template,
     templateData,
     htmlData: request.htmlData,
     localizedData: request.localizedData,

@@ -15,11 +15,11 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ShieldOff, ShieldCheck, Database, Mail, MessageSquare, KeyRound, RotateCcw } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { formatPattern as format } from '@/lib/date';
 import {
   useVerificationOverview, useVerificationPurpose, useUpdatePurposeSettings, useResetPurposeSettings,
-  useVerificationAudit, useTemplatePreview, VerificationAdminApiError,
+  useVerificationAudit, useTemplatePreview, useVerificationEmailPreview, VerificationAdminApiError,
   type VerificationPurpose, type PurposeOverview, type PlatformCeilings, type ProviderReadinessState,
   type PurposeBaseline,
 } from '@/hooks/useVerificationAdmin';
@@ -59,6 +59,7 @@ export default function AdminVerificationPage() {
   const overview = useVerificationOverview();
   const audit = useVerificationAudit({ purpose: auditFilter === 'all' ? undefined : auditFilter, limit: 50 });
   const preview = useTemplatePreview();
+  const emailPreview = useVerificationEmailPreview(previewLocale);
 
   useEffect(() => {
     preview.mutate(previewLocale);
@@ -216,42 +217,60 @@ export default function AdminVerificationPage() {
                 </Select>
               </div>
               <p className="text-xs text-muted-foreground">{t('admin.verification.preview.fakeCodeNotice' as any)}</p>
-              {preview.isPending ? (
-                <p className="text-sm text-muted-foreground">{t('admin.verification.preview.loading' as any)}</p>
-              ) : preview.data ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">{t('admin.verification.preview.emailSubject' as any)}</div>
-                    <div className="rounded border p-2 text-sm" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.email.subject}</div>
-                    <div className="text-sm font-medium">{t('admin.verification.preview.emailText' as any)}</div>
-                    <pre className="rounded border p-2 text-sm whitespace-pre-wrap" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.email.text}</pre>
-                    <div className="text-sm font-medium">{t('admin.verification.preview.emailHtml' as any)}</div>
-                    {/*
-                      A fully locked-down sandbox: no script execution, no
-                      origin-equivalent access to this app's cookies or
-                      storage, no top-level navigation, no form submission,
-                      no popups — this renders untrusted-shaped HTML (a real
-                      send would build from the same template), so an empty
-                      sandbox allow-list is deliberate and must stay empty.
-                      Proven by a static test (adminPreviewSandbox.test.ts)
-                      that fails the build if any allow-* token appears.
-                    */}
-                    <iframe
-                      title={t('admin.verification.preview.iframeTitle' as any)}
-                      sandbox=""
-                      className="w-full h-40 rounded border"
-                      srcDoc={preview.data.email.html}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">{t('admin.verification.preview.smsText' as any)}</div>
-                    {preview.data.sms.providerTemplated ? (
-                      <p className="text-xs text-muted-foreground">{t('admin.verification.preview.smsProviderTemplatedNotice' as any)}</p>
-                    ) : null}
-                    <div className="rounded border p-2 text-sm" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.sms.text}</div>
-                  </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">{t('admin.verification.preview.emailTemplateNote')}</p>
+                  {emailPreview.locale && emailPreview.locale !== previewLocale ? (
+                    <p className="text-xs text-amber-600" data-testid="verification-email-sent-in">
+                      {t('admin.verification.preview.emailSentIn', { language: t(`admin.brandingPage.languages.${emailPreview.locale}` as TranslationKey) })}
+                    </p>
+                  ) : null}
+                  {emailPreview.isLoading ? (
+                    <p className="text-sm text-muted-foreground">{t('admin.verification.preview.loading')}</p>
+                  ) : emailPreview.isError ? (
+                    <p className="text-sm text-destructive">{t('admin.verification.preview.emailFailed')}</p>
+                  ) : emailPreview.data ? (
+                    <>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.emailSubject' as any)}</div>
+                      <div className="rounded border p-2 text-sm" dir={emailPreview.locale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.subject}</div>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.emailText' as any)}</div>
+                      <pre className="rounded border p-2 text-sm whitespace-pre-wrap" dir={emailPreview.locale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.text}</pre>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.emailHtml' as any)}</div>
+                      {/*
+                        A fully locked-down sandbox: no script execution, no
+                        origin-equivalent access to this app's cookies or
+                        storage, no top-level navigation, no form submission,
+                        no popups — this renders the mail made from a Super
+                        Admin's template (the email core's render, as it is
+                        sent), so an empty sandbox allow-list is deliberate and
+                        must stay empty. The frame cannot be measured from
+                        here (its origin is opaque), so it is tall and scrolls.
+                        Proven by a static test (adminPreviewSandbox.test.ts)
+                        that fails the build if any allow-* token appears.
+                      */}
+                      <iframe
+                        title={t('admin.verification.preview.iframeTitle' as any)}
+                        sandbox=""
+                        className="w-full h-[640px] rounded border"
+                        srcDoc={emailPreview.data.html}
+                      />
+                    </>
+                  ) : null}
                 </div>
-              ) : null}
+                <div className="space-y-2">
+                  {preview.isPending ? (
+                    <p className="text-sm text-muted-foreground">{t('admin.verification.preview.loading' as any)}</p>
+                  ) : preview.data ? (
+                    <>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.smsText' as any)}</div>
+                      {preview.data.sms.providerTemplated ? (
+                        <p className="text-xs text-muted-foreground">{t('admin.verification.preview.smsProviderTemplatedNotice' as any)}</p>
+                      ) : null}
+                      <div className="rounded border p-2 text-sm" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.sms.text}</div>
+                    </>
+                  ) : null}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

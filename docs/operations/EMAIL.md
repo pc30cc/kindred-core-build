@@ -159,8 +159,11 @@ filled value is checked when the mail goes. At send time the core drops the
 first group whatever the row says (a form or a button keeps its words) and
 logs the rest as `[email] <slug> (<edition>, <locale>): <codes>`, once per
 template in a process and never the content, so a row edited by hand can be
-fixed in Super Admin. Super Admin's save check is `templateContentProblems`
-in `index.ts`: the same rules, against the same brand hosts. Every row 291
+fixed in Super Admin. A "Send me a test" is not logged there: its text need
+not be the stored row's, and it would use up that row's one line. Super Admin sees the same list while editing, as
+warnings under Branding → Email templates' preview (`templateContentProblems`
+in `index.ts`: the same rules, against the same brand hosts); a save is not
+refused for them. Every row 291
 writes passes them on both brands. The content's comments end where a
 browser ends them, and one that never ends is dropped, so nothing in a row can
 hide the footer and its unsubscribe line.
@@ -193,9 +196,19 @@ author's colour alone gets the dark colour on a dark card.
 as text (no preheader, images by their alt text, links with their targets, a
 details row as "Label: value") and the footer's lines.
 
-**Super Admin → Branding's preview** renders through the same path
-(`renderEmailForPreview` in `server/services/email/index.ts`): the same fill,
-layout and brand, with a light or dark scheme forced on request.
+**Super Admin → Branding → Email templates** lists every template from one
+catalog (`server/services/email/templateCatalog.ts`): the mails the platform
+sends, with the placeholders each sender fills, then the ones nothing sends
+any more ("No longer sent"); a language the edition does not offer is shown
+read-only. A sent mail's template is edited, never deleted or switched off
+(`409 template_in_use`). The preview renders through the same path
+(`renderEmailForPreview` in `server/services/email/index.ts`: the same fill,
+layout and brand), filled with the catalog's sample values in the edition's
+way, light or dark, at a desktop or phone width, with its text part. "Send me
+a test" sends the text being edited through `sendEmail` (its `template`
+field) to the signed-in Super Admin's own verified address, as platform mail,
+10 in ten minutes and 50 a day per admin. Super Admin → Verification shows the
+`verification_code` template through the same preview.
 
 **Looking at it.** `scripts/email/render-all-templates.mts` renders every row
 of a database (`--database`), the seeds of a fresh chain (`--fresh`), or a

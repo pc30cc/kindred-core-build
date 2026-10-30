@@ -114,7 +114,7 @@ interface RecoveryEmailOptions {
  * the language it actually sends. One label in the request's language put
  * "24 hours" into a Persian mail.
  */
-function expiryLabels(hours: number): Record<string, { expiry_time: string }> {
+export function expiryLabels(hours: number): Record<string, { expiry_time: string }> {
   return {
     fa: { expiry_time: `${hours.toLocaleString('fa-IR')} ساعت` },
     tr: { expiry_time: `${hours} saat` },

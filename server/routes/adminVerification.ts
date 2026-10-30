@@ -17,8 +17,9 @@
  *
  * Nothing here creates a challenge, sends an email/SMS, or writes to
  * verification_challenges/proofs/attempts. Template preview
- * (POST .../templates/preview) renders with a fixed fake code and never
- * calls a provider — see templatePreview.ts.
+ * (POST .../templates/preview) renders the SMS wording with a fixed fake code
+ * and never calls a provider — see templatePreview.ts; the page previews the
+ * email through Branding → Email templates' own preview.
  */
 import { Router, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';

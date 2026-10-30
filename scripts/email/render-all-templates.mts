@@ -19,6 +19,9 @@
  *   --edition iran|international   only that edition's rows
  *   --slug <slug>                  only that template
  *   --locale fa|en|tr              only that language
+ *   --content-only                 only rows that are content (every sent
+ *                                  slug's since 291), not whole documents
+ *                                  (the legacy slugs, a Super Admin's own)
  *   --www <dir>                    another root for the brand hosts' files,
  *                                  after public/ (repeatable; e.g. logos not
  *                                  committed yet)
@@ -30,6 +33,9 @@
  *   --gmail-invert                 also shoot a rough model of Gmail's forced
  *                                  dark mode (the app inverts light colours
  *                                  and ignores the mail's own dark styles)
+ *   --narrow                       also shoot at 320 px, light and dark (the
+ *                                  narrowest phone a mail must fit)
+ *   --help                         this text
  *
  * The two brand hosts (https://app.webyar.ai, https://app.respok.app) are
  * served from this repo's public/ (logos, fonts) and every other request is
@@ -91,6 +97,12 @@ const SAMPLES: Record<string, Record<string, string>> = {
     period_end: 'November 30, 2026', days_left: '3', receipt_number: 'R-7001', card: '•••• 4242', count: '3', provider: 'smtp', slot: 'the platform email provider',
     sent_at: 'October 30, 2026, 10:24 UTC', date: 'October 30, 2026', contact_name: 'Sara Miller', contact_email: 'sara@example.com', contact_phone: '+1 415 555 0100',
     message_body: "Hi, my order hasn't arrived yet.",
+    subject: 'Order not delivered', contact: 'Sara Miller', list: 'Order not delivered · Refund for order 1234 · New address',
+    invoice_label: ' (R-7001)', conversations: '128', resolved: '117', messages: '942', title: 'Voice calls in the widget',
+    body: 'Visitors can now call your team from the chat widget.\nTurn it on in Settings → Call center.', pack_name: 'AI credit 1,000',
+    credit: '$6.00', ai_balance: '$7.50', trial_end: 'November 2, 2026', deletion_date: 'November 29, 2026',
+    locked_summary: '2 operators and 1 widget over the plan', failure_reason: 'The card was declined', expired_at: 'October 30, 2026',
+    effective_at: 'November 30, 2026', due_at: 'November 2, 2026', reason: 'You removed the card',
   },
   fa: {
     name: 'سارا', code: '482917', minutes: '۱۰', expiry_minutes: '۱۰', expiry_time: '۲۴ ساعت', workspace: 'فروشگاه آبی',
@@ -99,6 +111,12 @@ const SAMPLES: Record<string, Record<string, string>> = {
     period_end: '۸ آذر ۱۴۰۵', days_left: '۳', receipt_number: 'R-7001', card: '•••• 4242', count: '۳', provider: 'smtp', slot: 'سرویس ایمیل پلتفرم',
     sent_at: '۸ آبان ۱۴۰۵، ۱۰:۲۴ (UTC)', date: '۸ آبان ۱۴۰۵', contact_name: 'سارا محمدی', contact_email: 'sara@example.com', contact_phone: '+98 912 000 0000',
     message_body: 'سلام، سفارشم هنوز نرسیده.',
+    subject: 'سفارش نرسیده', contact: 'سارا محمدی', list: 'سفارش نرسیده · بازگشت وجه سفارش ۱۲۳۴ · نشانی تازه',
+    invoice_label: ' (R-7001)', conversations: '۱۲۸', resolved: '۱۱۷', messages: '۹۴۲', title: 'تماس صوتی در ابزارک',
+    body: 'حالا بازدیدکننده‌ها می‌توانند از ابزارک گفتگو با تیم شما تماس بگیرند.\nآن را در تنظیمات ← مرکز تماس روشن کنید.', pack_name: 'اعتبار هوش مصنوعی ۱۰۰۰',
+    credit: '۲۰۰٬۰۰۰ تومان', ai_balance: '۲۵۰٬۰۰۰ تومان', trial_end: '۱۱ آبان ۱۴۰۵', deletion_date: '۸ آذر ۱۴۰۵',
+    locked_summary: '۲ اپراتور و ۱ ابزارک بیش از پلن', failure_reason: 'کارت پذیرفته نشد', expired_at: '۸ آبان ۱۴۰۵',
+    effective_at: '۸ آذر ۱۴۰۵', due_at: '۱۱ آبان ۱۴۰۵', reason: 'کارت را خودتان حذف کردید',
   },
   tr: {
     name: 'Sara', code: '482917', minutes: '10', expiry_minutes: '10', expiry_time: '24 saat', workspace: 'Mavi Mağaza',
@@ -107,8 +125,45 @@ const SAMPLES: Record<string, Record<string, string>> = {
     period_end: '30 Kasım 2026', days_left: '3', receipt_number: 'R-7001', card: '•••• 4242', count: '3', provider: 'smtp', slot: 'platform e-posta sağlayıcısı',
     sent_at: '30 Ekim 2026 10:24 UTC', date: '30 Ekim 2026', contact_name: 'Sara Yılmaz', contact_email: 'sara@example.com', contact_phone: '+90 532 000 00 00',
     message_body: 'Merhaba, siparişim henüz gelmedi.',
+    subject: 'Sipariş gelmedi', contact: 'Sara Yılmaz', list: 'Sipariş gelmedi · 1234 numaralı siparişin iadesi · Yeni adres',
+    invoice_label: ' (R-7001)', conversations: '128', resolved: '117', messages: '942', title: 'Pencerede sesli arama',
+    body: 'Ziyaretçiler artık sohbet penceresinden ekibinizi arayabilir.\nAyarlar → Çağrı merkezi bölümünden açın.', pack_name: 'Yapay zekâ kredisi 1.000',
+    credit: '₺200,00', ai_balance: '₺250,00', trial_end: '2 Kasım 2026', deletion_date: '29 Kasım 2026',
+    locked_summary: 'Plan sınırını aşan 2 operatör ve 1 pencere', failure_reason: 'Kart reddedildi', expired_at: '30 Ekim 2026',
+    effective_at: '30 Kasım 2026', due_at: '2 Kasım 2026', reason: 'Kartı siz kaldırdınız',
   },
 };
+
+/**
+ * A short chat for the two transcript mails, as their senders build it: the
+ * customer's lines, the team's, and a notice (transcriptEmailRows.ts), so a
+ * render shows both sides and whose side is the reader's.
+ */
+const CHATS: Record<string, { customer: string; team: string; lines: Array<['visitor' | 'agent', string]>; notice: string }> = {
+  en: {
+    customer: 'Sara', team: 'Maria', notice: 'Maria closed the conversation',
+    lines: [['visitor', "Hi, my order hasn't arrived yet."], ['agent', 'Sorry about that, Sara. It left our warehouse yesterday and arrives tomorrow.'], ['visitor', 'Great, thank you.']],
+  },
+  fa: {
+    customer: 'سارا', team: 'مریم', notice: 'مریم گفتگو را بست',
+    lines: [['visitor', 'سلام، سفارشم هنوز نرسیده.'], ['agent', 'سارا جان ببخشید. سفارش دیروز از انبار فرستاده شد و فردا می‌رسد.'], ['visitor', 'عالی، ممنونم.']],
+  },
+  tr: {
+    customer: 'Sara', team: 'Ayşe', notice: 'Ayşe konuşmayı kapattı',
+    lines: [['visitor', 'Merhaba, siparişim henüz gelmedi.'], ['agent', 'Kusura bakmayın Sara. Dün depodan çıktı, yarın elinizde olur.'], ['visitor', 'Harika, teşekkürler.']],
+  },
+};
+
+/** The transcript's rows (htmlData) and its plain lines (the subject's and the text part's value). */
+async function sampleChat(locale: string): Promise<{ html: string; text: string }> {
+  const { transcriptRow } = await import('../../server/services/transcriptEmailRows.js');
+  const chat = CHATS[locale] ?? CHATS.en;
+  const who = (side: 'visitor' | 'agent', k: number) => `${side === 'visitor' ? chat.customer : chat.team} · 10:${String(24 + k).padStart(2, '0')}`;
+  return {
+    html: chat.lines.map(([side, text], k) => transcriptRow(side, who(side, k), text)).join('') + transcriptRow('agent', chat.notice),
+    text: [...chat.lines.map(([side, text], k) => `${who(side, k)}: ${text}`), chat.notice].join('\n'),
+  };
+}
 
 function sampleData(edition: Edition, locale: string, row: { subject: string; html_body: string; text_body: string | null }): Record<string, string> {
   const base = SAMPLES[locale] ?? SAMPLES.en;
@@ -141,7 +196,7 @@ async function rowsOf(url: string, where: { edition?: string; slug?: string; loc
         ORDER BY edition, slug, locale`,
       [where.edition ?? null, where.slug ?? null, where.locale ?? null],
     );
-    return rows as Row[];
+    return (rows as Row[]).filter((row) => !flag('--content-only') || !/<html[\s>]/i.test(row.html_body));
   } finally {
     await db.end();
   }
@@ -205,9 +260,16 @@ async function renderRows(rows: Row[]): Promise<Rendered[]> {
     const footer = category === 'transactional'
       ? undefined
       : notificationFooter(locale, PREFERENCE_OF[row.slug] ?? 'offline_messages', { unsubscribe: `${app}/api/notifications/email/unsubscribe/sample`, settings: null });
+    const data = sampleData(row.edition, row.locale, row);
+    let htmlData: Record<string, string> | undefined;
+    if (/\{\{?\s*transcript\s*\}\}?/.test(row.html_body)) {
+      const chat = await sampleChat(locale);
+      for (const key of ['transcript', 'transcript_text']) if (key in data) data[key] = chat.text;
+      htmlData = { transcript: chat.html };
+    }
     const mail = await renderEmailForPreview(config, {
       slug: row.slug, locale: row.locale, subject: row.subject, html_body: row.html_body, text_body: row.text_body,
-      data: sampleData(row.edition, row.locale, row), category, footer, edition: row.edition,
+      data, htmlData, category, footer, edition: row.edition,
     });
     out.push({ edition: row.edition, name: `${row.slug}.${row.locale}`, html: mail.html, text: `Subject: ${mail.subject}\n\n${mail.text}` });
   }
@@ -305,36 +367,44 @@ async function shoot(items: Rendered[]): Promise<void> {
   // --chromium: a browser of its own when Playwright's own build is not installed.
   const browser = await chromium.launch(option('--chromium') ? { executablePath: option('--chromium') } : {});
   const variants: Array<{ suffix: string; width: number; scheme: 'light' | 'dark'; fonts: boolean; invert: boolean }> = [];
-  for (const [width, label] of [[680, 'desktop'], [375, 'mobile']] as const) {
+  const widths: Array<[number, string]> = [[680, 'desktop'], [375, 'mobile'], ...(flag('--narrow') ? [[320, 'narrow'] as [number, string]] : [])];
+  for (const [width, label] of widths) {
     for (const scheme of ['light', 'dark'] as const) variants.push({ suffix: `${label}-${scheme}`, width, scheme, fonts: true, invert: false });
     if (flag('--no-web-fonts')) variants.push({ suffix: `${label}-nofonts`, width, scheme: 'light', fonts: false, invert: false });
     if (flag('--gmail-invert')) variants.push({ suffix: `${label}-gmail-invert`, width, scheme: 'light', fonts: false, invert: true });
   }
   try {
-    for (const item of items) {
-      for (const v of variants) {
-        const context = await browser.newContext({ viewport: { width: v.width, height: 800 }, colorScheme: v.scheme, deviceScaleFactor: 1 });
+    // One browser context per variant, its pages reused: a context and a
+    // network-idle wait per shot made a full render take well over an hour.
+    // 'load' waits for the logo; the fonts are awaited on their own.
+    for (const v of variants) {
+      const context = await browser.newContext({ viewport: { width: v.width, height: 800 }, colorScheme: v.scheme, deviceScaleFactor: 1 });
+      await context.route('**/*', async (route) => {
+        const url = new URL(route.request().url());
+        if (!HOSTS[url.hostname] || (!v.fonts && url.pathname.endsWith('.woff2'))) return route.abort();
+        const path = decodeURIComponent(url.pathname);
+        // Only a file under one of the roots, whatever the path says.
+        const file = WWW.map((root) => {
+          const candidate = join(root, path);
+          return candidate.startsWith(`${root}/`) && existsSync(candidate) ? candidate : null;
+        }).find(Boolean);
+        if (!file) return route.fulfill({ status: 404, body: '' });
+        return route.fulfill({ status: 200, body: readFileSync(file), contentType: CONTENT_TYPES[file.split('.').pop() ?? ''] ?? 'application/octet-stream' });
+      });
+      const queue = [...items];
+      await Promise.all(Array.from({ length: 3 }, async () => {
         const page = await context.newPage();
-        await page.route('**/*', async (route) => {
-          const url = new URL(route.request().url());
-          if (!HOSTS[url.hostname] || (!v.fonts && url.pathname.endsWith('.woff2'))) return route.abort();
-          const path = decodeURIComponent(url.pathname);
-          // Only a file under one of the roots, whatever the path says.
-          const file = WWW.map((root) => {
-            const candidate = join(root, path);
-            return candidate.startsWith(`${root}/`) && existsSync(candidate) ? candidate : null;
-          }).find(Boolean);
-          if (!file) return route.fulfill({ status: 404, body: '' });
-          return route.fulfill({ status: 200, body: readFileSync(file), contentType: CONTENT_TYPES[file.split('.').pop() ?? ''] ?? 'application/octet-stream' });
-        });
-        await page.setContent(item.html, { waitUntil: 'networkidle' });
-        await page.evaluate('document.fonts.ready.then(() => undefined)');
-        if (v.invert) await page.evaluate(GMAIL_INVERT);
-        const width = Number(await page.evaluate('document.documentElement.scrollWidth'));
-        if (width > v.width) console.warn(`  ${item.edition}/${item.name} ${v.suffix}: ${width}px wide at ${v.width}px (sideways scroll)`);
-        await page.screenshot({ path: join(OUT, item.edition, 'shots', `${item.name}-${v.suffix}.png`), fullPage: true });
-        await context.close();
-      }
+        for (let item = queue.shift(); item; item = queue.shift()) {
+          await page.setContent(item.html, { waitUntil: 'load' });
+          await page.evaluate('document.fonts.ready.then(() => undefined)');
+          if (v.invert) await page.evaluate(GMAIL_INVERT);
+          const width = Number(await page.evaluate('document.documentElement.scrollWidth'));
+          if (width > v.width) console.warn(`  ${item.edition}/${item.name} ${v.suffix}: ${width}px wide at ${v.width}px (sideways scroll)`);
+          await page.screenshot({ path: join(OUT, item.edition, 'shots', `${item.name}-${v.suffix}.png`), fullPage: true });
+        }
+        await page.close();
+      }));
+      await context.close();
     }
     // Contact sheets: eight shots a sheet, per edition and variant.
     for (const edition of [...new Set(items.map((i) => i.edition))]) {
@@ -355,7 +425,18 @@ async function shoot(items: Rendered[]): Promise<void> {
   }
 }
 
+/** This file's own opening comment, as the usage: one text for the reader of the code and of --help. */
+function usage(): string {
+  const source = readFileSync(new URL(import.meta.url), 'utf8');
+  const head = /^\/\*\*([\s\S]*?)\*\//.exec(source)?.[1] ?? '';
+  return head.split('\n').map((line) => line.replace(/^ \* ?/, '').replace(/^ \*$/, '')).join('\n').trim();
+}
+
 async function main(): Promise<void> {
+  if (flag('--help') || flag('-h')) {
+    console.log(usage());
+    process.exit(0);
+  }
   const where = { edition: option('--edition'), slug: option('--slug'), locale: option('--locale') };
   let items: Rendered[];
   if (option('--samples')) {

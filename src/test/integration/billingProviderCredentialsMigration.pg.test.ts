@@ -24,6 +24,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { Client as PgClient } from 'pg';
 
 const DSN = process.env.TEST_DATABASE_URL;
 const REQUIRED = process.env.REQUIRE_BILLING_DB === '1';
@@ -36,7 +37,9 @@ if (REQUIRED && !DSN) {
 
 const suite = DSN ? describe : describe.skip;
 
-let client: any;
+let client: PgClient;
+/** The suite's own database, so no other suite's rows (a whole chain's billing_gateways seed) meet its seed. */
+let ownDb: string | null = null;
 
 const q = async (sql: string, params?: unknown[]) => (await client.query(sql, params)).rows;
 const one = async (sql: string, params?: unknown[]) => (await q(sql, params))[0];
@@ -77,7 +80,14 @@ function applyMigration() {
 suite('billing_provider_credentials migration (PostgreSQL)', () => {
   beforeAll(async () => {
     const { Client } = await import('pg');
-    client = new Client({ connectionString: DSN });
+    const admin = new Client({ connectionString: DSN });
+    await admin.connect();
+    ownDb = `billing_cred_137_${process.pid}_${Date.now()}`;
+    await admin.query(`CREATE DATABASE ${ownDb}`);
+    await admin.end();
+    const url = new URL(DSN!);
+    url.pathname = `/${ownDb}`;
+    client = new Client({ connectionString: url.toString() });
     await client.connect();
     for (const role of ['anon', 'authenticated', 'service_role']) {
       await client.query(
@@ -89,6 +99,12 @@ suite('billing_provider_credentials migration (PostgreSQL)', () => {
 
   afterAll(async () => {
     await client?.end();
+    if (!ownDb) return;
+    const { Client } = await import('pg');
+    const admin = new Client({ connectionString: DSN });
+    await admin.connect();
+    await admin.query(`DROP DATABASE IF EXISTS ${ownDb} WITH (FORCE)`);
+    await admin.end();
   });
 
   it('backfills every non-empty gateway credential, skips empty ones, and lets Providers win a drift', async () => {

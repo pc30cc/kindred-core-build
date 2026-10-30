@@ -1096,4 +1096,26 @@ describe('the logo the Super Admin uploaded (Super Admin → Branding): bootstra
     expect(kit.q('.scr.on .ccw-footer img')).toBeNull();
     expect(kit.q('.scr.on .ccw-footer svg')).not.toBeNull();
   });
+
+  it('iran: a workspace\'s own "powered by" words that name the brand stay words, never over the kit\'s art', async () => {
+    h.edition = 'iran';
+    const body = await bootstrap();
+    expect(body).toMatchObject({ powered_by_logo: URL_OF_KEY, powered_by_logo_custom: true });
+    const own = 'ساخته‌شده با وب‌یار';
+    body.config.custom_texts = { fa: { powered_by: own } };
+    const m = visit(body);
+    m.open();
+    const credit = m.q('.scr.on .ccw-footer .ccw-powered');
+    expect(credit?.textContent).toBe(own);
+    expect(m.q('.scr.on .ccw-footer svg')).toBeNull();
+
+    // Without an upload, the kit's own mark stands for the kit, as before.
+    db.platform_branding = [{ id: 'b1', logo_light_storage_key: null }];
+    publishCacheInvalidation(['platform']);
+    const kitBody = await bootstrap();
+    kitBody.config.custom_texts = { fa: { powered_by: own } };
+    const kit = visit(kitBody);
+    kit.open();
+    expect(kit.q('.scr.on .ccw-footer svg.wm')).not.toBeNull();
+  });
 });

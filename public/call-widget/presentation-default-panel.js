@@ -201,8 +201,8 @@
      * The "powered by" credit (D20): the Iran region's mark and words, the
      * International platform's lockup, a logo image, plain text, or an
      * empty row when nothing is credited. A link only when one is set. The
-     * logo the platform uploaded (`parts.custom`) is always the image: the
-     * kit's art stands only for the kit.
+     * logo the platform uploaded is always the image, and never the kit's
+     * art: with a workspace's own words (no `parts`), they stay words.
      */
     function footer(ctrl) {
       var text = ctrl.t('powered_by');
@@ -213,7 +213,7 @@
       var brand = typeof ctrl.poweredByBrand === 'function' ? ctrl.poweredByBrand() : '';
       var at = brand ? text.indexOf(brand) : -1;
       var parts = typeof ctrl.poweredByParts === 'function' ? ctrl.poweredByParts() : null;
-      var own = !!(parts && parts.custom);
+      var own = (b.edition === 'iran' ? b.powered_by_logo_custom : b.powered_by && b.powered_by.custom) === true;
       var kids = [text];
       // The words around the brand; `keep` keeps their spaces (they read
       // as one sentence, and a line's edge spaces take no room).

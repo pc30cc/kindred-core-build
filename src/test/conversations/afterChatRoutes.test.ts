@@ -576,12 +576,19 @@ describe('POST …/transcript', () => {
     const res = await transcript(cid, { locale: 'fa', tz: 'Asia/Tehran', to: 'victim@evil.test', email: 'victim@evil.test' });
     expect(res).toMatchObject({ status: 200, body: { ok: true, to: 'a•••@example.com' } });
     expect(state.sent).toHaveLength(1);
-    const mail = state.sent[0] as { to: string; templateSlug: string; locale: string; workspaceId: string; templateData: Record<string, string>; html: string; subject: string };
+    const mail = state.sent[0] as {
+      to: string; templateSlug: string; locale: string; workspaceId: string;
+      templateData: Record<string, string>; htmlData: Record<string, string>; html: string; subject: string;
+    };
     expect(mail).toMatchObject({ workspaceId: WS, to: 'ali.r@example.com', templateSlug: 'visitor_conversation_transcript', locale: 'fa' });
     expect(Object.keys(mail.templateData)).toEqual(['workspace', 'workspace_name', 'date', 'transcript', 'transcript_text']);
-    expect(mail.templateData.workspace).toBe('فروشگاه &lt;b&gt;آبی&lt;/b&gt;');
+    // Text as typed: the email core escapes every value for the HTML part,
+    // and only the transcript's rows, HTML of their own, come in htmlData.
+    expect(mail.templateData.workspace).toBe('فروشگاه <b>آبی</b>');
     expect(mail.templateData.workspace_name).toBe('فروشگاه <b>آبی</b>');
-    const html = mail.templateData.transcript;
+    expect(mail.templateData.transcript).toBe(mail.templateData.transcript_text);
+    expect(Object.keys(mail.htmlData)).toEqual(['transcript']);
+    const html = mail.htmlData.transcript;
     expect(html).toContain('قیمت $&amp; و $1 و {brand} و {transcript_text} &lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>');
     expect(html).toContain('📎 invoice &lt;1&gt;.pdf');
@@ -610,9 +617,9 @@ describe('POST …/transcript', () => {
     state.edition = 'international';
     const { cid } = answeredAndClosed();
     await transcript(cid, { locale: 'tr-TR', tz: 'Europe/Istanbul' });
-    const tr = state.sent[0] as { locale: string; templateData: Record<string, string> };
+    const tr = state.sent[0] as { locale: string; templateData: Record<string, string>; htmlData: Record<string, string> };
     expect(tr.locale).toBe('tr');
-    expect(tr.templateData.transcript).toContain('Siz · ');
+    expect(tr.htmlData.transcript).toContain('Siz · ');
     expect(tr.templateData.date).toBe('18 Ekim 2026');
     expect(transcriptTimeZone('Not/AZone', 'international')).toBe('UTC');
     expect(transcriptTimeZone(undefined, 'iran')).toBe('Asia/Tehran');

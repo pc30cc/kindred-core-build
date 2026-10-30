@@ -391,14 +391,17 @@ export async function emailVisitorTranscript(
       subject: copy.subject(workspaceName),
       html: `<p>${escapeHtml(copy.intro(workspaceName, transcript.date))}</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${transcript.html}</table>`,
       text: `${copy.intro(workspaceName, transcript.date)}\n\n${transcript.text}`,
-      // The transcript last: nothing is filled in after visitor text.
+      // As typed for the subject and the text part; the email core escapes
+      // them for the HTML part, where the transcript goes as its own rows
+      // (htmlData, already escaped line by line).
       templateData: {
-        workspace: escapeHtml(workspaceName),
+        workspace: workspaceName,
         workspace_name: workspaceName,
-        date: escapeHtml(transcript.date),
-        transcript: transcript.html,
+        date: transcript.date,
+        transcript: transcript.text,
         transcript_text: transcript.text,
       },
+      htmlData: { transcript: transcript.html },
     }).catch((err: unknown): SendResult => ({
       success: false,
       provider: 'unknown',

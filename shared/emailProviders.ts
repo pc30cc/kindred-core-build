@@ -30,8 +30,19 @@ export const EMAIL_PROVIDER_COMMON_FIELDS = ['from_email', 'from_name', 'reply_t
 export const EMAIL_PROVIDER_FIELDS: Record<EmailProviderAdapter, readonly string[]> = {
   resend: ['api_key', 'webhook_secret'],
   sendgrid: ['api_key', 'webhook_public_key'],
-  smtp: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'encryption', 'tls_servername', 'events_token'],
+  smtp: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'encryption', 'tls_servername', 'tls_ca', 'events_token'],
 };
+
+/**
+ * Fields longer than the usual limit (2048 characters): a CA certificate in
+ * PEM is about 1.2 to 2 KB, and a chain of them more.
+ */
+export const EMAIL_PROVIDER_FIELD_MAX_LENGTH: Readonly<Record<string, number>> = {
+  tls_ca: 32 * 1024,
+};
+
+/** The SMTP port when none is set. */
+export const SMTP_DEFAULT_PORT = 587;
 
 /**
  * Credentials. They are stored encrypted, read back only by the server, and a
@@ -63,6 +74,40 @@ export const EMAIL_PROVIDER_ENV_FALLBACKS: Record<EmailProviderAdapter, Readonly
   sendgrid: { api_key: 'SENDGRID_API_KEY' },
   smtp: { smtp_host: 'SMTP_HOST', smtp_port: 'SMTP_PORT', smtp_user: 'SMTP_USER', smtp_pass: 'SMTP_PASS' },
 };
+
+/**
+ * The fields that say where a secret is sent, for a secret whose
+ * destination is part of the config (an SMTP password goes to the host the
+ * config names, as that user; Resend's and SendGrid's keys only ever go to
+ * their own API). Such a secret belongs to that destination:
+ *
+ *   - a save that changes one of these fields does not keep the stored
+ *     secret: it must be typed again (a save that still signs in is refused
+ *     without it), so a stored relay password can never be handed to a host
+ *     a later save names, by the Test button or by the next mail;
+ *   - its environment variable fills it only when the config sends it
+ *     where the environment would: the first field (the host) must be its
+ *     variable's value, and each other field too when its variable is set.
+ */
+export const EMAIL_PROVIDER_SECRET_DESTINATION: Record<EmailProviderAdapter, Readonly<Record<string, readonly string[]>>> = {
+  resend: {},
+  sendgrid: {},
+  smtp: { smtp_pass: ['smtp_host', 'smtp_port', 'smtp_user'] },
+};
+
+/** One destination field, comparable: a host's case does not matter, and a blank port is the default one. */
+function destinationValue(field: string, cfg: Record<string, unknown>): string {
+  const value = text(cfg[field]);
+  if (field === 'smtp_host') return value.toLowerCase();
+  if (field === 'smtp_port') return value || String(SMTP_DEFAULT_PORT);
+  return value;
+}
+
+/** Where `secret` would be sent under `cfg`, as one comparable string (empty for a secret with no destination fields). */
+export function emailProviderSecretDestination(name: string, secret: string, cfg: Record<string, unknown>): string {
+  if (!isEmailProviderAdapter(name)) return '';
+  return (EMAIL_PROVIDER_SECRET_DESTINATION[name][secret] ?? []).map((field) => destinationValue(field, cfg)).join('\n');
+}
 
 /**
  * How an SMTP connection is protected:
@@ -133,6 +178,31 @@ export function canonicalEmailProviderConfig(name: string, cfg: Record<string, u
   return out;
 }
 
+const PEM_CERTIFICATE = /-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\s]*?)-----END CERTIFICATE-----/g;
+
+/**
+ * The certificates of an SMTP config's `tls_ca` (the CA the server's
+ * certificate is checked against, for a relay with a private CA), each as
+ * PEM wants it, 64 characters a line; null when the text is blank or holds
+ * anything but certificates. A PEM pasted into a one-line input arrives with
+ * its line breaks gone, and this puts them back. Anything else is refused
+ * rather than stored, since this field is not a secret: a private key pasted
+ * here by mistake must not be kept in clear.
+ */
+export function pemCertificates(value: unknown): string[] | null {
+  const s = text(value);
+  const certificates: string[] = [];
+  let last = 0;
+  for (const m of s.matchAll(PEM_CERTIFICATE)) {
+    if (s.slice(last, m.index).trim()) return null;
+    const body = m[1].replace(/\s+/g, '');
+    if (!body || body.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(body)) return null;
+    certificates.push(`-----BEGIN CERTIFICATE-----\n${(body.match(/.{1,64}/g) as string[]).join('\n')}\n-----END CERTIFICATE-----\n`);
+    last = (m.index as number) + m[0].length;
+  }
+  return certificates.length && !s.slice(last).trim() ? certificates : null;
+}
+
 /** Characters a local part may hold without quoting (RFC 5322 atext, dot-separated). */
 const LOCAL_PART = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
 const DOMAIN_LABEL = /^(?!-)[\p{L}\p{N}-]{1,63}(?<!-)$/u;
@@ -158,7 +228,13 @@ export function parseEmailAddress(value: unknown): string | null {
   return address;
 }
 
-/** A config value as the send path reads it: the stored one, else its environment variable. */
+/**
+ * A config value as the send path reads it: the stored one, else its
+ * environment variable. A secret with a destination (EMAIL_PROVIDER_SECRET_
+ * DESTINATION) takes its variable only when the config sends it where the
+ * environment would: SMTP_PASS is the password of SMTP_HOST, never of a
+ * host the Super Admin typed.
+ */
 export function withEmailProviderEnvFallbacks(
   name: string,
   cfg: Record<string, unknown>,
@@ -166,9 +242,25 @@ export function withEmailProviderEnvFallbacks(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...cfg };
   if (!isEmailProviderAdapter(name)) return out;
-  for (const [field, variable] of Object.entries(EMAIL_PROVIDER_ENV_FALLBACKS[name])) {
-    const fallback = env[variable];
-    if (!text(out[field]) && typeof fallback === 'string' && fallback.trim()) out[field] = fallback.trim();
+  const fallbacks = Object.entries(EMAIL_PROVIDER_ENV_FALLBACKS[name]);
+  const bound = EMAIL_PROVIDER_SECRET_DESTINATION[name];
+  const fromEnv = (variable: string) => {
+    const value = env[variable];
+    return typeof value === 'string' ? value.trim() : '';
+  };
+  for (const [field, variable] of fallbacks) {
+    if (field in bound) continue;
+    if (!text(out[field]) && fromEnv(variable)) out[field] = fromEnv(variable);
+  }
+  const envOf = (field: string) => fromEnv(EMAIL_PROVIDER_ENV_FALLBACKS[name][field] ?? '');
+  const envOnly: Record<string, unknown> = Object.fromEntries(fallbacks.map(([field]) => [field, envOf(field)]));
+  const sameAsEnv = (field: string) => destinationValue(field, out) === destinationValue(field, envOnly);
+  for (const [field, variable] of fallbacks) {
+    if (!(field in bound) || text(out[field]) || !fromEnv(variable)) continue;
+    const [where, ...rest] = bound[field];
+    if (envOf(where) && sameAsEnv(where) && rest.every((other) => !envOf(other) || sameAsEnv(other))) {
+      out[field] = fromEnv(variable);
+    }
   }
   return out;
 }
@@ -219,6 +311,7 @@ export function emailProviderConfigProblems(
     if (has('tls_servername') && /[\s/:]/.test(text(value.tls_servername))) {
       problems.push({ field: 'tls_servername', problem: 'invalid' });
     }
+    if (has('tls_ca') && !pemCertificates(value.tls_ca)) problems.push({ field: 'tls_ca', problem: 'invalid' });
     // A user name without its password cannot sign in, and the relay
     // refuses mail from a client that has not.
     if (has('smtp_user') && !has('smtp_pass')) problems.push({ field: 'smtp_pass', problem: 'missing' });

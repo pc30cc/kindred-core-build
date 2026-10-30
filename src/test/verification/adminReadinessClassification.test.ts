@@ -68,7 +68,10 @@ describe('Generic Verification Core admin readiness — email provider classific
 
   it('an smtp user without its password is invalid (a wiped password cannot sign in)', () => {
     expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, {})).toBe('invalid');
-    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, { SMTP_PASS: 'p' })).toBe('configured');
+    // SMTP_PASS is the password of SMTP_HOST's relay, and of no other host.
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, { SMTP_HOST: 'mail-relay', SMTP_PASS: 'p' })).toBe('configured');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, { SMTP_PASS: 'p' })).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'elsewhere', smtp_user: 'u' } }, { SMTP_HOST: 'mail-relay', SMTP_PASS: 'p' })).toBe('invalid');
   });
 
   it('an smtp port or encryption that cannot work is invalid', () => {

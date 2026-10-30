@@ -25,8 +25,9 @@ const db = vi.hoisted(() => ({
   readError: null as string | null,
 }));
 
-vi.mock('../../../server/lib/serviceClient.js', () => ({
-  serviceClientFor: () => ({
+// The store reads and writes through the server's own client.
+vi.mock('../../../server/supabase.js', () => ({
+  getServiceClient: () => ({
     from(table: string) {
       const filters: Record<string, unknown> = {};
       const builder: Record<string, unknown> = {
@@ -175,6 +176,65 @@ describe('writing', () => {
     expect(read?.config).not.toHaveProperty('smtp_pass');
     expect(warn.mock.calls.join(' ')).toContain('smtp_pass');
     expect(warn.mock.calls.join(' ')).not.toContain('relay-secret-1');
+  });
+
+  it.each([
+    ['host', { smtp_host: 'attacker.example', encryption: 'none' }],
+    ['port', { smtp_port: '2525' }],
+    ['user', { smtp_user: 'other@webyar.ai' }],
+  ])('a stored password does not follow a new %s: it must be typed again', async (_what, change) => {
+    const { smtp_pass: _pass, ...rest } = PRODUCTION.config;
+    expect(await write('smtp', { ...rest, ...change })).toEqual({ ok: false, error: 'missing_field', field: 'smtp_pass' });
+    expect(stored()).toEqual(PRODUCTION);
+    expect(db.audit).toEqual([]);
+    // Typed again, it is stored for the new destination.
+    expect(await write('smtp', { ...rest, ...change, smtp_pass: 'typed-again' })).toEqual({ ok: true });
+    expect((await store.readEmailProviderConfig(cfg(), 'default_email_provider'))?.config.smtp_pass).toBe('typed-again');
+    expect(db.audit[0].new_value).toMatchObject({ changed_fields: expect.arrayContaining(['smtp_pass']) });
+  });
+
+  it('a destination without a sign-in drops the stored password; the same one in other words keeps it', async () => {
+    const { smtp_pass: _pass, smtp_user: _user, ...rest } = PRODUCTION.config;
+    expect(await write('smtp', { ...rest, smtp_host: 'other-relay' })).toEqual({ ok: true });
+    expect(stored().secrets).toBeUndefined();
+    expect(db.audit[0].new_value).toMatchObject({ changed_fields: ['smtp_host', 'smtp_pass', 'smtp_user'] });
+
+    db.runtime.default_email_provider = structuredClone(PRODUCTION);
+    const { smtp_pass: _p, smtp_port: _port, ...samePlace } = PRODUCTION.config;
+    // A host's case does not matter, and a blank port is 587.
+    expect(await write('smtp', { ...samePlace, smtp_host: 'Mail-Relay' })).toEqual({ ok: true });
+    expect((await store.readEmailProviderConfig(cfg(), 'default_email_provider'))?.config.smtp_pass).toBe('relay-secret-1');
+  });
+
+  it('SMTP_PASS fills a blank password only for SMTP_HOST\'s own relay', async () => {
+    process.env.SMTP_HOST = 'mail-relay';
+    process.env.SMTP_PASS = 'env-relay-pass';
+    try {
+      db.runtime = {};
+      const base = { smtp_user: 'noreply@webyar.ai', from_email: 'noreply@webyar.ai' };
+      expect(await write('smtp', { ...base, smtp_host: 'attacker.example' })).toEqual({ ok: false, error: 'missing_field', field: 'smtp_pass' });
+      expect(await write('smtp', { ...base, smtp_host: 'mail-relay' })).toEqual({ ok: true });
+      expect(await write('smtp', base)).toEqual({ ok: true });
+    } finally {
+      delete process.env.SMTP_HOST;
+    }
+  });
+
+  it('a CA certificate (PEM) is an ordinary field, longer than the others; anything else is refused', async () => {
+    const body = 'A'.repeat(3000);
+    const pem = `-----BEGIN CERTIFICATE-----\n${body.match(/.{1,64}/g)!.join('\n')}\n-----END CERTIFICATE-----`;
+    expect(await write('smtp', { ...PRODUCTION.config, encryption: 'starttls', tls_servername: 'mail-relay', tls_ca: pem })).toEqual({ ok: true });
+    expect(stored().config.tls_ca).toBe(pem);
+    expect((await store.readEmailProviderForAdmin(cfg(), 'default_email_provider')).config.tls_ca).toBe(pem);
+    expect(db.audit[0].new_value).toMatchObject({ changed_fields: ['encryption', 'tls_ca', 'tls_servername'] });
+    for (const bad of [
+      'not a certificate',
+      `-----BEGIN PRIVATE KEY-----\n${'A'.repeat(64)}\n-----END PRIVATE KEY-----`,
+      `${pem}\n-----BEGIN PRIVATE KEY-----\n${'A'.repeat(64)}\n-----END PRIVATE KEY-----`,
+      `-----BEGIN CERTIFICATE-----\n${'A'.repeat(33 * 1024)}\n-----END CERTIFICATE-----`,
+    ]) {
+      expect(await write('smtp', { ...PRODUCTION.config, tls_ca: bad })).toEqual({ ok: false, error: 'invalid_field', field: 'tls_ca' });
+    }
   });
 
   it('a secret never crosses to another provider', async () => {

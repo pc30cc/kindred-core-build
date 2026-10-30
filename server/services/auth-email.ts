@@ -209,7 +209,11 @@ async function issueAuthLink(
   const token = inserted as { id: string; created_at: string };
 
   const actionUrl = `${appBaseUrl}${link.path}?token=${rawToken}`;
-  const userName = options.fullName || options.email.split('@')[0];
+  // The full name is whatever was typed at sign-up, by anyone, for an
+  // address that need not be theirs. It goes in as text: one line here, and
+  // the email core escapes every value for the HTML part, so a name written
+  // as a link or a hidden block shows as the characters typed.
+  const userName = String(options.fullName ?? '').replace(/\s+/g, ' ').trim() || options.email.split('@')[0];
   const result = await sendEmailWithRetry(
     config,
     {

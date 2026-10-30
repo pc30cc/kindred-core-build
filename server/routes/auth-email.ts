@@ -66,6 +66,11 @@ async function mayMailAuthLink(config: ServerConfig, kind: 'reset' | 'verify', u
   return hourly.allowed;
 }
 
+/** The server config the app puts on every request. */
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
+}
+
 /**
  * The public reset and verification forms: every request that names an
  * address gets the same answer at once, `{ success: true }`, and whatever
@@ -80,7 +85,7 @@ async function mayMailAuthLink(config: ServerConfig, kind: 'reset' | 'verify', u
  */
 function publicAuthLinkRoute(kind: 'reset' | 'verify') {
   return async (req: Request, res: Response) => {
-    const config: ServerConfig = (req as Request & { serverConfig: ServerConfig }).serverConfig;
+    const config = configOf(req);
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     if (!email || email.length > 254) return res.status(400).json({ error: 'email is required' });
@@ -129,7 +134,7 @@ authEmailRouter.post('/send-verification', publicAuthLinkRoute('verify'));
  */
 authEmailRouter.post('/verify-email', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = configOf(req);
     const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
 
     if (!token) return res.status(400).json({ error: 'token is required' });
@@ -193,7 +198,7 @@ authEmailRouter.post('/send-reset', publicAuthLinkRoute('reset'));
  */
 authEmailRouter.post('/reset-password', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = configOf(req);
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword) {
@@ -268,8 +273,8 @@ const otpVerifySchema = z.object({
   requestId: z.string().trim().min(1).max(200).optional(),
 });
 
-async function otpCaller(req: any, res: Response) {
-  const config: ServerConfig = req.serverConfig;
+async function otpCaller(req: Request, res: Response) {
+  const config = configOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return null;
   const identity = await findIdentityById(config, userId);

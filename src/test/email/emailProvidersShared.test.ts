@@ -12,7 +12,9 @@ import {
   SMTP_ENCRYPTION_MODES,
   canonicalEmailProviderConfig,
   emailProviderConfigProblems,
+  emailProviderSecretDestination,
   parseEmailAddress,
+  pemCertificates,
   smtpEncryptionMode,
   withEmailProviderEnvFallbacks,
 } from '../../../shared/emailProviders';
@@ -88,6 +90,32 @@ describe('the environment fills a blank, never more', () => {
     expect(withEmailProviderEnvFallbacks('sendgrid', {}, { RESEND_API_KEY: 'x' })).toEqual({});
   });
 
+  it('SMTP_PASS is SMTP_HOST\'s password: never filled in for a host the database names', () => {
+    const env = { SMTP_HOST: 'mail-relay', SMTP_PASS: 'env-pass' };
+    expect(withEmailProviderEnvFallbacks('smtp', { smtp_host: 'attacker.example', smtp_user: 'u' }, env).smtp_pass).toBeUndefined();
+    expect(withEmailProviderEnvFallbacks('smtp', { smtp_host: 'Mail-Relay', smtp_user: 'u' }, env).smtp_pass).toBe('env-pass');
+    expect(withEmailProviderEnvFallbacks('smtp', { smtp_host: 'mail-relay' }, { SMTP_PASS: 'env-pass' }).smtp_pass).toBeUndefined();
+    // A port or user the environment sets must be the config's too.
+    const full = { ...env, SMTP_PORT: '587', SMTP_USER: 'noreply@webyar.ai' };
+    expect(withEmailProviderEnvFallbacks('smtp', { smtp_port: '2525' }, full).smtp_pass).toBeUndefined();
+    expect(withEmailProviderEnvFallbacks('smtp', { smtp_user: 'other@webyar.ai' }, full).smtp_pass).toBeUndefined();
+    expect(withEmailProviderEnvFallbacks('smtp', {}, full)).toEqual({
+      smtp_host: 'mail-relay', smtp_port: '587', smtp_user: 'noreply@webyar.ai', smtp_pass: 'env-pass',
+    });
+    expect(emailProviderConfigProblems('smtp', { smtp_host: 'attacker.example', smtp_user: 'u', from_email: 'a@b.co' }, env))
+      .toEqual([{ field: 'smtp_pass', problem: 'missing' }]);
+  });
+
+  it('a stored secret\'s destination: host (any case), port (blank is 587) and user', () => {
+    const at = (cfg: Record<string, unknown>) => emailProviderSecretDestination('smtp', 'smtp_pass', cfg);
+    expect(at({ smtp_host: 'Mail-Relay', smtp_user: 'u' })).toBe(at({ smtp_host: 'mail-relay', smtp_port: '587', smtp_user: 'u' }));
+    expect(at({ smtp_host: 'mail-relay' })).not.toBe(at({ smtp_host: 'attacker.example' }));
+    expect(at({ smtp_host: 'h', smtp_port: '587' })).not.toBe(at({ smtp_host: 'h', smtp_port: '2525' }));
+    expect(at({ smtp_host: 'h', smtp_user: 'a' })).not.toBe(at({ smtp_host: 'h', smtp_user: 'b' }));
+    expect(emailProviderSecretDestination('smtp', 'events_token', { smtp_host: 'x' })).toBe('');
+    expect(emailProviderSecretDestination('resend', 'api_key', { api_key: 'k' })).toBe('');
+  });
+
   it('problems are reported per field, presence and shape only', () => {
     expect(emailProviderConfigProblems('smtp', { smtp_host: 'mail-relay', from_email: 'noreply@webyar.ai' })).toEqual([]);
     expect(emailProviderConfigProblems('smtp', {})).toEqual([
@@ -97,5 +125,36 @@ describe('the environment fills a blank, never more', () => {
     expect(emailProviderConfigProblems('smtp', { smtp_host: 'h', from_email: 'a@b.co', from_name: 'x\r\nBcc: y' }))
       .toEqual([{ field: 'from_name', problem: 'invalid' }]);
     expect(emailProviderConfigProblems('carrier-pigeon', {})).toEqual([{ field: 'provider_name', problem: 'invalid' }]);
+  });
+});
+
+describe('the SMTP CA certificate (tls_ca)', () => {
+  const body = `MIIB${'q'.repeat(120)}AB==`;
+  const lines = (b: string) => (b.match(/.{1,64}/g) as string[]).join('\n');
+  const pem = `-----BEGIN CERTIFICATE-----\n${lines(body)}\n-----END CERTIFICATE-----`;
+
+  it('is read back as PEM, line breaks restored when a one-line input dropped them', () => {
+    const expected = [`${pem}\n`];
+    expect(pemCertificates(pem)).toEqual(expected);
+    expect(pemCertificates(pem.replace(/\n/g, ''))).toEqual(expected);
+    expect(pemCertificates(`  ${pem.replace(/\n/g, ' ')}  `)).toEqual(expected);
+    expect(pemCertificates(`${pem}\n${pem}`)).toEqual([...expected, ...expected]);
+  });
+
+  it('holds certificates and nothing else: a private key pasted by mistake is refused', () => {
+    expect(pemCertificates('')).toBeNull();
+    expect(pemCertificates('hello')).toBeNull();
+    expect(pemCertificates(`subject=CN = relay\n${pem}`)).toBeNull();
+    expect(pemCertificates(`${pem}\n-----BEGIN PRIVATE KEY-----\n${lines(body)}\n-----END PRIVATE KEY-----`)).toBeNull();
+    expect(pemCertificates(`-----BEGIN CERTIFICATE-----\n${body}*\n-----END CERTIFICATE-----`)).toBeNull();
+    expect(pemCertificates(`-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----`)).toBeNull();
+  });
+
+  it('is an ordinary SMTP field, never a secret, and a bad one stops the provider', () => {
+    expect(EMAIL_PROVIDER_FIELDS.smtp).toContain('tls_ca');
+    expect(EMAIL_PROVIDER_SECRET_FIELDS.smtp).not.toContain('tls_ca');
+    const base = { smtp_host: 'mail-relay', from_email: 'noreply@webyar.ai', encryption: 'starttls', tls_servername: 'mail-relay' };
+    expect(emailProviderConfigProblems('smtp', { ...base, tls_ca: pem })).toEqual([]);
+    expect(emailProviderConfigProblems('smtp', { ...base, tls_ca: 'not a cert' })).toEqual([{ field: 'tls_ca', problem: 'invalid' }]);
   });
 });

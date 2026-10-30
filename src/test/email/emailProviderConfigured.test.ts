@@ -12,19 +12,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({ value: null as unknown, fails: false }));
 
-vi.mock('../../../server/lib/serviceClient.js', () => ({
-  serviceClientFor: () => ({
-    from: () => {
-      if (state.fails) throw new Error('database unavailable');
-      const chain = {
-        select: () => chain,
-        eq: () => chain,
-        maybeSingle: async () => ({ data: state.value === null ? null : { value: state.value }, error: null }),
-      };
-      return chain;
-    },
-  }),
+// The provider row is read by the config store through the server's own
+// client (getServiceClient), the rest of the email core through
+// serviceClientFor; both stand in here.
+const fakeClient = vi.hoisted(() => () => ({
+  from: () => {
+    if (state.fails) throw new Error('database unavailable');
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => ({ data: state.value === null ? null : { value: state.value }, error: null }),
+    };
+    return chain;
+  },
 }));
+vi.mock('../../../server/lib/serviceClient.js', () => ({ serviceClientFor: fakeClient }));
+vi.mock('../../../server/supabase.js', () => ({ getServiceClient: fakeClient }));
 
 const { isEmailProviderConfigured } = await import('../../../server/services/email/index.js');
 const config = { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never;

@@ -2,7 +2,7 @@
 // Uses nodemailer for real SMTP transport.
 
 import nodemailer from 'nodemailer';
-import { smtpEncryptionMode, type SmtpEncryptionMode } from '../../../../shared/emailProviders.js';
+import { SMTP_DEFAULT_PORT, pemCertificates, smtpEncryptionMode, type SmtpEncryptionMode } from '../../../../shared/emailProviders.js';
 import {
   configSecret,
   configText,
@@ -46,17 +46,23 @@ interface SmtpSettings {
  * plain text as `auto` does; `none` never upgrades; `ssl` is implicit TLS.
  * `tls_servername` is the name the server's certificate is checked against,
  * for a relay reached by a service name its certificate does not carry
- * (`mail-relay`). SMTP_TLS_REJECT_UNAUTHORIZED=false still turns the check
- * off for every server, as before; the server name is the narrower fix.
+ * (`mail-relay`). `tls_ca` is the CA it is checked against instead of the
+ * public ones, for a relay whose certificate a private CA signed: with
+ * `starttls` or `ssl`, the connection is then encrypted and verified against
+ * that CA and that name, so a container on the same network that answers as
+ * the relay gets no password and no mail. SMTP_TLS_REJECT_UNAUTHORIZED=false
+ * still turns the check off for every server, as before; the server name and
+ * the CA are the narrower fix.
  */
 function smtpSettings(config: ProviderConfig): SmtpSettings {
   const cfg = config.config;
   const host = configText(cfg, 'smtp_host');
-  const port = Number.parseInt(configText(cfg, 'smtp_port') || '587', 10);
+  const port = Number.parseInt(configText(cfg, 'smtp_port') || String(SMTP_DEFAULT_PORT), 10);
   const user = configText(cfg, 'smtp_user');
   const pass = configSecret(cfg, 'smtp_pass');
   const mode = smtpEncryptionMode(cfg);
   const servername = configText(cfg, 'tls_servername');
+  const ca = configText(cfg, 'tls_ca') ? pemCertificates(cfg.tls_ca) : null;
   return {
     host,
     port,
@@ -74,6 +80,7 @@ function smtpSettings(config: ProviderConfig): SmtpSettings {
       tls: {
         rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false',
         ...(servername ? { servername } : {}),
+        ...(ca ? { ca } : {}),
       },
       // The message is built from strings only; nothing in it may make the
       // library read a file or fetch a URL.
@@ -93,27 +100,48 @@ interface SmtpError {
 /**
  * A nodemailer error as a SendResult. nodemailer 10.2 marks a reply-coded
  * error `permanent` (5xx but 503, RFC 5321); that wins where it is present.
- * A refused sign-in is a configuration fault and permanent: retrying it only
- * repeats the 535 (the invitation and OTP paths used to). The reason names
- * the SMTP reply code at most; the server's text, which can carry internal
- * host names and addresses, goes to the console only.
+ * The reason names the SMTP reply code at most; the server's text, which can
+ * carry internal host names and addresses, goes to the console only.
+ *
+ * Two steps are told apart by their reply rather than by their name:
+ *
+ *   - Sign-in (EAUTH, ENOAUTH). A 5xx answer, or none (no AUTH offered, no
+ *     password), is a configuration fault and permanent: retrying it only
+ *     repeats the 535 (the invitation and OTP paths used to). A 4xx is the
+ *     server's own "not now": Postfix's 454 while its SASL backend is down,
+ *     a 421 while the relay restarts, Gmail's and Microsoft 365's 454 after
+ *     too many sign-ins. Dropping a reset link or a receipt for that would
+ *     be wrong, so it is transient and the outbox retries it.
+ *   - STARTTLS (ETLS). A 5xx answer is the server refusing it ("502 5.5.1"
+ *     from a relay that offers none, with encryption set to `starttls`): a
+ *     configuration fault, said as such, so the Test button names it
+ *     instead of "could not be reached". ETLS with no reply is a failed
+ *     handshake or a dropped socket, transient as before.
  */
 export function classifySmtpError(err: unknown, secrets: Array<unknown> = []): SendResult {
   const e = (err ?? {}) as SmtpError;
   const detail = `${e.code ?? 'Error'} ${e.message ?? String(err)}`;
-  const reply = typeof e.responseCode === 'number' ? ` (${e.responseCode})` : '';
+  const code = typeof e.responseCode === 'number' ? e.responseCode : null;
+  const reply = code !== null ? ` (${code})` : '';
   const opts = (permanent?: boolean) => ({ detail, secrets, ...(typeof permanent === 'boolean' ? { permanent } : {}) });
+  const temporary = code !== null && code >= 400 && code < 500;
 
   switch (e.code) {
     case 'ETIMEDOUT':
       return emailFailure('smtp', 'timeout', 'the SMTP server did not answer in time', opts(false));
     case 'EAUTH':
     case 'ENOAUTH':
+      if (code === 421) return emailFailure('smtp', 'connection', 'the SMTP server closed the connection during the sign-in (421)', opts(false));
+      if (temporary) return emailFailure('smtp', 'auth', `the SMTP server cannot check the sign-in right now${reply}`, opts(false));
       return emailFailure('smtp', 'auth', `the SMTP server refused the sign-in${reply}`, opts(true));
+    case 'ETLS':
+      if (code !== null && code >= 500) {
+        return emailFailure('smtp', 'connection', `the SMTP server refused STARTTLS${reply}; check the encryption setting`, opts(true));
+      }
+      return emailFailure('smtp', 'connection', `the TLS connection to the SMTP server could not be made${reply}`, opts(false));
     case 'ECONNECTION':
     case 'ESOCKET':
     case 'EDNS':
-    case 'ETLS':
     case 'EPROXY':
       return emailFailure('smtp', 'connection', `the SMTP server could not be reached or the connection failed${reply}`, opts(false));
     default:

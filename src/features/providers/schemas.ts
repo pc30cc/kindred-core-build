@@ -140,6 +140,10 @@ const EMAIL_ADAPTER_FIELD_DEFS: Record<EmailProviderAdapter, Record<string, Emai
       label: 'TLS Server Name', type: 'text', placeholder: 'mail.yourdomain.com', group: EMAIL_FIELD_GROUPS.connection,
       hint: 'The name on the server\'s certificate, when it differs from the host (a relay reached by a service name).',
     },
+    tls_ca: {
+      label: 'TLS CA Certificate', type: 'text', placeholder: '-----BEGIN CERTIFICATE-----', group: EMAIL_FIELD_GROUPS.connection,
+      hint: 'For a server whose certificate your own CA signed: paste the CA certificate (PEM). The server is then checked against it instead of the public CAs. Leave blank for a public certificate.',
+    },
     events_token: {
       label: 'Events Token', type: 'password', group: EMAIL_FIELD_GROUPS.reports,
       hint: 'The shared secret the relay\'s bounce reports must carry.',

@@ -7456,7 +7456,7 @@ const tr: TranslationKeys = {
         description: 'Gerçek bir gönderimin kullanacağı şablonları sabit bir test koduyla oluşturur. Hiçbir şey gönderilmez ve hiçbir doğrulama kaydı oluşturulmaz.',
         locale: 'Önizleme dili',
         fakeCodeNotice: 'Gösterilen test kodu: 123456 (asla gerçek, kullanılabilir bir kod değildir)',
-        emailTemplateNote: 'E-posta, Markalama → E-posta şablonları’ndaki “Doğrulama kodu” şablonudur; gönderildiği gibi doldurulur.',
+        emailTemplateNote: 'E-posta, Marka → E-posta şablonları’ndaki “Doğrulama kodu” şablonudur; gönderildiği gibi doldurulur.',
         emailFailed: 'E-posta önizlemesi hazırlanamadı.',
         emailSentIn: 'Bu platform bu dilde e-posta göndermez; kod aşağıdaki gibi {{language}} gelir.',
         emailSubject: 'E-posta konusu',

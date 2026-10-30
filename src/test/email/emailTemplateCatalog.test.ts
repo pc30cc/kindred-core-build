@@ -484,10 +484,14 @@ describe('the email template catalog', () => {
     expect(persian.join('\n')).not.toMatch(/[يك]/);
   });
 
-  it('sends the Super Admin to the Providers menu by the name the menu has', () => {
+  it('sends the Super Admin to each menu by the name the menu has', () => {
     for (const [name, locale] of Object.entries(LOCALES)) {
-      const said = locale.admin.brandingPage.emailTemplates.descriptions.email_test;
-      expect(said, name).toContain(locale.admin.nav.providers);
+      const { nav } = locale.admin;
+      const arrow = name === 'fa' ? '←' : '→';
+      expect(locale.admin.brandingPage.emailTemplates.descriptions.email_test, name).toContain(nav.providers);
+      expect(locale.admin.brandingPage.identity.errorNoStorage, name).toContain(`${nav.providers} ${arrow} ${locale.adminProviders.types.storage.label}`);
+      expect(locale.admin.notifications.email.providerMissing, name).toContain(`${nav.providers} ${arrow} `);
+      expect(locale.admin.verification.preview.emailTemplateNote, name).toContain(`${nav.branding} ${arrow} ${locale.admin.brandingPage.tabs.emailTemplates}`);
     }
   });
 });

@@ -483,10 +483,14 @@ describe('the logo', () => {
     expect(html).toMatch(/color:#FFFFFF;">RESPOK<\/span>/);
   });
 
-  it('one image at most, and nothing hidden but the preheader', () => {
+  it('one image at most, and no words hidden but the preheader', () => {
     const html = doc(RECEIPT);
     expect(html.match(/<img\b/g)).toHaveLength(1);
-    expect(html.match(/display:none/g)).toHaveLength(1);
+    // The preheader, inline; and on a phone only the footer's separator dot before the line it breaks.
+    expect(html.match(/display:none/g)).toHaveLength(2);
+    expect(html.match(/style="[^"]*display:none/g)).toHaveLength(1);
+    expect(html).toContain('<div data-preheader style="display:none;');
+    expect([...html.matchAll(/\.([\w-]+)\{display:none/g)].map((m) => m[1])).toEqual(['x-fdot']);
     expect(html).not.toContain('@media print');
   });
 });
@@ -529,6 +533,14 @@ describe('the footer', () => {
     const html = doc('<p>x</p>');
     expect(html).toContain('>RESPOK</strong> <span class="x-foot" style="color:#5E5C75;">·</span> <a href="https://app.respok.app"');
     expect(renderEmailDocument({ brand: WEBYAR, locale: 'fa', title: 't', contentHtml: '', category: 'transactional' })).toContain('&rlm;·&rlm;');
+  });
+
+  it('on a phone the support address takes its own line, and no line ends on a dot', () => {
+    const html = doc('<p>x</p>');
+    expect(html).toContain('>app.respok.app</a> <span class="x-foot x-fdot" style="color:#5E5C75;">·</span> <span class="x-fsup"><a href="mailto:support@respok.app"');
+    expect(html).toMatch(/@media only screen and \(max-width:620px\)\{[^}]*\}[^@]*\.x-fdot\{display:none!important;\}\.x-fsup\{display:block!important;\}\}/);
+    // The words are all there for every reader; only the separator before the broken line goes.
+    expect(doc('<p>x</p>', { brand: { ...RESPOK, supportEmail: '' } })).not.toMatch(/class="[^"]*\bx-f(dot|sup)\b/);
   });
 });
 

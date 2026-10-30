@@ -51,7 +51,8 @@
  *     layout (Outlook pads cells, not tables); the head's styles are split
  *     into blocks so one a client rejects cannot take the others with it;
  *     Outlook gets its own font list (it falls back to Times otherwise);
- *     nothing is hidden but the preheader; a long address, link or code
+ *     no words are hidden but the preheader (a phone loses only the footer's
+ *     last separator dot, where its line breaks); a long address, link or code
  *     breaks rather than widen a phone.
  *
  * No I/O here: the brand (name, logo, links, the legal line) is passed in.
@@ -1356,17 +1357,19 @@ export function renderEmailDocument(input: EmailDocumentInput): string {
 
   // The footer: why the mail came (or the caller's own closing line), the
   // brand with its panel and support addresses, then the legal line. Plain
-  // spaces around the dots: the line wraps on a narrow screen.
+  // spaces around the dots: the line wraps on a narrow screen. There the
+  // support address takes a line of its own (the narrow rules, x-fsup), and
+  // the dot before it goes (x-fdot), so no line ends on a separator.
   const footInk = p.footInk;
   const note = input.footer?.html ? footerLine(input.footer.html, ctx, footInk) : escapeText(whyLine(input.category, locale, brand.name));
   const footLink = (href: string, text: string) =>
     `<a href="${escapeText(href)}" class="x-foot" dir="ltr" style="color:${footInk};text-decoration:underline;text-underline-offset:2px;unicode-bidi:isolate;white-space:nowrap;">${escapeText(text)}</a>`;
-  const dot = `<span class="x-foot" style="color:${footInk};">${rtl ? '&rlm;·&rlm;' : '·'}</span>`;
-  const links = [
+  const dot = (cls: string) => `<span class="${cls}" style="color:${footInk};">${rtl ? '&rlm;·&rlm;' : '·'}</span>`;
+  let links = [
     `<strong class="x-ink" style="font-weight:700;color:${p.ink};">${name}</strong>`,
     brand.appUrl ? footLink(brand.appUrl, hostOf(brand.appUrl)) : '',
-    brand.supportEmail ? footLink(`mailto:${brand.supportEmail}`, brand.supportEmail) : '',
-  ].filter(Boolean).join(` ${dot} `);
+  ].filter(Boolean).join(` ${dot('x-foot')} `);
+  if (brand.supportEmail) links += ` ${dot('x-foot x-fdot')} <span class="x-fsup">${footLink(`mailto:${brand.supportEmail}`, brand.supportEmail)}</span>`;
   const footRow = (inner: string, pad: string, [size, lh]: [number, number]) =>
     `<tr><td align="center" class="x-foot" style="padding:${pad};font-family:${font};font-size:${size}px;line-height:${lh}px;color:${footInk};text-align:center;${MSO}">${inner}</td></tr>`;
 
@@ -1418,7 +1421,7 @@ export function renderEmailDocument(input: EmailDocumentInput): string {
   const faces = appBase
     ? fonts.faces.map((f) => `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${f.weight};font-display:swap;src:url(${appBase}/widget/fonts/${f.file}) format('woff2');unicode-range:${f.range};}`).join('')
     : '';
-  const narrow = `@media only screen and (max-width:620px){.x-gut{padding-left:12px!important;padding-right:12px!important;}.x-pad{padding-left:22px!important;padding-right:22px!important;}.x-h1{font-size:${t.h1[0] - 2}px!important;line-height:${t.h1[1] - 3}px!important;}.x-btnt{width:100%!important;}.x-btnt a{display:block!important;text-align:center!important;}.x-code{font-size:28px!important;}}`;
+  const narrow = `@media only screen and (max-width:620px){.x-gut{padding-left:12px!important;padding-right:12px!important;}.x-pad{padding-left:22px!important;padding-right:22px!important;}.x-h1{font-size:${t.h1[0] - 2}px!important;line-height:${t.h1[1] - 3}px!important;}.x-btnt{width:100%!important;}.x-btnt a{display:block!important;text-align:center!important;}.x-code{font-size:28px!important;}.x-fdot{display:none!important;}.x-fsup{display:block!important;}}`;
 
   const head = [
     '<!DOCTYPE html>',

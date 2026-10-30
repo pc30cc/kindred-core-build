@@ -15,7 +15,12 @@
  *    replacing the last, with the new count), and after the window the next
  *    capture is mailed at once again;
  *  - past the day's windows nothing is mailed, the window's summary included;
- *  - without the outbox, the notice is sent inline once and a summary not at all.
+ *  - without the outbox, the notice is sent inline once and a summary not at all;
+ *  - an owner or admin who turned the mail off is not mailed (nor, for them,
+ *    the reply-to address); every mail to a member carries its one-click
+ *    unsubscribe link (type offline_messages) and the line under its text,
+ *    the reply-to address neither;
+ *  - each summary is ranked by its count, so the outbox sends the highest.
  *
  * The data layer is fakeServiceDb.ts (its rpc answers nothing, so the quota
  * counts in memory, as without migration 289d); the outbox and sendEmail
@@ -34,7 +39,10 @@ type Mail = Record<string, unknown> & {
   category: string;
   locale: string;
 };
-type Queued = { request: Mail; opts: { dedupeKey?: string; supersedeKey?: string; notBefore?: Date } };
+type Queued = {
+  request: Mail & { listUnsubscribe?: { url: string }; footer?: { html: string; text: string } };
+  opts: { dedupeKey?: string; supersedeKey?: string; supersedeRank?: number; notBefore?: Date };
+};
 
 const state = vi.hoisted(() => ({
   db: null as unknown as FakeServiceDb,
@@ -67,11 +75,14 @@ vi.mock('../../../server/services/auth-email.js', () => ({
   resolveWorkspaceAppUrl: async (_c: unknown, _ws: string, path: string) => `https://app.test/acme${path}`,
 }));
 vi.mock('../../../server/services/operatorLocale.js', () => ({
-  operatorLocales: async (_c: unknown, ids: string[]) => new Map(ids.map((id) => [id, id === 'u-fa' ? 'fa' : 'en'])),
+  operatorLocales: async (_c: unknown, ids: string[]) => new Map(ids.map((id) => [id, id === 'u-fa' || id.endsWith('fa00') ? 'fa' : 'en'])),
   operatorFallbackLocale: async () => 'fa',
 }));
+vi.mock('../../../server/services/calls/rtcResolver.js', () => ({ resolveApiBaseUrl: async () => 'https://api.test' }));
+process.env.PLATFORM_SIGNING_SECRET = 'signing-secret-for-this-test-only-0123456789';
 
 const notice = await import('../../../server/services/widget/offlineNotice.js');
+const { verifyUnsubscribeToken } = await import('../../../server/services/notificationEmail/unsubscribe.js');
 const { __resetEmailQuotaMemoryForTests } = await import('../../../server/services/email/sendQuota.js');
 const { notifyOfflineCapture, OFFLINE_NOTICE_WINDOW_SECONDS, OFFLINE_NOTICE_WINDOWS_PER_DAY } = notice;
 
@@ -109,6 +120,7 @@ beforeEach(() => {
     { id: 'u-agent', email: 'agent@example.com' },
   ];
   state.db.tables.user_credentials = [];
+  state.db.tables.user_email_notification_prefs = [];
   state.queued.length = 0;
   state.inline.length = 0;
   state.outboxDown = false;
@@ -220,6 +232,9 @@ describe('one window, one notice and one summary', () => {
     expect(summaries.map((s) => [s.request.locale, s.request.templateData.count])).toEqual([
       ['fa', '۱'], ['en', '1'], ['fa', '۲'], ['en', '2'],
     ]);
+    // Ranked by that count: the outbox sends the highest of a window's
+    // summaries, whichever reached it last.
+    expect(summaries.map((s) => s.opts.supersedeRank)).toEqual([1, 1, 2, 2]);
     expect(summaries[3].request.subject).toBe('More offline messages: 2');
     expect(summaries[3].request.templateData.action_url).toBe('https://app.test/acme/inbox');
 
@@ -260,6 +275,57 @@ describe('without the outbox (migration 289b not applied)', () => {
     expect((state.inline as Mail[]).map((m) => m.to)).toEqual(['sara@example.com', 'john@example.com']);
     expect(await notifyOfflineCapture(CONFIG, WS, capture())).toBe('summary');
     expect(state.inline).toHaveLength(2);
+  });
+});
+
+describe('a way out for each owner and admin', () => {
+  it('every mail to a member carries its one-click link for this mail alone, and the line under its text', async () => {
+    // Account ids are UUIDs, which is what an unsubscribe token names.
+    const SARA = '00000000-0000-4000-8000-00000000fa00';
+    const JOHN = '00000000-0000-4000-8000-00000000e400';
+    state.db.tables.workspace_members = [
+      { workspace_id: WS, user_id: SARA, role: 'owner', suspended_at: null },
+      { workspace_id: WS, user_id: JOHN, role: 'admin', suspended_at: null },
+    ];
+    state.db.tables.profiles = [{ id: SARA, email: 'sara@example.com' }, { id: JOHN, email: 'john@example.com' }];
+    await notifyOfflineCapture(CONFIG, WS, capture());
+    vi.setSystemTime(NOW + 2 * MIN);
+    await notifyOfflineCapture(CONFIG, WS, capture());
+    expect(queued()).toHaveLength(4);
+    for (const q of queued()) {
+      const url = q.request.listUnsubscribe?.url ?? '';
+      expect(url.startsWith('https://api.test/api/notifications/email/unsubscribe/')).toBe(true);
+      const check = verifyUnsubscribeToken(url.split('/').pop());
+      expect(check).toMatchObject({ ok: true, type: 'offline_messages', userId: q.request.to === 'sara@example.com' ? SARA : JOHN });
+      expect(q.request.footer?.text).toContain(url);
+    }
+    const sara = queued().find((q) => q.request.to === 'sara@example.com')!;
+    expect(sara.request.footer?.html).toContain('«پیام‌های آفلاین بازدیدکنندگان»');
+    expect(sara.request.footer?.html).toContain('dir="rtl"');
+    const john = queued().find((q) => q.request.to === 'john@example.com')!;
+    expect(john.request.footer?.text).toContain('“Offline messages from visitors”');
+  });
+
+  it('one who turned it off is not mailed; when all have, nobody is, the reply-to address included', async () => {
+    state.db.tables.user_email_notification_prefs = [{ user_id: 'u-en', offline_messages: false }, { user_id: 'u-fa', transcripts: false }];
+    await notifyOfflineCapture(CONFIG, WS, capture());
+    expect(queued().map((q) => q.request.to)).toEqual(['sara@example.com']);
+
+    state.db.tables.user_email_notification_prefs = [{ user_id: 'u-en', offline_messages: false }, { user_id: 'u-fa', offline_messages: false }];
+    state.db.tables.email_settings = [{ workspace_id: WS, reply_to_email: 'team@example.com' }];
+    vi.setSystemTime(NOW + OFFLINE_NOTICE_WINDOW_SECONDS * 1000 + MIN);
+    expect(await notifyOfflineCapture(CONFIG, WS, capture())).toBe('no_recipient');
+    expect(queued()).toHaveLength(1);
+  });
+
+  it('the reply-to address, which is the workspace\'s setting and not a subscription, gets neither', async () => {
+    state.db.tables.workspace_members = [];
+    state.db.tables.email_settings = [{ workspace_id: WS, reply_to_email: 'team@example.com' }];
+    expect(await notifyOfflineCapture(CONFIG, WS, capture())).toBe('immediate');
+    const [mail] = queued();
+    expect(mail.request.to).toBe('team@example.com');
+    expect(mail.request.listUnsubscribe).toBeUndefined();
+    expect(mail.request.footer).toBeUndefined();
   });
 });
 

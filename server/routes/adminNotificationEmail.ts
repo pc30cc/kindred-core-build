@@ -43,9 +43,14 @@ function serverConfigOf(req: Request): ServerConfig {
   return (req as unknown as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
+/**
+ * The Super Admin making the change: adminRouter's requireAdmin sets
+ * `adminUser` (admin.ts), as adminEmailProviders.ts reads it. Nothing on
+ * this mount sets `authUser`, so the announcement's author and the settings'
+ * last editor were written NULL.
+ */
 function actorId(req: Request): string | null {
-  const auth = (req as unknown as { authUser?: { id?: string }; userId?: string });
-  return auth.authUser?.id ?? auth.userId ?? null;
+  return (req as unknown as { adminUser?: { id?: string } }).adminUser?.id ?? null;
 }
 
 const settingsSchema = z.object({

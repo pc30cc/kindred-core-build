@@ -3,8 +3,10 @@
  * The relay's bounce watcher (deploy/mail-relay/bounce-watcher/watcher.mjs):
  *
  *   - it reads Postfix's log lines: the sender of a queue id, then its
- *     recipients' outcomes; a 5.x.x bounce of a brand's mail is a report to
- *     that brand, a deferral only a count, a bounce notice's bounce nothing;
+ *     recipients' outcomes; a 5.x.x bounce of a brand's mail about the
+ *     address is a report to that brand, one about our sending (5.7.x) only
+ *     an alert, by the backend's own rule; a deferral only a count, a bounce
+ *     notice's bounce nothing;
  *   - brands, tokens and endpoints come from the environment, and a brand
  *     without a token is left out;
  *   - its signature is the one the backend's relay route checks;
@@ -19,10 +21,11 @@ import {
   MAX_REPORT_AGE_MS,
   parseLogLine,
   readBrands,
+  recipientFault,
   retryDelayMs,
   signReport,
 } from '../../../deploy/mail-relay/bounce-watcher/watcher.mjs';
-import { verifyRelaySignature } from '../../../server/routes/emailEvents';
+import { isSuppressible, verifyRelaySignature } from '../../../server/routes/emailEvents';
 
 const LOG = [
   'Oct 29 15:11:02 mail postfix/submission/smtpd[211]: 4XkQ2B0abcz9sW: client=unknown[10.0.1.7], sasl_method=PLAIN, sasl_username=noreply@webyar.ai',
@@ -62,6 +65,21 @@ describe('reading the log', () => {
       event: { type: 'bounce', recipient: 'nobody@gmail.com', status: '5.1.1', queue_id: '4XkQ2B0abcz9sW' },
     });
     expect(state.pending).toEqual({});
+  });
+
+  it('a refusal of our sending is not reported: only its domain and status, for the alert', () => {
+    const state = emptyState();
+    handleLine(state, brands, 'Oct 29 mail postfix/qmgr[1]: DDDDDD4: from=<noreply@webyar.ai>, size=1, nrcpt=1 (queue active)');
+    expect(handleLine(state, brands, 'Oct 29 mail postfix/smtp[2]: DDDDDD4: to=<someone@gmail.com>, relay=gmail-smtp-in.l.google.com[1.2.3.4]:25, dsn=5.7.1, status=bounced (host said: 550-5.7.1 likely unsolicited mail)'))
+      .toEqual({ refused: { domain: 'gmail.com', dsn: '5.7.1' } });
+    expect(handleLine(state, brands, 'Oct 29 mail postfix/smtp[2]: DDDDDD4: to=<full@icloud.com>, relay=x, dsn=5.2.2, status=bounced (mailbox full)'))
+      .toMatchObject({ bounce: { brand: 'webyar.ai', event: { recipient: 'full@icloud.com', status: '5.2.2' } } });
+  });
+
+  it('reads a dsn the way the backend does', () => {
+    for (const dsn of ['5.1.1', '5.1.10', '5.2.1', '5.2.2', '5.4.4', '5.7.1', '5.7.26', '5.0.0', '5.3.0', '5.4.1', '5.5.0', '5.6.0']) {
+      expect(recipientFault(dsn), dsn).toBe(isSuppressible({ address: 'a@b.co', kind: 'hard_bounce', status: dsn, detail: '' }));
+    }
   });
 
   it('a deferral is counted, a bounce of a bounce notice or an unknown sender is not reported', () => {

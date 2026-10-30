@@ -17,14 +17,20 @@
 //   - smtp's `<queue id>: to=<recipient>, … dsn=5.x.x, status=bounced (…)` is
 //     a permanent failure; deferrals (4.x.x) are retried by Postfix and only
 //     counted for the alert;
+//   - a permanent failure about the address (5.1.x, 5.2.x, 5.4.4) is
+//     reported; one about our sending (5.7.x: the relay's IP reputation, SPF,
+//     DKIM, DMARC, a policy; the rest of 5.x.x) is not, since it says nothing
+//     about the address, and is alerted instead: suppressing it would keep
+//     resets from that address for 30 days after the cause is fixed;
 //   - each report is signed with that brand's events token (HMAC over the
 //     timestamp and the body), so the token never crosses the wire.
 //
 // The read position, the open queue ids and the reports not yet delivered
 // are kept in a state file, so a restart neither repeats nor loses a bounce;
 // a report the backend did not take is retried with backoff for 3 days.
-// Optionally (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID), deferred mail and a
-// growing queue are reported to Telegram, by count and domain only.
+// Optionally (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID), refusals of our
+// sending, deferred mail and a growing queue are reported to Telegram, by
+// count, status and domain only.
 //
 // Plain Node 24, no dependencies. Nothing here logs a token or an address.
 
@@ -110,8 +116,20 @@ export function parseLogLine(line) {
 }
 
 /**
+ * Whether a permanent failure's dsn is about the recipient's address: 5.1.x
+ * the address, 5.2.x the mailbox, 5.4.4 a domain with no mail route. The
+ * backend's own rule (isSuppressible in server/routes/emailEvents.ts), which
+ * also skips the rest if they are sent; src/test/email/mailRelayBounceWatcher.test.ts
+ * holds the two equal.
+ */
+export function recipientFault(dsn) {
+  return /^5\.[12]\./.test(dsn) || dsn === '5.4.4';
+}
+
+/**
  * Applies one line to the state and returns what it means:
  * `{ bounce: { brand, event } }` for a hard bounce of a brand's mail,
+ * `{ refused: { domain, dsn } }` for a refusal of our sending,
  * `{ deferred: <recipient domain> }` for a deferral, or null.
  */
 export function handleLine(state, brands, line, now = Date.now()) {
@@ -128,6 +146,7 @@ export function handleLine(state, brands, line, now = Date.now()) {
   const recipientDomain = parsed.recipient.slice(parsed.recipient.lastIndexOf('@') + 1).toLowerCase();
   if (parsed.status === 'deferred') return { deferred: recipientDomain };
   if (parsed.status !== 'bounced' || !parsed.dsn.startsWith('5.')) return null;
+  if (!recipientFault(parsed.dsn)) return { refused: { domain: recipientDomain, dsn: parsed.dsn } };
   const sender = state.pending[parsed.queueId]?.sender;
   // A bounce of a bounce notice (sender <>) or of a queue id seen before
   // this watcher started: nothing to report to.
@@ -355,6 +374,11 @@ async function main() {
 
   const deferred = new Map();
   let lastDeferredAlert = Date.now();
+  // Refusals of our sending, by recipient domain and status. The first run
+  // of them is said at once (a block on the relay's IP stops every mail to
+  // that provider), the next ones at most once per interval.
+  const refused = new Map();
+  let lastRefusedAlert = 0;
   let lastQueueCheck = 0;
   let lastQueueAlert = 0;
   let lastQueueAlerted = 0;
@@ -377,6 +401,9 @@ async function main() {
         const result = handleLine(state, brands, line, now);
         if (result?.bounce) {
           state.outbox.push({ brand: result.bounce.brand, event: result.bounce.event, firstAt: now, attempts: 0, nextAt: now });
+        } else if (result?.refused) {
+          const key = `${result.refused.domain} ${result.refused.dsn}`;
+          refused.set(key, (refused.get(key) || 0) + 1);
         } else if (result?.deferred) {
           deferred.set(result.deferred, (deferred.get(result.deferred) || 0) + 1);
         }
@@ -397,6 +424,19 @@ async function main() {
     }
     if (changed) await saveState(stateFile, state).catch((err) => log.warn(`[bounce-watcher] saving state failed: ${err.message}`));
 
+    if (refused.size > 0 && now - lastRefusedAlert >= alertEveryMs) {
+      const total = [...refused.values()].reduce((a, b) => a + b, 0);
+      const top = [...refused.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => `${k} ×${n}`).join(', ');
+      log.warn(`[bounce-watcher] ${total} delivery(ies) refused for our sending, not the address (${top}); not reported`);
+      await telegram(
+        env,
+        `mail-relay: ${total} mail(s) refused because of our sending, not the address (${top}). `
+          + 'No address was suppressed. Check the relay\'s IP reputation, SPF, DKIM and DMARC (docs/operations/EMAIL.md, "Policy bounces").',
+        log,
+      );
+      refused.clear();
+      lastRefusedAlert = now;
+    }
     if (deferred.size > 0 && now - lastDeferredAlert >= alertEveryMs) {
       const total = [...deferred.values()].reduce((a, b) => a + b, 0);
       const domains = [...deferred.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, n]) => `${d} ×${n}`).join(', ');

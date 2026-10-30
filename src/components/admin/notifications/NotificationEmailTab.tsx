@@ -61,7 +61,7 @@ interface AdminEmailState {
   providers: string[];
   /** The separate notification provider as stored: its name, and whether it can send. */
   notification_provider: { provider_name: string | null; configured: boolean };
-  /** The chosen provider is the stored one and can send. */
+  /** The chosen provider, as saved when this was read, is the stored one and can send. */
   provider_configured: boolean;
   announcements: Announcement[];
   announcements_per_hour: number;
@@ -192,8 +192,18 @@ export function NotificationEmailTab() {
 
   const announcementsOn = local.enabled && local.product_updates_enabled;
   const storedProvider = data.notification_provider?.provider_name ?? null;
+  // Worked out here from the choice on screen rather than taken from the
+  // server's provider_configured, which describes the choice saved when the
+  // page was read: a save replaces only the settings, and the flag would
+  // then warn about a provider that now carries the mail, or keep quiet
+  // about one that cannot.
+  const providerConfigured = Boolean(
+    local.provider_override
+    && data.notification_provider?.configured
+    && storedProvider === local.provider_override,
+  );
   // Shown under the provider choice when the mail still goes out the default one.
-  const providerWarning = !local.provider_override || data.provider_configured
+  const providerWarning = !local.provider_override || providerConfigured
     ? null
     : storedProvider && storedProvider !== local.provider_override
       ? t('admin.notifications.email.providerMismatch').replace('{name}', storedProvider)

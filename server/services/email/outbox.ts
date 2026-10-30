@@ -129,6 +129,16 @@ export interface EmailOutboxOptions {
    * one cancels the older.
    */
   supersedeKey?: string;
+  /**
+   * Which of the mails under `supersedeKey` is the one to send, when the
+   * order they are queued in is not the order they were made in: the highest
+   * rank wins, whenever it was queued, and a lower one is cancelled (queued
+   * after it, it is cancelled at once). The offline-message summary's count
+   * is one: two captures in a burst take the window's count in one order and
+   * may reach the queue in the other. Without a rank, the newer mail wins.
+   * A whole number; migration 289g stores it (before it, the newer wins).
+   */
+  supersedeRank?: number;
   /** What follows the hand-over to the provider; see EmailAfterSent. */
   afterSent?: EmailAfterSent;
 }
@@ -139,6 +149,8 @@ export interface EnqueueEmailResult {
   id?: string;
   /** The dedupe key was already queued; nothing new was. */
   duplicate?: boolean;
+  /** A mail of a higher rank under the same supersedeKey covers this one, which was cancelled at once. */
+  superseded?: boolean;
   /** Why not: invalid_request, invalid_recipient, expired, outbox_unavailable. */
   error?: string;
 }
@@ -164,6 +176,7 @@ interface SealedEnvelope {
 type StoredPayload = { v: 1; sealed: SealedEnvelope } | { v: 1; plain: EmailRequest };
 
 let warnedUnsealed = false;
+let warnedUnranked = false;
 
 /**
  * The request as it is stored: sealed when the backend has its key (it
@@ -222,6 +235,17 @@ function cleanKey(value: string | undefined): string | null {
   return key ? key.slice(0, 200) : null;
 }
 
+/** A rank the column (an integer) can hold, or null. */
+function cleanRank(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && Math.abs(value) < 2 ** 31 ? value : null;
+}
+
+/** Undefined column: PostgreSQL's 42703, or the data layer's PGRST204 (a database before 289g). */
+function isMissingColumn(error: { code?: unknown } | null | undefined): boolean {
+  const code = String(error?.code ?? '');
+  return code === '42703' || code === 'PGRST204';
+}
+
 /** A failed attempt as the row keeps it: our code and our "<errorCode>: <reason>", one short line. */
 function failureOf(result: SendResult): { errorCode: string; error: string } {
   const errorCode = result.errorCode ?? 'provider_error';
@@ -229,29 +253,72 @@ function failureOf(result: SendResult): { errorCode: string; error: string } {
   return { errorCode, error };
 }
 
-/**
- * Cancels the mails still waiting under `key` that were queued before
- * `before` (and are not `exceptId`): a newer one carries what they would
- * have. Only `pending` rows: one being sent right now is let finish.
- */
-async function cancelSuperseded(config: ServerConfig, key: string, before: string, exceptId?: string): Promise<void> {
+/** A waiting row's update to cancelled, as superseded. */
+function supersededPatch(): Record<string, unknown> {
   const now = new Date().toISOString();
-  let query = client(config)
-    .from('email_outbox')
-    .update({
-      status: 'cancelled',
-      payload: null,
-      finished_at: now,
-      updated_at: now,
-      last_error_code: 'superseded',
-      last_error: 'superseded: a newer mail of the same kind replaced it',
-    })
-    .eq('supersede_key', key)
-    .eq('status', 'pending')
-    .lt('created_at', before);
-  if (exceptId) query = query.neq('id', exceptId);
-  const { error } = await query;
+  return {
+    status: 'cancelled',
+    payload: null,
+    finished_at: now,
+    updated_at: now,
+    last_error_code: 'superseded',
+    last_error: 'superseded: a newer mail of the same kind replaced it',
+  };
+}
+
+/**
+ * Cancels the mails still waiting under `key` that `newer` replaces (but
+ * never `newer.exceptId` itself): without a rank, those queued before
+ * `newer.before`; with one, those of a lower rank whenever they were queued,
+ * and those queued before it without a rank (from before migration 289g).
+ * Only `pending` rows: one being sent right now is let finish.
+ */
+async function cancelSuperseded(
+  config: ServerConfig,
+  key: string,
+  newer: { before: string; exceptId?: string; rank?: number | null },
+): Promise<void> {
+  const waiting = () => {
+    let query = client(config).from('email_outbox').update(supersededPatch()).eq('supersede_key', key).eq('status', 'pending');
+    if (newer.exceptId) query = query.neq('id', newer.exceptId);
+    return query;
+  };
+  if (newer.rank !== undefined && newer.rank !== null) {
+    const lower = await waiting().lt('supersede_rank', newer.rank);
+    if (!lower.error) {
+      const unranked = await waiting().is('supersede_rank', null).lt('created_at', newer.before);
+      if (unranked.error) console.warn('[email-outbox] superseded mail not cancelled:', unranked.error.message);
+      return;
+    }
+    if (!isMissingColumn(lower.error)) {
+      console.warn('[email-outbox] superseded mail not cancelled:', lower.error.message);
+      return;
+    }
+    // A database before 289g has no rank to compare: by time, as for an unranked mail.
+  }
+  const { error } = await waiting().lt('created_at', newer.before);
   if (error) console.warn('[email-outbox] superseded mail not cancelled:', error.message);
+}
+
+/**
+ * Whether a mail under `key` with a higher rank than `rank` is waiting, being
+ * sent or sent: then the one just queued has nothing to add. A lookup that
+ * fails says no, and both may go: a second summary is a smaller harm than
+ * none.
+ */
+async function outranked(config: ServerConfig, key: string, rank: number): Promise<boolean> {
+  const { data, error } = await client(config)
+    .from('email_outbox')
+    .select('id')
+    .eq('supersede_key', key)
+    .in('status', ['pending', 'sending', 'sent'])
+    .gt('supersede_rank', rank)
+    .limit(1);
+  if (error) {
+    console.warn('[email-outbox] the rank of a queued mail could not be compared:', error.message);
+    return false;
+  }
+  return Array.isArray(data) && data.length > 0;
 }
 
 /** What follows a hand-over: the after-sent action, then the older mails it supersedes. */
@@ -261,6 +328,7 @@ async function afterHandOver(
   supersedeKey: string | null,
   before: string,
   exceptId?: string,
+  rank?: number | null,
 ): Promise<void> {
   const action = parseAfterSent(afterSent);
   if (action) {
@@ -273,7 +341,7 @@ async function afterHandOver(
       .lt('created_at', action.issuedAt);
     if (error) console.warn(`[email-outbox] earlier links in ${action.table} not revoked:`, error.message);
   }
-  if (supersedeKey) await cancelSuperseded(config, supersedeKey, before, exceptId);
+  if (supersedeKey) await cancelSuperseded(config, supersedeKey, { before, exceptId, rank: cleanRank(rank) });
 }
 
 async function insertRow(
@@ -297,6 +365,7 @@ async function insertRow(
   const maxAttempts = Math.min(Math.max(Math.floor(opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS), 1), 50);
   const dedupeKey = cleanKey(opts.dedupeKey);
   const supersedeKey = cleanKey(opts.supersedeKey);
+  let supersedeRank = supersedeKey ? cleanRank(opts.supersedeRank) : null;
 
   let payload: StoredPayload;
   try {
@@ -308,26 +377,35 @@ async function insertRow(
 
   const failure = first.lastFailure ? failureOf(first.lastFailure) : null;
   const sb = client(config);
-  const { data, error } = await sb
-    .from('email_outbox')
-    .insert({
-      workspace_id: workspaceId,
-      template_slug: request.templateSlug ? String(request.templateSlug).slice(0, 120) : null,
-      category: request.category ?? 'transactional',
-      payload,
-      dedupe_key: dedupeKey,
-      supersede_key: supersedeKey,
-      after_sent: opts.afterSent ?? null,
-      attempts: first.attempts,
-      max_attempts: Math.max(maxAttempts, first.attempts + 1),
-      next_attempt_at: first.nextAttemptAt.toISOString(),
-      give_up_at: new Date(giveUpAt).toISOString(),
-      ...(first.lastFailure && failure
-        ? { provider: first.lastFailure.provider, last_error_code: failure.errorCode, last_error: failure.error }
-        : {}),
-    })
-    .select('id, created_at')
-    .single();
+  const values: Record<string, unknown> = {
+    workspace_id: workspaceId,
+    template_slug: request.templateSlug ? String(request.templateSlug).slice(0, 120) : null,
+    category: request.category ?? 'transactional',
+    payload,
+    dedupe_key: dedupeKey,
+    supersede_key: supersedeKey,
+    after_sent: opts.afterSent ?? null,
+    attempts: first.attempts,
+    max_attempts: Math.max(maxAttempts, first.attempts + 1),
+    next_attempt_at: first.nextAttemptAt.toISOString(),
+    give_up_at: new Date(giveUpAt).toISOString(),
+    ...(first.lastFailure && failure
+      ? { provider: first.lastFailure.provider, last_error_code: failure.errorCode, last_error: failure.error }
+      : {}),
+    ...(supersedeRank !== null ? { supersede_rank: supersedeRank } : {}),
+  };
+  let { data, error } = await sb.from('email_outbox').insert(values).select('id, created_at').single();
+  if (error && supersedeRank !== null && isMissingColumn(error)) {
+    // A database before migration 289g: the mail is queued without its
+    // rank, and the newer one replaces the older, as before.
+    if (!warnedUnranked) {
+      warnedUnranked = true;
+      console.warn('[email-outbox] migration 289g is not applied; queuing without supersede_rank');
+    }
+    delete values.supersede_rank;
+    supersedeRank = null;
+    ({ data, error } = await sb.from('email_outbox').insert(values).select('id, created_at').single());
+  }
 
   if (error) {
     // 23505 is the dedupe index doing its job: the mail this key names is
@@ -342,7 +420,17 @@ async function insertRow(
   }
 
   const row = data as { id: string; created_at: string };
-  if (supersedeKey) await cancelSuperseded(config, supersedeKey, row.created_at, row.id);
+  if (supersedeKey) {
+    await cancelSuperseded(config, supersedeKey, { before: row.created_at, exceptId: row.id, rank: supersedeRank });
+    // Queued after a mail that outranks it: cancelled at once. Each of two
+    // mails queued at the same moment looks once its own row is in, so the
+    // later look sees both, and one of the two looks always finds the other.
+    if (supersedeRank !== null && (await outranked(config, supersedeKey, supersedeRank))) {
+      const { error: cancelError } = await sb.from('email_outbox').update(supersededPatch()).eq('id', row.id).eq('status', 'pending');
+      if (!cancelError) return { queued: true, id: row.id, superseded: true };
+      console.warn('[email-outbox] an outranked mail was not cancelled:', cancelError.message);
+    }
+  }
   if (first.nextAttemptAt.getTime() <= Date.now()) wakeEmailOutbox();
   return { queued: true, id: row.id };
 }
@@ -380,7 +468,7 @@ export async function sendEmailWithRetry(
   const startedAt = new Date();
   const result = await sendEmail(config, request);
   if (result.success) {
-    await afterHandOver(config, opts.afterSent, cleanKey(opts.supersedeKey), startedAt.toISOString());
+    await afterHandOver(config, opts.afterSent, cleanKey(opts.supersedeKey), startedAt.toISOString(), undefined, opts.supersedeRank);
     return result;
   }
   if (!retryable(result)) return result;
@@ -419,6 +507,8 @@ interface OutboxRow {
   max_attempts: number;
   give_up_at: string;
   supersede_key: string | null;
+  /** Migration 289g; undefined before it. */
+  supersede_rank?: number | null;
   after_sent: unknown;
   created_at: string;
   last_error_code: string | null;
@@ -486,6 +576,36 @@ function retryLater(config: ServerConfig, row: OutboxRow, at: Date, failure: { p
   });
 }
 
+/** Tries at writing 'sent' for a mail the provider took, and the pause before each retry. */
+const SENT_WRITE_ATTEMPTS = 3;
+const SENT_WRITE_PAUSE_MS = 250;
+
+/**
+ * Records a mail the provider has taken. A database fault here must not
+ * reach drainEmailOutbox's catch, which gives the row back as pending: the
+ * mail went, and the same receipt or reset link would go again a minute
+ * later. So the write is tried a few times, and if it still fails the row
+ * is left to its lease: only if the lease runs out before anything is
+ * written is the mail sent again (at least once, as the header says).
+ */
+async function recordSent(config: ServerConfig, row: OutboxRow, result: SendResult): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await finish(config, row, 'sent', { provider: result.provider, messageId: result.id, errorCode: null, error: null });
+      return;
+    } catch (err) {
+      if (attempt >= SENT_WRITE_ATTEMPTS) {
+        console.warn(
+          '[email-outbox] a sent mail could not be recorded; it is sent again only if its lease runs out first:',
+          err instanceof Error ? err.message : String(err),
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SENT_WRITE_PAUSE_MS * attempt));
+    }
+  }
+}
+
 /** One claimed row: sent, retried later, or final. */
 async function processRow(config: ServerConfig, row: OutboxRow): Promise<void> {
   const giveUpAt = Date.parse(row.give_up_at);
@@ -507,10 +627,13 @@ async function processRow(config: ServerConfig, row: OutboxRow): Promise<void> {
 
   const result = await sendEmail(config, request);
   if (result.success) {
-    await finish(config, row, 'sent', { provider: result.provider, messageId: result.id, errorCode: null, error: null });
-    // Handed over: whether or not this worker still held the row, the mail
-    // went, so what follows its sending follows now.
-    await afterHandOver(config, row.after_sent, row.supersede_key, row.created_at, row.id);
+    await recordSent(config, row, result);
+    // Handed over: whether or not this worker still held the row, and
+    // whether or not its record was written, the mail went, so what follows
+    // its sending follows now. Nothing after the hand-over may throw.
+    await afterHandOver(config, row.after_sent, row.supersede_key, row.created_at, row.id, row.supersede_rank).catch((err: unknown) => {
+      console.warn('[email-outbox] after-sent step failed:', err instanceof Error ? err.message : String(err));
+    });
     return;
   }
 

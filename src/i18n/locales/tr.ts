@@ -2352,6 +2352,8 @@ const tr: TranslationKeys = {
     emailPaidInvoicesHelp: 'Bunu yalnızca çalışma alanı sahibi ve yöneticileri alabilir.',
     emailWeeklySummary: 'Haftalık özet',
     emailProductUpdates: 'Ürün duyuruları',
+    emailOfflineMessages: 'Ziyaretçilerin çevrimdışı mesajları',
+    emailOfflineMessagesHelp: 'Çalışma alanı sahibi ve yöneticileri için: ekip uzaktayken bir ziyaretçi yazınca bir e-posta, sonra en fazla 15 dakikada bir özet.',
     emailFooter: 'Bu e-postayı, e-posta bildirimlerinizde “{{label}}” açık olduğu için alıyorsunuz.',
     emailFooterUnsubscribe: 'Abonelikten çık',
     emailFooterSettings: 'E-posta bildirimlerini değiştir',

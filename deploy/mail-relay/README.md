@@ -12,16 +12,17 @@ sends, the suppression list, the bounce feed, DNS and the way back to Resend:
 | Container | `mail-relay` (`boky/postfix:5.1.0`, pinned by digest), hostname `mail.respok.app` |
 | Network | `coolify` (external), where the backends reach it as `mail-relay:587`; no port is published on the host |
 | Sign-in | SASL PLAIN, one user per brand (`noreply@webyar.ai`, `noreply@respok.app`), from `.env` (`SMTPD_SASL_USERS`) |
-| Encryption | none on the coolify network (`smtpd_tls_security_level none`); outward, STARTTLS when the receiving server offers it (`smtp_tls_security_level may`) |
+| Encryption | on the coolify network, STARTTLS with the relay's own certificate (`tls/`, self-signed for `mail-relay`), and no AUTH before it (`smtpd_tls_auth_only`); until the rollout below ("TLS") is done, production's hop is plain. Outward, STARTTLS when the receiving server offers it (`smtp_tls_security_level may`) |
 | Senders | `@webyar.ai` and `@respok.app` only (`ALLOWED_SENDER_DOMAINS`, `check_sender_access …,reject`) |
 | DKIM | selector `mx2026`, keys generated on first start into `./dkim` (`DKIM_AUTOGENERATE`) |
 | Limits | IPv4 only (the host's `5.39.70.213`, PTR `mail.respok.app`), messages up to 25 MiB |
 | Receiving | never: both domains' MX is iCloud |
-| Bounce watcher | `mail-relay-bounce-watcher`, reads Postfix's log and reports hard bounces to each brand's backend |
+| Bounce watcher | `mail-relay-bounce-watcher`, reads Postfix's log, reports hard bounces of an address to each brand's backend, and alerts on refusals of our sending |
 
-The files here are the service as production runs it. `.env` (the secrets)
-and `dkim/` (the DKIM private keys) exist only on the host, next to the
-compose file; both are git-ignored here. Never commit or paste them.
+The files here are the service as production runs it. `.env` (the secrets),
+`dkim/` (the DKIM private keys) and `tls/` (the relay's TLS key and
+certificate) exist only on the host, next to the compose file; all three are
+git-ignored here. Never commit or paste them.
 
 ## Deploy
 
@@ -37,7 +38,8 @@ host, outside Coolify's queue, like `app-downloads`.
    ```
 
    Copy `docker-compose.yml`, `.gitignore` and `bounce-watcher/` from this
-   folder into it. Keep its `.env` and `dkim/`. If the queue
+   folder into it. Keep its `.env`, `dkim/` and `tls/` (the first time, make
+   `tls/` as in "TLS" below: the relay does not start without it). If the queue
    (`/var/spool/postfix`) is on a volume not named `mail-relay_spool`, set
    `SPOOL_VOLUME` in `.env` to that name, or mail waiting in the queue is
    left behind.
@@ -90,10 +92,21 @@ file and continues with the new one.
   token itself is never sent;
 - retries a report the backend did not take after 30 s, doubling up to an
   hour, for 3 days; a 400 is dropped (logged);
-- with `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, reports deferred
-  deliveries (at most once per `ALERT_INTERVAL_MINUTES`, by count and
-  recipient domain) and a queue of `QUEUE_ALERT_THRESHOLD` messages or more.
-  Unset, there are no alerts.
+- reports only a bounce about the address: 5.1.x (no such mailbox), 5.2.x
+  (a mailbox disabled or full) and 5.4.4 (a domain with no mail route). A
+  bounce about our sending (5.7.x: the relay's IP reputation, SPF, DKIM,
+  DMARC, a receiver's policy; and 5.0.0, 5.3.x to 5.6.x) says nothing about
+  the address and is not reported: suppressing it would keep that address
+  from every mail, resets included, for 30 days after the cause is fixed.
+  It is logged and alerted instead, by recipient domain and status. The
+  backend applies the same rule to every provider's reports
+  (`server/routes/emailEvents.ts`, `isSuppressible`);
+- with `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, reports refusals of
+  our sending (the first at once, then at most once per
+  `ALERT_INTERVAL_MINUTES`), deferred deliveries (at most once per
+  `ALERT_INTERVAL_MINUTES`, by count and recipient domain) and a queue of
+  `QUEUE_ALERT_THRESHOLD` messages or more. Unset, there are no alerts; the
+  refusals still go to `docker logs mail-relay-bounce-watcher`.
 
 The backend answers 404 until that brand's `events_token` is saved, and the
 watcher keeps retrying, so the order of the two steps does not matter within
@@ -102,6 +115,75 @@ watcher keeps retrying, so the order of the two steps does not matter within
 Deferrals (4.x.x) are Postfix's to retry (up to 5 days, then a bounce
 notice to `noreply@` at iCloud, which nobody reads); the platform learns
 nothing of them, only Telegram does.
+
+## TLS
+
+The backends reach the relay over the `coolify` Docker network, which every
+Coolify application on the host joins. Without STARTTLS the SASL password and
+every mail (reset and verification links, codes, invitation tokens) cross it
+in clear. The relay offers STARTTLS with a certificate of its own:
+self-signed, for the name the backends use (`mail-relay`, as CN and SAN),
+made once on the host, mounted read-only, never committed. The backends
+check it against that certificate itself (the smtp provider's `tls_ca`), so
+no public CA is involved and nothing else on the network can stand in for
+the relay.
+
+**Make the certificate** (once, in the relay's folder on the host; the key
+never leaves it):
+
+```sh
+mkdir -m 700 tls
+openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes \
+  -keyout tls/mail-relay.key -out tls/mail-relay.crt \
+  -subj "/CN=mail-relay" -addext "subjectAltName=DNS:mail-relay"
+chmod 600 tls/mail-relay.key && chmod 644 tls/mail-relay.crt
+openssl x509 -in tls/mail-relay.crt -noout -subject -ext subjectAltName -enddate
+```
+
+**Roll it out without a mail outage**, both brands, in this order. Each
+step is undone by the one before it.
+
+0. In each brand's Super Admin → Providers → Email (smtp), set
+   **Encryption** to `none` and save. Production's rows have no encryption
+   set, which reads as `auto`: the backend then takes STARTTLS as soon as the
+   relay offers it, refuses its self-signed certificate (there is no
+   `tls_ca` yet), and every mail would fail until step 2. `none` is what
+   happens on the wire today, written down. Press Test.
+1. **Deploy the relay with TLS offered but not yet required**: put
+   `RELAY_TLS_AUTH_ONLY=no` in `.env`, then `docker compose config --quiet`
+   and `docker compose up -d mail-relay`. Check:
+
+   ```sh
+   docker exec mail-relay postconf smtpd_tls_security_level smtpd_tls_auth_only smtpd_tls_cert_file
+   docker exec mail-relay postconf -M submission/inet
+   ```
+
+   `may`, `no`, the certificate's path; the `submission` line must not
+   override `smtpd_tls_security_level` with `none`. Mail still goes, in
+   plain text, signed in as before.
+2. In each brand's Super Admin → Providers → Email (smtp): **Encryption**
+   `starttls`, **TLS server name** `mail-relay`, and **TLS CA** the whole PEM
+   of `tls/mail-relay.crt` (`cat tls/mail-relay.crt`, from `-----BEGIN` to
+   `END CERTIFICATE-----`; the certificate is not a secret, the key is, and
+   stays in `tls/`). Save.
+3. **Test**: press Test in each brand's form (it connects, upgrades and signs
+   in without sending), then send one real mail (a password reset to an
+   address of ours) and find its lines in the relay's log:
+
+   ```sh
+   docker exec mail-relay grep -E "TLS connection established|sasl_username" /var/log/postfix/mail.log | tail -n 4
+   ```
+
+   Each backend's connection must read `TLS connection established` before
+   its `sasl_username=noreply@…` line. A failure here (Test answers with a
+   connection or certificate error) is undone by step 0's `none`, with no
+   relay change.
+4. **Turn on `smtpd_tls_auth_only`**: remove `RELAY_TLS_AUTH_ONLY` from
+   `.env` (the compose's default is `yes`), then
+   `docker compose up -d mail-relay`, and check that
+   `docker exec mail-relay postconf smtpd_tls_auth_only` reads `yes`. Press
+   Test in each brand again. From now on a client that does not take
+   STARTTLS is not offered AUTH, so it cannot send.
 
 ## Rotation
 
@@ -132,6 +214,14 @@ and every receiver's cached key):
    `docker compose up -d mail-relay`. Check a sent mail's
    `DKIM-Signature: … s=mx2027` and `dkim=pass` at the receiver.
 3. Remove the old `mx2026._domainkey` records a week later.
+
+**The TLS certificate** (valid for 10 years; replace it sooner if the key
+may have been read): make the new pair under other names in `tls/`
+(`mail-relay-next.key`, `.crt`), save each brand's provider with **TLS CA**
+holding both certificates' PEMs one after the other and press Test; then
+move the new pair to `mail-relay.key` and `mail-relay.crt`,
+`docker compose up -d mail-relay`, press Test, and save **TLS CA** with the
+new certificate alone.
 
 **The image**: change the tag and digest together, after reading the image's
 release notes, and deploy as above.

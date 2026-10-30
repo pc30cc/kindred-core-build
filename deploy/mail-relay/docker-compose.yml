@@ -6,9 +6,11 @@
 # never receives mail: both domains' MX is iCloud.
 #
 # The relay service below is production's as it was set up on 2026-10-29;
-# the maillog_file line and the bounce-watcher sidecar were added after it
-# (docs/operations/EMAIL.md, deploy/mail-relay/README.md). Secrets come from
-# .env next to this file (names in .env.example), never from this file.
+# the maillog_file line, the bounce-watcher sidecar and STARTTLS with the
+# relay's own certificate were added after it (docs/operations/EMAIL.md,
+# deploy/mail-relay/README.md, "TLS"). Secrets come from .env next to this
+# file (names in .env.example) and the certificate's key from tls/, both on
+# the host only, never from this file.
 name: mail-relay
 
 services:
@@ -26,7 +28,18 @@ services:
       POSTFIX_message_size_limit: "26214400"
       POSTFIX_smtpd_sender_restrictions: "check_sender_access lmdb:/etc/postfix/allowed_senders,reject"
       POSTFIX_smtp_tls_security_level: may
-      POSTFIX_smtpd_tls_security_level: none
+      # STARTTLS between the backends and the relay, with the relay's own
+      # certificate (CN and SAN mail-relay, self-signed, made once on the
+      # host into tls/; README, "TLS"): the SASL password and every mail
+      # cross the shared coolify network encrypted. auth_only refuses AUTH
+      # before STARTTLS; RELAY_TLS_AUTH_ONLY=no in .env holds that off during
+      # the rollout, until both brands' smtp providers use starttls with the
+      # certificate as tls_ca.
+      POSTFIX_smtpd_tls_security_level: may
+      POSTFIX_smtpd_tls_cert_file: /etc/postfix/tls/mail-relay.crt
+      POSTFIX_smtpd_tls_key_file: /etc/postfix/tls/mail-relay.key
+      POSTFIX_smtpd_tls_auth_only: ${RELAY_TLS_AUTH_ONLY:-yes}
+      POSTFIX_smtpd_tls_loglevel: "1"
       # One "user:password" per brand, comma-separated (noreply@webyar.ai,
       # noreply@respok.app); each backend signs in as its own.
       SMTPD_SASL_USERS: ${SMTPD_SASL_USERS:?set SMTPD_SASL_USERS in .env}
@@ -37,6 +50,14 @@ services:
       - ./dkim:/etc/opendkim/keys
       - spool:/var/spool/postfix
       - maillog:/var/log/postfix
+      # Read-only, and never created empty: without the certificate the
+      # relay is not started at all, rather than started without TLS.
+      - type: bind
+        source: ./tls
+        target: /etc/postfix/tls
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - coolify
     logging:

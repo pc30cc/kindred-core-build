@@ -2348,6 +2348,8 @@ const fa: TranslationKeys = {
     emailPaidInvoicesHelp: 'فقط مالک و مدیران فضای کاری می‌توانند این یکی را دریافت کنند.',
     emailWeeklySummary: 'خلاصه‌ی هفتگی',
     emailProductUpdates: 'اعلان‌های محصول',
+    emailOfflineMessages: 'پیام‌های آفلاین بازدیدکنندگان',
+    emailOfflineMessagesHelp: 'برای مالک و مدیران فضای کاری: وقتی تیم در دسترس نیست و بازدیدکننده‌ای پیام می‌گذارد یک ایمیل، بعد حداکثر هر ۱۵ دقیقه یک خلاصه.',
     emailFooter: 'این ایمیل را دریافت می‌کنید چون «{{label}}» در اعلان‌های ایمیلی شما روشن است.',
     emailFooterUnsubscribe: 'لغو اشتراک',
     emailFooterSettings: 'تغییر اعلان‌های ایمیلی',

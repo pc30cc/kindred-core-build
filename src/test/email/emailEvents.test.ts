@@ -7,8 +7,10 @@
  *   - a report is taken only with a valid signature inside the timestamp
  *     window: Svix's HMAC for Resend, SendGrid's ECDSA, our relay's HMAC
  *     with events_token; a replay is refused or counted once;
- *   - a 5.1.x hard bounce suppresses for good, another hard bounce for 30
- *     days, a complaint for good, a soft bounce not at all;
+ *   - a 5.1.x hard bounce suppresses for good, one about the mailbox or the
+ *     domain (5.2.x, 5.4.4, or no status) for 30 days, a complaint for good;
+ *     a soft bounce, and a refusal of our sending rather than the address
+ *     (5.7.x and the rest), not at all, for every provider alike;
  *   - a failed write answers 500 and the provider's retry is not a duplicate;
  *   - nothing logs a secret.
  *
@@ -45,6 +47,7 @@ const {
   resetEmailEventReplayCache,
   signRelayReport,
   suppressionExpiry,
+  isSuppressible,
   enhancedStatus,
   TEMPORARY_SUPPRESSION_MS,
 } = await import('../../../server/routes/emailEvents.js');
@@ -170,18 +173,22 @@ describe('Resend (Svix)', () => {
     expect(state.suppressed).toHaveLength(1);
   });
 
-  it('maps a hard bounce by its status; a soft one changes nothing', async () => {
+  it('maps a hard bounce by its status; a soft one, or a refusal of our sending, changes nothing', async () => {
     await svixPost(bounced('gone@y.co', 'Permanent', 'General', '550 5.1.1 user unknown'));
     await svixPost(bounced('noemail@y.co', 'Permanent', 'NoEmail'));
+    await svixPost(bounced('disabled@y.co', 'Permanent', 'General', '550 5.2.1 mailbox disabled'));
     await svixPost(bounced('policy@y.co', 'Permanent', 'General', '550 5.7.1 rejected'));
     await svixPost(bounced('full@y.co', 'Transient', 'MailboxFull', '452 4.2.2 full'));
     await svixPost({ type: 'email.delivered', data: { to: ['ok@y.co'] } });
     const byAddress = Object.fromEntries(state.suppressed.map((s) => [s.address, s]));
-    expect(Object.keys(byAddress).sort()).toEqual(['gone@y.co', 'noemail@y.co', 'policy@y.co']);
+    expect(Object.keys(byAddress).sort()).toEqual(['disabled@y.co', 'gone@y.co', 'noemail@y.co']);
     expect(byAddress['gone@y.co']).toMatchObject({ reason: 'hard_bounce', expiresAt: null });
     expect(byAddress['noemail@y.co']).toMatchObject({ reason: 'hard_bounce', expiresAt: null });
-    const until = byAddress['policy@y.co'].expiresAt as Date;
+    const until = byAddress['disabled@y.co'].expiresAt as Date;
     expect(Math.abs(until.getTime() - (Date.now() + TEMPORARY_SUPPRESSION_MS))).toBeLessThan(60_000);
+    // The refusal is named on the console by its status, never by its address.
+    expect(logs.some((line) => line.includes('resend_webhook') && line.includes('5.7.1 ×1'))).toBe(true);
+    expect(logs.some((line) => line.includes('policy@y.co'))).toBe(false);
   });
 
   it('a failed write answers 500, and the retry is recorded', async () => {
@@ -216,10 +223,11 @@ describe('SendGrid (signed Event Webhook)', () => {
       { email: 'complain@y.co', event: 'spamreport' },
       { email: 'ok@y.co', event: 'delivered' },
     ]);
-    expect(res.body).toEqual({ ok: true, recorded: 5 });
+    expect(res.body).toEqual({ ok: true, recorded: 4 });
     const byAddress = Object.fromEntries(state.suppressed.map((s) => [s.address, s]));
     expect(byAddress['gone@y.co']).toMatchObject({ reason: 'hard_bounce', expiresAt: null, source: 'sendgrid_webhook' });
-    expect(byAddress['policy@y.co'].expiresAt).toBeInstanceOf(Date);
+    // A 5.7.1 is a refusal of our sending, whichever type SendGrid gave it.
+    expect(byAddress['policy@y.co']).toBeUndefined();
     expect(byAddress['invalid@y.co']).toMatchObject({ reason: 'hard_bounce', expiresAt: null });
     expect(byAddress['spam@y.co']).toMatchObject({ reason: 'complaint', expiresAt: null });
     expect(byAddress['complain@y.co']).toMatchObject({ reason: 'complaint', expiresAt: null });
@@ -251,21 +259,26 @@ describe('our relay', () => {
     expect(state.suppressed).toEqual([]);
   });
 
-  it('records 5.x.x bounces by their class, skips deferrals and bad addresses', async () => {
+  it('records 5.x.x bounces by their class, skips deferrals, bad addresses and refusals of our sending', async () => {
     const res = await relayPost({
       events: [
         { type: 'bounce', recipient: 'gone@y.co', status: '5.1.1', detail: 'host said: 550 5.1.1 unknown', queue_id: 'ABC123' },
-        { type: 'bounce', recipient: 'policy@y.co', status: '5.7.1' },
+        { type: 'bounce', recipient: 'full@y.co', status: '5.2.2' },
+        { type: 'bounce', recipient: 'nodomain@y.co', status: '5.4.4' },
+        { type: 'bounce', recipient: 'policy@y.co', status: '5.7.1', detail: '550-5.7.1 likely unsolicited' },
+        { type: 'bounce', recipient: 'dmarc@y.co', status: '5.7.26' },
         { type: 'bounce', recipient: 'later@y.co', status: '4.4.1' },
         { type: 'bounce', recipient: 'a@b.co, c@d.co', status: '5.1.1' },
         { type: 'deferred', recipient: 'x@y.co', status: '4.2.2' },
       ],
     });
-    expect(res.body).toEqual({ ok: true, recorded: 2 });
-    expect(state.suppressed[0]).toMatchObject({ address: 'gone@y.co', reason: 'hard_bounce', source: 'relay', expiresAt: null });
+    expect(res.body).toEqual({ ok: true, recorded: 3 });
+    expect(state.suppressed.map((s) => s.address)).toEqual(['gone@y.co', 'full@y.co', 'nodomain@y.co']);
+    expect(state.suppressed[0]).toMatchObject({ reason: 'hard_bounce', source: 'relay', expiresAt: null });
     expect(state.suppressed[0].detail).toContain('5.1.1');
-    expect(state.suppressed[1]).toMatchObject({ address: 'policy@y.co' });
     expect(state.suppressed[1].expiresAt).toBeInstanceOf(Date);
+    expect(state.suppressed[2].expiresAt).toBeInstanceOf(Date);
+    expect(logs.some((line) => line.includes('[email-events] relay') && line.includes('5.7.1 ×1, 5.7.26 ×1'))).toBe(true);
   });
 });
 
@@ -274,6 +287,13 @@ describe('helpers', () => {
     expect(enhancedStatus('550 5.1.1 <x@y.co>: Recipient address rejected')).toBe('5.1.1');
     expect(enhancedStatus('421 4.7.0 Try again later')).toBe('4.7.0');
     expect(enhancedStatus('no code')).toBeUndefined();
+  });
+
+  it('suppresses an address only for what is about the address', () => {
+    const bounce = (status?: string) => ({ address: 'a@b.co', kind: 'hard_bounce' as const, status, detail: '' });
+    for (const status of ['5.1.1', '5.1.10', '5.2.1', '5.2.2', '5.4.4', undefined]) expect(isSuppressible(bounce(status)), status).toBe(true);
+    for (const status of ['5.7.1', '5.7.26', '5.7.9', '5.0.0', '5.3.0', '5.4.1', '5.5.0', '5.6.0']) expect(isSuppressible(bounce(status)), status).toBe(false);
+    expect(isSuppressible({ address: 'a@b.co', kind: 'complaint', detail: '' })).toBe(true);
   });
 
   it('suppresses 5.1.x and complaints for good, other hard bounces for 30 days', () => {

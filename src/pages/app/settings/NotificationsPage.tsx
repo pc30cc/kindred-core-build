@@ -200,7 +200,9 @@ function localTimezone(): string {
  * That is the whole point: six email switches used to sit here with no
  * sender behind any of them, and a switch an operator turns off and
  * believes is worse than one that was never offered. Nothing renders here
- * unless Super Admin has turned that type on.
+ * unless Super Admin has turned that type on, but the offline-message
+ * notice, which has no platform switch and is offered to the owners and
+ * admins who get it.
  */
 function EmailSection() {
   const { t } = useTranslation();
@@ -237,6 +239,10 @@ function EmailSection() {
     },
     weekly_summary: { label: t('notifications.emailWeeklySummary') },
     product_updates: { label: t('notifications.emailProductUpdates') },
+    offline_messages: {
+      label: t('notifications.emailOfflineMessages'),
+      description: t('notifications.emailOfflineMessagesHelp'),
+    },
   };
 
   return (

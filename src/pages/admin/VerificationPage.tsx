@@ -66,9 +66,9 @@ export default function AdminVerificationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewLocale]);
 
-  const purposeName = (p: string) => t(`admin.verification.purposeNames.${p}` as any);
-  const purposeDesc = (p: string) => t(`admin.verification.purposeDescriptions.${p}` as any);
-  const channelLabel = (p: VerificationPurpose) => t(`admin.verification.channel.${CHANNELS[p]}` as any);
+  const purposeName = (p: string) => t(`admin.verification.purposeNames.${p}` as TranslationKey);
+  const purposeDesc = (p: string) => t(`admin.verification.purposeDescriptions.${p}` as TranslationKey);
+  const channelLabel = (p: VerificationPurpose) => t(`admin.verification.channel.${CHANNELS[p]}` as TranslationKey);
 
   const activePurposes = useMemo(
     () => (overview.data?.readiness.purposes ?? []).filter((p) => p.effectiveEnabled).map((p) => p.purpose),
@@ -78,72 +78,72 @@ export default function AdminVerificationPage() {
   return (
     <div className="space-y-6" dir={dir}>
       <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('admin.verification.title' as any)}</h1>
-        <p className="text-muted-foreground text-sm mt-1">{t('admin.verification.subtitle' as any)}</p>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.verification.title')}</h1>
+        <p className="text-muted-foreground text-sm mt-1">{t('admin.verification.subtitle')}</p>
       </div>
 
       {activePurposes.length > 0 ? (
         <Alert className="border-emerald-500/40 bg-emerald-500/10">
           <ShieldCheck className="h-4 w-4 text-emerald-500" />
-          <AlertTitle className="text-emerald-600">{t('admin.verification.bannerActive.title' as any)}</AlertTitle>
+          <AlertTitle className="text-emerald-600">{t('admin.verification.bannerActive.title')}</AlertTitle>
           <AlertDescription>
-            {t('admin.verification.bannerActive.description' as any)}{' '}
+            {t('admin.verification.bannerActive.description')}{' '}
             {activePurposes.map((p) => purposeName(p)).join('، ')}
           </AlertDescription>
         </Alert>
       ) : (
         <Alert className="border-amber-500/40 bg-amber-500/10">
           <ShieldOff className="h-4 w-4 text-amber-500" />
-          <AlertTitle className="text-amber-600">{t('admin.verification.banner.title' as any)}</AlertTitle>
-          <AlertDescription>{t('admin.verification.banner.description' as any)}</AlertDescription>
+          <AlertTitle className="text-amber-600">{t('admin.verification.banner.title')}</AlertTitle>
+          <AlertDescription>{t('admin.verification.banner.description')}</AlertDescription>
         </Alert>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="overview">{t('admin.verification.tabOverview' as any)}</TabsTrigger>
-          <TabsTrigger value="purposes">{t('admin.verification.tabPurposes' as any)}</TabsTrigger>
-          <TabsTrigger value="preview">{t('admin.verification.preview.title' as any)}</TabsTrigger>
-          <TabsTrigger value="audit">{t('admin.verification.tabAudit' as any)}</TabsTrigger>
+          <TabsTrigger value="overview">{t('admin.verification.tabOverview')}</TabsTrigger>
+          <TabsTrigger value="purposes">{t('admin.verification.tabPurposes')}</TabsTrigger>
+          <TabsTrigger value="preview">{t('admin.verification.preview.title')}</TabsTrigger>
+          <TabsTrigger value="audit">{t('admin.verification.tabAudit')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           
           <Card>
-            <CardHeader><CardTitle className="text-base">{t('admin.verification.readiness.title' as any)}</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">{t('admin.verification.readiness.title')}</CardTitle></CardHeader>
             <CardContent className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               <ReadinessRow
                 icon={<Database className="h-4 w-4" />}
-                label={t('admin.verification.readiness.database' as any)}
+                label={t('admin.verification.readiness.database')}
                 ok={overview.data?.readiness.databaseAvailable ?? false}
-                okText={t('admin.verification.readiness.databaseOk' as any)}
-                badText={t('admin.verification.readiness.databaseError' as any)}
+                okText={t('admin.verification.readiness.databaseOk')}
+                badText={t('admin.verification.readiness.databaseError')}
               />
               <ProviderReadinessRow
                 icon={<Mail className="h-4 w-4" />}
-                label={t('admin.verification.readiness.email' as any)}
+                label={t('admin.verification.readiness.email')}
                 state={overview.data?.readiness.emailProviderStatus ?? 'unconfigured'}
-                textFor={(s) => t(`admin.verification.readiness.email${s === 'configured' ? 'Ok' : s === 'unconfigured' ? 'Missing' : s === 'invalid' ? 'Invalid' : 'Unavailable'}` as any)}
+                textFor={(s) => t(`admin.verification.readiness.email${s === 'configured' ? 'Ok' : s === 'unconfigured' ? 'Missing' : s === 'invalid' ? 'Invalid' : 'Unavailable'}` as TranslationKey)}
               />
               <ProviderReadinessRow
                 icon={<MessageSquare className="h-4 w-4" />}
-                label={t('admin.verification.readiness.sms' as any)}
+                label={t('admin.verification.readiness.sms')}
                 state={overview.data?.readiness.smsProviderStatus ?? 'unconfigured'}
-                textFor={(s) => t(`admin.verification.readiness.sms${s === 'configured' ? 'Ok' : s === 'unconfigured' ? 'Missing' : s === 'invalid' ? 'Invalid' : 'Unavailable'}` as any)}
+                textFor={(s) => t(`admin.verification.readiness.sms${s === 'configured' ? 'Ok' : s === 'unconfigured' ? 'Missing' : s === 'invalid' ? 'Invalid' : 'Unavailable'}` as TranslationKey)}
               />
               <div className="rounded-lg border p-3 space-y-1 col-span-1 md:col-span-2 lg:col-span-3">
-                <div className="flex items-center gap-2 text-sm font-medium"><KeyRound className="h-4 w-4" />{t('admin.verification.readiness.crypto' as any)}</div>
+                <div className="flex items-center gap-2 text-sm font-medium"><KeyRound className="h-4 w-4" />{t('admin.verification.readiness.crypto')}</div>
                 <div className="text-sm text-muted-foreground">
                   {overview.data?.readiness.status === 'error'
-                    ? `${t('admin.verification.readiness.cryptoError' as any)}${overview.data.readiness.cryptoErrorCode ? ` (${overview.data.readiness.cryptoErrorCode})` : ''}`
+                    ? `${t('admin.verification.readiness.cryptoError')}${overview.data.readiness.cryptoErrorCode ? ` (${overview.data.readiness.cryptoErrorCode})` : ''}`
                     : overview.data?.readiness.pepperConfigured
-                      ? t('admin.verification.readiness.cryptoConfigured' as any)
-                      : t('admin.verification.readiness.cryptoUnconfigured' as any)}
+                      ? t('admin.verification.readiness.cryptoConfigured')
+                      : t('admin.verification.readiness.cryptoUnconfigured')}
                 </div>
                 <div className="flex flex-wrap gap-4 text-xs text-muted-foreground pt-1">
-                  <span>{t('admin.verification.readiness.currentKeyVersion' as any)}: {overview.data?.readiness.currentKeyVersion ?? t('admin.verification.readiness.none' as any)}</span>
-                  <span>{t('admin.verification.readiness.stableIndexVersion' as any)}: {overview.data?.readiness.stableIndexKeyVersion ?? '—'}</span>
-                  <span>{t('admin.verification.readiness.configuredVersions' as any)}: {overview.data?.readiness.configuredKeyVersions.length ? overview.data.readiness.configuredKeyVersions.join(', ') : t('admin.verification.readiness.none' as any)}</span>
+                  <span>{t('admin.verification.readiness.currentKeyVersion')}: {overview.data?.readiness.currentKeyVersion ?? t('admin.verification.readiness.none')}</span>
+                  <span>{t('admin.verification.readiness.stableIndexVersion')}: {overview.data?.readiness.stableIndexKeyVersion ?? '—'}</span>
+                  <span>{t('admin.verification.readiness.configuredVersions')}: {overview.data?.readiness.configuredKeyVersions.length ? overview.data.readiness.configuredKeyVersions.join(', ') : t('admin.verification.readiness.none')}</span>
                 </div>
               </div>
             </CardContent>
@@ -156,14 +156,14 @@ export default function AdminVerificationPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('admin.verification.table.purpose' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.table.channel' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.table.adminConfigured' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.table.consumerReady' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.table.deploymentReady' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.table.effective' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.table.updated' as any)}</TableHead>
-                    <TableHead className="text-end">{t('admin.verification.table.actions' as any)}</TableHead>
+                    <TableHead>{t('admin.verification.table.purpose')}</TableHead>
+                    <TableHead>{t('admin.verification.table.channel')}</TableHead>
+                    <TableHead>{t('admin.verification.table.adminConfigured')}</TableHead>
+                    <TableHead>{t('admin.verification.table.consumerReady')}</TableHead>
+                    <TableHead>{t('admin.verification.table.deploymentReady')}</TableHead>
+                    <TableHead>{t('admin.verification.table.effective')}</TableHead>
+                    <TableHead>{t('admin.verification.table.updated')}</TableHead>
+                    <TableHead className="text-end">{t('admin.verification.table.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -179,15 +179,15 @@ export default function AdminVerificationPage() {
                       <TableCell><YesNoBadge value={o.gates.deploymentAllowlisted} t={t} /></TableCell>
                       <TableCell>
                         <Badge variant={o.gates.effectiveEnabled ? 'default' : 'secondary'}>
-                          {o.gates.effectiveEnabled ? t('admin.verification.table.effectiveActive' as any) : t('admin.verification.table.effectiveDormant' as any)}
+                          {o.gates.effectiveEnabled ? t('admin.verification.table.effectiveActive') : t('admin.verification.table.effectiveDormant')}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {o.settings.updatedAt ? format(new Date(o.settings.updatedAt), 'PPp') : t('admin.verification.table.never' as any)}
+                        {o.settings.updatedAt ? format(new Date(o.settings.updatedAt), 'PPp') : t('admin.verification.table.never')}
                       </TableCell>
                       <TableCell className="text-end">
                         <Button size="sm" variant="outline" onClick={() => setEditingPurpose(o.purpose)}>
-                          {t('admin.verification.table.edit' as any)}
+                          {t('admin.verification.table.edit')}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -201,12 +201,12 @@ export default function AdminVerificationPage() {
         <TabsContent value="preview" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t('admin.verification.preview.title' as any)}</CardTitle>
-              <p className="text-sm text-muted-foreground">{t('admin.verification.preview.description' as any)}</p>
+              <CardTitle className="text-base">{t('admin.verification.preview.title')}</CardTitle>
+              <p className="text-sm text-muted-foreground">{t('admin.verification.preview.description')}</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-3">
-                <Label>{t('admin.verification.preview.locale' as any)}</Label>
+                <Label>{t('admin.verification.preview.locale')}</Label>
                 <Select value={previewLocale} onValueChange={(v) => setPreviewLocale(v as Locale)}>
                   <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -216,7 +216,7 @@ export default function AdminVerificationPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-xs text-muted-foreground">{t('admin.verification.preview.fakeCodeNotice' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.verification.preview.fakeCodeNotice')}</p>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">{t('admin.verification.preview.emailTemplateNote')}</p>
@@ -231,11 +231,11 @@ export default function AdminVerificationPage() {
                     <p className="text-sm text-destructive">{t('admin.verification.preview.emailFailed')}</p>
                   ) : emailPreview.data ? (
                     <>
-                      <div className="text-sm font-medium">{t('admin.verification.preview.emailSubject' as any)}</div>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.emailSubject')}</div>
                       <div className="rounded border p-2 text-sm" dir={emailPreview.locale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.subject}</div>
-                      <div className="text-sm font-medium">{t('admin.verification.preview.emailText' as any)}</div>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.emailText')}</div>
                       <pre className="rounded border p-2 text-sm whitespace-pre-wrap" dir={emailPreview.locale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.text}</pre>
-                      <div className="text-sm font-medium">{t('admin.verification.preview.emailHtml' as any)}</div>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.emailHtml')}</div>
                       {/*
                         A fully locked-down sandbox: no script execution, no
                         origin-equivalent access to this app's cookies or
@@ -249,7 +249,7 @@ export default function AdminVerificationPage() {
                         that fails the build if any allow-* token appears.
                       */}
                       <iframe
-                        title={t('admin.verification.preview.iframeTitle' as any)}
+                        title={t('admin.verification.preview.iframeTitle')}
                         sandbox=""
                         className="w-full h-[640px] rounded border"
                         srcDoc={emailPreview.data.html}
@@ -259,12 +259,12 @@ export default function AdminVerificationPage() {
                 </div>
                 <div className="space-y-2">
                   {preview.isPending ? (
-                    <p className="text-sm text-muted-foreground">{t('admin.verification.preview.loading' as any)}</p>
+                    <p className="text-sm text-muted-foreground">{t('admin.verification.preview.loading')}</p>
                   ) : preview.data ? (
                     <>
-                      <div className="text-sm font-medium">{t('admin.verification.preview.smsText' as any)}</div>
+                      <div className="text-sm font-medium">{t('admin.verification.preview.smsText')}</div>
                       {preview.data.sms.providerTemplated ? (
-                        <p className="text-xs text-muted-foreground">{t('admin.verification.preview.smsProviderTemplatedNotice' as any)}</p>
+                        <p className="text-xs text-muted-foreground">{t('admin.verification.preview.smsProviderTemplatedNotice')}</p>
                       ) : null}
                       <div className="rounded border p-2 text-sm" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.sms.text}</div>
                     </>
@@ -278,13 +278,13 @@ export default function AdminVerificationPage() {
         <TabsContent value="audit" className="space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">{t('admin.verification.audit.title' as any)}</CardTitle>
+              <CardTitle className="text-base">{t('admin.verification.audit.title')}</CardTitle>
               <div className="flex items-center gap-2">
-                <Label className="text-sm">{t('admin.verification.audit.filterByPurpose' as any)}</Label>
+                <Label className="text-sm">{t('admin.verification.audit.filterByPurpose')}</Label>
                 <Select value={auditFilter} onValueChange={(v) => setAuditFilter(v as VerificationPurpose | 'all')}>
                   <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">{t('admin.verification.audit.allPurposes' as any)}</SelectItem>
+                    <SelectItem value="all">{t('admin.verification.audit.allPurposes')}</SelectItem>
                     {Object.keys(CHANNELS).map((p) => (
                       <SelectItem key={p} value={p}>{purposeName(p)}</SelectItem>
                     ))}
@@ -296,16 +296,16 @@ export default function AdminVerificationPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('admin.verification.audit.timestamp' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.audit.purpose' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.audit.action' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.audit.actor' as any)}</TableHead>
-                    <TableHead>{t('admin.verification.audit.locale' as any)}</TableHead>
+                    <TableHead>{t('admin.verification.audit.timestamp')}</TableHead>
+                    <TableHead>{t('admin.verification.audit.purpose')}</TableHead>
+                    <TableHead>{t('admin.verification.audit.action')}</TableHead>
+                    <TableHead>{t('admin.verification.audit.actor')}</TableHead>
+                    <TableHead>{t('admin.verification.audit.locale')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(audit.data?.rows ?? []).length === 0 && (
-                    <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">{t('admin.verification.audit.noRows' as any)}</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">{t('admin.verification.audit.noRows')}</TableCell></TableRow>
                   )}
                   {(audit.data?.rows ?? []).map((row) => (
                     <TableRow key={row.id}>
@@ -313,10 +313,10 @@ export default function AdminVerificationPage() {
                       <TableCell>{purposeName(row.purpose)}</TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {row.action === 'update' ? t('admin.verification.audit.actionUpdate' as any) : t('admin.verification.audit.actionReset' as any)}
+                          {row.action === 'update' ? t('admin.verification.audit.actionUpdate') : t('admin.verification.audit.actionReset')}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs">{row.actorProfileId ?? t('admin.verification.audit.unknownActor' as any)}</TableCell>
+                      <TableCell className="text-xs">{row.actorProfileId ?? t('admin.verification.audit.unknownActor')}</TableCell>
                       <TableCell className="text-xs">{row.locale ?? '—'}</TableCell>
                     </TableRow>
                   ))}
@@ -369,8 +369,8 @@ function ProviderReadinessRow({
   );
 }
 
-function YesNoBadge({ value, t }: { value: boolean; t: (k: any) => string }) {
-  return <GateBadge ok={value} label={value ? t('admin.verification.table.yes' as any) : t('admin.verification.table.no' as any)} />;
+function YesNoBadge({ value, t }: { value: boolean; t: (k: TranslationKey) => string }) {
+  return <GateBadge ok={value} label={value ? t('admin.verification.table.yes') : t('admin.verification.table.no')} />;
 }
 
 function PurposeEditorDialog({
@@ -402,15 +402,15 @@ function PurposeEditorDialog({
 
   const errorMessage = useMemo(() => {
     if (!error) return null;
-    return t(`admin.verification.errors.${error}` as any) !== `admin.verification.errors.${error}`
-      ? t(`admin.verification.errors.${error}` as any)
-      : t('admin.verification.errors.generic' as any);
+    return t(`admin.verification.errors.${error}` as TranslationKey) !== `admin.verification.errors.${error}`
+      ? t(`admin.verification.errors.${error}` as TranslationKey)
+      : t('admin.verification.errors.generic');
   }, [error, t]);
 
   if (!form || !detail.data) {
     return (
       <Dialog open onOpenChange={(open) => !open && onClose()}>
-        <DialogContent><DialogHeader><DialogTitle>{t('admin.verification.editor.title' as any, { purpose })}</DialogTitle></DialogHeader></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>{t('admin.verification.editor.title', { purpose })}</DialogTitle></DialogHeader></DialogContent>
       </Dialog>
     );
   }
@@ -471,36 +471,36 @@ function PurposeEditorDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t('admin.verification.editor.title' as any, { purpose: t(`admin.verification.purposeNames.${purpose}` as any) })}</DialogTitle>
-          <DialogDescription>{t('admin.verification.editor.description' as any)}</DialogDescription>
+          <DialogTitle>{t('admin.verification.editor.title', { purpose: t(`admin.verification.purposeNames.${purpose}` as TranslationKey) })}</DialogTitle>
+          <DialogDescription>{t('admin.verification.editor.description')}</DialogDescription>
         </DialogHeader>
 
         {errorMessage && <Alert variant="destructive"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
         {hasWeakening && (
           <Alert variant="destructive">
             <AlertDescription>
-              {t('admin.verification.editor.weakeningBlocked' as any, { count: String(weakeningFields.size) })}
+              {t('admin.verification.editor.weakeningBlocked', { count: String(weakeningFields.size) })}
             </AlertDescription>
           </Alert>
         )}
 
         <div className="space-y-4">
           <div className="rounded-lg border p-3 space-y-2">
-            <div className="text-sm font-medium">{t('admin.verification.editor.gatesTitle' as any)}</div>
+            <div className="text-sm font-medium">{t('admin.verification.editor.gatesTitle')}</div>
             <div className="flex flex-wrap gap-2">
-              <GateBadge ok={!!gates?.adminEnabled} label={t('admin.verification.editor.gateAdmin' as any)} />
-              <GateBadge ok={!!gates?.consumerImplemented} label={t('admin.verification.editor.gateConsumer' as any)} />
-              <GateBadge ok={!!gates?.deploymentAllowlisted} label={t('admin.verification.editor.gateDeployment' as any)} />
-              <GateBadge ok={!!gates?.databaseEnabled} label={t('admin.verification.editor.gateDatabase' as any)} />
-              <GateBadge ok={!!gates?.effectiveEnabled} label={t('admin.verification.editor.gateEffective' as any)} />
+              <GateBadge ok={!!gates?.adminEnabled} label={t('admin.verification.editor.gateAdmin')} />
+              <GateBadge ok={!!gates?.consumerImplemented} label={t('admin.verification.editor.gateConsumer')} />
+              <GateBadge ok={!!gates?.deploymentAllowlisted} label={t('admin.verification.editor.gateDeployment')} />
+              <GateBadge ok={!!gates?.databaseEnabled} label={t('admin.verification.editor.gateDatabase')} />
+              <GateBadge ok={!!gates?.effectiveEnabled} label={t('admin.verification.editor.gateEffective')} />
             </div>
           </div>
 
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div>
-              <Label htmlFor="admin-enabled">{t('admin.verification.editor.adminEnabled' as any)}</Label>
+              <Label htmlFor="admin-enabled">{t('admin.verification.editor.adminEnabled')}</Label>
               <p className="text-xs text-muted-foreground mt-1">
-                {adminEnabledBlocked ? t('admin.verification.editor.adminEnabledHintBlocked' as any) : t('admin.verification.editor.adminEnabledHintOk' as any)}
+                {adminEnabledBlocked ? t('admin.verification.editor.adminEnabledHintBlocked') : t('admin.verification.editor.adminEnabledHintOk')}
               </p>
             </div>
             <Switch
@@ -513,69 +513,69 @@ function PurposeEditorDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <NumberField
-              label={t('admin.verification.editor.otpLength' as any)}
-              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.otpLength ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor' as any, { value: String(baseline.otpLength) }) : undefined}
-              invalid={weakeningFields.has('otpLength')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.otpLength')}
+              ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.otpLength ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor', { value: String(baseline.otpLength) }) : undefined}
+              invalid={weakeningFields.has('otpLength')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.otpLength} onChange={(v) => setForm({ ...form, otpLength: v })} min={baseline?.otpLength ?? 4} max={ceilings?.otpLength} />
             <NumberField
-              label={t('admin.verification.editor.otpTtlSeconds' as any)}
-              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.otpTtlSeconds ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.otpTtlSeconds) }) : undefined}
-              invalid={weakeningFields.has('otpTtlSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.otpTtlSeconds')}
+              ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.otpTtlSeconds ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling', { value: String(baseline.otpTtlSeconds) }) : undefined}
+              invalid={weakeningFields.has('otpTtlSeconds')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.otpTtlSeconds} onChange={(v) => setForm({ ...form, otpTtlSeconds: v })} min={30} max={baseline?.otpTtlSeconds ?? ceilings?.otpTtlSeconds} />
             <NumberField
-              label={t('admin.verification.editor.maxVerificationAttempts' as any)}
-              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.maxVerificationAttempts ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.maxVerificationAttempts) }) : undefined}
-              invalid={weakeningFields.has('maxVerificationAttempts')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.maxVerificationAttempts')}
+              ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.maxVerificationAttempts ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling', { value: String(baseline.maxVerificationAttempts) }) : undefined}
+              invalid={weakeningFields.has('maxVerificationAttempts')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.maxVerificationAttempts} onChange={(v) => setForm({ ...form, maxVerificationAttempts: v })} min={1} max={baseline?.maxVerificationAttempts ?? ceilings?.maxVerificationAttempts} />
             <NumberField
-              label={t('admin.verification.editor.resendCooldownSeconds' as any)}
-              ceilingLabel={t('admin.verification.editor.floor' as any, { value: String(ceilings?.resendCooldownSecondsMin ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor' as any, { value: String(baseline.resendCooldownSeconds) }) : undefined}
-              invalid={weakeningFields.has('resendCooldownSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.resendCooldownSeconds')}
+              ceilingLabel={t('admin.verification.editor.floor', { value: String(ceilings?.resendCooldownSecondsMin ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor', { value: String(baseline.resendCooldownSeconds) }) : undefined}
+              invalid={weakeningFields.has('resendCooldownSeconds')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.resendCooldownSeconds} onChange={(v) => setForm({ ...form, resendCooldownSeconds: v })} min={baseline?.resendCooldownSeconds ?? ceilings?.resendCooldownSecondsMin} />
             <NumberField
-              label={t('admin.verification.editor.maxSendsPerWindow' as any)}
-              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.maxSendsPerWindow ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.maxSendsPerWindow) }) : undefined}
-              invalid={weakeningFields.has('maxSendsPerWindow')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.maxSendsPerWindow')}
+              ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.maxSendsPerWindow ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling', { value: String(baseline.maxSendsPerWindow) }) : undefined}
+              invalid={weakeningFields.has('maxSendsPerWindow')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.maxSendsPerWindow} onChange={(v) => setForm({ ...form, maxSendsPerWindow: v })} min={1} max={baseline?.maxSendsPerWindow ?? ceilings?.maxSendsPerWindow} />
             <NumberField
-              label={t('admin.verification.editor.rateWindowSeconds' as any)}
-              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.rateWindowSeconds ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor' as any, { value: String(baseline.rateWindowSeconds) }) : undefined}
-              invalid={weakeningFields.has('rateWindowSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.rateWindowSeconds')}
+              ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.rateWindowSeconds ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineFloor', { value: String(baseline.rateWindowSeconds) }) : undefined}
+              invalid={weakeningFields.has('rateWindowSeconds')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.rateWindowSeconds} onChange={(v) => setForm({ ...form, rateWindowSeconds: v })} min={baseline?.rateWindowSeconds ?? 60} max={ceilings?.rateWindowSeconds} />
             <NumberField
-              label={t('admin.verification.editor.proofTtlSeconds' as any)}
-              ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.proofTtlSeconds ?? '') })}
-              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling' as any, { value: String(baseline.proofTtlSeconds) }) : undefined}
-              invalid={weakeningFields.has('proofTtlSeconds')} invalidMessage={t('admin.verification.editor.weakeningField' as any)}
+              label={t('admin.verification.editor.proofTtlSeconds')}
+              ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.proofTtlSeconds ?? '') })}
+              baselineLabel={baseline ? t('admin.verification.editor.baselineCeiling', { value: String(baseline.proofTtlSeconds) }) : undefined}
+              invalid={weakeningFields.has('proofTtlSeconds')} invalidMessage={t('admin.verification.editor.weakeningField')}
               value={form.proofTtlSeconds} onChange={(v) => setForm({ ...form, proofTtlSeconds: v })} min={30} max={baseline?.proofTtlSeconds ?? ceilings?.proofTtlSeconds} />
           </div>
 
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between">
-              <Label htmlFor="global-rl">{t('admin.verification.editor.globalRateLimitEnabled' as any)}</Label>
+              <Label htmlFor="global-rl">{t('admin.verification.editor.globalRateLimitEnabled')}</Label>
               <Switch id="global-rl" checked={form.globalRateLimitEnabled} onCheckedChange={(v) => setForm({ ...form, globalRateLimitEnabled: v })} />
             </div>
             {form.globalRateLimitEnabled && (
               <div className="grid grid-cols-2 gap-4">
-                <NumberField label={t('admin.verification.editor.globalRateLimitMaxPerWindow' as any)}
-                  ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.globalRateLimitMaxPerWindowMax ?? '') })}
+                <NumberField label={t('admin.verification.editor.globalRateLimitMaxPerWindow')}
+                  ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.globalRateLimitMaxPerWindowMax ?? '') })}
                   value={form.globalRateLimitMaxPerWindow ?? 1}
                   onChange={(v) => setForm({ ...form, globalRateLimitMaxPerWindow: v })} min={1} max={ceilings?.globalRateLimitMaxPerWindowMax} />
-                <NumberField label={t('admin.verification.editor.globalRateLimitWindowSeconds' as any)}
-                  ceilingLabel={t('admin.verification.editor.ceiling' as any, { value: String(ceilings?.globalRateLimitWindowSecondsMax ?? '') })}
+                <NumberField label={t('admin.verification.editor.globalRateLimitWindowSeconds')}
+                  ceilingLabel={t('admin.verification.editor.ceiling', { value: String(ceilings?.globalRateLimitWindowSecondsMax ?? '') })}
                   value={form.globalRateLimitWindowSeconds ?? 60} onChange={(v) => setForm({ ...form, globalRateLimitWindowSeconds: v })} min={60} max={ceilings?.globalRateLimitWindowSecondsMax} />
               </div>
             )}
           </div>
 
           <div className="space-y-1">
-            <Label>{t('admin.verification.editor.defaultLocale' as any)}</Label>
+            <Label>{t('admin.verification.editor.defaultLocale')}</Label>
             <Select value={form.defaultLocale} onValueChange={(v) => setForm({ ...form, defaultLocale: v as Locale })}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -589,12 +589,12 @@ function PurposeEditorDialog({
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <Button variant="ghost" className="text-destructive gap-1" onClick={() => setConfirmReset(true)}>
-            <RotateCcw className="h-4 w-4" />{t('admin.verification.editor.reset' as any)}
+            <RotateCcw className="h-4 w-4" />{t('admin.verification.editor.reset')}
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>{t('admin.verification.editor.cancel' as any)}</Button>
+            <Button variant="outline" onClick={onClose}>{t('admin.verification.editor.cancel')}</Button>
             <Button onClick={handleSave} disabled={updateMutation.isPending || hasWeakening}>
-              {updateMutation.isPending ? t('admin.verification.editor.saving' as any) : t('admin.verification.editor.save' as any)}
+              {updateMutation.isPending ? t('admin.verification.editor.saving') : t('admin.verification.editor.save')}
             </Button>
           </div>
         </DialogFooter>
@@ -603,13 +603,13 @@ function PurposeEditorDialog({
       <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('admin.verification.editor.resetConfirmTitle' as any, { purpose: t(`admin.verification.purposeNames.${purpose}` as any) })}</AlertDialogTitle>
-            <AlertDialogDescription>{t('admin.verification.editor.resetConfirmDescription' as any)}</AlertDialogDescription>
+            <AlertDialogTitle>{t('admin.verification.editor.resetConfirmTitle', { purpose: t(`admin.verification.purposeNames.${purpose}` as TranslationKey) })}</AlertDialogTitle>
+            <AlertDialogDescription>{t('admin.verification.editor.resetConfirmDescription')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('admin.verification.editor.cancel' as any)}</AlertDialogCancel>
+            <AlertDialogCancel>{t('admin.verification.editor.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleReset} disabled={resetMutation.isPending}>
-              {t('admin.verification.editor.resetConfirmAction' as any)}
+              {t('admin.verification.editor.resetConfirmAction')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

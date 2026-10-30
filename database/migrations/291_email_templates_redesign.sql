@@ -15,8 +15,9 @@
 -- builds: msg-visitor the customer's lines, msg-agent the team's; the
 -- operator's copy marks its container data-reader="team", so there the
 -- team's lines take the reader's side, as in the inbox). A row that is still
--- a whole document (it has <html) is sent as it is, so a design a Super
--- Admin wrote in full keeps working.
+-- a whole document (it begins with its doctype or <html>) is sent as it is,
+-- but for what no mail may carry, so a design a Super Admin wrote in full
+-- keeps working.
 --
 -- 1. The 28 slugs the code sends get a new subject, HTML and text part in
 --    fa, en and tr: email_verify, password_reset, verification_code,
@@ -59,26 +60,32 @@
 -- an edited visitor transcript gets the new container; a second run changes
 -- nothing.
 --
--- Rollout: before the merge, dry-run it on both brands (wrap the file in
--- BEGIN; … ROLLBACK; it opens no transaction of its own) and read its
--- NOTICEs: which rows it would keep, by the full hash this guard uses, is
--- known only then. Keep the logs in /root/webyar-migrate-291/ and
--- /root/respok-migrate-291/, as for 287. A row it would keep on RESPOK
--- keeps its old design there, and its migrator applies the file on push with
--- nobody reading the NOTICEs, so such a row is for the owner to decide on
--- before the merge. Then on WebYar by hand, AFTER the backend that wraps
--- content rows is live (CLAUDE.md, Migrations; as 283 and 286 were): that
--- backend sends the old whole-document rows unchanged, while an older
--- backend would send a content row as a bare fragment, so this order never
--- sends a mail without its layout. Run it right after that backend is live:
--- until it runs, a visitor's transcript reaches them complete but plain (the
--- old row's table cannot hold the new rows). On RESPOK by its migrator on
--- push; its backend is deployed in the same round, so for the minutes
--- between the two a mail may go out bare or plain but complete. It deletes
--- nothing and changes no table's shape. Safe to run twice: a replaced row is
--- no longer as seeded, and a second run neither changes nor names it, nor
--- touches a transcript container again. Like 284 to 289d, it sets
--- lock_timeout 5s itself.
+-- Rollout (docs/operations/EMAIL.md, "Rollout of 291"): before the merge,
+-- dry-run it on both brands (wrap the file in BEGIN; … ROLLBACK; it opens no
+-- transaction of its own) and read its NOTICEs: which rows it would keep, by
+-- the full hash this guard uses, is known only then. Keep the logs, and a
+-- dump of email_templates taken just before (the only way back to the old
+-- rows), in /root/webyar-migrate-291/ and /root/respok-migrate-291/, as for
+-- 283 and 289. A row it would keep on RESPOK keeps its old design there, so
+-- such a row is for the owner to decide on before the merge.
+-- It runs on each brand only once the backend that wraps content rows is
+-- live there. An older backend sends a content row bare (no layout or
+-- styles, its preview line on top, a Persian mail left to right) and prints
+-- invite_member's {expiry} as written; the new one sends the old
+-- whole-document rows as they are, and the operator notices' old rows
+-- (fragments since 206) in the layout, plain but readable, as it does a
+-- visitor's transcript. On WebYar by hand, right after its backend (25) is
+-- live (CLAUDE.md, Migrations; as 283 and 286 were). On RESPOK never in the
+-- push that brings that backend: its migrator (app 40) applies every new
+-- file on the push that also rebuilds its backend (32), in an order nobody
+-- controls. Either this file reaches main in a push of its own once 32 is
+-- live, or it is entered in RESPOK's public._schema_migrations before the
+-- merge and run there by hand once 32 is live, as on WebYar. A backend
+-- rolled back past this file sends every mail bare: restore the old rows
+-- from that dump first. It deletes nothing and changes no table's shape.
+-- Safe to run twice: a replaced row is no longer as seeded, and a second run
+-- neither changes nor names it, nor touches a transcript container again.
+-- Like 284 to 289d, it sets lock_timeout 5s itself.
 
 SET lock_timeout = '5s';
 

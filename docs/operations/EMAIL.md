@@ -230,6 +230,37 @@ served from `public/`. `--no-web-fonts` and `--gmail-invert` add the renders
 Gmail and Outlook show (no web fonts; Gmail's forced dark). A development
 tool: it sends nothing and only reads a database.
 
+## Rollout of 291 and the layout
+
+The layout and 291's content rows reach production in this order, on each
+brand (291's header says the same):
+
+1. **Before the merge.** Dry-run 291 on both brands inside `BEGIN …
+   ROLLBACK` and read its NOTICEs (the rows it would keep as a Super Admin
+   wrote them). Take a dump of `email_templates` on both, just before: it is
+   the only way back to the old rows. Keep both in
+   `/root/webyar-migrate-291/` and `/root/respok-migrate-291/`.
+2. **The logo files before the first laid-out mail.** Every mail's band
+   loads the kit's email PNGs (`public/brand/webyar/email/`,
+   `public/brand/intl/email/`, through `resolveBrandAssets`), which the
+   frontends (24, 33) serve. They are new in this release, and the old
+   frontend answers a path it lacks with its `index.html`, so a mail the new
+   backend sends before the new frontend is live shows a broken logo. Land
+   the PNGs on `main` a push earlier, or queue 24 and 33 ahead of 25 and 32.
+3. **291 after the backend.** An older backend sends a content row bare (no
+   layout or styles, its preview line on top, a Persian mail left to right)
+   and prints `invite_member`'s `{expiry}` as written; the new backend sends
+   the old whole-document rows as they are, and the five operator notices'
+   old rows (fragments since 206) and a visitor's transcript in the layout,
+   plain but readable. So on WebYar 291 is run by hand right after backend 25
+   is live. On RESPOK the migrator (app 40) applies every new file on the
+   push that also rebuilds backend 32, in an order nobody controls: 291
+   reaches `main` in a push of its own once 32 is live, or it is entered in
+   RESPOK's `public._schema_migrations` before the merge and run by hand
+   once 32 is live, as on WebYar.
+4. **Rolling a backend back past 291** sends every mail bare: restore the
+   old rows from the dump of step 1 first, then roll back.
+
 ## The outbox: retries
 
 `server/services/email/outbox.ts`, table `public.email_outbox` (289b).

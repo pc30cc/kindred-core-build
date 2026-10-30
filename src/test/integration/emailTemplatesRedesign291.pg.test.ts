@@ -123,11 +123,17 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     await admin?.end();
   });
 
-  it('every sent slug had its six rows before, each a whole document (the old layouts)', () => {
+  it('every sent slug had its six rows before, each a whole document (the old layouts) but the operator notices\'', () => {
     for (const slug of SLUGS) {
-      expect(before.filter((r) => r.slug === slug).map((r) => `${r.edition}/${r.locale}`), slug).toEqual([
+      const own = before.filter((r) => r.slug === slug);
+      expect(own.map((r) => `${r.edition}/${r.locale}`), slug).toEqual([
         'international/en', 'iran/en', 'international/fa', 'iran/fa', 'international/tr', 'iran/tr',
       ]);
+      // The five operator notices (206, 239) were fragments around
+      // {{transcript}} and their lines: between a new backend and 291 they
+      // wear the layout, plain but readable; every other row is sent as it is.
+      const whole = own.filter((r) => /^\s*<!doctype html>\s*<html[\s>]/i.test(r.html_body)).length;
+      expect(whole, slug).toBe(slug.startsWith('operator_') ? 0 : 6);
     }
   });
 

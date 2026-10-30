@@ -40,6 +40,7 @@ import {
   localYear,
   renderEmailDocument,
   renderEmailText,
+  sendableDocument,
   type EmailBrand,
 } from './layout.js';
 
@@ -761,9 +762,10 @@ const contentProblemsLogged = new Set<string>();
  * A laid-out mail's content checked against what a platform mail may send
  * (layout.ts contentProblems): a row a Super Admin edited by hand, or before
  * the editor checked it, can hold what the styler passes on. The forbidden
- * elements never go out (the styler drops them); the rest (a foreign link,
- * a hidden block, an extra image) is logged, by its codes and never its
- * content, once per template, so it can be fixed in Super Admin.
+ * elements never go out (the styler drops them, as sendableDocument does
+ * from a whole document); the rest (a foreign link, a hidden block, an extra
+ * image) is logged, by its codes and never its content, once per template,
+ * so it can be fixed in Super Admin.
  */
 function logContentProblems(message: PreparedMessage, content: string, brand: EmailBrand): void {
   const key = `${message.slug || 'no template'} (${message.edition}, ${message.locale})${message.fromRow ? '' : ' fallback'}`;
@@ -779,7 +781,8 @@ function logContentProblems(message: PreparedMessage, content: string, brand: Em
  * layout (./layout.ts) — a row's content, a caller's own text (written as a
  * whole document or not), a Super Admin test — except a row that is a whole
  * document of its own: a Super Admin's hand-made full design goes as it is,
- * the caller's closing line before its `</body>`.
+ * but for what no mail may carry (sendableDocument), the caller's closing
+ * line before its `</body>`.
  *
  * The text part is the row's own when it has one (the closing line under
  * it); else, for a laid-out mail, its content as text with the footer's
@@ -794,7 +797,7 @@ async function composeMessage(
 ): Promise<{ html: string; text: string }> {
   const { html, text } = message;
   if (message.fromRow && isWholeDocument(html)) {
-    const out = withFooter(html, text, opts.footer);
+    const out = withFooter(sendableDocument(html), text, opts.footer);
     return { html: out.html, text: out.text.trim() ? out.text : htmlToText(out.html) };
   }
   const content = html ? (isWholeDocument(html) ? documentBody(html) : html) : textAsContent(text);
@@ -855,9 +858,9 @@ export async function renderEmailForPreview(
 /**
  * What a template's content holds that a platform mail must not send
  * (layout.ts contentProblems), against the same brand hosts and support
- * address the send checks: for Super Admin to refuse a save on the same
- * rules. A whole document of its own is checked by its body (it is sent as
- * it is, its head included). An empty list: nothing to refuse.
+ * address the send checks: for Super Admin's preview to show, and its save
+ * to refuse what REFUSED_CONTENT_PROBLEMS names. A whole document of its own
+ * is checked whole, its head included (it is sent without the layout).
  */
 export async function templateContentProblems(
   config: ServerConfig,
@@ -865,11 +868,28 @@ export async function templateContentProblems(
 ): Promise<string[]> {
   const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
   const basics = await readBrandBasics(supabase, input.edition, baseLocale(input.locale));
-  const html = String(input.html_body ?? '');
-  return contentProblems(isWholeDocument(html) ? documentBody(html) : html, {
+  return contentProblems(String(input.html_body ?? ''), {
     hosts: [basics.appUrl, basics.siteUrl],
     supportEmail: basics.supportEmail,
   });
+}
+
+/**
+ * The content problems a Super Admin cannot save a template with: what
+ * would run, or reach anything beyond the brand's own hosts, once the mail
+ * is opened (an element or a handler the send drops anyway, a script link,
+ * an image or a background loaded from elsewhere, a tracking pixel among
+ * them), and what is hidden from its reader. The others (a foreign link, a
+ * missing size, a long content) are advice the preview shows, and the
+ * Super Admin's call.
+ */
+export const REFUSED_CONTENT_PROBLEMS: readonly string[] = [
+  'forbidden_element', 'event_handler', 'script_link', 'foreign_image', 'background_url', 'hidden_element',
+];
+
+/** The problems among `problems` that refuse a save (REFUSED_CONTENT_PROBLEMS; `forbidden_element:<name>` by its base). */
+export function refusedContentProblems(problems: readonly string[]): string[] {
+  return problems.filter((code) => REFUSED_CONTENT_PROBLEMS.includes(code.split(':')[0]));
 }
 
 /** Same rule as EmailRequest: the platform provider owns the From header. */

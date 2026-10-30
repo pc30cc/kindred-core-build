@@ -72,11 +72,14 @@ export interface EmailTemplateTestResult {
 export class EmailTemplatesApiError extends Error {
   readonly code: string;
   readonly status: number;
+  /** A refused save's content problems (`template_content_refused`), as the preview names them. */
+  readonly problems: string[];
 
-  constructor(code: string, status: number) {
+  constructor(code: string, status: number, problems: string[] = []) {
     super(code);
     this.code = code;
     this.status = status;
+    this.problems = problems;
   }
 }
 
@@ -88,11 +91,12 @@ async function call<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
-  const body = await res.json().catch(() => ({})) as { error?: unknown; error_code?: unknown };
+  const body = await res.json().catch(() => ({})) as { error?: unknown; error_code?: unknown; problems?: unknown };
   if (!res.ok) {
     // A failed test names the provider's refusal (error_code); every other refusal its own code.
     const code = typeof body.error_code === 'string' ? body.error_code : typeof body.error === 'string' ? body.error : `http_${res.status}`;
-    throw new EmailTemplatesApiError(code, res.status);
+    const problems = Array.isArray(body.problems) ? body.problems.filter((p): p is string => typeof p === 'string') : [];
+    throw new EmailTemplatesApiError(code, res.status, problems);
   }
   return body as T;
 }

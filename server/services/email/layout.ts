@@ -504,17 +504,31 @@ const FORBIDDEN = new Set([
 /** Forbidden too, but their words are the author's: the element goes, what is inside it stays. */
 const UNWRAPPED = new Set(['form', 'button']);
 const isEventAttr = (a: Attr) => /^on/i.test(a.name);
+/**
+ * In a whole document of its own, the head lines a mail's document needs
+ * (its charset, viewport, colour schemes, Outlook's rendering mode), which a
+ * content may not carry. Never one that loads or sets anything (a refresh
+ * is another page).
+ */
+const isDocumentMeta = (el: ElementNode) => {
+  const http = String(attrOf(el, 'http-equiv') ?? '').trim().toLowerCase();
+  return el.name === 'meta' && (!http || http === 'content-type' || http === 'x-ua-compatible');
+};
 
-/** The content without what it may never send (FORBIDDEN, UNWRAPPED, `on…` handlers). */
-function withoutForbidden(nodes: Node[]): Node[] {
+/**
+ * The content without what it may never send (FORBIDDEN, UNWRAPPED, `on…`
+ * handlers); `keep` spares a forbidden element a whole document's head
+ * needs (isDocumentMeta).
+ */
+function withoutForbidden(nodes: Node[], keep?: (el: ElementNode) => boolean): Node[] {
   const out: Node[] = [];
   for (const node of nodes) {
     if (node.kind !== 'el') {
       out.push(node);
       continue;
     }
-    if (FORBIDDEN.has(node.name)) continue;
-    const children = RAW_TEXT.has(node.name) ? node.children : withoutForbidden(node.children);
+    if (FORBIDDEN.has(node.name) && !keep?.(node)) continue;
+    const children = RAW_TEXT.has(node.name) ? node.children : withoutForbidden(node.children, keep);
     if (UNWRAPPED.has(node.name)) {
       out.push(...children);
       continue;
@@ -579,6 +593,13 @@ function urlProblem(value: string, hosts: string[], supportEmail: string, kind: 
 
 const HIDDEN_STYLE = /(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden|max-height\s*:\s*0(?![.\d]))/i;
 
+/** Where a parsed content's own top level is: a whole document's body (or, with none, inside its `<html>`). */
+function contentLevel(nodes: Node[]): Node[] {
+  const html = elements(nodes).find((el) => el.name === 'html');
+  const top = html ? html.children : nodes;
+  return elements(top).find((el) => el.name === 'body')?.children ?? top.filter((n) => !(n.kind === 'el' && n.name === 'head'));
+}
+
 /**
  * What a content holds that a platform mail must not send (the
  * deliverability rules of the design panel, 2026-10-30): elements that run
@@ -591,12 +612,16 @@ const HIDDEN_STYLE = /(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden|max-he
  * than the support address included; a script or relative link
  * (`script_link`, `bad_link`); and a content past CONTENT_MAX_BYTES
  * (`too_large`). A placeholder the sender fills (`href="{action_url}"`)
- * passes: the filled value is checked when the mail is sent.
+ * passes: the filled value is checked when the mail is sent. A whole
+ * document of its own is read whole, its head too: its body is the content,
+ * and its head may hold the lines a document needs (isDocumentMeta).
  *
  * The codes, each once, in the order found; never a piece of the content.
- * The core checks every mail it lays out and logs what it finds (the styler
- * drops the forbidden elements whatever this says); Super Admin's save check
- * applies the same rules (index.ts templateContentProblems).
+ * The core checks every mail it lays out and logs what it finds (the send
+ * drops the forbidden elements whatever this says: the styler, or
+ * sendableDocument); Super Admin's save refuses what would reach or run
+ * anything once the mail is opened (index.ts REFUSED_CONTENT_PROBLEMS) and
+ * shows the rest.
  */
 export function contentProblems(html: string, rules: ContentRules): string[] {
   const source = String(html ?? '');
@@ -604,13 +629,15 @@ export function contentProblems(html: string, rules: ContentRules): string[] {
   const hosts = rules.hosts.map(hostName).filter(Boolean);
   const supportEmail = String(rules.supportEmail || '');
   let images = 0;
+  const doc = isWholeDocument(source);
   const nodes = parseHtml(source);
-  const preheaderAt = nodes.findIndex((n) => n.kind === 'el' && isPreheader(n));
+  const preheader = (doc ? contentLevel(nodes) : nodes).find((n) => n.kind === 'el' && isPreheader(n));
   const visit = (list: Node[]) => {
     for (const node of list) {
-      if (node.kind !== 'el') continue;
+      // The preheader is hidden by design: only its words are taken (extractPreheader).
+      if (node.kind !== 'el' || node === preheader) continue;
       const name = node.name;
-      if (FORBIDDEN.has(name) || UNWRAPPED.has(name)) found.add(`forbidden_element:${name}`);
+      if ((FORBIDDEN.has(name) && !(doc && isDocumentMeta(node))) || UNWRAPPED.has(name)) found.add(`forbidden_element:${name}`);
       if (node.attrs.some(isEventAttr)) found.add('event_handler');
       const style = String(attrOf(node, 'style') ?? '');
       if (HIDDEN_STYLE.test(style) || attrOf(node, 'hidden') !== undefined) found.add('hidden_element');
@@ -633,10 +660,9 @@ export function contentProblems(html: string, rules: ContentRules): string[] {
       if (!RAW_TEXT.has(name)) visit(node.children);
     }
   };
-  // The preheader is hidden by design: only its words are taken (extractPreheader).
-  visit(preheaderAt < 0 ? nodes : [...nodes.slice(0, preheaderAt), ...nodes.slice(preheaderAt + 1)]);
+  visit(nodes);
   if (images > MAX_IMAGES) found.add('too_many_images');
-  if (Buffer.byteLength(source, 'utf8') > CONTENT_MAX_BYTES) found.add('too_large');
+  if (Buffer.byteLength(doc ? documentBody(source) : source, 'utf8') > CONTENT_MAX_BYTES) found.add('too_large');
   return [...found];
 }
 
@@ -1202,9 +1228,33 @@ export function contentToText(contentHtml: string): string {
 
 /* ─────────────────────────────────────────────────────────────── document ── */
 
-/** A whole HTML document (a Super Admin's own full design, or an old row): sent as it is. */
+/**
+ * A whole HTML document (a Super Admin's own full design, or an old row),
+ * sent without the layout: one that begins as a document, with its doctype
+ * or its `<html>` (after any space or comments). A `<html` further in (in a
+ * paragraph, an attribute's value, a comment) is content.
+ */
 export function isWholeDocument(html: string): boolean {
-  return /<html[\s>]/i.test(String(html ?? ''));
+  const s = String(html ?? '').replace(/^\uFEFF/, '');
+  let at = 0;
+  for (;;) {
+    while (at < s.length && /\s/.test(s[at])) at += 1;
+    if (!s.startsWith('<!--', at)) break;
+    at = commentEnd(s, at);
+    if (at < 0) return false;
+  }
+  return /^<(?:!doctype|html)[\s>]/i.test(s.slice(at, at + 10));
+}
+
+/**
+ * A whole document as it goes out: without what a content may never send
+ * (withoutForbidden), its head included, but for the head lines a mail's
+ * document needs (isDocumentMeta). Written back as read (attributes, text,
+ * entities and comments as written), so a design that holds none of it
+ * goes as it was made.
+ */
+export function sendableDocument(html: string): string {
+  return serialize(withoutForbidden(parseHtml(String(html ?? '')), isDocumentMeta));
 }
 
 /** The inside of a whole document's `<body>` (a caller's fallback written as one), for the layout to wear. */

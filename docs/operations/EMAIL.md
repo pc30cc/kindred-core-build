@@ -119,9 +119,12 @@ wears the brand as it is then:
 - a template row's content, a caller's own text when the row is missing (a
   caller's whole document gives its body), and a request with no template
   (the Super Admin provider test is the template `email_test` now);
-- not a row that is a whole document of its own (it holds `<html`): a Super
-  Admin's hand-made full design goes as it is, the unsubscribe line before
-  its `</body>`.
+- not a row that is a whole document of its own (it begins with its
+  doctype or `<html>`, after any space or comments; a `<html` further in is
+  content): a Super Admin's hand-made full design goes as it is, the
+  unsubscribe line before its `</body>`, but for what a mail may not send
+  (below), dropped from its head and body alike; its head keeps its
+  charset, viewport and colour-scheme `meta` lines (never a refresh).
 
 **What a row holds.** Only the content, in this vocabulary; anything else
 passes through as it is (but for what a mail may not send, below), and an
@@ -160,11 +163,16 @@ first group whatever the row says (a form or a button keeps its words) and
 logs the rest as `[email] <slug> (<edition>, <locale>): <codes>`, once per
 template in a process and never the content, so a row edited by hand can be
 fixed in Super Admin. A "Send me a test" is not logged there: its text need
-not be the stored row's, and it would use up that row's one line. Super Admin sees the same list while editing, as
-warnings under Branding → Email templates' preview (`templateContentProblems`
-in `index.ts`: the same rules, against the same brand hosts); a save is not
-refused for them. Every row 291
-writes passes them on both brands. The content's comments end where a
+not be the stored row's, and it would use up that row's one line. Super Admin sees the same list while editing, under
+Branding → Email templates' preview (`templateContentProblems` in
+`index.ts`: the same rules, against the same brand hosts). A save is refused
+(422 `template_content_refused`, with the codes) for what would run or load
+anything once the mail is opened, or hide from its reader
+(`REFUSED_CONTENT_PROBLEMS`: a forbidden element or an `on…` handler, a
+script link, an image or a background from elsewhere, a hidden block); the
+rest (a foreign link, a relative link, an image without its size, more than
+two images, a long content) stays advice. Every row 291 writes passes them
+on both brands, and so does every row the chain held before it. The content's comments end where a
 browser ends them, and one that never ends is dropped, so nothing in a row can
 hide the footer and its unsubscribe line.
 

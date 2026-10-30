@@ -50,6 +50,8 @@ const EmailTemplatesTab = (await import('@/components/admin/EmailTemplatesTab'))
 interface Call { url: string; method: string; body: Record<string, unknown> | null }
 let calls: Call[] = [];
 let testSendStatus = 200;
+/** What a save answers (a refusal names the content problems). */
+let saveReply: { status: number; json: unknown } | null = null;
 /** Slugs whose render the server cannot build (a 500). */
 let failingPreviews = new Set<string>();
 let rows: Array<Record<string, unknown>> = [];
@@ -66,6 +68,7 @@ function previewCalls(): Array<Record<string, unknown>> {
 beforeEach(() => {
   calls = [];
   testSendStatus = 200;
+  saveReply = null;
   failingPreviews = new Set();
   rows = [
     row('email_verify', 'fa'), row('email_verify', 'en'), row('email_verify', 'tr'),
@@ -101,6 +104,7 @@ beforeEach(() => {
         : reply(testSendStatus, { error: 'test_limit_reached', retry_after_seconds: 60 });
     }
     if (method === 'GET') return reply(200, { templates: rows, edition: 'iran' });
+    if (saveReply) return reply(saveReply.status, saveReply.json);
     return reply(200, { template: rows[0] });
   }));
 });
@@ -271,6 +275,14 @@ describe('a mail the platform sends', () => {
     fireEvent.click(screen.getByTestId('email-template-welcome'));
     expect(screen.getByText('[admin.brandingPage.emailTemplates.delete]')).toBeInTheDocument();
     expect(screen.getByRole('switch')).toBeInTheDocument();
+  });
+
+  it('is not saved with what would run or load anything once opened, and the toast says what to fix', async () => {
+    saveReply = { status: 422, json: { error: 'template_content_refused', problems: ['foreign_image'] } };
+    await renderTab();
+    fireEvent.click(screen.getByTestId('email-template-save'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('[admin.brandingPage.emailTemplates.toasts.contentRefused]'));
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it('is switched back on by a save', async () => {

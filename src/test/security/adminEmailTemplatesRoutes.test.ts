@@ -107,6 +107,9 @@ const tries = vi.hoisted(() => ({
   previews: [] as Array<Record<string, unknown>>,
   sends: [] as Array<Record<string, unknown>>,
   sendResult: { success: true, provider: 'resend' } as Record<string, unknown>,
+  /** The content checks a save asked for, and what the next ones answer. */
+  checks: [] as Array<Record<string, unknown>>,
+  refused: [] as string[],
 }));
 vi.mock('../../../server/services/email/templateAdmin.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -117,6 +120,10 @@ vi.mock('../../../server/services/email/templateAdmin.js', async (importOriginal
   sendPlatformTemplateTest: async (_config: unknown, input: Record<string, unknown>) => {
     tries.sends.push(input);
     return tries.sendResult;
+  },
+  refusedTemplateContent: async (_config: unknown, input: Record<string, unknown>) => {
+    tries.checks.push(input);
+    return tries.refused;
   },
 }));
 
@@ -203,6 +210,8 @@ beforeEach(() => {
   tries.previews = [];
   tries.sends = [];
   tries.sendResult = { success: true, provider: 'resend' };
+  tries.checks = [];
+  tries.refused = [];
   __resetEmailQuotaMemoryForTests();
   db.email_templates = [
     { id: 't-global', workspace_id: null, edition: 'international', slug: 'welcome', locale: 'en', subject: 'Hi', html_body: '<p>hi</p>', text_body: null, is_active: true },
@@ -354,6 +363,37 @@ describe('a mail the platform sends keeps its template', () => {
     });
     expect(put.status).toBe(200);
     expect(db.email_templates.find((t) => t.id === 't-global')?.is_active).toBe(false);
+  });
+});
+
+describe('a template is saved only as the platform may send it', () => {
+  it('a save whose content would run or load anything once opened is refused, with the codes, and nothing is written', async () => {
+    tries.refused = ['foreign_image', 'forbidden_element:form'];
+    const html = '<p>Hi</p><img src="https://tracker.example.org/p.gif" width="1" height="1" alt="">';
+    const post = await call('POST', '/api/admin/management/email-templates', 'admin-token', {
+      slug: 'welcome', locale: 'en', subject: 'Hi', html_body: html, is_active: true,
+    });
+    expect(post.status).toBe(422);
+    expect(post.json).toEqual({ error: 'template_content_refused', problems: ['foreign_image', 'forbidden_element:form'] });
+    const put = await call('PUT', '/api/admin/management/email-templates/t-global', 'admin-token', {
+      subject: 'Hi', html_body: html, is_active: true,
+    });
+    expect(put.status).toBe(422);
+    expect(db.email_templates.find((t) => t.id === 't-global')?.html_body).toBe('<p>hi</p>');
+    // Read in the running edition, in the row's own language.
+    expect(tries.checks).toEqual([
+      { edition: 'international', locale: 'en', html_body: html },
+      { edition: 'international', locale: 'en', html_body: html },
+    ]);
+  });
+
+  it('a content with nothing refused is saved', async () => {
+    const put = await call('PUT', '/api/admin/management/email-templates/t-global', 'admin-token', {
+      subject: 'Hi', html_body: '<h1>Hello</h1>', is_active: true,
+    });
+    expect(put.status).toBe(200);
+    expect(db.email_templates.find((t) => t.id === 't-global')?.html_body).toBe('<h1>Hello</h1>');
+    expect(tries.checks).toHaveLength(1);
   });
 });
 

@@ -219,9 +219,9 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
       }
       await reloadTemplates();
     } catch (err) {
-      toast.error(inUse(err)
+      toast.error(refusedContent(err) ?? (inUse(err)
         ? t('admin.brandingPage.emailTemplates.toasts.inUse' as TranslationKey)
-        : t((row ? 'admin.brandingPage.emailTemplates.toasts.updateFailed' : 'admin.brandingPage.emailTemplates.toasts.createFailed') as TranslationKey));
+        : t((row ? 'admin.brandingPage.emailTemplates.toasts.updateFailed' : 'admin.brandingPage.emailTemplates.toasts.createFailed') as TranslationKey)));
     }
     setSaving(false);
   }
@@ -255,8 +255,8 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
       toast.success(t('admin.brandingPage.emailTemplates.toasts.duplicated' as TranslationKey, { locale: t(`admin.brandingPage.languages.${next}` as TranslationKey) }));
       await reloadTemplates();
       setSelectedLocale(next);
-    } catch {
-      toast.error(t('admin.brandingPage.emailTemplates.toasts.duplicateFailed' as TranslationKey));
+    } catch (err) {
+      toast.error(refusedContent(err) ?? t('admin.brandingPage.emailTemplates.toasts.duplicateFailed' as TranslationKey));
     }
   }
 
@@ -284,6 +284,10 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
     if (PROBLEM_CODES.has(base)) return t(`admin.brandingPage.emailTemplates.problems.${base}` as TranslationKey);
     return t('admin.brandingPage.emailTemplates.problems.unknown' as TranslationKey, { code });
   };
+  /** A save the server refused for its content: what to fix, in the preview's words. */
+  const refusedContent = (err: unknown) => (err instanceof EmailTemplatesApiError && err.code === 'template_content_refused'
+    ? t('admin.brandingPage.emailTemplates.toasts.contentRefused' as TranslationKey, { problems: err.problems.map(problemText).join(' ') })
+    : null);
 
   const shown = (entry: Listed) => categoryFilter === 'all' || entry.item?.category === categoryFilter;
   const known = new Set((catalog?.templates ?? []).map((i) => i.slug));

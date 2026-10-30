@@ -20,6 +20,7 @@ import {
   localYear,
   renderEmailDocument,
   renderEmailText,
+  sendableDocument,
   styleContent,
   whyLine,
   type EmailBrand,
@@ -587,13 +588,21 @@ describe('a raw-text element', () => {
     expect(styled).toContain('Sonra</p>');
     expect(contentToText(html)).toBe('İptal İşlemi İçin\n\nSonra');
     expect(extractPreheader(`${html}<div class="preheader">Ön</div>`).rest).toBe(html);
+    expect(sendableDocument(`<!doctype html><html lang="tr"><head><title>İptal</title></head><body>${html}</body></html>`))
+      .toBe(`<!doctype html><html lang="tr"><head><title>İptal</title></head><body>${html}</body></html>`);
   });
 });
 
 describe('whole documents', () => {
   it('are told apart from content, and a caller\'s document gives its body', () => {
     expect(isWholeDocument('<!doctype html><html lang="fa"><body><p>x</p></body></html>')).toBe(true);
+    expect(isWholeDocument('\uFEFF\n  <!-- own design --><HTML><body><p>x</p></body></HTML>')).toBe(true);
     expect(isWholeDocument('<p>about <htmlish></p>')).toBe(false);
+    // Only a document's own beginning makes it one: further in, `<html` is
+    // content (it would take the content past the styler).
+    expect(isWholeDocument('<h1>Hi</h1><p title="see <html >">x</p>')).toBe(false);
+    expect(isWholeDocument('<!-- <html> --><p>x</p>')).toBe(false);
+    expect(isWholeDocument('<!-- never closed <html>')).toBe(false);
     expect(documentBody('<!doctype html><html><head><title>t</title></head><body style="font-family:sans-serif"><p>a</p><p>b</p></body></html>')).toBe('<p>a</p><p>b</p>');
     expect(documentBody('<html><head><style>p{}</style></head><p>a</p></html>')).toBe('<p>a</p>');
   });

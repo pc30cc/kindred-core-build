@@ -46,6 +46,7 @@ import { catalogView, isSentTemplate } from '../services/email/templateCatalog.j
 import {
   previewPlatformTemplate,
   readPlatformTemplate,
+  refusedTemplateContent,
   sendPlatformTemplateTest,
   type TemplateContent,
 } from '../services/email/templateAdmin.js';
@@ -621,21 +622,35 @@ function refuseSentTemplateRemoval(res: Response): void {
 }
 
 /**
- * The slug of a platform row of this edition, '' when there is no such row
- * (the write then finds nothing either), or the read's error. A read that
- * failed stops the write: taken for "no such row", it let a sent mail's row
- * be deleted or switched off whenever that one lookup timed out.
+ * The slug and language of a platform row of this edition, '' when there is
+ * no such row (the write then finds nothing either), or the read's error. A
+ * read that failed stops the write: taken for "no such row", it let a sent
+ * mail's row be deleted or switched off whenever that one lookup timed out.
  */
-async function platformTemplateSlug(config: ServerConfig, id: string, edition: Edition): Promise<{ slug: string } | { error: string }> {
+async function platformTemplateRow(config: ServerConfig, id: string, edition: Edition): Promise<{ slug: string; locale: string } | { error: string }> {
   const { data, error } = await getServiceClient(config)
     .from('email_templates')
-    .select('slug')
+    .select('slug, locale')
     .eq('id', id)
     .is('workspace_id', null)
     .eq('edition', edition)
     .maybeSingle();
   if (error) return { error: error.message };
-  return { slug: String((data as { slug?: unknown } | null)?.slug ?? '') };
+  const row = data as { slug?: unknown; locale?: unknown } | null;
+  return { slug: String(row?.slug ?? ''), locale: String(row?.locale ?? '') };
+}
+
+/**
+ * A template is saved only as the platform may send it: without what would
+ * run or load anything once the mail is opened, or hide from its reader
+ * (refusedTemplateContent; the preview shows the same codes in words). True
+ * when the save was refused here.
+ */
+async function refuseTemplateContent(res: Response, config: ServerConfig, input: { edition: Edition; locale: string; html_body: string }): Promise<boolean> {
+  const problems = await refusedTemplateContent(config, input);
+  if (!problems.length) return false;
+  res.status(422).json({ error: 'template_content_refused', problems });
+  return true;
 }
 
 adminManagementRouter.post('/email-templates', async (req, res) => {
@@ -652,6 +667,7 @@ adminManagementRouter.post('/email-templates', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
+  if (await refuseTemplateContent(res, config, { edition, locale: parsed.data.locale, html_body: parsed.data.html_body })) return;
   // One platform row per (edition, slug, locale): a second save of the same
   // template updates it instead of adding a twin.
   const { data: existing } = await sb
@@ -698,11 +714,11 @@ adminManagementRouter.put('/email-templates/:id', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
-  if (!parsed.data.is_active) {
-    const row = await platformTemplateSlug(config, req.params.id, edition);
-    if ('error' in row) return res.status(500).json({ error: row.error });
-    if (isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
-  }
+  const row = await platformTemplateRow(config, req.params.id, edition);
+  if ('error' in row) return res.status(500).json({ error: row.error });
+  if (!parsed.data.is_active && isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
+  // No such row: the update below finds nothing, and says so.
+  if (row.slug && await refuseTemplateContent(res, config, { edition, locale: row.locale, html_body: parsed.data.html_body })) return;
   const { data, error } = await sb
     .from('email_templates')
     .update(parsed.data)
@@ -726,7 +742,7 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
-  const row = await platformTemplateSlug(config, req.params.id, edition);
+  const row = await platformTemplateRow(config, req.params.id, edition);
   if ('error' in row) return res.status(500).json({ error: row.error });
   if (isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
   const { error } = await sb

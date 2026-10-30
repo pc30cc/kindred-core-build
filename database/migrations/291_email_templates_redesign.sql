@@ -80,9 +80,12 @@
 -- file on the push that also rebuilds its backend (32), in an order nobody
 -- controls. Either this file reaches main in a push of its own once 32 is
 -- live, or it is entered in RESPOK's public._schema_migrations before the
--- merge and run there by hand once 32 is live, as on WebYar. A backend
--- rolled back past this file sends every mail bare: restore the old rows
--- from that dump first. It deletes nothing and changes no table's shape.
+-- merge (so the migrator skips it) and, once 32 is live, run there by hand
+-- as the file itself, `psql -v ON_ERROR_STOP=1 -f` on it as postgres: with
+-- its name in the ledger, scripts/migrate-database.sh skips it too, and
+-- says "Applied: 0". A backend rolled back past this file sends every mail
+-- bare: restore the old rows from that dump first. It deletes nothing and
+-- changes no table's shape.
 -- Safe to run twice: a replaced row is no longer as seeded, and a second run
 -- neither changes nor names it, nor touches a transcript container again.
 -- Like 284 to 289d, it sets lock_timeout 5s itself.

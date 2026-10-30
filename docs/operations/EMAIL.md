@@ -256,8 +256,12 @@ brand (291's header says the same):
    is live. On RESPOK the migrator (app 40) applies every new file on the
    push that also rebuilds backend 32, in an order nobody controls: 291
    reaches `main` in a push of its own once 32 is live, or it is entered in
-   RESPOK's `public._schema_migrations` before the merge and run by hand
-   once 32 is live, as on WebYar.
+   RESPOK's `public._schema_migrations` before the merge (so the migrator
+   skips it) and, once 32 is live, run by hand as the file itself:
+   `psql -v ON_ERROR_STOP=1 -f 291_email_templates_redesign.sql` as
+   `postgres` in RESPOK's database container. Not with
+   `scripts/migrate-database.sh`: with its name in the ledger, the script
+   skips it too and says "Applied: 0".
 4. **Rolling a backend back past 291** sends every mail bare: restore the
    old rows from the dump of step 1 first, then roll back.
 

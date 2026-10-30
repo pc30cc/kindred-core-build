@@ -39,6 +39,7 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   idpay_test:          { requiresPaymentReferenceBinding: true, callbackKeys: ['id'] },
   // Zibal create returns `trackId`; callback echoes `trackId`.
   zibal:               { requiresPaymentReferenceBinding: true, callbackKeys: ['trackId', 'trackid', 'track_id'] },
+  zibal_test:          { requiresPaymentReferenceBinding: true, callbackKeys: ['trackId', 'trackid', 'track_id'] },
   // NextPay create returns `trans_id`; callback echoes `trans_id`.
   nextpay:             { requiresPaymentReferenceBinding: true, callbackKeys: ['trans_id', 'transid'] },
   // PayPing v3 create returns `paymentCode`; the callback's `data` JSON echoes

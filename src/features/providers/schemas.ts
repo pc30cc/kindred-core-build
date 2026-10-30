@@ -715,6 +715,13 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
+    name: 'zibal_test', label: 'زیبال — سندباکس (Zibal-Test)',
+    description: 'حساب تستی زیبال (مرچنت zibal) برای تست کامل پرداخت — بدون تراکنش واقعی. تنظیمی لازم ندارد',
+    docsUrl: 'https://docs.zibal.ir',
+    locales: ['fa'], currency: 'IRR',
+    fields: [],
+  },
+  {
     name: 'iranpardakht_sandbox', label: 'ایران‌پرداخت — سندباکس (IranPardakht-Sandbox)',
     description: 'اتصال مستقیم به محیط آزمایشی رسمی ایران‌درگاه با مرچنت TEST — بدون تراکنش واقعی',
     docsUrl: 'https://docs.irandargah.com/#8614460e98',

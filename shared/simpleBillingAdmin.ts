@@ -648,6 +648,43 @@ export interface GatewayReadinessReport {
   gateways: GatewayReadiness[];
 }
 
+// ─── A gateway's display name (Finance → Gateways) ─────────────────────────
+
+/**
+ * The name customers see for a gateway (the payment method list, and the
+ * receipt of each payment settled after it is saved), one per panel
+ * language; a language without one shows the English, then the Persian name.
+ */
+export const GATEWAY_NAME_LOCALES = ['fa', 'en', 'tr'] as const;
+export type GatewayNameLocale = (typeof GATEWAY_NAME_LOCALES)[number];
+export const GATEWAY_NAME_MAX = 60;
+
+export type GatewayNameProblem = 'GATEWAY_NAME_REQUIRED' | 'GATEWAY_NAME_TOO_LONG' | 'GATEWAY_NAME_LOCALE';
+
+/**
+ * The names as stored: trimmed, inner runs of white space and control
+ * characters collapsed, empty ones dropped. A problem when a key is not a
+ * panel language, a name is longer than GATEWAY_NAME_MAX, or none is left
+ * (a customer would read the gateway's internal id).
+ */
+export function normalizeGatewayDisplayName(
+  input: unknown,
+): { names: Partial<Record<GatewayNameLocale, string>> } | { problem: GatewayNameProblem } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { problem: 'GATEWAY_NAME_REQUIRED' };
+  const names: Partial<Record<GatewayNameLocale, string>> = {};
+  for (const [locale, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!(GATEWAY_NAME_LOCALES as readonly string[]).includes(locale)) return { problem: 'GATEWAY_NAME_LOCALE' };
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string') return { problem: 'GATEWAY_NAME_REQUIRED' };
+    // eslint-disable-next-line no-control-regex
+    const name = value.replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+    if (!name) continue;
+    if (name.length > GATEWAY_NAME_MAX) return { problem: 'GATEWAY_NAME_TOO_LONG' };
+    names[locale as GatewayNameLocale] = name;
+  }
+  return Object.keys(names).length > 0 ? { names } : { problem: 'GATEWAY_NAME_REQUIRED' };
+}
+
 // ─── Plans form (server/routes/plans.ts) ───────────────────────────────────
 
 /**

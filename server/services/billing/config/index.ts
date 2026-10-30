@@ -58,6 +58,11 @@ const DEFAULT_DISPLAY_NAMES: Record<string, Record<string, string>> = {
     fa: 'Paddle — سندباکس (تست)',
     tr: 'Paddle — Sandbox (test)',
   },
+  zibal_test: {
+    en: 'Zibal (test)',
+    fa: 'زیبال (تست)',
+    tr: 'Zibal (test)',
+  },
 };
 
 function hasDisplayName(name: unknown): boolean {

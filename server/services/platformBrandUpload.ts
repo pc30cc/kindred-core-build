@@ -166,15 +166,20 @@ const XML_ENTITY = /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/;
 /** In an attribute or a stylesheet, a character reference could spell `url(` or `javascript:`. */
 const CHAR_REFERENCE = /&#/;
 
+const CSS_URL = /url\s*\(/gi;
+const CSS_LOCAL_URL = /url\s*\(\s*(['"]?)#[A-Za-z_][\w.:-]*\1\s*\)/gi;
+
 /** Every url(...) names a local fragment; nothing is imported, nothing scripted. */
 function cssIsStatic(css: string): boolean {
   const lowered = css.toLowerCase();
   if (/@import|@namespace|@font-face|expression\s*\(|javascript:|behavior\s*:|-moz-binding|image-set|cross-fade|element\s*\(|src\s*\(/.test(lowered)) return false;
   if (CHAR_REFERENCE.test(css)) return false;
-  // Escapes could spell any of those: none is needed for a drawing.
-  if (/\\[0-9a-f]/i.test(css)) return false;
-  const urls: string[] = css.match(/url\s*\(([^)]*)\)/gi) ?? [];
-  return urls.every((u) => LOCAL_REF.test(u.replace(/^url\s*\(\s*['"]?/i, '').replace(/['"]?\s*\)$/, '').trim()));
+  // A CSS escape stands for any character (`u\rl(`, `@i\mport`), so it could
+  // spell any of those: none is needed for a drawing.
+  if (css.includes('\\')) return false;
+  // Each url( must be a closed #local one: CSS also takes a url that runs,
+  // unclosed, to the end of the stylesheet or the attribute.
+  return (css.match(CSS_URL)?.length ?? 0) === (css.match(CSS_LOCAL_URL)?.length ?? 0);
 }
 
 function refuse(detail: string): never {
@@ -223,7 +228,9 @@ function keepAttribute(tag: string, attr: SvgAttr): boolean {
   // editor's notes, never drawn.
   if (lower.startsWith('xmlns:') || lower.startsWith('data-') || (name.includes(':') && !SVG_ATTRIBUTES.has(name))) return false;
   if (!SVG_ATTRIBUTES.has(name)) refuse(`<${tag}> ${name}`);
-  if (/url\s*\(/i.test(value) || name === 'style') {
+  // Presentation attributes are CSS values too, so any function or escape is
+  // checked, not only one that already reads url(.
+  if (/[(\\]/.test(value) || name === 'style') {
     if (!cssIsStatic(value)) refuse(`<${tag}> ${name}: only url(#local)`);
   }
   return true;
@@ -237,7 +244,8 @@ const TOKEN_RE = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCT
  * only the allowlisted elements and attributes pass, every reference is a
  * #local one (an <image> may embed a raster as a data: URL), and stylesheets
  * import nothing. Comments, processing instructions, the doctype (and any
- * entity it declares) and editor metadata are dropped.
+ * entity it declares) and editor metadata are dropped; inside a <style>, where
+ * dropping one would join the text around it, they are refused.
  */
 export function sanitizeBrandSvg(input: string): string {
   const source = String(input || '').replace(/^\uFEFF/, '');
@@ -246,7 +254,11 @@ export function sanitizeBrandSvg(input: string): string {
   let dropDepth = 0; // inside a dropped element (metadata, an editor's own)
   let sawRoot = false;
   let rootClosed = false;
-  let styleDepth = -1;
+  // A <style> is checked as one stylesheet, its text and CDATA joined as the
+  // browser joins them, so nothing may sit inside it that this loop would
+  // drop or step over (a comment, an element) to split `@import` or `url(`.
+  let inStyle = false;
+  let styleText: string[] = [];
   TOKEN_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   let consumed = 0;
@@ -255,7 +267,10 @@ export function sanitizeBrandSvg(input: string): string {
     consumed = TOKEN_RE.lastIndex;
     const token = m[0];
     if (token === '<') refuse('not well-formed');
-    if (token.startsWith('<!--') || token.startsWith('<?')) continue;
+    if (token.startsWith('<!--') || token.startsWith('<?')) {
+      if (inStyle) refuse('<style>: a comment or processing instruction inside');
+      continue;
+    }
     if (/^<!DOCTYPE/i.test(token)) {
       if (sawRoot) refuse('a doctype inside the drawing');
       continue;
@@ -263,9 +278,8 @@ export function sanitizeBrandSvg(input: string): string {
     if (token.startsWith('<![CDATA[')) {
       if (!stack.length) refuse('text outside <svg>');
       if (dropDepth) continue;
-      if (styleDepth === stack.length) {
-        const css = token.slice(9, -3);
-        if (!cssIsStatic(css)) refuse('<style>: only url(#local)');
+      if (inStyle) {
+        styleText.push(token.slice(9, -3));
         out.push(token);
         continue;
       }
@@ -280,13 +294,18 @@ export function sanitizeBrandSvg(input: string): string {
         dropDepth -= 1;
         continue;
       }
-      if (styleDepth === stack.length + 1) styleDepth = -1;
+      if (inStyle) {
+        if (!cssIsStatic(styleText.join(''))) refuse('<style>: only url(#local)');
+        inStyle = false;
+        styleText = [];
+      }
       out.push(`</${closing}>`);
       if (!stack.length) rootClosed = true;
       continue;
     }
     if (opening) {
       const selfClosing = m[4] === '/';
+      if (inStyle) refuse(`<style>: an element inside (<${opening}>)`);
       if (rootClosed) refuse('more than one root element');
       if (!sawRoot && opening !== 'svg') refuse(`the root is <${opening}>, not <svg>`);
       const attrs = parseAttributes(m[3] || '', opening);
@@ -314,7 +333,7 @@ export function sanitizeBrandSvg(input: string): string {
         if (opening === 'svg') rootClosed = true;
       } else {
         stack.push(opening);
-        if (opening === 'style') styleDepth = stack.length;
+        if (opening === 'style') inStyle = true;
       }
       continue;
     }
@@ -325,7 +344,7 @@ export function sanitizeBrandSvg(input: string): string {
     }
     if (dropDepth) continue;
     if (XML_ENTITY.test(token)) refuse('an entity');
-    if (styleDepth === stack.length && !cssIsStatic(token)) refuse('<style>: only url(#local)');
+    if (inStyle) styleText.push(token);
     out.push(token);
   }
   if (consumed !== source.length) refuse('not well-formed');

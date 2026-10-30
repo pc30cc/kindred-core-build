@@ -172,8 +172,27 @@ describe('an SVG', () => {
     ['an unquoted attribute', '<svg viewBox=0 0 1 1></svg>'],
     ['a stray "<"', svg('<rect width="1" height="1"/> < ')],
     ['a foreign default namespace', '<svg xmlns="http://www.w3.org/1999/xhtml" viewBox="0 0 1 1"></svg>'],
+    // A stylesheet is one unit: the browser joins a <style>'s text and CDATA,
+    // so nothing dropped or stepped over may split what is checked.
+    ['an @import split by a comment', svg('<style>@imp<!-- -->ort "https://evil.test/x.css";</style>')],
+    ['a url( split by a comment', svg('<style>.a{fill:url<!-- -->(https://evil.test/a)}</style>')],
+    ['an @import split by a processing instruction', svg('<style>@imp<?x?>ort "https://evil.test/x.css";</style>')],
+    ['a stylesheet after a nested <style>', svg('<style><style></style>@import "https://evil.test/x.css"; rect{fill:url(https://evil.test/a)}</style>')],
+    ['an @import split across CDATA', svg('<style>@imp<![CDATA[ort "https://evil.test/x.css";]]></style>')],
+    ['an @import split by an element', svg('<style>@imp<g/>ort "https://evil.test/x.css";</style>')],
+    ['an escape of a plain letter in a stylesheet', svg('<style>@i\\mport "https://evil.test/x.css";</style>')],
+    ['an escape of a plain letter in a style attribute', svg('<rect width="1" height="1" style="fill:u\\rl(https://evil.test/a)"/>')],
+    ['an escape of a plain letter in a presentation attribute', svg('<rect width="1" height="1" fill="u\\rl(https://evil.test/a)"/>')],
+    ['an unclosed url( in an attribute', svg('<rect width="1" height="1" fill="url(https://evil.test/a"/>')],
+    ['an unclosed url( at the end of a stylesheet', svg('<style>.a{fill:url(https://evil.test/a</style>')],
+    ['an unclosed url( with a local start', svg('<style>.a{fill:url(#g https://evil.test/a</style>')],
   ])('refuses %s', (_what, source) => {
     expect(code(() => sanitizeBrandSvg(source))).toBe('svg_not_allowed');
+  });
+
+  it('a stylesheet in parts (text and CDATA) passes when the whole is static', () => {
+    const drawing = svg('<style>.a{fill:url(#g)}<![CDATA[ .b > .c{stroke:url( "#g" )} ]]>.d{opacity:.5}</style><rect class="a" width="1" height="1" transform="translate(1 2) rotate(45)"/>');
+    expect(sanitizeBrandSvg(drawing)).toBe(drawing);
   });
 
   it('a refused SVG is a 400 that says what was found', () => {

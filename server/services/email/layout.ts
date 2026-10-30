@@ -1043,15 +1043,22 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
   );
 }
 
-/** Letters of the scripts written right to left; any other letter is a left-to-right one. */
-const RTL_LETTER = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u;
-const LETTER = /\p{L}/u;
+/**
+ * What gives a line its direction, as a browser's `dir="auto"` reads it (the
+ * first character of bidi class R, AL or L): a letter of a script written
+ * right to left (the Arabic tatweel too), or the marks RLM and ALM a writer
+ * types for it, read right to left; any other letter, or LRM, left to right.
+ * Digits, signs and combining marks give none.
+ */
+const RTL_STRONG = /[\u200F\u061C]|(?=\p{L})[\p{Script_Extensions=Arabic}\p{Script_Extensions=Hebrew}\p{Script_Extensions=Syriac}\p{Script_Extensions=Thaana}\p{Script_Extensions=Nko}]/u;
+const LTR_STRONG = /[\u200E\p{L}]/u;
 
 /**
  * The direction an element's own `dir` gives its words, written out: as
- * written for `rtl` or `ltr`, and for `auto` that of its first letter, as a
- * browser reads `dir="auto"` (Outlook does not, and would set the text the
- * mail's way), else the mail's when it has none (digits, signs, emoji).
+ * written for `rtl` or `ltr`, and for `auto` that of its first letter or
+ * mark (RTL_STRONG, LTR_STRONG), as a browser reads `dir="auto"` (Outlook
+ * does not, and would set the text the mail's way), else the mail's when it
+ * has none (digits, signs, emoji).
  * Null when the element sets none.
  */
 function textDirection(attrs: Attr[], content: Node[], ctx: StyleContext): 'rtl' | 'ltr' | null {
@@ -1059,10 +1066,10 @@ function textDirection(attrs: Attr[], content: Node[], ctx: StyleContext): 'rtl'
   if (dir === 'rtl' || dir === 'ltr') return dir;
   if (dir !== 'auto') return null;
   for (const ch of decodeEntities(rawText(content))) {
-    // Only a letter counts: Persian and Arabic digits are of the Arabic
-    // script, but a browser passes them by, as it does any other digit.
-    if (!LETTER.test(ch)) continue;
-    return RTL_LETTER.test(ch) ? 'rtl' : 'ltr';
+    // Persian and Arabic digits are of the Arabic script, but no letters:
+    // a browser passes them by, as it does any other digit.
+    if (RTL_STRONG.test(ch)) return 'rtl';
+    if (LTR_STRONG.test(ch)) return 'ltr';
   }
   return ctx.rtl ? 'rtl' : 'ltr';
 }

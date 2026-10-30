@@ -205,6 +205,15 @@ describe('a transcript\'s sides follow who reads it', () => {
     expect(bubbles(styleContent(rows('۰۹۱۲۱۲۳۴۵۶۷ shomare-ye man'), fa))).toEqual([ltr]);
   });
 
+  it('the bidi marks a writer types to set a line\'s direction count as a browser counts them, and the tatweel is an Arabic letter', () => {
+    const bubbles = (html: string) => [...html.matchAll(/<td dir="(ltr|rtl)" class="x-b[ro]"[^>]*style="[^"]*text-align:(left|right);[^"]*" align="(left|right)">/g)].map((m) => m.slice(1));
+    const [rtl, ltr] = [['rtl', 'right', 'right'], ['ltr', 'left', 'left']];
+    const rows = (...texts: string[]) => `<div class="transcript">${texts.map((t) => transcriptRow('visitor', 'Sara', t)).join('')}</div>`;
+    // RLM or ALM before a Latin word keeps a Persian line right to left; LRM before a Persian word makes one left to right.
+    expect(bubbles(styleContent(rows('‏WebYar رو چطور نصب کنم؟', '؜WebYar رو چطور نصب کنم؟', '‎سلام Hello', 'ـسلام'), fa))).toEqual([rtl, rtl, ltr, rtl]);
+    expect(bubbles(styleContent(rows('‏WebYar رو چطور نصب کنم؟', 'ـسلام'), en))).toEqual([rtl, rtl]);
+  });
+
   it('right to left, the end side is the left one; a notice stays in the middle', () => {
     expect(sides(styleContent(teamCopy, fa))).toEqual([
       ['right', 'x-bo', EMAIL_PALETTES.iran.light.bubbleOther],

@@ -82,13 +82,15 @@ a code change or a deploy. The stored shape is
 1. `to` must be exactly one plain address, at most 254 characters, else
    `invalid_recipient`.
 2. A suppressed address (below) is not mailed: `suppressed`.
-3. The template of the running edition is filled in.
+3. The template of the running edition is filled in (the caller's own text
+   when the row is missing; no edition, no mail: `edition_unavailable`).
 4. The provider must be ready (an adapter, its required fields, a valid From).
-5. One message: From as name and address, quoted by the adapter; a text part
-   always (derived from the HTML, links kept, when the template has none);
+5. The layout around it, with the brand as it is now (below, "The layout").
+6. One message: From as name and address, quoted by the adapter; a text part
+   always (derived from the content, links kept, when the template has none);
    `Reply-To` from `reply_to`; `Auto-Submitted: auto-generated`; and, when the
    caller gives one, the one-click unsubscribe pair (below).
-6. The adapter sends within its timeouts: SMTP connect 10 s, greeting 10 s,
+7. The adapter sends within its timeouts: SMTP connect 10 s, greeting 10 s,
    socket 30 s; HTTP APIs 15 s. A timeout is transient.
 
 Every outcome is a row in `email_logs` (once the workspace is known), with
@@ -103,6 +105,79 @@ Postfix's queue id, the key to its log lines.
 `sent` means the provider accepted the mail, not that it was delivered: with
 the relay, Postfix accepted it into its queue. A later refusal by the
 recipient's server comes back as a bounce (below).
+
+## The layout (since 2026-10-30)
+
+Every platform mail wears one layout, in code (`server/services/email/layout.ts`,
+the "brand band" design the owner chose): a band in the brand's colour with
+the logo, a white card rising out of it, the logos' chat-bubble tail on the
+card, the button, the code box, the details and the callouts, one saffron
+(WebYar) or signal (RESPOK) dash above the title, and the footer under the
+card. The email core wraps a mail in it when it sends it, so a queued mail
+wears the brand as it is then:
+
+- a template row's content, a caller's own text when the row is missing (a
+  caller's whole document gives its body), and a request with no template
+  (the Super Admin provider test is the template `email_test` now);
+- not a row that is a whole document of its own (it holds `<html`): a Super
+  Admin's hand-made full design goes as it is, the unsubscribe line before
+  its `</body>`.
+
+**What a row holds.** Only the content, in this vocabulary; anything else
+passes through as it is, and an inline `style` of the author's wins over ours:
+
+| Element | Role |
+| --- | --- |
+| `div.preheader` (first, optional) | the hidden inbox preview |
+| `h1` (one) | the title |
+| `p`, `p.note` | a paragraph; small muted text |
+| `p.action > a` | the button (exactly one link; anything else stays a paragraph) |
+| `div.code` | a one-time code: left to right, a Latin face |
+| `table.details > tr > th + td` | a key/value summary (`td dir="ltr"` for a phone or a card) |
+| `blockquote` | a customer's own words |
+| `div.warning`, `div.notice` | callouts |
+| `hr`, `strong`, `a`, `br` | separators and inline text |
+| `div.transcript > div.msg.msg-visitor\|msg-agent > div.meta + div.bubble` | a chat transcript |
+
+**What the core adds at send time.** `{brand}` (the platform's name in the
+template's language), `{year}` (the Persian year in a Persian mail of the
+Iranian edition) and `{support_email}`, under the caller's values; the
+caller's words for the template's own language (`localizedData`) over them.
+The layout reads the logo from `resolveBrandAssets`
+(`server/services/platformBrandAssets.ts`, the one place the project reads a
+logo; PNGs, the dark variant on the band, the light one on a paper plate when
+there is no dark one), the app's address (`platform_domains.app_base_url`),
+the legal line (the language's `footer_company_text`, else © the year and
+`legal_company_display_name`, else © the year and the brand) and the line
+saying why the mail came, by its category, in fa, en and tr. A notification's
+unsubscribe line takes that line's place, inside the footer.
+
+**Language, not brand.** Direction and fonts follow the mail's language: a
+Persian mail is right to left in IRANSans in both editions, English and
+Turkish are Figtree (the widget's font files, `/widget/fonts/` on the app's
+host). Outlook gets Tahoma or Segoe UI (it shows Times for a web font).
+
+**Dark mode.** Apple Mail, iOS Mail and the Outlook apps get the dark palette
+by `prefers-color-scheme`, Outlook.com by its `data-ogsc`/`data-ogsb` hooks;
+Gmail inverts by itself, and the band and the dash hold their colour there.
+An author's element with its own background keeps its own text colour; an
+author's colour alone gets the dark colour on a dark card.
+
+**The text part** is the row's `text_body` when it has one, else the content
+as text (no preheader, images by their alt text, links with their targets, a
+details row as "Label: value") and the footer's lines.
+
+**Super Admin → Branding's preview** renders through the same path
+(`renderEmailForPreview` in `server/services/email/index.ts`): the same fill,
+layout and brand, with a light or dark scheme forced on request.
+
+**Looking at it.** `scripts/email/render-all-templates.mts` renders every row
+of a database (`--database`), the seeds of a fresh chain (`--fresh`), or a
+samples file (`--samples`) through the real core into HTML, text, shots
+(desktop and mobile, light and dark) and contact sheets, with the brand hosts
+served from `public/`. `--no-web-fonts` and `--gmail-invert` add the renders
+Gmail and Outlook show (no web fonts; Gmail's forced dark). A development
+tool: it sends nothing and only reads a database.
 
 ## The outbox: retries
 

@@ -225,7 +225,8 @@ suite('289c — the operator notification emails (real PostgreSQL, real email co
       expect(provider.sent).toHaveLength(1);
       const [mail] = provider.sent;
       expect(mail.subject).toBe(`Transcript — ${evil}`);
-      expect(mail.html).toContain('<p>← &lt;a href=//evil.example&gt;Verify your account&lt;/a&gt; please</p>');
+      // A paragraph of its own (the layout gives it its look), its words as text.
+      expect(mail.html).toMatch(/<p\b[^>]*>← &lt;a href=\/\/evil\.example&gt;Verify your account&lt;\/a&gt; please<\/p>/);
       expect(mail.html).toContain('&lt;b&gt;Mina&lt;/b&gt;');
       expect(mail.html).not.toContain('<b>Mina</b>');
       expect(mail.headers['List-Unsubscribe']).toContain('/api/notifications/email/unsubscribe/');

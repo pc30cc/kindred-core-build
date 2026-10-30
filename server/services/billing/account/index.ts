@@ -51,6 +51,15 @@ export class AccountBillingError extends Error {
   }
 }
 
+/**
+ * The status of a failure outside this server that the customer must read
+ * (a gateway's refusal and its reason, a storage that failed). Never 502 or
+ * 504: Cloudflare, in front of the API, answers an origin's 502 or 504 with
+ * its own error page, so the browser read "something went wrong" instead of
+ * the reason (Zibal's 103, "the gateway is inactive", 2026-10-30).
+ */
+export const UPSTREAM_FAILURE_STATUS = 424;
+
 export interface BillingSettingsRow {
   edition: Edition;
   seller: SellerProfile;

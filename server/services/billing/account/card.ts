@@ -75,6 +75,7 @@ import {
 } from '../../../../shared/simpleBilling.js';
 import {
   AccountBillingError,
+  UPSTREAM_FAILURE_STATUS,
   failAccountPayment,
   getBillingSettings,
   patchAccountPayment,
@@ -426,7 +427,7 @@ function providerError(r: PaddleResult<unknown>): AccountBillingError {
   const code = r.error?.code ?? `http_${r.status}`;
   if (isLocked(r)) return new AccountBillingError('CARD_RENEWAL_IN_PROGRESS', 409, { frozen_until: null, code });
   if (isPastDueRefusal(r)) return new AccountBillingError('CARD_PAST_DUE', 409, { code });
-  return new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code });
+  return new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code });
 }
 
 /** Paddle's subscription is already cancelled (a cancel call refused because of it). */
@@ -1685,7 +1686,7 @@ export async function chargeCardForUpgrade(
     if (!preview.ok) return refuse('charge_preview_failed', providerError(preview));
     if (preview.chargedMinor !== charge.total || (preview.creditMinor ?? 0) !== 0) {
       console.error(`[billing-card] REVIEW payment=${paymentId} Paddle's preview charges ${preview.chargedMinor} before tax (${preview.grandTotalMinor} with it, credit ${preview.creditMinor}), not ${charge.total}`);
-      return refuse('charge_preview_mismatch', new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'preview_mismatch' }));
+      return refuse('charge_preview_mismatch', new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'preview_mismatch' }));
     }
     // From here Paddle may charge: the row is resolved by looking the charge up, never retried.
     const { data: marked, error: markError } = await getServiceClient(config)
@@ -1802,7 +1803,7 @@ export async function removeCard(config: ServerConfig, workspaceId: string): Pro
   const card = await readLiveCard(config, workspaceId);
   if (!card) throw new AccountBillingError('CARD_NOT_FOUND', 404);
   const cfg = await paddleConfigOf(config, card).catch(() => {
-    throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'not_configured' });
+    throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'not_configured' });
   });
   const res = await cancelAtPaddle(config, cfg, card, 'immediately');
   if (!res.ok) throw providerError(res.result);
@@ -1852,7 +1853,7 @@ export async function setCardAutoRenew(config: ServerConfig, workspaceId: string
     return writeAutoRenew(config, workspaceId, enabled);
   }
   const cfg = await paddleConfigOf(config, card).catch(() => {
-    throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'not_configured' });
+    throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'not_configured' });
   });
   const scheduled = card.paddle_scheduled_change?.action === 'cancel';
   if (!enabled) {
@@ -1861,7 +1862,7 @@ export async function setCardAutoRenew(config: ServerConfig, workspaceId: string
       // collectable (Paddle's retries, "update card and pay") and its money
       // unspent: the card stops now, which ends both. The plan runs to its end.
       if (!(await cancelCardNow(config, card.id, 'auto_renew_off'))) {
-        throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'cancel_failed' });
+        throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'cancel_failed' });
       }
       await mailCardRemoved(config, card, 'period_end');
       return writeAutoRenew(config, workspaceId, false);
@@ -1907,7 +1908,7 @@ export async function cardUpdateCheckout(
   const card = await readLiveCard(config, workspaceId);
   if (!card) throw new AccountBillingError('CARD_NOT_FOUND', 404);
   const gateway = await cardGateway(config, workspaceId, card.provider).catch(() => {
-    throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'not_configured' });
+    throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'not_configured' });
   });
   const res = await getUpdatePaymentMethodTransaction(gateway.paddle, card.subscription_id);
   if (!res.ok || !res.transactionId) throw providerError(res);
@@ -1984,14 +1985,14 @@ export async function cancelCardNow(config: ServerConfig, cardId: string, reason
 /** Moves Paddle's next charge to `at` without billing (preview first, P4). */
 async function movePaddleDate(config: ServerConfig, card: CardRow, at: string): Promise<void> {
   const cfg = await paddleConfigOf(config, card).catch(() => {
-    throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'not_configured' });
+    throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'not_configured' });
   });
   const patch: SubscriptionPatch = { next_billed_at: at, proration_billing_mode: 'do_not_bill' };
   const preview = await previewSubscriptionUpdate(cfg, card.subscription_id, patch);
   if (!preview.ok) throw providerError(preview);
   if (preview.billsNow) {
     console.error(`[billing-card] REVIEW card=${card.id} moving Paddle's date to ${at} would bill now; not applied`);
-    throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'preview_bills' });
+    throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'preview_bills' });
   }
   const updated = await updateSubscription(cfg, card.subscription_id, patch);
   if (!updated.ok) throw providerError(updated);
@@ -2051,7 +2052,7 @@ export async function renewWithCard(
       return result;
     }
     if (!(await cancelCardNow(config, card.id, 'renewed_from_balance'))) {
-      throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'cancel_failed' });
+      throw new AccountBillingError('CARD_PROVIDER_ERROR', UPSTREAM_FAILURE_STATUS, { code: 'cancel_failed' });
     }
     return renew();
   }

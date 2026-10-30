@@ -53,6 +53,32 @@ describe('the files', () => {
     expect(sniffBrandImage(Buffer.from('\uFEFF<?xml version="1.0"?>\n<!-- Illustrator -->\n<svg viewBox="0 0 1 1"></svg>'))).toBe('svg');
     expect(sniffBrandImage(Buffer.from('<html><svg></svg></html>'))).toBeNull();
     expect(sniffBrandImage(Buffer.from('GIF89a'))).toBeNull();
+    // A prolog left open is not an SVG.
+    expect(sniffBrandImage(Buffer.from('<!-- open <svg viewBox="0 0 1 1"></svg>'))).toBeNull();
+    expect(sniffBrandImage(Buffer.from('<!DOCTYPE svg [<!ENTITY a "b"> <svg viewBox="0 0 1 1"></svg>'))).toBeNull();
+  });
+
+  it('knows an SVG past any prolog an editor writes', () => {
+    const drawing = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h1"/></svg>';
+    // Illustrator's "Save As SVG": a doctype with an internal subset.
+    const illustrator = '<?xml version="1.0" encoding="utf-8"?>\n<!-- Generator: Adobe Illustrator 28.0.0 -->\n'
+      + '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [\n'
+      + '\t<!ENTITY ns_svg "http://www.w3.org/2000/svg">\n\t<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">\n]>\n';
+    // A licence header longer than any fixed head of the file.
+    const licence = `<!--\n${'Licensed under the terms below. '.repeat(200)}\n-->\n`;
+    for (const prolog of [illustrator, licence, '<?xml-stylesheet href="#s"?><!----><!---->']) {
+      expect(sniffBrandImage(Buffer.from(prolog + drawing))).toBe('svg');
+      expect(checkBrandOriginal('image/svg+xml', b64(prolog + drawing)).bytes.toString('utf8')).toBe(drawing);
+    }
+  });
+
+  it('reads a long run of comments in linear time (the check runs on the request thread)', () => {
+    // A repeated group of lazy comments in one regex took seconds at 26
+    // empty comments and doubled with each one or two more.
+    const started = performance.now();
+    expect(sniffBrandImage(Buffer.from(`${'<!---->'.repeat(500)}x`))).toBeNull();
+    expect(code(() => checkBrandOriginal('image/svg+xml', b64(`${'<!---->'.repeat(500)}x`)))).toBe('unsupported_type');
+    expect(performance.now() - started).toBeLessThan(200);
   });
 
   it('refuses a declared type its bytes do not have (415)', () => {

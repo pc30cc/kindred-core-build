@@ -63,12 +63,58 @@ export function decodeBrandFile(data: string, what = 'file'): Buffer {
   return bytes;
 }
 
+/**
+ * Where an SVG's root element begins: past the prolog an editor may write
+ * before it (whitespace, the XML declaration and other processing
+ * instructions, comments, a doctype with or without an internal subset), the
+ * same tokens sanitizeBrandSvg drops. -1 when one of them is never closed.
+ * A loop of indexOf rather than one regex: a repeated group of lazy comments
+ * can split a run of `<!---->` in exponentially many ways, and this runs on
+ * the request's own thread.
+ */
+function svgRootStart(text: string): number {
+  let at = 0;
+  for (;;) {
+    while (at < text.length && /\s/.test(text[at])) at += 1;
+    const closeAt = (open: number, close: string) => {
+      const end = text.indexOf(close, open);
+      return end < 0 ? -1 : end + close.length;
+    };
+    let next: number;
+    if (text.startsWith('<!--', at)) next = closeAt(at + 4, '-->');
+    else if (text.startsWith('<?', at)) next = closeAt(at + 2, '?>');
+    else if (text.slice(at, at + 9).toUpperCase() === '<!DOCTYPE') next = doctypeEnd(text, at + 9);
+    else return at;
+    if (next < 0) return -1;
+    at = next;
+  }
+}
+
+/** The end of a doctype whose name starts at `from`: at its `>`, or past `]` and `>` of an internal subset. */
+function doctypeEnd(text: string, from: number): number {
+  let at = from;
+  while (at < text.length && text[at] !== '>' && text[at] !== '[') at += 1;
+  if (at >= text.length) return -1;
+  if (text[at] === '>') return at + 1;
+  // An internal subset ends at the first `]` followed (after any space) by
+  // `>`, as the sanitiser's own token reads it.
+  for (let close = text.indexOf(']', at); close >= 0; close = text.indexOf(']', close + 1)) {
+    let after = close + 1;
+    while (after < text.length && /\s/.test(text[after])) after += 1;
+    if (text[after] === '>') return after + 1;
+  }
+  return -1;
+}
+
 /** What the bytes are, by their own signature (never by the name or the declared type). */
 export function sniffBrandImage(bytes: Buffer): BrandImageType | null {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return 'png';
   if (bytes.length >= 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'webp';
-  const head = bytes.subarray(0, 4096).toString('utf8').replace(/^\uFEFF/, '');
-  if (/^\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*|<!DOCTYPE[^>[]*>\s*)*<svg[\s>]/i.test(head)) return 'svg';
+  // The whole file (at most MAX_BRAND_FILE_BYTES), not a head: a licence
+  // comment before the root can be longer than any fixed head.
+  const text = bytes.toString('utf8').replace(/^\uFEFF/, '');
+  const root = svgRootStart(text);
+  if (root >= 0 && /^<svg[\s>]/i.test(text.slice(root, root + 5))) return 'svg';
   return null;
 }
 

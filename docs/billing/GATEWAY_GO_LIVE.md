@@ -13,12 +13,12 @@ Live and test are separate gateways that run the same code:
 | Live | Its sandbox (already tested end to end) |
 |---|---|
 | `zarinpal` | `zarinpal_test` (and `internal_test`) |
-| `zibal` | `zibal_test` |
+| `zibal` | `zibal_test` (its API probed from the production server on 2026-10-30, section 1b; not yet run through the app: do step 1 of 1b once) |
 | `paddle` | `paddle_sandbox` |
 
 The live gateways have **no sandbox switch**. Live `zarinpal` always talks to `api.zarinpal.com` and `www.zarinpal.com`. Live `zibal` always sends the merchant code saved in Providers and refuses Zibal's test merchant `zibal`; `zibal_test` always sends `zibal`. Live `paddle` always talks to `api.paddle.com` and runs Paddle.js in `production`. A sandbox switch stored earlier is ignored. The only differences from the sandbox are the hosts and the credentials. Requests, verification, callbacks, webhooks, amounts and refunds are the same code.
 
-**The name customers see** is the Super Admin's: Finance → Gateways → the pencil next to a gateway's name. There is one field per panel language (Persian, English, Turkish), each up to 60 characters. A language left empty shows the English name, then the Persian one, and at least one name is required, so a customer never sees a gateway's internal id. The name appears in the customer's list of payment methods, and it is copied onto the receipt of each payment settled after it is saved; earlier receipts keep the name they were issued with. The gateway's own page (Zibal's, ZarinPal's, Paddle's) shows the gateway's brand, which this setting cannot change.
+**The name customers see** is the Super Admin's: Finance → Gateways → the pencil next to a gateway's name. There is one field per panel language (Persian, English, Turkish), each up to 60 characters. A language left empty shows another language's name (English first, then Persian, then Turkish), and at least one name is required, so a customer never sees a gateway's internal id. The name appears in the customer's list of payment methods, and it is copied onto the receipt of each payment settled after it is saved; earlier receipts keep the name they were issued with. The gateway's own page (Zibal's, ZarinPal's, Paddle's) shows the gateway's brand, which this setting cannot change.
 
 Super Admin paths used below:
 
@@ -102,7 +102,7 @@ On the gateway in Zibal's panel:
 
 ### Order of steps
 
-1. Optional, before the merchant code exists: **Finance → Gateways**, switch **`zibal_test`** on (currency IRR). It needs no settings. Only platform admins are offered it, with the "Test gateway" badge. Top up from a WebYar workspace with it, press pay on Zibal's test page, and the billing page shows **succeeded** with a receipt. Then switch it off again.
+1. Before the merchant code exists, once: **Finance → Gateways**, switch **`zibal_test`** on (currency IRR). It needs no settings. Its first switch stores its name ("Zibal (test)") and puts it after the other gateways. Only platform admins are offered it, with the "Test gateway" badge. Top up from a WebYar workspace with it, press pay on Zibal's test page, and the billing page shows **succeeded** with a receipt. Then switch it off again.
 2. **Providers → Zibal (`zibal`)**: enter the merchant code and save.
 3. Press **Test**. The server sends a real payment request (20,000 Rial, never paid) with `https://app.webyar.ai/billing` as the callback. It shows success only on result 100. Otherwise it shows Zibal's code and meaning: 102 merchant not found, 103 inactive (or the contract is not signed), 104 invalid, 106 callback domain refused, 115 server IP not registered.
 4. **Finance → Gateways**: switch `zibal` **on** with currency IRR. It is listed after ZarinPal (its seeded order, 3). The first listed gateway is preselected for the customer, who can pick the other. Optionally set the name customers see with the pencil. The readiness card must show it **Listed** for IRR.

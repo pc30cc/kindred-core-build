@@ -653,7 +653,8 @@ export interface GatewayReadinessReport {
 /**
  * The name customers see for a gateway (the payment method list, and the
  * receipt of each payment settled after it is saved), one per panel
- * language; a language without one shows the English, then the Persian name.
+ * language; a language without one shows the English, then the Persian,
+ * then the Turkish name (gatewayLabel).
  */
 export const GATEWAY_NAME_LOCALES = ['fa', 'en', 'tr'] as const;
 export type GatewayNameLocale = (typeof GATEWAY_NAME_LOCALES)[number];

@@ -77,7 +77,8 @@ export function toMinorAmount(display: number, currency: string): number | null 
 /** The label of a gateway in this locale. */
 export function gatewayLabel(displayName: Record<string, string> | null | undefined, provider: string, locale: string): string {
   const names = displayName ?? {};
-  return names[locale] || names.en || names.fa || provider;
+  const any = Object.values(names).find((name) => typeof name === 'string' && name.trim() !== '');
+  return names[locale] || names.en || names.fa || any || provider;
 }
 
 /** The plan's name in this locale (billing_plans.localized), else its stored name. */

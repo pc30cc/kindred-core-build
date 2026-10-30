@@ -70,6 +70,23 @@ describe('GatewaysTab: the gateway\'s display name', () => {
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
+  it('a pasted name with spaces around it is not cut before it is trimmed', async () => {
+    const name = 'N'.repeat(60);
+    await openDialog();
+    fireEvent.change(screen.getByLabelText('English'), { target: { value: `  ${name}  ` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.saveGateway).toHaveBeenCalledTimes(1));
+    expect(api.saveGateway.mock.calls[0][0].display_name.en).toBe(name);
+  });
+
+  it('a name over 60 characters is refused on Save, before any call', async () => {
+    await openDialog();
+    fireEvent.change(screen.getByLabelText('English'), { target: { value: 'N'.repeat(61) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/at most 60 characters/);
+    expect(api.saveGateway).not.toHaveBeenCalled();
+  });
+
   it('the row shows the stored name (English, else Persian), never a blank', async () => {
     api.rows = [zibal({ fa: 'پرداخت آنلاین' })];
     render(<GatewaysTab />);

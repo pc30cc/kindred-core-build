@@ -152,6 +152,25 @@ export async function upsertGateway(
   for (const k of ['display_name', 'is_active', 'is_test', 'currencies', 'countries', 'sort_order'] as const) {
     if (input[k] !== undefined) payload[k] = input[k];
   }
+  // A gateway shipped without a seeded row (zibal_test, paddle_sandbox) gets
+  // one on its first switch or currency change. It stores the name the list
+  // showed, since a receipt copies the STORED name (the settle SQL), and
+  // takes a place after the others (the column default 0 would put a test
+  // gateway first, preselected ahead of the live ones).
+  const fallbackName = DEFAULT_DISPLAY_NAMES[input.provider_name];
+  if ((payload.display_name === undefined && fallbackName) || payload.sort_order === undefined) {
+    const rows = (ok(
+      await db(config).from('billing_gateways').select('provider_name, display_name, sort_order'),
+      'gateways_read_failed',
+    ) || []) as Pick<Gateway, 'provider_name' | 'display_name' | 'sort_order'>[];
+    const stored = rows.find((g) => g.provider_name === input.provider_name);
+    if (payload.display_name === undefined && fallbackName && !hasDisplayName(stored?.display_name)) {
+      payload.display_name = fallbackName;
+    }
+    if (payload.sort_order === undefined && !stored) {
+      payload.sort_order = rows.reduce((m, g) => Math.max(m, g.sort_order ?? 0), 0) + 1;
+    }
+  }
   return ok(
     await db(config).from('billing_gateways').upsert(payload, { onConflict: 'provider_name' }).select().single(),
     'gateway_write_failed',

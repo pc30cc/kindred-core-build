@@ -8,6 +8,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import express from 'express';
 import { GATEWAY_NAME_MAX, normalizeGatewayDisplayName } from '../../../shared/simpleBillingAdmin';
+import { gatewayLabel } from '../../../src/pages/app/billing/account/accountUi';
 
 const state = vi.hoisted(() => ({
   edition: 'iran' as 'iran' | 'international',
@@ -111,6 +112,19 @@ describe('normalizeGatewayDisplayName', () => {
   });
 });
 
+describe('gatewayLabel: the name a customer reads', () => {
+  it('their language, else English, else Persian, else any stored name; the id only when none is stored', () => {
+    expect(gatewayLabel({ fa: 'زیبال', en: 'Zibal' }, 'zibal', 'fa')).toBe('زیبال');
+    expect(gatewayLabel({ fa: 'زیبال', en: 'Zibal' }, 'zibal', 'tr')).toBe('Zibal');
+    expect(gatewayLabel({ fa: 'زیبال' }, 'zibal', 'en')).toBe('زیبال');
+    // A Turkish-only name (the rule accepts it) is never replaced by the id.
+    expect(gatewayLabel({ tr: 'Kredi kartı' }, 'paddle', 'fa')).toBe('Kredi kartı');
+    expect(gatewayLabel({ tr: 'Kredi kartı' }, 'paddle', 'en')).toBe('Kredi kartı');
+    expect(gatewayLabel({}, 'zibal_test', 'fa')).toBe('zibal_test');
+    expect(gatewayLabel(null, 'zibal_test', 'fa')).toBe('zibal_test');
+  });
+});
+
 describe('PUT /api/admin/billing/gateways: display_name', () => {
   it('stores the Super Admin\'s name, normalized, and nothing else it was not sent', async () => {
     const r = await call('PUT', '/api/admin/billing/gateways', { provider_name: 'zibal', display_name: { fa: '  پرداخت آنلاین ', en: 'Online payment', tr: '' } });
@@ -134,6 +148,32 @@ describe('PUT /api/admin/billing/gateways: display_name', () => {
   it('a switch or currency change leaves the name alone', async () => {
     expect((await call('PUT', '/api/admin/billing/gateways', { provider_name: 'zibal', is_active: true })).status).toBe(200);
     expect(state.upserts[0].row).toEqual({ provider_name: 'zibal', is_active: true });
+  });
+
+  it('the first switch of zibal_test (no row yet) stores its name, since receipts copy the stored one, and puts it last', async () => {
+    expect((await call('PUT', '/api/admin/billing/gateways', { provider_name: 'zibal_test', is_active: true })).status).toBe(200);
+    expect(state.upserts).toEqual([{ table: 'billing_gateways', row: {
+      provider_name: 'zibal_test', is_active: true,
+      display_name: { en: 'Zibal (test)', fa: 'زیبال (تست)', tr: 'Zibal (test)' },
+      sort_order: 4,
+    } }]);
+  });
+
+  it('a zibal_test row stored without a name gets it on its next change; its place is kept', async () => {
+    state.tables.billing_gateways.push({ provider_name: 'zibal_test', is_active: false, is_test: false, currencies: [], countries: [], sort_order: 0, display_name: {}, config: {} });
+    expect((await call('PUT', '/api/admin/billing/gateways', { provider_name: 'zibal_test', currencies: ['IRR'] })).status).toBe(200);
+    expect(state.upserts[0].row).toEqual({ provider_name: 'zibal_test', currencies: ['IRR'], display_name: { en: 'Zibal (test)', fa: 'زیبال (تست)', tr: 'Zibal (test)' } });
+  });
+
+  it('the Super Admin\'s own name for zibal_test is kept, never replaced by the default', async () => {
+    state.tables.billing_gateways.push({ provider_name: 'zibal_test', is_active: true, is_test: false, currencies: ['IRR'], countries: [], sort_order: 9, display_name: { fa: 'آزمایشی' }, config: {} });
+    expect((await call('PUT', '/api/admin/billing/gateways', { provider_name: 'zibal_test', is_active: false })).status).toBe(200);
+    expect(state.upserts[0].row).toEqual({ provider_name: 'zibal_test', is_active: false });
+  });
+
+  it('a gateway without a default name, switched on before it has a row, gets no invented name, only a place last', async () => {
+    expect((await call('PUT', '/api/admin/billing/gateways', { provider_name: 'payping', is_active: true })).status).toBe(200);
+    expect(state.upserts[0].row).toEqual({ provider_name: 'payping', is_active: true, sort_order: 4 });
   });
 
   it('an Iranian gateway\'s name cannot be set in the International edition', async () => {

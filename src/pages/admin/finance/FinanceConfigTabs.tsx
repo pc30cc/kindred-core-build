@@ -31,7 +31,7 @@ const DICT = {
     active: 'فعال', gateways: 'درگاه‌های پرداخت', provider: 'درگاه', allowedCurrencies: 'ارزهای مجاز',
     test: 'تست', notImplemented: 'بدون پیاده‌سازی', saved: 'ذخیره شد', failed: 'انجام نشد',
     editName: 'تغییر عنوان نمایشی', nameTitle: 'عنوان نمایشی درگاه',
-    nameHint: 'مشتری همین عنوان را در فهرست روش‌های پرداخت می‌بیند، و روی رسید پرداخت‌هایی که از این پس انجام شوند می‌آید. زبانی که خالی بماند عنوان انگلیسی، و سپس فارسی، را نشان می‌دهد.',
+    nameHint: 'مشتری همین عنوان را در فهرست روش‌های پرداخت می‌بیند، و روی رسید پرداخت‌هایی که از این پس انجام شوند می‌آید. زبانی که خالی بماند عنوان زبان دیگری را نشان می‌دهد (اول انگلیسی، بعد فارسی، بعد ترکی).',
     save: 'ذخیره', cancel: 'انصراف',
     GATEWAY_NAME_REQUIRED: 'دست‌کم یک عنوان لازم است.', GATEWAY_NAME_TOO_LONG: `هر عنوان حداکثر ${GATEWAY_NAME_MAX} نویسه است.`,
     GATEWAY_NAME_LOCALE: 'زبان این عنوان پشتیبانی نمی‌شود.',
@@ -41,7 +41,7 @@ const DICT = {
     active: 'Active', gateways: 'Payment gateways', provider: 'Gateway', allowedCurrencies: 'Allowed currencies',
     test: 'Test', notImplemented: 'Not implemented', saved: 'Saved', failed: 'Failed',
     editName: 'Edit display name', nameTitle: 'Gateway display name',
-    nameHint: 'Customers see this name in the list of payment methods, and it is printed on the receipt of every payment made from now on. A language left empty shows the English name, then the Persian one.',
+    nameHint: 'Customers see this name in the list of payment methods, and it is printed on the receipt of every payment made from now on. A language left empty shows the name of another language (English first, then Persian, then Turkish).',
     save: 'Save', cancel: 'Cancel',
     GATEWAY_NAME_REQUIRED: 'At least one name is required.', GATEWAY_NAME_TOO_LONG: `Each name is at most ${GATEWAY_NAME_MAX} characters.`,
     GATEWAY_NAME_LOCALE: 'This language is not supported.',
@@ -51,7 +51,7 @@ const DICT = {
     active: 'Aktif', gateways: 'Ödeme sağlayıcıları', provider: 'Sağlayıcı', allowedCurrencies: 'İzinli para birimleri',
     test: 'Test', notImplemented: 'Uygulanmadı', saved: 'Kaydedildi', failed: 'Başarısız',
     editName: 'Görünen adı düzenle', nameTitle: 'Sağlayıcının görünen adı',
-    nameHint: 'Müşteriler ödeme yöntemleri listesinde bu adı görür; bundan sonra yapılan her ödemenin makbuzunda da bu ad yer alır. Boş bırakılan bir dil İngilizce adı, ardından Farsça adı gösterir.',
+    nameHint: 'Müşteriler ödeme yöntemleri listesinde bu adı görür; bundan sonra yapılan her ödemenin makbuzunda da bu ad yer alır. Boş bırakılan bir dil başka bir dilin adını gösterir (önce İngilizce, sonra Farsça, sonra Türkçe).',
     save: 'Kaydet', cancel: 'Vazgeç',
     GATEWAY_NAME_REQUIRED: 'En az bir ad gerekli.', GATEWAY_NAME_TOO_LONG: `Her ad en fazla ${GATEWAY_NAME_MAX} karakter olabilir.`,
     GATEWAY_NAME_LOCALE: 'Bu dil desteklenmiyor.',
@@ -134,7 +134,7 @@ function GatewayNameDialog({
               <Input
                 id={`gateway-name-${code}`}
                 dir={code === 'fa' ? 'rtl' : 'ltr'}
-                maxLength={GATEWAY_NAME_MAX}
+                maxLength={GATEWAY_NAME_MAX * 2}
                 value={names[code]}
                 disabled={busy}
                 onChange={(e) => { setNames((prev) => ({ ...prev, [code]: e.target.value })); setProblem(null); }}

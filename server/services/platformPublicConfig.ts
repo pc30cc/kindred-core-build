@@ -25,6 +25,12 @@
  * which decides international mode: shared/internationalMode.ts), and the realtime values come from
  * get_widget_platform_settings(), the projection already safe for anonymous
  * callers.
+ *
+ * It is also the memo of the platform's own logo (migration 290,
+ * server/services/platformBrandAssets.ts): the uploads' URLs are derived
+ * once per build and sent as `brand_assets`, and the app's address the kit's
+ * files are served from is kept beside it for the server's own use, never
+ * sent.
  */
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -32,6 +38,7 @@ import { resolveEdition } from '../../shared/edition.js';
 import { brandContactFromDomains } from '../../shared/brand.js';
 import { isInternationalSmsVerificationActive } from './sms/index.js';
 import { onInvalidate } from '../lib/cacheBus.js';
+import { customBrandAssetsFromRow, type CustomBrandAssets } from './platformBrandAssets.js';
 
 // Whitelists, applied after a `select('*')`: production and a database built
 // from database/migrations do not have exactly the same optional columns
@@ -100,6 +107,18 @@ export interface PlatformPublicConfig {
    * (Super Admin → Providers → SMS). A boolean only, nothing about the vendor.
    */
   sms_verification: boolean;
+  /**
+   * The logo and symbol the Super Admin uploaded, as URLs (custom files only:
+   * the kits are in the bundle); null without an upload.
+   */
+  brand_assets: CustomBrandAssets | null;
+}
+
+/** A build of the memo: the public config, and what only the server reads. */
+interface Loaded {
+  value: PlatformPublicConfig;
+  /** platform_domains.app_base_url: where the kit's files are served. */
+  appBaseUrl: string | null;
 }
 
 function pick(row: Record<string, unknown> | null | undefined, keys: readonly string[]): Record<string, unknown> | null {
@@ -107,8 +126,8 @@ function pick(row: Record<string, unknown> | null | undefined, keys: readonly st
   return Object.fromEntries(keys.filter((k) => k in row).map((k) => [k, row[k]]));
 }
 
-let cached: { value: PlatformPublicConfig; at: number } | null = null;
-let loading: { promise: Promise<PlatformPublicConfig | null>; generation: number } | null = null;
+let cached: { loaded: Loaded; at: number } | null = null;
+let loading: { promise: Promise<Loaded | null>; generation: number } | null = null;
 let generation = 0;
 
 /** Drop the cached settings; the next read loads them from the database. */
@@ -121,7 +140,7 @@ export function invalidatePlatformPublicConfig(): void {
 // A Super Admin write on another backend process (lib/cacheBus.ts 'platform').
 onInvalidate('platform', () => invalidatePlatformPublicConfig());
 
-async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> {
+async function load(config: ServerConfig): Promise<Loaded | null> {
   const sb = getServiceClient(config);
   const [branding, localized, settings, widgetPlatform, domains] = await Promise.all([
     sb.from('platform_branding').select('*').limit(1).maybeSingle(),
@@ -134,8 +153,9 @@ async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> 
       .maybeSingle(),
     sb.rpc('get_widget_platform_settings'),
     // Public addresses only (the site and its domain), for the brand's
-    // contact strings. Optional: a failed read leaves them unknown.
-    sb.from('platform_domains').select('primary_domain, canonical_base_url, public_base_url').limit(1).maybeSingle(),
+    // contact strings, and the app's, where the kit's files are served (kept
+    // on the server). Optional: a failed read leaves them unknown.
+    sb.from('platform_domains').select('primary_domain, canonical_base_url, public_base_url, app_base_url').limit(1).maybeSingle(),
   ]);
   for (const r of [branding, localized, settings]) {
     if (r.error) {
@@ -147,34 +167,57 @@ async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> 
   // No settings row reads as the column default, `multi`: International.
   const edition = resolveEdition((settings.data as { region_mode?: unknown } | null)?.region_mode ?? 'multi');
   const smsVerification = edition === 'iran' ? true : await isInternationalSmsVerificationActive(config);
-  return {
+  const domainRow = domains?.error ? null : (domains?.data as Record<string, unknown> | null);
+  // A provider that cannot be resolved right now serves no upload: the kit
+  // shows until the next build, never a broken image.
+  const brandAssets = await customBrandAssetsFromRow(config, branding.data as Record<string, unknown> | null).catch(() => null);
+  const value: PlatformPublicConfig = {
     branding: pick(branding.data as Record<string, unknown> | null, BRANDING_COLUMNS),
     localized: ((localized.data ?? []) as Record<string, unknown>[]).map((r) => pick(r, LOCALIZED_COLUMNS)),
     region: (settings.data as Record<string, unknown> | null) ?? null,
     realtime: rawRealtime ? pick(rawRealtime, REALTIME_KEYS) : null,
     brand: {
       edition,
-      ...brandContactFromDomains(domains?.error ? null : (domains?.data as Record<string, unknown> | null)),
+      ...brandContactFromDomains(domainRow),
     },
     sms_verification: smsVerification,
+    brand_assets: brandAssets,
   };
+  return { value, appBaseUrl: typeof domainRow?.app_base_url === 'string' ? domainRow.app_base_url : null };
 }
 
-/** The settings, from memory when fresh; null when the database read failed. */
-export async function getPlatformPublicConfig(config: ServerConfig): Promise<PlatformPublicConfig | null> {
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+function getLoaded(config: ServerConfig): Promise<Loaded | null> {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return Promise.resolve(cached.loaded);
   if (loading && loading.generation === generation) return loading.promise;
   const startedAt = generation;
   const promise = load(config)
-    .then((value) => {
-      if (value && generation === startedAt) cached = { value, at: Date.now() };
-      return value;
+    .then((loaded) => {
+      if (loaded && generation === startedAt) cached = { loaded, at: Date.now() };
+      return loaded;
     })
     .finally(() => {
       if (loading?.promise === promise) loading = null;
     });
   loading = { promise, generation: startedAt };
   return promise;
+}
+
+/** The settings, from memory when fresh; null when the database read failed. */
+export async function getPlatformPublicConfig(config: ServerConfig): Promise<PlatformPublicConfig | null> {
+  return (await getLoaded(config))?.value ?? null;
+}
+
+/**
+ * The platform's edition, its uploaded brand files and the app's address,
+ * from the same memo (server/services/platformBrandAssets.ts reads them);
+ * null when the database read failed.
+ */
+export async function getPlatformBrandSource(
+  config: ServerConfig,
+): Promise<{ edition: 'iran' | 'international'; custom: CustomBrandAssets | null; appBaseUrl: string | null } | null> {
+  const loaded = await getLoaded(config);
+  if (!loaded) return null;
+  return { edition: loaded.value.brand.edition, custom: loaded.value.brand_assets, appBaseUrl: loaded.appBaseUrl };
 }
 
 /** Test-only — forget everything. */

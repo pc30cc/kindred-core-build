@@ -37,6 +37,9 @@ import type { ServerConfig } from '../config.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
+import { isPlatformWorkspace } from '../services/platformHosts.js';
+import { getPlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { brandTokensFor } from '../../shared/brand.js';
 import { sanitizeKbArticleHtml } from '../services/knowledge-base/articleHtml.js';
 import { kbFoldedSearch } from '../services/knowledge-base/foldedSearch.js';
 import { resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
@@ -136,14 +139,17 @@ export const widgetKbRouter: Router = express.Router();
 /**
  * Host→workspace probe used by the SPA-side public KB pages to discover
  * the workspace bound to the current Host without exposing service-role
- * data. Returns { workspace_id } or 404. Read-only and safe to expose:
- * the resolution is the same one already used by the public SSR routes.
+ * data. Returns { workspace_id, platform } or 404. Read-only and safe to
+ * expose: the resolution is the same one already used by the public SSR
+ * routes. `platform` says whether that is the platform's own help center,
+ * the only one that wears the platform's uploaded logo (helpCenterBrand).
  */
 widgetKbRouter.get('/help-host', async (req: Request, res: Response) => {
   const config = configOf(req);
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
-  return res.json({ workspace_id: workspaceId });
+  const platform = await isPlatformWorkspace(config, workspaceId).catch(() => false);
+  return res.json({ workspace_id: workspaceId, platform });
 });
 
 const categoriesSchema = z.object({
@@ -451,6 +457,41 @@ interface SsrShellOpts {
   jsonLd?: Record<string, unknown> | Array<Record<string, unknown>>;
   bodyHtml: string;
   status?: number;
+  /** The platform's logo and icon, on the platform's own help center only (helpCenterBrand). */
+  brand?: HelpCenterBrand | null;
+}
+
+interface HelpCenterBrand {
+  /** The uploaded logo (light), linked home; null without one. */
+  logo: string | null;
+  /** The platform's name: the logo link's text. */
+  name: string;
+  /** The uploaded symbol's 192 px PNG, the tab's icon; null without one. */
+  icon: string | null;
+  home: string;
+}
+
+/**
+ * The platform's own help center (its own workspace's) wears what the Super
+ * Admin uploaded (Super Admin → Branding; server/services/platformBrandAssets.ts):
+ * the logo at its head, the symbol in the tab. It never had the kit's, so
+ * without an upload (and on a customer's help center, always) there is none
+ * and the page is exactly as before. The SPA's help pages ask the same
+ * (src/pages/public/kb/HelpBrandHead.tsx).
+ */
+async function helpCenterBrand(config: ServerConfig, workspaceId: string, locale: Locale): Promise<HelpCenterBrand | null> {
+  if (!(await isPlatformWorkspace(config, workspaceId).catch(() => false))) return null;
+  const pub = await getPlatformPublicConfig(config).catch(() => null);
+  const logo = pub?.brand_assets?.logo_light ?? null;
+  const icon = pub?.brand_assets?.icon_192 ?? null;
+  if (!pub || (!logo && !icon)) return null;
+  const names: Record<string, string> = {};
+  for (const row of pub.localized) {
+    const name = typeof row?.platform_name === 'string' ? row.platform_name.trim() : '';
+    if (typeof row?.locale === 'string' && name) names[row.locale] = name;
+  }
+  const name = brandTokensFor(pub.brand.edition, locale, { names, siteUrl: pub.brand.site_url, supportEmail: null }).brand;
+  return { logo, name, icon, home: `/help/${locale}` };
 }
 
 function renderShell(opts: SsrShellOpts): string {
@@ -461,6 +502,16 @@ function renderShell(opts: SsrShellOpts): string {
   const hreflangTags = opts.hreflangs
     .map((h) => `<link rel="alternate" hreflang="${escapeAttr(h.hreflang)}" href="${escapeAttr(h.href)}" />`)
     .join('');
+  // Each piece brings its own line, so a page without an upload is the same,
+  // byte for byte, as before there were uploads.
+  const brand = opts.brand;
+  const iconTag = brand?.icon ? `\n  <link rel="icon" type="image/png" href="${escapeAttr(brand.icon)}" />` : '';
+  const brandCss = brand?.logo
+    ? '\n    .kb-brand{display:inline-block;margin-bottom:24px;}\n    .kb-brand img{display:block;height:28px;width:auto;}'
+    : '';
+  const brandHtml = brand?.logo
+    ? `\n    <a class="kb-brand" href="${escapeAttr(brand.home)}"><img src="${escapeAttr(brand.logo)}" alt="${escapeAttr(brand.name)}" /></a>`
+    : '';
   return `<!doctype html>
 <html lang="${escapeAttr(opts.locale)}" dir="${dir}">
 <head>
@@ -468,7 +519,7 @@ function renderShell(opts: SsrShellOpts): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(opts.title)}</title>
   <meta name="description" content="${escapeAttr(opts.description)}" />
-  <link rel="canonical" href="${escapeAttr(opts.canonical)}" />
+  <link rel="canonical" href="${escapeAttr(opts.canonical)}" />${iconTag}
   ${hreflangTags}
   <meta property="og:title" content="${escapeAttr(opts.title)}" />
   <meta property="og:description" content="${escapeAttr(opts.description)}" />
@@ -500,11 +551,11 @@ function renderShell(opts: SsrShellOpts): string {
     .kb-card-excerpt{font-size:14px;color:#666;}
     .kb-search-form{margin-bottom:24px;}
     .kb-search-form input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:15px;box-sizing:border-box;}
-    .kb-empty{color:#666;padding:24px 0;}
+    .kb-empty{color:#666;padding:24px 0;}${brandCss}
   </style>
 </head>
 <body>
-  <div class="kb-wrap">
+  <div class="kb-wrap">${brandHtml}
     ${opts.bodyHtml}
   </div>
 </body>
@@ -676,6 +727,7 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
       inLanguage: locale,
     },
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });
 
@@ -749,6 +801,7 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
       },
     ],
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });
 
@@ -783,6 +836,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
     locale,
     hreflangs: [],
     bodyHtml: '<h1>Article not found</h1>',
+    brand: await helpCenterBrand(config, workspaceId, locale),
     status: 404,
   }));
 
@@ -837,6 +891,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
       },
     ],
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });
 
@@ -902,5 +957,6 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
     locale,
     hreflangs: buildHreflangs(req, (l) => `/help/${l}/search${q ? `?q=${encodeURIComponent(q)}` : ''}`),
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });

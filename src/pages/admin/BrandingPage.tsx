@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import EmailTemplatesTab from '@/components/admin/EmailTemplatesTab';
+import { BrandAssetUploads } from '@/components/admin/BrandAssetUploads';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -82,14 +83,31 @@ function VisualIdentitySection() {
   const [form, setForm] = useState<Partial<PlatformBranding>>({});
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => { if (branding) { setForm(branding); setDirty(false); } }, [branding]);
+  // A refetch never overwrites edits not saved yet.
+  useEffect(() => { if (branding && !dirty) setForm(branding); }, [branding, dirty]);
 
   const set = (key: keyof PlatformBranding, val: string | boolean) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
-    const { id, created_at, updated_at, ...rest } = form;
+    // The old URL fields are not edited here any more (only cleared, below):
+    // a save never writes them back.
+    const { id, created_at, updated_at, logo_url, favicon_url, pwa_icon_url, ...rest } = form;
     update.mutate(rest, {
       onSuccess: () => { toast({ title: t('admin.brandingPage.identity.saved') }); setDirty(false); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
+    });
+  };
+
+  // An address typed before uploads existed still stands in for the kit's
+  // icon wherever nothing is uploaded: shown so it can be cleared.
+  const legacy = ([
+    ['logo_url', 'admin.brandingPage.identity.legacyLogoUrl'],
+    ['favicon_url', 'admin.brandingPage.identity.legacyFaviconUrl'],
+    ['pwa_icon_url', 'admin.brandingPage.identity.legacyPwaIconUrl'],
+  ] as const).filter(([field]) => (branding?.[field] ?? '').trim());
+  const clearLegacy = (field: 'logo_url' | 'favicon_url' | 'pwa_icon_url') => {
+    update.mutate({ [field]: null }, {
+      onSuccess: () => toast({ title: t('admin.brandingPage.identity.legacyCleared') }),
       onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
     });
   };
@@ -108,12 +126,33 @@ function VisualIdentitySection() {
         <CardDescription>{t('admin.brandingPage.identity.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {/* The logo and symbol: uploads, saved on their own (each control
+            saves at once); the favicon and the app icons are made from the
+            symbol. The old URL fields are gone from here, their columns
+            kept. */}
+        <BrandAssetUploads background={form.pwa_background_color} />
+        {legacy.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-border p-3" data-legacy-brand-urls>
+            <p className="text-sm font-medium text-foreground">{t('admin.brandingPage.identity.legacyTitle')}</p>
+            <p className="text-xs text-muted-foreground">{t('admin.brandingPage.identity.legacyHint')}</p>
+            {legacy.map(([field, label]) => (
+              <div key={field} className="flex items-center gap-2" data-legacy-brand-url={field}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">{t(label)}</p>
+                  <p className="truncate font-mono text-xs text-foreground" dir="ltr">{branding?.[field]}</p>
+                </div>
+                <Button size="sm" variant="ghost" disabled={update.isPending} onClick={() => clearLegacy(field)}>
+                  <Trash2 className="h-4 w-4 me-1" />{t('admin.brandingPage.identity.legacyClear')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Separator />
         <div className="grid gap-5 md:grid-cols-2">
-          <FieldRow label={t('admin.brandingPage.identity.logoUrl')} desc={t('admin.brandingPage.identity.logoHint')} value={form.logo_url ?? ''} onChange={(v) => set('logo_url', v)} placeholder="https://cdn.example.com/logo.svg" />
-          <FieldRow label={t('admin.brandingPage.identity.faviconUrl')} desc={t('admin.brandingPage.identity.faviconHint')} value={form.favicon_url ?? ''} onChange={(v) => set('favicon_url', v)} placeholder="https://cdn.example.com/favicon.ico" />
           <FieldRow label={t('admin.brandingPage.identity.primaryColor')} type="color" value={form.primary_color ?? '#3B82F6'} onChange={(v) => set('primary_color', v)} />
           <FieldRow label={t('admin.brandingPage.identity.secondaryColor')} type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
-          <FieldRow label={t('admin.brandingPage.identity.pwaIconUrl')} desc={t('admin.brandingPage.identity.pwaIconHint')} value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
         </div>
 
         <Separator />
@@ -133,13 +172,12 @@ function VisualIdentitySection() {
           </div>
         </div>
 
-        {(form.logo_url || form.primary_color) && (
+        {form.primary_color && (
           <>
             <Separator />
             <div className="rounded-lg border border-border p-4">
               <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> {t('admin.brandingPage.identity.preview')}</p>
               <div className="flex items-center gap-3">
-                {form.logo_url && <img src={form.logo_url} alt={t('admin.brandingPage.identity.logoPreview')} className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                 <div className="flex gap-2">
                   <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title={t('admin.brandingPage.identity.primaryColor')} />
                   <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title={t('admin.brandingPage.identity.secondaryColor')} />

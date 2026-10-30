@@ -39,7 +39,8 @@ platformPublicRouter.get('/config', async (req, res) => {
  * GET /api/platform/public/boot.js — what index.html needs before the app's
  * bundle runs, as a tiny script: the edition (shared/edition.ts), the
  * platform's name and browser title per language, its site and support
- * address, and its default language. index.html loads it synchronously only
+ * address, its default language, and the logo and symbol the Super Admin
+ * uploaded (their URLs, or null). index.html loads it synchronously only
  * when the browser has never seen the platform (no cached edition), so the
  * very first paint already wears the right brand — WebYar's in the Iranian
  * edition, the platform's own in the International one — without the
@@ -74,6 +75,9 @@ platformPublicRouter.get('/boot.js', async (req, res) => {
         titles,
         siteUrl: body.brand.site_url,
         supportEmail: body.brand.support_email,
+        // The splash wears an uploaded logo from the first visit on
+        // (index.html keeps it as wy-brand-assets; src/lib/brandAssets.ts).
+        brandAssets: body.brand_assets,
       };
     }
   } catch {

@@ -51,6 +51,18 @@ describe('WidgetLivePreview — the International logo direction', () => {
     expect(payload.config.poweredBy.logo).toMatch(/\/brand\/intl\/respok-thread-horizontal-color\.svg$/);
   });
 
+  it.each(['t1-intl', 't2-intl', 'intl'])('%s: a logo the Super Admin uploaded credits the platform in either direction', (id) => {
+    localStorage.setItem('wy-brand-assets', JSON.stringify({ logo_light: 'https://cdn.example.test/platform/brand/l.svg', symbol: null }));
+    try {
+      for (const logoDirection of ['open', 'thread']) {
+        expect(frame(id, { logoDirection }).payload.config.poweredBy.logo).toBe('https://cdn.example.test/platform/brand/l.svg');
+        cleanup();
+      }
+    } finally {
+      localStorage.removeItem('wy-brand-assets');
+    }
+  });
+
   it('intl reads no option: Thread', () => {
     const { shell, payload } = frame('intl', {});
     expect(shell).toContain('lg-thread');

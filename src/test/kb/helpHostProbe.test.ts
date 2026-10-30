@@ -30,6 +30,11 @@ vi.mock('../../../server/services/widget/public.js', async (importOriginal) => (
     resolver.rules[workspaceId] ?? { domains: [], allowSubdomains: false },
 }));
 
+vi.mock('../../../server/services/platformHosts.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/platformHosts.js')>()),
+  isPlatformWorkspace: async (_config: unknown, id: string) => id === '00000000-0000-4000-8000-0000000000f1',
+}));
+
 const { widgetCorsMiddleware } = await import('../../../server/middleware/widgetCors.js');
 const { widgetKbRouter } = await import('../../../server/routes/kb.js');
 
@@ -53,7 +58,7 @@ describe('GET /api/widget/kb/help-host from app.<brand>', () => {
   it('answers with the workspace of the API host, readable by app.<brand>', async () => {
     const res = await probe('https://app.webyar.ai');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ workspace_id: PLATFORM_WS });
+    expect(res.body).toEqual({ workspace_id: PLATFORM_WS, platform: true });
     expect(res.headers['access-control-allow-origin']).toBe('https://app.webyar.ai');
     expect(res.headers['access-control-allow-credentials']).toBe('true');
     // CORS resolved the request's own host, never the caller's Origin.

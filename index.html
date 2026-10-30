@@ -65,6 +65,9 @@
             if (typeof b.regionMode === 'string') ls.setItem('platform-region-mode', b.regionMode);
             ls.setItem('wy-brand', JSON.stringify({ names: b.names || {}, siteUrl: b.siteUrl || null, supportEmail: b.supportEmail || null }));
             if (typeof b.defaultLocale === 'string') ls.setItem('wy-default-locale', b.defaultLocale);
+            // The uploaded logo and symbol (src/lib/brandAssets.ts reads the same key).
+            if (b.brandAssets && typeof b.brandAssets === 'object') ls.setItem('wy-brand-assets', JSON.stringify(b.brandAssets));
+            else ls.removeItem('wy-brand-assets');
             var titles = b.titles || {};
             for (var k in titles) {
               if (Object.prototype.hasOwnProperty.call(titles, k) && !ls.getItem('gs_title:' + k)) ls.setItem('gs_title:' + k, titles[k]);
@@ -206,6 +209,18 @@
       html.light .wy-launch:has(> .wy-intl) { --wy-bg: #F5F5F8; }
       html.light .wy-intl-footer .wy-intl-light { display: block; }
       html.light .wy-intl-footer .wy-intl-dark { display: none; }
+      /* The logo the Super Admin uploaded (src/lib/brandAssets.ts, cached as
+         wy-brand-assets), in either edition: light and dark files. */
+      .wy-brand-footer img { display: block; height: 28px; width: auto; max-width: 70vw; }
+      .wy-brand-footer .wy-brand-dark { display: none; }
+      @media (prefers-color-scheme: dark) {
+        html:not(.light) .wy-brand-footer .wy-brand-light { display: none; }
+        html:not(.light) .wy-brand-footer .wy-brand-dark { display: block; }
+      }
+      html.dark .wy-brand-footer .wy-brand-light { display: none; }
+      html.dark .wy-brand-footer .wy-brand-dark { display: block; }
+      html.light .wy-brand-footer .wy-brand-light { display: block; }
+      html.light .wy-brand-footer .wy-brand-dark { display: none; }
       /* @iran-kit */
       /* The Iranian edition (WebYar, platform_settings.region_mode = 'iran';
          shared/webyarBrand.ts), once it is known: the brand kit's loader —
@@ -321,6 +336,36 @@
         }
       }
       // @end-iran-kit
+      // The logo and symbol the Super Admin uploaded (src/lib/brandAssets.ts
+      // keeps them under wy-brand-assets), over either kit: the lockup at
+      // the foot, the symbol's icons in the tab and on the home screen.
+      // Without them the page is exactly as the edition dressed it. Built
+      // with the DOM, never markup: the URLs are data.
+      function applyBrandAssets() {
+        var a = null;
+        try { a = JSON.parse(window.localStorage.getItem('wy-brand-assets') || 'null'); } catch (e) { return; }
+        if (!a || typeof a !== 'object') return;
+        var ok = function (u) { return typeof u === 'string' && (/^https?:\/\//i.test(u) || (u.charAt(0) === '/' && u.charAt(1) !== '/')) ? u : null; };
+        var light = ok(a.logo_light);
+        var foot = document.querySelector('#boot-splash .wy-footer');
+        if (light && foot) {
+          foot.className = 'wy-footer wy-brand-footer';
+          while (foot.firstChild) foot.removeChild(foot.firstChild);
+          [['wy-brand-light', light], ['wy-brand-dark', ok(a.logo_dark) || light]].forEach(function (p) {
+            var img = document.createElement('img');
+            img.className = p[0];
+            img.alt = '';
+            img.src = p[1];
+            foot.appendChild(img);
+          });
+        }
+        var png = ok(a.icon_192);
+        var icon = document.querySelector('link[rel="icon"]');
+        if (a.symbol && png && icon) { icon.type = 'image/png'; icon.href = png; }
+        var touch = document.querySelector('link[rel="apple-touch-icon"]');
+        var touchPng = ok(a.apple_touch_180);
+        if (a.symbol && touchPng && touch) touch.href = touchPng;
+      }
       window.__wyApplySplash = function () {
         try {
           var ls = window.localStorage;
@@ -357,7 +402,9 @@
           if (icon) { icon.type = 'image/svg+xml'; icon.href = '/brand/intl/favicon.svg'; }
           var touch = document.querySelector('link[rel="apple-touch-icon"]');
           if (touch) touch.href = '/brand/intl/apple-touch-icon.png';
-        } catch (e) {}
+        } catch (e) {} finally {
+          try { applyBrandAssets(); } catch (e3) {}
+        }
       };
       window.__wyApplySplash();
     </script>

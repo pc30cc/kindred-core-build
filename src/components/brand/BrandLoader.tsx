@@ -21,10 +21,14 @@
  * A build without the Iranian kit (shared/buildBrand.ts SHIPS_IRAN_KIT: the
  * RESPOK build) is always in international mode; the kit's loader, its
  * logotype and "WEBYAR AI" are left out of it.
+ *
+ * A logo the Super Admin uploaded (src/lib/brandAssets.ts) takes the foot's
+ * and the auth cards' logo in both editions; the loaders stay the kits' own
+ * (they are motifs, not the logo).
  */
 import { cn } from '@/lib/utils';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
-import { IntlBrandImage, WebyarBrandImage } from './BrandLogo';
+import { BrandImage } from './BrandLogo';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
 
@@ -46,6 +50,7 @@ function WebyarKitLoader({ className }: { className?: string }) {
   );
 }
 import { brandName, useBrandVersion } from '@/lib/brand';
+import { useBrandAssets } from '@/lib/brandAssets';
 
 /** The two turning arcs on their own. */
 export function BrandLoader({ className }: { className?: string; size?: string; logoUrl?: string | null; label?: string; showLabel?: boolean }) {
@@ -73,6 +78,15 @@ export function BrandLoader({ className }: { className?: string; size?: string; 
 export function BrandFooter() {
   const international = useIntl();
   const kit = useWebyarKit();
+  const assets = useBrandAssets();
+  if (assets.source === 'custom' && assets.lockup) {
+    return (
+      <div className="wy-footer wy-brand-footer" aria-hidden>
+        <img className="wy-brand-light" src={assets.lockup.light} alt="" draggable={false} />
+        <img className="wy-brand-dark" src={assets.lockup.dark} alt="" draggable={false} />
+      </div>
+    );
+  }
   if (SHIPS_IRAN_KIT && kit && !international) {
     return (
       <div className="wy-footer wy-kit-footer" aria-hidden>
@@ -102,17 +116,25 @@ export function BrandFooter() {
 export function BrandWordmark({ className }: { className?: string }) {
   const international = useIntl();
   const kit = useWebyarKit();
+  const assets = useBrandAssets();
+  if (assets.source === 'custom') {
+    return (
+      <div dir="ltr" aria-hidden className={cn('flex justify-center opacity-70 select-none', className)}>
+        <BrandImage variant="wordmark" className="h-6" />
+      </div>
+    );
+  }
   if (SHIPS_IRAN_KIT && kit && !international) {
     return (
       <div aria-hidden className={cn('flex justify-center opacity-70 select-none', className)}>
-        <WebyarBrandImage className="h-8" />
+        <BrandImage variant="wordmark" className="h-8" />
       </div>
     );
   }
   if (international) {
     return (
       <div dir="ltr" aria-hidden className={cn('flex justify-center opacity-70 select-none', className)}>
-        <IntlBrandImage variant="wordmark" className="h-3.5" />
+        <BrandImage variant="wordmark" className="h-3.5" />
       </div>
     );
   }

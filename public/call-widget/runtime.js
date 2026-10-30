@@ -658,6 +658,8 @@
    * The Iran region's edition draws its local logotype the same way when the
    * bootstrap carries `powered_by_logo`. null — draw the text as before —
    * without a logo, or when the workspace wrote its own "powered by" text.
+   * `custom`: the logo is the one the platform uploaded (the bootstrap says
+   * so), which the panel draws as an image over the kit's own art.
    */
   CallCenterWidgetCtor.prototype.poweredByParts = function () {
     var b = this.bootstrap || {};
@@ -680,7 +682,8 @@
     var full = formatText(pack.powered_by || I18N.en.powered_by, { brand: '\u0001' });
     var at = full.indexOf('\u0001');
     if (at < 0) return null;
-    return { before: full.slice(0, at), after: full.slice(at + 1), logo: logo, brand: brand };
+    var custom = iranKit ? b.powered_by_logo_custom === true : b.powered_by.custom === true;
+    return { before: full.slice(0, at), after: full.slice(at + 1), logo: logo, brand: brand, custom: custom };
   };
 
   /** The "powered by" link (International edition only; null = not a link). */

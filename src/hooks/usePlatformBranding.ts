@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminFetch } from '@/hooks/useAdmin';
+import { PLATFORM_PUBLIC_CONFIG_QUERY_KEY, type PlatformPublicBrandAssets } from '@/lib/platformPublicConfig';
 
 // ── Platform Branding (visual identity) ──
 
@@ -38,6 +39,73 @@ export function useUpdatePlatformBranding() {
       return branding;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_branding'] }),
+  });
+}
+
+// ── The platform's own logo and symbol (uploads; migration 290) ──
+
+export type PlatformBrandAssetVariant = 'logo-light' | 'logo-dark' | 'symbol';
+
+/** What POST …/platform-branding/assets/:variant takes (src/lib/brandRaster.ts prepares it). */
+export interface PlatformBrandAssetUpload {
+  contentType: string;
+  data: string;
+  png?: string;
+  icons?: { apple_touch_180: string; png_192: string; png_512: string };
+}
+
+const BRAND_ASSETS_QUERY_KEY = ['platform_branding_assets'] as const;
+
+/** The uploaded files as URLs (null: nothing uploaded, every mark wears the kit). */
+export function usePlatformBrandAssets() {
+  return useQuery({
+    queryKey: BRAND_ASSETS_QUERY_KEY,
+    queryFn: async () => {
+      const { assets } = await adminFetch<{ assets?: PlatformPublicBrandAssets | null }>('/api/admin/management/platform-branding');
+      return assets ?? null;
+    },
+  });
+}
+
+/**
+ * After an upload or a reset: this page and every mark on it show the new
+ * logo at once. The Visual identity form (['platform_branding']) is left
+ * alone: an upload changes none of its fields, and a refetch would reset the
+ * edits not saved yet.
+ */
+function useBrandAssetsSaved() {
+  const qc = useQueryClient();
+  return (assets: PlatformPublicBrandAssets | null) => {
+    qc.setQueryData(BRAND_ASSETS_QUERY_KEY, assets);
+    qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY });
+    qc.invalidateQueries({ queryKey: ['platform_branding_global'] });
+  };
+}
+
+export function useUploadPlatformBrandAsset() {
+  const saved = useBrandAssetsSaved();
+  return useMutation({
+    mutationFn: async ({ variant, upload }: { variant: PlatformBrandAssetVariant; upload: PlatformBrandAssetUpload }) =>
+      adminFetch<{ assets: PlatformPublicBrandAssets | null; dark_reset?: boolean }>(
+        `/api/admin/management/platform-branding/assets/${variant}`,
+        { method: 'POST', body: JSON.stringify(upload) },
+      ),
+    // `dark_reset`: a new light logo of another shape put the dark one back to the light one.
+    onSuccess: ({ assets }) => saved(assets),
+  });
+}
+
+export function useResetPlatformBrandAsset() {
+  const saved = useBrandAssetsSaved();
+  return useMutation({
+    mutationFn: async (variant: PlatformBrandAssetVariant) => {
+      const { assets } = await adminFetch<{ assets: PlatformPublicBrandAssets | null }>(
+        `/api/admin/management/platform-branding/assets/${variant}`,
+        { method: 'DELETE' },
+      );
+      return assets;
+    },
+    onSuccess: saved,
   });
 }
 

@@ -298,6 +298,27 @@ describe('index.html and the boot script', () => {
     expect(document.title).toBe('RESPOK');
   });
 
+  it('boot data with an uploaded logo dresses a first visit\'s splash with it, and keeps it for the app', () => {
+    const p = page({});
+    const brandAssets = {
+      logo_light: 'https://cdn.example.test/platform/brand/l.svg', logo_dark: null,
+      symbol: 'https://cdn.example.test/platform/brand/s.svg', apple_touch_180: 'https://cdn.example.test/platform/brand/s-180.png',
+      icon_192: 'https://cdn.example.test/platform/brand/s-192.png', icon_512: 'https://cdn.example.test/platform/brand/s-512.png',
+    };
+    w.__PLATFORM_BOOT__ = { edition: 'international', names: { en: 'RESPOK' }, brandAssets };
+    p.script!.onload!(new Event('load'));
+    const foot = document.querySelector('#boot-splash .wy-footer')!;
+    expect(foot.className).toBe('wy-footer wy-brand-footer');
+    expect([...foot.querySelectorAll('img')].map((i) => i.getAttribute('src'))).toEqual([brandAssets.logo_light, brandAssets.logo_light]);
+    expect(document.querySelector('link[rel="icon"]')!.getAttribute('href')).toBe(brandAssets.icon_192);
+    expect(JSON.parse(localStorage.getItem('wy-brand-assets')!)).toEqual(brandAssets);
+    // A platform without an upload clears what an older answer kept.
+    const again = page({ 'wy-brand-assets': JSON.stringify(brandAssets) });
+    w.__PLATFORM_BOOT__ = { edition: 'iran', names: { fa: 'وب‌یار' }, brandAssets: null };
+    again.script!.onload!(new Event('load'));
+    expect(localStorage.getItem('wy-brand-assets')).toBeNull();
+  });
+
   it('Iranian boot data dresses the splash with WebYar\'s brand kit', () => {
     const p = page({});
     w.__PLATFORM_BOOT__ = { edition: 'iran', names: { fa: 'وب‌یار' } };

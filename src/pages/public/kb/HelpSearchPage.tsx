@@ -4,6 +4,7 @@ import { applySeoHead } from '@/lib/seoHead';
 import { searchKbArticles, type KbSearchResult } from '@/lib/kb-api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { KbSearchBox } from './KbSearchBox';
+import { HelpBrandHead } from './HelpBrandHead';
 
 const COPY: Record<Locale, { help: string; results: string; empty: string; searching: string }> = {
   en: { help: 'Help center', results: 'Search results', empty: 'No results.', searching: 'Searching…' },
@@ -51,6 +52,7 @@ export default function HelpSearchPage() {
 
   return (
     <div className="container max-w-3xl py-10" dir={isRtl(valid) ? 'rtl' : 'ltr'}>
+      <HelpBrandHead locale={valid} />
       <nav className="text-sm text-muted-foreground mb-4">
         <Link to={`/help/${valid}`} className="hover:text-foreground">{COPY[valid].help}</Link>
       </nav>

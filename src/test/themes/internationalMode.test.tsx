@@ -228,6 +228,23 @@ describe('the brand marks', () => {
     expect(container.querySelector('.wy-kit-loader')).toBeNull();
   });
 
+  it.each(['en', 'fa'])('the kit gives way only to the logo the Super Admin uploaded (%s)', (locale) => {
+    state.data = {
+      ...config('multi', 'clay'),
+      brand_assets: { logo_light: 'https://cdn.example.com/platform/brand/l.svg', logo_dark: null, symbol: 'https://cdn.example.com/platform/brand/s.svg' },
+    };
+    state.locale = locale;
+    const { container } = render(marks());
+    const sources = [...container.querySelectorAll('img')].map((img) => img.getAttribute('src'));
+    expect(sources).toContain('https://cdn.example.com/platform/brand/s.svg');
+    expect(sources).toContain('https://cdn.example.com/platform/brand/l.svg');
+    // Still over a caller's own `src`, as the kit's icon was.
+    expect(sources).not.toContain('https://cdn.example.com/operator.png');
+    expect(container.innerHTML).not.toContain('/brand/intl/');
+    // The loader is the kit's motif, not the logo: it stays.
+    expect(container.querySelector('.wy-loader.wy-intl')).not.toBeNull();
+  });
+
   it.each(['fa', 'en'])('never show it in the Iranian edition (%s): WebYar\'s own kit there, the operator\'s logo still first', (locale) => {
     state.data = config('iran');
     state.locale = locale;
@@ -287,11 +304,12 @@ describe('the server', () => {
     expect(read('src/lib/platformPublicConfig.ts')).toMatch(/site_mode\?: string \| null/);
   });
 
-  it('gives the manifest the kit’s icons only in the International edition', () => {
+  it('gives the manifest the kit’s icons only in the International edition, unless a symbol was uploaded', () => {
     const manifest = read('server/routes/manifest.ts');
     expect(manifest).toMatch(/getPlatformEditionOrNull\(config\)/);
     expect(manifest).toMatch(/isInternationalMode\(edition, effectiveLocale\)/);
     expect(manifest).toMatch(/const icons = international\s*\?/);
+    expect(manifest).toContain('icons: uploadedIcons ?? icons,');
   });
 });
 

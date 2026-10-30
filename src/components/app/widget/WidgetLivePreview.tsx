@@ -20,6 +20,7 @@ import { useEdition } from '@/hooks/useEdition';
 import { resolveChatWidgetTemplate, widgetDateHints } from '../../../../shared/widgetTemplates';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
 import { WEBYAR_BRAND } from '@/lib/webyarBrand';
+import { useBrandAssets } from '@/lib/brandAssets';
 import { useLauncherKit } from './launcherKit';
 import { previewOfflineMessage, previewOfflineMode, previewPrechatForm } from './previewStates';
 import {
@@ -253,6 +254,10 @@ export function WidgetLivePreview({
   // SHIPS_IRAN_KIT is a build-time literal: the RESPOK build drops every
   // branch below that reads it, and the kit's strings and logo with them.
   const { localKit, respokKit, kit, baseSize } = useLauncherKit();
+  // A logo the Super Admin uploaded credits the platform in both editions
+  // (configSnapshot.ts); absolute already.
+  const brandAssets = useBrandAssets();
+  const uploadedLogo = brandAssets.source === 'custom' && brandAssets.lockup ? brandAssets.lockup.light : null;
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -474,8 +479,11 @@ export function WidgetLivePreview({
             // The International template credits the platform with its logo,
             // as the widget bootstrap does (server/routes/widget.ts).
             // The Iranian edition (known, never assumed) credits its platform
-            // with the local kit's Persian logotype the same way.
-            poweredBy: isInternational && poweredBy
+            // with the local kit's Persian logotype the same way. A logo the
+            // Super Admin uploaded comes first, in both editions.
+            poweredBy: uploadedLogo && poweredBy && (isInternational || localKit)
+              ? { ...poweredBy, logo: /^https?:\/\//i.test(uploadedLogo) ? uploadedLogo : `${window.location.origin}${uploadedLogo}` }
+              : isInternational && poweredBy
               ? { ...poweredBy, logo: `${window.location.origin}${(logoOpen ? INTL_BRAND.horizontalOpen : INTL_BRAND.horizontal).light}` }
               : SHIPS_IRAN_KIT && localKit && poweredBy
                 ? { ...poweredBy, logo: `${window.location.origin}${WEBYAR_BRAND.logo.light}` }
@@ -1354,7 +1362,7 @@ export function WidgetLivePreview({
     settings, prechat, prechatPolicy, prechatFormAllowed, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     templateId, templateOptions,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl, stageBackground, stageBar, isInternational, localKit, respokKit,
+    smartScenario?.rtl, stageBackground, stageBar, isInternational, localKit, respokKit, uploadedLogo,
     availabilityState, aiGreets, defaultWelcome, hiddenNote,
   ]);
 

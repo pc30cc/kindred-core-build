@@ -36,6 +36,8 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { readCustomBrandAssets } from '../services/platformBrandAssets.js';
+import { platformBrandAssetsRouter } from './platformBrandAssets.js';
 import { getPlatformEdition, invalidatePlatformRegionCache } from '../services/platformRegion.js';
 import { respondEditionUnavailable } from '../services/editionSettings.js';
 import type { Edition } from '../../shared/edition.js';
@@ -799,8 +801,13 @@ adminManagementRouter.get('/platform-branding', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
   const { data, error } = await sb.from('platform_branding').select('*').limit(1).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ branding: data });
+  // The uploaded logo and symbol as URLs (the row holds their keys only).
+  return res.json({ branding: data, assets: await readCustomBrandAssets(serverConfigOf(req)) });
 });
+
+// The platform's own logo and symbol: uploads, never typed URLs
+// (server/routes/platformBrandAssets.ts).
+adminManagementRouter.use('/platform-branding/assets', platformBrandAssetsRouter);
 
 adminManagementRouter.get('/platform-branding-localized', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;

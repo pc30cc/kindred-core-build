@@ -20,6 +20,11 @@
  * in that order, as before) gets WebYar's brand kit icons instead of the old
  * /favicon.png, and the kit's theme colour #0B7D6C unless the operator chose
  * a colour (the seeded #3B82F6 was never a choice).
+ *
+ * In either edition a symbol the Super Admin uploaded (Super Admin →
+ * Branding → Visual identity; server/services/platformBrandAssets.ts) is the
+ * icon, as its 192 and 512 px PNGs, over the kit and any icon URL. Without
+ * one the icons are exactly as above.
  */
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
@@ -27,6 +32,7 @@ import { getServiceClient } from '../supabase.js';
 import { clampLocaleToPlatformRegion, getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { INTL_BRAND, isInternationalMode } from '../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isUncustomisedColor, isWebyarKitEdition } from '../../shared/webyarBrand.js';
+import { readCustomBrandAssets } from '../services/platformBrandAssets.js';
 
 export const manifestRouter = Router();
 
@@ -48,10 +54,11 @@ manifestRouter.get('/', async (req, res) => {
   const locale = await clampLocaleToPlatformRegion(config, typeof req.query.locale === 'string' ? req.query.locale : undefined);
   const effectiveLocale = locale || 'en';
 
-  const [{ data: branding }, { data: localizedRows }, edition] = await Promise.all([
+  const [{ data: branding }, { data: localizedRows }, edition, custom] = await Promise.all([
     sb.from('platform_branding').select('*').limit(1).maybeSingle(),
     sb.from('platform_branding_localized').select('locale, platform_name, meta_description').in('locale', [effectiveLocale, 'en']),
     getPlatformEditionOrNull(config),
+    readCustomBrandAssets(config),
   ]);
   const international = isInternationalMode(edition, effectiveLocale);
 
@@ -88,6 +95,13 @@ manifestRouter.get('/', async (req, res) => {
   // Relative icon paths belong to the APP origin, not this API host.
   const onApp = (url: string) => (url.startsWith('/') && base !== '/' ? base.replace(/\/$/, '') + url : url);
   const icon = onApp(iconUrl);
+  // The uploaded symbol's own PNGs (absolute URLs on the storage provider).
+  const uploadedIcons = edition && custom?.icon_192 && custom.icon_512
+    ? [
+        { src: custom.icon_192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: custom.icon_512, sizes: '512x512', type: 'image/png', purpose: 'any' },
+      ]
+    : null;
   const icons = international
     ? [
         { src: onApp(INTL_BRAND.pwa192), sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -117,7 +131,7 @@ manifestRouter.get('/', async (req, res) => {
     dir: RTL_LOCALES.has(effectiveLocale) ? 'rtl' : 'ltr',
     theme_color: themeColor,
     background_color: backgroundColor,
-    icons,
+    icons: uploadedIcons ?? icons,
   };
 
   // Cross-origin manifests are fetched with CORS (the <link> carries

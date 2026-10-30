@@ -80,6 +80,26 @@ export interface PlatformPublicConfig {
    * Missing from an older backend (then off in International, as before).
    */
   sms_verification?: boolean;
+  /**
+   * The logo and symbol the Super Admin uploaded, as URLs (Super Admin →
+   * Branding; src/lib/brandAssets.ts); null without an upload, missing from
+   * an older backend.
+   */
+  brand_assets?: PlatformPublicBrandAssets | null;
+}
+
+/** server/services/platformBrandAssets.ts CustomBrandAssets: each URL null where nothing was uploaded. */
+export interface PlatformPublicBrandAssets {
+  logo_light: string | null;
+  logo_dark: string | null;
+  logo_png_light: string | null;
+  logo_png_dark: string | null;
+  logo_png_width: number | null;
+  logo_png_height: number | null;
+  symbol: string | null;
+  apple_touch_180: string | null;
+  icon_192: string | null;
+  icon_512: string | null;
 }
 
 export const PLATFORM_PUBLIC_CONFIG_QUERY_KEY = ['platform_public_config'] as const;

@@ -31,6 +31,7 @@ import {
   type PlatformDomains,
 } from '@/hooks/usePlatformBranding';
 import { useTranslation } from '@/i18n';
+import { useInternationalMode } from '@/lib/internationalMode';
 import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiAccent, type UiFontSize } from '@/lib/ui-preferences';
 
 /**
@@ -99,7 +100,10 @@ function VisualIdentitySection() {
   };
 
   // An address typed before uploads existed still stands in for the kit's
-  // icon wherever nothing is uploaded: shown so it can be cleared.
+  // icon wherever nothing is uploaded, in the Iranian edition; the
+  // International edition never reads one (its kit or upload always wins).
+  // Shown, in either, so it can be cleared, and saying which.
+  const international = useInternationalMode();
   const legacy = ([
     ['logo_url', 'admin.brandingPage.identity.legacyLogoUrl'],
     ['favicon_url', 'admin.brandingPage.identity.legacyFaviconUrl'],
@@ -134,7 +138,7 @@ function VisualIdentitySection() {
         {legacy.length > 0 && (
           <div className="space-y-2 rounded-lg border border-border p-3" data-legacy-brand-urls>
             <p className="text-sm font-medium text-foreground">{t('admin.brandingPage.identity.legacyTitle')}</p>
-            <p className="text-xs text-muted-foreground">{t('admin.brandingPage.identity.legacyHint')}</p>
+            <p className="text-xs text-muted-foreground">{t(international ? 'admin.brandingPage.identity.legacyHintUnused' : 'admin.brandingPage.identity.legacyHint')}</p>
             {legacy.map(([field, label]) => (
               <div key={field} className="flex items-center gap-2" data-legacy-brand-url={field}>
                 <div className="min-w-0 flex-1">

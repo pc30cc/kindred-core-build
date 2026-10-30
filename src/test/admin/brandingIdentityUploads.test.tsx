@@ -23,6 +23,7 @@ const srv = vi.hoisted(() => ({
   calls: [] as Array<{ path: string; method: string; body: unknown }>,
   post: null as null | ((path: string) => unknown),
   toasts: [] as Array<{ title?: string; description?: string }>,
+  regionMode: 'international' as 'international' | 'iran',
 }));
 
 vi.mock('@/hooks/useAdmin', () => ({
@@ -50,7 +51,7 @@ vi.mock('@/lib/brandRaster', () => ({
 }));
 vi.mock('@/lib/platformPublicConfig', async (orig) => ({
   ...(await orig<typeof import('@/lib/platformPublicConfig')>()),
-  usePlatformPublicConfig: () => ({ data: { region: { region_mode: 'international' }, brand_assets: null } }),
+  usePlatformPublicConfig: () => ({ data: { region: { region_mode: srv.regionMode }, brand_assets: null } }),
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: (t: { title?: string; description?: string }) => { srv.toasts.push(t); } }));
 vi.mock('@/i18n', () => ({
@@ -89,6 +90,7 @@ beforeEach(() => {
   srv.calls = [];
   srv.post = null;
   srv.toasts = [];
+  srv.regionMode = 'international';
   localStorage.clear();
 });
 
@@ -187,5 +189,19 @@ describe('an address typed before uploads existed', () => {
     fireEvent.click(within(entry).getByRole('button', { name: /legacyClear/ }));
     await waitFor(() => expect(srv.calls.find((c) => c.method === 'PUT')?.body).toEqual({ favicon_url: null }));
     await waitFor(() => expect(document.querySelector('[data-legacy-brand-urls]')).toBeNull());
+  });
+
+  it.each([
+    ['iran', 'admin.brandingPage.identity.legacyHint'],
+    // The International edition never reads one: its kit or the upload always wins.
+    ['international', 'admin.brandingPage.identity.legacyHintUnused'],
+  ] as const)('%s: says what the address still does', async (regionMode, hint) => {
+    srv.regionMode = regionMode;
+    srv.branding = { ...ROW, logo_url: 'https://old.example/logo.png' };
+    wrap(<AdminBrandingPage />);
+    await waitFor(() => expect(document.querySelector('[data-legacy-brand-urls]')).not.toBeNull());
+    const box = document.querySelector('[data-legacy-brand-urls]') as HTMLElement;
+    expect(within(box).getByText(hint)).toBeTruthy();
+    expect(within(box).queryByText(hint === 'admin.brandingPage.identity.legacyHint' ? 'admin.brandingPage.identity.legacyHintUnused' : 'admin.brandingPage.identity.legacyHint')).toBeNull();
   });
 });

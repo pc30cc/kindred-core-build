@@ -356,7 +356,6 @@ function parseHtml(html: string): Node[] {
   const root: ElementNode = { kind: 'el', name: '#root', attrs: [], children: [] };
   const stack: ElementNode[] = [root];
   const top = () => stack[stack.length - 1];
-  const lower = html.toLowerCase();
   let text = '';
   const flush = () => {
     if (text) top().children.push({ kind: 'text', raw: text });
@@ -438,7 +437,11 @@ function parseHtml(html: string): Node[] {
     i = end + 1;
     if (VOID.has(name) || selfClosing) continue;
     if (RAW_TEXT.has(name)) {
-      const close = lower.indexOf(`</${name}`, i);
+      // Found in the text itself, not in a lowercased copy: lowercasing
+      // makes Turkish «İ» two characters, and every later index one off.
+      const closeTag = new RegExp(`</${name}`, 'gi');
+      closeTag.lastIndex = i;
+      const close = closeTag.exec(html)?.index ?? -1;
       const stop = close < 0 ? n : close;
       if (stop > i) el.children.push({ kind: 'text', raw: html.slice(i, stop) });
       const gt = close < 0 ? -1 : html.indexOf('>', close);

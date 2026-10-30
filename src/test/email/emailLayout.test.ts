@@ -579,6 +579,17 @@ describe('the text part', () => {
   });
 });
 
+describe('a raw-text element', () => {
+  it('ends where it ends after Turkish text, whose «İ» lowercases to two characters', () => {
+    const html = '<p>İptal İşlemi İçin</p><style>.x{color:red}</style><p>Sonra</p>';
+    const styled = styleContent(html, { locale: 'tr', edition: 'international' });
+    expect(styled).toContain('<style>.x{color:red}</style>');
+    expect(styled).toContain('Sonra</p>');
+    expect(contentToText(html)).toBe('İptal İşlemi İçin\n\nSonra');
+    expect(extractPreheader(`${html}<div class="preheader">Ön</div>`).rest).toBe(html);
+  });
+});
+
 describe('whole documents', () => {
   it('are told apart from content, and a caller\'s document gives its body', () => {
     expect(isWholeDocument('<!doctype html><html lang="fa"><body><p>x</p></body></html>')).toBe(true);

@@ -6,9 +6,10 @@
  * account detail (phase 6), so both print the same document.
  *
  * It is drawn as a sheet of paper in the brand's colours: always light, in the
- * app's dark mode too and on paper, with the edition's logo at its head
- * (RESPOK's horizontal logo abroad, WebYar's Persian logotype in Iran, the app
- * mark and name before the edition is known).
+ * app's dark mode too and on paper, with the platform's logo at its head:
+ * the one the Super Admin uploaded (its light file; src/lib/brandAssets.ts),
+ * else the edition's (RESPOK's horizontal logo abroad, WebYar's Persian
+ * logotype in Iran, the app mark and name before the edition is known).
  */
 import type { CSSProperties, ReactNode } from 'react';
 import { BadgeCheck } from 'lucide-react';
@@ -16,6 +17,7 @@ import { BrandLogo } from '@/components/brand/BrandLogo';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import type { LedgerEntry } from '@/lib/accountBillingApi';
 import { useBrandTokens } from '@/lib/brand';
+import { useBrandAssets } from '@/lib/brandAssets';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 import { SHIPS_IRAN_KIT } from '../../../../../shared/buildBrand';
@@ -44,6 +46,10 @@ const RECEIPT_SHEET_CSS = `@media print {
 function BrandHead({ international, kit }: { international: boolean; kit: boolean }) {
   const { locale } = useTranslation();
   const { brand } = useBrandTokens(locale);
+  const assets = useBrandAssets();
+  if (assets.source === 'custom' && assets.lockup) {
+    return <img src={assets.lockup.light} alt={brand} className="h-10 w-auto" draggable={false} data-receipt-logo="upload" />;
+  }
   if (international) {
     return <img src={INTL_BRAND.horizontal.light} alt={brand} className="h-10 w-auto" draggable={false} data-receipt-logo="intl" />;
   }

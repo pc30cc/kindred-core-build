@@ -5,13 +5,13 @@
 // No route here sends mail a caller composes. Every platform mail is sent by
 // the server for something that happened (a reset, an invitation, a
 // receipt, a visitor's message), through server/services/email; what is
-// left here are the two test buttons, and each mails only the member who
-// presses it, at their own verified address.
+// left here is the offline notice's test button, which mails only the member
+// who presses it, at their own verified address.
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { sendEmail, type SendResult } from '../services/email/index.js';
+import type { SendResult } from '../services/email/index.js';
 import { takeEmailQuota } from '../services/email/sendQuota.js';
 import { sendOfflineNoticeTest } from '../services/widget/offlineNotice.js';
 import type { ServerConfig } from '../config.js';
@@ -45,7 +45,19 @@ const retired = (_req: Request, res: Response) => res.status(410).json({ error: 
 emailRouter.post('/send', retired);
 emailRouter.post('/send-channel', retired);
 
-// ─── The test buttons ─────────────────────────────────────────────────────
+/**
+ * POST /api/email/test-send — retired.
+ *
+ * It sent a workspace owner or admin the template `email_test`, which is
+ * Super Admin's test of the platform's provider (Super Admin → Providers →
+ * Email, server/routes/adminEmailProviders.ts): it names that menu and the
+ * provider the platform uses, neither of which is a workspace's to see. A
+ * workspace has no provider of its own to test, and nothing in the web app,
+ * the native or desktop apps called this route.
+ */
+emailRouter.post('/test-send', (_req: Request, res: Response) => res.status(410).json({ error: 'WORKSPACE_EMAIL_TEST_RETIRED' }));
+
+// ─── The offline notice's test button ─────────────────────────────────────
 
 /** Test mails one member may send in ten minutes, and one workspace in a day. */
 const TESTS_PER_MEMBER = { windowSeconds: 10 * 60, max: 3 };
@@ -109,33 +121,6 @@ function answer(res: Response, to: string, result: SendResult) {
     ...(result.success ? {} : { error: result.error, error_code: result.errorCode ?? 'provider_error' }),
   });
 }
-
-/**
- * POST /api/email/test-send { workspaceId, locale? }
- * The Super Admin template `email_test` (per edition, migration 260), to the
- * caller's own address; the text here is only what is sent if that template
- * was deleted.
- */
-emailRouter.post('/test-send', async (req, res) => {
-  try {
-    const sender = await testSender(req, res);
-    if (!sender) return;
-    const config = serverConfigOf(req);
-    const result = await sendEmail(config, {
-      workspaceId: sender.workspaceId,
-      to: sender.to,
-      templateSlug: 'email_test',
-      locale: sender.locale || await operatorLocale(config, sender.auth.userId),
-      subject: 'Email provider test',
-      text: 'This is a test email. The email provider is configured correctly.',
-      html: '<p>This is a test email. The email provider is configured correctly.</p>',
-    });
-    return answer(res, sender.to, result);
-  } catch (err) {
-    console.error('[email] test-send error:', err instanceof Error ? err.message : err);
-    return res.status(500).json({ error: 'Internal email error' });
-  }
-});
 
 /**
  * POST /api/email/test-offline-notice { workspaceId, locale? }

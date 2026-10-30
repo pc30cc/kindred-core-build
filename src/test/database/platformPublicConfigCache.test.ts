@@ -10,6 +10,18 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The uploads' URLs (migration 290) come from the one storage resolver;
+// here a fixed CDN, counted.
+const storage = vi.hoisted(() => ({ lookups: 0 }));
+vi.mock('../../../server/services/storage/urlResolver.js', () => ({
+  createStorageUrlResolver: () => ({
+    platform: async (key: string | null | undefined) => {
+      storage.lookups += 1;
+      return key && key.startsWith('platform/') ? `https://cdn.example.test/${key}` : null;
+    },
+  }),
+}));
+
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => ({
   ops: 0,
@@ -62,6 +74,7 @@ vi.mock('../../../server/supabase.js', () => {
 
 import {
   CACHE_TTL_MS,
+  getPlatformBrandSource,
   getPlatformPublicConfig,
   invalidatePlatformPublicConfig,
   __resetPlatformPublicConfigForTests,
@@ -71,6 +84,7 @@ const CONFIG = {} as Parameters<typeof getPlatformPublicConfig>[0];
 
 beforeEach(() => {
   __resetPlatformPublicConfigForTests();
+  storage.lookups = 0;
   db.ops = 0;
   db.fail = false;
   db.gate = null;
@@ -115,9 +129,46 @@ describe('platform public config cache', () => {
       brand: { edition: 'iran', site_url: 'https://webyar.ai', support_email: 'support@webyar.ai' },
       // Iranian edition: SMS verification is always on (no SMS row is read).
       sms_verification: true,
+      // Nothing uploaded: no storage lookup at all.
+      brand_assets: null,
     });
     expect(JSON.stringify(v)).not.toContain('not-for-the-public');
     expect(JSON.stringify(v)).not.toContain('admin-1');
+    expect(storage.lookups).toBe(0);
+  });
+
+  it('sends the uploaded logo and symbol as URLs, never their keys or the app address', async () => {
+    db.branding = {
+      ...db.branding,
+      logo_light_storage_key: 'platform/brand/a-logo-light.svg',
+      logo_email_light_storage_key: 'platform/brand/b-logo-light-email.png',
+      logo_email_width: 312,
+      logo_email_height: 120,
+      // A dark logo without its light one would never be stored; a symbol's
+      // icons are read with it.
+      symbol_storage_key: 'platform/brand/c-symbol.svg',
+      symbol_png_192_storage_key: 'platform/brand/d-symbol-192.png',
+    };
+    db.domains = { ...db.domains, app_base_url: 'https://app.webyar.ai' };
+    const v = await getPlatformPublicConfig(CONFIG);
+    expect(v?.brand_assets).toEqual({
+      logo_light: 'https://cdn.example.test/platform/brand/a-logo-light.svg',
+      logo_dark: null,
+      logo_png_light: 'https://cdn.example.test/platform/brand/b-logo-light-email.png',
+      logo_png_dark: null,
+      logo_png_width: 312,
+      logo_png_height: 120,
+      symbol: 'https://cdn.example.test/platform/brand/c-symbol.svg',
+      apple_touch_180: null,
+      icon_192: 'https://cdn.example.test/platform/brand/d-symbol-192.png',
+      icon_512: null,
+    });
+    expect(v?.branding).not.toHaveProperty('logo_light_storage_key');
+    expect(JSON.stringify(v)).not.toContain('app.webyar.ai');
+    // The server reads the app's address from the same memo, with no query.
+    const before = db.ops;
+    expect((await getPlatformBrandSource(CONFIG))?.appBaseUrl).toBe('https://app.webyar.ai');
+    expect(db.ops).toBe(before);
   });
 
   it('leaves out the branding labels nothing draws (widget display name, knowledge base title, support label)', async () => {

@@ -16,6 +16,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail, type SendResult } from '../email/index.js';
+import { localNumbers } from '../email/layout.js';
 import { emailRetryDelayMs } from '../email/outbox.js';
 import { sendSms } from '../sms/index.js';
 import { toProviderFormat } from '../phoneVerification/phone.js';
@@ -25,7 +26,11 @@ import {
   renderInviteSms,
   renderDeliveryFailure,
   renderInviterFallback,
+  renderInviteExpiry,
+  renderRoleLabel,
   normalizeNotificationLocale,
+  INVITE_OTP_MINUTES,
+  SUPPORTED_NOTIFICATION_LOCALES,
 } from './notificationTemplates.js';
 import {
   deriveEmailToken,
@@ -105,12 +110,6 @@ function acceptingClaims(): boolean {
 
 function backoffSeconds(attempt: number): number {
   return Math.min(3600, Math.round(30 * Math.pow(2, Math.max(0, attempt - 1))));
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
-  })[char] || char);
 }
 
 /**
@@ -379,8 +378,10 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
       templateSlug: 'invite_otp',
       templateData: {
         code,
-        expiry_minutes: '10',
+        expiry_minutes: String(INVITE_OTP_MINUTES),
       },
+      // In the digits of the language the template is sent in.
+      localizedData: localNumbers({ expiry_minutes: INVITE_OTP_MINUTES }),
       subject: otpMail.subject,
       text: otpMail.text,
       html: otpMail.html,
@@ -426,35 +427,47 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
     const appBase = await resolveAppBaseUrl(config);
     const link = buildInviteUrl(appBase, emailToken as string, 'email_claim');
     const mailLocale = normalizeNotificationLocale(payload.locale);
+    // Jalali in the Iranian edition (and while unknown, as before), Gregorian elsewhere.
+    const calendar = EDITION_PROFILE[(await getPlatformEditionOrNull(config)) ?? 'iran'].calendar;
     const mail = renderInviteEmail(mailLocale, {
       firstName: payload.first_name,
       workspaceName: payload.workspace_name,
       link,
       expiresAt: payload.expires_at ?? null,
       timeZone: payload.time_zone ?? null,
-      // Jalali in the Iranian edition (and while unknown, as before), Gregorian elsewhere.
-      calendar: EDITION_PROFILE[(await getPlatformEditionOrNull(config)) ?? 'iran'].calendar,
+      calendar,
     });
-    // The subject and the text part get each value as typed, the HTML part
-    // its escaped copy (htmlData): escaped values in templateData printed
-    // "A&amp;B" in the subject and "&amp;p=e" in the text part's link.
+    // Each value as typed: the email core gives the subject and the text part
+    // the value and the HTML part its escaped copy (escaping it here printed
+    // "A&amp;B" in the subject and "&amp;p=e" in the text part's link).
     // {brand} is left to the email service, which fills in the platform's own
     // name: the mail is From the platform, so it says whose it is ("Acme on
     // Webyar"), never a workspace name standing in for the brand.
-    const values = {
-      name: oneLine(payload.first_name),
-      workspace: oneLine(payload.workspace_name),
-      inviter: (await inviterName(config, job.invitation_id)) ?? renderInviterFallback(mailLocale),
-      role: oneLine(payload.role, 40),
-      action_url: link,
-    };
+    //
+    // The words that depend on the language — the role's name, the end date,
+    // "a team member" for an inviter with no name — go in every language
+    // (localizedData): the core picks the template's language at send time,
+    // which need not be the one the invitation was made in.
+    const ownInviter = await inviterName(config, job.invitation_id);
+    const role = oneLine(payload.role, 40);
+    const inLocale = (lc: string) => ({
+      role: renderRoleLabel(lc, role),
+      expiry: renderInviteExpiry(lc, payload.expires_at ?? null, payload.time_zone ?? null, calendar),
+      ...(ownInviter ? {} : { inviter: renderInviterFallback(lc) }),
+    });
     const result = await sendEmail(config, {
       workspaceId: payload.workspace_id,
       to: payload.email,
       templateSlug: 'invite_member',
       locale: mailLocale,
-      templateData: values,
-      htmlData: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, escapeHtml(value)])),
+      templateData: {
+        name: oneLine(payload.first_name),
+        workspace: oneLine(payload.workspace_name),
+        inviter: ownInviter ?? renderInviterFallback(mailLocale),
+        action_url: link,
+        ...inLocale(mailLocale),
+      },
+      localizedData: Object.fromEntries(SUPPORTED_NOTIFICATION_LOCALES.map((lc) => [lc, inLocale(lc)])),
       subject: mail.subject,
       text: mail.text,
       html: mail.html,

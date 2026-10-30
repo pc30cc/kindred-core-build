@@ -27,10 +27,17 @@ import { conversationsApi } from '@/lib/conversations-api';
 import { knownEdition } from '@/lib/edition';
 import { INTL_BRAND } from '@/lib/internationalMode';
 import { WEBYAR_BRAND } from '@/lib/webyarBrand';
+import { currentBrandAssets } from '@/lib/brandAssets';
 import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
 
-/** The edition's own app icon (there was a shared /favicon-192.png, which never existed). */
+/**
+ * The platform's symbol the Super Admin uploaded (its 192 px PNG), else the
+ * edition's own app icon (there was a shared /favicon-192.png, which never
+ * existed).
+ */
 export function notificationIcon(): string {
+  const uploaded = currentBrandAssets().icons?.png192;
+  if (uploaded) return uploaded;
   return SHIPS_IRAN_KIT && knownEdition() !== 'international' ? WEBYAR_BRAND.pwa192 : INTL_BRAND.pwa192;
 }
 

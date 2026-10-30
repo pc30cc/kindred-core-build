@@ -200,7 +200,9 @@
     /**
      * The "powered by" credit (D20): the Iran region's mark and words, the
      * International platform's lockup, a logo image, plain text, or an
-     * empty row when nothing is credited. A link only when one is set.
+     * empty row when nothing is credited. A link only when one is set. The
+     * logo the platform uploaded is always the image, and never the kit's
+     * art: with a workspace's own words (no `parts`), they stay words.
      */
     function footer(ctrl) {
       var text = ctrl.t('powered_by');
@@ -211,16 +213,17 @@
       var brand = typeof ctrl.poweredByBrand === 'function' ? ctrl.poweredByBrand() : '';
       var at = brand ? text.indexOf(brand) : -1;
       var parts = typeof ctrl.poweredByParts === 'function' ? ctrl.poweredByParts() : null;
+      var own = (b.edition === 'iran' ? b.powered_by_logo_custom : b.powered_by && b.powered_by.custom) === true;
       var kids = [text];
       // The words around the brand; `keep` keeps their spaces (they read
       // as one sentence, and a line's edge spaces take no room).
       function label(s, keep) { return s.trim() ? el('span', { class: 'ccw-powered-label' }, [keep ? s : s.trim()]) : null; }
-      if (LOCAL_KIT && b.edition === 'iran' && at >= 0) {
+      if (!own && LOCAL_KIT && b.edition === 'iran' && at >= 0) {
         kids = [
           svgRaw({ class: 'wm', viewBox: '17 13.5 26 33.5', 'aria-hidden': 'true' }, [svgNode('path', { fill: 'currentColor', 'fill-rule': 'evenodd', d: WM })]),
           label(text.slice(0, at), true), el('b', {}, [brand]), label(text.slice(at + brand.length), true),
         ];
-      } else if (INTL_KIT && parts && b.edition === 'international') {
+      } else if (!own && INTL_KIT && parts && b.edition === 'international') {
         kids = [label(parts.before)].concat(LK.map(function (k) {
           var sym = svgNode('g', { transform: k[2] });
           sym.appendChild(svgNode('path', { fill: 'currentColor', d: k[3] }));

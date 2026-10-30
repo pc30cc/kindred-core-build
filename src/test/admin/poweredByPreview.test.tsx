@@ -149,6 +149,26 @@ describe('Super Admin → Widget settings → Powered by: the preview', () => {
     expect(row(preview(), 'en').querySelector('[data-powered-brand]')).toBeNull();
   });
 
+  it('a logo the Super Admin uploaded stands in the name\'s place, in either edition', () => {
+    const upload = JSON.stringify({ logo_light: 'https://cdn.example.test/platform/brand/l.svg', symbol: null });
+    try {
+      for (const edition of ['international', 'iran'] as const) {
+        flags.edition = edition;
+        localStorage.setItem('wy-brand-assets', upload);
+        const preview = section();
+        const logo = row(preview(), 'en').querySelector('[data-powered-logo]') as HTMLImageElement;
+        expect(logo.getAttribute('src'), edition).toBe('https://cdn.example.test/platform/brand/l.svg');
+        expect(logo.getAttribute('alt')).toBe('Acme Cloud');
+        cleanup();
+      }
+      // An edition not known yet: the name, as the widget draws it.
+      flags.edition = null;
+      expect(row(section()(), 'en').querySelector('[data-powered-logo]')).toBeNull();
+    } finally {
+      localStorage.removeItem('wy-brand-assets');
+    }
+  });
+
   it('without a brand name of its own, the platform\'s name', () => {
     flags.edition = null;
     const preview = section({ ...(ROW as object), powered_by_brand_text: null } as never);

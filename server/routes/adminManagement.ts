@@ -19,7 +19,7 @@
  * would make it uncallable by definition.
  */
 import { Router } from 'express';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
@@ -36,9 +36,22 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
-import { getPlatformEdition, invalidatePlatformRegionCache } from '../services/platformRegion.js';
+import { readCustomBrandAssets } from '../services/platformBrandAssets.js';
+import { platformBrandAssetsRouter } from './platformBrandAssets.js';
+import { getPlatformAllowedLocales, getPlatformEdition, invalidatePlatformRegionCache } from '../services/platformRegion.js';
 import { respondEditionUnavailable } from '../services/editionSettings.js';
 import type { Edition } from '../../shared/edition.js';
+import { parseEmailAddress } from '../../shared/emailProviders.js';
+import { catalogView, isSentTemplate } from '../services/email/templateCatalog.js';
+import {
+  previewPlatformTemplate,
+  readPlatformTemplate,
+  refusedTemplateContent,
+  sendPlatformTemplateTest,
+  type TemplateContent,
+} from '../services/email/templateAdmin.js';
+import { takeEmailQuota } from '../services/email/sendQuota.js';
+import { findIdentityById } from '../services/auth/identity.js';
 import { PANEL_THEME_IDS, isValidPanelThemeOptions, resolvePanelThemeOptions } from '../../shared/panelThemes.js';
 import {
   isEmailProviderKey,
@@ -597,10 +610,54 @@ const emailTemplateSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
+/**
+ * A template of a mail the platform sends (templateCatalog.ts, `sent`) is
+ * edited, never deleted or switched off: without its row the mail would go
+ * out in its sender's plain fallback, or not at all (owner, 2026-10-30: no
+ * email without a template). The other languages' rows count too, since the
+ * core falls back to them (resolveEmailScope).
+ */
+function refuseSentTemplateRemoval(res: Response): void {
+  res.status(409).json({ error: 'template_in_use' });
+}
+
+/**
+ * The slug and language of a platform row of this edition, '' when there is
+ * no such row (the write then finds nothing either), or the read's error. A
+ * read that failed stops the write: taken for "no such row", it let a sent
+ * mail's row be deleted or switched off whenever that one lookup timed out.
+ */
+async function platformTemplateRow(config: ServerConfig, id: string, edition: Edition): Promise<{ slug: string; locale: string } | { error: string }> {
+  const { data, error } = await getServiceClient(config)
+    .from('email_templates')
+    .select('slug, locale')
+    .eq('id', id)
+    .is('workspace_id', null)
+    .eq('edition', edition)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  const row = data as { slug?: unknown; locale?: unknown } | null;
+  return { slug: String(row?.slug ?? ''), locale: String(row?.locale ?? '') };
+}
+
+/**
+ * A template is saved only as the platform may send it: without what would
+ * run or load anything once the mail is opened, or hide from its reader
+ * (refusedTemplateContent; the preview shows the same codes in words). True
+ * when the save was refused here.
+ */
+async function refuseTemplateContent(res: Response, config: ServerConfig, input: { edition: Edition; locale: string; html_body: string }): Promise<boolean> {
+  const problems = await refusedTemplateContent(config, input);
+  if (!problems.length) return false;
+  res.status(422).json({ error: 'template_content_refused', problems });
+  return true;
+}
+
 adminManagementRouter.post('/email-templates', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const parsed = emailTemplateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  if (!parsed.data.is_active && isSentTemplate(parsed.data.slug)) return refuseSentTemplateRemoval(res);
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   let edition: Edition;
@@ -610,6 +667,7 @@ adminManagementRouter.post('/email-templates', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
+  if (await refuseTemplateContent(res, config, { edition, locale: parsed.data.locale, html_body: parsed.data.html_body })) return;
   // One platform row per (edition, slug, locale): a second save of the same
   // template updates it instead of adding a twin.
   const { data: existing } = await sb
@@ -656,6 +714,11 @@ adminManagementRouter.put('/email-templates/:id', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
+  const row = await platformTemplateRow(config, req.params.id, edition);
+  if ('error' in row) return res.status(500).json({ error: row.error });
+  if (!parsed.data.is_active && isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
+  // No such row: the update below finds nothing, and says so.
+  if (row.slug && await refuseTemplateContent(res, config, { edition, locale: row.locale, html_body: parsed.data.html_body })) return;
   const { data, error } = await sb
     .from('email_templates')
     .update(parsed.data)
@@ -679,6 +742,9 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
+  const row = await platformTemplateRow(config, req.params.id, edition);
+  if ('error' in row) return res.status(500).json({ error: row.error });
+  if (isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
   const { error } = await sb
     .from('email_templates')
     .delete()
@@ -687,6 +753,147 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
     .eq('edition', edition);
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
+});
+
+// ── The catalog, the preview and the test of a template ────────────────
+// Branding → Email templates lists every template the platform keeps from
+// the catalog (services/email/templateCatalog.ts): the ones it sends, with
+// the placeholders their senders fill, and the ones it no longer sends. The
+// preview and the test render a template through the email core, filled
+// with the catalog's sample values, in the running edition only.
+
+/**
+ * GET /email-templates/catalog: every slug, and the languages this edition
+ * sends. A mail goes out in a language the platform offers, else in the
+ * first of them, then in English when that row is missing or switched off
+ * (resolveEmailScope): an Iranian platform's English row is its last
+ * resort, and its Turkish one is never sent.
+ */
+adminManagementRouter.get('/email-templates/catalog', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const config = serverConfigOf(req);
+  let edition: Edition;
+  try {
+    edition = await getPlatformEdition(config);
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
+    return;
+  }
+  const offered = await getPlatformAllowedLocales(config);
+  return res.json({
+    edition,
+    locales: { offered, fallback: 'en' },
+    templates: catalogView(edition),
+  });
+});
+
+/**
+ * A template to render or try: the text being edited (subject and HTML
+ * together), or none of it for the saved row. `.strict()`: an edition, a
+ * recipient or anything else in the body is refused rather than ignored.
+ */
+const templateTryFields = {
+  slug: z.string().min(1).max(100),
+  locale: z.enum(['fa', 'en', 'tr']),
+  subject: z.string().max(2_000).optional(),
+  html_body: z.string().max(500_000).optional(),
+  text_body: z.string().max(500_000).nullable().optional(),
+};
+const templatePreviewSchema = z.object({ ...templateTryFields, scheme: z.enum(['light', 'dark']).default('light') }).strict();
+const templateTestSchema = z.object(templateTryFields).strict();
+interface TemplateTry {
+  slug: string;
+  locale: 'fa' | 'en' | 'tr';
+  subject?: string;
+  html_body?: string;
+  text_body?: string | null;
+}
+
+/** The posted text, or the running edition's saved row when nothing was posted; null when there is neither. */
+async function templateToTry(config: ServerConfig, edition: Edition, body: TemplateTry): Promise<TemplateContent | null> {
+  if (body.html_body === undefined && body.subject === undefined) return readPlatformTemplate(config, edition, body.slug, body.locale);
+  return { subject: body.subject ?? '', html_body: body.html_body ?? '', text_body: body.text_body || null };
+}
+
+/**
+ * POST /email-templates/preview: the mail as it would be sent, as JSON (the
+ * API's CSP would not let the panel frame a page of it; the panel draws it
+ * in a sandboxed srcDoc), with its content problems as codes. Nothing is
+ * sent and nothing is saved.
+ */
+adminManagementRouter.post('/email-templates/preview', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = templatePreviewSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+  const body = parsed.data as TemplateTry & { scheme: 'light' | 'dark' };
+  const config = serverConfigOf(req);
+  try {
+    const edition = await getPlatformEdition(config);
+    const content = await templateToTry(config, edition, body);
+    if (!content) return res.status(404).json({ error: 'template_not_found' });
+    const { slug, locale, scheme } = body;
+    return res.json(await previewPlatformTemplate(config, { edition, slug, locale, content, scheme }));
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) {
+      console.error('[admin] email template preview failed:', e instanceof Error ? e.message : e);
+      res.status(500).json({ error: 'preview_failed' });
+    }
+  }
+});
+
+/** Template tests one Super Admin may send in ten minutes, and in a day. */
+const TEMPLATE_TESTS_SHORT = { windowSeconds: 10 * 60, max: 10 };
+const TEMPLATE_TESTS_DAY = { windowSeconds: 24 * 60 * 60, max: 50 };
+
+/**
+ * POST /email-templates/test-send: the template (as being edited, or as
+ * saved), with the sample values, through the email core to the signed-in
+ * Super Admin's own verified address, never another. Counted per admin in
+ * the shared send quota (as the panel's own test buttons are, routes/email.ts),
+ * so a held button or a script cannot turn it into a burst from the
+ * platform's domain.
+ */
+adminManagementRouter.post('/email-templates/test-send', async (req, res) => {
+  const adminId = await requirePlatformAdmin(req, res);
+  if (!adminId) return;
+  const parsed = templateTestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+  const body = parsed.data as TemplateTry;
+  // A test is of a whole template: its subject and HTML both, or the saved row's.
+  if ((body.subject === undefined) !== (body.html_body === undefined)) return res.status(400).json({ error: 'invalid_request' });
+  const config = serverConfigOf(req);
+  try {
+    const edition = await getPlatformEdition(config);
+    const content = await templateToTry(config, edition, body);
+    if (!content) return res.status(404).json({ error: 'template_not_found' });
+    if (!content.subject.trim() || !content.html_body.trim()) return res.status(400).json({ error: 'template_empty' });
+
+    const identity = await findIdentityById(config, adminId);
+    const to = identity?.emailVerifiedAt ? parseEmailAddress(identity.email) : null;
+    if (!to) return res.status(400).json({ error: 'verified_email_required' });
+
+    const short = await takeEmailQuota(config, { scope: 'email_template_test_admin', key: adminId, ...TEMPLATE_TESTS_SHORT });
+    const day = short.allowed
+      ? await takeEmailQuota(config, { scope: 'email_template_test_admin_day', key: adminId, ...TEMPLATE_TESTS_DAY })
+      : short;
+    if (!day.allowed) {
+      res.setHeader('Retry-After', String(day.retryAfterSeconds));
+      return res.status(429).json({ error: 'test_limit_reached', retry_after_seconds: day.retryAfterSeconds });
+    }
+
+    const { slug, locale } = body;
+    const result = await sendPlatformTemplateTest(config, { edition, slug, locale, content, to });
+    return res.status(result.success ? 200 : 502).json({
+      success: result.success,
+      sent_to: to,
+      ...(result.success ? {} : { error: result.error, error_code: result.errorCode ?? 'provider_error' }),
+    });
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) {
+      console.error('[admin] email template test failed:', e instanceof Error ? e.message : e);
+      res.status(500).json({ error: 'test_failed' });
+    }
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -799,8 +1006,13 @@ adminManagementRouter.get('/platform-branding', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
   const { data, error } = await sb.from('platform_branding').select('*').limit(1).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ branding: data });
+  // The uploaded logo and symbol as URLs (the row holds their keys only).
+  return res.json({ branding: data, assets: await readCustomBrandAssets(serverConfigOf(req)) });
 });
+
+// The platform's own logo and symbol: uploads, never typed URLs
+// (server/routes/platformBrandAssets.ts).
+adminManagementRouter.use('/platform-branding/assets', platformBrandAssetsRouter);
 
 adminManagementRouter.get('/platform-branding-localized', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;

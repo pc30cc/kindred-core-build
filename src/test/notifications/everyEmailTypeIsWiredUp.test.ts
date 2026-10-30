@@ -6,7 +6,8 @@
  * fix was to delete them; the guard against doing it again is this: a type
  * named in the registry must have a producer that queues it, copy in all
  * three languages, a column for the platform to switch it with, a column for
- * the operator to decline it with, and a control in the admin console.
+ * the operator to decline it with, a control in the admin console, and a
+ * place in the email template catalog (Branding → Email templates).
  *
  * Every list is read from the file that owns it, so a type added in one
  * place and forgotten in another fails here rather than in somebody's empty
@@ -14,6 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { catalogEntry } from '../../../server/services/email/templateCatalog.js';
 
 const REGISTRY = 'server/services/notificationEmail/types.ts';
 const PRODUCERS = 'server/services/notificationEmail/producers.ts';
@@ -90,10 +92,12 @@ describe('every notification email type', () => {
     }
   });
 
-  it('is editable in Branding → Email templates', () => {
-    const branding = read(BRANDING);
+  it('is in the template catalog as sent, which Branding → Email templates lists and edits', () => {
+    // The tab draws every row from the catalog (GET …/email-templates/catalog):
+    // a slug missing there could only be changed in SQL.
+    expect(read(BRANDING)).toContain('fetchEmailTemplateCatalog');
     for (const slug of declaredSlugs) {
-      expect(branding).toContain(`'${slug}'`);
+      expect(catalogEntry(slug)?.status, slug).toBe('sent');
     }
   });
 

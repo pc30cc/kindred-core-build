@@ -6,10 +6,13 @@
  *  - POST /send and POST /send-channel answer 410 whatever is sent: the
  *    platform template or HTML of the caller's choice to any address, from
  *    the platform's own address, is gone (nothing called send-channel);
- *  - the two test buttons (/test-send, /test-offline-notice) need an owner
- *    or admin, mail only the caller's own VERIFIED address (a `to` in the
+ *  - POST /test-send answers 410: it sent a workspace admin Super Admin's
+ *    provider test (template email_test), which names that menu and the
+ *    platform's provider, and nothing called it;
+ *  - the offline notice's test button (/test-offline-notice) needs an owner
+ *    or admin, mails only the caller's own VERIFIED address (a `to` in the
  *    body is refused by the schema), within 3 per member in ten minutes and
- *    10 per workspace in a day, and answer the provider's real result: 502
+ *    10 per workspace in a day, and answers the provider's real result: 502
  *    with our error code when it did not take the mail;
  *  - the offline test is in the member's own language unless one is asked for.
  *
@@ -120,9 +123,17 @@ describe('the retired relays', () => {
   }
 });
 
+describe('the workspace test of the platform\'s provider', () => {
+  it('POST /test-send answers 410 and sends nothing: it is Super Admin\'s test, and names the platform\'s provider', async () => {
+    const res = await post('/test-send', { workspaceId: WS });
+    expect(res.status).toBe(410);
+    expect(res.body).toEqual({ error: 'WORKSPACE_EMAIL_TEST_RETIRED' });
+    expect(state.sent).toEqual([]);
+  });
+});
+
 describe.each([
   ['/test-offline-notice', 'offline_message_received'],
-  ['/test-send', 'email_test'],
 ])('POST %s', (path, slug) => {
   it('an owner: their own verified address only, the provider\'s answer, manage rights asked for', async () => {
     const res = await post(path, { workspaceId: WS });

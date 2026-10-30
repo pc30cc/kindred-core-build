@@ -125,6 +125,20 @@ describe('PlatformBrandingGate (head tags)', () => {
     expect(h.theme()).toBe('#E11D48');
   });
 
+  it('Iran: a symbol the Super Admin uploaded wins over the kit and the operator\'s old icon URLs', async () => {
+    state.data = {
+      ...config('iran', { favicon_url: 'https://cdn.example/fav.png', pwa_icon_url: 'https://cdn.example/pwa.png' }),
+      brand_assets: { symbol: 'https://cdn.example/s.svg', apple_touch_180: 'https://cdn.example/s-180.png', icon_192: 'https://cdn.example/s-192.png', icon_512: 'https://cdn.example/s-512.png' },
+    };
+    const h = mount();
+    await waitFor(() => expect(h.icon()).toBe('https://cdn.example/s-192.png'));
+    expect(h.touch()).toBe('https://cdn.example/s-180.png');
+    // The kit's colour and share image stay; its pinned-tab mask (the kit's symbol) does not.
+    expect(h.theme()).toBe('#0B7D6C');
+    expect(h.og()).toBe(WEBYAR_BRAND.ogImage);
+    expect(h.mask()).toBeNull();
+  });
+
   it.each(['multi', 'global', 'turkey'])('%s: none of the kit, as before', async (mode) => {
     state.data = config(mode);
     const h = mount();
@@ -142,6 +156,8 @@ describe('the PWA manifest', () => {
     expect(manifest).toContain('const webyarKit = isWebyarKitEdition(edition);');
     expect(manifest).toMatch(/: webyarKit && !operatorIcon\s*\?\s*\[\s*\{ src: onApp\(WEBYAR_BRAND\.pwa192\)/);
     expect(manifest).toMatch(/const icons = international\s*\?/);
+    // An uploaded symbol's PNGs come first, in either edition.
+    expect(manifest).toContain('icons: uploadedIcons ?? icons,');
     expect(manifest).toContain("(b.primary_color as string | null) || '#3B82F6'");
     expect(manifest).toContain('webyarKit && isUncustomisedColor(b.primary_color)');
   });
@@ -184,6 +200,8 @@ describe('chat widget "powered by"', () => {
     expect(route).toContain('if (poweredBy && isWebyarKitEdition(edition) && assetBase) {');
     expect(route).toContain('.logo = `${assetBase}${WEBYAR_BRAND.logo.light}`');
     expect(route).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');
+    // An uploaded logo wins over both kits (src/test/widget/uploadedLogoCredit.test.ts).
+    expect(route).toContain("if (brandAssets?.source === 'custom')");
     // A broken image becomes the name (Core, capture-phase listener, CSP-safe).
     expect(read('public/widget/runtime.js')).toContain("img.hasAttribute('data-wy-brand-logo')");
   });

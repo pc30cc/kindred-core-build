@@ -35,6 +35,7 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Calendar / time zone | Jalali, Asia/Tehran | Gregorian (Persian digits kept), the viewer's zone or UTC | `src/lib/date.ts`, server formatters |
 | Phone / SMS / Bale | +98, Iranian SMS vendors, Bale | no national default, no SMS verification, no Bale | phase 3 |
 | Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's official kit (`public/brand/webyar`, `WEBYAR_BRAND`; see below) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/webyarBrand.ts`, `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate`, `server/routes/manifest.ts` |
+| The platform's own logo and symbol (Super Admin → Branding → Visual identity) | an upload wins over WebYar's kit everywhere the logo shows; without one, the kit as before | an upload wins over RESPOK's kit the same way; without one, the kit as before | see "The platform's own logo" below |
 | Chat widget floating button | WebYar's kit launcher (every template, `edition: 'iran'` only) | RESPOK's kit launcher, the Thread chat button, or the Open one for `t1-intl` / `t2-intl` with `logoDirection: 'open'` (every template, `edition: 'international'` only; the RESPOK build's loader only, `@intl-kit`) | `public/widget/loader.js`, `shared/localKitLauncher.ts`, `shared/respokLauncher.ts` |
 | Panel colour scheme `respok` | never offered | offered | `shared/panelThemes.ts` |
 | Brand in text | WebYar's fixed words ("Webyar", "وب‌یار", "Web Yar", info@webyar.ai, https://webyar.ai) | the platform's own name, site and support address | `shared/brand.ts`, `src/lib/brand.ts` |
@@ -42,8 +43,8 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Default UI language | `runtime-config.js` `defaultLocale` | the platform's `default_locale` (Super Admin → Languages) | `src/i18n/index.tsx` `getSiteDefaultLocale` |
 | Chat widget template | `default` (and `t1`, `t2` once the Super Admin enables them) | `intl` (skin over the same renderer; and `t1-intl`, `t2-intl`, RESPOK's skins over Templates 1 and 2, once enabled) | `shared/widgetTemplates.ts` |
 | Call widget template | `default`: WebYar's 2026-10 design (skin `presentation-default.css`; IRANSans, InterWY for Latin; Jalali dates in Tehran) | `intl`: Respok's 2026-10 design, the same core renderer, panel module and markup with its own skin `presentation-intl.css` (Figtree; Gregorian in the visitor's zone; the Thread or Open lockup as the chat template's `logoDirection`) | `shared/widgetTemplates.ts`, `docs/call-widget-handoff/IMPLEMENTATION_NOTES.md` |
-| Call widget "powered by" | the designed lockup drawn inline in WebYar's build: WebYar's mark + «قدرت گرفته از» + bold «وب‌یار» (English and Turkish: the mark and the localized words around a bold "Web Yar"); a workspace's own "powered by" text keeps the mark only when it names the brand, else it is plain text; without the edition (an older backend) the words as text, no mark (`powered_by_logo` is no longer drawn) | "Powered by" + the platform's Thread (or Open) lockup drawn inline in the RESPOK build, else the platform's logo image (alt = platform name, the name if the image fails); its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js`, `public/call-widget/presentation-default-panel.js` |
-| Chat widget credit | the label and WebYar's Persian logotype (`poweredBy.logo`, absolute from the widget asset base, 16px; the name if the image fails); an unknown edition keeps the English `platform_name` as text | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails) | `server/routes/widget.ts` |
+| Call widget "powered by" | an uploaded logo, when there is one, as an image in the brand's place (`powered_by_logo` with `powered_by_logo_custom: true`); else the designed lockup drawn inline in WebYar's build: WebYar's mark + «قدرت گرفته از» + bold «وب‌یار» (English and Turkish: the mark and the localized words around a bold "Web Yar"); a workspace's own "powered by" text keeps the mark only when it names the brand, else it is plain text; without the edition (an older backend) the words as text, no mark (`powered_by_logo` is no longer drawn) | "Powered by" + an uploaded logo as an image (`powered_by.custom: true`), else the platform's Thread (or Open) lockup drawn inline in the RESPOK build, else the platform's logo image (alt = platform name, the name if the image fails); its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js`, `public/call-widget/presentation-default-panel.js` |
+| Chat widget credit | the label and WebYar's Persian logotype (`poweredBy.logo`, absolute from the widget asset base, 16px; the name if the image fails), or the uploaded logo (absolute on the storage provider); an unknown edition keeps the English `platform_name` as text | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails), or the uploaded logo in every template and logo direction | `server/services/widget/configSnapshot.ts` |
 | Widget dates (Persian) | Jalali, Tehran day boundaries | Gregorian, the visitor's zone | `calendar` / `timeZone` hints in the bootstrap |
 | Push notification copy | "Webyar", "New message in Webyar", «پیام جدید در وب‌یار» | the platform's name (also in place of a stored line that names WebYar) | `server/services/push/dispatch.ts`, `platformSettings.ts` `defaultPushTemplates` |
 | Legal pages (/privacy, /terms, /contact) | "Webyar", info@webyar.ai | the platform's name and support address | `src/pages/public/legal` |
@@ -90,9 +91,10 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
   foot) and the head (favicon, touch icon, mask icon, theme colour #0B7D6C,
   og:image) once the edition is known to be Iran (cache or `boot.js`);
   `BrandLogo` shows the symbol, `BrandLockup` / `BrandWordmark` / `BrandFooter`
-  the logotype, `BrandLoader` the kit's loader. An operator's own logo,
-  favicon, PWA icon or colour (Super Admin → Branding) still wins, in the same
-  order as before; the seeded `#3B82F6` counts as "not chosen". Note that
+  the logotype, `BrandLoader` the kit's loader. A logo or symbol the Super
+  Admin uploaded wins over the kit (below); an operator's old favicon or PWA
+  icon URL or colour (Super Admin → Branding) still wins over the kit, in the
+  same order as before; the seeded `#3B82F6` counts as "not chosen". Note that
   og:image is set by script, which link-preview crawlers do not run.
 - Chat widget launcher: every template wears the kit's button when the
   bootstrap says `edition: 'iran'`: gradient 140deg #22D3B4 → #0B7D6C, the
@@ -115,6 +117,62 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
   panel opens from the same corner as before, so the launcher still slides
   away while it is open (the chevron is seen during that motion).
 - "Powered by": the Persian logotype in the brand's place in both widgets.
+
+### The platform's own logo (both editions; migration 290)
+
+The owner's rule (2026-10-30): the logo is read from one place, for WebYar and
+RESPOK alike, so changing it once changes it everywhere.
+
+- Where it is set: Super Admin → Branding → Visual identity. A logo for light
+  backgrounds, an optional one for dark backgrounds (the light one stands in;
+  it waits for a light one and keeps its shape, within 2%, because an email
+  draws the dark PNG at the light one's size; a new light logo of another
+  shape puts the dark one back to the light one, and resetting the light one
+  resets both), and an optional square symbol. SVG, PNG or WebP, at most 2 MB; an SVG passes a
+  strict allowlist (static drawing only; a script, `foreignObject`, an `on*`
+  attribute, an external reference or an `@import`/`url()` other than
+  `#local` is refused). Each control previews its file on a light and a dark
+  tile (what light and dark surfaces wear) and puts the brand's default back.
+  The old logo, favicon and PWA icon URL fields are gone from the page; their
+  columns are kept, and a value in them works as before wherever no upload
+  replaces it: the card lists such a value, read-only, with "Clear".
+- Stored: storage keys only (`platform/brand/<uuid>-<variant>.<ext>`, twelve
+  nullable columns on `platform_branding`, the email PNGs' sizes among them),
+  never a URL; the URLs are derived for whichever storage provider is
+  primary. Uploads live in each brand's own storage and database, never in
+  `dist`. A replaced or reset file is deleted, except the email PNGs: every
+  email already sent shows its logo from that URL, so they stay in storage
+  (a few KB each, one key per upload; nothing cleans them up).
+- PNG copies: email clients show no SVG, and the backend has no image library,
+  so the Super Admin's browser draws them when the file is uploaded
+  (`src/lib/brandRaster.ts`): the logo's email copy (120 px high, 3x the 40 px
+  an email shows) and the symbol's icons (180 px opaque on the PWA background
+  colour, 192 and 512 px). The server checks their PNG headers only. The
+  kits' email PNGs are committed (`public/brand/webyar/email/`, removed from
+  the RESPOK build with the rest of WebYar's folder; `public/brand/intl/email/`).
+- Who follows it: the panel (`BrandLogo`, `BrandLockup`, `BrandWordmark`,
+  `BrandFooter`, the receipt, the mobile sign-in, the boot splash from the
+  cached `wy-brand-assets`), the favicon, home-screen icon, PWA manifest and
+  browser notifications (from the symbol), the chat and call widgets'
+  "powered by", the platform's own help center (an uploaded logo at its head
+  and an uploaded symbol as its tab icon, at app.<brand>/help, which is the
+  SPA, `src/pages/public/kb/HelpBrandHead.tsx`, and on the server-rendered
+  pages, `server/routes/kb.ts`; it never wore the kit's, so without an upload
+  it is as before, and a customer's help center shows nothing of the
+  platform's), and the emails (`resolveBrandAssets(config).logoPng`).
+- What stays kit art: the animated launcher glyphs, the splash loader, the
+  t1/t2 hero watermarks and marks, and the call widget panel's inline lockups
+  when nothing was uploaded. The native apps' icons and in-app marks stay in
+  their binaries.
+- One resolver on each side: `server/services/platformBrandAssets.ts`
+  (`resolveBrandAssets`, memoised with the public config and cleared by the
+  `platform` cache bus; `brand_assets` in the public config carries the
+  uploads' URLs only) and `src/lib/brandAssets.ts` (`useBrandAssets`,
+  `BrandImage`). Tests: `src/test/branding/`,
+  `src/test/widget/uploadedLogoCredit.test.ts`,
+  `src/test/integration/platformBrandAssets290.pg.test.ts`.
+- Rollout: WebYar applies 290 by hand before the merge; RESPOK's migrator on
+  push. Before 290 the code reads no upload and everything shows the kit.
 
 ### RESPOK's chat button (International edition only)
 
@@ -447,8 +505,8 @@ the language a first visit should open in (`en`).
 | `(e.g. https://webyar.ai)` → `(e.g. https://respok.app)` | `{{siteUrl}}` | Super Admin → Mobile app → website URL hint |
 | Persian toasts → English (new version / refresh / intro message on, off, saved / saving failed) | i18n keys `appUpdate.*` and `aiAgent.settings.texts.*` (the whole AI agent settings card, not only its toasts) in the reader's language | AI agent → Settings in English: toggle and save the intro message; the PWA update prompt is English |
 | `runtime-config.js` `defaultLocale` fa → en | the International edition opens in the platform's `default_locale` (from `boot.js` on a first visit, the public config after); the deployment file's value is used by the Iranian edition only | private window → app.respok.app opens in English (boot.js answered before the bundle mounted) |
-| favicon / apple-touch → `/storage/brand/respok-icon.svg` | the kit's icons (`public/brand/intl`) from the cached edition, and on a first visit from `boot.js` (`index.html`, `PlatformBrandingGate`) | private window: the tab icon is RESPOK's from the first paint |
-| bundled `webyar-logo` png → `/storage/brand/respok-mark.svg` | `BrandLogo` shows the kit's app icon in the International edition | sidebar fallback, auth screens and legal pages show the RESPOK mark |
+| favicon / apple-touch → `/storage/brand/respok-icon.svg` | the kit's icons (`public/brand/intl`) from the cached edition, and on a first visit from `boot.js` (`index.html`, `PlatformBrandingGate`); a symbol uploaded in Super Admin → Branding replaces them (no `/storage/brand/...` file is used) | private window: the tab icon is RESPOK's from the first paint |
+| bundled `webyar-logo` png → `/storage/brand/respok-mark.svg` | `BrandLogo` shows the kit's app icon in the International edition, or the uploaded symbol | sidebar fallback, auth screens and legal pages show the RESPOK mark |
 
 Also new for RESPOK, with no start.sh rule before: the chat and call widgets
 wear the `intl` template, the call widget credits RESPOK (or nothing, per the

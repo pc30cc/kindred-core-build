@@ -100,11 +100,14 @@ suite('260 — email templates per edition (real PostgreSQL, real sendEmail)', (
         { edition: 'iran', locale: 'en' }, { edition: 'iran', locale: 'fa' }, { edition: 'iran', locale: 'tr' },
       ]);
     }
+    // Since 291 a row is its content: the email core's layout sets the
+    // direction from the language it is sent in, and the code has its box.
     const fa = await chain.db.query(
       `SELECT html_body FROM public.email_templates WHERE workspace_id IS NULL AND edition = 'iran' AND slug = 'verification_code' AND locale = 'fa'`,
     );
-    expect(fa.rows[0].html_body).toContain('dir="rtl"');
-    expect(fa.rows[0].html_body).toContain('{code}');
+    expect(fa.rows[0].html_body).toContain('<div class="code">{code}</div>');
+    expect(fa.rows[0].html_body).toContain('<h1>کد تأیید شما</h1>');
+    expect(fa.rows[0].html_body).not.toMatch(/<html|<body/);
   });
 
   it('every seeded template shows the values it prints in its HTML as text, when the caller gives no htmlData', async () => {

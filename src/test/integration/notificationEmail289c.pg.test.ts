@@ -225,7 +225,8 @@ suite('289c — the operator notification emails (real PostgreSQL, real email co
       expect(provider.sent).toHaveLength(1);
       const [mail] = provider.sent;
       expect(mail.subject).toBe(`Transcript — ${evil}`);
-      expect(mail.html).toContain('<p>← &lt;a href=//evil.example&gt;Verify your account&lt;/a&gt; please</p>');
+      expect(mail.html).toContain('&lt;a href=//evil.example&gt;Verify your account&lt;/a&gt; please');
+      expect(mail.html).not.toContain('<a href=//evil.example');
       expect(mail.html).toContain('&lt;b&gt;Mina&lt;/b&gt;');
       expect(mail.html).not.toContain('<b>Mina</b>');
       expect(mail.headers['List-Unsubscribe']).toContain('/api/notifications/email/unsubscribe/');
@@ -323,7 +324,8 @@ suite('289c — the operator notification emails (real PostgreSQL, real email co
       expect(mail.html).toContain('Acme &amp; Co');
       expect(mail.html).toContain('&lt;i&gt;Pro&lt;/i&gt;');
       expect(mail.html).toContain('href="https://app.example.test/export?a=1&amp;b=2"');
-      expect(mail.text).toContain('The locked data of Acme & Co (3 articles)');
+      expect(mail.text).toContain('Data in Acme & Co over the limits of the <i>Pro</i> plan is locked');
+      expect(mail.text).toContain('Locked data: 3 articles');
     });
   });
 

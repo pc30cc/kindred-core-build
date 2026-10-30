@@ -137,7 +137,7 @@ describe.each([
   it(`app.${apex}/help reads the platform workspace's help center on api.${apex}`, async () => {
     const probe = await get('/api/widget/kb/help-host', `https://app.${apex}`);
     expect(probe.status).toBe(200);
-    expect(probe.body).toEqual({ workspace_id: PLATFORM });
+    expect(probe.body).toEqual({ workspace_id: PLATFORM, platform: true });
     for (const path of reads(PLATFORM)) {
       const res = await get(path, `https://app.${apex}`);
       expect(res.status, path).toBe(200);
@@ -168,7 +168,7 @@ describe.each([
       expect((await get(path, `https://app.${apex}`, host)).headers[ACAO], path).toBeUndefined();
       expect((await get(path, 'https://evil.example', host)).headers[ACAO], path).toBeUndefined();
     }
-    expect((await get('/api/widget/kb/help-host', 'https://ninisite.com', 'help.ninisite.com')).body).toEqual({ workspace_id: CUSTOMER });
+    expect((await get('/api/widget/kb/help-host', 'https://ninisite.com', 'help.ninisite.com')).body).toEqual({ workspace_id: CUSTOMER, platform: false });
   });
 
   it('a host-scoped read answers for its host: a workspace_id or a token sent along lends no other workspace\'s origins', async () => {
@@ -183,7 +183,7 @@ describe.each([
       // The host's own workspace decides, whatever is sent along.
       expect((await get(`${path}${query}`, `https://app.${apex}`).set('X-Widget-Token', token)).headers[ACAO], path).toBe(`https://app.${apex}`);
     }
-    expect((await get(`/api/widget/kb/help-host?workspace_id=${CUSTOMER}`, 'https://ninisite.com')).body).toEqual({ workspace_id: PLATFORM });
+    expect((await get(`/api/widget/kb/help-host?workspace_id=${CUSTOMER}`, 'https://ninisite.com')).body).toEqual({ workspace_id: PLATFORM, platform: true });
     // The reads that name their workspace keep reading it from the request.
     const listed = await get(`/api/widget/kb/categories?workspace_id=${CUSTOMER}&locale=fa`, 'https://ninisite.com');
     expect(listed.headers[ACAO]).toBe('https://ninisite.com');

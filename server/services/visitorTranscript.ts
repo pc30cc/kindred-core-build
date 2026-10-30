@@ -47,6 +47,7 @@ import { enrichMessagesWithAttachments, isVisitorVisibleMessageMeta } from '../r
 import { chatTemplateOptionKeys } from '../../shared/chatTemplateCatalog.js';
 import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../shared/visitorEmail.js';
 import type { Edition } from '../../shared/edition.js';
+import { escapeTranscriptText, keptRowsFrom, transcriptRow } from './transcriptEmailRows.js';
 
 export const TRANSCRIPT_TEMPLATE_SLUG = 'visitor_conversation_transcript';
 /** Sent transcripts per conversation, ever. */
@@ -55,15 +56,10 @@ export const TRANSCRIPTS_PER_CONVERSATION = 3;
 export const TRANSCRIPT_COOLDOWN_MS = 10 * 60 * 1000;
 /** Attempts (sent or failed) per workspace in 24 hours. */
 export const TRANSCRIPTS_PER_WORKSPACE_DAY = 100;
-/** The newest messages a transcript holds. */
+/** The newest messages read for a transcript (the mail keeps fewer: transcriptEmailRows.ts). */
 const MAX_MESSAGES = 200;
 /** Characters of one message's text. */
 const MAX_MESSAGE_CHARS = 4000;
-/**
- * The HTML transcript's size in UTF-8 bytes (what the mail carries: Persian
- * letters are two each); the oldest rows go first.
- */
-export const MAX_TRANSCRIPT_BYTES = 200 * 1024;
 
 const LEDGER = 'conversation_transcript_emails';
 const emailSchema = z.string().trim().email().max(254);
@@ -75,31 +71,28 @@ export function maskEmail(email: string): string {
   return `${[...email.slice(0, at)][0]}•••${email.slice(at)}`;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 type TranscriptLocale = 'fa' | 'en' | 'tr';
 
-/** The transcript's own words: the visitor's name for themselves, and the fallback mail. */
-const COPY: Record<TranscriptLocale, { you: string; subject: (ws: string) => string; intro: (ws: string, date: string) => string }> = {
+/**
+ * The transcript's own words: the visitor's name for themselves, the line
+ * that says older messages were left out, and the fallback mail.
+ */
+const COPY: Record<TranscriptLocale, { you: string; earlier: string; subject: (ws: string) => string; intro: (ws: string, date: string) => string }> = {
   fa: {
     you: 'شما',
+    earlier: 'پیام‌های قدیمی‌تر این گفتگو در این ایمیل نیامده است.',
     subject: (ws) => `متن گفتگوی شما با ${ws}`,
     intro: (ws, date) => `این متن گفتگوی شما با ${ws} است (${date})، همان‌طور که از پنجره‌ی گفتگو خواستید.`,
   },
   en: {
     you: 'You',
+    earlier: 'Earlier messages of this conversation are not in this email.',
     subject: (ws) => `Your conversation with ${ws}`,
     intro: (ws, date) => `Here is your conversation with ${ws} (${date}), as you asked from the chat window.`,
   },
   tr: {
     you: 'Siz',
+    earlier: 'Bu sohbetin önceki mesajları bu e-postada yok.',
     subject: (ws) => `${ws} ile sohbetiniz`,
     intro: (ws, date) => `Sohbet penceresinden istediğiniz üzere ${ws} ile sohbetiniz (${date}):`,
   },
@@ -223,10 +216,12 @@ interface TranscriptMessage {
 }
 
 /**
- * The conversation as the visitor saw it, newest MAX_MESSAGES: the HTML rows
- * the template's {transcript} table takes, the plain text for
- * {transcript_text}, and the date it started. Inbox-only and system rows
- * are left out; an attachment shows its file name, never a link.
+ * The conversation as the visitor saw it: the rows the template's
+ * div.transcript takes (transcriptEmailRows.ts; the newest that fit the
+ * mail's caps, after a line saying older ones were left out when some were),
+ * the same as plain text for {transcript_text}, and the date it started.
+ * Inbox-only and system rows are left out; an attachment shows its file
+ * name, never a link. `count` is the messages the mail holds.
  */
 export async function buildVisitorTranscript(
   config: ServerConfig,
@@ -281,28 +276,19 @@ export async function buildVisitorTranscript(
     const body = [...m.text.trim()].slice(0, MAX_MESSAGE_CHARS).join('');
     const file = m.attachment?.file_name ? `📎 ${m.attachment.file_name}` : '';
     if (!body && !file) continue;
-    const lines = [body, file].filter(Boolean);
-    rows.push(
-      '<tr><td style="padding:10px 0;border-top:1px solid #e2e8f0">'
-      + `<div style="font-size:12px;color:#64748b">${escapeHtml(who)} · ${escapeHtml(time)}</div>`
-      + '<div dir="auto" style="font-size:15px;line-height:24px;color:#1e293b;white-space:pre-wrap">'
-      + lines.map(escapeHtml).join('\n')
-      + '</div></td></tr>',
-    );
-    texts.push(`${who} · ${time}\n${lines.join('\n')}`);
+    const lines = [body, file].filter(Boolean).join('\n');
+    rows.push(transcriptRow(m.sender_type === 'contact' ? 'visitor' : 'agent', `${who} · ${time}`, lines));
+    texts.push(`${who} · ${time}\n${lines}`);
   }
-  // Within the size cap, the newest rows are kept.
-  let size = rows.reduce((n, r) => n + Buffer.byteLength(r, 'utf8'), 0);
-  while (rows.length > 1 && size > MAX_TRANSCRIPT_BYTES) {
-    size -= Buffer.byteLength(rows.shift() as string, 'utf8');
-    texts.shift();
-  }
+  // The newest rows that fit the mail; a line says when older ones were left out.
+  const from = keptRowsFrom(rows);
+  const earlier = from > 0 ? COPY[input.locale].earlier : null;
   const first = messages.find((m) => m.text.trim() || m.attachment?.file_name);
   return {
-    html: rows.join(''),
-    text: texts.join('\n\n'),
+    html: (earlier ? transcriptRow('agent', earlier) : '') + rows.slice(from).join(''),
+    text: [...(earlier ? [earlier] : []), ...texts.slice(from)].join('\n\n'),
     date: longDate.format(first ? new Date(first.time) : new Date()),
-    count: rows.length,
+    count: rows.length - from,
   };
 }
 
@@ -389,7 +375,7 @@ export async function emailVisitorTranscript(
       locale,
       // Sent as it is only when the template is missing.
       subject: copy.subject(workspaceName),
-      html: `<p>${escapeHtml(copy.intro(workspaceName, transcript.date))}</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${transcript.html}</table>`,
+      html: `<p>${escapeTranscriptText(copy.intro(workspaceName, transcript.date))}</p><div class="transcript">${transcript.html}</div>`,
       text: `${copy.intro(workspaceName, transcript.date)}\n\n${transcript.text}`,
       // As typed for the subject and the text part; the email core escapes
       // them for the HTML part, where the transcript goes as its own rows

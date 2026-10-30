@@ -1057,3 +1057,65 @@ describe('rolling deploy: dashboards, backends and widgets of either release', (
     }
   });
 });
+
+describe('the logo the Super Admin uploaded (Super Admin → Branding): bootstrap → widget, both editions', () => {
+  const KEY = 'platform/brand/0b7d6c00-0000-4000-8000-000000000002-logo-light.svg';
+  const URL_OF_KEY = `https://cdn.example.test/${KEY}`;
+  beforeEach(() => {
+    db.app_runtime_config = db.app_runtime_config.map((row) => (row.key === 'default_storage_provider'
+      ? { key: row.key, value: { provider: 'local', public_url: 'https://cdn.example.test' } }
+      : row));
+    db.platform_branding = [{ id: 'b1', logo_light_storage_key: KEY }];
+    // What the upload route publishes: every process forgets the logo it showed.
+    publishCacheInvalidation(['platform']);
+  });
+  afterEach(() => {
+    db.platform_branding = [];
+    publishCacheInvalidation(['platform']);
+  });
+
+  it.each(['iran', 'international'] as const)('%s: the credit is the upload, drawn as an image over the kit\'s art', async (edition) => {
+    h.edition = edition;
+    h.logoDirection = 'open';
+    const body = await bootstrap();
+    if (edition === 'iran') expect(body).toMatchObject({ powered_by_logo: URL_OF_KEY, powered_by_logo_custom: true });
+    else expect(body.powered_by).toMatchObject({ logo: URL_OF_KEY, custom: true });
+    const m = visit(body);
+    m.open();
+    expect(m.q('.scr.on .ccw-footer img.ccw-powered-logo')?.getAttribute('src')).toBe(URL_OF_KEY);
+    expect(m.q('.scr.on .ccw-footer svg')).toBeNull();
+
+    // Reset to the brand's default: the kit's own credit, as before.
+    db.platform_branding = [{ id: 'b1', logo_light_storage_key: null }];
+    publishCacheInvalidation(['platform']);
+    const after = await bootstrap();
+    expect(after).not.toHaveProperty('powered_by_logo_custom');
+    if (edition === 'international') expect(after.powered_by).not.toHaveProperty('custom');
+    const kit = visit(after);
+    kit.open();
+    expect(kit.q('.scr.on .ccw-footer img')).toBeNull();
+    expect(kit.q('.scr.on .ccw-footer svg')).not.toBeNull();
+  });
+
+  it('iran: a workspace\'s own "powered by" words that name the brand stay words, never over the kit\'s art', async () => {
+    h.edition = 'iran';
+    const body = await bootstrap();
+    expect(body).toMatchObject({ powered_by_logo: URL_OF_KEY, powered_by_logo_custom: true });
+    const own = 'ساخته‌شده با وب‌یار';
+    (body.config as Dict).custom_texts = { fa: { powered_by: own } };
+    const m = visit(body);
+    m.open();
+    const credit = m.q('.scr.on .ccw-footer .ccw-powered');
+    expect(credit?.textContent).toBe(own);
+    expect(m.q('.scr.on .ccw-footer svg')).toBeNull();
+
+    // Without an upload, the kit's own mark stands for the kit, as before.
+    db.platform_branding = [{ id: 'b1', logo_light_storage_key: null }];
+    publishCacheInvalidation(['platform']);
+    const kitBody = await bootstrap();
+    (kitBody.config as Dict).custom_texts = { fa: { powered_by: own } };
+    const kit = visit(kitBody);
+    kit.open();
+    expect(kit.q('.scr.on .ccw-footer svg.wm')).not.toBeNull();
+  });
+});

@@ -254,7 +254,7 @@ suite('after-chat features on a real database (276)', () => {
     expect(mail.to).toMatch(/^ali\d+@example\.com$/);
     // The Iranian edition sends Persian whatever the widget asked.
     expect(mail.subject).toBe('متن گفتگوی شما با فروشگاه <آبی>');
-    expect(mail.html).toContain('<h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">فروشگاه &lt;آبی&gt;</h1>');
+    expect(mail.html).toMatch(/<strong[^>]*>فروشگاه &lt;آبی&gt;<\/strong>/);
     expect(mail.html).toContain('قیمت $&amp; و {brand} &lt;b&gt;؟&lt;/b&gt;');
     expect(mail.html).toContain('شما · ');
     expect(mail.html).toContain('Sara · ');

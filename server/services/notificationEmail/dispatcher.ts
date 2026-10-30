@@ -35,6 +35,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail } from '../email/index.js';
+import { localNumber } from '../email/layout.js';
 import { emailRetryDelayMs } from '../email/outbox.js';
 import { readEmailProviderConfig } from '../email/providerConfigStore.js';
 import { emailProviderReadiness } from '../email/providers/index.js';
@@ -49,9 +50,10 @@ import { NOTIFICATION_EMAILS, isNotificationEmailType, type NotificationEmailDef
 import { escapeHtml, notificationFooter, unsubscribeBaseUrl, unsubscribeUrl } from './unsubscribe.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
-import { operatorLocaleFrom } from '../operatorLocale.js';
+import { operatorLocaleFrom, type OperatorLocale } from '../operatorLocale.js';
 import { resolveWorkspaceAppUrl } from '../auth-email.js';
 import { canUseInbox } from '../../../shared/chatRoles.js';
+import { keptRowsFrom, transcriptRow } from '../transcriptEmailRows.js';
 
 /** Where an override provider's config lives, when one is chosen. */
 export const OVERRIDE_PROVIDER_KEY = 'notification_email_provider';
@@ -245,7 +247,7 @@ async function deliver(
   // operator's own when the platform offers it, else the platform's: never
   // English by default on a Persian platform (operatorLocale.ts).
   const locale = await operatorLocaleFrom(config, job.locale || recipient.locale);
-  const { templateData, htmlData } = templateValues(job.payload, recipient.name || recipient.email);
+  const { templateData, htmlData } = templateValues(job.payload, recipient.name || recipient.email, locale);
 
   const unsubscribe = unsubscribeUrl(ctx.linkBase, job.user_id, type);
   const settingsPage = unsubscribe ? null : await resolveWorkspaceAppUrl(config, job.workspace_id, '/settings/notifications').catch(() => null);
@@ -282,20 +284,56 @@ async function deliver(
   return retryOrFail(config, job, attempts, error);
 }
 
+/** The transcript's own words, in the reader's language. */
+const TRANSCRIPT_WORDS: Record<OperatorLocale, { customer: string; team: string; earlier: string }> = {
+  fa: { customer: 'مشتری', team: 'تیم', earlier: 'پیام‌های قدیمی‌تر در این ایمیل نیامده است؛ همهٔ گفتگو در صندوق ورودی است.' },
+  en: { customer: 'Customer', team: 'Team', earlier: 'Earlier messages are not in this email; the whole conversation is in the inbox.' },
+  tr: { customer: 'Müşteri', team: 'Ekip', earlier: 'Önceki mesajlar bu e-postada yok; konuşmanın tamamı gelen kutusunda.' },
+};
+
+/**
+ * A transcript's lines as the template's div.transcript rows
+ * (transcriptEmailRows.ts), and the same lines for the text part: the newest
+ * that fit the mail, after a line saying older ones were left out when some
+ * were. The producer marks each line: "← " the customer wrote it (under the
+ * contact's name), "→ " the team, "· " a system line (a notice, no bubble).
+ * A job queued before the notices had their own mark shows them as the
+ * team's, as it did.
+ */
+function transcriptValues(lines: string[], contact: string, locale: OperatorLocale): { html: string; text: string } {
+  const words = TRANSCRIPT_WORDS[locale] ?? TRANSCRIPT_WORDS.en;
+  const customer = contact && contact !== '—' ? contact : words.customer;
+  const rows = lines.map((line) => {
+    if (line.startsWith('← ')) return transcriptRow('visitor', customer, line.slice(2));
+    if (line.startsWith('→ ')) return transcriptRow('agent', words.team, line.slice(2));
+    if (line.startsWith('· ')) return transcriptRow('agent', line.slice(2));
+    return transcriptRow('agent', words.team, line);
+  });
+  const from = keptRowsFrom(rows);
+  const earlier = from > 0 ? words.earlier : null;
+  return {
+    html: (earlier ? transcriptRow('agent', earlier) : '') + rows.slice(from).join(''),
+    text: [...(earlier ? [earlier] : []), ...lines.slice(from)].join('\n'),
+  };
+}
+
 /**
  * The template's values: as typed for the subject and the text part, and
- * escaped for the HTML part, every one of them. An announcement's body is
- * plain text with its line breaks kept; a transcript is its lines, a
- * paragraph each.
+ * escaped for the HTML part, every one of them. A number the producer
+ * counted (the waiting conversations and their minutes, the week's counts)
+ * is written in the reader's digits, Persian ones in a Persian mail, as the
+ * rest of it is. An announcement's body is plain text with its line breaks
+ * kept; a transcript is its lines, a chat row each (transcriptValues).
  */
 export function templateValues(
   payload: Record<string, unknown> | null,
   name: string,
+  locale: OperatorLocale = 'en',
 ): { templateData: Record<string, string>; htmlData: Record<string, string> } {
   const templateData: Record<string, string> = { name };
   for (const [key, value] of Object.entries(payload ?? {})) {
     if (key === 'transcript_lines') continue;
-    templateData[key] = value == null ? '' : String(value);
+    templateData[key] = value == null ? '' : typeof value === 'number' ? localNumber(value, locale) : String(value);
   }
   const htmlData: Record<string, string> = {};
   for (const [key, value] of Object.entries(templateData)) htmlData[key] = escapeHtml(value);
@@ -303,15 +341,35 @@ export function templateValues(
 
   const lines = payload?.transcript_lines;
   if (Array.isArray(lines)) {
-    const text = lines.map((line) => String(line ?? ''));
-    templateData.transcript = text.join('\n');
-    htmlData.transcript = text.map((line) => `<p>${escapeHtml(line)}</p>`).join('');
+    const transcript = transcriptValues(lines.map((line) => String(line ?? '')), templateData.contact ?? '', locale);
+    templateData.transcript = transcript.text;
+    htmlData.transcript = transcript.html;
   } else if (typeof payload?.transcript === 'string') {
-    // A transcript queued before this release: its producer wrote it as
-    // HTML, every line already escaped.
-    htmlData.transcript = payload.transcript;
+    // A transcript queued before #372 (its job may still be waiting or
+    // retrying when this release starts): its producer wrote it as HTML, a
+    // <p> a line. The layout draws only div.msg rows inside div.transcript,
+    // so passed as it is those lines would vanish from the mail, and the
+    // text part would print the markup; it is read back into its lines.
+    const transcript = transcriptValues(legacyTranscriptLines(payload.transcript), templateData.contact ?? '', locale);
+    templateData.transcript = transcript.text;
+    htmlData.transcript = transcript.html;
   }
   return { templateData, htmlData };
+}
+
+/**
+ * The lines of a transcript the pre-#372 producer wrote: `<p>← text</p>` a
+ * line, the text escaped (& < > "), so a `<p>` inside a line is impossible.
+ * Each comes back as the plain line it was, with its "← " or "→ " mark,
+ * escaped again where it becomes a row.
+ */
+export function legacyTranscriptLines(html: string): string[] {
+  return [...html.matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => m[1]
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&'));
 }
 
 /**
@@ -338,6 +396,16 @@ async function notificationProviderKey(
     stored: provider?.provider_name ?? null,
   });
   return undefined;
+}
+
+/**
+ * The provider an operator notice goes out through right now, as a pass
+ * picks it: for Super Admin's test of one of their templates
+ * (email/templateAdmin.ts), which must show the From and the provider the
+ * real notice has.
+ */
+export async function operatorNoticeProviderKey(config: ServerConfig): Promise<string | undefined> {
+  return notificationProviderKey(config, await loadNotificationEmailSettings(config));
 }
 
 function sb(config: ServerConfig) {

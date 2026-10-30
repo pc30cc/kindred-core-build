@@ -173,7 +173,8 @@ describe('sending', () => {
       to: 'owner@example.test', slug: 'operator_unread_digest', locale: 'fa', workspaceId: WORKSPACE, category: 'notification',
     });
     expect(email.sent[0].providerKey).toBeUndefined();
-    expect(email.sent[0].data).toMatchObject({ count: '4', workspace: 'Acme', name: 'Owner' });
+    // The count in the reader's digits: this owner reads Persian.
+    expect(email.sent[0].data).toMatchObject({ count: '۴', workspace: 'Acme', name: 'Owner' });
     expect(jobs()[0]).toMatchObject({ status: 'sent', attempts: 1 });
     // What the mail said is gone from the queue once it is sent.
     expect(jobs()[0].payload).toEqual({});

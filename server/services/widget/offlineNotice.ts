@@ -36,6 +36,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail, type EmailRequest, type SendResult } from '../email/index.js';
+import { localNumber } from '../email/layout.js';
 import { enqueueEmail, type EmailOutboxOptions } from '../email/outbox.js';
 import { peekEmailQuota, takeEmailQuota } from '../email/sendQuota.js';
 import { resolveWorkspaceAppUrl } from '../auth-email.js';
@@ -71,6 +72,17 @@ export type OfflineNoticeOutcome = 'team_online' | 'no_recipient' | 'immediate' 
 /** Visitor text for an HTML mail body: `&`, `<`, `>` and `"` as entities. */
 export function escapeMailText(value: string): string {
   return String(value).replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
+}
+
+/**
+ * A visitor's message for an HTML mail body: escaped, each line break a
+ * `<br>`. HTML folds a bare line break into a space (and Outlook ignores a
+ * `white-space` rule that would keep it), and the text part the core derives
+ * from the HTML keeps a `<br>` as a line, so both parts show the message's
+ * lines as the visitor typed them.
+ */
+export function mailTextLines(value: string): string {
+  return escapeMailText(value).replace(/\r\n?|\n/g, '<br>');
 }
 
 // ─── Who hears of it ──────────────────────────────────────────────────────
@@ -232,7 +244,7 @@ function noticeRequest(
     <p><strong>From:</strong> ${escapeMailText(name || 'Anonymous')} ${email ? `&lt;${escapeMailText(email)}&gt;` : ''}</p>
     ${phone ? `<p><strong>Phone:</strong> <span dir="ltr">${escapeMailText(phone)}</span></p>` : ''}
     <p><strong>Message:</strong></p>
-    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${escapeMailText(capture.message)}</blockquote>
+    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${mailTextLines(capture.message)}</blockquote>
     <p>${inboxUrl ? `<a href="${escapeMailText(inboxUrl)}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
   `;
   const text = `New offline message\nFrom: ${name || 'Anonymous'} ${email}${phone ? `\nPhone: ${phone}` : ''}\n\n${capture.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
@@ -255,22 +267,12 @@ function noticeRequest(
       contact_name: escapeMailText(name),
       contact_email: escapeMailText(email),
       contact_phone: escapeMailText(phone),
-      message_body: escapeMailText(capture.message),
+      message_body: mailTextLines(capture.message),
       action_url: escapeMailText(inboxUrl),
     },
     locale,
     category: 'notification',
   };
-}
-
-/** A number in the recipient's digits (Persian ones for fa). */
-function localNumber(value: number, locale: string): string {
-  const tag = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
-  try {
-    return new Intl.NumberFormat(tag).format(value);
-  } catch {
-    return String(value);
-  }
 }
 
 /** The summary's built-in text, for when its template (289d) is missing. */

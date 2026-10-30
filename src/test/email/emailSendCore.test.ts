@@ -176,11 +176,18 @@ describe('what every message carries', () => {
     expect(body(1).headers['List-Unsubscribe']).toBeUndefined();
   });
 
-  it('a text part always: derived from the HTML, with link targets kept', async () => {
+  it('a text part always: derived from the content, with link targets kept, then the footer\'s lines', async () => {
+    // A caller's own whole document wears the layout too (its body is the
+    // content); the text part is that content as text, never the layout
+    // around it, and the footer's lines under it.
     await send({
       html: '<html><head><style>p{}</style></head><body><p>Hello &amp; welcome</p><p><a href="https://x.example/reset?t=1">Reset password</a></p><a href="https://x.example/raw">https://x.example/raw</a><br>Bye</body></html>',
     });
-    expect(body().text).toBe('Hello & welcome\n\nReset password (https://x.example/reset?t=1)\nhttps://x.example/raw\nBye');
+    expect(body().html).toMatch(/^<!DOCTYPE html>/);
+    expect(body().html).not.toContain('<style>p{}</style>');
+    expect(body().text).toBe(
+      'Hello & welcome\n\nReset password (https://x.example/reset?t=1)\n\nhttps://x.example/raw\nBye\n\nThis is a service email from Brand.\nBrand\n© 2026 Brand'.replace('2026', String(new Date().getUTCFullYear())),
+    );
     await send({ text: 'Own text' });
     expect(body(1).text).toBe('Own text');
   });
@@ -348,5 +355,12 @@ describe('htmlToText', () => {
       .toBe('- One\n- Two\nwrite (a@b.example)');
     expect(htmlToText('')).toBe('');
     expect(htmlToText('<p>&#1587;&#1604;&#1575;&#1605;&nbsp;</p><p>می&zwnj;خواهم</p>')).toBe('سلام\n\nمی\u200cخواهم');
+  });
+
+  it('cuts where the text itself has its tags after Turkish «İ», which lowercases to two characters', () => {
+    expect(htmlToText('<!doctype html><html lang="tr"><head><title>İptal İşlemi</title><style>p{color:red}</style></head><body><p>İptal edildi</p><p>Merhaba</p></body></html>'))
+      .toBe('İptal edildi\n\nMerhaba');
+    expect(htmlToText('<p>İİİ <a href="https://x.example/a">Tıkla</a> sonra</p>')).toBe('İİİ Tıkla (https://x.example/a) sonra');
+    expect(htmlToText('<p>İİ</p><div class="preheader">Ön</div><p>Gövde</p>')).toBe('İİ\n\nGövde');
   });
 });

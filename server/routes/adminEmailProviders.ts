@@ -21,7 +21,9 @@
  * "Test connection" signs in without sending (the adapter's verify), and
  * "Send test email" sends one real mail through the slot's provider to the
  * signed-in admin's own address, which the server looks up: the request
- * cannot name a recipient, so the button cannot mail anyone else.
+ * cannot name a recipient, so the button cannot mail anyone else. The mail
+ * is the template `email_test` in the platform's own layout, like every mail
+ * the platform sends (services/email/testMail.ts).
  *
  * Also here: the suppression list (addresses the platform no longer mails),
  * to search, list and remove from.
@@ -33,8 +35,10 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isPluginCryptoConfigured } from '../lib/pluginCrypto.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
-import { operatorLocale, type OperatorLocale } from '../services/operatorLocale.js';
+import { operatorLocale } from '../services/operatorLocale.js';
 import { sendEmail } from '../services/email/index.js';
+import { testMailRequest } from '../services/email/testMail.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import {
   loadEmailProviderConfig,
   readEmailProviderForAdmin,
@@ -347,29 +351,6 @@ adminEmailProvidersRouter.post('/:slot/verify', async (req, res) => {
   }
 });
 
-/** The test mail, in the admin's own language (fa/en/tr), as plain as the rest of the platform's mail. */
-const TEST_MAIL: Record<OperatorLocale, { subject: string; body: (slot: string, provider: string, at: string) => string; slots: Record<EmailProviderSlot, string> }> = {
-  en: {
-    subject: 'Test email',
-    slots: { default: 'the platform email provider', notification: 'the notification email provider' },
-    body: (slot, provider, at) => `This test email was sent from Super Admin → Providers → Email through ${slot} (${provider}) at ${at}.\n\nIf you can read it, the provider delivered it. Nothing else needs to be done.`,
-  },
-  fa: {
-    subject: 'ایمیل آزمایشی',
-    slots: { default: 'سرویس ایمیل پلتفرم', notification: 'سرویس ایمیل اعلان‌ها' },
-    body: (slot, provider, at) => `این ایمیل آزمایشی از سوپر ادمین ← سرویس‌دهنده‌ها ← ایمیل، با ${slot} (${provider}) در ${at} فرستاده شد.\n\nاگر آن را می‌خوانید، سرویس آن را رسانده است. کار دیگری لازم نیست.`,
-  },
-  tr: {
-    subject: 'Test e-postası',
-    slots: { default: 'platform e-posta sağlayıcısı', notification: 'bildirim e-posta sağlayıcısı' },
-    body: (slot, provider, at) => `Bu test e-postası Süper Yönetici → Sağlayıcılar → E-posta bölümünden ${slot} (${provider}) ile ${at} tarihinde gönderildi.\n\nOkuyabiliyorsanız sağlayıcı teslim etti. Başka bir şey yapmanız gerekmiyor.`,
-  },
-};
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
-}
-
 adminEmailProvidersRouter.post('/:slot/test-send', async (req, res) => {
   const slot = slotOf(req.params.slot);
   if (!slot) return res.status(404).json({ error: 'unknown_slot' });
@@ -397,17 +378,19 @@ adminEmailProvidersRouter.post('/:slot/test-send', async (req, res) => {
       });
     }
     const locale = await operatorLocale(config, adminId);
-    const copy = TEST_MAIL[locale] ?? TEST_MAIL.en;
-    const body = copy.body(copy.slots[slot], loaded.provider.provider_name, new Date().toISOString());
-    const html = `<div dir="${locale === 'fa' ? 'rtl' : 'ltr'}">${body.split('\n\n').map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</div>`;
+    const mail = testMailRequest({
+      slot,
+      provider: loaded.provider.provider_name,
+      at: new Date(),
+      edition: await getPlatformEditionOrNull(config),
+      locale,
+    });
     // No workspace: a platform send, never logged against a tenant. The
     // result's error is the email core's "<code>: <reason>", safe to show.
     const result = await sendEmail(config, {
       workspaceId: null,
       to,
-      subject: copy.subject,
-      text: body,
-      html,
+      ...mail,
       locale,
       category: slot === 'notification' ? 'notification' : 'transactional',
       ...(slot === 'notification' ? { providerConfigKey: key } : {}),

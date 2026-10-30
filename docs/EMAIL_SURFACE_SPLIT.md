@@ -35,7 +35,7 @@ Admin: our own relay since 2026-10-29), retries, suppressions and bounces:
 | `server/services/auth-email.ts` (verify, recovery) | in-process `sendEmailWithRetry()` | PLATFORM / AUTH |
 | Invitation outbox worker | in-process `sendEmail()` | PLATFORM (auth) |
 | `server/services/widget/offlineNotice.ts` (a visitor's offline message, to the owners and admins) | in-process `enqueueEmail()` | PLATFORM (ops) |
-| The panel's test buttons | `POST /api/email/test-send`, `POST /api/email/test-offline-notice` | PLATFORM (test) |
+| The panel's offline-notice test button | `POST /api/email/test-offline-notice` | PLATFORM (test) |
 | `server/services/visitorTranscript.ts` transcript by email (the visitor asks, from the widget) | in-process `sendEmail()` | PLATFORM (visitor's request) |
 | Operator notification emails (`server/services/notificationEmail/`) | in-process `sendEmail()` | PLATFORM (notification) |
 | A workspace writing to its customers | the workspace's own connected mailbox, `/api/email-inbox` | CHANNEL |
@@ -55,10 +55,15 @@ sender.
   with our domain's DKIM key. `server/services/email/sendChannelEmail.ts`,
   their in-process twin, and the browser's `src/providers/email/api.ts`
   are gone with them.
-- `POST /api/email/test-send` and `POST /api/email/test-offline-notice` —
-  the test buttons: an owner or admin of the workspace (or the platform's
-  admin), to their own verified address only, within per-member and
-  per-workspace limits.
+- `POST /api/email/test-offline-notice` — the offline notice's test
+  button: an owner or admin of the workspace (or the platform's admin), to
+  their own verified address only, within per-member and per-workspace
+  limits.
+- `POST /api/email/test-send` — **retired** (410
+  `WORKSPACE_EMAIL_TEST_RETIRED`). It sent a workspace admin the template
+  `email_test`, Super Admin's test of the platform's provider, which names
+  that menu and the provider; nothing called it. The provider is tested from
+  Super Admin → Providers → Email.
 - `/api/email-inbox` — **channel email**, from the workspace's own mailbox,
   gated by the plan's `email_inbox` module (`enforceModule` on each route).
 

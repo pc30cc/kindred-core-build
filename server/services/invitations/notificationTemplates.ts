@@ -178,6 +178,50 @@ export function renderInviterFallback(locale: unknown): string {
   return INVITER_FALLBACK[normalizeNotificationLocale(locale)];
 }
 
+/**
+ * A workspace role as the panel names it (src/i18n/locales/*.ts,
+ * `invitations.roles`), for {role} in the invitation mail: "Operator", never the
+ * key "agent". An unknown key is shown as it is.
+ */
+const ROLE_LABELS: Record<NotificationLocale, Record<string, string>> = {
+  en: {
+    owner: 'Owner', admin: 'Admin', agent: 'Operator', team_lead: 'Team lead', support_agent: 'Support agent',
+    sales_agent: 'Sales agent', marketing_manager: 'Marketing manager', seo_manager: 'SEO manager', analyst: 'Analyst',
+    developer: 'Developer', billing: 'Billing', viewer: 'Viewer',
+  },
+  fa: {
+    owner: 'مالک', admin: 'مدیر', agent: 'اپراتور', team_lead: 'سرپرست تیم', support_agent: 'کارشناس پشتیبانی',
+    sales_agent: 'کارشناس فروش', marketing_manager: 'مدیر بازاریابی', seo_manager: 'مدیر سئو', analyst: 'تحلیل‌گر',
+    developer: 'توسعه‌دهنده', billing: 'مالی', viewer: 'بیننده',
+  },
+  tr: {
+    owner: 'Sahip', admin: 'Yönetici', agent: 'Operatör', team_lead: 'Ekip lideri', support_agent: 'Destek temsilcisi',
+    sales_agent: 'Satış temsilcisi', marketing_manager: 'Pazarlama müdürü', seo_manager: 'SEO müdürü', analyst: 'Analist',
+    developer: 'Geliştirici', billing: 'Faturalama', viewer: 'İzleyici',
+  },
+};
+
+export function renderRoleLabel(locale: unknown, role: string): string {
+  return ROLE_LABELS[normalizeNotificationLocale(locale)][role] ?? role;
+}
+
+/** {expiry} when the invitation has no end date (every invitation made now has one). */
+const NO_EXPIRY: Record<NotificationLocale, string> = {
+  fa: 'بدون تاریخ پایان',
+  tr: 'bitiş tarihi yok',
+  en: 'no end date',
+};
+
+/** The invitation's end, as {expiry} prints it: the date in the locale's calendar, or that it has none. */
+export function renderInviteExpiry(
+  locale: unknown,
+  iso?: string | null,
+  timeZone?: string | null,
+  calendar?: 'jalali' | 'gregorian' | null,
+): string {
+  return formatExpiry(locale, iso, timeZone, calendar) ?? NO_EXPIRY[normalizeNotificationLocale(locale)];
+}
+
 // ── Invitation SMS (never carries a token) ────────────────────────────────
 
 export function renderInviteSms(locale: unknown, workspaceName: string, email: string): string {

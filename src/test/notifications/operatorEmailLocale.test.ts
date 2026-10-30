@@ -228,6 +228,27 @@ describe('the unread digest', () => {
   });
 });
 
+describe('the counts a producer queued', () => {
+  it('are written in the reader\'s digits, Persian ones in a Persian mail; what was typed stays as typed', () => {
+    const payload = { count: 3, minutes: 15, conversations: 1234, resolved: 0, workspace: 'Shop 24', list: 'Order 1042' };
+    expect(templateValues(payload, 'Sara', 'fa').templateData).toMatchObject({
+      count: '۳', minutes: '۱۵', conversations: '۱٬۲۳۴', resolved: '۰', workspace: 'Shop 24', list: 'Order 1042',
+    });
+    expect(templateValues(payload, 'Ali', 'en').templateData).toMatchObject({ count: '3', minutes: '15', conversations: '1,234', resolved: '0' });
+    expect(templateValues(payload, 'Ali', 'tr').templateData).toMatchObject({ count: '3', conversations: '1.234' });
+  });
+
+  it('reach a Persian operator\'s digest in Persian digits, in the subject\'s values and the HTML\'s', async () => {
+    db.notification_email_jobs.push({
+      id: 'job-1', user_id: FA_OP, workspace_id: WS, type: 'unread_messages', payload: { count: 3, minutes: 15, workspace: 'Acme' },
+      locale: 'fa', attempts: 0, status: 'pending', scheduled_for: '2026-10-18T00:00:00Z', dedupe_key: 'k',
+    });
+    await dispatchNotificationEmails(CONFIG);
+    expect(sent).toEqual([expect.objectContaining({ to: 'fa@example.test', locale: 'fa' })]);
+    expect(sent[0].html).toMatchObject({ count: '۳', minutes: '۱۵' });
+  });
+});
+
 describe('an operator who never chose a language', () => {
   beforeEach(() => {
     platform({ region_mode: 'iran', active_locales: null, default_locale: null });

@@ -16,6 +16,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail, type SendResult } from '../email/index.js';
+import { localNumbers } from '../email/layout.js';
 import { emailRetryDelayMs } from '../email/outbox.js';
 import { sendSms } from '../sms/index.js';
 import { toProviderFormat } from '../phoneVerification/phone.js';
@@ -28,6 +29,7 @@ import {
   renderInviteExpiry,
   renderRoleLabel,
   normalizeNotificationLocale,
+  INVITE_OTP_MINUTES,
   SUPPORTED_NOTIFICATION_LOCALES,
 } from './notificationTemplates.js';
 import {
@@ -376,8 +378,10 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
       templateSlug: 'invite_otp',
       templateData: {
         code,
-        expiry_minutes: '10',
+        expiry_minutes: String(INVITE_OTP_MINUTES),
       },
+      // In the digits of the language the template is sent in.
+      localizedData: localNumbers({ expiry_minutes: INVITE_OTP_MINUTES }),
       subject: otpMail.subject,
       text: otpMail.text,
       html: otpMail.html,

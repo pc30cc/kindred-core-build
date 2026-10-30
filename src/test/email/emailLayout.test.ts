@@ -17,6 +17,8 @@ import {
   extractPreheader,
   isWholeDocument,
   legalLine,
+  localNumber,
+  localNumbers,
   localYear,
   renderEmailDocument,
   renderEmailText,
@@ -577,6 +579,16 @@ describe('the text part', () => {
     expect(text).toBe('Hi\n\nThis is a service email from RESPOK.\nRESPOK · app.respok.app · support@respok.app\n© 2026 RESPOK');
     const withFooter = renderEmailText({ brand: RESPOK, locale: 'en', contentHtml: '<p>Hi</p>', category: 'notification', footer: { html: '', text: 'Why.\nUnsubscribe: https://u' } });
     expect(withFooter).toContain('Hi\n\nWhy.\nUnsubscribe: https://u\nRESPOK');
+  });
+});
+
+describe('a number', () => {
+  it('is written in the mail\'s digits, Persian ones in a Persian mail, with the language\'s grouping', () => {
+    expect([localNumber(10, 'fa'), localNumber(1234, 'fa-IR'), localNumber(1234, 'en'), localNumber(1234, 'tr'), localNumber(7, 'de')])
+      .toEqual(['۱۰', '۱٬۲۳۴', '1,234', '1.234', '7']);
+    expect(localNumbers({ minutes: 10, count: 3 })).toEqual({
+      fa: { minutes: '۱۰', count: '۳' }, en: { minutes: '10', count: '3' }, tr: { minutes: '10', count: '3' },
+    });
   });
 });
 

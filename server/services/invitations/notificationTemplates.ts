@@ -66,7 +66,10 @@ const OTP: Record<NotificationLocale, (code: string, minutes: number) => Rendere
   }),
 };
 
-export function renderOtpEmail(locale: unknown, code: string, minutes = 10): RenderedEmail {
+/** How long an invitation's code works (the database's 10-minute bound, migration 089). */
+export const INVITE_OTP_MINUTES = 10;
+
+export function renderOtpEmail(locale: unknown, code: string, minutes = INVITE_OTP_MINUTES): RenderedEmail {
   return OTP[normalizeNotificationLocale(locale)](code, minutes);
 }
 

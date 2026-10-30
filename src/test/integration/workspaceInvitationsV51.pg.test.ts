@@ -42,7 +42,10 @@ const suite = DSN ? describe : describe.skip;
 type PgTestClient = PgQueryable & { end(): Promise<void> };
 
 let db: PgTestClient;
-let capturedEmails: Array<{ to: string; subject?: string; text?: string; templateSlug?: string; actionUrl: string | null }> = [];
+let capturedEmails: Array<{
+  to: string; subject?: string; text?: string; templateSlug?: string; actionUrl: string | null;
+  templateData?: Record<string, string>; localizedData?: Record<string, Record<string, string>>;
+}> = [];
 
 process.env.INVITATION_LINK_SECRET ||= 'test-invitation-link-secret-value-32b!!';
 process.env.INVITATION_OTP_PEPPER ||= 'test-invitation-otp-pepper-value-32bytes';
@@ -59,7 +62,8 @@ interface SentEmailRequest {
   subject?: string;
   text?: string;
   templateSlug?: string;
-  templateData?: { action_url?: string };
+  templateData?: Record<string, string> & { action_url?: string };
+  localizedData?: Record<string, Record<string, string>>;
 }
 
 vi.mock('../../../server/services/email/index.js', () => ({
@@ -70,6 +74,8 @@ vi.mock('../../../server/services/email/index.js', () => ({
       text: req.text,
       templateSlug: req.templateSlug,
       actionUrl: req.templateData?.action_url ?? null,
+      templateData: req.templateData,
+      localizedData: req.localizedData,
     });
     return { success: true };
   },
@@ -795,6 +801,10 @@ suite('Workspace Invitations v5.1 — canonical API on real PostgreSQL', () => {
     const otpMail = capturedEmails.find((e) => e.to?.toLowerCase() === email.toLowerCase() && otpSubjects.has(String(e.subject)));
     expect(otpMail, `no OTP mail captured for ${email}`).toBeTruthy();
     expect(otpSubjects.get(String(otpMail!.subject))).toBe(extra.otpLocale);
+    // Its minutes in the digits of whichever language the template goes in.
+    expect(otpMail!.templateSlug).toBe('invite_otp');
+    expect(otpMail!.templateData?.expiry_minutes).toBe('10');
+    expect(otpMail!.localizedData).toEqual({ fa: { expiry_minutes: '۱۰' }, en: { expiry_minutes: '10' }, tr: { expiry_minutes: '10' } });
     const code = String(otpMail!.text).match(/(\d{6})/)![1];
     const verify = await call('POST', '/api/workspace-invitations/otp/verify', { body: { requestId: rid(), token, purpose: 'manual_handoff', code } });
     expect(verify.status).toBe(200);

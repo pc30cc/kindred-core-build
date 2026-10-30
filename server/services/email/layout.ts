@@ -281,6 +281,27 @@ export function localYear(locale: string, edition: Edition, now: Date = new Date
 }
 
 /**
+ * A number as the mail's language writes it: Persian digits in a Persian
+ * mail, as its prose, its dates and its year have them, Latin ones
+ * elsewhere (with the language's own grouping). Never for a one-time code,
+ * which keeps the digits it is typed with.
+ */
+export function localNumber(value: number, locale: string): string {
+  const lang = baseLocale(locale);
+  try {
+    return new Intl.NumberFormat(lang === 'fa' ? 'fa-IR' : lang === 'tr' ? 'tr-TR' : 'en-US').format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** A number in each of the three languages, for a sender's localizedData (`{ fa: { minutes: '۱۰' }, … }`). */
+export function localNumbers(values: Record<string, number>): Record<'fa' | 'en' | 'tr', Record<string, string>> {
+  const inLocale = (lang: string) => Object.fromEntries(Object.entries(values).map(([key, n]) => [key, localNumber(n, lang)]));
+  return { fa: inLocale('fa'), en: inLocale('en'), tr: inLocale('tr') };
+}
+
+/**
  * The footer's legal line: the Super Admin's own footer text for that
  * language when there is one, else © the year and the legal company name,
  * else © the year and the brand.

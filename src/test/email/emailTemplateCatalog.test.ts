@@ -269,6 +269,8 @@ function keysPerLanguage(node: ts.Expression): Filled {
     const pair = each && ts.isArrowFunction(each) && !ts.isBlock(each.body) ? bare(each.body) : undefined;
     return pair && ts.isArrayLiteralExpression(pair) && pair.elements.length === 2 ? keysOf(pair.elements[1]) : unread(expr);
   }
+  // A number in each language (email/layout.ts localNumbers({ minutes })): every set has the object's keys.
+  if (ts.isCallExpression(expr) && expr.expression.getText() === 'localNumbers' && expr.arguments.length === 1) return keysOf(expr.arguments[0]);
   if (ts.isCallExpression(expr)) return eitherOf(...returnedBy(calledFunction(expr), expr).map(keysPerLanguage));
   return unread(expr);
 }

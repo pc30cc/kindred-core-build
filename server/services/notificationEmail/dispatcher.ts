@@ -35,6 +35,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail } from '../email/index.js';
+import { localNumber } from '../email/layout.js';
 import { emailRetryDelayMs } from '../email/outbox.js';
 import { readEmailProviderConfig } from '../email/providerConfigStore.js';
 import { emailProviderReadiness } from '../email/providers/index.js';
@@ -318,9 +319,11 @@ function transcriptValues(lines: string[], contact: string, locale: OperatorLoca
 
 /**
  * The template's values: as typed for the subject and the text part, and
- * escaped for the HTML part, every one of them. An announcement's body is
- * plain text with its line breaks kept; a transcript is its lines, a chat
- * row each (transcriptValues).
+ * escaped for the HTML part, every one of them. A number the producer
+ * counted (the waiting conversations and their minutes, the week's counts)
+ * is written in the reader's digits, Persian ones in a Persian mail, as the
+ * rest of it is. An announcement's body is plain text with its line breaks
+ * kept; a transcript is its lines, a chat row each (transcriptValues).
  */
 export function templateValues(
   payload: Record<string, unknown> | null,
@@ -330,7 +333,7 @@ export function templateValues(
   const templateData: Record<string, string> = { name };
   for (const [key, value] of Object.entries(payload ?? {})) {
     if (key === 'transcript_lines') continue;
-    templateData[key] = value == null ? '' : String(value);
+    templateData[key] = value == null ? '' : typeof value === 'number' ? localNumber(value, locale) : String(value);
   }
   const htmlData: Record<string, string> = {};
   for (const [key, value] of Object.entries(templateData)) htmlData[key] = escapeHtml(value);

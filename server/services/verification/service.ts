@@ -48,6 +48,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail, sendPlatformEmail, type SendResult } from '../email/index.js';
+import { localNumbers } from '../email/layout.js';
 import { sendSmsVerification } from '../sms/index.js';
 import { toProviderFormat } from '../phoneVerification/phone.js';
 import {
@@ -224,11 +225,16 @@ async function sendOtpDirect(
     // The code is sent with the Super Admin template `verification_code`
     // (Branding → Email templates, per edition, migration 260), filled with
     // {code} and {minutes}. The compiled text below is only what is sent if
-    // that template was deleted, so a sign-up is never blocked by it.
+    // that template was deleted, so a sign-up is never blocked by it. The
+    // minutes are written in the digits of the language the template is
+    // sent in (localizedData: Persian ones in a Persian mail); the code keeps
+    // the digits it is typed with.
     const rendered = renderOtpEmail(input.locale, input.code, input.ttlSeconds);
+    const minutes = Math.round(input.ttlSeconds / 60);
     const template = {
       templateSlug: 'verification_code',
-      templateData: { code: input.code, minutes: String(Math.round(input.ttlSeconds / 60)) },
+      templateData: { code: input.code, minutes: String(minutes) },
+      localizedData: localNumbers({ minutes }),
       locale: input.locale,
     };
 

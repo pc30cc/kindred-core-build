@@ -36,7 +36,8 @@ import type { EmailCategory } from './providers/types.js';
 import { testMailRequest } from './testMail.js';
 import { expiryLabels } from '../auth-email.js';
 import { buildInviteUrl } from '../invitations/tokens.js';
-import { renderInviteExpiry, renderRoleLabel } from '../invitations/notificationTemplates.js';
+import { INVITE_OTP_MINUTES, renderInviteExpiry, renderRoleLabel } from '../invitations/notificationTemplates.js';
+import { localNumbers } from './layout.js';
 import { transcriptRow } from '../transcriptEmailRows.js';
 import { escapeMailText, mailTextLines, OFFLINE_NOTICE_WINDOW_SECONDS } from '../widget/offlineNotice.js';
 import { templateValues } from '../notificationEmail/dispatcher.js';
@@ -469,9 +470,10 @@ const SAMPLES: Record<string, Builder> = {
       ...expiryLabels(24)[locale],
     },
   }),
-  // A fixed code that no real one can be (verification/templatePreview.ts).
-  verification_code: () => ({ data: { code: FAKE_PREVIEW_CODE, minutes: '10' } }),
-  invite_otp: () => ({ data: { code: FAKE_PREVIEW_CODE, expiry_minutes: '10' } }),
+  // A fixed code that no real one can be (verification/templatePreview.ts);
+  // the minutes in the language's digits, as the senders' localizedData has them.
+  verification_code: (_words, _ctx, locale) => ({ data: { code: FAKE_PREVIEW_CODE, ...localNumbers({ minutes: 10 })[locale] } }),
+  invite_otp: (_words, _ctx, locale) => ({ data: { code: FAKE_PREVIEW_CODE, ...localNumbers({ expiry_minutes: INVITE_OTP_MINUTES })[locale] } }),
   invite_member: (words, ctx, locale) => ({
     data: {
       name: words.name,

@@ -1554,6 +1554,19 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     expect(req.deliveryOutcome).toBe('provider_accepted');
     expect(platformEmailSendMock).toHaveBeenCalledTimes(1);
     expect(emailSendMock).not.toHaveBeenCalled();
+    // The template, and its minutes in the digits of whichever language it
+    // goes in: a Persian mail reads «۱۰ دقیقه», the code keeps its own digits.
+    const sent = platformEmailSendMock.mock.calls[0][1] as { templateSlug: string; templateData: Record<string, string>; localizedData: Record<string, Record<string, string>> };
+    expect(sent.templateSlug).toBe('verification_code');
+    expect(sent.templateData.code).toMatch(/^\d{6}$/);
+    const minutes = Number(sent.templateData.minutes);
+    expect(minutes).toBeGreaterThan(0);
+    expect(sent.localizedData).toEqual({
+      fa: { minutes: minutes.toLocaleString('fa-IR') },
+      en: { minutes: String(minutes) },
+      tr: { minutes: String(minutes) },
+    });
+    expect(sent.localizedData.fa.minutes).toMatch(/^[۰-۹]+$/);
     const chal = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
     expect(chal.rows[0].status).toBe('provider_accepted');
   });

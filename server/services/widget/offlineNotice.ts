@@ -36,6 +36,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail, type EmailRequest, type SendResult } from '../email/index.js';
+import { localNumber } from '../email/layout.js';
 import { enqueueEmail, type EmailOutboxOptions } from '../email/outbox.js';
 import { peekEmailQuota, takeEmailQuota } from '../email/sendQuota.js';
 import { resolveWorkspaceAppUrl } from '../auth-email.js';
@@ -272,16 +273,6 @@ function noticeRequest(
     locale,
     category: 'notification',
   };
-}
-
-/** A number in the recipient's digits (Persian ones for fa). */
-function localNumber(value: number, locale: string): string {
-  const tag = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
-  try {
-    return new Intl.NumberFormat(tag).format(value);
-  } catch {
-    return String(value);
-  }
 }
 
 /** The summary's built-in text, for when its template (289d) is missing. */

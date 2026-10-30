@@ -1040,21 +1040,6 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
   );
 }
 
-/**
- * One row per message, as in the widget and the inbox: the reader's own
- * lines at the end side in the brand's colour, the other side's at the start
- * side in grey. The container says who reads the mail: a plain
- * div.transcript is the visitor's copy (the msg-visitor lines are the
- * reader's), and `data-reader="team"` the team's (the operator's copy, where
- * the msg-agent lines are; server/services/transcriptEmailRows.ts). A notice
- * (a meta line with no bubble: a system line, or the line saying older
- * messages were left out) is nobody's, so it sits in the middle, in either
- * direction. The font is the card's, inherited: a long transcript repeats as
- * little as it can (Gmail clips a mail over about 102 KB). Whatever else the
- * container or a message holds (an older mail's `<p>` lines, a Super Admin's
- * own note) is the author's and is kept, in its own full-width row, or
- * under the message's bubble: the text part has it, so the HTML part must.
- */
 /** Letters of the scripts written right to left; any other letter is a left-to-right one. */
 const RTL_LETTER = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u;
 const LETTER = /\p{L}/u;
@@ -1077,6 +1062,21 @@ function textDirection(attrs: Attr[], content: Node[], ctx: StyleContext): 'rtl'
   return ctx.rtl ? 'rtl' : 'ltr';
 }
 
+/**
+ * One row per message, as in the widget and the inbox: the reader's own
+ * lines at the end side in the brand's colour, the other side's at the start
+ * side in grey. The container says who reads the mail: a plain
+ * div.transcript is the visitor's copy (the msg-visitor lines are the
+ * reader's), and `data-reader="team"` the team's (the operator's copy, where
+ * the msg-agent lines are; server/services/transcriptEmailRows.ts). A notice
+ * (a meta line with no bubble: a system line, or the line saying older
+ * messages were left out) is nobody's, so it sits in the middle, in either
+ * direction. The font is the card's, inherited: a long transcript repeats as
+ * little as it can (Gmail clips a mail over about 102 KB). Whatever else the
+ * container or a message holds (an older mail's `<p>` lines, a Super Admin's
+ * own note) is the author's and is kept, in its own full-width row, or
+ * under the message's bubble: the text part has it, so the HTML part must.
+ */
 function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
   const [metaSize, metaLh] = ctx.t.meta;
   const [size, lh] = ctx.t.bubble;

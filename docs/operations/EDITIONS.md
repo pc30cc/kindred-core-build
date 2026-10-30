@@ -125,18 +125,24 @@ RESPOK alike, so changing it once changes it everywhere.
 
 - Where it is set: Super Admin → Branding → Visual identity. A logo for light
   backgrounds, an optional one for dark backgrounds (the light one stands in;
-  it waits for a light one, and resetting the light one resets both), and an
-  optional square symbol. SVG, PNG or WebP, at most 2 MB; an SVG passes a
+  it waits for a light one and keeps its shape, within 2%, because an email
+  draws the dark PNG at the light one's size; a new light logo of another
+  shape puts the dark one back to the light one, and resetting the light one
+  resets both), and an optional square symbol. SVG, PNG or WebP, at most 2 MB; an SVG passes a
   strict allowlist (static drawing only; a script, `foreignObject`, an `on*`
   attribute, an external reference or an `@import`/`url()` other than
   `#local` is refused). Each control previews its file on a light and a dark
-  tile and puts the brand's default back. The old logo, favicon and PWA icon
-  URL fields are gone from the page; their columns are kept, and a value in
-  them works as before wherever no upload replaces it.
-- Stored: storage keys only (`platform/brand/<uuid>-<variant>.<ext>`, ten
-  nullable columns on `platform_branding`), never a URL; the URLs are derived
-  for whichever storage provider is primary. Uploads live in each brand's own
-  storage and database, never in `dist`.
+  tile (what light and dark surfaces wear) and puts the brand's default back.
+  The old logo, favicon and PWA icon URL fields are gone from the page; their
+  columns are kept, and a value in them works as before wherever no upload
+  replaces it: the card lists such a value, read-only, with "Clear".
+- Stored: storage keys only (`platform/brand/<uuid>-<variant>.<ext>`, twelve
+  nullable columns on `platform_branding`, the email PNGs' sizes among them),
+  never a URL; the URLs are derived for whichever storage provider is
+  primary. Uploads live in each brand's own storage and database, never in
+  `dist`. A replaced or reset file is deleted, except the email PNGs: every
+  email already sent shows its logo from that URL, so they stay in storage
+  (a few KB each, one key per upload; nothing cleans them up).
 - PNG copies: email clients show no SVG, and the backend has no image library,
   so the Super Admin's browser draws them when the file is uploaded
   (`src/lib/brandRaster.ts`): the logo's email copy (120 px high, 3x the 40 px
@@ -148,9 +154,12 @@ RESPOK alike, so changing it once changes it everywhere.
   `BrandFooter`, the receipt, the mobile sign-in, the boot splash from the
   cached `wy-brand-assets`), the favicon, home-screen icon, PWA manifest and
   browser notifications (from the symbol), the chat and call widgets'
-  "powered by", the platform's own help center (its head and tab icon; a
-  customer's help center shows nothing of the platform's, as before), and the
-  emails (`resolveBrandAssets(config).logoPng`).
+  "powered by", the platform's own help center (an uploaded logo at its head
+  and an uploaded symbol as its tab icon, at app.<brand>/help, which is the
+  SPA, `src/pages/public/kb/HelpBrandHead.tsx`, and on the server-rendered
+  pages, `server/routes/kb.ts`; it never wore the kit's, so without an upload
+  it is as before, and a customer's help center shows nothing of the
+  platform's), and the emails (`resolveBrandAssets(config).logoPng`).
 - What stays kit art: the animated launcher glyphs, the splash loader, the
   t1/t2 hero watermarks and marks, and the call widget panel's inline lockups
   when nothing was uploaded. The native apps' icons and in-app marks stay in

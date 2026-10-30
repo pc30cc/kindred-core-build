@@ -11,12 +11,17 @@
  *   DELETE /:variant   back to the brand's kit. The light logo takes the
  *                      dark one with it: the two are one pair.
  *
+ * An email draws the dark PNG at the light one's size (BrandAssets.logoPng),
+ * so the two keep one shape: a dark logo of another shape is refused, and a
+ * new light logo of another shape resets the dark pair.
+ *
  * Modelled on the ringback and workspace-icon uploads: base64 JSON in, the
  * platform-wide storage provider, a new key per file
  * (platform/brand/<uuid>-<variant>.<ext>), only the keys stored, the old
- * files deleted best-effort. Then every cache that shows the logo is dropped,
- * here and on every other replica (the public config, the widgets'
- * platform snapshot, the call widget bootstrap).
+ * files deleted best-effort, except the email PNGs: every email already sent
+ * names them, so they are kept (small, one key per upload). Then every cache
+ * that shows the logo is dropped, here and on every other replica (the public
+ * config, the widgets' platform snapshot, the call widget bootstrap).
  *
  * What a file must be: server/services/platformBrandUpload.ts.
  */
@@ -67,12 +72,44 @@ const ICON_COLUMNS: Record<SymbolIconName, BrandAssetKeyColumn> = {
   png_512: 'symbol_png_512_storage_key',
 };
 
+const DARK_PAIR: BrandAssetKeyColumn[] = ['logo_dark_storage_key', 'logo_email_dark_storage_key'];
+const DARK_SIZE = { logo_email_dark_width: null, logo_email_dark_height: null };
+
 /** The key columns a reset clears, per variant (the light logo takes its pair along). */
 const CLEARED_BY: Record<BrandAssetVariant, BrandAssetKeyColumn[]> = {
-  'logo-light': ['logo_light_storage_key', 'logo_email_light_storage_key', 'logo_dark_storage_key', 'logo_email_dark_storage_key'],
-  'logo-dark': ['logo_dark_storage_key', 'logo_email_dark_storage_key'],
+  'logo-light': ['logo_light_storage_key', 'logo_email_light_storage_key', ...DARK_PAIR],
+  'logo-dark': DARK_PAIR,
   symbol: ['symbol_storage_key', ...Object.values(ICON_COLUMNS)],
 };
+
+/** The size columns a reset clears with them. */
+const SIZES_CLEARED_BY: Record<BrandAssetVariant, Record<string, null>> = {
+  'logo-light': { logo_email_width: null, logo_email_height: null, ...DARK_SIZE },
+  'logo-dark': DARK_SIZE,
+  symbol: {},
+};
+
+/**
+ * Files no longer named by the row that stay in storage: every email already
+ * sent shows its logo from that URL, and deleting it would break the image in
+ * every inbox. Their keys are unique per upload, so nothing is overwritten.
+ */
+const KEPT_FOR_SENT_EMAILS = new Set<BrandAssetKeyColumn>(['logo_email_light_storage_key', 'logo_email_dark_storage_key']);
+
+/** How far a dark logo's shape (width to height) may stray from the light one's. */
+const SHAPE_TOLERANCE = 0.02;
+
+interface PngSize { width: number; height: number }
+
+function storedSize(row: Record<string, unknown>, width: string, height: string): PngSize | null {
+  const w = row[width];
+  const h = row[height];
+  return typeof w === 'number' && w > 0 && typeof h === 'number' && h > 0 ? { width: w, height: h } : null;
+}
+
+function sameShape(a: PngSize, b: PngSize): boolean {
+  return Math.abs((a.width / a.height) / (b.width / b.height) - 1) <= SHAPE_TOLERANCE;
+}
 
 interface PreparedFile {
   column: BrandAssetKeyColumn;
@@ -82,8 +119,11 @@ interface PreparedFile {
   bytes: Buffer;
 }
 
-/** The files of one upload, checked; a BrandUploadError says what is wrong. */
-function prepare(variant: BrandAssetVariant, body: z.infer<typeof uploadSchema>): { files: PreparedFile[]; extra: Record<string, unknown> } {
+/** The files of one upload, checked; a BrandUploadError says what is wrong. `png`: the logo's email copy's size. */
+function prepare(
+  variant: BrandAssetVariant,
+  body: z.infer<typeof uploadSchema>,
+): { files: PreparedFile[]; extra: Record<string, unknown>; png: PngSize | null } {
   const original = checkBrandOriginal(body.contentType, body.data);
   const files: PreparedFile[] = [{
     column: variant === 'symbol' ? 'symbol_storage_key' : variant === 'logo-dark' ? 'logo_dark_storage_key' : 'logo_light_storage_key',
@@ -93,6 +133,7 @@ function prepare(variant: BrandAssetVariant, body: z.infer<typeof uploadSchema>)
     bytes: original.bytes,
   }];
   const extra: Record<string, unknown> = {};
+  let emailSize: PngSize | null = null;
   if (variant === 'symbol') {
     if (!body.icons) throw new BrandUploadError('icons_required');
     for (const [name, size] of Object.entries(SYMBOL_ICON_SIZES) as Array<[SymbolIconName, number]>) {
@@ -109,12 +150,16 @@ function prepare(variant: BrandAssetVariant, body: z.infer<typeof uploadSchema>)
       contentType: 'image/png',
       bytes: png.bytes,
     });
+    emailSize = { width: png.width, height: png.height };
     if (variant === 'logo-light') {
       extra.logo_email_width = png.width;
       extra.logo_email_height = png.height;
+    } else {
+      extra.logo_email_dark_width = png.width;
+      extra.logo_email_dark_height = png.height;
     }
   }
-  return { files, extra };
+  return { files, extra, png: emailSize };
 }
 
 /** Write the patch to the one platform_branding row (or create it). */
@@ -154,12 +199,25 @@ platformBrandAssetsRouter.post('/:variant', async (req, res) => {
   // The dark logo is the light one's partner; alone it would pair the kit's
   // light logo with the Super Admin's dark one.
   if (variant === 'logo-dark' && !current.logo_light_storage_key) return res.status(409).json({ error: 'logo_light_required' });
+  // An email draws the dark PNG at the light one's size: another shape would
+  // be stretched in every email.
+  const lightSize = storedSize(current, 'logo_email_width', 'logo_email_height');
+  if (variant === 'logo-dark' && prepared.png && lightSize && !sameShape(prepared.png, lightSize)) {
+    return res.status(409).json({ error: 'logo_dark_ratio' });
+  }
+  // A new light logo of another shape leaves the dark pair behind (as does
+  // one whose dark size is unknown): dark surfaces wear the light one.
+  const darkSize = storedSize(current, 'logo_email_dark_width', 'logo_email_dark_height');
+  const dropsDark = variant === 'logo-light' && !!prepared.png
+    && DARK_PAIR.some((column) => current[column])
+    && !(darkSize && sameShape(prepared.png, darkSize));
 
   const storage = await resolveGlobalStorageConfig(config);
   if (!storage) return res.status(500).json({ error: 'global_storage_not_configured' });
   const written: string[] = [];
   const dropWritten = () => Promise.all(written.map((key) => deleteWithConfig(storage, key).catch(() => undefined)));
   const patch: Record<string, unknown> = { ...prepared.extra };
+  if (dropsDark) Object.assign(patch, Object.fromEntries(DARK_PAIR.map((column) => [column, null])), DARK_SIZE);
   for (const file of prepared.files) {
     const fileKey = platformBrandAssetKey({ variant: file.name, ext: file.ext });
     const uploaded = await uploadWithConfig(storage, { fileKey, data: file.bytes, contentType: file.contentType });
@@ -177,15 +235,17 @@ platformBrandAssetsRouter.post('/:variant', async (req, res) => {
     await dropWritten();
     return res.status(500).json({ error: saveError.message });
   }
-  // Best-effort: the old files are no longer named anywhere.
-  for (const file of prepared.files) {
-    const previous = current[file.column];
-    if (typeof previous === 'string' && previous && previous !== patch[file.column]) {
+  // Best-effort: the old files are no longer named anywhere (the email PNGs
+  // still are, by the emails already sent).
+  const replaced = [...prepared.files.map((file) => file.column), ...(dropsDark ? DARK_PAIR : [])];
+  for (const column of replaced) {
+    const previous = current[column];
+    if (!KEPT_FOR_SENT_EMAILS.has(column) && typeof previous === 'string' && previous && previous !== patch[column]) {
       await deleteWithConfig(storage, previous).catch(() => undefined);
     }
   }
   announce();
-  return res.json({ assets: await readCustomBrandAssets(config) });
+  return res.json({ assets: await readCustomBrandAssets(config), ...(dropsDark ? { dark_reset: true } : {}) });
 });
 
 platformBrandAssetsRouter.delete('/:variant', async (req, res) => {
@@ -198,15 +258,17 @@ platformBrandAssetsRouter.delete('/:variant', async (req, res) => {
   if (readError) return res.status(500).json({ error: readError.message });
   const current = (row ?? null) as Record<string, unknown> | null;
   const columns = CLEARED_BY[variant];
-  const previous = columns.map((column) => current?.[column]).filter((key): key is string => typeof key === 'string' && !!key);
-  if (current?.id && previous.length) {
-    const patch: Record<string, unknown> = Object.fromEntries(columns.map((column) => [column, null]));
-    if (variant === 'logo-light') Object.assign(patch, { logo_email_width: null, logo_email_height: null });
+  const named = columns.filter((column) => typeof current?.[column] === 'string' && current[column]);
+  if (current?.id && named.length) {
+    const patch: Record<string, unknown> = { ...Object.fromEntries(columns.map((column) => [column, null])), ...SIZES_CLEARED_BY[variant] };
     const { error } = await savePatch(config, current.id as string, patch);
     if (error) return res.status(500).json({ error: error.message });
+    // The email PNGs stay: the emails already sent show them.
     const storage = await resolveGlobalStorageConfig(config).catch(() => null);
     if (storage) {
-      for (const key of previous) await deleteWithConfig(storage, key).catch(() => undefined);
+      for (const column of named) {
+        if (!KEPT_FOR_SENT_EMAILS.has(column)) await deleteWithConfig(storage, current[column] as string).catch(() => undefined);
+      }
     }
     announce();
   }

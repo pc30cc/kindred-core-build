@@ -67,12 +67,16 @@ export function usePlatformBrandAssets() {
   });
 }
 
-/** After an upload or a reset: this page and every mark on it show the new logo at once. */
+/**
+ * After an upload or a reset: this page and every mark on it show the new
+ * logo at once. The Visual identity form (['platform_branding']) is left
+ * alone: an upload changes none of its fields, and a refetch would reset the
+ * edits not saved yet.
+ */
 function useBrandAssetsSaved() {
   const qc = useQueryClient();
   return (assets: PlatformPublicBrandAssets | null) => {
     qc.setQueryData(BRAND_ASSETS_QUERY_KEY, assets);
-    qc.invalidateQueries({ queryKey: ['platform_branding'] });
     qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY });
     qc.invalidateQueries({ queryKey: ['platform_branding_global'] });
   };
@@ -81,14 +85,13 @@ function useBrandAssetsSaved() {
 export function useUploadPlatformBrandAsset() {
   const saved = useBrandAssetsSaved();
   return useMutation({
-    mutationFn: async ({ variant, upload }: { variant: PlatformBrandAssetVariant; upload: PlatformBrandAssetUpload }) => {
-      const { assets } = await adminFetch<{ assets: PlatformPublicBrandAssets | null }>(
+    mutationFn: async ({ variant, upload }: { variant: PlatformBrandAssetVariant; upload: PlatformBrandAssetUpload }) =>
+      adminFetch<{ assets: PlatformPublicBrandAssets | null; dark_reset?: boolean }>(
         `/api/admin/management/platform-branding/assets/${variant}`,
         { method: 'POST', body: JSON.stringify(upload) },
-      );
-      return assets;
-    },
-    onSuccess: saved,
+      ),
+    // `dark_reset`: a new light logo of another shape put the dark one back to the light one.
+    onSuccess: ({ assets }) => saved(assets),
   });
 }
 

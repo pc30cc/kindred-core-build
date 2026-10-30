@@ -4,12 +4,17 @@
  * Visual identity), on a database built by the whole chain, through the real
  * routes and data layer (postgres-only) with the local storage provider:
  *
- *   - the migration: ten nullable columns on platform_branding, no default,
- *     nothing for anon or authenticated; a second run changes nothing;
+ *   - the migration: twelve nullable columns on platform_branding, no
+ *     default, nothing for anon or authenticated; a second run changes
+ *     nothing;
  *   - POST …/platform-branding/assets/:variant stores keys only
  *     (platform/brand/<uuid>-<variant>.<ext>), never a URL; an unsafe SVG, a
  *     wrong icon size or a dark logo before a light one is refused and
- *     writes nothing; a replaced file is deleted;
+ *     writes nothing; a replaced file is deleted, but never an email PNG
+ *     (the emails already sent show it);
+ *   - the dark logo keeps the light one's shape (an email draws both at one
+ *     size): another shape is refused, and a new light logo of another shape
+ *     puts the dark pair back to the light one;
  *   - the public config sends the uploads as URLs (`brand_assets`), and the
  *     one resolver answers them over the kit, in both editions;
  *   - DELETE puts the brand's default back (the light logo takes its pair).
@@ -32,14 +37,16 @@ const suite = DSN ? describe : describe.skip;
 
 const MIGRATION = resolve(process.cwd(), 'database/migrations/290_platform_brand_assets.sql');
 const COLUMNS = [
-  'logo_dark_storage_key', 'logo_email_dark_storage_key', 'logo_email_height', 'logo_email_light_storage_key', 'logo_email_width',
-  'logo_light_storage_key', 'symbol_apple_touch_storage_key', 'symbol_png_192_storage_key', 'symbol_png_512_storage_key', 'symbol_storage_key',
+  'logo_dark_storage_key', 'logo_email_dark_height', 'logo_email_dark_storage_key', 'logo_email_dark_width', 'logo_email_height',
+  'logo_email_light_storage_key', 'logo_email_width', 'logo_light_storage_key', 'symbol_apple_touch_storage_key', 'symbol_png_192_storage_key', 'symbol_png_512_storage_key', 'symbol_storage_key',
 ];
 const CDN = 'https://cdn.example.test';
 const file = (p: string) => readFileSync(resolve(process.cwd(), p));
 const b64 = (bytes: Buffer | string) => Buffer.from(bytes).toString('base64');
 const LOGO_SVG = file('public/brand/intl/respok-thread-horizontal-color.svg');
 const LOGO_PNG = file('public/brand/intl/email/respok-logo.png');
+/** Another shape (360x139, against 400x92). */
+const OTHER_SHAPE_PNG = file('public/brand/webyar/email/webyar-logo.png');
 const ICONS = {
   apple_touch_180: b64(file('public/brand/intl/apple-touch-icon.png')),
   png_192: b64(file('public/brand/intl/android-chrome-192x192.png')),
@@ -123,7 +130,7 @@ suite('290 — the platform\'s own logo, uploaded once (real PostgreSQL)', () =>
   });
 
   describe('the migration', () => {
-    it('adds ten nullable columns with no default, for the backend only', async () => {
+    it('adds twelve nullable columns with no default, for the backend only', async () => {
       const cols = await q(
         `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = 'platform_branding' AND column_name = ANY($1) ORDER BY column_name`,
@@ -220,7 +227,7 @@ suite('290 — the platform\'s own logo, uploaded once (real PostgreSQL)', () =>
       expect((await assets.resolveBrandAssets(config, { edition: 'iran' }))?.source).toBe('custom');
     });
 
-    it('a replaced logo gets a new key and its old file is deleted', async () => {
+    it('a replaced logo gets a new key; its old file is deleted, its old email PNG kept', async () => {
       const before = await row();
       const res = await call('POST', '/api/admin/management/platform-branding/assets/logo-light', {
         contentType: 'image/png', data: b64(LOGO_PNG), png: b64(LOGO_PNG),
@@ -230,14 +237,59 @@ suite('290 — the platform\'s own logo, uploaded once (real PostgreSQL)', () =>
       expect(after.logo_light_storage_key).not.toBe(before.logo_light_storage_key);
       expect(String(after.logo_light_storage_key)).toMatch(/-logo-light\.png$/);
       expect(onDisk(before.logo_light_storage_key)).toBe(false);
-      expect(onDisk(before.logo_email_light_storage_key)).toBe(false);
+      // Every email already sent shows it from that URL.
+      expect(after.logo_email_light_storage_key).not.toBe(before.logo_email_light_storage_key);
+      expect(onDisk(before.logo_email_light_storage_key)).toBe(true);
       expect(onDisk(after.logo_light_storage_key)).toBe(true);
 
       const dark = await call('POST', '/api/admin/management/platform-branding/assets/logo-dark', {
         contentType: 'image/svg+xml', data: b64(LOGO_SVG), png: b64(LOGO_PNG),
       });
       expect(dark.status).toBe(200);
-      expect((dark.json.assets as Record<string, unknown>).logo_dark).toBe(`${CDN}/${(await row()).logo_dark_storage_key}`);
+      const withDark = await row();
+      expect((dark.json.assets as Record<string, unknown>).logo_dark).toBe(`${CDN}/${withDark.logo_dark_storage_key}`);
+      expect([withDark.logo_email_dark_width, withDark.logo_email_dark_height]).toEqual([400, 92]);
+    });
+
+    it('the dark logo keeps the light one\'s shape', async () => {
+      const before = await row();
+      const other = await call('POST', '/api/admin/management/platform-branding/assets/logo-dark', {
+        contentType: 'image/png', data: b64(OTHER_SHAPE_PNG), png: b64(OTHER_SHAPE_PNG),
+      });
+      expect(other).toMatchObject({ status: 409, json: { error: 'logo_dark_ratio' } });
+      expect(await row()).toEqual(before);
+
+      // The same shape again: the dark pair stays.
+      const same = await call('POST', '/api/admin/management/platform-branding/assets/logo-light', {
+        contentType: 'image/png', data: b64(LOGO_PNG), png: b64(LOGO_PNG),
+      });
+      expect(same.status).toBe(200);
+      expect(same.json.dark_reset).toBeUndefined();
+      const kept = await row();
+      expect(kept.logo_dark_storage_key).toBe(before.logo_dark_storage_key);
+      expect(kept.logo_email_dark_storage_key).toBe(before.logo_email_dark_storage_key);
+
+      // A light logo of another shape: the dark pair goes, its email PNG stays in storage.
+      const reshaped = await call('POST', '/api/admin/management/platform-branding/assets/logo-light', {
+        contentType: 'image/png', data: b64(OTHER_SHAPE_PNG), png: b64(OTHER_SHAPE_PNG),
+      });
+      expect(reshaped.status).toBe(200);
+      expect(reshaped.json.dark_reset).toBe(true);
+      const after = await row();
+      for (const c of ['logo_dark_storage_key', 'logo_email_dark_storage_key', 'logo_email_dark_width', 'logo_email_dark_height']) expect(after[c], c).toBeNull();
+      expect([after.logo_email_width, after.logo_email_height]).toEqual([360, 139]);
+      expect(onDisk(before.logo_dark_storage_key)).toBe(false);
+      expect(onDisk(before.logo_email_dark_storage_key)).toBe(true);
+      expect((reshaped.json.assets as Record<string, unknown>).logo_dark).toBeNull();
+      const resolved = await assets.resolveBrandAssets(config);
+      expect(resolved?.logo.dark).toBe(`${CDN}/${after.logo_light_storage_key}`);
+      expect(resolved?.logoPng).toMatchObject({ dark: `${CDN}/${after.logo_email_light_storage_key}`, width: 360, height: 139 });
+
+      // Back to a dark logo of the new shape.
+      const dark = await call('POST', '/api/admin/management/platform-branding/assets/logo-dark', {
+        contentType: 'image/png', data: b64(OTHER_SHAPE_PNG), png: b64(OTHER_SHAPE_PNG),
+      });
+      expect(dark.status).toBe(200);
     });
   });
 
@@ -247,10 +299,15 @@ suite('290 — the platform\'s own logo, uploaded once (real PostgreSQL)', () =>
       const res = await call('DELETE', '/api/admin/management/platform-branding/assets/logo-light');
       expect(res.status).toBe(200);
       const after = await row();
-      for (const c of ['logo_light_storage_key', 'logo_dark_storage_key', 'logo_email_light_storage_key', 'logo_email_dark_storage_key', 'logo_email_width', 'logo_email_height']) {
+      for (const c of [
+        'logo_light_storage_key', 'logo_dark_storage_key', 'logo_email_light_storage_key', 'logo_email_dark_storage_key',
+        'logo_email_width', 'logo_email_height', 'logo_email_dark_width', 'logo_email_dark_height',
+      ]) {
         expect(after[c], c).toBeNull();
       }
-      for (const c of ['logo_light_storage_key', 'logo_dark_storage_key', 'logo_email_light_storage_key']) expect(onDisk(before[c]), c).toBe(false);
+      for (const c of ['logo_light_storage_key', 'logo_dark_storage_key']) expect(onDisk(before[c]), c).toBe(false);
+      // The emails already sent keep their logo.
+      for (const c of ['logo_email_light_storage_key', 'logo_email_dark_storage_key']) expect(onDisk(before[c]), c).toBe(true);
       // The symbol stays.
       expect(after.symbol_storage_key).toBe(before.symbol_storage_key);
       const resolved = await assets.resolveBrandAssets(config);
@@ -258,7 +315,9 @@ suite('290 — the platform\'s own logo, uploaded once (real PostgreSQL)', () =>
       expect(resolved?.logo.light).toBe('https://app.example.test/brand/intl/respok-thread-horizontal-color.svg');
       expect(resolved?.logoPng).toMatchObject({ light: 'https://app.example.test/brand/intl/email/respok-logo.png', width: 400, height: 92 });
 
+      const symbolKey = before.symbol_png_192_storage_key;
       expect((await call('DELETE', '/api/admin/management/platform-branding/assets/symbol')).status).toBe(200);
+      expect(onDisk(symbolKey)).toBe(false);
       expect((await call('GET', '/api/platform/public/config')).json.brand_assets).toBeNull();
       expect((await call('GET', '/api/admin/management/platform-branding')).json.assets).toBeNull();
     });

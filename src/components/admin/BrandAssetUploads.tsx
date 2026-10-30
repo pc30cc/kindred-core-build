@@ -5,12 +5,13 @@
  * "powered by", the help center, the emails, the tab and home-screen icons
  * (server/services/platformBrandAssets.ts, src/lib/brandAssets.ts).
  *
- * Each control shows its file on a light and a dark tile, or the brand's
- * default (its kit) when nothing was uploaded, and puts the default back.
- * The PNG copies the server needs (the email logo, the icons) are drawn here
- * from the same file (src/lib/brandRaster.ts) and uploaded with it. The dark
- * logo is the light one's partner: it waits for a light one, and resetting
- * the light logo resets both.
+ * Each control shows, on a light and a dark tile, what those surfaces wear:
+ * the upload, or the brand's default (its kit) when nothing was uploaded, and
+ * puts the default back. The PNG copies the server needs (the email logo, the
+ * icons) are drawn here from the same file (src/lib/brandRaster.ts) and
+ * uploaded with it. The dark logo is the light one's partner: it waits for a
+ * light one and keeps its shape (an email draws both at one size), and
+ * resetting the light logo resets both.
  */
 import { useRef, useState } from 'react';
 import { ImageUp, Loader2, RotateCcw } from 'lucide-react';
@@ -41,7 +42,11 @@ const ERRORS: Record<string, TranslationKey> = {
   svg_no_size: 'admin.brandingPage.identity.errorSvgSize',
   image_unreadable: 'admin.brandingPage.identity.errorUnreadable',
   png_invalid: 'admin.brandingPage.identity.errorUnreadable',
+  png_wrong_size: 'admin.brandingPage.identity.errorUnreadable',
+  canvas_unavailable: 'admin.brandingPage.identity.errorUnreadable',
   logo_light_required: 'admin.brandingPage.identity.errorNeedsLight',
+  logo_dark_ratio: 'admin.brandingPage.identity.errorDarkShape',
+  global_storage_not_configured: 'admin.brandingPage.identity.errorNoStorage',
 };
 
 function Tile({ src, dark, symbol, label }: { src: string | null; dark: boolean; symbol: boolean; label: string }) {
@@ -71,9 +76,12 @@ interface Row {
   variant: PlatformBrandAssetVariant;
   label: TranslationKey;
   hint: TranslationKey;
-  /** The file shown: the upload, else the brand's default. */
-  src: string | null;
+  /** What light and dark surfaces wear: the upload, else the brand's default. */
+  onLight: string | null;
+  onDark: string | null;
   uploaded: boolean;
+  /** What stands in while nothing is uploaded here. */
+  standIn: TranslationKey;
   disabled?: boolean;
 }
 
@@ -88,29 +96,41 @@ export function BrandAssetUploads({ background }: { background?: string | null }
   // The brand's default: this edition's kit, never the cached upload.
   const fallback = brandAssetsView(null, kit);
   const custom = uploaded ?? null;
+  // The logo is one pair: dark surfaces wear the dark upload, else the light
+  // upload, and the kit's pair while nothing is uploaded.
+  const logoOnLight = custom?.logo_light ?? fallback.lockup?.light ?? null;
+  const logoOnDark = custom?.logo_light ? custom.logo_dark ?? custom.logo_light : fallback.lockup?.dark ?? null;
+  const symbol = custom?.symbol ?? fallback.symbol ?? null;
+  const kitDefault: TranslationKey = 'admin.brandingPage.identity.kitDefault';
 
   const rows: Row[] = [
     {
       variant: 'logo-light',
       label: 'admin.brandingPage.identity.logoLight',
       hint: 'admin.brandingPage.identity.logoLightHint',
-      src: custom?.logo_light ?? fallback.lockup?.light ?? null,
+      onLight: logoOnLight,
+      onDark: logoOnDark,
       uploaded: !!custom?.logo_light,
+      standIn: kitDefault,
     },
     {
       variant: 'logo-dark',
       label: 'admin.brandingPage.identity.logoDark',
       hint: 'admin.brandingPage.identity.logoDarkHint',
-      src: custom?.logo_dark ?? custom?.logo_light ?? fallback.lockup?.dark ?? null,
+      onLight: logoOnLight,
+      onDark: logoOnDark,
       uploaded: !!custom?.logo_dark,
+      standIn: custom?.logo_light ? 'admin.brandingPage.identity.usesLightLogo' : kitDefault,
       disabled: !custom?.logo_light,
     },
     {
       variant: 'symbol',
       label: 'admin.brandingPage.identity.symbol',
       hint: 'admin.brandingPage.identity.symbolHint',
-      src: custom?.symbol ?? fallback.symbol ?? null,
+      onLight: symbol,
+      onDark: symbol,
       uploaded: !!custom?.symbol,
+      standIn: kitDefault,
     },
   ];
 
@@ -130,8 +150,11 @@ export function BrandAssetUploads({ background }: { background?: string | null }
       const prepared = variant === 'symbol'
         ? await prepareSymbolUpload(file, background || '#FFFFFF')
         : await prepareLogoUpload(file);
-      await upload.mutateAsync({ variant, upload: prepared });
-      toast({ title: t('admin.brandingPage.identity.assetSaved') });
+      const saved = await upload.mutateAsync({ variant, upload: prepared });
+      toast({
+        title: t('admin.brandingPage.identity.assetSaved'),
+        description: saved.dark_reset ? t('admin.brandingPage.identity.darkLogoReset') : undefined,
+      });
     } catch (err) {
       fail(err instanceof Error ? err.message : '');
     } finally {
@@ -159,12 +182,12 @@ export function BrandAssetUploads({ background }: { background?: string | null }
         <div key={row.variant} className="space-y-2" data-brand-asset={row.variant}>
           <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm font-medium text-foreground">{t(row.label)}</Label>
-            {!row.uploaded && <Badge variant="secondary">{t('admin.brandingPage.identity.kitDefault')}</Badge>}
+            {!row.uploaded && <Badge variant="secondary">{t(row.standIn)}</Badge>}
           </div>
           <p className="text-xs text-muted-foreground">{t(row.hint)}</p>
           <div className="flex gap-3">
-            <Tile src={row.src} dark={false} symbol={row.variant === 'symbol'} label={t('admin.brandingPage.identity.onLight')} />
-            <Tile src={row.src} dark symbol={row.variant === 'symbol'} label={t('admin.brandingPage.identity.onDark')} />
+            <Tile src={row.onLight} dark={false} symbol={row.variant === 'symbol'} label={t('admin.brandingPage.identity.onLight')} />
+            <Tile src={row.onDark} dark symbol={row.variant === 'symbol'} label={t('admin.brandingPage.identity.onDark')} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input

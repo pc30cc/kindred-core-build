@@ -22,7 +22,12 @@
 --   logo_email_dark_storage_key     Super Admin's browser (email clients show
 --                                   no SVG), about 3x a 40 px display height;
 --   logo_email_width/_height        the light PNG's natural size, in pixels,
---                                   read from its header at upload;
+--                                   read from its header at upload (an
+--                                   email draws either PNG at this size);
+--   logo_email_dark_width/_height   the dark PNG's, the same way: a dark
+--                                   logo must keep the light one's shape,
+--                                   and a new light one of another shape
+--                                   resets the dark pair;
 --   symbol_storage_key              the square mark, where the panel shows
 --                                   the app's mark; optional, the kit's
 --                                   symbol stands in;
@@ -54,6 +59,8 @@ ALTER TABLE public.platform_branding
   ADD COLUMN IF NOT EXISTS logo_email_dark_storage_key text,
   ADD COLUMN IF NOT EXISTS logo_email_width integer,
   ADD COLUMN IF NOT EXISTS logo_email_height integer,
+  ADD COLUMN IF NOT EXISTS logo_email_dark_width integer,
+  ADD COLUMN IF NOT EXISTS logo_email_dark_height integer,
   ADD COLUMN IF NOT EXISTS symbol_storage_key text,
   ADD COLUMN IF NOT EXISTS symbol_apple_touch_storage_key text,
   ADD COLUMN IF NOT EXISTS symbol_png_192_storage_key text,
@@ -71,6 +78,10 @@ COMMENT ON COLUMN public.platform_branding.logo_email_width IS
   'Natural width in pixels of the light email PNG.';
 COMMENT ON COLUMN public.platform_branding.logo_email_height IS
   'Natural height in pixels of the light email PNG.';
+COMMENT ON COLUMN public.platform_branding.logo_email_dark_width IS
+  'Natural width in pixels of the dark email PNG (its shape is the light one''s, within 2%).';
+COMMENT ON COLUMN public.platform_branding.logo_email_dark_height IS
+  'Natural height in pixels of the dark email PNG.';
 COMMENT ON COLUMN public.platform_branding.symbol_storage_key IS
   'The platform''s square mark (storage key). NULL: the edition''s kit symbol.';
 COMMENT ON COLUMN public.platform_branding.symbol_apple_touch_storage_key IS

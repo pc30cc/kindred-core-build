@@ -847,9 +847,11 @@ describe('no mail without a template', () => {
    * a later migration adds a new one). A new send path, or one more send in
    * these files, fails until it is listed. The outbox only re-sends what was
    * queued, as it was queued: each queued request is checked where it is
-   * queued.
+   * queued. Super Admin's test of a template sends the template it was given
+   * (any row the tab lists, as being edited): it carries that template
+   * itself, whatever its slug, which is checked on its own.
    */
-  const SEND_PATHS: Record<string, { calls: number; slugs: string[]; resendsQueued?: true }> = {
+  const SEND_PATHS: Record<string, { calls: number; slugs: string[]; resendsQueued?: true; carriesTemplate?: true }> = {
     'server/services/auth-email.ts': { calls: 1, slugs: ['email_verify', 'password_reset'] },
     'server/services/verification/service.ts': { calls: 2, slugs: ['verification_code'] },
     'server/services/invitations/worker.ts': { calls: 2, slugs: ['invite_otp', 'invite_member'] },
@@ -870,6 +872,7 @@ describe('no mail without a template', () => {
       ],
     },
     'server/services/email/outbox.ts': { calls: 2, slugs: [], resendsQueued: true },
+    'server/services/email/templateAdmin.ts': { calls: 1, slugs: [], carriesTemplate: true },
   };
 
   const ROOTS = ['server', 'worker', 'channels', 'shared', 'runtime', 'ai-runtime', 'scripts'];
@@ -978,7 +981,7 @@ describe('no mail without a template', () => {
     );
   });
 
-  it.each(Object.entries(SEND_PATHS).filter(([, p]) => !p.resendsQueued))('%s: every send names its template, and sends only the ones listed', (file, path) => {
+  it.each(Object.entries(SEND_PATHS).filter(([, p]) => !p.resendsQueued && !p.carriesTemplate))('%s: every send names its template, and sends only the ones listed', (file, path) => {
     const src = sourceOf(file);
     const sent = new Set<string>();
     for (const call of sendsIn(src).calls) {
@@ -999,6 +1002,26 @@ describe('no mail without a template', () => {
     const src = read('server/services/email/outbox.ts');
     expect(src).toMatch(/const request = openRequest\(config, row\.payload\);/);
     expect(src).toMatch(/export async function sendEmailWithRetry\(\s*config: ServerConfig,\s*request: EmailRequest,/);
+  });
+
+  it('Super Admin\'s test of a template carries the template itself, which the core sends in place of a row', () => {
+    const file = 'server/services/email/templateAdmin.ts';
+    const src = sourceOf(file);
+    const calls = sendsIn(src).calls;
+    expect(calls).toHaveLength(SEND_PATHS[file].calls);
+    for (const call of calls) {
+      const request = inner(call.arguments[1]);
+      expect(ts.isObjectLiteralExpression(request), `${where(src, call)} hands over a request written out`).toBe(true);
+      const props = new Map((request as ts.ObjectLiteralExpression).properties.map((p) => [propertyKey(p), p]));
+      // No spread could bring another `template`, or take it away.
+      expect([...props.keys()], `${where(src, call)}`).not.toContain(null);
+      expect((request as ts.ObjectLiteralExpression).properties.some(ts.isSpreadAssignment)).toBe(false);
+      const template = props.get('template');
+      expect(template && ts.isPropertyAssignment(template) && ts.isObjectLiteralExpression(inner(template.initializer)), `${where(src, call)} carries its template`).toBe(true);
+      expect(props.has('templateSlug')).toBe(true);
+    }
+    // The template given wins over any stored row, and is filled and laid out as one.
+    expect(stripTs(read(SERVICE))).toMatch(/const tpl = input\.template\s*\?/);
   });
 
   it('every template a sender names has its rows in fa, en and tr, for both editions', () => {

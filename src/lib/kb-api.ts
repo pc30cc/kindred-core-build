@@ -49,26 +49,40 @@ function workspaceIdFromMeta(): string | null {
 }
 
 let cachedWorkspaceId: string | null = null;
-let cachedWorkspaceLookup: Promise<string | null> | null = null;
+let cachedHostLookup: Promise<{ workspaceId: string | null; platform: boolean }> | null = null;
+
+/** The host probe, asked once per page: the workspace bound to the host, and whether it is the platform's own. */
+function lookupHelpHost(): Promise<{ workspaceId: string | null; platform: boolean }> {
+  if (cachedHostLookup) return cachedHostLookup;
+  cachedHostLookup = (async () => {
+    try {
+      // Lightweight host→workspace probe; returns 404 if host is not bound.
+      const r = await fetch(`${API_BASE}/api/widget/kb/help-host`, { credentials: 'include' });
+      if (!r.ok) return { workspaceId: null, platform: false };
+      const data = await r.json();
+      return { workspaceId: data?.workspace_id || null, platform: data?.platform === true };
+    } catch {
+      return { workspaceId: null, platform: false };
+    }
+  })();
+  return cachedHostLookup;
+}
 
 async function resolveWorkspaceId(): Promise<string | null> {
   if (cachedWorkspaceId) return cachedWorkspaceId;
   const fromMeta = workspaceIdFromMeta();
   if (fromMeta) { cachedWorkspaceId = fromMeta; return fromMeta; }
-  if (cachedWorkspaceLookup) return cachedWorkspaceLookup;
-  cachedWorkspaceLookup = (async () => {
-    try {
-      // Lightweight host→workspace probe; returns 404 if host is not bound.
-      const r = await fetch(`${API_BASE}/api/widget/kb/help-host`, { credentials: 'include' });
-      if (!r.ok) return null;
-      const data = await r.json();
-      cachedWorkspaceId = data?.workspace_id || null;
-      return cachedWorkspaceId;
-    } catch {
-      return null;
-    }
-  })();
-  return cachedWorkspaceLookup;
+  cachedWorkspaceId = (await lookupHelpHost()).workspaceId;
+  return cachedWorkspaceId;
+}
+
+/**
+ * Whether this help center is the platform's own (its own workspace's): only
+ * that one wears the platform's uploaded logo (HelpBrandHead), as on the
+ * server-rendered pages. False when the host is bound to no workspace.
+ */
+export async function isPlatformHelpCenter(): Promise<boolean> {
+  return (await lookupHelpHost()).platform;
 }
 
 function buildUrl(path: string, params: Record<string, string | number>): string {

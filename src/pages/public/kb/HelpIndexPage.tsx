@@ -4,6 +4,7 @@ import { applySeoHead } from '@/lib/seoHead';
 import { fetchKbCategories, type KbCategory } from '@/lib/kb-api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { KbSearchBox } from './KbSearchBox';
+import { HelpBrandHead } from './HelpBrandHead';
 
 const TITLES: Record<Locale, string> = {
   en: 'Help center',
@@ -55,6 +56,7 @@ export default function HelpIndexPage() {
 
   return (
     <div className="container max-w-3xl py-10" dir={isRtl(valid) ? 'rtl' : 'ltr'}>
+      <HelpBrandHead locale={valid} />
       <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-6">
         {TITLES[valid]}
       </h1>

@@ -5,6 +5,7 @@ import { fetchKbCategories, type KbCategory } from '@/lib/kb-api';
 import { API_BASE } from '@/lib/api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { KbSearchBox } from './KbSearchBox';
+import { HelpBrandHead } from './HelpBrandHead';
 
 const HELP_LABEL: Record<Locale, string> = {
   en: 'Help center',
@@ -75,6 +76,7 @@ export default function HelpCategoryPage() {
 
   return (
     <div className="container max-w-3xl py-10" dir={isRtl(valid) ? 'rtl' : 'ltr'}>
+      <HelpBrandHead locale={valid} />
       <nav className="text-sm text-muted-foreground mb-4">
         <Link to={`/help/${valid}`} className="hover:text-foreground">{HELP_LABEL[valid]}</Link>
         <span className="mx-2">/</span>

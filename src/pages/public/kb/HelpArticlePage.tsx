@@ -4,6 +4,7 @@ import { applySeoHead } from '@/lib/seoHead';
 import { fetchKbArticle, type KbArticle } from '@/lib/kb-api';
 import { sanitizeKbHtml } from '@/lib/sanitizeKbHtml';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
+import { HelpBrandHead } from './HelpBrandHead';
 
 const HELP_LABEL: Record<Locale, string> = {
   en: 'Help center',
@@ -67,6 +68,7 @@ export default function HelpArticlePage() {
 
   return (
     <div className="container max-w-3xl py-10" dir={isRtl(valid) ? 'rtl' : 'ltr'}>
+      <HelpBrandHead locale={valid} />
       <nav className="text-sm text-muted-foreground mb-4">
         <Link to={`/help/${valid}`} className="hover:text-foreground">{HELP_LABEL[valid]}</Link>
       </nav>

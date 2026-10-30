@@ -38,7 +38,8 @@ import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
 import { isPlatformWorkspace } from '../services/platformHosts.js';
-import { resolveBrandAssets } from '../services/platformBrandAssets.js';
+import { getPlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { brandTokensFor } from '../../shared/brand.js';
 import { sanitizeKbArticleHtml } from '../services/knowledge-base/articleHtml.js';
 import { kbFoldedSearch } from '../services/knowledge-base/foldedSearch.js';
 import { resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
@@ -138,14 +139,17 @@ export const widgetKbRouter: Router = express.Router();
 /**
  * Host→workspace probe used by the SPA-side public KB pages to discover
  * the workspace bound to the current Host without exposing service-role
- * data. Returns { workspace_id } or 404. Read-only and safe to expose:
- * the resolution is the same one already used by the public SSR routes.
+ * data. Returns { workspace_id, platform } or 404. Read-only and safe to
+ * expose: the resolution is the same one already used by the public SSR
+ * routes. `platform` says whether that is the platform's own help center,
+ * the only one that wears the platform's uploaded logo (helpCenterBrand).
  */
 widgetKbRouter.get('/help-host', async (req: Request, res: Response) => {
   const config = configOf(req);
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
-  return res.json({ workspace_id: workspaceId });
+  const platform = await isPlatformWorkspace(config, workspaceId).catch(() => false);
+  return res.json({ workspace_id: workspaceId, platform });
 });
 
 const categoriesSchema = z.object({
@@ -458,22 +462,36 @@ interface SsrShellOpts {
 }
 
 interface HelpCenterBrand {
-  logo: string;
-  icon: string;
+  /** The uploaded logo (light), linked home; null without one. */
+  logo: string | null;
+  /** The platform's name: the logo link's text. */
+  name: string;
+  /** The uploaded symbol's 192 px PNG, the tab's icon; null without one. */
+  icon: string | null;
   home: string;
 }
 
 /**
- * The platform's own help center (its own workspace's) wears the platform's
- * logo at its head and its icon in the tab, from the one place the logo is
- * set (Super Admin → Branding; server/services/platformBrandAssets.ts). A
- * customer's help center, on the customer's domain, shows none of it, as
- * before.
+ * The platform's own help center (its own workspace's) wears what the Super
+ * Admin uploaded (Super Admin → Branding; server/services/platformBrandAssets.ts):
+ * the logo at its head, the symbol in the tab. It never had the kit's, so
+ * without an upload (and on a customer's help center, always) there is none
+ * and the page is exactly as before. The SPA's help pages ask the same
+ * (src/pages/public/kb/HelpBrandHead.tsx).
  */
 async function helpCenterBrand(config: ServerConfig, workspaceId: string, locale: Locale): Promise<HelpCenterBrand | null> {
   if (!(await isPlatformWorkspace(config, workspaceId).catch(() => false))) return null;
-  const assets = await resolveBrandAssets(config).catch(() => null);
-  return assets ? { logo: assets.logo.light, icon: assets.icons.png192, home: `/help/${locale}` } : null;
+  const pub = await getPlatformPublicConfig(config).catch(() => null);
+  const logo = pub?.brand_assets?.logo_light ?? null;
+  const icon = pub?.brand_assets?.icon_192 ?? null;
+  if (!pub || (!logo && !icon)) return null;
+  const names: Record<string, string> = {};
+  for (const row of pub.localized) {
+    const name = typeof row?.platform_name === 'string' ? row.platform_name.trim() : '';
+    if (typeof row?.locale === 'string' && name) names[row.locale] = name;
+  }
+  const name = brandTokensFor(pub.brand.edition, locale, { names, siteUrl: pub.brand.site_url, supportEmail: null }).brand;
+  return { logo, name, icon, home: `/help/${locale}` };
 }
 
 function renderShell(opts: SsrShellOpts): string {
@@ -484,10 +502,15 @@ function renderShell(opts: SsrShellOpts): string {
   const hreflangTags = opts.hreflangs
     .map((h) => `<link rel="alternate" hreflang="${escapeAttr(h.hreflang)}" href="${escapeAttr(h.href)}" />`)
     .join('');
+  // Each piece brings its own line, so a page without an upload is the same,
+  // byte for byte, as before there were uploads.
   const brand = opts.brand;
-  const iconTag = brand ? `<link rel="icon" type="image/png" href="${escapeAttr(brand.icon)}" />` : '';
-  const brandHtml = brand
-    ? `<a class="kb-brand" href="${escapeAttr(brand.home)}"><img src="${escapeAttr(brand.logo)}" alt="" /></a>`
+  const iconTag = brand?.icon ? `\n  <link rel="icon" type="image/png" href="${escapeAttr(brand.icon)}" />` : '';
+  const brandCss = brand?.logo
+    ? '\n    .kb-brand{display:inline-block;margin-bottom:24px;}\n    .kb-brand img{display:block;height:28px;width:auto;}'
+    : '';
+  const brandHtml = brand?.logo
+    ? `\n    <a class="kb-brand" href="${escapeAttr(brand.home)}"><img src="${escapeAttr(brand.logo)}" alt="${escapeAttr(brand.name)}" /></a>`
     : '';
   return `<!doctype html>
 <html lang="${escapeAttr(opts.locale)}" dir="${dir}">
@@ -496,8 +519,7 @@ function renderShell(opts: SsrShellOpts): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(opts.title)}</title>
   <meta name="description" content="${escapeAttr(opts.description)}" />
-  <link rel="canonical" href="${escapeAttr(opts.canonical)}" />
-  ${iconTag}
+  <link rel="canonical" href="${escapeAttr(opts.canonical)}" />${iconTag}
   ${hreflangTags}
   <meta property="og:title" content="${escapeAttr(opts.title)}" />
   <meta property="og:description" content="${escapeAttr(opts.description)}" />
@@ -529,14 +551,11 @@ function renderShell(opts: SsrShellOpts): string {
     .kb-card-excerpt{font-size:14px;color:#666;}
     .kb-search-form{margin-bottom:24px;}
     .kb-search-form input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:15px;box-sizing:border-box;}
-    .kb-empty{color:#666;padding:24px 0;}
-    .kb-brand{display:inline-block;margin-bottom:24px;}
-    .kb-brand img{display:block;height:28px;width:auto;}
+    .kb-empty{color:#666;padding:24px 0;}${brandCss}
   </style>
 </head>
 <body>
-  <div class="kb-wrap">
-    ${brandHtml}
+  <div class="kb-wrap">${brandHtml}
     ${opts.bodyHtml}
   </div>
 </body>

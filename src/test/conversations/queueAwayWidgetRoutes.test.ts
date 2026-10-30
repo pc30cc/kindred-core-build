@@ -387,7 +387,8 @@ describe('the offline-message mail to the owners', () => {
     expect(mail.text).toContain('<b>Ali</b> & "co"');
     // The template's HTML part: text, never markup.
     expect(mail.htmlData.contact_name).toBe('&lt;b&gt;Ali&lt;/b&gt; &amp; &quot;co&quot;');
-    expect(mail.htmlData.message_body).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &quot;co&quot;\nسلام');
+    // Its lines kept as <br> (HTML folds a bare line break, in both parts).
+    expect(mail.htmlData.message_body).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &quot;co&quot;<br>سلام');
     expect(mail.htmlData.contact_email).toBe('ali@example.com');
     expect(mail.htmlData.action_url).toMatch(/^https:\/\/app\.test\/inbox\?c=/);
     expect(mail.html).not.toMatch(/<img|<b>/);

@@ -32,6 +32,7 @@ import { createFakeServiceDb, fakeServiceClient, type FakeServiceDb } from './fa
 type Mail = Record<string, unknown> & {
   to: string;
   subject: string;
+  html: string;
   text: string;
   templateSlug: string;
   templateData: Record<string, string>;
@@ -200,6 +201,18 @@ describe('what the visitor typed', () => {
       contact_email: 'ali@example.com',
       message_body: 'Hi &lt;b&gt;there&lt;/b&gt;, call me &amp; soon',
     });
+  });
+});
+
+describe('a message of several lines', () => {
+  it('keeps them in the HTML part, as <br> (HTML folds a bare line break), in the template\'s value and the built-in text alike', async () => {
+    await notifyOfflineCapture(CONFIG, WS, capture({ message: 'Hello,\nmy order <1234>\r\nhas not arrived.\n\nThanks' }));
+    const mail = queued()[0].request;
+    expect(mail.htmlData.message_body).toBe('Hello,<br>my order &lt;1234&gt;<br>has not arrived.<br><br>Thanks');
+    expect(mail.html).toContain('>Hello,<br>my order &lt;1234&gt;<br>has not arrived.<br><br>Thanks</blockquote>');
+    // The built-in text part keeps the lines as typed; the template's gets nothing the visitor typed.
+    expect(mail.text).toContain('Hello,\nmy order <1234>\r\nhas not arrived.\n\nThanks');
+    expect(mail.templateData.message_body).toBe('');
   });
 });
 

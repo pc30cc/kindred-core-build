@@ -195,6 +195,13 @@ describe('the email template catalog', () => {
     const persian = EMAIL_TEMPLATE_CATALOG.map((e) => e.descriptionKey.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], fa));
     expect(persian.join('\n')).not.toMatch(/[يك]/);
   });
+
+  it('sends the Super Admin to the Providers menu by the name the menu has', () => {
+    for (const [name, locale] of Object.entries(LOCALES)) {
+      const said = locale.admin.brandingPage.emailTemplates.descriptions.email_test;
+      expect(said, name).toContain(locale.admin.nav.providers);
+    }
+  });
 });
 
 describe('the sample values', () => {

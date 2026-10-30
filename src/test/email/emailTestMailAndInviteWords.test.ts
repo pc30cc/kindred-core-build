@@ -3,9 +3,9 @@
  * The values two senders fill that depend on the language of the mail:
  *
  *   - the test mail (template `email_test`, server/services/email/testMail.ts)
- *     that Super Admin → Providers → Email and a workspace's test button send:
- *     {provider}, and {slot} and {sent_at} in every language, with the
- *     compiled text only for a missing template;
+ *     that Super Admin → Providers → Email sends: {provider}, and {slot} and
+ *     {sent_at} in every language, with the compiled text only for a missing
+ *     template;
  *   - the invitation's {role} (server/services/invitations/
  *     notificationTemplates.ts), the role's name as the panel shows it in
  *     each language, never the key; and its {expiry}, the end date, or the
@@ -53,12 +53,14 @@ describe('the test mail', () => {
     expect(mail.text).toContain('(<b>x</b>)');
   });
 
-  it('both test buttons send it through the template, never a bare body', () => {
-    for (const file of ['server/routes/adminEmailProviders.ts', 'server/routes/email.ts']) {
-      const source = readFileSync(file, 'utf8');
-      expect(source, file).toMatch(/testMailRequest\(\{/);
-      expect(source, file).not.toMatch(/html: `<div dir=/);
-    }
+  it('Super Admin\'s test button sends it through the template, never a bare body; no workspace route sends it', () => {
+    const source = readFileSync('server/routes/adminEmailProviders.ts', 'utf8');
+    expect(source).toMatch(/testMailRequest\(\{/);
+    expect(source).not.toMatch(/html: `<div dir=/);
+    // It names Super Admin's menu and the platform's provider: a workspace
+    // route that sent it is retired (routes/email.ts, 410).
+    const code = readFileSync('server/routes/email.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    expect(code).not.toMatch(/testMailRequest|'email_test'/);
   });
 });
 

@@ -1,6 +1,7 @@
 /**
  * The test mail (template `email_test`): what Super Admin → Providers →
- * Email's "Send test email", and a workspace's own test button, fill it with.
+ * Email's "Send test email" fills it with. It is the platform's own test (it
+ * names that menu and the provider), never a workspace's.
  *
  *   {provider}  the provider that sends it (smtp, resend, sendgrid);
  *   {slot}      which of the platform's providers that is, in words;

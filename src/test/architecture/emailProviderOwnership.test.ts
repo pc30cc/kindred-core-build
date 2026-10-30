@@ -404,7 +404,6 @@ describe('every send path uses the shared sender', () => {
     'server/services/invitations/worker.ts',
     'server/services/email/outbox.ts',
     'server/services/widget/offlineNotice.ts',
-    'server/routes/email.ts',
   ];
 
   it('none of them resolves its own provider', () => {
@@ -864,7 +863,6 @@ describe('no mail without a template', () => {
     'server/services/verification/service.ts': { calls: 2, slugs: ['verification_code'] },
     'server/services/invitations/worker.ts': { calls: 2, slugs: ['invite_otp', 'invite_member'] },
     'server/routes/adminEmailProviders.ts': { calls: 1, slugs: ['email_test'] },
-    'server/routes/email.ts': { calls: 1, slugs: ['email_test'] },
     'server/services/visitorTranscript.ts': { calls: 1, slugs: ['visitor_conversation_transcript'] },
     'server/services/widget/offlineNotice.ts': { calls: 3, slugs: ['offline_message_received', 'offline_messages_summary'] },
     'server/services/notificationEmail/dispatcher.ts': {

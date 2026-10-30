@@ -155,8 +155,10 @@ describe('the hourly limit (owner, 2026-10-30)', () => {
     expect((await topup()).status).toBe(200);
   });
 
-  it('an attempt that opened the gateway\'s page and then failed still counts', async () => {
+  it('an attempt that opened the gateway\'s page and then failed still counts, and so does a later failure (bare checkout_failed)', async () => {
     h.attempts = Array.from({ length: 50 }, () => ({ status: 'failed', failure_reason: 'gateway_failed' }));
+    expect((await topup()).status).toBe(429);
+    h.attempts = Array.from({ length: 50 }, () => ({ status: 'failed', failure_reason: 'checkout_failed' }));
     expect((await topup()).status).toBe(429);
   });
 

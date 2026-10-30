@@ -424,8 +424,9 @@ export const CHECKOUT_ATTEMPTS_PER_HOUR = 200;
 
 /**
  * Whether this checkout is over the hourly limit; a platform admin never is.
- * An attempt the gateway refused before opening its page (`checkout_failed`,
- * e.g. Zibal's 103 while the gateway is not active yet) does not count toward
+ * An attempt the gateway refused before opening its page (`checkout_failed: <its
+ * reason>`, e.g. Zibal's 103 while the gateway is not active yet; not the bare
+ * `checkout_failed` of a later failure) does not count toward
  * CHECKOUTS_PER_HOUR: no gateway transaction exists for it, and retrying it
  * must not lock the owner out. It counts only toward the backstop.
  */
@@ -440,7 +441,7 @@ async function overCheckoutLimit(cfg: ReturnType<typeof serverConfigOf>, workspa
   if (error) throw new Error(error.message || 'payment count failed');
   const attempts = (data ?? []) as Array<{ status?: unknown; failure_reason?: unknown }>;
   if (attempts.length >= CHECKOUT_ATTEMPTS_PER_HOUR) return true;
-  const counted = attempts.filter((row) => !(row.status === 'failed' && String(row.failure_reason ?? '').startsWith('checkout_failed')));
+  const counted = attempts.filter((row) => !(row.status === 'failed' && String(row.failure_reason ?? '').startsWith('checkout_failed:')));
   return counted.length >= CHECKOUTS_PER_HOUR;
 }
 

@@ -24,6 +24,7 @@ import {
   whyLine,
   type EmailBrand,
 } from '../../../server/services/email/layout';
+import { transcriptRow } from '../../../server/services/transcriptEmailRows';
 
 const WEBYAR: EmailBrand = {
   edition: 'iran',
@@ -127,16 +128,91 @@ describe('the content vocabulary', () => {
   it('the reader\'s own messages sit on the end side, the team\'s on the start side', () => {
     const t = '<div class="transcript"><div class="msg msg-visitor"><div class="meta">You · 10:24</div><div class="bubble">Hi</div></div><div class="msg msg-agent"><div class="meta">Maria</div><div class="bubble">Hello</div></div></div>';
     const ltr = styleContent(t, en);
-    expect(ltr).toMatch(/<td align="right" style="padding:0 0 14px;text-align:right;"><table[^>]*align="right"[\s\S]*class="x-bv"/);
+    expect(ltr).toMatch(/<td align="right" style="padding:0 0 14px;text-align:right;"><table[^>]*align="right"[\s\S]*class="x-br"/);
     const rtl = styleContent(t, fa);
-    expect(rtl).toMatch(/<td align="left" style="padding:0 0 14px;text-align:left;"><table[^>]*align="left"[\s\S]*class="x-bv"/);
+    expect(rtl).toMatch(/<td align="left" style="padding:0 0 14px;text-align:left;"><table[^>]*align="left"[\s\S]*class="x-br"/);
     // The bubble repeats no font: it inherits the card's (Gmail clips long mails).
-    expect(ltr).not.toMatch(/class="x-bv"[^>]*font-family/);
+    expect(ltr).not.toMatch(/class="x-br"[^>]*font-family/);
   });
 
   it('the last block owns no space under it: the card\'s padding ends the mail', () => {
     expect(styleContent('<p>One</p><p>Two</p>', en)).toMatch(/margin:0 0 16px;[\s\S]*margin:0 0 0px;/);
     expect(styleContent('<p>One</p><p class="action"><a href="https://x.example">Go</a></p>\n', en)).toContain('padding:10px 0 0px;');
+  });
+});
+
+describe('a transcript\'s sides follow who reads it', () => {
+  // The rows as the senders build them (transcriptEmailRows.ts): a customer's line, a team's line, a notice.
+  const ROWS = transcriptRow('visitor', 'Sara · 10:24', 'Hi') + transcriptRow('agent', 'Team · 10:25', 'Hello') + transcriptRow('agent', 'Ali closed the conversation');
+  const visitorCopy = `<div class="transcript">${ROWS}</div>`;
+  const teamCopy = `<div class="transcript" data-reader="team">${ROWS}</div>`;
+  /** Each message row's side, its bubble's class and colour, in order. */
+  const sides = (html: string) =>
+    [...html.matchAll(/<tr><td align="(left|right|center)" style="padding:0 0 14px;[^"]*"><table[^>]*>([\s\S]*?)<\/table><\/td><\/tr>/g)].map((m) => {
+      const bubble = /<td[^>]*class="(x-b[ro])" bgcolor="(#[0-9A-F]{6})"[^>]*>/.exec(m[2]);
+      return [m[1], bubble?.[1] ?? null, bubble?.[2] ?? null];
+    });
+  const P = EMAIL_PALETTES.international;
+
+  it('the visitor\'s copy: the customer\'s lines are the reader\'s, the team\'s across from them, a notice in the middle', () => {
+    expect(sides(styleContent(visitorCopy, en))).toEqual([
+      ['right', 'x-br', P.light.bubbleReader],
+      ['left', 'x-bo', P.light.bubbleOther],
+      ['center', null, null],
+    ]);
+  });
+
+  it('the team\'s copy (data-reader="team"): the team\'s lines are the reader\'s, the customer\'s across from them', () => {
+    const html = styleContent(teamCopy, en);
+    expect(sides(html)).toEqual([
+      ['left', 'x-bo', P.light.bubbleOther],
+      ['right', 'x-br', P.light.bubbleReader],
+      ['center', null, null],
+    ]);
+    // The reader's bubble has its tail on the end side, the other one on the start side.
+    expect(html).toMatch(/class="x-bo" bgcolor="[^"]*" style="[^"]*border-radius:18px 18px 18px 4px;[^"]*">Hi<\/td>/);
+    expect(html).toMatch(/class="x-br" bgcolor="[^"]*" style="[^"]*border-radius:18px 18px 4px 18px;[^"]*color:#FFFFFF;[^"]*">Hello<\/td>/);
+    // A notice is a muted line in the middle, with no bubble.
+    expect(html).toMatch(/<td class="x-muted" align="center" style="padding:0 4px;[^"]*text-align:center;[^"]*">Ali closed the conversation<\/td>/);
+    expect(html).toContain('<table class="transcript x-transcript" data-reader="team"');
+  });
+
+  it('right to left, the end side is the left one; a notice stays in the middle', () => {
+    expect(sides(styleContent(teamCopy, fa))).toEqual([
+      ['right', 'x-bo', EMAIL_PALETTES.iran.light.bubbleOther],
+      ['left', 'x-br', EMAIL_PALETTES.iran.light.bubbleReader],
+      ['center', null, null],
+    ]);
+    expect(sides(styleContent(visitorCopy, fa)).map((s) => s[0])).toEqual(['left', 'right', 'center']);
+  });
+
+  it('dark: a forced scheme carries the dark bubbles inline, a sent mail the rules for both classes', () => {
+    expect(sides(styleContent(teamCopy, { ...en, scheme: 'dark' }))).toEqual([
+      ['left', 'x-bo', P.dark.bubbleOther],
+      ['right', 'x-br', P.dark.bubbleReader],
+      ['center', null, null],
+    ]);
+    // RESPOK's reader bubble in the dark is signal with ink text.
+    expect(styleContent(teamCopy, { ...en, scheme: 'dark' })).toMatch(/class="x-br" bgcolor="#FF5A3C" style="[^"]*color:#16142B;[^"]*">Hello<\/td>/);
+    const media = /@media \(prefers-color-scheme:dark\)\{(.*)\}\n/.exec(doc(teamCopy))?.[1] ?? '';
+    expect(media).toContain(`.x-br{background-color:${P.dark.bubbleReader}!important;color:${P.dark.bubbleReaderInk}!important}`);
+    expect(media).toContain(`.x-bo{background-color:${P.dark.bubbleOther}!important;color:${P.dark.bubbleOtherInk}!important}`);
+  });
+
+  it('the text part reads the same lines in the same order, whoever reads it', () => {
+    const text = 'Sara · 10:24\nHi\n\nTeam · 10:25\nHello\n\nAli closed the conversation';
+    expect(contentToText(teamCopy)).toBe(text);
+    expect(contentToText(visitorCopy)).toBe(text);
+    expect(renderEmailText({ brand: RESPOK, locale: 'en', contentHtml: teamCopy, category: 'notification' })).toMatch(/^Sara · 10:24\nHi\n\nTeam · 10:25\nHello\n\nAli closed the conversation\n\n/);
+  });
+
+  it('styling its own output changes nothing, in both copies and both directions', () => {
+    for (const content of [teamCopy, visitorCopy]) {
+      for (const opts of [en, fa, { ...en, scheme: 'dark' as const }]) {
+        const once = styleContent(content, opts);
+        expect(styleContent(once, opts)).toBe(once);
+      }
+    }
   });
 });
 
@@ -285,7 +361,7 @@ describe('the author\'s own children inside a container of the vocabulary are ke
     const mixed = '<div class="transcript">loose words<div class="msg msg-agent"><div class="meta">M</div><div class="bubble">One</div><div class="bubble">Two</div><p class="note">Seen</p></div></div>';
     const html = styleContent(mixed, en);
     expect(html).toContain('>loose words</td>');
-    expect(html).toMatch(/class="x-ba"[^>]*>One<\/td><\/tr><tr><td[^>]*class="x-ba"[^>]*>Two<\/td><\/tr><tr><td align="left" style="padding:6px 4px 0;text-align:left;"><p class="note x-muted"[^>]*>Seen<\/p>/);
+    expect(html).toMatch(/class="x-bo"[^>]*>One<\/td><\/tr><tr><td[^>]*class="x-bo"[^>]*>Two<\/td><\/tr><tr><td align="left" style="padding:6px 4px 0;text-align:left;"><p class="note x-muted"[^>]*>Seen<\/p>/);
     expect(contentToText(mixed)).toBe('loose words\n\nM\nOne\nTwo\n\nSeen');
     // Still idempotent.
     expect(styleContent(html, en)).toBe(html);
@@ -350,7 +426,7 @@ describe('dark mode keeps an author\'s colours readable', () => {
     expect(html).toContain('[data-ogsb] .x-band{background-color:#1B1932!important;background-image:linear-gradient(#1B1932,#1B1932)!important}');
     const dark = /@media \(prefers-color-scheme:dark\)\{(.*)\}\n/.exec(html)?.[1] ?? '';
     expect(dark).toContain('.x-card{');
-    expect(dark).not.toContain('.x-bv{');
+    expect(dark).not.toContain('.x-br{');
     expect(dark).not.toContain('.x-code{');
   });
 
@@ -512,7 +588,7 @@ describe('the palettes', () => {
   const PAIRS: Array<[string, string]> = [
     ['ink', 'card'], ['muted', 'card'], ['link', 'card'], ['muted', 'panel'], ['ink', 'panel'], ['footInk', 'canvas'], ['ink', 'canvas'],
     ['onAccent', 'accent'], ['codeInk', 'codeBg'], ['warningInk', 'warningBg'], ['noticeInk', 'noticeBg'], ['quoteInk', 'quoteBg'],
-    ['bubbleVisitorInk', 'bubbleVisitor'], ['bubbleAgentInk', 'bubbleAgent'], ['onBand', 'band'],
+    ['bubbleReaderInk', 'bubbleReader'], ['bubbleOtherInk', 'bubbleOther'], ['onBand', 'band'],
   ];
 
   it.each(Object.keys(EMAIL_PALETTES))('%s: every text pair is at least 4.5:1, in both schemes', (edition) => {
@@ -526,8 +602,8 @@ describe('the palettes', () => {
   });
 
   it('RESPOK\'s dark scheme stays on its kit: the reader\'s bubble in signal with ink text', () => {
-    expect(EMAIL_PALETTES.international.dark.bubbleVisitor).toBe('#FF5A3C');
-    expect(EMAIL_PALETTES.international.dark.bubbleVisitorInk).toBe('#16142B');
+    expect(EMAIL_PALETTES.international.dark.bubbleReader).toBe('#FF5A3C');
+    expect(EMAIL_PALETTES.international.dark.bubbleReaderInk).toBe('#16142B');
   });
 });
 

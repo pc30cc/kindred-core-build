@@ -14,6 +14,7 @@
  *   div.warning, div.notice        callouts
  *   hr, strong, a, br              separators and inline text
  *   div.transcript > div.msg.msg-visitor|msg-agent > div.meta + div.bubble
+ *                                  a chat (data-reader="team": the team's copy)
  *
  * Anything else passes through as it is, but what a mail may never send
  * (contentProblems: what runs code, loads a page or takes input), which the
@@ -70,8 +71,9 @@ export interface EmailPalette {
   warningBg: string; warningInk: string; warningEdge: string;
   noticeBg: string; noticeInk: string; noticeEdge: string;
   quoteBg: string; quoteInk: string;
-  bubbleVisitor: string; bubbleVisitorInk: string;
-  bubbleAgent: string; bubbleAgentInk: string;
+  /** A transcript's bubbles: the reader's own lines, and the other side's. */
+  bubbleReader: string; bubbleReaderInk: string;
+  bubbleOther: string; bubbleOtherInk: string;
   footInk: string; onBand: string;
 }
 
@@ -91,8 +93,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#FFF4DB', warningInk: '#5A3D00', warningEdge: '#FFB423',
       noticeBg: '#E6F6F2', noticeInk: '#0A4A42', noticeEdge: '#16C7A8',
       quoteBg: '#F1F4F6', quoteInk: '#12141F',
-      bubbleVisitor: '#0B7D6C', bubbleVisitorInk: '#FFFFFF',
-      bubbleAgent: '#F1F4F6', bubbleAgentInk: '#12141F',
+      bubbleReader: '#0B7D6C', bubbleReaderInk: '#FFFFFF',
+      bubbleOther: '#F1F4F6', bubbleOtherInk: '#12141F',
       footInk: '#565D6B', onBand: '#FFFFFF',
     },
     dark: {
@@ -103,8 +105,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#33270B', warningInk: '#FFD98C', warningEdge: '#FFB423',
       noticeBg: '#0E2C28', noticeInk: '#A6EEDF', noticeEdge: '#16C7A8',
       quoteBg: '#1F262D', quoteInk: '#ECF0F2',
-      bubbleVisitor: '#0B7D6C', bubbleVisitorInk: '#FFFFFF',
-      bubbleAgent: '#222A32', bubbleAgentInk: '#ECF0F2',
+      bubbleReader: '#0B7D6C', bubbleReaderInk: '#FFFFFF',
+      bubbleOther: '#222A32', bubbleOtherInk: '#ECF0F2',
       footInk: '#9AA2AD', onBand: '#FFFFFF',
     },
   },
@@ -117,8 +119,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#FFF0EB', warningInk: '#8A2410', warningEdge: '#FF5A3C',
       noticeBg: '#EFEEF6', noticeInk: '#2A2747', noticeEdge: '#5E5C75',
       quoteBg: '#F2F1F7', quoteInk: '#16142B',
-      bubbleVisitor: '#16142B', bubbleVisitorInk: '#FFFFFF',
-      bubbleAgent: '#F2F1F7', bubbleAgentInk: '#16142B',
+      bubbleReader: '#16142B', bubbleReaderInk: '#FFFFFF',
+      bubbleOther: '#F2F1F7', bubbleOtherInk: '#16142B',
       footInk: '#5E5C75', onBand: '#FFFFFF',
     },
     dark: {
@@ -129,8 +131,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#3A1912', warningInk: '#FFB9A7', warningEdge: '#FF5A3C',
       noticeBg: '#1D1C31', noticeInk: '#DAD8EC', noticeEdge: '#8E8BAD',
       quoteBg: '#1D1C31', quoteInk: '#F1F0F7',
-      bubbleVisitor: '#FF5A3C', bubbleVisitorInk: '#16142B',
-      bubbleAgent: '#1F1E33', bubbleAgentInk: '#F1F0F7',
+      bubbleReader: '#FF5A3C', bubbleReaderInk: '#16142B',
+      bubbleOther: '#1F1E33', bubbleOtherInk: '#F1F0F7',
       footInk: '#A09EB6', onBand: '#FFFFFF',
     },
   },
@@ -985,9 +987,15 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
 }
 
 /**
- * One row per message: the reader's own (the visitor's) at the end side in
- * the brand's colour, the team's at the start side in grey, as in the
- * widget. The font is the card's, inherited: a long transcript repeats as
+ * One row per message, as in the widget and the inbox: the reader's own
+ * lines at the end side in the brand's colour, the other side's at the start
+ * side in grey. The container says who reads the mail: a plain
+ * div.transcript is the visitor's copy (the msg-visitor lines are the
+ * reader's), and `data-reader="team"` the team's (the operator's copy, where
+ * the msg-agent lines are; server/services/transcriptEmailRows.ts). A notice
+ * (a meta line with no bubble: a system line, or the line saying older
+ * messages were left out) is nobody's, so it sits in the middle, in either
+ * direction. The font is the card's, inherited: a long transcript repeats as
  * little as it can (Gmail clips a mail over about 102 KB). Whatever else the
  * container or a message holds (an older mail's `<p>` lines, a Super Admin's
  * own note) is the author's and is kept, in its own full-width row, or
@@ -996,6 +1004,7 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
 function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
   const [metaSize, metaLh] = ctx.t.meta;
   const [size, lh] = ctx.t.bubble;
+  const readerLines = String(attrOf(el, 'data-reader') ?? '').trim().toLowerCase() === 'team' ? 'msg-agent' : 'msg-visitor';
   const rows: string[] = [];
   const fullRow = (inner: string) =>
     `<tr><td align="${ctx.start}" style="padding:0 0 14px;text-align:${ctx.start};">${inner}</td></tr>`;
@@ -1008,24 +1017,25 @@ function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
     const msg = child;
     // A message with its own background keeps light-scheme text, as any element with one does.
     const msgCtx = pinnedFor(msg, ctx);
-    const visitor = hasClass(msg, 'msg-visitor');
-    const side = visitor ? ctx.end : ctx.start;
     const parts = elements(msg.children);
     const meta = parts.find((c) => hasClass(c, 'meta'));
     const bubbles = parts.filter((c) => hasClass(c, 'bubble'));
     const extras = meta || bubbles.length ? msg.children.filter((c) => c !== meta && !bubbles.includes(c as ElementNode) && !isBlank(c)) : [];
-    const cls = visitor ? 'x-bv' : 'x-ba';
-    const r = bubbleRadius(18, 4, ctx, visitor ? 'end' : 'start');
+    const notice = !!meta && !bubbles.length;
+    const own = hasClass(msg, readerLines);
+    const side = notice ? 'center' : own ? ctx.end : ctx.start;
+    const cls = own ? 'x-br' : 'x-bo';
+    const r = bubbleRadius(18, 4, ctx, own ? 'end' : 'start');
     let metaHtml = '';
     if (meta) {
       const metaCtx = pinnedFor(meta, msgCtx);
-      const metaStyle = `padding:0 4px 5px;font-size:${metaSize}px;line-height:${metaLh}px;color:${pal(metaCtx).muted};text-align:${side};${MSO}`;
+      const metaStyle = `padding:${notice ? '0 4px' : '0 4px 5px'};font-size:${metaSize}px;line-height:${metaLh}px;color:${pal(metaCtx).muted};text-align:${side};${MSO}`;
       metaHtml = `<tr>${startTag('td', meta.attrs, { class: dk(metaCtx, 'x-muted'), align: side, style: metaStyle }, [], ['class'])}${renderNodes(meta.children, metaCtx).trim()}</td></tr>`;
     }
     const bubbleRow = (attrs: Attr[], content: Node[], bubbleCtx: StyleContext) => {
       const bp = pal(bubbleCtx);
-      const bg = visitor ? bp.bubbleVisitor : bp.bubbleAgent;
-      const ink = visitor ? bp.bubbleVisitorInk : bp.bubbleAgentInk;
+      const bg = own ? bp.bubbleReader : bp.bubbleOther;
+      const ink = own ? bp.bubbleReaderInk : bp.bubbleOtherInk;
       const inner: StyleContext = { ...bubbleCtx, box: { ink, cls, size: ctx.t.bubble } };
       const bubbleStyle = `background-color:${bg};border-radius:${r};padding:11px 16px;font-size:${size}px;line-height:${lh}px;color:${ink};text-align:${ctx.start};overflow-wrap:anywhere;word-break:break-word;${MSO}`;
       return `<tr>${startTag('td', attrs, { class: dk(bubbleCtx, cls), bgcolor: bg, style: bubbleStyle }, [], ['class'])}${renderBoxChildren(content, inner).trim()}</td></tr>`;
@@ -1235,8 +1245,9 @@ function darkRules(d: EmailPalette): Record<string, { bg?: string; grad?: string
     'x-warn': { bg: d.warningBg, color: d.warningInk, border: d.warningEdge },
     'x-notice': { bg: d.noticeBg, color: d.noticeInk, border: d.noticeEdge },
     'x-quote': { bg: d.quoteBg, color: d.quoteInk },
-    'x-bv': { bg: d.bubbleVisitor, color: d.bubbleVisitorInk },
-    'x-ba': { bg: d.bubbleAgent, color: d.bubbleAgentInk },
+    // A transcript's bubbles: the reader's own lines (x-br) and the other side's (x-bo).
+    'x-br': { bg: d.bubbleReader, color: d.bubbleReaderInk },
+    'x-bo': { bg: d.bubbleOther, color: d.bubbleOtherInk },
     'x-bar': { bg: d.highlight, grad: d.highlight },
   };
 }

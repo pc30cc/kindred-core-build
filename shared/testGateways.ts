@@ -17,6 +17,7 @@ export const TEST_PAYMENT_PROVIDERS = [
   'internal_test',
   'zarinpal_test',
   'idpay_test',
+  'zibal_test',
   'iranpardakht_sandbox',
   PADDLE_SANDBOX_PROVIDER,
 ] as const;
@@ -35,10 +36,11 @@ export function isTestPaymentProvider(name: unknown): boolean {
  * Gateways that are a test gateway whatever Finance → Gateways says: their
  * `is_test` marker is always on, so the customer always sees that the
  * payment is a test. (The older Iranian test gateways keep the marker their
- * row was seeded with.)
+ * row was seeded with; `zibal_test` has no seeded row.)
  */
 export function isAlwaysTestGateway(name: unknown): boolean {
-  return key(name) === PADDLE_SANDBOX_PROVIDER;
+  const k = key(name);
+  return k === PADDLE_SANDBOX_PROVIDER || k === 'zibal_test';
 }
 
 /** Paddle Billing, live or sandbox: opened in the browser by Paddle.js. */

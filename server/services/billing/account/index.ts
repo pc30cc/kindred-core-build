@@ -631,7 +631,7 @@ function settledOutcome(settled: SettleResult): VerifyOutcome {
  * confirms, unique gateway transaction id). SEP verifies by a second,
  * unbound reference (RefNum) and keeps the strict rule.
  */
-const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test', 'zibal', 'nextpay', 'idpay', 'idpay_test', 'payping']);
+const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test', 'zibal', 'zibal_test', 'nextpay', 'idpay', 'idpay_test', 'payping']);
 
 function acceptsAlreadyVerified(payment: AccountPaymentRow): boolean {
   return AUTHORITY_KEYED_VERIFY.has(payment.provider)

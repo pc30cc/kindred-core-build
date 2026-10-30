@@ -11,7 +11,16 @@ import { asRecord, errorText, missingSettings, probeCallbackUrl, providerFetch, 
 //   inquiry  POST /v1/inquiry {merchant, trackId} → {result: 100, status, amount, refNumber, …}
 //
 // The merchant "zibal" is Zibal's sandbox: every payment "succeeds" and no
-// money moves, so the live gateway refuses it (zibalSettingsProblem).
+// money moves, so the live gateway refuses it (zibalSettingsProblem). Live and
+// sandbox are two gateways, as for ZarinPal and IDPay: live `zibal` sends the
+// stored merchant code; `zibal_test` (zibal-test.ts) always sends "zibal".
+//
+// Probed from the production server (5.39.70.213) on 2026-10-30 with the
+// sandbox merchant: request answered 100 in 0.4 s; the start page's "pay"
+// returned to the callback with Zibal's fields appended to our own query
+// (…&provider=zibal&success=1&status=2&trackId=…&orderId=…); verify answered
+// 100 with the amount (refNumber null in the sandbox), a second verify 201
+// with no amount, and inquiry status 1 with the amount.
 
 export const ZIBAL_API = 'https://gateway.zibal.ir';
 export const ZIBAL_SANDBOX_MERCHANT = 'zibal';
@@ -93,114 +102,124 @@ export function zibalSettingsProblem(config: BillingProviderConfig | null | unde
   return null;
 }
 
-export const zibalProvider: BillingProviderHandler = {
-  name: 'zibal',
-  capabilities: {
-    subscriptions: false, oneTimePayments: true, customerPortal: false,
-    refunds: false, webhooks: false, multiCurrency: false, trialSupport: false,
-  },
+/**
+ * The Zibal adapter. `sandbox`: Zibal's sandbox merchant is always sent
+ * (whatever is stored), and it is not refused as it is on the live gateway.
+ */
+export function zibalHandler(name: string, sandbox: boolean): BillingProviderHandler {
+  const merchantOf = (config: BillingProviderConfig) => (sandbox ? ZIBAL_SANDBOX_MERCHANT : settingText(config.merchant));
+  return {
+    name,
+    capabilities: {
+      subscriptions: false, oneTimePayments: true, customerPortal: false,
+      refunds: false, webhooks: false, multiCurrency: false, trialSupport: false,
+    },
 
-  // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
-  // set server-side from the payment amount. Zibal takes Rial: no conversion.
-  async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const amount = parseInt(String(req.metadata?.amount || '0'));
-    const res = await zibalPost('/v1/request', {
-      merchant: settingText(config.merchant),
-      amount,
-      callbackUrl: req.callbackUrl,
-      description: `Plan ${req.planId}`,
-      orderId: req.intentId || `${req.workspaceId}_${req.planId}_${Date.now()}`,
-      ...(req.metadata?.phone ? { mobile: req.metadata.phone } : {}),
-    });
-    const data = await readProviderJson('Zibal', res, 'create payment');
-    if (readZibalResult(data) !== 100) throw new Error(`Zibal error: ${describeZibal(data)}`);
-    const trackId = readZibalTrackId(data);
-    if (!trackId) throw new Error('Zibal error: missing trackId in gateway response');
-    return {
-      paymentUrl: `${ZIBAL_API}/start/${trackId}`,
-      sessionId: trackId,
-    };
-  },
-
-  /**
-   * Verifies the STORED trackId (bound before the call). 100 = verified now,
-   * with Zibal's own amount. 201 = this trackId was verified before (a verify
-   * whose answer was lost): its amount is read from /v1/inquiry, which reports
-   * status 1 for a paid and verified payment, so the account code can settle
-   * the pending payment of this trackId once. 202 = not paid / failed.
-   */
-  async verifyPayment(config: BillingProviderConfig, params: Record<string, string>): Promise<PaymentVerification> {
-    const trackId = (params.trackId || params.trackid || params.track_id || '').trim();
-    if (!trackId) return { verified: false, providerRef: '', status: 'failed' };
-    const merchant = settingText(config.merchant);
-    const res = await zibalPost('/v1/verify', { merchant, trackId: wireTrackId(trackId) });
-    const data = await readProviderJson('Zibal', res, 'verify payment');
-    const result = readZibalResult(data);
-    if (result === 100) {
-      return {
-        verified: true,
-        providerRef: readZibalRefNumber(data) ?? trackId,
-        amount: readZibalAmount(data),
-        status: 'success',
-      };
-    }
-    if (result === 201) {
-      let amount = readZibalAmount(data);
-      let ref = readZibalRefNumber(data);
-      if (amount === undefined) {
-        const inquiry = await readProviderJson(
-          'Zibal',
-          await zibalPost('/v1/inquiry', { merchant, trackId: wireTrackId(trackId) }),
-          'payment inquiry',
-        );
-        const record = asRecord(inquiry);
-        if (readZibalResult(inquiry) === 100 && record?.status === 1) {
-          amount = readZibalAmount(inquiry);
-          ref = ref ?? readZibalRefNumber(inquiry);
-        }
-      }
-      return { verified: true, providerRef: ref ?? trackId, amount, status: 'already_verified' };
-    }
-    // 202: not paid or failed (the customer cancelled, the card was declined).
-    if (result === 202 || result === 203) return { verified: false, providerRef: trackId, status: 'failed' };
-    // Anything else (a merchant problem, an unexpected answer) settles nothing and ends nothing.
-    return { verified: false, providerRef: trackId, status: 'pending' };
-  },
-
-  // No signed webhook: the route refuses unsigned providers. Kept for the interface.
-  async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
-    const data = JSON.parse(body);
-    if (data.success === '1' || data.status === '1') {
-      return { type: 'payment_succeeded', providerEventId: data.trackId, providerPaymentId: data.trackId, raw: data };
-    }
-    return null;
-  },
-
-  /**
-   * A real payment request (never paid) with this platform's callback. Success
-   * only when Zibal answers 100; otherwise Zibal's code and meaning (merchant
-   * not found / inactive, callback domain refused, IP not registered).
-   */
-  async testConnection(config: BillingProviderConfig) {
-    const start = Date.now();
-    const problem = zibalSettingsProblem(config);
-    if (problem) return { success: false, latencyMs: 0, error: problem };
-    try {
+    // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
+    // set server-side from the payment amount. Zibal takes Rial: no conversion.
+    async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
+      const amount = parseInt(String(req.metadata?.amount || '0'));
       const res = await zibalPost('/v1/request', {
-        merchant: settingText(config.merchant),
-        amount: 20_000,
-        callbackUrl: probeCallbackUrl(config),
-        description: 'Connection test',
+        merchant: merchantOf(config),
+        amount,
+        callbackUrl: req.callbackUrl,
+        description: `Plan ${req.planId}`,
+        orderId: req.intentId || `${req.workspaceId}_${req.planId}_${Date.now()}`,
+        ...(req.metadata?.phone ? { mobile: req.metadata.phone } : {}),
       });
-      const data = await readProviderJson('Zibal', res, 'test connection');
-      if (readZibalResult(data) === 100) return { success: true, latencyMs: Date.now() - start };
-      return { success: false, latencyMs: Date.now() - start, error: `Zibal ${describeZibal(data)}` };
-    } catch (e: unknown) {
-      return { success: false, latencyMs: Date.now() - start, error: errorText(e) };
-    }
-  },
+      const data = await readProviderJson('Zibal', res, 'create payment');
+      if (readZibalResult(data) !== 100) throw new Error(`Zibal error: ${describeZibal(data)}`);
+      const trackId = readZibalTrackId(data);
+      if (!trackId) throw new Error('Zibal error: missing trackId in gateway response');
+      return {
+        paymentUrl: `${ZIBAL_API}/start/${trackId}`,
+        sessionId: trackId,
+      };
+    },
 
-  validateConfig(config: BillingProviderConfig) {
-    return settingText(config.merchant) ? zibalSettingsProblem(config) : null;
-  },
-};
+    /**
+     * Verifies the STORED trackId (bound before the call). 100 = verified now,
+     * with Zibal's own amount. 201 = this trackId was verified before (a verify
+     * whose answer was lost): its amount is read from /v1/inquiry, which reports
+     * status 1 for a paid and verified payment, so the account code can settle
+     * the pending payment of this trackId once. 202 = not paid / failed.
+     */
+    async verifyPayment(config: BillingProviderConfig, params: Record<string, string>): Promise<PaymentVerification> {
+      const trackId = (params.trackId || params.trackid || params.track_id || '').trim();
+      if (!trackId) return { verified: false, providerRef: '', status: 'failed' };
+      const merchant = merchantOf(config);
+      const res = await zibalPost('/v1/verify', { merchant, trackId: wireTrackId(trackId) });
+      const data = await readProviderJson('Zibal', res, 'verify payment');
+      const result = readZibalResult(data);
+      if (result === 100) {
+        return {
+          verified: true,
+          providerRef: readZibalRefNumber(data) ?? trackId,
+          amount: readZibalAmount(data),
+          status: 'success',
+        };
+      }
+      if (result === 201) {
+        let amount = readZibalAmount(data);
+        let ref = readZibalRefNumber(data);
+        if (amount === undefined) {
+          const inquiry = await readProviderJson(
+            'Zibal',
+            await zibalPost('/v1/inquiry', { merchant, trackId: wireTrackId(trackId) }),
+            'payment inquiry',
+          );
+          const record = asRecord(inquiry);
+          if (readZibalResult(inquiry) === 100 && record?.status === 1) {
+            amount = readZibalAmount(inquiry);
+            ref = ref ?? readZibalRefNumber(inquiry);
+          }
+        }
+        return { verified: true, providerRef: ref ?? trackId, amount, status: 'already_verified' };
+      }
+      // 202: not paid or failed (the customer cancelled, the card was declined).
+      if (result === 202 || result === 203) return { verified: false, providerRef: trackId, status: 'failed' };
+      // Anything else (a merchant problem, an unexpected answer) settles nothing and ends nothing.
+      return { verified: false, providerRef: trackId, status: 'pending' };
+    },
+
+    // No signed webhook: the route refuses unsigned providers. Kept for the interface.
+    async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
+      const data = JSON.parse(body);
+      if (data.success === '1' || data.status === '1') {
+        return { type: 'payment_succeeded', providerEventId: data.trackId, providerPaymentId: data.trackId, raw: data };
+      }
+      return null;
+    },
+
+    /**
+     * A real payment request (never paid) with this platform's callback. Success
+     * only when Zibal answers 100; otherwise Zibal's code and meaning (merchant
+     * not found / inactive, callback domain refused, IP not registered).
+     */
+    async testConnection(config: BillingProviderConfig) {
+      const start = Date.now();
+      const problem = sandbox ? null : zibalSettingsProblem(config);
+      if (problem) return { success: false, latencyMs: 0, error: problem };
+      try {
+        const res = await zibalPost('/v1/request', {
+          merchant: merchantOf(config),
+          amount: 20_000,
+          callbackUrl: probeCallbackUrl(config),
+          description: 'Connection test',
+        });
+        const data = await readProviderJson('Zibal', res, 'test connection');
+        if (readZibalResult(data) === 100) return { success: true, latencyMs: Date.now() - start };
+        return { success: false, latencyMs: Date.now() - start, error: `Zibal ${describeZibal(data)}` };
+      } catch (e: unknown) {
+        return { success: false, latencyMs: Date.now() - start, error: errorText(e) };
+      }
+    },
+
+    validateConfig(config: BillingProviderConfig) {
+      if (sandbox) return null;
+      return settingText(config.merchant) ? zibalSettingsProblem(config) : null;
+    },
+  };
+}
+
+export const zibalProvider = zibalHandler('zibal', false);

@@ -1,20 +1,24 @@
 # Taking payment gateways live
 
-Only two gateways are going live:
+Three gateways are going live:
 
 - **ZarinPal**, for WebYar (Iran edition, IRR).
+- **Zibal**, for WebYar (Iran edition, IRR), next to ZarinPal (owner, 2026-10-30). See section 1b.
 - **Paddle**, for RESPOK (International edition, USD/EUR), with automatic card renewal.
 
-All other gateways stay in the Providers portal but **inactive** in Finance → Gateways. That covers Zibal, PayPing, NextPay, SEP, IDPay, Stripe, PayPal, Lemon Squeezy, iyzico, PayTR, Sipay, Paratika, Craftgate and manual. Do not switch them on yet. They were audited against their providers' current APIs in October 2026; section 4 says, for each one, what to enter, where, and what to know before it is switched on.
+All other gateways stay in the Providers portal but **inactive** in Finance → Gateways. That covers PayPing, NextPay, SEP, IDPay, Stripe, PayPal, Lemon Squeezy, iyzico, PayTR, Sipay, Paratika, Craftgate and manual. Do not switch them on yet. They were audited against their providers' current APIs in October 2026; section 4 says, for each one, what to enter, where, and what to know before it is switched on.
 
 Live and test are separate gateways that run the same code:
 
 | Live | Its sandbox (already tested end to end) |
 |---|---|
 | `zarinpal` | `zarinpal_test` (and `internal_test`) |
+| `zibal` | `zibal_test` (its API probed from the production server on 2026-10-30, section 1b; not yet run through the app: do step 1 of 1b once) |
 | `paddle` | `paddle_sandbox` |
 
-The live gateways have **no sandbox switch**. Live `zarinpal` always talks to `api.zarinpal.com` and `www.zarinpal.com`. Live `paddle` always talks to `api.paddle.com` and runs Paddle.js in `production`. A sandbox switch stored earlier is ignored. The only differences from the sandbox are the hosts and the credentials. Requests, verification, callbacks, webhooks, amounts and refunds are the same code.
+The live gateways have **no sandbox switch**. Live `zarinpal` always talks to `api.zarinpal.com` and `www.zarinpal.com`. Live `zibal` always sends the merchant code saved in Providers and refuses Zibal's test merchant `zibal`; `zibal_test` always sends `zibal`. Live `paddle` always talks to `api.paddle.com` and runs Paddle.js in `production`. A sandbox switch stored earlier is ignored. The only differences from the sandbox are the hosts and the credentials. Requests, verification, callbacks, webhooks, amounts and refunds are the same code.
+
+**The name customers see** is the Super Admin's: Finance → Gateways → the pencil next to a gateway's name. There is one field per panel language (Persian, English, Turkish), each up to 60 characters. A language left empty shows another language's name (English first, then Persian, then Turkish), and at least one name is required, so a customer never sees a gateway's internal id. The name appears in the customer's list of payment methods, and it is copied onto the receipt of each payment settled after it is saved; earlier receipts keep the name they were issued with. The gateway's own page (Zibal's, ZarinPal's, Paddle's) shows the gateway's brand, which this setting cannot change.
 
 Super Admin paths used below:
 
@@ -66,6 +70,57 @@ What else to know:
 - **The customer must come back to the billing page.** ZarinPal reverses an unverified payment to the payer by itself.
 - **A verify that took the money but whose answer was lost settles on the next try.** This can happen on a restart or a network cut. ZarinPal answers 101 ("already verified") for that payment's own authority, and the server accepts it once. Each ZarinPal call times out after 20 s.
 - **Refunds are manual.** ZarinPal has no refund API here. Refund in the ZarinPal panel, then book a debit in Super Admin → Finance → Accounts → the account → Adjust.
+
+---
+
+## 1b. Zibal (WebYar)
+
+The adapter was already in the code (audited in October 2026, section 4.1). On 2026-10-30 the owner decided to take it live next to ZarinPal.
+
+### Probed from the production server (2026-10-30)
+
+From `host.respok.app` (5.39.70.213), with Zibal's test merchant `zibal`, so no money moved:
+
+- `POST /v1/request` answered `result: 100` with a `trackId` in **0.4 s**. Zibal answers this server, unlike SEP and IDPay.
+- The start page `gateway.zibal.ir/start/{trackId}` offers pay and cancel. "Pay" redirected (302) to our callback with Zibal's fields **appended to our own query**: `https://app.webyar.ai/<workspace>/billing?payment=<id>&provider=zibal&success=1&status=2&trackId=…&orderId=…`.
+- `POST /v1/verify` answered 100 with `amount` and `status: 1`. The sandbox gives `refNumber: null`, so the trackId is used as the reference there. A second verify answered **201** ("previously verified") with no amount, and `/v1/inquiry` then gave `status: 1` and the amount. That is exactly the "already verified" path in section 4.
+- Before payment, verify answered 202 and inquiry `status: -1`.
+
+`src/test/billing/zibalTestProvider.test.ts` replays these answers.
+
+### What you need from Zibal
+
+| Field in Providers | Where to get it |
+|---|---|
+| **Merchant code** (`merchant`, required) | Zibal panel → the gateway → merchant code. The test merchant `zibal` is refused on the live gateway. |
+
+On the gateway in Zibal's panel:
+
+- **Website:** `app.webyar.ai`. The callback must be on that domain (else the request answers 106), and the `Referer` of the redirect to `/start/…` must match it (else Zibal does not open its payment page). The app sends the customer there with a normal browser redirect under `Referrer-Policy: strict-origin-when-cross-origin`, so the Referer is `https://app.webyar.ai/`.
+- **IP list:** if the gateway has one, add **5.39.70.213**. Otherwise Zibal answers 115.
+- **Webhook:** none. Zibal is confirmed by the server calling `/v1/verify` when the customer returns.
+
+### Order of steps
+
+1. Before the merchant code exists, once: **Finance → Gateways**, switch **`zibal_test`** on (currency IRR). It needs no settings. Its first switch stores its name ("Zibal (test)") and puts it after the other gateways. Only platform admins are offered it, with the "Test gateway" badge. Top up from a WebYar workspace with it, press pay on Zibal's test page, and the billing page shows **succeeded** with a receipt. Then switch it off again.
+2. **Providers → Zibal (`zibal`)**: enter the merchant code and save.
+3. Press **Test**. The server sends a real payment request (20,000 Rial, never paid) with `https://app.webyar.ai/billing` as the callback. It shows success only on result 100. Otherwise it shows Zibal's code and meaning: 102 merchant not found, 103 inactive (or the contract is not signed), 104 invalid, 106 callback domain refused, 115 server IP not registered.
+4. **Finance → Gateways**: switch `zibal` **on** with currency IRR. It is listed after ZarinPal (its seeded order, 3). The first listed gateway is preselected for the customer, who can pick the other. Optionally set the name customers see with the pencil. The readiness card must show it **Listed** for IRR.
+5. Run the smoke test below.
+
+### Smoke test (Zibal)
+
+1. In a WebYar workspace, open **Billing → Top up**, choose Zibal (under the name set in step 4) and pay a small amount. Zibal's minimum is 1,000 Rial.
+2. The bank page is `gateway.zibal.ir/start/…`.
+3. Pay. Back on the billing page, the top-up shows **succeeded** with a receipt, the receipt names the gateway as customers see it, and the balance grows by the net amount.
+4. Reload. The same receipt shows, and the balance does not grow again.
+5. Start another top-up and **cancel** on Zibal's page. That payment ends as failed (`gateway_failed`; verify answers 202), and nothing is credited.
+6. In Zibal's panel, the paid transaction shows the same amount. Its `refNumber` is the payment's `provider_payment_id`.
+
+What else to know:
+
+- **The customer must come back to the billing page**, as with ZarinPal: the server verifies on that return.
+- **Refunds are manual.** Refund in Zibal's panel, then book a debit in Super Admin → Finance → Accounts → the account → Adjust.
 
 ---
 
@@ -135,7 +190,7 @@ These are refused on save, with a message saying why:
 1. Enter credentials, then **Test**.
 2. Switch the live gateway on, and check that the readiness card shows **Listed**.
 3. Make a small **real** payment, check it with the smoke test, and refund it if wanted.
-4. Switch the test gateways off: `zarinpal_test` and `internal_test` on WebYar, `paddle_sandbox` on RESPOK (or keep it admins-only).
+4. Switch the test gateways off: `zarinpal_test`, `zibal_test` and `internal_test` on WebYar, `paddle_sandbox` on RESPOK (or keep it admins-only).
 5. Leave every other gateway inactive.
 
 ---
@@ -169,6 +224,8 @@ Zibal, NextPay, IDPay and PayPing verify by the reference stored on the payment,
 ---
 
 ### 4.1 Zibal (WebYar, IRR)
+
+Going live since 2026-10-30: steps, probe and smoke test in section 1b. This section is the audit.
 
 | Field in Providers | Where to get it |
 |---|---|

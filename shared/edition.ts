@@ -92,6 +92,7 @@ export const IRANIAN_PAYMENT_PROVIDERS = [
   'nextpay',
   'payping',
   'zibal',
+  'zibal_test',
   'sep_shaparak',
   'internal_test',
 ] as const;

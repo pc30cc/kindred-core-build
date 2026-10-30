@@ -4,11 +4,11 @@
  * comment).
  *
  * Deliberately a separate router/path (`/api/email-inbox`) from
- * `server/routes/email.ts`'s `/api/email/*`: that one is the pre-existing
- * PLATFORM/TRANSACTIONAL + workspace "email channel" (outbound-only SMTP
- * sending, gated by `requireChannel('email')` — see
+ * `server/routes/email.ts`'s `/api/email/*`: that one holds only the
+ * platform's own test sends now (its old send routes are retired, see
  * docs/EMAIL_SURFACE_SPLIT.md) and is functionally unrelated to this
- * feature (a real inbound+outbound mailbox backed by Gmail/Yahoo OAuth).
+ * feature (a real inbound+outbound mailbox backed by Gmail/Yahoo OAuth,
+ * gated by the email_inbox module).
  * Reusing its path or its `emailRouter` export would conflate two different
  * things that happen to share the English word "email".
  */

@@ -700,18 +700,24 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect((await runSimpleBillingJob(config)).trials.ended).toBe(0);
   });
 
-  it('a workspace starts at most 10 payment attempts an hour', async () => {
-    const { rows } = await chain.db.query(
-      `SELECT count(*)::int AS n FROM public.billing_account_payments WHERE workspace_id = $1 AND created_at > now() - interval '1 hour'`,
-      [state.iranWs]);
-    for (let i = rows[0].n; i < 10; i += 1) {
-      await chain.db.query(
-        `INSERT INTO public.billing_account_payments (workspace_id, provider, currency, amount_minor, net_minor, tax_minor, purpose, status, failure_reason)
-         VALUES ($1, 'internal_test', 'IRR', 1100000, 1000000, 100000, 'topup', 'failed', 'e2e')`, [state.iranWs]);
-    }
-    const refused = await call('POST', `/api/billing/account/${state.iranWs}/topup`, {
+  it('a workspace starts at most 50 payment attempts an hour; the ones the gateway refused do not count (owner, 2026-10-30)', async () => {
+    const insert = (reason: string) => chain.db.query(
+      `INSERT INTO public.billing_account_payments (workspace_id, provider, currency, amount_minor, net_minor, tax_minor, purpose, status, failure_reason)
+       VALUES ($1, 'internal_test', 'IRR', 1100000, 1000000, 100000, 'topup', 'failed', $2)`, [state.iranWs, reason]);
+    const counted = async () => (await chain.db.query(
+      `SELECT count(*)::int AS n FROM public.billing_account_payments
+        WHERE workspace_id = $1 AND created_at > now() - interval '1 hour'
+          AND NOT (status = 'failed' AND coalesce(failure_reason, '') LIKE 'checkout_failed:%')`,
+      [state.iranWs])).rows[0].n as number;
+    const topup = () => call('POST', `/api/billing/account/${state.iranWs}/topup`, {
       amountMinor: 1_000_000, currency: 'IRR', providerName: 'internal_test', callbackUrl: `${ORIGIN}/ws/billing`,
     });
+    // Refused before the gateway opened its page (Zibal's 103 while the gateway was not active).
+    for (let i = 0; i < 60; i += 1) await insert('checkout_failed: Zibal error: 103: merchant is inactive');
+    for (let i = await counted(); i < 49; i += 1) await insert('e2e');
+    expect((await topup()).status).not.toBe(429);
+    for (let i = await counted(); i < 50; i += 1) await insert('e2e');
+    const refused = await topup();
     expect(refused.status).toBe(429);
     expect(refused.json.error).toBe('TOO_MANY_CHECKOUTS');
   });

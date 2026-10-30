@@ -19,6 +19,7 @@ import { resolvePublicApiOrigin } from './callbackUrl.js';
 import { nextpayProvider } from './providers/nextpay.js';
 import { paypingProvider } from './providers/payping.js';
 import { zibalProvider } from './providers/zibal.js';
+import { zibalTestProvider } from './providers/zibal-test.js';
 import { sepProvider } from './providers/sep.js';
 import { iyzicoProvider } from './providers/iyzico.js';
 import { paytrProvider } from './providers/paytr.js';
@@ -46,6 +47,8 @@ const providers: Record<string, BillingProviderHandler> = {
   nextpay: nextpayProvider,
   payping: paypingProvider,
   zibal: zibalProvider,
+  // Zibal's sandbox merchant "zibal" (no money moves).
+  zibal_test: zibalTestProvider,
   sep_shaparak: sepProvider,
   iyzico: iyzicoProvider,
   paytr: paytrProvider,

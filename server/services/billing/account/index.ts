@@ -51,6 +51,15 @@ export class AccountBillingError extends Error {
   }
 }
 
+/**
+ * The status of a failure outside this server that the customer must read
+ * (a gateway's refusal and its reason, a storage that failed). Never 502 or
+ * 504: Cloudflare, in front of the API, answers an origin's 502 or 504 with
+ * its own error page, so the browser read "something went wrong" instead of
+ * the reason (Zibal's 103, "the gateway is inactive", 2026-10-30).
+ */
+export const UPSTREAM_FAILURE_STATUS = 424;
+
 export interface BillingSettingsRow {
   edition: Edition;
   seller: SellerProfile;
@@ -631,7 +640,7 @@ function settledOutcome(settled: SettleResult): VerifyOutcome {
  * confirms, unique gateway transaction id). SEP verifies by a second,
  * unbound reference (RefNum) and keeps the strict rule.
  */
-const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test', 'zibal', 'nextpay', 'idpay', 'idpay_test', 'payping']);
+const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test', 'zibal', 'zibal_test', 'nextpay', 'idpay', 'idpay_test', 'payping']);
 
 function acceptsAlreadyVerified(payment: AccountPaymentRow): boolean {
   return AUTHORITY_KEYED_VERIFY.has(payment.provider)

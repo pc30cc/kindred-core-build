@@ -28,6 +28,7 @@ import {
   getPlatformEdition,
 } from '../services/billing/edition.js';
 import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
+import { normalizeGatewayDisplayName } from '../../shared/simpleBillingAdmin.js';
 import { getProvider, resolveNamedBillingConfig } from '../services/billing/index.js';
 import { resolveAppBaseUrl } from '../services/auth-email.js';
 import { resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
@@ -70,13 +71,15 @@ adminBillingRouter.get('/gateways', async (req, res) => {
 // Operational state ONLY — no `config`/credentials. Finance -> Gateways
 // governs enabled/disabled, test marker, currencies and display; provider
 // connection settings belong exclusively to the Providers screen below.
+// `display_name` is the name customers see (normalizeGatewayDisplayName):
+// a name the Super Admin chose, whatever the gateway is called.
 adminBillingRouter.put('/gateways', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const body = z
       .object({
         provider_name: z.string().min(2),
-        display_name: z.record(z.string()).optional(),
+        display_name: z.record(z.unknown()).optional(),
         is_active: z.boolean().optional(),
         is_test: z.boolean().optional(),
         currencies: z.array(z.string().length(3)).optional(),
@@ -84,10 +87,16 @@ adminBillingRouter.put('/gateways', async (req, res) => {
         sort_order: z.number().int().optional(),
       })
       .parse(req.body);
+    let displayName: Record<string, string> | undefined;
+    if (body.display_name !== undefined) {
+      const normalized = normalizeGatewayDisplayName(body.display_name);
+      if ('problem' in normalized) return res.status(400).json({ error: normalized.problem });
+      displayName = normalized.names;
+    }
     const edition = await getPlatformEdition(cfg(req));
     assertProviderAllowed(edition, body.provider_name);
     for (const code of body.currencies ?? []) assertCurrencyAllowed(edition, code);
-    res.json({ gateway: await upsertGateway(cfg(req), body as Parameters<typeof upsertGateway>[1]) });
+    res.json({ gateway: await upsertGateway(cfg(req), { ...body, display_name: displayName } as Parameters<typeof upsertGateway>[1]) });
   } catch (e) { fail(res, e); }
 });
 

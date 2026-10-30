@@ -293,8 +293,16 @@ price, balance or period moved meanwhile the server answers 409
   done; what happened is stored on the payment (`purpose_result`) and the
   return page says it. A renewal paid after the plan ran out buys that plan
   again. A refund of such a payment takes a prepaid next period back first.
-  At most 10 payment attempts an hour per workspace (429
-  `TOO_MANY_CHECKOUTS`).
+  At most 50 payment attempts an hour per workspace (owner, 2026-10-30;
+  429 `TOO_MANY_CHECKOUTS`). An attempt the gateway refused before opening
+  its page (`checkout_failed`, e.g. Zibal's 103 while the gateway is not
+  active yet) does not count; every attempt, refused ones included, stops at
+  200 an hour (a loop would get the merchant blocked for too many requests).
+  Platform admins are not limited. A gateway's refusal answers 424
+  `CHECKOUT_PROVIDER_ERROR` with the gateway's reason, never 502: Cloudflare
+  replaces an origin's 502 or 504 with its own page, and the customer then
+  read "something went wrong" instead of the reason (the same holds for
+  `CARD_PROVIDER_ERROR` and the card-to-card receipt errors).
 - **AI credit**: each month of a period (and of a trial) gets the plan's
   monthly allowance once (`billing_account_grant_month`, cycle id
   `cycle:account:<month start>`, expiring at that month's end). The amount
@@ -443,7 +451,7 @@ permissions, events and the sandbox checks to run before switching it on:
   as `charge_not_found` after an hour. Paddle's minimum is 70 cents. Only
   the total the button showed is charged (`expectedTotalMinor`, VAT
   included; another one answers `QUOTE_CHANGED` and the page reloads its
-  VAT). Each attempt counts toward the 10 payment attempts an hour
+  VAT). Each attempt counts toward the 50 payment attempts an hour
   (`TOO_MANY_CHECKOUTS`). The page offers it only for a card whose gateway
   still has card renewal on for the viewer (`card.chargeable`); otherwise
   the upgrade is paid online or from the balance.

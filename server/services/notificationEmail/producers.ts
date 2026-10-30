@@ -731,8 +731,10 @@ export async function queueTranscript(
 }
 
 /**
- * The last of the conversation, as plain lines ("← …" from the customer,
- * "→ …" from the team), bounded. The dispatcher escapes them into the HTML.
+ * The last of the conversation (its newest 200 messages, oldest first), as
+ * plain lines: "← …" from the customer, "→ …" from the team, "· …" a system
+ * line. The dispatcher makes the HTML from them, escaped, one chat row each,
+ * and keeps the newest that fit the mail (transcriptEmailRows.ts).
  *
  * A system row's stored body is English (`body` = fallback, readers write
  * the sentence from `metadata.kind`), so it is written in the reader's
@@ -745,16 +747,16 @@ async function renderTranscript(config: ServerConfig, conversationId: string, lo
     .from('conversation_messages')
     .select('sender_type, body, created_at, metadata')
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(200);
 
-  const rows = (data ?? []) as Array<{ sender_type: string; body: string | null; created_at: string | null; metadata?: unknown }>;
+  const rows = ((data ?? []) as Array<{ sender_type: string; body: string | null; created_at: string | null; metadata?: unknown }>).reverse();
   const lines: string[] = [];
   for (const m of rows) {
     const text = m.sender_type === 'system' ? operatorSystemText(m.metadata, locale) : String(m.body ?? '');
     if (text === null) continue;
-    const who = m.sender_type === 'contact' ? '←' : '→';
-    lines.push(`${who} ${text.slice(0, 2000)}`);
+    const mark = m.sender_type === 'contact' ? '←' : m.sender_type === 'system' ? '·' : '→';
+    lines.push(`${mark} ${text.slice(0, 2000)}`);
   }
   return lines;
 }

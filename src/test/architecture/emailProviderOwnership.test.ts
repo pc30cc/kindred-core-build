@@ -417,6 +417,293 @@ describe('every send path uses the shared sender', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// No mail without a template (owner, 2026-10-30: «هیچ ایمیلی بدون قالب نباید
+// باشه»). Every platform mail is a Super Admin template the Branding page
+// shows; a caller's own text is only the fallback for a row that is missing,
+// and wears the layout like the row would (index.ts composeMessage).
+// ───────────────────────────────────────────────────────────────────────────
+
+/** The last character of the string, template literal or comment that starts at `at`; `at` itself for anything else. */
+function tokenEnd(src: string, at: number): number {
+  const c = src[at];
+  if (c === '/' && src[at + 1] === '/') {
+    const nl = src.indexOf('\n', at);
+    return nl < 0 ? src.length - 1 : nl;
+  }
+  if (c === '/' && src[at + 1] === '*') {
+    const end = src.indexOf('*/', at + 2);
+    return end < 0 ? src.length - 1 : end + 1;
+  }
+  if (c === '"' || c === "'") {
+    let i = at + 1;
+    for (; i < src.length && src[i] !== c && src[i] !== '\n'; i++) if (src[i] === '\\') i += 1;
+    return Math.min(i, src.length - 1);
+  }
+  if (c === '`') {
+    let i = at + 1;
+    for (; i < src.length && src[i] !== '`'; i++) {
+      if (src[i] === '\\') i += 1;
+      else if (src[i] === '$' && src[i + 1] === '{') {
+        const close = closing(src, i + 1);
+        if (close < 0) return src.length - 1;
+        i = close;
+      }
+    }
+    return Math.min(i, src.length - 1);
+  }
+  return at;
+}
+
+/** Where the bracket opening at `at` closes, reading code as code (strings, template literals and comments skipped); -1 when it never does. */
+function closing(src: string, at: number): number {
+  let depth = 0;
+  for (let i = at; i < src.length; i++) {
+    const end = tokenEnd(src, i);
+    if (end !== i) {
+      i = end;
+      continue;
+    }
+    if ('([{'.includes(src[i])) depth += 1;
+    else if (')]}'.includes(src[i])) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** The top-level parts of an argument list (or an object's members), split at its commas. */
+function topLevelParts(list: string): string[] {
+  const parts: string[] = [];
+  let from = 0;
+  for (let i = 0; i < list.length; i++) {
+    const end = tokenEnd(list, i);
+    if (end !== i) {
+      i = end;
+    } else if ('([{'.includes(list[i])) {
+      i = closing(list, i);
+      if (i < 0) break;
+    } else if (list[i] === ',') {
+      parts.push(list.slice(from, i));
+      from = i + 1;
+    }
+  }
+  parts.push(list.slice(from));
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+const SEND_ENTRY = /\b(sendEmail|sendPlatformEmail|sendEmailWithRetry|enqueueEmail)\(/g;
+const isCommentAt = (src: string, at: number) => /^\s*(\/\/|\/?\*)/.test(src.slice(src.lastIndexOf('\n', at) + 1, at));
+
+/** Every call of the email core's four entry points in a source file: where it is, and the request it hands over. */
+function sendCallsIn(src: string): Array<{ at: number; request: string }> {
+  const calls: Array<{ at: number; request: string }> = [];
+  for (const m of src.matchAll(SEND_ENTRY)) {
+    const at = m.index ?? 0;
+    if (/function\s*$/.test(src.slice(Math.max(0, at - 20), at)) || isCommentAt(src, at)) continue;
+    const open = at + m[0].length - 1;
+    const args = topLevelParts(src.slice(open + 1, closing(src, open)));
+    calls.push({ at, request: args[1] ?? '' });
+  }
+  return calls;
+}
+
+/** The text that defines `name` as seen from `at`: the nearest declaration before it, or a function of that name anywhere. */
+function definitionOf(src: string, name: string, at: number): { at: number; text: string } | null {
+  const decls = [...src.matchAll(new RegExp(`\\b(?:const|let)\\s+${name}\\b[^=;]*=`, 'g'))].filter((m) => (m.index ?? 0) < at);
+  const decl = decls[decls.length - 1];
+  if (decl) {
+    const start = (decl.index ?? 0) + decl[0].length;
+    const rest = src.slice(start);
+    const open = rest.search(/\S/);
+    const end = '({['.includes(rest[open]) ? closing(rest, open) + 1 : rest.indexOf(';');
+    return { at: start, text: rest.slice(0, end) };
+  }
+  const fn = new RegExp(`\\bfunction\\s+${name}\\s*\\(`).exec(src);
+  if (!fn) return null;
+  const params = closing(src, fn.index + fn[0].length - 1);
+  const body = src.indexOf('{', params);
+  return { at: body, text: src.slice(fn.index, closing(src, body) + 1) };
+}
+
+/** The function whose body holds `at`: its name, its parameters, and whether it is exported. */
+function enclosingFunction(src: string, at: number): { name: string; params: string[]; exported: boolean } | null {
+  const fns = [...src.matchAll(/\b(export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)].reverse();
+  for (const fn of fns) {
+    const open = (fn.index ?? 0) + fn[0].length - 1;
+    const close = closing(src, open);
+    const body = src.indexOf('{', close);
+    if (body < at && closing(src, body) > at) {
+      return { name: fn[2], params: topLevelParts(src.slice(open + 1, close)).map((p) => p.split(/[:=]/)[0].trim()), exported: !!fn[1] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a request handed to the core names its template: a `templateSlug`
+ * in it, or in what it is built from in the same file (a spread, a builder
+ * function, a const, the test mail's builder), or, for a request a local
+ * helper passed on, at every call of that helper.
+ */
+function namesTemplate(src: string, request: string, at: number, depth = 0): boolean {
+  if (/\btemplateSlug\b/.test(request) || /\btestMailRequest\(/.test(request)) return true;
+  if (depth > 4) return false;
+  const names = new Set([...request.matchAll(/(?:\.\.\.\s*|^\s*|\b)([A-Za-z_$][\w$]*)\s*(?=\(|$|[,}\s])/g)].map((m) => m[1]));
+  for (const name of names) {
+    if (['await', 'async', 'config', 'new'].includes(name)) continue;
+    const owner = enclosingFunction(src, at);
+    const def = definitionOf(src, name, at);
+    const declaredHere = def && owner && def.at > src.lastIndexOf(`function ${owner.name}`, at);
+    if (def && (declaredHere || !owner?.params.includes(name)) && namesTemplate(src, def.text, def.at, depth + 1)) return true;
+    // A parameter: what each call of the (file-local) helper passes for it.
+    if (owner && !owner.exported && owner.params.includes(name) && !declaredHere) {
+      const index = owner.params.indexOf(name);
+      const callers = [...src.matchAll(new RegExp(`(?<!function\\s)\\b${owner.name}\\(`, 'g'))]
+        .map((m) => ({ at: m.index ?? 0, args: topLevelParts(src.slice((m.index ?? 0) + owner.name.length + 1, closing(src, (m.index ?? 0) + owner.name.length))) }));
+      if (callers.length && callers.every((c) => namesTemplate(src, c.args[index] ?? '', c.at, depth + 1))) return true;
+    }
+  }
+  return false;
+}
+
+describe('no mail without a template', () => {
+  /**
+   * Every file that hands a mail to the email core, how many times, and the
+   * templates it names (in the file itself, or in `namedIn`). A new send
+   * path, or one more send in these files, fails here until it is listed,
+   * and it can only be listed with a template whose rows exist in fa, en and
+   * tr for both editions (291 rewrote every sent one; a later migration adds
+   * a new one). The outbox only re-sends what was queued, as it was queued:
+   * each queued request is checked where it is queued.
+   */
+  const SEND_PATHS: Record<string, { calls: number; slugs: string[]; namedIn?: string; resendsQueued?: true }> = {
+    'server/services/auth-email.ts': { calls: 1, slugs: ['email_verify', 'password_reset'] },
+    'server/services/verification/service.ts': { calls: 2, slugs: ['verification_code'] },
+    'server/services/invitations/worker.ts': { calls: 2, slugs: ['invite_otp', 'invite_member'] },
+    'server/routes/adminEmailProviders.ts': { calls: 1, slugs: ['email_test'], namedIn: 'server/services/email/testMail.ts' },
+    'server/routes/email.ts': { calls: 1, slugs: ['email_test'], namedIn: 'server/services/email/testMail.ts' },
+    'server/services/visitorTranscript.ts': { calls: 1, slugs: ['visitor_conversation_transcript'] },
+    'server/services/widget/offlineNotice.ts': { calls: 3, slugs: ['offline_message_received', 'offline_messages_summary'] },
+    'server/services/notificationEmail/dispatcher.ts': {
+      calls: 1,
+      slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update'],
+      namedIn: 'server/services/notificationEmail/types.ts',
+    },
+    'server/services/billing/account/notify.ts': {
+      calls: 2,
+      slugs: [
+        'billing_renewal_reminder', 'billing_renewed', 'billing_expired', 'billing_plan_changed', 'billing_change_scheduled',
+        'billing_payment_receipt', 'billing_plan_activated', 'billing_trial_ending', 'billing_trial_ended', 'billing_card_renewed',
+        'billing_card_payment_failed', 'billing_card_removed', 'billing_locked_data_deletion', 'billing_ai_pack_purchased',
+      ],
+    },
+    'server/services/email/outbox.ts': { calls: 2, slugs: [], resendsQueued: true },
+  };
+
+  const ROOTS = ['server', 'worker', 'channels', 'shared', 'runtime', 'ai-runtime', 'scripts'];
+  const sourceFiles = (dir: string): string[] =>
+    !existsSync(dir) ? [] : readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const path = join(dir, e.name);
+      if (e.isDirectory()) return ['node_modules', 'dist'].includes(e.name) ? [] : sourceFiles(path);
+      return /\.(ts|mts)$/.test(e.name) && !/\.(test|spec)\.|\.d\.ts$/.test(e.name) ? [path] : [];
+    });
+
+  it('the reading of a send call finds a request that names no template (the check can fail)', () => {
+    const src = [
+      'function own(config) {',
+      "  const request = { to: 'a@b.example', subject: 'S', html: `<p>${x}</p>` };",
+      '  return sendEmail(config, request);',
+      '}',
+      'async function named(config, request) { await enqueueEmail(config, request, {}); }',
+      "named(config, { templateSlug: 'billing_renewed', to });",
+      "named(config, { to, subject: 'bare' });",
+    ].join('\n');
+    const [bare, passedOn] = sendCallsIn(src);
+    expect(namesTemplate(src, bare.request, bare.at)).toBe(false);
+    // Strings and comments with commas, quotes or brackets in them do not split or end an argument.
+    const tricky = "sendEmail(config /* the platform's (default) */, { subject: 'a, b', html: `<p>${f('x)')}</p>`, templateSlug: 'email_test' });";
+    expect(sendCallsIn(tricky).map((c) => namesTemplate(tricky, c.request, c.at))).toEqual([true]);
+    // One caller of the helper names a template and one does not: not every mail has one.
+    expect(namesTemplate(src, passedOn.request, passedOn.at)).toBe(false);
+    expect(namesTemplate(src.replace("{ to, subject: 'bare' }", "{ to, templateSlug: 'billing_expired' }"), passedOn.request, passedOn.at)).toBe(true);
+  });
+
+  it('every file that sends is listed, with each of its sends', () => {
+    const found: Record<string, number> = {};
+    for (const file of ROOTS.flatMap(sourceFiles)) {
+      if (file === SERVICE) continue;
+      const count = sendCallsIn(read(file)).length;
+      if (count) found[file] = count;
+    }
+    expect(found, 'a new send path: give it a templateSlug and list it in SEND_PATHS').toEqual(
+      Object.fromEntries(Object.entries(SEND_PATHS).map(([file, p]) => [file, p.calls])),
+    );
+  });
+
+  it.each(Object.entries(SEND_PATHS).filter(([, p]) => !p.resendsQueued))('%s: every send names its template', (file, path) => {
+    const src = read(file);
+    for (const call of sendCallsIn(src)) {
+      const line = src.slice(0, call.at).split('\n').length;
+      expect(namesTemplate(src, call.request, call.at), `${file}:${line} sends ${call.request.slice(0, 80)} without a templateSlug`).toBe(true);
+    }
+    const names = read(path.namedIn ?? file);
+    for (const slug of path.slugs) expect(names, `${file} names ${slug}`).toContain(`'${slug}'`);
+  });
+
+  it('the outbox sends only what was queued, as it was queued', () => {
+    const src = read('server/services/email/outbox.ts');
+    expect(sendCallsIn(src).map((c) => c.request)).toEqual(['request', 'request']);
+    // The queued payload, opened (processRow), or the caller's own request, tried once first (sendEmailWithRetry).
+    expect(src).toMatch(/const request = openRequest\(config, row\.payload\);/);
+    expect(src).toMatch(/export async function sendEmailWithRetry\(\s*config: ServerConfig,\s*request: EmailRequest,/);
+  });
+
+  it('the notices and the billing mails send exactly the slugs listed', () => {
+    const types = read('server/services/notificationEmail/types.ts');
+    expect([...types.matchAll(/\bslug: '([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual(
+      [...SEND_PATHS['server/services/notificationEmail/dispatcher.ts'].slugs].sort(),
+    );
+    const notify = read('server/services/billing/account/notify.ts');
+    const union = /export type BillingEmailSlug =([^;]*);/.exec(notify)?.[1] ?? '';
+    expect([...union.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual(
+      [...SEND_PATHS['server/services/billing/account/notify.ts'].slugs].sort(),
+    );
+    expect(read('server/services/email/testMail.ts')).toMatch(/templateSlug: 'email_test',/);
+  });
+
+  it('every template a sender names has its rows in fa, en and tr, for both editions', () => {
+    // 291 writes each sent slug's row per language, and adds it for whichever edition lacks it.
+    const sql = read('database/migrations/291_email_templates_redesign.sql');
+    expect(sql).toMatch(/CROSS JOIN \(VALUES \('iran'\), \('international'\)\) AS e\(edition\)/);
+    const rows = new Set([...sql.matchAll(/\('([a-z_]+)', '(fa|en|tr)', '[0-9a-f]{32}',/g)].map((m) => `${m[1]}/${m[2]}`));
+    for (const slug of new Set(Object.values(SEND_PATHS).flatMap((p) => p.slugs))) {
+      for (const locale of ['fa', 'en', 'tr']) expect(rows.has(`${slug}/${locale}`), `${slug} (${locale})`).toBe(true);
+    }
+  });
+
+  it('only the core hands a mail to a provider\'s adapter, once the layout is on it', () => {
+    for (const file of ROOTS.flatMap(sourceFiles)) {
+      if (file.startsWith('server/services/email/providers/')) continue;
+      const body = stripTs(read(file));
+      if (!/\bgetEmailAdapter\(/.test(body)) continue;
+      expect([SERVICE, STORE], `${file} reaches an email adapter`).toContain(file);
+    }
+    // The store only checks the connection; it never sends.
+    expect(stripTs(read(STORE))).not.toMatch(/adapter\.send\(/);
+    const service = stripTs(read(SERVICE));
+    expect(service.match(/\badapter\.send\(/g)).toHaveLength(1);
+    expect(service.indexOf('adapter.send(')).toBeGreaterThan(service.indexOf('await composeMessage(config, ready,'));
+    // The adapters themselves are reached through the registry alone (the
+    // Yahoo mailbox client borrows the relay's timeouts, not its adapter).
+    for (const file of ROOTS.flatMap(sourceFiles)) {
+      if (file.startsWith('server/services/email/providers/')) continue;
+      expect(stripTs(read(file)), file).not.toMatch(/\b(smtpAdapter|resendAdapter|sendgridAdapter)\b/);
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // The From header cannot be supplied by a caller, at any layer.
 // ───────────────────────────────────────────────────────────────────────────
 

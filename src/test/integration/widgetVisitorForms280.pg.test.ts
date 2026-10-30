@@ -84,9 +84,12 @@ suite('280 — the widget\'s visitor forms (real PostgreSQL)', () => {
     for (const r of rows) {
       const html = String(r.html_body);
       expect(html.split('{contact_phone}')).toHaveLength(2);
-      expect(html).toContain(`>${label[String(r.locale)]}</td><td style="padding:6px 0;" dir="ltr">{contact_phone}</td></tr></table>`);
-      // 289d cleared the seeded text part (283's phone included): it is made
-      // from this HTML now, so no visitor field is filled outside the HTML.
+      // 291 rewrote the mail in the layout's vocabulary: the phone is a row of
+      // its details, left to right in every language.
+      expect(html).toContain(`<tr><th>${label[String(r.locale)]}</th><td dir="ltr">{contact_phone}</td></tr></table>`);
+      // 289d cleared the seeded text part (283's phone included), and 291
+      // keeps it so: it is made from this HTML, so no visitor field is filled
+      // outside the HTML.
       expect(r.text_body).toBeNull();
     }
 

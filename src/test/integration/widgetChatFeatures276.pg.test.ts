@@ -507,8 +507,12 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
       const html = String(r.html_body);
       const text = String(r.text_body);
       expect(String(r.subject), `${r.edition}/${r.locale}`).toContain('{workspace_name}');
-      for (const v of ['{workspace}', '{date}', '{transcript}', '{year}', '{brand}']) expect(html, v).toContain(v);
-      expect(html).toContain(r.locale === 'fa' ? 'dir="rtl"' : 'dir="ltr"');
+      // Since 291 the row is its content (the layout, with {brand} and the
+      // year in its footer and the direction of the language, is the email
+      // core's); the rows go into its div.transcript.
+      for (const v of ['{workspace}', '{date}']) expect(html, v).toContain(v);
+      expect(html).toContain('<div class="transcript">{transcript}</div>');
+      expect(html).not.toMatch(/<html|<body/);
       expect(text).toContain('{transcript_text}');
       expect(text).toContain('{workspace_name}');
       expect(text).not.toContain('{transcript}');
@@ -567,13 +571,13 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
         transcript: visitorText,
         transcript_text: visitorText,
       },
-      htmlData: { transcript: `<tr><td>${visitorText}</td></tr>` },
+      htmlData: { transcript: `<div class="msg msg-visitor"><div class="meta">Siz</div><div class="bubble">${visitorText}</div></div>` },
     });
     expect(res.success).toBe(true);
     const mail = sent[sent.length - 1];
     expect(mail.subject).toBe('Acme & Co $1 ile sohbetiniz');
-    expect(mail.html).toContain(`<tr><td>${visitorText}</td></tr>`);
-    expect(mail.html).toContain('<h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">Acme &amp; Co $1</h1>');
+    expect(mail.html).toContain(visitorText);
+    expect(mail.html).toMatch(/<strong[^>]*>Acme &amp; Co \$1<\/strong>/);
     expect(mail.text).toContain(visitorText);
 
     // Per-part data (htmlData): the owners' offline-message mail takes the
@@ -598,7 +602,7 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(owner.text).toContain(name);
     expect(owner.text).toContain(body);
     expect(owner.text).not.toContain('&amp;');
-    expect(owner.html).toContain(`<strong>${esc(name)}</strong>`);
+    expect(owner.html).toMatch(new RegExp(`<td[^>]*>${esc(name).replace(/[$]/g, '\\$&')}</td>`));
     expect(owner.html).toContain(esc(body));
     expect(owner.html).not.toContain('<img src=x');
     expect(owner.html).not.toContain('<b>Ali</b>');

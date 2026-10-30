@@ -37,7 +37,7 @@ vi.mock('../../../server/services/widget/operatorPresenceSource.js', () => ({
 }));
 
 const { queueTranscript, sweepUnreadDigest } = await import('../../../server/services/notificationEmail/producers.js');
-const { dispatchNotificationEmails } = await import('../../../server/services/notificationEmail/dispatcher.js');
+const { dispatchNotificationEmails, templateValues } = await import('../../../server/services/notificationEmail/dispatcher.js');
 const { invalidateNotificationEmailSettingsCache } = await import('../../../server/services/notificationEmail/settings.js');
 const { resolveRecipients } = await import('../../../server/services/push/recipients.js');
 const { __resetOperatorLocaleCache } = await import('../../../server/services/operatorLocale.js');
@@ -110,27 +110,58 @@ describe('the transcript', () => {
     expect(fa.locale).toBe('fa');
     expect(en.locale).toBe('en');
 
-    // Plain lines in the queue; the dispatcher makes the HTML, escaped.
+    // Plain lines in the queue, marked by who wrote them (a system line is
+    // "· "); the dispatcher makes the HTML, escaped.
     const faLines = (fa.payload as Row).transcript_lines as string[];
     expect(faLines).toEqual([
       '← سلام، سفارشم کجاست؟',
-      '→ بازدیدکننده در صف پشتیبانی منتظر است',
-      '→ یکی از همکاران به گفتگو پیوست',
+      '· بازدیدکننده در صف پشتیبانی منتظر است',
+      '· یکی از همکاران به گفتگو پیوست',
       '→ در راه است.',
-      '→ Ali این گفتگو را از حالت واگذارشده خارج کرد',
-      '→ Sara گفتگو را بست',
+      '· Ali این گفتگو را از حالت واگذارشده خارج کرد',
+      '· Sara گفتگو را بست',
     ]);
     // No English system sentence, and nothing a reader cannot be told.
     expect(faLines.join('\n')).not.toMatch(/support queue|joined|unassigned|closed the conversation|a colleague|next year/);
 
     const enLines = (en.payload as Row).transcript_lines as string[];
-    expect(enLines).toContain('→ The visitor is waiting in the support queue');
-    expect(enLines).toContain('→ Sara closed the conversation');
+    expect(enLines).toContain('· The visitor is waiting in the support queue');
+    expect(enLines).toContain('· Sara closed the conversation');
     expect(enLines.join('\n')).not.toContain('next year');
 
     await dispatchNotificationEmails(CONFIG);
+    // One chat row a line, in the reader's words: the customer's under the
+    // contact's name, the team's under "team", a system line as a notice.
     const faMail = sent.find((m) => m.to === 'fa@example.test')!;
-    expect(faMail.html?.transcript).toBe(faLines.map((line) => `<p>${line}</p>`).join(''));
+    const row = (side: string, meta: string, text?: string) =>
+      `<div class="msg msg-${side}"><div class="meta">${meta}</div>${text === undefined ? '' : `<div class="bubble" dir="auto">${text}</div>`}</div>`;
+    expect(faMail.html?.transcript).toBe([
+      row('visitor', 'Mina', 'سلام، سفارشم کجاست؟'),
+      row('agent', 'بازدیدکننده در صف پشتیبانی منتظر است'),
+      row('agent', 'یکی از همکاران به گفتگو پیوست'),
+      row('agent', 'تیم', 'در راه است.'),
+      row('agent', 'Ali این گفتگو را از حالت واگذارشده خارج کرد'),
+      row('agent', 'Sara گفتگو را بست'),
+    ].join(''));
+    const enMail = sent.find((m) => m.to === 'en@example.test')!;
+    expect(enMail.html?.transcript).toContain(row('agent', 'Team', 'در راه است.'));
+  });
+
+  it('keeps the newest messages that fit the mail, and says older ones were left out', async () => {
+    db.conversation_messages = [];
+    for (let i = 0; i < 260; i += 1) message(i % 2 ? 'agent' : 'contact', `${i}:${'x'.repeat(200)}`);
+    await queueTranscript(CONFIG, { conversationId: CONV, workspaceId: WS, actorId: null });
+    // The producer reads the newest 200, oldest first.
+    const lines = (db.notification_email_jobs[0].payload as Row).transcript_lines as string[];
+    expect(lines).toHaveLength(200);
+    expect(lines[0]).toMatch(/^← 60:/);
+    expect(lines[199]).toMatch(/^→ 259:/);
+    await dispatchNotificationEmails(CONFIG);
+    const html = sent[0].html?.transcript ?? '';
+    expect(html.match(/class="bubble"/g)).toHaveLength(50);
+    expect(html).toContain('259:');
+    expect(html).not.toContain('>209:');
+    expect(html.startsWith('<div class="msg msg-agent"><div class="meta">پیام‌های قدیمی‌تر')).toBe(true);
   });
 
   it('reaches the HTML escaped: a visitor\'s markup is text', async () => {
@@ -138,7 +169,23 @@ describe('the transcript', () => {
     message('contact', '<a href="//evil.example">Verify your account</a>');
     await queueTranscript(CONFIG, { conversationId: CONV, workspaceId: WS, actorId: null });
     await dispatchNotificationEmails(CONFIG);
-    expect(sent[0].html?.transcript).toBe('<p>← &lt;a href=&quot;//evil.example&quot;&gt;Verify your account&lt;/a&gt;</p>');
+    expect(sent[0].html?.transcript).toBe('<div class="msg msg-visitor"><div class="meta">Mina</div><div class="bubble" dir="auto">&lt;a href=&quot;//evil.example&quot;&gt;Verify your account&lt;/a&gt;</div></div>');
+  });
+
+  it('reads a transcript queued before #372 (escaped <p> lines) back into chat rows and plain lines', () => {
+    // The layout draws only div.msg rows inside div.transcript: passed as it
+    // was, the old <p> lines would vanish from the mail, and the text part
+    // would print their markup.
+    const legacy = '<p>← سلام &amp; &lt;b&gt;درود&lt;/b&gt;</p><p>→ در راه است.\nفردا</p><p>→ &quot;ok&quot;</p>';
+    const { templateData, htmlData } = templateValues({ contact: 'Mina', transcript: legacy }, 'Ali', 'fa');
+    const row = (side: string, meta: string, text: string) =>
+      `<div class="msg msg-${side}"><div class="meta">${meta}</div><div class="bubble" dir="auto">${text}</div></div>`;
+    expect(htmlData.transcript).toBe([
+      row('visitor', 'Mina', 'سلام &amp; &lt;b&gt;درود&lt;/b&gt;'),
+      row('agent', 'تیم', 'در راه است.<br>فردا'),
+      row('agent', 'تیم', '&quot;ok&quot;'),
+    ].join(''));
+    expect(templateData.transcript).toBe('← سلام & <b>درود</b>\n→ در راه است.\nفردا\n→ "ok"');
   });
 
   it("prints a placeholder subject as '—'", async () => {

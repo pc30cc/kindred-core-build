@@ -126,7 +126,8 @@ vi.mock('../../../server/routes/widgetAttachments.js', async (orig) => ({
 const { widgetRouter } = await import('../../../server/routes/widget.js');
 const { recordConversationClosed } = await import('../../../server/services/conversationClosedNotice.js');
 const { __resetWidgetRateLimitsForTests } = await import('../../../server/services/widget/security.js');
-const { maskEmail, buildVisitorTranscript, transcriptTimeZone, MAX_TRANSCRIPT_BYTES } = await import('../../../server/services/visitorTranscript.js');
+const { maskEmail, buildVisitorTranscript, transcriptTimeZone } = await import('../../../server/services/visitorTranscript.js');
+const { TRANSCRIPT_MAX_BYTES, TRANSCRIPT_MAX_ROWS } = await import('../../../server/services/transcriptEmailRows.js');
 
 const app = express();
 app.use((req, _res, next) => { Object.assign(req, { serverConfig: { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } }); next(); });
@@ -599,7 +600,11 @@ describe('POST …/transcript', () => {
     expect(html).not.toContain('unassigned');
     expect(html).not.toContain('joined');
     expect(html).not.toContain('closed the conversation');
-    expect(html.match(/<tr>/g)).toHaveLength(3);
+    // One chat row a message, in the layout's vocabulary: the visitor's own
+    // lines as msg-visitor, the operator's as msg-agent.
+    expect(html.match(/<div class="msg msg-/g)).toHaveLength(3);
+    expect(html.match(/<div class="msg msg-visitor"><div class="meta">شما · /g)).toHaveLength(2);
+    expect(html).toContain('<div class="msg msg-agent"><div class="meta">Sara · ');
     // Persian digits, Tehran time (09:00Z - 300 s = 12:25 in Tehran).
     expect(html).toContain('۱۲:۲۵');
     expect(mail.templateData.transcript_text).toContain('قیمت $& و $1 و {brand} و {transcript_text} <script>alert(1)</script>');
@@ -708,31 +713,35 @@ describe('POST …/transcript', () => {
     expect(state.sent).toHaveLength(0);
   });
 
-  it('a long conversation keeps the newest 200 messages and at most 200 KB', async () => {
+  it('a long conversation keeps the newest 50 messages, says older ones were left out, and stays far under Gmail\'s cut', async () => {
     const cid = conversation();
-    for (let i = 0; i < 230; i += 1) message(cid, i % 2 ? 'agent' : 'contact', `${i}:${'x'.repeat(3990)}`, {}, (300 - i) * 1000);
+    for (let i = 0; i < 230; i += 1) message(cid, i % 2 ? 'agent' : 'contact', `${i}:${'x'.repeat(100)}`, {}, (300 - i) * 1000);
     const out = await buildVisitorTranscript({ supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never, {
       workspaceId: WS, conversationId: cid, workspaceName: 'Acme', locale: 'en', timeZone: 'UTC', edition: 'international',
     });
-    expect(Buffer.byteLength(out.html, 'utf8')).toBeLessThanOrEqual(MAX_TRANSCRIPT_BYTES);
-    expect(out.count).toBeGreaterThan(40);
-    expect(out.count).toBeLessThan(200);
-    // The newest row is kept, the oldest went first.
+    expect(TRANSCRIPT_MAX_ROWS).toBe(50);
+    expect(out.count).toBe(50);
+    // The newest row is kept, the oldest went first, and the mail says so.
     expect(out.html).toContain('229:');
-    expect(out.html).not.toContain('>30:');
-    expect(out.text.split('\n\n')).toHaveLength(out.count);
+    expect(out.html).not.toContain('>179:');
+    expect(out.html.startsWith('<div class="msg msg-agent"><div class="meta">Earlier messages of this conversation are not in this email.</div></div>')).toBe(true);
+    expect(out.text.split('\n\n')).toHaveLength(out.count + 1);
+    expect(out.text.startsWith('Earlier messages of this conversation are not in this email.')).toBe(true);
   });
 
-  it('the cap is in bytes: a Persian transcript (two bytes a letter) stays within 200 KB too', async () => {
+  it('the cap is in bytes too: a Persian transcript (two bytes a letter) keeps fewer long messages', async () => {
     const cid = conversation();
     for (let i = 0; i < 120; i += 1) message(cid, i % 2 ? 'agent' : 'contact', `${i}:${'س'.repeat(3990)}`, {}, (300 - i) * 1000);
     const out = await buildVisitorTranscript({ supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } as never, {
       workspaceId: WS, conversationId: cid, workspaceName: 'فروشگاه', locale: 'fa', timeZone: 'Asia/Tehran', edition: 'iran',
     });
-    expect(MAX_TRANSCRIPT_BYTES).toBe(200 * 1024);
-    expect(Buffer.byteLength(out.html, 'utf8')).toBeLessThanOrEqual(MAX_TRANSCRIPT_BYTES);
+    expect(TRANSCRIPT_MAX_BYTES).toBe(32 * 1024);
+    // The rows themselves within the cap (the note line on top aside).
+    const note = '<div class="msg msg-agent"><div class="meta">پیام‌های قدیمی‌تر این گفتگو در این ایمیل نیامده است.</div></div>';
+    expect(out.html.startsWith(note)).toBe(true);
+    expect(Buffer.byteLength(out.html.slice(note.length), 'utf8')).toBeLessThanOrEqual(TRANSCRIPT_MAX_BYTES);
     // Characters alone would have let about twice as much through.
-    expect(out.count).toBeLessThan(30);
+    expect(out.count).toBeLessThan(5);
     expect(out.html).toContain('119:');
   });
 });

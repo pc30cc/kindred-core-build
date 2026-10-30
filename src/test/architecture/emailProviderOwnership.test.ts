@@ -27,6 +27,8 @@ const read = (p: string) => readFileSync(p, 'utf8');
 const stripTs = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
 
 const SERVICE = 'server/services/email/index.ts';
+/** The one reader and writer of the provider rows (secrets decrypted there). */
+const STORE = 'server/services/email/providerConfigStore.ts';
 
 // ───────────────────────────────────────────────────────────────────────────
 // 2 + 3. The provider is resolved from the platform config and nowhere else.
@@ -35,14 +37,19 @@ const SERVICE = 'server/services/email/index.ts';
 describe('the email provider resolves from platform config only', () => {
   const code = stripTs(read(SERVICE));
 
-  it('reads app_runtime_config.default_email_provider', () => {
+  it('reads app_runtime_config.default_email_provider, through the config store', () => {
     expect(code).toContain('default_email_provider');
-    expect(code).toContain("from('app_runtime_config')");
+    expect(code).toMatch(/loadEmailProviderConfig\(config, 'default_email_provider'\)/);
+    const store = stripTs(read(STORE));
+    expect(store).toContain('default_email_provider');
+    expect(store).toContain("from('app_runtime_config')");
   });
 
   it('never consults a workspace-scoped provider table', () => {
-    expect(code).not.toContain('workspace_provider_settings');
-    expect(code).not.toContain('provider_configs');
+    for (const body of [code, stripTs(read(STORE))]) {
+      expect(body).not.toContain('workspace_provider_settings');
+      expect(body).not.toContain('provider_configs');
+    }
   });
 
   it('the resolver does not even take a workspace id', () => {
@@ -55,11 +62,15 @@ describe('the email provider resolves from platform config only', () => {
     // platform infrastructure, chosen by a platform admin in Super Admin →
     // Notifications, so operator notification emails can leave by a
     // different transport than password resets. A key is not a tenant, and
-    // the assertion still refuses anything that looks like one.
+    // the assertion still refuses anything that looks like one. The first
+    // argument is the server config (the config store reads the row, secrets
+    // decrypted), not a workspace either.
     expect(code).toMatch(
-      /async function resolveProviderConfig\(\s*supabase: \w+,\s*overrideKey\?: string,?\s*\)/,
+      /async function resolveProviderConfig\(\s*config: ServerConfig,\s*overrideKey\?: string,?\s*\)/,
     );
     expect(code).not.toMatch(/resolveProviderConfig\([^)]*workspace/i);
+    // and the store's own reader takes a platform key, never a workspace
+    expect(stripTs(read(STORE))).toMatch(/async function loadEmailProviderConfig\(config: ServerConfig, key: EmailProviderKey\)/);
   });
 
   it('and only the platform can name the override', () => {
@@ -82,7 +93,12 @@ describe('the email provider resolves from platform config only', () => {
     };
     walk('server');
 
-    expect(callers).toEqual(['server/services/notificationEmail/dispatcher.ts']);
+    // The Super Admin's "Send test email" of the notification slot names the
+    // same row, from its own slot table, never from the request.
+    expect(callers.sort()).toEqual(['server/routes/adminEmailProviders.ts', 'server/services/notificationEmail/dispatcher.ts']);
+    const route = stripTs(read('server/routes/adminEmailProviders.ts'));
+    expect(route).toContain('providerConfigKey: key');
+    expect(route).toContain('const key = EMAIL_PROVIDER_SLOTS[slot]');
   });
 
   it('no other email module reaches for a workspace provider', () => {
@@ -124,12 +140,15 @@ describe('workspace provider settings still cover everything except email', () =
 
 describe('Super Admin shows no email setting the runtime ignores', () => {
   const page = read('src/pages/admin/BrandingPage.tsx');
-  const section = page.slice(page.indexOf('function EmailSettingsSection'));
   const admin = read('server/routes/adminManagement.ts');
 
   /**
    * Every field that used to sit in Super Admin → Branding → Email Settings
-   * and was read by nothing. Six of the seven.
+   * and was read by nothing. The last of the seven, `reply_to_email`, went
+   * too (2026-10-29): it set no Reply-To on any message, and the one reader
+   * of that column (the offline-message fallback in widget.ts) reads the
+   * workspace's own row, never the platform's. Reply-To is the provider's
+   * `reply_to` now, like From.
    */
   const DEAD = [
     'sender_email',        // From identity lives on the email provider
@@ -138,44 +157,30 @@ describe('Super Admin shows no email setting the runtime ignores', () => {
     'email_footer_text',   // no template has a footer placeholder
     'footer_text',         // localized copy of the above
     'support_contact_label',
+    'reply_to_email',      // Reply-To lives on the email provider
   ];
 
-  it('the section renders none of them', () => {
+  it('the Branding page renders none of them, and has no email settings section', () => {
     for (const field of DEAD) {
-      expect(stripTs(section), `${field} still rendered`).not.toMatch(new RegExp(`\\b${field}\\b`));
+      expect(stripTs(page), `${field} still rendered`).not.toMatch(new RegExp(`\\b${field}\\b`));
     }
+    expect(stripTs(page)).not.toContain('EmailSettingsSection');
+    expect(stripTs(page)).not.toContain('/email-settings');
   });
 
-  it('the admin API accepts none of them', () => {
-    const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
-    const body = schema.slice(0, schema.indexOf('});'));
-    for (const field of DEAD) {
-      expect(body, `${field} still accepted`).not.toMatch(new RegExp(`\\b${field}:`));
-    }
-  });
-
-  it('the localized email-settings routes are gone', () => {
-    // The table has no runtime consumer at all, so the routes only ever wrote
-    // a row nobody would read.
+  it('the admin API has no email-settings route, localized or not', () => {
+    // The table has no platform-level consumer at all, so the routes only
+    // ever wrote a row nobody would read.
+    expect(stripTs(admin)).not.toContain("'/email-settings'");
     expect(stripTs(admin)).not.toContain("'/email-settings-localized'");
-    expect(stripTs(read('src/pages/admin/BrandingPage.tsx'))).not.toContain('email-settings-localized');
+    expect(stripTs(admin)).not.toContain('emailSettingsSchema');
+    expect(stripTs(page)).not.toContain('email-settings-localized');
   });
 
-  it('keeps reply_to_email, which has a real consumer', () => {
-    expect(section).toContain('reply_to_email');
-    const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
-    expect(schema.slice(0, schema.indexOf('});'))).toContain('reply_to_email');
-    // widget.ts sends an offline visitor message here when no operator has an
-    // address — a recipient, not a sender.
-    expect(read('server/routes/widget.ts')).toContain('reply_to_email');
-  });
-
-  it('labels it as a recipient, not as the From address', () => {
-    const en = read('src/i18n/locales/en.ts');
-    const block = en.slice(en.indexOf('emailSettings: {'));
-    const hint = block.slice(0, block.indexOf('}'));
-    expect(hint).toContain('replyToEmailHint');
-    expect(hint).toMatch(/NOT the From address/i);
+  it('Reply-To is a field of every email provider, and the send path reads it there', () => {
+    expect(read('shared/emailProviders.ts')).toMatch(/EMAIL_PROVIDER_COMMON_FIELDS = \[[^\]]*'reply_to'/);
+    expect(stripTs(read(SERVICE))).toContain('effective.config.reply_to');
+    expect(stripTs(read(SERVICE))).not.toContain('reply_to_email');
   });
 
   it('the send path never reads the localized table', () => {
@@ -375,8 +380,8 @@ describe('every send path uses the shared sender', () => {
     'server/services/auth-email.ts',
     'server/services/verification/service.ts',
     'server/services/invitations/worker.ts',
-    'server/services/email/sendChannelEmail.ts',
-    'server/routes/widget.ts',
+    'server/services/email/outbox.ts',
+    'server/services/widget/offlineNotice.ts',
     'server/routes/email.ts',
   ];
 
@@ -389,11 +394,12 @@ describe('every send path uses the shared sender', () => {
     }
   });
 
-  it('they all call sendEmail or sendPlatformEmail', () => {
+  it('they all call sendEmail or sendPlatformEmail (the outbox\'s two entry points send through sendEmail)', () => {
     for (const file of SENDERS) {
       const body = stripTs(read(file));
-      expect(/sendEmail\(|sendPlatformEmail\(/.test(body), file).toBe(true);
+      expect(/sendEmail\(|sendPlatformEmail\(|sendEmailWithRetry\(|enqueueEmail\(/.test(body), file).toBe(true);
     }
+    expect(stripTs(read('server/services/email/outbox.ts'))).toMatch(/await sendEmail\(config, request\)/);
   });
 });
 
@@ -449,7 +455,9 @@ describe('a caller cannot set the sender identity', () => {
     // request short-circuited the resolver entirely.
     expect(code).not.toMatch(/request\.from/);
     expect(code).not.toMatch(/if \(!fromAddr/);
-    expect(code).not.toMatch(/\breplyTo\b/);
+    // Reply-To is the provider's too (its `reply_to`), never the request's.
+    expect(code).not.toMatch(/request\.replyTo|input\.replyTo/);
+    expect(code).toMatch(/const replyTo = parseEmailAddress\(effective\.config\.reply_to\)/);
   });
 
   it('neither request type still offers the escape hatch', () => {
@@ -462,29 +470,68 @@ describe('a caller cannot set the sender identity', () => {
     }
   });
 
-  it('the send-channel route rejects the fields instead of dropping them', () => {
-    const route = read('server/routes/email.ts');
-    expect(route).toContain('.strict()');
-    expect(route).toContain('UNSUPPORTED_FIELDS');
-    // and no longer reads them off the body
-    expect(stripTs(route)).not.toMatch(/\bfrom\b\s*,|\breplyTo\b/);
+  it('no email route sends what a caller composes: /send and /send-channel are retired', () => {
+    const route = stripTs(read('server/routes/email.ts'));
+    expect(route).toMatch(/emailRouter\.post\('\/send', retired\)/);
+    expect(route).toMatch(/emailRouter\.post\('\/send-channel', retired\)/);
+    // What is left (the test buttons) takes a workspace and a language, and
+    // mails the caller's own verified address: no recipient, subject, body,
+    // template or sender off the body.
+    expect(route).not.toMatch(/req\.body\??\.(to|subject|html|text|templateSlug|templateData|from|replyTo)\b/);
+    expect(route).toMatch(/const testSchema = z\.object\(\{\s*workspaceId: z\.string\(\)\.uuid\(\),\s*locale: z\.enum\(\['en', 'fa', 'tr'\]\)\.optional\(\),\s*\}\)\.strict\(\)/);
+    expect(existsSync('server/services/email/sendChannelEmail.ts')).toBe(false);
   });
 
-  it('the browser cannot even express it', () => {
+  it('the browser cannot even express it, and sends no mail of its own', () => {
     const types = read('src/types/providers.ts');
     const block = types.slice(types.indexOf('export interface EmailMessage {'));
     const body = block.slice(0, block.indexOf('}'));
     expect(body).not.toMatch(/\bfrom\?:/);
     expect(body).not.toMatch(/\breplyTo\?:/);
-    expect(stripTs(read('src/providers/email/api.ts'))).not.toMatch(/from: message\.from|replyTo: message\.replyTo/);
+    // Its own sender, which posted any recipient and body to send-channel, is gone.
+    expect(existsSync('src/providers/email/api.ts')).toBe(false);
+    const callers: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || full.includes('/test')) continue;
+          walk(full);
+        } else if (/\.(ts|tsx)$/.test(entry.name) && /\/api\/email\/send/.test(stripTs(read(full)))) {
+          callers.push(full);
+        }
+      }
+    };
+    walk('src');
+    expect(callers).toEqual([]);
   });
 
-  it('replyTo reaches no provider, which is why it is gone', () => {
-    // It was accepted, typed and threaded all the way down, then dropped.
-    for (const file of readdirSync('server/services/email/providers')) {
-      if (!file.endsWith('.ts')) continue;
+  it('every adapter carries the provider\'s Reply-To, and nothing else sets one', () => {
+    // It was once accepted from callers, typed and threaded all the way down,
+    // then dropped. Now it comes from the provider config alone (`reply_to`,
+    // read once by the service) and every adapter puts it on the wire.
+    for (const file of ['resend.ts', 'sendgrid.ts', 'smtp.ts']) {
       const body = stripTs(read(join('server/services/email/providers', file)));
-      expect(body, file).not.toMatch(/reply_to|replyTo/);
+      expect(body, file).toMatch(/message\.replyTo/);
+      expect(body, file).not.toMatch(/config\.reply_to|cfg\.reply_to/);
     }
+  });
+
+  it('a Reply-To smuggled onto the request never reaches the provider', async () => {
+    const { sendEmail } = await import('../../../server/services/email/index');
+    const smuggled = {
+      workspaceId: 'ws-1', to: 'victim@example.com', subject: 'S', html: '<p>b</p>',
+      replyTo: 'spoofed@attacker.example',
+    } as unknown as Parameters<typeof sendEmail>[1];
+    await sendEmail(CONFIG, smuggled);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.reply_to).toBeUndefined();
+
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { api_key: 'platform_key', from_email: 'platform@example.com', from_name: 'Platform Mail', reply_to: 'support@example.com' },
+    };
+    await sendEmail(CONFIG, smuggled);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reply_to).toEqual(['support@example.com']);
   });
 });

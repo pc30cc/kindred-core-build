@@ -17,6 +17,7 @@ export const INVITATION_ERROR_CODES = [
   'EMAIL_PROOF_REQUIRED',
   'OTP_INVALID',
   'OTP_RATE_LIMITED',
+  'INVITATION_RATE_LIMITED',
   'CONSENT_REQUIRED',
   'SEAT_LIMIT_REACHED',
   'ENTITLEMENT_UNAVAILABLE',
@@ -50,13 +51,14 @@ export type InvitationErrorCode = (typeof INVITATION_ERROR_CODES)[number];
 
 /** Normalizes any thrown/returned error into a stable code. */
 export function invitationErrorCode(input: unknown): string {
+  const body = (input as { error?: unknown } | null | undefined)?.error;
   const raw =
     typeof input === 'string'
       ? input
       : input instanceof Error
         ? input.message
-        : typeof (input as any)?.error === 'string'
-          ? (input as any).error
+        : typeof body === 'string'
+          ? body
           : '';
   const code = raw.trim();
   if (!code) return 'INTERNAL_ERROR';

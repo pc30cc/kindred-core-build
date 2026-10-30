@@ -35,6 +35,7 @@ import { widgetSettingsRouter } from './routes/widgetSettings.js';
 import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { notificationEmailRouter } from './routes/notificationEmail.js';
+import { notificationEmailUnsubscribeRouter } from './routes/notificationEmailUnsubscribe.js';
 import { pushRouter } from './routes/push.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
@@ -67,6 +68,7 @@ import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
 import { internalChannelsRouter } from './routes/internalChannels.js';
 import { emailInboxRouter } from './routes/emailInbox.js';
 import { gmailPushRouter } from './routes/gmailPush.js';
+import { emailEventsRouter } from './routes/emailEvents.js';
 
 import { phoneVerificationRouter } from './routes/phoneVerification.js';
 import { adminRouter } from './routes/admin.js';
@@ -106,6 +108,8 @@ import { startRecordingRetentionJanitor } from './services/recordings/retentionJ
 import { startVisitorDataRetention } from './services/privacy/visitorRetention.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startInvitationWorker } from './services/invitations/worker.js';
+import { startEmailOutboxWorker } from './services/email/outbox.js';
+import { onProcessShutdown } from './services/jobs/processShutdown.js';
 import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
 import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.js';
 
@@ -374,6 +378,11 @@ app.use('/api/commerce/events', commerceEventsRouter);
 // before express.json() so the raw bytes survive for verification.
 app.use('/api/commerce/connection', commercePluginActionsRouter);
 
+// Bounce and complaint reports of the mail providers and of our relay
+// (docs/operations/EMAIL.md). Each is signed over its raw bytes, so this
+// mounts before express.json() with its own raw parser and rate limit.
+app.use('/api/email-events', emailEventsRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body. The widget
 // bootstrap also accepts its JSON as text/plain (a CORS-simple request, no
@@ -385,6 +394,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
   if (req.path.startsWith('/api/commerce/connection')) return next();
+  if (req.path.startsWith('/api/email-events')) return next();
   return parseJsonBody(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
@@ -464,7 +474,7 @@ app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorPreA
 // auth+membership enforced per-route. Lower rate-limit footprint vs widget.
 app.use('/api/visitor-intel', visitorsAdminRouter);
 
-// Email — workspace-scoped rate limit
+// Email — the test buttons: a per-IP limit here, per member and workspace in the routes
 app.use('/api/email', emailRateLimiter, emailRouter);
 
 // AI — auth required, workspace rate limiting built into routes
@@ -499,6 +509,9 @@ app.use('/api/workspaces', commerceConnectionsRouter);
 app.use('/api/widget/commerce/guest-verification', widgetCorsMiddleware(), commerceGuestVerificationRouter);
 app.use('/api/widget/commerce/identity', widgetCorsMiddleware(), commerceIdentityRouter);
 
+// The notification emails' unsubscribe link: public, the signed link is the
+// credential, so it is mounted ahead of the signed-in router below.
+app.use('/api/notifications/email/unsubscribe', notificationEmailUnsubscribeRouter);
 // Self-service notification preferences
 app.use('/api/notifications/email', notificationEmailRouter);
 app.use('/api/notifications', notificationsRouter);
@@ -753,6 +766,12 @@ const httpServer = app.listen(config.port, () => {
       else console.error('[invitations] worker not started: entitlement bootstrap failed');
     });
   }
+  // The email outbox (migration 289b): receipts, plan mails and the reset and
+  // verification links whose first attempt failed are sent, and retried, from
+  // here. In the backend by default, because only the backend reaches the
+  // mail relay; EMAIL_OUTBOX_INPROC=0 only when a WORKER_KIND=email-outbox
+  // container on the relay's network runs it instead.
+  if (process.env.EMAIL_OUTBOX_INPROC !== '0') startEmailOutboxWorker(config);
 
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
@@ -1083,5 +1102,9 @@ httpServer.headersTimeout = 67_000;
 httpServer.on('close', () => {
   void stopCacheBusListener();
 });
+// SIGTERM (a container being replaced) drains the outboxes while requests
+// are still answered, then stops taking them and exits: the proxy keeps
+// routing here until the process is gone (services/jobs/processShutdown.ts).
+onProcessShutdown('http', () => new Promise<void>((resolve) => httpServer.close(() => resolve())), { last: true });
 
 export default app;

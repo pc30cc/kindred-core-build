@@ -139,6 +139,8 @@ auth (`services/calls/livekitTwirp.ts`, `routes/livekitWebhook.ts` — the
 explicitly-named exception in the closure instructions), 7 payment-gateway
 providers (Stripe, PayPal, Paddle, LemonSqueezy, PayPing, Iranpardakht),
 and 2 email providers (Resend, SendGrid). None reference Supabase.
+(Historical: the email providers are now one registry with an SMTP adapter
+beside these two; see `docs/operations/EMAIL.md`.)
 
 ## `access_token` / `refresh_token`
 

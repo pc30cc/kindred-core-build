@@ -18,7 +18,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { sendBillingEmail } from './notify.js';
+import { billingMailKey, sendBillingEmail } from './notify.js';
 import { afterPlanChange } from './plans.js';
 import { afterAiPack } from './aiPacks.js';
 
@@ -86,9 +86,26 @@ export async function afterAccountSettlement(config: ServerConfig, settled: Sett
           amount: ctx.money(Number(payment.amount_minor), payment.currency),
           balance: ctx.money(Number(settled.balance_minor ?? 0), payment.currency),
         }),
-        { receiptLedgerId: settled.ledger_id ?? null },
+        {
+          receiptLedgerId: settled.ledger_id ?? null,
+          queue: true,
+          dedupeKey: billingMailKey('billing_payment_receipt', payment.workspace_id, settled.ledger_id ?? settled.payment_id),
+        },
       );
     }
+    // The owners and admins who asked for it hear that money arrived (the
+    // operator notification email "Payments received"), the billing
+    // recipient aside: the receipt (or the card renewal mail) tells that
+    // address already.
+    await import('../../notificationEmail/producers.js')
+      .then((m) => m.queueInvoicePaid(config, {
+        workspaceId: payment.workspace_id,
+        amountMinor: Number(payment.amount_minor),
+        currency: payment.currency,
+        paymentKey: String(settled.ledger_id ?? settled.payment_id),
+        receiptNumber: settled.receipt_number ?? null,
+      }))
+      .catch((e: unknown) => console.warn('[billing-account] payment notice not queued:', e instanceof Error ? e.message : e));
     if (settled.purpose === 'ai_pack') {
       if (result && typeof result === 'object' && !purposeError && !result.replayed) {
         await afterAiPack(config, payment.workspace_id, result);

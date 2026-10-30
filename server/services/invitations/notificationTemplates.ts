@@ -163,6 +163,21 @@ export function renderInviteEmail(locale: unknown, input: InviteEmailInput): Ren
   };
 }
 
+/**
+ * {inviter} when the inviter's own name cannot be read (no name on the
+ * account): "<strong>{inviter}</strong> has invited you" must never read
+ * "<strong></strong> has invited you".
+ */
+const INVITER_FALLBACK: Record<NotificationLocale, string> = {
+  fa: 'یکی از اعضای تیم',
+  tr: 'Bir ekip üyesi',
+  en: 'A team member',
+};
+
+export function renderInviterFallback(locale: unknown): string {
+  return INVITER_FALLBACK[normalizeNotificationLocale(locale)];
+}
+
 // ── Invitation SMS (never carries a token) ────────────────────────────────
 
 export function renderInviteSms(locale: unknown, workspaceName: string, email: string): string {

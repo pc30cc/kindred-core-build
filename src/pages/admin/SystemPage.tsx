@@ -56,10 +56,10 @@ export default function AdminSystemPage() {
   });
   const counts = summary.data?.counts || {};
   const summaryRows = [
-    { metric: 'realtime.token_minted', label: t('admin.system.metrics.tokens' as any) },
-    { metric: 'realtime.channel_ownership_reject', label: t('admin.system.metrics.rejects' as any) },
-    { metric: 'widget.typing_rate_limited', label: t('admin.system.metrics.typing' as any) },
-    { metric: 'realtime.fallback_engaged', label: t('admin.system.metrics.polling' as any) },
+    { metric: 'realtime.token_minted', label: t('admin.system.metrics.tokens') },
+    { metric: 'realtime.channel_ownership_reject', label: t('admin.system.metrics.rejects') },
+    { metric: 'widget.typing_rate_limited', label: t('admin.system.metrics.typing') },
+    { metric: 'realtime.fallback_engaged', label: t('admin.system.metrics.polling') },
   ];
 
   const activeAlerts = (activeAlertsQ.data?.active || []).slice(0, 3);
@@ -82,7 +82,7 @@ export default function AdminSystemPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">{t('admin.system.title' as any)}</h1>
+      <h1 className="text-2xl font-bold text-foreground">{t('admin.system.title')}</h1>
       <SystemDegradedBanner />
       <EffectivePolicyPanel />
 
@@ -105,13 +105,13 @@ export default function AdminSystemPage() {
               ) : (
                 <AlertTriangle className="h-4 w-4" />
               )}
-              {t('admin.system.activeAlerts' as any, { count: activeAlertsQ.data?.active.length ?? 0 })}
+              {t('admin.system.activeAlerts', { count: activeAlertsQ.data?.active.length ?? 0 })}
             </CardTitle>
             <Link
               to="/admin/observability"
               className="text-xs text-primary hover:underline"
             >
-              {t('admin.system.viewAll' as any)} →
+              {t('admin.system.viewAll')} →
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -153,13 +153,13 @@ export default function AdminSystemPage() {
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm flex items-center gap-2 text-warning">
               <Shield className="h-4 w-4" />
-              {t('admin.system.activeActions' as any, { count: activeActionsQ.data?.active.length ?? 0 })}
+              {t('admin.system.activeActions', { count: activeActionsQ.data?.active.length ?? 0 })}
             </CardTitle>
             <Link
               to="/admin/observability"
               className="text-xs text-primary hover:underline"
             >
-              {t('admin.system.manage' as any)} →
+              {t('admin.system.manage')} →
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -175,8 +175,8 @@ export default function AdminSystemPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground whitespace-nowrap">
-                  <span>{t('admin.system.trigger' as any)}: {a.trigger_rule_slug || 'any-critical'}</span>
-                  <span>{t('admin.system.expires' as any)} {new Date(a.expires_at).toLocaleTimeString()}</span>
+                  <span>{t('admin.system.trigger')}: {a.trigger_rule_slug || 'any-critical'}</span>
+                  <span>{t('admin.system.expires')} {new Date(a.expires_at).toLocaleTimeString()}</span>
                 </div>
               </div>
             ))}
@@ -187,14 +187,14 @@ export default function AdminSystemPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-foreground text-sm">{t('admin.system.health.title' as any)}</CardTitle>
+            <CardTitle className="text-foreground text-sm">{t('admin.system.health.title')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {(['database', 'auth', 'realtime', 'storage', 'edge'] as const).map(s => (
               <div key={s} className="flex items-center justify-between">
-                <span className="text-muted-foreground text-sm">{t(`admin.system.health.${s}` as any)}</span>
+                <span className="text-muted-foreground text-sm">{t(`admin.system.health.${s}` as const)}</span>
                 <Badge className="bg-success/20 text-success gap-1">
-                  <CheckCircle className="h-3 w-3" /> {t('admin.common.healthy' as any)}
+                  <CheckCircle className="h-3 w-3" /> {t('admin.common.healthy')}
                 </Badge>
               </div>
             ))}
@@ -204,21 +204,21 @@ export default function AdminSystemPage() {
         <Card className="bg-card border-border">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="text-foreground text-sm flex items-center gap-2">
-              <Activity className="h-4 w-4" /> {t('admin.system.realtimeHour' as any)}
+              <Activity className="h-4 w-4" /> {t('admin.system.realtimeHour')}
             </CardTitle>
             <Link
               to="/admin/observability"
               className="text-xs text-primary hover:underline"
             >
-              {t('admin.system.drillDown' as any)} →
+              {t('admin.system.drillDown')} →
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
             {summary.isLoading && (
-              <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>
+              <p className="text-muted-foreground text-sm">{t('admin.common.loading')}</p>
             )}
             {summary.error && !summary.isLoading && (
-              <p className="text-destructive text-sm">{t('admin.system.metricsUnavailable' as any)}</p>
+              <p className="text-destructive text-sm">{t('admin.system.metricsUnavailable')}</p>
             )}
             {!summary.isLoading && !summary.error && summaryRows.map((r) => (
               <div key={r.metric} className="flex items-center justify-between">
@@ -232,24 +232,24 @@ export default function AdminSystemPage() {
         <Card className="bg-card border-border">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="text-foreground text-sm flex items-center gap-2">
-              <Gauge className="h-4 w-4" /> {t('admin.system.performanceHour' as any)}
+              <Gauge className="h-4 w-4" /> {t('admin.system.performanceHour')}
             </CardTitle>
             <Link
               to="/admin/observability"
               className="text-xs text-primary hover:underline"
             >
-              {t('admin.system.drillDown' as any)} →
+              {t('admin.system.drillDown')} →
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
             {perfSummaryQ.isLoading && (
-              <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>
+              <p className="text-muted-foreground text-sm">{t('admin.common.loading')}</p>
             )}
             {(perfSummaryQ.error || perfProcessQ.error) && !perfSummaryQ.isLoading && (
-              <p className="text-destructive text-sm">{t('admin.system.performanceUnavailable' as any)}</p>
+              <p className="text-destructive text-sm">{t('admin.system.performanceUnavailable')}</p>
             )}
             {!perfSummaryQ.isLoading && !perfSummaryQ.error && !perfProcessQ.error && perfRows.length === 0 && (
-              <p className="text-muted-foreground text-sm">{t('admin.system.noPerformance' as any)}</p>
+              <p className="text-muted-foreground text-sm">{t('admin.system.noPerformance')}</p>
             )}
             {!perfSummaryQ.error && !perfProcessQ.error && perfRows.map((r) => (
               <div
@@ -267,9 +267,9 @@ export default function AdminSystemPage() {
             ))}
             {perfLatest && (
               <div className="pt-2 mt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-                <span>{t('admin.system.eventLoopLag' as any)} {perfLatest.event_loop_lag_ms.toFixed(2)}ms</span>
+                <span>{t('admin.system.eventLoopLag')} {perfLatest.event_loop_lag_ms.toFixed(2)}ms</span>
                 <span>RSS {fmtBytes(perfLatest.rss_bytes)}</span>
-                <span>{t('admin.system.heap' as any)} {fmtBytes(perfLatest.heap_used_bytes)}</span>
+                <span>{t('admin.system.heap')} {fmtBytes(perfLatest.heap_used_bytes)}</span>
               </div>
             )}
           </CardContent>
@@ -277,15 +277,24 @@ export default function AdminSystemPage() {
 
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-foreground text-sm">{t('admin.system.runtimeConfig' as any)}</CardTitle>
+            <CardTitle className="text-foreground text-sm">{t('admin.system.runtimeConfig')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {config?.length === 0 && <p className="text-muted-foreground text-sm">{t('admin.system.noRuntimeConfig' as any)}</p>}
+            {config?.length === 0 && <p className="text-muted-foreground text-sm">{t('admin.system.noRuntimeConfig')}</p>}
+            {/* The server leaves every credential out of these values and
+                lists it in secretKeysSet: what is set shows, never its value. */}
             {config?.map(c => (
-              <div key={c.key} className="flex items-center justify-between">
+              <div key={c.key} className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground font-mono text-sm">{c.key}</span>
-                <span className="text-muted-foreground text-xs truncate max-w-[200px]">
-                  {JSON.stringify(c.value)}
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-muted-foreground text-xs truncate max-w-[200px]">
+                    {JSON.stringify(c.value)}
+                  </span>
+                  {Array.isArray(c.secretKeysSet) && c.secretKeysSet.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {t('admin.system.secretsHidden', { count: c.secretKeysSet.length })}
+                    </Badge>
+                  )}
                 </span>
               </div>
             ))}
@@ -296,15 +305,15 @@ export default function AdminSystemPage() {
       <Card className="bg-card border-border">
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-foreground text-sm flex items-center gap-2">
-            <Activity className="h-4 w-4" /> {t('admin.system.reliabilityDay' as any)}
+            <Activity className="h-4 w-4" /> {t('admin.system.reliabilityDay')}
           </CardTitle>
           <Link to="/admin/observability" className="text-xs text-primary hover:underline">
-            {t('admin.system.drillDown' as any)} →
+            {t('admin.system.drillDown')} →
           </Link>
         </CardHeader>
         <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="rounded-md border border-border px-3 py-2">
-            <div className="text-xs text-muted-foreground">{t('admin.system.uptime' as any)}</div>
+            <div className="text-xs text-muted-foreground">{t('admin.system.uptime')}</div>
             <div className="text-foreground font-medium">
               {slaQ.data?.summary.uptime_pct != null
                 ? `${slaQ.data.summary.uptime_pct.toFixed(2)}%`
@@ -312,34 +321,34 @@ export default function AdminSystemPage() {
             </div>
           </div>
           <div className="rounded-md border border-border px-3 py-2">
-            <div className="text-xs text-muted-foreground">{t('admin.system.degradedMinutes' as any)}</div>
+            <div className="text-xs text-muted-foreground">{t('admin.system.degradedMinutes')}</div>
             <div className="text-foreground font-medium">
               {slaQ.data?.summary.degraded_minutes?.toFixed(1) ?? '—'}
             </div>
           </div>
           <div className="rounded-md border border-border px-3 py-2">
-            <div className="text-xs text-muted-foreground">{t('admin.system.failovers' as any)}</div>
+            <div className="text-xs text-muted-foreground">{t('admin.system.failovers')}</div>
             <div className="text-foreground font-medium">
               {slaQ.data?.summary.failover_count ?? '—'}
             </div>
           </div>
           <div className="rounded-md border border-border px-3 py-2">
-            <div className="text-xs text-muted-foreground">{t('admin.system.criticalAlerts' as any)}</div>
+            <div className="text-xs text-muted-foreground">{t('admin.system.criticalAlerts')}</div>
             <div className="text-foreground font-medium">
               {slaQ.data?.summary.critical_alert_count ?? '—'}
             </div>
           </div>
           <div className="rounded-md border border-border px-3 py-2 col-span-2 md:col-span-4">
-            <div className="text-xs text-muted-foreground mb-1">{t('admin.system.workspaceHealth' as any)}</div>
+            <div className="text-xs text-muted-foreground mb-1">{t('admin.system.workspaceHealth')}</div>
             <div className="flex items-center gap-2">
               <Badge className="bg-success/20 text-success">
-                {t('admin.common.healthy' as any)} {healthQ.data?.counts.healthy ?? 0}
+                {t('admin.common.healthy')} {healthQ.data?.counts.healthy ?? 0}
               </Badge>
               <Badge className="bg-warning/20 text-warning">
-                {t('admin.system.warning' as any)} {healthQ.data?.counts.warning ?? 0}
+                {t('admin.system.warning')} {healthQ.data?.counts.warning ?? 0}
               </Badge>
               <Badge className="bg-destructive/20 text-destructive">
-                {t('admin.system.atRisk' as any)} {healthQ.data?.counts.at_risk ?? 0}
+                {t('admin.system.atRisk')} {healthQ.data?.counts.at_risk ?? 0}
               </Badge>
             </div>
           </div>

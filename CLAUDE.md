@@ -124,6 +124,32 @@ conversation, the AI-held ones the timer closed included (owner, 2026-10-26;
 not in the native apps, whose Resolved lists closed ones too). How it works,
 every setting and the rollout: `docs/operations/CHAT_ROUTING.md`.
 
+## Email (owner, 2026-10-29: provider-driven)
+
+Every platform mail goes through one provider registry
+(`server/services/email/providers/`), to whichever provider the Super Admin
+picks (Super Admin → Providers → Email: our relay, Resend or SendGrid);
+switching is that setting, never a code change, and nothing outside an
+adapter may special-case a provider. The setting
+(`app_runtime_config.default_email_provider`) wins over `RESEND_API_KEY`,
+`SENDGRID_API_KEY` and `SMTP_*`, which only fill blanks; its secrets are
+encrypted under `PLUGIN_SECRETS_MASTER_KEY` on save and never reach a browser.
+Since 2026-10-29 15:11 UTC both brands send through our own Postfix relay,
+`mail-relay` on host.respok.app (`deploy/mail-relay/`: SASL per brand on
+`mail-relay:587` over the coolify network, DKIM selector `mx2026`, PTR
+`mail.respok.app`); receiving stays on iCloud. That hop gets STARTTLS with
+the relay's own certificate (self-signed for `mail-relay`, made on the host
+into `deploy/mail-relay/tls/`, never committed; the providers check it as
+`tls_ca`) and no AUTH before it; until its rollout (`deploy/mail-relay/README.md`,
+"TLS", step 0 first: `encryption` `none`, or every mail fails) it is plain.
+Failed transactional mail is retried by the email outbox (289b); a
+suppressed address (289; hard bounces of the address and complaints, fed by
+`/api/email-events/{resend,sendgrid,relay}` and the relay's bounce watcher;
+a 5.7.x refusal of our sending suppresses nothing and is alerted) is never
+mailed. A container that sends mail must be on the coolify network.
+How it works, DNS, rollout and the way back to Resend:
+`docs/operations/EMAIL.md`.
+
 ## The iOS app in Xcode on the Mac
 
 `~/dev/kcb-ios-preview` is the copy of the iOS app (`ios/Webyar`)
@@ -217,6 +243,8 @@ The same server also runs:
   answer 503 and 523 (seen 2026-10-22), so WebYar's WooCommerce connection
   to `p.webyar.ai` reads offline (`commerce_invalid_response`). That is the
   shop, not the sync; bringing them back is the owner's call.
+- `mail-relay` (Postfix) and its bounce watcher, both brands' outgoing mail:
+  a compose project outside Coolify (`deploy/mail-relay/README.md`).
 - The landing pages: app 1 `webyar.ai` (repo `pc30cc/webyarlanding`), app 27
   LimerLanding `limer.tr` (repo `pc30cc/lart`), app 28 RESPOK Landing.
 - The desktop downloads of both brands (since 2026-10-09): container
@@ -430,6 +458,17 @@ over unchanged. A full disk stops Postgres too.
     host.respok.app before the merge of the website rule, 2026-10-28
     21:59 UTC (a schema dump and the dry run in `/root/webyar-migrate-288/`;
     the 3 verified domain rows unchanged); RESPOK by its migrator on push.
+    Then the email migrations of PR #372, `289_email_suppressions.sql`,
+    `289b_email_outbox.sql`, `289c_notification_email_queue.sql`,
+    `289d_email_send_quota.sql`, `289f_email_inbox_request_ids.sql` and
+    `289g_email_review_fixes.sql`, applied by hand in one run before its merge,
+    2026-10-30 02:07 UTC, after a dry run of the six inside one `BEGIN …
+    ROLLBACK` at 01:22 (a dump of `email_templates`, `notification_email_jobs`,
+    `email_messages` and `user_email_notification_prefs`, a schema dump, the
+    dry run's and the run's logs: `/root/webyar-migrate-289/`). 289d gave the
+    six seeded `offline_message_received` templates (both editions, all still
+    as seeded) their plain subject and added `offline_messages_summary`; the
+    rest writes no data. RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

@@ -22,38 +22,74 @@ describe('Generic Verification Core admin readiness — email provider classific
     expect(classifyEmailProviderConfig({ provider_name: 'disabled' })).toBe('unconfigured');
   });
 
+  /** Every provider needs a sender; the cases below are about the rest. */
+  const FROM = { from_email: 'noreply@example.com' };
+
   it('resend without an api_key (config, secrets, or env) is invalid', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: {} }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { ...FROM } }, {})).toBe('invalid');
   });
 
   it('resend with an api_key in config is configured', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { api_key: 're_123' } }, {})).toBe('configured');
+    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { ...FROM, api_key: 're_123' } }, {})).toBe('configured');
   });
 
-  it('resend with the api_key only in secrets is configured', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'resend', secrets: { api_key: 're_123' } }, {})).toBe('configured');
+  it('resend with the api_key only in secrets is configured, encrypted or (older rows) not', () => {
+    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { ...FROM }, secrets: { api_key: 're_123' } }, {})).toBe('configured');
+    const envelope = { algorithm: 'aes-256-gcm', key_version: 1, nonce: 'n', ciphertext: 'c', auth_tag: 't' };
+    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { ...FROM }, secrets: { api_key: envelope } }, {})).toBe('configured');
   });
 
-  it('resend with only the env var set is configured', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: {} }, { RESEND_API_KEY: 're_env' })).toBe('configured');
+  it('resend with only the env var set is configured: the variable fills a blank', () => {
+    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { ...FROM } }, { RESEND_API_KEY: 're_env' })).toBe('configured');
   });
 
   it('sendgrid without an api_key is invalid; with one, configured', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'sendgrid', config: {} }, {})).toBe('invalid');
-    expect(classifyEmailProviderConfig({ provider_name: 'sendgrid', config: { api_key: 'sg_1' } }, {})).toBe('configured');
+    expect(classifyEmailProviderConfig({ provider_name: 'sendgrid', config: { ...FROM } }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'sendgrid', config: { ...FROM, api_key: 'sg_1' } }, {})).toBe('configured');
   });
 
   it('smtp without a host is invalid; with one, configured', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: {} }, {})).toBe('invalid');
-    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { smtp_host: 'smtp.example.com' } }, {})).toBe('configured');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM } }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'smtp.example.com' } }, {})).toBe('configured');
+  });
+
+  it('the production relay row as stored on 2026-10-29 is configured', () => {
+    expect(classifyEmailProviderConfig({
+      provider_name: 'smtp',
+      config: { smtp_host: 'mail-relay', smtp_port: '587', smtp_user: 'noreply@webyar.ai', smtp_pass: 'x-secret', from_email: 'noreply@webyar.ai', from_name: 'Webyar' },
+    }, {})).toBe('configured');
+  });
+
+  it('no provider is configured without a valid sender address', () => {
+    for (const config of [{ api_key: 're_1' }, { api_key: 're_1', from_email: 'not an address' }, { api_key: 're_1', from_email: 'a@b.com, c@d.com' }]) {
+      expect(classifyEmailProviderConfig({ provider_name: 'resend', config }, {}), JSON.stringify(config)).toBe('invalid');
+    }
+  });
+
+  it('an smtp user without its password is invalid (a wiped password cannot sign in)', () => {
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, {})).toBe('invalid');
+    // SMTP_PASS is the password of SMTP_HOST's relay, and of no other host.
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, { SMTP_HOST: 'mail-relay', SMTP_PASS: 'p' })).toBe('configured');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'mail-relay', smtp_user: 'u' } }, { SMTP_PASS: 'p' })).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'elsewhere', smtp_user: 'u' } }, { SMTP_HOST: 'mail-relay', SMTP_PASS: 'p' })).toBe('invalid');
+  });
+
+  it('an smtp port or encryption that cannot work is invalid', () => {
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'h', smtp_port: '99999' } }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'h', encryption: 'tls13' } }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'smtp', config: { ...FROM, smtp_host: 'h', encryption: 'starttls' } }, {})).toBe('configured');
   });
 
   it('an unrecognized provider_name is invalid, not configured', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'carrier-pigeon', config: { api_key: 'x' } }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'carrier-pigeon', config: { ...FROM, api_key: 'x' } }, {})).toBe('invalid');
+    // the old form's vendors without a server adapter
+    for (const name of ['mailgun', 'ses', 'postmark', 'sparkpost', 'mailtrap', 'brevo', 'stub']) {
+      expect(classifyEmailProviderConfig({ provider_name: name, config: { ...FROM, api_key: 'x' } }, {}), name).toBe('invalid');
+    }
   });
 
   it('never returns configured for an empty-string credential', () => {
-    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { api_key: '   ' } }, {})).toBe('invalid');
+    expect(classifyEmailProviderConfig({ provider_name: 'resend', config: { ...FROM, api_key: '   ' } }, {})).toBe('invalid');
   });
 });
 

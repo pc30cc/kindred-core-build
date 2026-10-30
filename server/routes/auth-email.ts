@@ -6,13 +6,15 @@
  * `sb.auth.admin.updateUserById` / `auth.users` are not touched here.
  */
 
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
 import { findIdentityByEmail, findIdentityById } from '../services/auth/identity.js';
+import { takeEmailQuota } from '../services/email/sendQuota.js';
+import { runInBackground } from '../services/jobs/background.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { requireUser } from '../lib/workspaceAuth.js';
@@ -44,58 +46,79 @@ function handleRouteError(res: Response, scope: string, error: unknown) {
   return res.status(500).json({ error: message });
 }
 
-interface AuthLookupUser {
-  id: string;
-  email: string | null;
-  emailConfirmedAt: string | null;
-  fullName: string | null;
+/**
+ * How often one account may be mailed a link of one kind from the public
+ * forms: once a minute, five times an hour. Counted per account (the
+ * recipient), not per caller, so a botnet cannot mail-bomb a person from
+ * many addresses; the IP limit in front of this router still applies.
+ */
+const AUTH_LINK_COOLDOWN_SECONDS = 60;
+const AUTH_LINKS_PER_HOUR = 5;
+
+async function mayMailAuthLink(config: ServerConfig, kind: 'reset' | 'verify', userId: string): Promise<boolean> {
+  const cooldown = await takeEmailQuota(config, {
+    scope: `auth_${kind}_cooldown`, key: userId, windowSeconds: AUTH_LINK_COOLDOWN_SECONDS, max: 1,
+  });
+  if (!cooldown.allowed) return false;
+  const hourly = await takeEmailQuota(config, {
+    scope: `auth_${kind}_hour`, key: userId, windowSeconds: 3600, max: AUTH_LINKS_PER_HOUR,
+  });
+  return hourly.allowed;
 }
 
-async function findAuthUserByEmail(config: ServerConfig, email: string): Promise<AuthLookupUser | null> {
-  const identity = await findIdentityByEmail(config, email);
-  if (!identity) return null;
-  return {
-    id: identity.id,
-    email: identity.email,
-    emailConfirmedAt: identity.emailVerifiedAt,
-    fullName: identity.fullName,
+/** The server config the app puts on every request. */
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
+}
+
+/**
+ * The public reset and verification forms: every request that names an
+ * address gets the same answer at once, `{ success: true }`, and whatever
+ * the address leads to happens afterwards (jobs/background.ts). The answer
+ * used to come after the lookup, the token and the provider's round trip for
+ * a known address and at once for an unknown one, and its time told which
+ * was which; the verification form also answered `already_confirmed` for a
+ * verified account. In the background: nothing for an unknown address, a
+ * disabled account, an already verified one (verification) or one over its
+ * per-account limit; otherwise the link, through the outbox's
+ * sendEmailWithRetry (services/auth-email.ts).
+ */
+function publicAuthLinkRoute(kind: 'reset' | 'verify') {
+  return async (req: Request, res: Response) => {
+    const config = configOf(req);
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (!email || email.length > 254) return res.status(400).json({ error: 'email is required' });
+    const locale = typeof body.locale === 'string' && /^[a-zA-Z-]{2,10}$/.test(body.locale) ? body.locale : 'en';
+    const ipAddress = getClientIp(req) || null;
+
+    res.json({ success: true });
+
+    runInBackground(`auth-email:${kind}`, async () => {
+      const identity = await findIdentityByEmail(config, email);
+      if (!identity || identity.status === 'disabled') return;
+      if (kind === 'verify' && identity.emailVerifiedAt) return;
+      if (!(await mayMailAuthLink(config, kind, identity.id))) return;
+      const options = {
+        userId: identity.id,
+        email: identity.email || email,
+        fullName: identity.fullName,
+        locale,
+      };
+      const result = kind === 'reset'
+        ? await issueRecoveryEmail(config, options)
+        : await issueVerificationEmail(config, { ...options, ipAddress });
+      if (!result.success) console.error(`[auth-email] ${kind} link not sent:`, result.error);
+    });
   };
 }
 
 /**
  * POST /api/auth-email/send-verification
- * Generate a verification token and send email via configured provider.
+ * A verification link for the account with this address, when there is one
+ * that still needs it. Always `{ success: true }` (publicAuthLinkRoute).
  */
-authEmailRouter.post('/send-verification', async (req, res) => {
-  try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const { email, locale } = req.body;
-
-    if (!email) return res.status(400).json({ error: 'email is required' });
-
-    const authUser = await findAuthUserByEmail(config, email);
-    if (!authUser) {
-      // Don't reveal if user exists
-      return res.json({ success: true });
-    }
-
-    const result = await issueVerificationEmail(config, {
-      userId: authUser.id,
-      email: authUser.email || email.trim().toLowerCase(),
-      fullName: authUser.fullName,
-      locale: locale || 'en',
-      ipAddress: getClientIp(req) || null,
-    });
-
-    if (!result.success) {
-      console.error('[auth-email] Failed to send verification:', result.error);
-    }
-
-    return res.json({ success: true });
-  } catch (err) {
-    return handleRouteError(res, '[auth-email] send-verification error:', err);
-  }
-});
+authEmailRouter.post('/send-verification', publicAuthLinkRoute('verify'));
 
 /**
  * POST /api/auth-email/verify-email
@@ -111,7 +134,7 @@ authEmailRouter.post('/send-verification', async (req, res) => {
  */
 authEmailRouter.post('/verify-email', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = configOf(req);
     const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
 
     if (!token) return res.status(400).json({ error: 'token is required' });
@@ -154,37 +177,10 @@ authEmailRouter.post('/verify-email', async (req, res) => {
 
 /**
  * POST /api/auth-email/send-reset
- * Generate a password reset token and send email via configured provider.
+ * A password reset link for the account with this address, when there is
+ * one. Always `{ success: true }` (publicAuthLinkRoute).
  */
-authEmailRouter.post('/send-reset', async (req, res) => {
-  try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const { email, locale } = req.body;
-
-    if (!email) return res.status(400).json({ error: 'email is required' });
-
-    const authUser = await findAuthUserByEmail(config, email);
-    if (!authUser) {
-      // Don't reveal if user exists
-      return res.json({ success: true });
-    }
-
-    const result = await issueRecoveryEmail(config, {
-      userId: authUser.id,
-      email: authUser.email || email.trim().toLowerCase(),
-      fullName: authUser.fullName,
-      locale: locale || 'en',
-    });
-
-    if (!result.success) {
-      console.error('[auth-email] Failed to send reset:', result.error);
-    }
-
-    return res.json({ success: true });
-  } catch (err) {
-    return handleRouteError(res, '[auth-email] send-reset error:', err);
-  }
-});
+authEmailRouter.post('/send-reset', publicAuthLinkRoute('reset'));
 
 /**
  * POST /api/auth-email/reset-password
@@ -202,7 +198,7 @@ authEmailRouter.post('/send-reset', async (req, res) => {
  */
 authEmailRouter.post('/reset-password', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = configOf(req);
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword) {
@@ -249,42 +245,10 @@ authEmailRouter.post('/reset-password', async (req, res) => {
 
 /**
  * POST /api/auth-email/resend-verification
- * Resend verification email for a user.
+ * The same as /send-verification (it used to answer `already_confirmed` for
+ * a verified account, which told anyone that the account existed).
  */
-authEmailRouter.post('/resend-verification', async (req, res) => {
-  try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const { email, locale } = req.body;
-
-    if (!email) return res.status(400).json({ error: 'email is required' });
-
-    const authUser = await findAuthUserByEmail(config, email);
-    if (!authUser) {
-      return res.json({ success: true }); // Don't reveal
-    }
-
-    // Check if already confirmed
-    if (authUser.emailConfirmedAt) {
-      return res.json({ success: true, already_confirmed: true });
-    }
-
-    const result = await issueVerificationEmail(config, {
-      userId: authUser.id,
-      email: authUser.email || email.trim().toLowerCase(),
-      fullName: authUser.fullName,
-      locale: locale || 'en',
-      ipAddress: getClientIp(req) || null,
-    });
-
-    if (!result.success) {
-      console.error('[auth-email] Failed to resend verification:', result.error);
-    }
-
-    return res.json({ success: true });
-  } catch (err) {
-    return handleRouteError(res, '[auth-email] resend-verification error:', err);
-  }
-});
+authEmailRouter.post('/resend-verification', publicAuthLinkRoute('verify'));
 
 // ═══════════════════════════════════════════════════════════════════════
 // SIGNUP EMAIL OTP — the code-based alternative to the verification LINK.
@@ -309,8 +273,8 @@ const otpVerifySchema = z.object({
   requestId: z.string().trim().min(1).max(200).optional(),
 });
 
-async function otpCaller(req: any, res: Response) {
-  const config: ServerConfig = req.serverConfig;
+async function otpCaller(req: Request, res: Response) {
+  const config = configOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return null;
   const identity = await findIdentityById(config, userId);

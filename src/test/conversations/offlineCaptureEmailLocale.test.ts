@@ -9,12 +9,13 @@
  *  - two owners, fa and en, get fa and en whatever the visitor's locale;
  *  - an owner without a preferred language gets the platform's default;
  *  - with no owner address, the workspace's reply-to address gets the
- *    platform's default;
- *  - the test send (POST /admin/test-offline-email) without a locale is in
- *    the requesting member's language; an explicit one still wins.
+ *    platform's default.
  *
- * The REAL widgetRouter runs in-process against fakeServiceDb.ts; the email
- * service records what it is asked to send.
+ * (The panel's test send, in the member's own language, is in
+ * src/test/email/emailTestRoutes.test.ts.)
+ *
+ * The REAL widgetRouter runs in-process against fakeServiceDb.ts; the outbox
+ * records what it is asked to queue.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -27,7 +28,6 @@ type Sent = { to?: string; locale?: string; templateSlug?: string };
 const state = vi.hoisted(() => ({
   db: null as unknown as FakeServiceDb,
   sent: [] as Array<Record<string, unknown>>,
-  user: 'u-fa' as string,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -61,9 +61,8 @@ vi.mock('../../../server/services/conversationEvents.js', () => ({
   recordConversationEvent: async () => ({ ok: true }),
   recordAuditAndEvent: async () => undefined,
 }));
-vi.mock('../../../server/services/email/index.js', async (orig) => ({
-  ...(await orig<typeof import('../../../server/services/email/index.js')>()),
-  sendEmail: async (_c: unknown, request: Record<string, unknown>) => { state.sent.push(request); return { success: true, provider: 'resend' }; },
+vi.mock('../../../server/services/email/outbox.js', () => ({
+  enqueueEmail: async (_c: unknown, request: Record<string, unknown>) => { state.sent.push(request); return { queued: true, id: 'q' }; },
 }));
 vi.mock('../../../server/services/auth-email.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/auth-email.js')>()),
@@ -72,10 +71,6 @@ vi.mock('../../../server/services/auth-email.js', async (orig) => ({
 vi.mock('../../../server/services/platformRegion.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/platformRegion.js')>()),
   getPlatformAllowedLocales: async () => ['fa', 'en', 'tr'],
-}));
-vi.mock('../../../server/lib/workspaceAuth.js', async (orig) => ({
-  ...(await orig<typeof import('../../../server/lib/workspaceAuth.js')>()),
-  authorizeWorkspaceAccess: async () => ({ userId: state.user, isAdmin: false, role: 'owner' }),
 }));
 vi.mock('../../../server/services/knowledge-base/locks.js', () => ({ resolveKbLock: async () => null, applyKbUnlockedFilter: (q: unknown) => q }));
 vi.mock('../../../server/routes/widgetIdentity.js', () => ({ widgetIdentityRouter: express.Router() }));
@@ -90,6 +85,7 @@ vi.mock('../../../server/routes/widgetAttachments.js', async (orig) => ({
 const { widgetRouter } = await import('../../../server/routes/widget.js');
 const { __resetWidgetRateLimitsForTests } = await import('../../../server/services/widget/security.js');
 const { __resetOperatorLocaleCache } = await import('../../../server/services/operatorLocale.js');
+const { __resetEmailQuotaMemoryForTests } = await import('../../../server/services/email/sendQuota.js');
 
 const app = express();
 app.use((req, _res, next) => { Object.assign(req, { serverConfig: { supabaseUrl: 'https://x.test', supabaseServiceRoleKey: 'k' } }); next(); });
@@ -128,9 +124,9 @@ beforeEach(() => {
   ];
   state.db.tables.platform_settings = [{ id: 1, default_locale: 'fa' }];
   state.sent.length = 0;
-  state.user = 'u-fa';
   __resetWidgetRateLimitsForTests();
   __resetOperatorLocaleCache();
+  __resetEmailQuotaMemoryForTests();
 });
 
 describe('the offline-message mail is in each recipient\'s language', () => {
@@ -162,21 +158,10 @@ describe('the offline-message mail is in each recipient\'s language', () => {
   });
 });
 
-describe('the test send', () => {
-  it('without a locale: the requesting member\'s language', async () => {
-    state.user = 'u-en';
-    expect(await post('/api/widget/admin/test-offline-email', { workspace_id: WS, to: 'me@example.com' })).toBe(200);
-    expect(mails()).toHaveLength(1);
-    expect(mails()[0].locale).toBe('en');
-    state.user = 'u-fa';
-    __resetOperatorLocaleCache();
-    expect(await post('/api/widget/admin/test-offline-email', { workspace_id: WS, to: 'me@example.com' })).toBe(200);
-    expect(mails()[1].locale).toBe('fa');
-  });
-
-  it('an explicit locale still wins', async () => {
-    expect(await post('/api/widget/admin/test-offline-email', { workspace_id: WS, to: 'me@example.com', locale: 'tr' })).toBe(200);
-    expect(mails()[0].locale).toBe('tr');
+describe('the old test route', () => {
+  it('is gone from the widget API (the panel\'s test is POST /api/email/test-offline-notice)', async () => {
+    expect(await post('/api/widget/admin/test-offline-email', { workspace_id: WS, to: 'me@example.com' })).toBe(404);
+    expect(mails()).toEqual([]);
   });
 });
 

@@ -13,68 +13,19 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ServerConfig } from '../../../server/config';
+import { db } from './fakeNotificationDb';
 
 type Row = Record<string, unknown>;
-type Result = { data: Row[] | null; error: { code?: string; message: string } | null };
-const db: Record<string, Row[]> = {};
-const sent: Array<{ to: string; slug?: string; locale?: string }> = [];
+const sent: Array<{ to: string; slug?: string; locale?: string; html?: Record<string, string> }> = [];
 
-vi.mock('../../../server/supabase.js', () => ({
-  getServiceClient: () => ({
-    from(table: string) {
-      const rows: Row[] = db[table] || (db[table] = []);
-      const filters: Array<(r: Row) => boolean> = [];
-      let pending: 'update' | 'insert' | null = null;
-      let payload: Row | Row[] = {};
-      const matched = () => rows.filter((r) => filters.every((f) => f(r)));
-      const run = (): Result => {
-        if (pending === 'update') {
-          const hits = matched();
-          for (const r of hits) Object.assign(r, payload);
-          return { data: hits, error: null };
-        }
-        if (pending === 'insert') {
-          const out: Row[] = [];
-          for (const value of Array.isArray(payload) ? payload : [payload]) {
-            if (table === 'notification_email_jobs' && rows.some((r) => r.dedupe_key === value.dedupe_key)) {
-              return { data: null, error: { code: '23505', message: 'duplicate key' } };
-            }
-            const inserted = { id: `row-${rows.length + 1}`, status: 'pending', attempts: 0, ...value };
-            rows.push(inserted);
-            out.push(inserted);
-          }
-          return { data: out, error: null };
-        }
-        return { data: matched(), error: null };
-      };
-      const builder: Record<string, unknown> = {
-        select: () => builder,
-        eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return builder; },
-        neq: (c: string, v: unknown) => { filters.push((r) => r[c] !== v); return builder; },
-        is: (c: string, v: unknown) => { filters.push((r) => (r[c] ?? null) === v); return builder; },
-        in: (c: string, vs: unknown[]) => { filters.push((r) => vs.includes(r[c])); return builder; },
-        lt: (c: string, v: string) => { filters.push((r) => String(r[c]) < v); return builder; },
-        lte: (c: string, v: string) => { filters.push((r) => String(r[c]) <= v); return builder; },
-        gte: (c: string, v: string) => { filters.push((r) => String(r[c]) >= v); return builder; },
-        or: () => builder,
-        order: () => builder,
-        limit: () => builder,
-        update: (patch: Row) => { pending = 'update'; payload = patch; return builder; },
-        insert: (values: Row | Row[]) => { pending = 'insert'; payload = values; return builder; },
-        maybeSingle: async () => {
-          const result = run();
-          return { data: result.data?.[0] ?? null, error: result.error };
-        },
-        then: (resolve: (value: Result) => unknown) => resolve(run()),
-      };
-      return builder;
-    },
-  }),
-}));
+vi.mock('../../../server/supabase.js', async () => {
+  const { fakeClient } = await import('./fakeNotificationDb');
+  return { getServiceClient: () => fakeClient() };
+});
 
 vi.mock('../../../server/services/email/index.js', () => ({
-  sendEmail: async (_config: unknown, req: { to: string; templateSlug?: string; locale?: string }) => {
-    sent.push({ to: req.to, slug: req.templateSlug, locale: req.locale });
+  sendEmail: async (_config: unknown, req: { to: string; templateSlug?: string; locale?: string; htmlData?: Record<string, string> }) => {
+    sent.push({ to: req.to, slug: req.templateSlug, locale: req.locale, html: req.htmlData });
     return { success: true, provider: 'stub', id: 'msg-1' };
   },
 }));
@@ -159,22 +110,35 @@ describe('the transcript', () => {
     expect(fa.locale).toBe('fa');
     expect(en.locale).toBe('en');
 
-    const faText = String((fa.payload as Row).transcript);
-    expect(faText).toBe([
-      '<p>← سلام، سفارشم کجاست؟</p>',
-      '<p>→ بازدیدکننده در صف پشتیبانی منتظر است</p>',
-      '<p>→ یکی از همکاران به گفتگو پیوست</p>',
-      '<p>→ در راه است.</p>',
-      '<p>→ Ali این گفتگو را از حالت واگذارشده خارج کرد</p>',
-      '<p>→ Sara گفتگو را بست</p>',
-    ].join(''));
+    // Plain lines in the queue; the dispatcher makes the HTML, escaped.
+    const faLines = (fa.payload as Row).transcript_lines as string[];
+    expect(faLines).toEqual([
+      '← سلام، سفارشم کجاست؟',
+      '→ بازدیدکننده در صف پشتیبانی منتظر است',
+      '→ یکی از همکاران به گفتگو پیوست',
+      '→ در راه است.',
+      '→ Ali این گفتگو را از حالت واگذارشده خارج کرد',
+      '→ Sara گفتگو را بست',
+    ]);
     // No English system sentence, and nothing a reader cannot be told.
-    expect(faText).not.toMatch(/support queue|joined|unassigned|closed the conversation|a colleague|next year/);
+    expect(faLines.join('\n')).not.toMatch(/support queue|joined|unassigned|closed the conversation|a colleague|next year/);
 
-    const enText = String((en.payload as Row).transcript);
-    expect(enText).toContain('<p>→ The visitor is waiting in the support queue</p>');
-    expect(enText).toContain('<p>→ Sara closed the conversation</p>');
-    expect(enText).not.toContain('next year');
+    const enLines = (en.payload as Row).transcript_lines as string[];
+    expect(enLines).toContain('→ The visitor is waiting in the support queue');
+    expect(enLines).toContain('→ Sara closed the conversation');
+    expect(enLines.join('\n')).not.toContain('next year');
+
+    await dispatchNotificationEmails(CONFIG);
+    const faMail = sent.find((m) => m.to === 'fa@example.test')!;
+    expect(faMail.html?.transcript).toBe(faLines.map((line) => `<p>${line}</p>`).join(''));
+  });
+
+  it('reaches the HTML escaped: a visitor\'s markup is text', async () => {
+    db.conversation_messages = [];
+    message('contact', '<a href="//evil.example">Verify your account</a>');
+    await queueTranscript(CONFIG, { conversationId: CONV, workspaceId: WS, actorId: null });
+    await dispatchNotificationEmails(CONFIG);
+    expect(sent[0].html?.transcript).toBe('<p>← &lt;a href=&quot;//evil.example&quot;&gt;Verify your account&lt;/a&gt;</p>');
   });
 
   it("prints a placeholder subject as '—'", async () => {

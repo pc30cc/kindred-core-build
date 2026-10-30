@@ -53,9 +53,12 @@ const TABLES = ['conversation_ratings', 'conversation_transcript_emails', 'conve
 
 const sent = vi.hoisted(() => [] as Array<{ to: string; subject: string; html: string; text: string }>);
 vi.mock('../../../server/services/email/providers/resend.js', () => ({
-  sendViaResend: async (_cfg: unknown, to: string, subject: string, html: string, text: string) => {
-    sent.push({ to, subject, html, text });
-    return { success: true, provider: 'resend', id: `m-${sent.length}` };
+  resendAdapter: {
+    name: 'resend',
+    send: async (_cfg: unknown, message: { to: string; subject: string; html: string; text: string }) => {
+      sent.push({ to: message.to, subject: message.subject, html: message.html, text: message.text });
+      return { success: true, provider: 'resend', id: `m-${sent.length}` };
+    },
   },
 }));
 
@@ -555,13 +558,16 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
       to: 'visitor@example.test',
       templateSlug: 'visitor_conversation_transcript',
       locale: 'tr',
+      // Text as typed (the email core escapes it for the HTML part); the
+      // transcript's rows are HTML of their own, so they come in htmlData.
       templateData: {
-        workspace: 'Acme &amp; Co $1',
+        workspace: 'Acme & Co $1',
         workspace_name: 'Acme & Co $1',
         date: '18.10.2026',
-        transcript: `<tr><td>${visitorText}</td></tr>`,
+        transcript: visitorText,
         transcript_text: visitorText,
       },
+      htmlData: { transcript: `<tr><td>${visitorText}</td></tr>` },
     });
     expect(res.success).toBe(true);
     const mail = sent[sent.length - 1];
@@ -571,8 +577,10 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(mail.text).toContain(visitorText);
 
     // Per-part data (htmlData): the owners' offline-message mail takes the
-    // visitor's text as typed in its subject and text part, and the escaped
-    // copy in its HTML only, so neither shows an entity nor runs markup.
+    // escaped copy of the visitor's text in its HTML only, so it never runs
+    // markup. Since 289d its seeded subject names no visitor field and its
+    // seeded text part is made from that HTML, so the text shows what was
+    // typed, with no entity.
     const name = '<b>Ali</b> & "co"';
     const body = '<img src=x onerror="alert(1)"> & 5 > 3';
     const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -586,7 +594,7 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     });
     expect(offline.success).toBe(true);
     const owner = sent[sent.length - 1];
-    expect(owner.subject).toBe(`New offline message from ${name}`);
+    expect(owner.subject).toBe('New offline message');
     expect(owner.text).toContain(name);
     expect(owner.text).toContain(body);
     expect(owner.text).not.toContain('&amp;');
@@ -595,16 +603,16 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(owner.html).not.toContain('<img src=x');
     expect(owner.html).not.toContain('<b>Ali</b>');
 
-    // A name typed with line breaks: the subject stays one header line.
+    // A value typed with line breaks: the subject stays one header line.
     const broken = await sendEmail(loadConfig(), {
       workspaceId: null,
       to: 'owner@example.test',
-      templateSlug: 'offline_message_received',
-      locale: 'en',
-      templateData: { contact_name: 'Ali\r\nBcc: x@evil.test\nX', contact_email: 'ali@example.test', message_body: 'hi', action_url: '' },
+      templateSlug: 'visitor_conversation_transcript',
+      locale: 'tr',
+      templateData: { workspace: 'Acme', workspace_name: 'Acme\r\nBcc: x@evil.test\nX', date: '18.10.2026', transcript: '', transcript_text: '' },
     });
     expect(broken.success).toBe(true);
-    expect(sent[sent.length - 1].subject).toBe('New offline message from Ali Bcc: x@evil.test X');
+    expect(sent[sent.length - 1].subject).toBe('Acme Bcc: x@evil.test X ile sohbetiniz');
   });
 
   it('T9 276 runs twice: every check, policy and trigger once, and a re-run waits for no ordinary writer', async () => {

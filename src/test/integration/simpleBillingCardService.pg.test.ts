@@ -433,7 +433,13 @@ suite('saved card service against the real chain (postgres-only, Paddle faked)',
     const card4 = String(((await one(`SELECT public.billing_card_register('paddle_sandbox', 'sub_4', 'ctm_4', 'USD', $1) AS r`, [pay4])).r as Row).card_id);
     const { periodEndOf } = await import('../../../server/services/billing/account/cardState.js');
     const charged = new Date(Date.parse(end) - 86_400_000).toISOString();
-    const ahead = periodEndOf(charged, 'monthly')!;
+    // Its date a month on from the charge is, on a mid-month day, our next
+    // charge date (the prepaid period's end − 24 h). Near a month's end the
+    // two can be a day or more apart (Oct 30 + 1 month = Nov 30, while Oct
+    // 31's next period ends Nov 30, − 24 h = Nov 29), and the reconciler then
+    // rightly puts Paddle's date at ours (S2 in simpleBillingCard.pg.test.ts).
+    // This database runs on today's clock, so Paddle shows ours on any day.
+    const ahead = new Date(Date.parse(periodEndOf(end, 'monthly')!) - 86_400_000).toISOString();
     fake.subs.set('sub_4', {
       id: 'sub_4', status: 'active', customer_id: 'ctm_4', currency_code: 'USD', next_billed_at: ahead,
       current_billing_period: { starts_at: charged, ends_at: ahead }, scheduled_change: null, custom_data: { workspace_id: ws4, card_id: card4 },
@@ -460,7 +466,7 @@ suite('saved card service against the real chain (postgres-only, Paddle faked)',
     expect(out).toEqual({ status: 'deferred', detail: 'renewal_settled' });
     expect(fake.calls.slice(mark).filter((c) => c.method === 'PATCH' && c.path === '/subscriptions/sub_4')).toEqual([]);
     expect(fake.subs.get('sub_4')!.next_billed_at).toBe(ahead);
-    // The next pass puts Paddle's date at the prepaid period's end − 24 h (later, never earlier).
+    // The next pass keeps Paddle's date at the prepaid period's end − 24 h.
     expect(['synced', 'unchanged']).toContain((await card.syncCard(config, card4)).status);
     const wanted = Date.parse(periodEndOf(end, 'monthly')!) - 86_400_000;
     expect(Math.abs(Date.parse(fake.subs.get('sub_4')!.next_billed_at as string) - wanted)).toBeLessThanOrEqual(60_000);

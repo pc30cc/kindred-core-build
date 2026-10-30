@@ -85,7 +85,9 @@ suite('280 — the widget\'s visitor forms (real PostgreSQL)', () => {
       const html = String(r.html_body);
       expect(html.split('{contact_phone}')).toHaveLength(2);
       expect(html).toContain(`>${label[String(r.locale)]}</td><td style="padding:6px 0;" dir="ltr">{contact_phone}</td></tr></table>`);
-      expect(String(r.text_body)).toContain('({contact_email} {contact_phone})');
+      // 289d cleared the seeded text part (283's phone included): it is made
+      // from this HTML now, so no visitor field is filled outside the HTML.
+      expect(r.text_body).toBeNull();
     }
 
     // 280 itself leaves the template to 283 (the placeholder waits for the backend that fills it).

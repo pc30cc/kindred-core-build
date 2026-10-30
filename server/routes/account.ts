@@ -509,7 +509,8 @@ accountRouter.post('/change-password', async (req, res) => {
 // Unlike the public /api/auth-email/resend-verification endpoint (which must
 // stay enumeration-safe and therefore always answers 200), this route knows
 // exactly who is asking, so it can report the REAL outcome back to the UI:
-//   - 200 { sent: true }            → the self-hosted email provider accepted it
+//   - 200 { sent: true }            → the email provider accepted it (with
+//                                      `queued: true`: it is being retried)
 //   - 200 { already_verified: true }→ nothing to do
 //   - 429 { retry_after_seconds }   → server-side cooldown, still pending
 //   - 502 { error: 'email_send_failed' } → provider rejected / not configured
@@ -571,7 +572,9 @@ accountRouter.post('/resend-verification', async (req, res) => {
       return res.status(502).json({ error: 'email_send_failed' });
     }
 
-    return res.json({ success: true, sent: true, email });
+    // `queued`: the provider did not take it at once, and the outbox tries
+    // again for as long as the link works; it may take a few minutes.
+    return res.json({ success: true, sent: true, email, ...(result.queued ? { queued: true } : {}) });
   } catch (err: unknown) {
     console.error('[account] resend-verification error:', errorMessage(err, String(err)));
     return res.status(500).json({ error: 'Failed to send verification email' });

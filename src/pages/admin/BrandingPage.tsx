@@ -50,23 +50,6 @@ interface PlatformSettingsRow {
   [key: string]: unknown;
 }
 
-interface EmailSettingsRow {
-  sender_email?: string | null;
-  reply_to_email?: string | null;
-  email_logo_url?: string | null;
-  email_footer_text?: string | null;
-  [key: string]: unknown;
-}
-
-/** One row of `email_settings_localized`, keyed by locale. */
-interface EmailSettingsLocalizedRow {
-  locale: string;
-  sender_name?: string | null;
-  footer_text?: string | null;
-  support_contact_label?: string | null;
-  [key: string]: unknown;
-}
-
 // ── Reusable field row ──
 function FieldRow({
   label, desc, value, onChange, type = 'text', placeholder,
@@ -855,93 +838,18 @@ function DomainUrlsSection() {
   );
 }
 
-// ── Email Settings Section ──
+// ── Email settings: gone ──
 /**
- * Super Admin → Branding → Email settings.
- *
- * ONE field, and that is the whole section. It used to carry seven, and six
- * of them were read by nothing:
- *
- *   sender_email, sender_name  — a second place to answer "who is this from".
- *     The From header is built entirely from the platform email provider's
- *     `from_email` / `from_name` (Super Admin → Providers → Email); see
- *     `resolveFromAddress` in server/services/email/index.ts, the only code
- *     that decides a sender.
- *   email_logo_url, email_footer_text, footer_text, support_contact_label —
- *     email branding that no template can express. Of the 84 stored templates
- *     (28 slugs) not one references a logo or footer placeholder, and not one
- *     contains an <img> tag; `{brand}` is the only branding hook, and it comes
- *     from platform_branding_localized. The code-side wrapper in
- *     server/services/verification/templates.ts has no slot for either.
- *
- * A setting an admin can change that the runtime never reads is worse than no
- * setting: it looks like it worked. The columns stay for rollback, but nothing
- * writes them any more.
+ * Super Admin → Branding used to have an Email settings tab, last with one
+ * field, "Reply-to email". It set no Reply-To on any mail and was read by
+ * nothing (the offline-message fallback reads a workspace's own row, never
+ * this platform one). Reply-To is the email provider's, like From: it is the
+ * provider's Reply-To field under Super Admin → Providers → Email, which
+ * every message carries when it is set, and that page offers a value once
+ * typed here while the provider has none. The other six fields went earlier
+ * for the same reason: a setting the runtime never reads is worse than no
+ * setting, because it looks like it worked.
  */
-function EmailSettingsSection() {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const { data: emailSettings, isLoading: settingsLoading } = useQuery({
-    queryKey: ['platform-email-settings'],
-    queryFn: async () => {
-      const body = await adminFetch<{ settings: EmailSettingsRow }>('/api/admin/management/email-settings');
-      return body.settings;
-    },
-  });
-
-  const [replyTo, setReplyTo] = useState('');
-  const [settingsDirty, setSettingsDirty] = useState(false);
-
-  useEffect(() => {
-    if (emailSettings) {
-      setReplyTo(emailSettings.reply_to_email ?? '');
-      setSettingsDirty(false);
-    }
-  }, [emailSettings]);
-
-  const saveSettings = useMutation({
-    mutationFn: async () => {
-      await adminFetch('/api/admin/management/email-settings', {
-        method: 'PUT',
-        body: JSON.stringify({ reply_to_email: replyTo }),
-      });
-    },
-    onSuccess: () => {
-      toast({ title: t('admin.brandingPage.emailSettings.saved') });
-      setSettingsDirty(false);
-      qc.invalidateQueries({ queryKey: ['platform-email-settings'] });
-    },
-    onError: (e: Error) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
-  });
-
-  if (settingsLoading) return <LoadingCard />;
-
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-4">
-        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground text-base">{t('admin.brandingPage.emailSettings.title')}</CardTitle></div>
-        <CardDescription>{t('admin.brandingPage.emailSettings.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.globalTitle')}</h3>
-          <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
-            {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
-          </Button>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <FieldRow
-            label={t('admin.brandingPage.emailSettings.replyToEmail')}
-            desc={t('admin.brandingPage.emailSettings.replyToEmailHint')}
-            value={replyTo}
-            onChange={(v) => { setReplyTo(v); setSettingsDirty(true); }}
-            placeholder="support@example.com"
-          />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ── Loading placeholder ──
 function LoadingCard() {
@@ -970,7 +878,6 @@ export default function AdminBrandingPage() {
         <TabsList className="w-full justify-start flex-wrap">
           <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> {t('admin.brandingPage.tabs.identity')}</TabsTrigger>
           <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings')}</TabsTrigger>
-          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailSettings')}</TabsTrigger>
           <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailTemplates')}</TabsTrigger>
           <TabsTrigger value="ui-defaults" className="gap-1.5"><Type className="h-4 w-4" /> {t('admin.brandingPage.tabs.uiDefaults')}</TabsTrigger>
           <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.domains')}</TabsTrigger>
@@ -979,7 +886,6 @@ export default function AdminBrandingPage() {
         <TabsContent value="ui-defaults" className="mt-4"><UiDefaultsSection /></TabsContent>
 
         <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>
-        <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
         <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>
         <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>
       </Tabs>

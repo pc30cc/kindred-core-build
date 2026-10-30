@@ -1,16 +1,24 @@
 // ============================================
 // EMAIL API ROUTES — self-hosted backend only
-// All email sending goes through these routes.
 // ============================================
+//
+// No route here sends mail a caller composes. Every platform mail is sent by
+// the server for something that happened (a reset, an invitation, a
+// receipt, a visitor's message), through server/services/email; what is
+// left here are the two test buttons, and each mails only the member who
+// presses it, at their own verified address.
 
 import { Router } from 'express';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { sendEmail } from '../services/email/index.js';
-import { requireChannel } from '../middleware/featureGating.js';
+import { sendEmail, type SendResult } from '../services/email/index.js';
+import { takeEmailQuota } from '../services/email/sendQuota.js';
+import { sendOfflineNoticeTest } from '../services/widget/offlineNotice.js';
 import type { ServerConfig } from '../config.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
-import { getServiceClient } from '../supabase.js';
+import { authorizeWorkspaceAccess, type WorkspaceAuth } from '../lib/workspaceAuth.js';
+import { findIdentityById } from '../services/auth/identity.js';
+import { operatorLocale } from '../services/operatorLocale.js';
+import { parseEmailAddress } from '../../shared/emailProviders.js';
 
 export const emailRouter = Router();
 
@@ -20,124 +28,139 @@ function serverConfigOf(req: Request): ServerConfig {
 }
 
 /**
- * POST /api/email/send
- * PLATFORM / AUTH / TRANSACTIONAL email surface.
+ * POST /api/email/send and POST /api/email/send-channel — retired.
  *
- * This route is intentionally NOT plan-gated — it is shared by:
- *   - in-process auth flows (verify, password reset) via server/services/auth-email.ts
- *     (those callers invoke sendEmail() directly and never traverse HTTP, but the
- *      route is still classified as platform email so its contract stays stable),
- *   - workspace team invitations (TeamPage, TeamDepartmentsPage),
- *   - workspace operational notifications (offline-message admin test, etc.).
- *
- * For true workspace channel-email sending (customer-facing communication that
- * should disappear when the email channel is not on the workspace plan) callers
- * MUST use POST /api/email/send-channel below, which is gated with
- * requireChannel('email'). See docs/EMAIL_SURFACE_SPLIT.md.
+ * Both took a recipient, a subject, a body or any platform template with the
+ * caller's own values, and sent it From the platform's address through the
+ * platform's provider: /send for any member, then /send-channel for any
+ * member of a workspace with the email channel. A member could send the
+ * platform's real password-reset mail with a link of their choosing, signed
+ * with our domain's DKIM key, to any address (and, over SMTP, to several in
+ * one `to`). Nothing in the web app, the native and desktop apps or the
+ * channels service called /send-channel. Mail to customers goes through the
+ * workspace's own connected mailbox (/api/email-inbox), never through the
+ * platform sender.
  */
-emailRouter.post('/send', (_req, res) => res.status(410).json({
-  error: 'ARBITRARY_EMAIL_RELAY_RETIRED',
-  replacement: '/api/email/send-channel',
-}));
+const retired = (_req: Request, res: Response) => res.status(410).json({ error: 'ARBITRARY_EMAIL_RELAY_RETIRED' });
+emailRouter.post('/send', retired);
+emailRouter.post('/send-channel', retired);
 
+// ─── The test buttons ─────────────────────────────────────────────────────
+
+/** Test mails one member may send in ten minutes, and one workspace in a day. */
+const TESTS_PER_MEMBER = { windowSeconds: 10 * 60, max: 3 };
+const TESTS_PER_WORKSPACE = { windowSeconds: 24 * 60 * 60, max: 10 };
+
+/**
+ * `.strict()`: a test goes to the caller's own address, so a `to` (or any
+ * other field) in the body is refused with a 400 rather than ignored, which
+ * would let a client believe it had been honoured.
+ */
+const testSchema = z.object({
+  workspaceId: z.string().uuid(),
+  locale: z.enum(['en', 'fa', 'tr']).optional(),
+}).strict();
+
+/**
+ * What every test send checks before it sends: an owner or admin of the
+ * workspace (or the platform's admin), their own address, verified, and
+ * within the test limits (counted per member and per workspace, on top of
+ * the per-IP limit in front of this router). Writes the refusal and returns
+ * null, or returns who and where.
+ */
+async function testSender(req: Request, res: Response): Promise<{ auth: WorkspaceAuth; workspaceId: string; to: string; locale?: string } | null> {
+  const config = serverConfigOf(req);
+  const parsed = testSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'invalid_request' });
+    return null;
+  }
+  const { workspaceId, locale } = parsed.data;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return null;
+
+  const identity = await findIdentityById(config, auth.userId);
+  const to = identity?.emailVerifiedAt ? parseEmailAddress(identity.email) : null;
+  if (!to) {
+    res.status(400).json({ error: 'verified_email_required' });
+    return null;
+  }
+
+  const member = await takeEmailQuota(config, { scope: 'email_test_member', key: auth.userId, ...TESTS_PER_MEMBER });
+  const workspace = member.allowed
+    ? await takeEmailQuota(config, { scope: 'email_test_workspace', key: workspaceId, ...TESTS_PER_WORKSPACE })
+    : member;
+  if (!workspace.allowed) {
+    res.setHeader('Retry-After', String(workspace.retryAfterSeconds));
+    res.status(429).json({ error: 'test_limit_reached', retry_after_seconds: workspace.retryAfterSeconds });
+    return null;
+  }
+  return { auth, workspaceId, to, locale };
+}
+
+/**
+ * The provider's real answer: 200 when it took the mail, 502 when it did
+ * not, with our "<errorCode>: <reason>" (never the provider's own text).
+ */
+function answer(res: Response, to: string, result: SendResult) {
+  return res.status(result.success ? 200 : 502).json({
+    success: result.success,
+    sent_to: to,
+    ...(result.success ? {} : { error: result.error, error_code: result.errorCode ?? 'provider_error' }),
+  });
+}
+
+/**
+ * POST /api/email/test-send { workspaceId, locale? }
+ * The Super Admin template `email_test` (per edition, migration 260), to the
+ * caller's own address; the text here is only what is sent if that template
+ * was deleted.
+ */
 emailRouter.post('/test-send', async (req, res) => {
   try {
+    const sender = await testSender(req, res);
+    if (!sender) return;
     const config = serverConfigOf(req);
-    const workspaceId = String(req.body?.workspaceId || '');
-    const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
-    if (!auth) return;
-    const { data: profile } = await getServiceClient(config)
-      .from('profiles').select('email').eq('id', auth.userId).maybeSingle();
-    if (!profile?.email) return res.status(400).json({ error: 'verified_email_required' });
-
-    // The Super Admin template `email_test` (per edition, migration 260); the
-    // text here is only what is sent if that template was deleted.
     const result = await sendEmail(config, {
-      workspaceId,
-      to: profile.email,
+      workspaceId: sender.workspaceId,
+      to: sender.to,
       templateSlug: 'email_test',
-      locale: typeof req.body?.locale === 'string' ? req.body.locale : undefined,
+      locale: sender.locale || await operatorLocale(config, sender.auth.userId),
       subject: 'Email provider test',
-      text: 'Your workspace email provider is configured correctly.',
-      html: '<p>Your workspace email provider is configured correctly.</p>',
+      text: 'This is a test email. The email provider is configured correctly.',
+      html: '<p>This is a test email. The email provider is configured correctly.</p>',
     });
-
-    return res.status(result.success ? 200 : 500).json(result);
+    return answer(res, sender.to, result);
   } catch (err) {
-    console.error('[email] Send error:', err);
+    console.error('[email] test-send error:', err instanceof Error ? err.message : err);
     return res.status(500).json({ error: 'Internal email error' });
   }
 });
 
 /**
- * POST /api/email/send-channel
- * CHANNEL email surface — customer-facing workspace email sending.
+ * POST /api/email/test-offline-notice { workspaceId, locale? }
+ * Workspace → Widget → Availability: the owners' "new offline message" mail
+ * (template `offline_message_received`) with sample details, to the
+ * caller's own address, in the language asked for or the caller's own.
  *
- * This is the only email route gated by the email channel entitlement.
- * Platform/auth/transactional traffic MUST NOT use this route.
- *
- * Reuses the canonical entitlement stack via requireChannel('email'):
- * a workspace whose plan does not include the email channel (or whose
- * admin override disables it) receives 403 here while /api/email/send
- * remains reachable for auth and platform notifications.
+ * It used to be POST /api/widget/admin/test-offline-email, which sat behind
+ * the widget's token gate (so the panel, which has no widget token, always
+ * got 401), took any recipient from any member, and answered ok whatever the
+ * provider said.
  */
-/**
- * The only fields a workspace may send.
- *
- * `.strict()` on purpose. This route used to pull `from` and `replyTo` off the
- * body and hand them to `sendEmail()`, which meant a workspace with the email
- * channel could put any address it liked in the From header of mail sent
- * through the PLATFORM's Resend account — spoofing, not just a config
- * override. Transport identity belongs to
- * Super Admin → Providers → Email and to nothing else.
- *
- * Dropping unknown keys silently would close the hole but keep the
- * misunderstanding: a client would go on sending `from`, see 200, and believe
- * it was honoured. A 400 that names the field says what the rule is.
- */
-const sendChannelSchema = z.object({
-  workspaceId: z.string().min(1),
-  to: z.string().min(1).max(320),
-  subject: z.string().max(1000).optional(),
-  html: z.string().optional(),
-  text: z.string().optional(),
-  templateSlug: z.string().max(200).optional(),
-  templateData: z.record(z.string(), z.string()).optional(),
-  locale: z.string().min(2).max(10).optional(),
-}).strict();
-
-emailRouter.post('/send-channel', requireChannel('email'), async (req, res) => {
+emailRouter.post('/test-offline-notice', async (req, res) => {
   try {
+    const sender = await testSender(req, res);
+    if (!sender) return;
     const config = serverConfigOf(req);
-
-    const parsed = sendChannelSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const rejected = parsed.error.issues
-        .filter((i) => i.code === 'unrecognized_keys')
-        .flatMap((i) => (i as unknown as { keys: string[] }).keys ?? []);
-      if (rejected.length) {
-        return res.status(400).json({
-          error: 'UNSUPPORTED_FIELDS',
-          fields: rejected,
-          detail:
-            'The sender identity is set by the platform in Super Admin → Providers → Email and cannot be supplied per request.',
-        });
-      }
-      return res.status(400).json({ error: 'Invalid input' });
-    }
-
-    const { workspaceId, to, subject, html, text, templateSlug, templateData, locale } = parsed.data;
-    if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
-
-    // Forwarded field by field rather than spread, so the set that reaches the
-    // send path is visible here and a future addition to the schema cannot
-    // reach it by accident.
-    const result = await sendEmail(config, {
-      workspaceId, to, subject, html, text, templateSlug, templateData, locale,
+    const result = await sendOfflineNoticeTest(config, {
+      workspaceId: sender.workspaceId,
+      to: sender.to,
+      locale: sender.locale || await operatorLocale(config, sender.auth.userId),
     });
-    return res.status(result.success ? 200 : 500).json(result);
+    return answer(res, sender.to, result);
   } catch (err) {
-    console.error('[email] send-channel error:', err);
+    console.error('[email] test-offline-notice error:', err instanceof Error ? err.message : err);
     return res.status(500).json({ error: 'Internal email error' });
   }
 });

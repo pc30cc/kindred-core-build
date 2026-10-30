@@ -25,9 +25,12 @@ const suite = DSN ? describe : describe.skip;
 
 const sent = vi.hoisted(() => [] as Array<{ to: string; subject: string; html: string; from: string }>);
 vi.mock('../../../server/services/email/providers/resend.js', () => ({
-  sendViaResend: async (_cfg: unknown, to: string, subject: string, html: string, _text: string, from: string) => {
-    sent.push({ to, subject, html, from });
-    return { success: true, provider: 'resend', id: `m-${sent.length}` };
+  resendAdapter: {
+    name: 'resend',
+    send: async (_cfg: unknown, message: { to: string; subject: string; html: string; from: { name: string; address: string } }) => {
+      sent.push({ to: message.to, subject: message.subject, html: message.html, from: `${message.from.name} <${message.from.address}>` });
+      return { success: true, provider: 'resend', id: `m-${sent.length}` };
+    },
   },
 }));
 
@@ -102,6 +105,43 @@ suite('260 — email templates per edition (real PostgreSQL, real sendEmail)', (
     );
     expect(fa.rows[0].html_body).toContain('dir="rtl"');
     expect(fa.rows[0].html_body).toContain('{code}');
+  });
+
+  it('every seeded template shows the values it prints in its HTML as text, when the caller gives no htmlData', async () => {
+    // The guard for every caller at once: a value only a caller's htmlData
+    // may put into the HTML as markup, so a caller that forgets it (as the
+    // verification mail did with the sign-up's full name), or a template that
+    // prints a value its caller never thought would be in HTML, still sends
+    // text. Every placeholder of every platform row, as the send path fills it.
+    const { fillEmailTemplate } = await import('../../../server/services/email/index.js');
+    const rows = await chain.db.query(
+      `SELECT edition, slug, locale, subject, html_body, text_body FROM public.email_templates WHERE workspace_id IS NULL`,
+    );
+    expect(rows.rows.length).toBeGreaterThan(20);
+    let printed = 0;
+    for (const row of rows.rows) {
+      const keys = [...new Set([...String(row.html_body).matchAll(/\{\{([a-z_][a-z0-9_]*)\}\}|\{([a-z_][a-z0-9_]*)\}/gi)].map((m) => m[1] ?? m[2]))];
+      const data = Object.fromEntries(keys.map((key) => [key, `<a href="https://evil.example/${key}">x</a>`]));
+      const { html } = fillEmailTemplate(row, data);
+      for (const key of keys) {
+        expect(html, `${row.edition}/${row.slug}/${row.locale} {${key}}`).not.toContain(`<a href="https://evil.example/${key}">`);
+        expect(html, `${row.edition}/${row.slug}/${row.locale} {${key}}`).toContain(`&lt;a href=&quot;https://evil.example/${key}&quot;&gt;`);
+        printed++;
+      }
+    }
+    expect(printed).toBeGreaterThan(100);
+
+    // And through the real send: the reset mail with a stranger's name.
+    await setRegion('multi');
+    sent.length = 0;
+    const res = await sendPlatformEmail(config, {
+      to: 'victim@example.test', subject: '', templateSlug: 'password_reset', locale: 'en',
+      templateData: { name: '<a href="https://evil.example/refund">Confirm your refund</a>', action_url: 'https://app.example.test/auth/reset-password?token=t' },
+    });
+    expect(res.success).toBe(true);
+    expect(sent[0].html).not.toContain('<a href="https://evil.example');
+    expect(sent[0].html).toContain('&lt;a href=&quot;https://evil.example/refund&quot;&gt;Confirm your refund&lt;/a&gt;');
+    expect(sent[0].html).toContain('href="https://app.example.test/auth/reset-password?token=t"');
   });
 
   it('a second platform row for the same (edition, slug, locale) is refused', async () => {

@@ -10,13 +10,17 @@
  * deliberate: a platform that can mail every operator whatever it likes is
  * not a notification setting, it is a megaphone.
  *
- * The provider is stored the same way the platform's default transport is,
- * in `app_runtime_config`, under its own key — so a burst of digests cannot
- * cost the platform the sending reputation its password resets depend on.
+ * The provider is a choice between the platform default and the separate
+ * notification provider (`app_runtime_config.notification_email_provider`,
+ * saved through the email provider config store from Super Admin →
+ * Providers → Email). The dispatcher uses it only when its provider is the
+ * one chosen here and it can send; else the default carries these, and this
+ * page says so.
  */
 import { Router } from 'express';
 import type { Request } from 'express';
 import rateLimit from 'express-rate-limit';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -26,9 +30,12 @@ import {
   normalizeNotificationEmailSettings,
   SETTINGS_COLUMNS,
 } from '../services/notificationEmail/settings.js';
-import { OVERRIDE_PROVIDER_KEY, dispatchNotificationEmails } from '../services/notificationEmail/dispatcher.js';
-import { queueProductUpdate } from '../services/notificationEmail/producers.js';
+import { OVERRIDE_PROVIDER_KEY } from '../services/notificationEmail/dispatcher.js';
+import { ANNOUNCEMENTS_PER_HOUR } from '../services/notificationEmail/producers.js';
 import { NOTIFICATION_EMAILS, NOTIFICATION_EMAIL_TYPES } from '../services/notificationEmail/types.js';
+import { readEmailProviderConfig } from '../services/email/providerConfigStore.js';
+import { emailProviderReadiness } from '../services/email/providers/index.js';
+import { EMAIL_PROVIDER_ADAPTERS } from '../../shared/emailProviders.js';
 
 export const adminNotificationEmailRouter = Router();
 
@@ -36,13 +43,15 @@ function serverConfigOf(req: Request): ServerConfig {
   return (req as unknown as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
+/**
+ * The Super Admin making the change: adminRouter's requireAdmin sets
+ * `adminUser` (admin.ts), as adminEmailProviders.ts reads it. Nothing on
+ * this mount sets `authUser`, so the announcement's author and the settings'
+ * last editor were written NULL.
+ */
 function actorId(req: Request): string | null {
-  const auth = (req as unknown as { authUser?: { id?: string }; userId?: string });
-  return auth.authUser?.id ?? auth.userId ?? null;
+  return (req as unknown as { adminUser?: { id?: string } }).adminUser?.id ?? null;
 }
-
-/** The providers `services/email/index.ts` knows how to talk to. */
-const PROVIDERS = ['resend', 'sendgrid', 'smtp'] as const;
 
 const settingsSchema = z.object({
   enabled: z.boolean().optional(),
@@ -52,35 +61,54 @@ const settingsSchema = z.object({
   weekly_summary_enabled: z.boolean().optional(),
   product_updates_enabled: z.boolean().optional(),
   // Null is "use the platform default", which is a real choice and not a
-  // missing value.
-  provider_override: z.enum(PROVIDERS).nullable().optional(),
+  // missing value. A name is a provider this server has an adapter for.
+  provider_override: z.enum(EMAIL_PROVIDER_ADAPTERS).nullable().optional(),
   unread_after_minutes: z.number().int().min(5).max(1440).optional(),
   digest_every_minutes: z.number().int().min(15).max(1440).optional(),
   weekly_summary_dow: z.number().int().min(0).max(6).optional(),
   weekly_summary_hour: z.number().int().min(0).max(23).optional(),
 });
 
+/** relation or column missing: a database before migration 289c. */
+function before289c(error: { code?: string } | null | undefined): boolean {
+  return ['42P01', 'PGRST205', '42703', 'PGRST204'].includes(String(error?.code ?? ''));
+}
+
 // GET /api/admin/notification-email
 adminNotificationEmailRouter.get('/', async (req, res) => {
   try {
     const config = serverConfigOf(req);
     const settings = await loadNotificationEmailSettings(config);
-    const sb = getServiceClient(config);
 
-    // Whether the override actually has credentials behind it. An admin who
-    // picks a provider and never fills its key would otherwise see a chosen
-    // provider and wonder why the mail still goes out the default one.
-    const { data: overrideRow } = await sb
-      .from('app_runtime_config')
-      .select('value')
-      .eq('key', OVERRIDE_PROVIDER_KEY)
-      .maybeSingle();
-    const overrideValue = (overrideRow as { value?: Record<string, unknown> } | null)?.value ?? null;
+    // The separate provider as the store reads it (secrets decrypted here,
+    // never sent): its name, and whether it can send. An admin who picks a
+    // provider and never sets it up would otherwise see a chosen provider and
+    // wonder why the mail still goes out the default one.
+    const stored = await readEmailProviderConfig(config, OVERRIDE_PROVIDER_KEY).catch(() => null);
+    const notificationProvider = {
+      provider_name: stored?.provider_name ?? null,
+      configured: emailProviderReadiness(stored) === 'configured',
+    };
+
+    const { data: announcements, error: announcementsError } = await getServiceClient(config)
+      .from('notification_email_announcements')
+      .select('id, title, status, recipients_queued, created_at, finished_at')
+      .order('created_at', { ascending: false })
+      .limit(5);
 
     return res.json({
       settings,
-      providers: PROVIDERS,
-      provider_configured: Boolean(overrideValue && Object.keys(overrideValue).length),
+      providers: EMAIL_PROVIDER_ADAPTERS,
+      notification_provider: notificationProvider,
+      // The choice made here really carries the mail: the stored provider is
+      // the one chosen, and it can send.
+      provider_configured: Boolean(
+        settings.provider_override
+        && notificationProvider.configured
+        && notificationProvider.provider_name === settings.provider_override,
+      ),
+      announcements: announcementsError ? [] : announcements ?? [],
+      announcements_per_hour: ANNOUNCEMENTS_PER_HOUR,
       // The catalogue, so the console never hardcodes a list that can drift
       // from the one the server enforces.
       types: NOTIFICATION_EMAIL_TYPES.map((type) => ({
@@ -90,7 +118,8 @@ adminNotificationEmailRouter.get('/', async (req, res) => {
       })),
     });
   } catch (err: unknown) {
-    return res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Failed to load settings' });
+    console.error('[notification-email] settings read failed', { message: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ error: 'Failed to load settings' });
   }
 });
 
@@ -117,12 +146,16 @@ adminNotificationEmailRouter.patch('/', async (req, res) => {
       .eq('id', true)
       .select(SETTINGS_COLUMNS)
       .maybeSingle();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error('[notification-email] settings write failed', { message: error.message });
+      return res.status(500).json({ error: 'Failed to update settings' });
+    }
 
     invalidateNotificationEmailSettingsCache();
     return res.json({ settings: normalizeNotificationEmailSettings(data) });
   } catch (err: unknown) {
-    return res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Failed to update settings' });
+    console.error('[notification-email] settings write failed', { message: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ error: 'Failed to update settings' });
   }
 });
 
@@ -130,8 +163,12 @@ adminNotificationEmailRouter.patch('/', async (req, res) => {
  * The announcement.
  *
  * Rate limited hard, because it is the one endpoint here that reaches every
- * operator on the platform at once. Bounded by the platform switch AND by
- * each operator's own preference, like everything else.
+ * operator on the platform. The request only writes the announcement down:
+ * the notification ticker queues it to the operators a page at a time, at
+ * most ANNOUNCEMENTS_PER_HOUR an hour (producers.ts, fanOutAnnouncements),
+ * bounded by the platform switch AND by each operator's own preference,
+ * like everything else. Its body is plain text: what an admin types is
+ * shown as typed, never as HTML.
  */
 const announceLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -159,29 +196,36 @@ adminNotificationEmailRouter.post('/announce', announceLimiter, async (req, res)
       return res.status(409).json({ error: 'product_updates_disabled' });
     }
 
-    // The id is what stops a double-click sending two copies: same title,
-    // same body, same hour, same key, and the queue's index refuses the
-    // second.
-    const announcementId = `${Math.floor(Date.now() / 3_600_000)}:${hash(parsed.data.title + parsed.data.body)}`;
     // Spelled out: without strictNullChecks zod infers both fields as
     // optional, though the schema requires them.
     const { title, body } = parsed.data as { title: string; body: string };
-    const queued = await queueProductUpdate(config, { title, body, announcementId });
+    // The key is what stops a double-click sending two: same title, same
+    // body, same hour, one announcement.
+    const dedupeKey = `${Math.floor(Date.now() / 3_600_000)}:${createHash('sha256').update(`${title}\n${body}`).digest('hex').slice(0, 32)}`;
 
-    // Straight into a dispatch pass rather than waiting for the ticker: an
-    // admin who pressed send is watching.
-    const sent = await dispatchNotificationEmails(config);
+    const sb = getServiceClient(config);
+    const { data, error } = await sb
+      .from('notification_email_announcements')
+      .insert({ title, body, dedupe_key: dedupeKey, created_by: actorId(req) })
+      .select('id, title, status, recipients_queued, created_at, finished_at')
+      .single();
+    if (error) {
+      if (String(error.code) === '23505') {
+        const { data: existing } = await sb
+          .from('notification_email_announcements')
+          .select('id, title, status, recipients_queued, created_at, finished_at')
+          .eq('dedupe_key', dedupeKey)
+          .maybeSingle();
+        return res.json({ queued: true, duplicate: true, announcement: existing, per_hour: ANNOUNCEMENTS_PER_HOUR });
+      }
+      if (before289c(error)) return res.status(503).json({ error: 'announcements_unavailable' });
+      console.error('[notification-email] announcement not saved', { message: error.message });
+      return res.status(500).json({ error: 'Failed to send the announcement' });
+    }
 
-    return res.json({ queued, dispatched: sent });
+    return res.json({ queued: true, announcement: data, per_hour: ANNOUNCEMENTS_PER_HOUR });
   } catch (err: unknown) {
-    return res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Failed to send the announcement' });
+    console.error('[notification-email] announcement not saved', { message: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ error: 'Failed to send the announcement' });
   }
 });
-
-function hash(value: string): string {
-  let h = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    h = (h * 31 + value.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h).toString(36);
-}

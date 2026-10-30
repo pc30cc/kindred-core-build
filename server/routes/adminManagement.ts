@@ -40,6 +40,12 @@ import { getPlatformEdition, invalidatePlatformRegionCache } from '../services/p
 import { respondEditionUnavailable } from '../services/editionSettings.js';
 import type { Edition } from '../../shared/edition.js';
 import { PANEL_THEME_IDS, isValidPanelThemeOptions, resolvePanelThemeOptions } from '../../shared/panelThemes.js';
+import {
+  isEmailProviderKey,
+  readEmailProviderForAdmin,
+  writeEmailProviderConfig,
+  type EmailProviderKey,
+} from '../services/email/providerConfigStore.js';
 
 
 export const adminManagementRouter = Router();
@@ -532,13 +538,25 @@ adminManagementRouter.get('/provider-configs', async (req, res) => {
 });
 
 // ── Runtime config (platform-wide, read-only from this surface) ────────
+// Every row comes back without its credentials (see redactRuntimeConfigValue
+// below): the System page shows what is set, never a password or a key.
 adminManagementRouter.get('/runtime-config', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data, error } = await sb.from('app_runtime_config').select('*').order('key');
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ config: data });
+  try {
+    const rows = await Promise.all(((data ?? []) as Array<{ key: string; value: unknown }>).map(async (row) => {
+      const view = isEmailProviderKey(row.key)
+        ? await emailProviderView(config, row.key)
+        : redactRuntimeConfigValue(row.value);
+      return { ...row, value: view.value, secretKeysSet: view.secretKeysSet };
+    }));
+    return res.json({ config: rows });
+  } catch {
+    return res.status(500).json({ error: 'runtime_config_unavailable' });
+  }
 });
 
 // ── Global default email templates (platform-wide, workspace_id IS NULL).
@@ -975,63 +993,19 @@ adminManagementRouter.put('/panel-theme', async (req, res) => {
 });
 
 
-// ── Global email settings (workspace_id IS NULL) ───────────────────────
-adminManagementRouter.get('/email-settings', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb.from('email_settings').select('*').is('workspace_id', null).maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ settings: data });
-});
-
-/**
- * Platform email settings — ONE field.
- *
- * `reply_to_email` is the only thing here the runtime reads:
- * server/routes/widget.ts uses it as the recipient for an offline visitor
- * message when no operator has an address.
- *
- * Everything else that used to live on this route is gone, because nothing
- * ever read any of it:
- *
- *   sender_email  — a second place to answer "who is this mail from". The
- *     From header is built entirely from the platform email provider's
- *     `from_email` / `from_name` (Super Admin → Providers → Email); see
- *     `resolveFromAddress` in server/services/email/index.ts.
- *   email_logo_url, email_footer_text — email branding no template can
- *     express: of the 84 stored templates not one references a logo or footer
- *     placeholder and not one contains an <img> tag. `{brand}` is the only
- *     branding hook and it resolves from platform_branding_localized.
- *
- * The whole `/email-settings-localized` pair went with them. That table has no
- * runtime consumer at all — its three columns (sender_name, footer_text,
- * support_contact_label) were read by nothing — so the routes were a way to
- * write a row nobody would ever look at.
- *
- * A zod object strips undeclared keys, so an older client still posting
- * `sender_email` is ignored rather than rejected. The COLUMNS stay: dropping
- * them is a separate decision with rollback consequences, and leaving them is
- * harmless once nothing writes them.
- */
-const emailSettingsSchema = z.object({
-  reply_to_email: z.string().max(255).default(''),
-});
-
-adminManagementRouter.put('/email-settings', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  const parsed = emailSettingsSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data: existing } = await sb.from('email_settings').select('id').is('workspace_id', null).maybeSingle();
-  const { error } = existing
-    ? await sb
-        .from('email_settings')
-        .update({ ...parsed.data, updated_at: new Date().toISOString() })
-        .eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings').insert({ ...parsed.data, workspace_id: null });
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ success: true });
-});
+// ── Global email settings: gone ────────────────────────────────────────
+//
+// `email_settings` (workspace_id IS NULL) held one field the Super Admin
+// could still set, `reply_to_email`, under Branding → Email settings. It was
+// read by nothing: the offline-message fallback in server/routes/widget.ts
+// reads the WORKSPACE's row, never this one, and no message ever carried it
+// as a Reply-To. Reply-To is transport identity, like From, so it belongs to
+// the email provider and nowhere else: it is the provider's `reply_to`
+// (Super Admin → Providers → Email), which every message carries when set.
+// A second place for it would be the same mistake as the old sender_email
+// was, so the routes went with the field. The page offers a value stored
+// here while the provider has none (server/routes/adminEmailProviders.ts),
+// and the columns stay for rollback.
 
 
 const featureFlagUpdateSchema = z.object({ enabled: z.boolean() });
@@ -1202,21 +1176,139 @@ const WIDGET_INPUT_RUNTIME_KEYS = new Set([
   'call_control_plane',
 ]);
 
+/**
+ * A field whose value is a credential. Broad on purpose, as in the storage
+ * pool's route: one field too many costs the Super Admin a blank input, one
+ * too few a leaked password. A bare `key` (a pre-chat field's own key) is
+ * not one; `api_key` and `access_key_id` are, and so are the connection
+ * strings that carry a password (`database_url`, `connection_string`) and
+ * Telegram's `api_hash`.
+ */
+const SECRET_FIELD = /pass(word|wd)?|secret|token|credential|private|merchant|service_account|apikey|api_hash|database_url|connection_string|.+_key(_|$)/i;
+
+/**
+ * Names the pattern above catches that are not credentials, in the provider
+ * forms (src/features/providers/schemas.ts) as ordinary inputs: a number of
+ * tokens or seconds, and the keys a vendor makes public by design (a
+ * publishable or anon key, a captcha site key, a search-only key, a webhook's
+ * public key), which sit in the page or the browser bundle anyway. Hidden,
+ * they showed as saved with an empty input that could never be cleared.
+ */
+const NOT_SECRET_FIELD = /^(max_tokens|token_ttl_seconds|site_key|search_key|supabase_anon_key|anon_key)$|(^|_)public(_|$)|publishable/i;
+
+/**
+ * A URL with a password in it (`redis://user:pass@host`), whatever the field
+ * is called: the Redis and Dragonfly forms take their password that way.
+ */
+const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s@:]*:[^/?#\s@]+@/i;
+
+function isSecretField(field: string, value: unknown): boolean {
+  if (typeof value === 'string' && URL_WITH_PASSWORD.test(value.trim())) return true;
+  return SECRET_FIELD.test(field) && !NOT_SECRET_FIELD.test(field);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A value worth hiding: text, a number, or a filled object (an encrypted envelope, a key file). */
+function holdsValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim() !== '';
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) return Object.keys(value).length > 0;
+  return false;
+}
+
+/**
+ * A runtime-config value as the browser may see it: every credential-looking
+ * field at any depth left out, and its path (`config.api_key`) listed in
+ * `secretKeysSet` so a form can show it as saved. These rows used to come
+ * back whole, the relay's password and the old Resend key included.
+ */
+export function redactRuntimeConfigValue(value: unknown): { value: unknown; secretKeysSet: string[] } {
+  const secretKeysSet: string[] = [];
+  const walk = (node: unknown, path: string[]): unknown => {
+    if (Array.isArray(node)) return node.map((item, i) => walk(item, [...path, String(i)]));
+    if (!isPlainObject(node)) return node;
+    const out: Record<string, unknown> = {};
+    for (const [field, child] of Object.entries(node)) {
+      if (isSecretField(field, child) && holdsValue(child)) {
+        secretKeysSet.push([...path, field].join('.'));
+        continue;
+      }
+      out[field] = walk(child, [...path, field]);
+    }
+    return out;
+  };
+  return { value: walk(value, []), secretKeysSet };
+}
+
+function providerIdentity(value: Record<string, unknown>): string {
+  return String(value.provider_name ?? value.provider ?? '').trim().toLowerCase();
+}
+
+/**
+ * The value to store for a save from a form that never received the
+ * credentials: a credential the save leaves blank or out keeps the stored
+ * one, at any depth of nested objects, but only while the provider is the
+ * same (two vendors may both call theirs `api_key`, and one's key must never
+ * be sent to the other). Arrays are taken as sent. Everything else is the
+ * save's own.
+ */
+export function keepStoredRuntimeSecrets(stored: unknown, incoming: unknown): unknown {
+  if (!isPlainObject(stored) || !isPlainObject(incoming)) return incoming;
+  if (providerIdentity(stored) !== providerIdentity(incoming)) return incoming;
+  const out: Record<string, unknown> = { ...incoming };
+  for (const [field, kept] of Object.entries(stored)) {
+    if (isSecretField(field, kept)) {
+      if (holdsValue(kept) && !holdsValue(incoming[field])) out[field] = kept;
+    } else if (isPlainObject(kept) && isPlainObject(incoming[field])) {
+      out[field] = keepStoredRuntimeSecrets(kept, incoming[field]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The email provider rows go through their own store (server/services/
+ * email/providerConfigStore.ts), here as on Super Admin → Providers → Email:
+ * the read never carries a secret, encrypted or not, and a write is
+ * validated against the provider registry, keeps a blank secret, encrypts
+ * and is audited. This generic route used to read and write them raw.
+ */
+async function emailProviderView(config: ServerConfig, key: EmailProviderKey): Promise<{ value: unknown; secretKeysSet: string[] }> {
+  const view = await readEmailProviderForAdmin(config, key);
+  return {
+    value: view.provider_name ? { provider_name: view.provider_name, config: view.config } : null,
+    secretKeysSet: view.secretKeysSet.map((field) => `config.${field}`),
+  };
+}
+
 adminManagementRouter.get('/runtime-config/:key', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
-  const sb = getServiceClient(serverConfigOf(req));
+  const config = serverConfigOf(req);
+  if (isEmailProviderKey(req.params.key)) {
+    try {
+      return res.json(await emailProviderView(config, req.params.key));
+    } catch {
+      return res.status(500).json({ error: 'email_provider_unavailable' });
+    }
+  }
+  const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('app_runtime_config')
     .select('key, value')
     .eq('key', req.params.key)
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ value: (data as { value?: unknown } | null)?.value ?? null });
+  return res.json(redactRuntimeConfigValue((data as { value?: unknown } | null)?.value ?? null));
 });
 
 adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
   if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
   const body = req.body as { value?: unknown };
   if (body?.value === undefined || body.value === null || typeof body.value !== 'object') {
@@ -1227,11 +1319,35 @@ adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
   if (req.params.key === 'default_auth_provider') {
     return res.status(400).json({ error: 'The auth provider cannot be changed at runtime.' });
   }
-  const sb = getServiceClient(serverConfigOf(req));
+  const config = serverConfigOf(req);
+  if (isEmailProviderKey(req.params.key)) {
+    const value = body.value as { provider_name?: unknown; config?: unknown };
+    try {
+      const result = await writeEmailProviderConfig(config, req.params.key, {
+        provider_name: String(value.provider_name ?? ''),
+        config: isPlainObject(value.config) ? value.config : {},
+      }, { userId: actorId });
+      if ('error' in result) {
+        return res.status(result.error === 'storage_error' ? 500 : 400)
+          .json({ error: result.error, ...(result.field ? { field: result.field } : {}) });
+      }
+      return res.json({ success: true });
+    } catch {
+      return res.status(500).json({ error: 'storage_error' });
+    }
+  }
+  const sb = getServiceClient(config);
+  const { data: stored, error: readError } = await sb
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', req.params.key)
+    .maybeSingle();
+  if (readError) return res.status(500).json({ error: readError.message });
+  const value = keepStoredRuntimeSecrets((stored as { value?: unknown } | null)?.value ?? null, body.value);
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: req.params.key, value: body.value, updated_at: new Date().toISOString() },
+      { key: req.params.key, value, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) return res.status(500).json({ error: error.message });
@@ -1240,9 +1356,22 @@ adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
 });
 
 adminManagementRouter.delete('/runtime-config/:key', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
   if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
-  const sb = getServiceClient(serverConfigOf(req));
+  const config = serverConfigOf(req);
+  if (isEmailProviderKey(req.params.key)) {
+    // Through the store, so removing the platform's mail transport is
+    // audited like every other change to it.
+    try {
+      const result = await writeEmailProviderConfig(config, req.params.key, { provider_name: 'disabled', config: {} }, { userId: actorId });
+      if ('error' in result) return res.status(500).json({ error: result.error });
+      return res.json({ success: true });
+    } catch {
+      return res.status(500).json({ error: 'storage_error' });
+    }
+  }
+  const sb = getServiceClient(config);
   const { error } = await sb.from('app_runtime_config').delete().eq('key', req.params.key);
   if (error) return res.status(500).json({ error: error.message });
   if (WIDGET_INPUT_RUNTIME_KEYS.has(req.params.key)) publishCacheInvalidation(['all']);

@@ -70,19 +70,19 @@ type Allowance = { file: string; token: string; pattern: RegExp; reason: string 
 
 const ALLOWANCES: Allowance[] = [
   {
-    file: 'server/routes/widget.ts',
+    file: 'server/services/widget/offlineNotice.ts',
     token: 'templateSlug',
-    // Transactional email sent when an offline message arrives — an email
-    // template slug passed to sendEmail(), not a widget UI skin.
-    pattern: /templateSlug:\s*'offline_message_received'/,
-    reason: 'Offline-message notification EMAIL template slug (sendEmail payload).',
+    // The owners' mail when an offline message arrives, and its window's
+    // summary — email template slugs on the mail request, not a widget UI skin.
+    pattern: /templateSlug:\s*'offline_message(_received|s_summary)'/,
+    reason: 'Offline-message notification EMAIL template slugs (mail request payload).',
   },
   {
     file: 'server/routes/email.ts',
     token: 'templateSlug',
-    // The email API route forwards the caller-supplied EMAIL template slug.
-    pattern: /\btemplateSlug\b/,
-    reason: 'Transactional email API surface — email template slug only.',
+    // The email test route names its EMAIL template slug.
+    pattern: /templateSlug:\s*'email_test'/,
+    reason: 'Transactional email test route — email template slug only.',
   },
   {
     file: 'src/lib/api.ts',
@@ -182,8 +182,6 @@ describe('chat widget — single canonical design', () => {
 
   it('server widget config does not expose a template selector', () => {
     const src = readFileSync('server/routes/widget.ts', 'utf8');
-    // NOTE: `templateSlug: 'offline_message_received'` in this file belongs to
-    // the transactional EMAIL template system and is unrelated to widget UI.
     expect(src.includes('getActiveTemplateSlug')).toBe(false);
     expect(/templateSlug:\s*await/.test(src)).toBe(false);
     expect(/template_slug/.test(src)).toBe(false);

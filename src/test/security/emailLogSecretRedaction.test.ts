@@ -12,6 +12,8 @@ import {
   REDACTED,
   redactSecrets,
   redactEmailLogRows,
+  redactEmailLogError,
+  redactEmailLogSubject,
   buildEmailLogMetadata,
 } from '../../../server/services/email/redactLogMetadata';
 
@@ -51,7 +53,7 @@ vi.mock('@supabase/supabase-js', () => ({
 
 // SMTP is not exercised here (Resend is the configured provider).
 vi.mock('../../../server/services/email/providers/smtp.js', () => ({
-  sendViaSMTP: async () => ({ success: false, provider: 'smtp', error: 'not used' }),
+  smtpAdapter: { name: 'smtp', send: async () => ({ success: false, provider: 'smtp', error: 'provider_error: not used' }) },
 }));
 
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as never;
@@ -108,6 +110,40 @@ describe('redactSecrets', () => {
       templateData: { action_url: REDACTED },
       messageId: 'msg_9',
     });
+  });
+
+  it('buildEmailLogMetadata keeps the relay\'s queue id and the category when there are', () => {
+    expect(buildEmailLogMetadata(undefined, 'm', { serverMessageId: '4ABC123', category: 'notification' })).toEqual({
+      templateData: undefined, messageId: 'm', serverMessageId: '4ABC123', category: 'notification',
+    });
+  });
+});
+
+describe('subjects and errors in email_logs', () => {
+  it('a code a template prints in its subject is cut out of the logged subject', () => {
+    // 260's verification_code subject: 'Your verification code: {code} — {brand}'
+    expect(redactEmailLogSubject('Your verification code: 482913 — Acme', { code: '482913', brand: 'Acme' }))
+      .toBe(`Your verification code: ${REDACTED} — Acme`);
+    expect(redactEmailLogSubject('Welcome, Ann', { name: 'Ann' })).toBe('Welcome, Ann');
+    expect(redactEmailLogSubject('Open https://x.example/r?t=9', { anything: 'https://x.example/r?t=9' })).toBe(`Open ${REDACTED}`);
+  });
+
+  it('an older row\'s raw provider text reads as a generic error; today\'s codes stay', () => {
+    expect(redactEmailLogError('SMTP error: connect ECONNREFUSED 172.18.0.5:587')).toMatch(/^provider_error: /);
+    expect(redactEmailLogError('Resend 403: {"message":"The webyar.ai domain is not verified"}')).toMatch(/^provider_error: /);
+    expect(redactEmailLogError('auth: the SMTP server refused the sign-in (535)')).toBe('auth: the SMTP server refused the sign-in (535)');
+    expect(redactEmailLogError(null)).toBeNull();
+  });
+
+  it('rows read back: the error, and the code in an older row\'s subject', () => {
+    const [row] = redactEmailLogRows([{
+      id: '1', subject: 'Your verification code: 482913 — Acme', error_message: 'SMTP error: 535 internal-host',
+      metadata: { templateData: { code: REDACTED }, messageId: 'm' },
+    }]);
+    expect(row.subject).toBe(`Your verification code: ${REDACTED} — Acme`);
+    expect(row.error_message).toMatch(/^provider_error: /);
+    const [plain] = redactEmailLogRows([{ id: '2', subject: 'Invoice 2026-1043', metadata: { templateData: { name: 'A' } } }]);
+    expect(plain.subject).toBe('Invoice 2026-1043');
   });
 });
 

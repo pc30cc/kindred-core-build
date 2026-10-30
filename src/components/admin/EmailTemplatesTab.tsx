@@ -60,7 +60,7 @@ const CATEGORIES = [
   // The operator notification emails, plus the four placeholder slugs that
   // were here before them. `operator_*` are the ones a sender exists for:
   // `services/notificationEmail/producers.ts` renders through each of them.
-  { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'offline_message_received', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
+  { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'offline_message_received', 'offline_messages_summary', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
   { key: 'billing', icon: Receipt, slugs: ACCOUNT_BILLING_SLUGS },
 ] as const;
 
@@ -81,7 +81,12 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   task_assigned: ['{name}', '{brand}', '{task}', '{assigner}', '{action_url}'],
   account_expiry: ['{name}', '{brand}', '{days_left}', '{plan}', '{action_url}'],
   system_alert: ['{brand}', '{title}', '{message}', '{severity}'],
+  // What a visitor typed ({contact_*}, {message_body}) fills the HTML part
+  // only (escaped): the subject and the text part get it empty, so a visitor
+  // never writes a Subject (services/widget/offlineNotice.ts, migration 289d).
   offline_message_received: ['{brand}', '{contact_name}', '{contact_email}', '{contact_phone}', '{message_body}', '{conversation_id}', '{action_url}'],
+  // The window's summary (offlineNotice.ts): how many more, and the inbox.
+  offline_messages_summary: ['{brand}', '{year}', '{count}', '{minutes}', '{action_url}'],
   // {workspace} is HTML-escaped for the body, {workspace_name} plain for the
   // subject and the text; {transcript} is the table rows, {transcript_text}
   // the same as plain text.

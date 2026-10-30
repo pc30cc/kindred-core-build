@@ -30,6 +30,7 @@ export const INTERNAL_CHANNEL_ROUTES = [
   'POST /yahoo/attachment-ingest',
   'POST /yahoo/poll-checkpoint',
   'POST /yahoo/outbound-result',
+  'POST /mail/outbound-attachment',
   'GET /health',
   'GET /ready',
 ] as const;
@@ -57,6 +58,7 @@ export const CHANNELS_WORKER_REQUIRED_CORE_ROUTES = [
   'POST /yahoo/attachment-ingest',
   'POST /yahoo/poll-checkpoint',
   'POST /yahoo/outbound-result',
+  'POST /mail/outbound-attachment',
 ] as const;
 
 export type CoreReadinessPayload = {

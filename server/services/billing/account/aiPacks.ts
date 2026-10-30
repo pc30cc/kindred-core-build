@@ -20,7 +20,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { getBillingMode, type BillingMode } from '../../ai-billing/mode.js';
 import { getBillingRegion } from '../edition.js';
 import { AccountBillingError, getBillingSettings, readAccount } from './index.js';
-import { sendBillingEmail } from './notify.js';
+import { billingMailKey, sendBillingEmail } from './notify.js';
 import { rpc } from './plans.js';
 import { activePacks, packLabel, walletToMinor, type AiPack } from '../../../../shared/aiPacks.js';
 
@@ -224,7 +224,7 @@ export async function afterAiPack(config: ServerConfig, workspaceId: string, res
       amount: ctx.money(num(result.price_minor), currency),
       balance: ctx.money(num(result.balance_minor), currency),
       ai_balance: section?.display && section.currency === currency ? ctx.money(section.display.available_minor, currency) : '',
-    }));
+    }), { queue: true, dedupeKey: billingMailKey('billing_ai_pack_purchased', workspaceId, result.pack_ledger_id) });
   } catch (e) {
     console.warn('[billing-account] after AI pack:', e instanceof Error ? e.message : e);
   }

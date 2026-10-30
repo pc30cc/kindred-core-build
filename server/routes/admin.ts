@@ -24,6 +24,7 @@ import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminStorageProvidersRouter } from './adminStorageProviders.js';
+import { adminEmailProvidersRouter } from './adminEmailProviders.js';
 import { adminSeoBacklinksProviderRouter } from './adminSeoBacklinksProvider.js';
 import { adminSeoKeywordsProviderRouter } from './adminSeoKeywordsProvider.js';
 import { adminSeoRankTrackingProviderRouter } from './adminSeoRankTrackingProvider.js';
@@ -183,6 +184,11 @@ adminRouter.use('/providers/sms', adminSmsProvidersRouter);
 // Storage provider pool — several vendors at once, one primary, the rest
 // mirrored (super admin only; credentials never leave the server).
 adminRouter.use('/providers/storage', adminStorageProvidersRouter);
+
+// The platform's email providers (default and notification slots), their
+// tests and the suppression list (super admin only; secrets never leave the
+// server, every change is audited).
+adminRouter.use('/providers/email', adminEmailProvidersRouter);
 
 // SEO Backlinks / Keyword Research / Rank Tracking — platform data
 // providers (DataForSEO). Same singleton-credential shape as the SMS

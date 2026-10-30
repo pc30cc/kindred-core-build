@@ -9,15 +9,24 @@
  * The response carries `available` as well as the preferences, because the
  * operator's page must show only what the platform actually offers: a switch
  * for a type Super Admin has turned off is the exact thing this whole piece
- * of work exists to stop.
+ * of work exists to stop. The offline-message notice has no platform switch:
+ * its switch is offered to whoever gets it, an owner or admin of some
+ * workspace, once the database can store it (migration 289g).
  */
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireUser as requireSessionUser, serverConfigOf } from '../lib/workspaceAuth.js';
-import { NOTIFICATION_EMAIL_TYPES } from '../services/notificationEmail/types.js';
+import {
+  EMAIL_PREFERENCE_TYPES,
+  NOTIFICATION_EMAIL_TYPES,
+  OFFLINE_MESSAGES_EMAIL,
+  OFFLINE_NOTICE_ROLES,
+  type EmailPreferenceType,
+} from '../services/notificationEmail/types.js';
 import { enabledTypes, loadNotificationEmailSettings } from '../services/notificationEmail/settings.js';
+import { isMissingColumn } from '../services/notificationEmail/queue.js';
 
 export const notificationEmailRouter = Router();
 
@@ -39,38 +48,65 @@ notificationEmailRouter.use(requireUser);
 
 /** On, every one, because the platform switch decides what is offered. */
 const DEFAULTS: Record<string, boolean> = Object.fromEntries(
-  NOTIFICATION_EMAIL_TYPES.map((type) => [type, true]),
+  EMAIL_PREFERENCE_TYPES.map((type) => [type, true]),
 );
 
-const COLUMNS = NOTIFICATION_EMAIL_TYPES.join(', ');
+const COLUMNS = EMAIL_PREFERENCE_TYPES.join(', ');
+/** The columns of a database before migration 289g. */
+const COLUMNS_BEFORE_289G = NOTIFICATION_EMAIL_TYPES.join(', ');
 
 const updateSchema = z.object(
   Object.fromEntries(
-    NOTIFICATION_EMAIL_TYPES.map((type) => [type, z.boolean().optional()]),
-  ) as Record<(typeof NOTIFICATION_EMAIL_TYPES)[number], z.ZodOptional<z.ZodBoolean>>,
+    EMAIL_PREFERENCE_TYPES.map((type) => [type, z.boolean().optional()]),
+  ) as Record<EmailPreferenceType, z.ZodOptional<z.ZodBoolean>>,
 );
+
+/**
+ * The operator's row, and whether the database has the offline notice's
+ * column: before migration 289g it is read without it (and its switch is not
+ * offered, since it could not be saved).
+ */
+async function readPrefs(
+  config: ServerConfig,
+  userId: string,
+): Promise<{ prefs: Record<string, unknown>; offlineColumn: boolean } | { error: string }> {
+  const sb = getServiceClient(config);
+  let { data, error } = await sb.from('user_email_notification_prefs').select(COLUMNS).eq('user_id', userId).maybeSingle();
+  let offlineColumn = true;
+  if (error && isMissingColumn(error)) {
+    offlineColumn = false;
+    ({ data, error } = await sb.from('user_email_notification_prefs').select(COLUMNS_BEFORE_289G).eq('user_id', userId).maybeSingle());
+  }
+  if (error) return { error: error.message };
+  return { prefs: { ...DEFAULTS, ...((data as unknown as Record<string, unknown> | null) || {}) }, offlineColumn };
+}
+
+/** What the page offers: the types the platform sends, and the offline notice to those who get it. */
+async function availableTypes(config: ServerConfig, userId: string, offlineColumn: boolean): Promise<EmailPreferenceType[]> {
+  const available: EmailPreferenceType[] = enabledTypes(await loadNotificationEmailSettings(config));
+  if (!offlineColumn) return available;
+  const { data } = await getServiceClient(config)
+    .from('workspace_members')
+    .select('workspace_id')
+    .eq('user_id', userId)
+    .in('role', [...OFFLINE_NOTICE_ROLES])
+    .limit(1);
+  if (Array.isArray(data) && data.length > 0) available.push(OFFLINE_MESSAGES_EMAIL);
+  return available;
+}
 
 // GET /api/notifications/email
 notificationEmailRouter.get('/', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
     const user = (req as AuthedRequest).authUser!;
-    const sb = getServiceClient(config);
 
-    const [settings, row] = await Promise.all([
-      loadNotificationEmailSettings(config),
-      sb
-        .from('user_email_notification_prefs')
-        .select(COLUMNS)
-        .eq('user_id', user.id)
-        .maybeSingle(),
-    ]);
-
-    if (row.error) return res.status(500).json({ error: row.error.message });
+    const row = await readPrefs(config, user.id);
+    if ('error' in row) return res.status(500).json({ error: row.error });
 
     return res.json({
-      available: enabledTypes(settings),
-      prefs: { ...DEFAULTS, ...((row.data as unknown as Record<string, unknown> | null) || {}) },
+      available: await availableTypes(config, user.id, row.offlineColumn),
+      prefs: row.prefs,
     });
   } catch (err: unknown) {
     return res.status(500).json({ error: messageOf(err, 'Failed to load email preferences') });
@@ -106,14 +142,12 @@ notificationEmailRouter.patch('/', async (req, res) => {
       );
     if (error) return res.status(500).json({ error: error.message });
 
-    const [settings, row] = await Promise.all([
-      loadNotificationEmailSettings(config),
-      sb.from('user_email_notification_prefs').select(COLUMNS).eq('user_id', user.id).maybeSingle(),
-    ]);
+    const row = await readPrefs(config, user.id);
+    if ('error' in row) return res.status(500).json({ error: row.error });
 
     return res.json({
-      available: enabledTypes(settings),
-      prefs: { ...DEFAULTS, ...((row.data as unknown as Record<string, unknown> | null) || {}) },
+      available: await availableTypes(config, user.id, row.offlineColumn),
+      prefs: row.prefs,
     });
   } catch (err: unknown) {
     return res.status(500).json({ error: messageOf(err, 'Failed to update email preferences') });

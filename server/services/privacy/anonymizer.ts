@@ -27,6 +27,7 @@ import { scrubPii } from './scrub.js';
 import type { PrivacyJobRow, ResolvedSubject } from './types.js';
 import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { readAllPages } from './pagedRead.js';
+import { deleteNotificationJobsAboutConversations, deleteNotificationJobsOfUser } from '../notificationEmail/erasure.js';
 
 // public.sender_type enum = { agent, contact, system, bot, ai }. 'visitor' is
 // NOT a member; including it made both message queries below fail with 22P02,
@@ -67,6 +68,8 @@ export interface AnonymizeSummary {
   ai_nudges_deleted: number;
   /** The rest keyed by the visitor: live presence, read markers, store links, AI intro log. */
   visitor_links_deleted: number;
+  /** Operator notification emails (queued or sent) about their conversations, or addressed to the erased user. */
+  notification_emails_deleted: number;
 }
 
 /** conversation_ratings is missing (before migration 276): nothing to clear. */
@@ -288,6 +291,7 @@ export async function runAnonymize(
     smart_events_anonymized: 0,
     ai_nudges_deleted: 0,
     visitor_links_deleted: 0,
+    notification_emails_deleted: 0,
   };
 
   // ─── User-subject branch ───────────────────────────────────────
@@ -330,6 +334,11 @@ export async function runAnonymize(
       })
       .eq('id', userId);
     check('clearing the profile', cleared.error);
+    // Their notification emails, queued or sent: the address they went to
+    // is the one just replaced.
+    const jobs = await deleteNotificationJobsOfUser(config, userId);
+    check('deleting notification emails', jobs.error);
+    summary.notification_emails_deleted = jobs.count;
     // The erased name and avatar leave every widget team stack now.
     publishCacheInvalidation([`user:${userId}`]);
     return summary;
@@ -571,6 +580,15 @@ export async function runAnonymize(
       check('anonymizing email logs', error);
       summary.email_logs_anonymized += changed?.length || 0;
     }
+  }
+
+  // ─── 7b. The operator notification emails about them ───────────
+  // A transcript, a digest's list of subjects, the contact's name: queued or
+  // sent (notificationEmail/erasure.ts).
+  if (conversationIds.length > 0) {
+    const jobs = await deleteNotificationJobsAboutConversations(config, wsId, conversationIds);
+    check('deleting notification emails', jobs.error);
+    summary.notification_emails_deleted += jobs.count;
   }
 
   // ─── 8. Anonymize / delete the contacts row(s) ─────────────────

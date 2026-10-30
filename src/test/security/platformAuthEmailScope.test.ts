@@ -15,11 +15,14 @@ vi.mock('../../../server/supabase.js', () => ({
       const builder: Record<string, unknown> = {
         select: () => builder,
         update: () => builder,
-        insert: () => Promise.resolve({ data: null, error: null }),
+        insert: () => builder,
         eq: () => builder,
         is: () => builder,
+        lt: () => builder,
         then: (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null }),
         limit: () => builder,
+        // The new link's row (auth-email inserts it, then mails it).
+        single: async () => ({ data: { id: 'token-1', created_at: '2026-10-29T10:00:00.000000+00:00' }, error: null }),
         maybeSingle: async () => {
           if (table === 'platform_domains') return { data: { app_base_url: 'https://app.example.com' }, error: null };
           if (table === 'workspaces') return { data: { id: 'tenant-ws' }, error: null };

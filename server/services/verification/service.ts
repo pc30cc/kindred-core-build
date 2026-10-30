@@ -47,7 +47,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { sendEmail, sendPlatformEmail } from '../email/index.js';
+import { sendEmail, sendPlatformEmail, type SendResult } from '../email/index.js';
 import { sendSmsVerification } from '../sms/index.js';
 import { toProviderFormat } from '../phoneVerification/phone.js';
 import {
@@ -145,6 +145,34 @@ const SMS_CONFIG_FAULT_CODES: ReadonlySet<string> = new Set([
   'sms_template_invalid',
 ]);
 
+type DeliveryResult = { outcome: DeliveryOutcome; providerName?: string; providerMessageId?: string; errorCode?: string; errorMessage?: string };
+
+/**
+ * An email send's result as a delivery outcome, read the way the email core
+ * means it (and as the invitation worker reads it): no provider, or one
+ * missing a setting, is `unconfigured`; a failure the core marks permanent
+ * (a refused or suppressed address, a refused sign-in) is
+ * `permanent_failure`, which closes the challenge as delivery_failed; only a
+ * failure that can pass on a retry (a timeout, a dropped connection) is
+ * `retryable_failure`. Every failure used to be retryable, so a code that
+ * could never arrive left the challenge waiting as if it might.
+ */
+function emailDeliveryOutcome(result: SendResult, noProviderCode: string): DeliveryResult {
+  if (result.success && result.provider !== 'stub') {
+    return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.id };
+  }
+  if (result.provider === 'stub') {
+    return { outcome: 'unconfigured', providerName: result.provider, errorCode: noProviderCode };
+  }
+  if (result.errorCode === 'unconfigured') {
+    return { outcome: 'unconfigured', providerName: result.provider, errorCode: result.error };
+  }
+  if (result.permanent) {
+    return { outcome: 'permanent_failure', providerName: result.provider, errorCode: result.error };
+  }
+  return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.error };
+}
+
 /**
  * Sends one OTP directly through the existing email/SMS provider
  * abstractions — the SAME functions server/services/phoneVerification and
@@ -164,7 +192,7 @@ async function sendOtpDirect(
     code: string;
     ttlSeconds: number;
   },
-): Promise<{ outcome: DeliveryOutcome; providerName?: string; providerMessageId?: string; errorCode?: string; errorMessage?: string }> {
+): Promise<DeliveryResult> {
   try {
     if (input.channel === 'sms') {
       // OTPs go out through the vendor's VERIFICATION template
@@ -218,13 +246,7 @@ async function sendOtpDirect(
         text: rendered.text,
         ...template,
       });
-      if (result.success && result.provider !== 'stub') {
-        return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.id };
-      }
-      if (result.provider === 'stub') {
-        return { outcome: 'unconfigured', providerName: result.provider, errorCode: 'no_platform_email_provider_configured' };
-      }
-      return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.error };
+      return emailDeliveryOutcome(result, 'no_platform_email_provider_configured');
     }
 
     const result = await sendEmail(config, {
@@ -235,13 +257,7 @@ async function sendOtpDirect(
       text: rendered.text,
       ...template,
     });
-    if (result.success && result.provider !== 'stub') {
-      return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.id };
-    }
-    if (result.provider === 'stub') {
-      return { outcome: 'unconfigured', providerName: result.provider, errorCode: 'no_email_provider_configured' };
-    }
-    return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.error };
+    return emailDeliveryOutcome(result, 'no_email_provider_configured');
   } catch (err) {
     // The provider threw instead of returning a result — Express cannot
     // tell whether the provider received and will act on the request

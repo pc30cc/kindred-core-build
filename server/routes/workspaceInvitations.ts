@@ -50,6 +50,7 @@ import {
   CONTEXT_COOKIE_NAME,
 } from '../services/invitations/tokens.js';
 import { isEmailVerified } from '../services/auth/identity.js';
+import { returnEmailQuota, takeEmailQuota, type EmailQuota, type EmailQuotaVerdict } from '../services/email/sendQuota.js';
 import {
   peekCommitted,
   runIdempotent,
@@ -275,6 +276,62 @@ const acceptLimiter = rateLimit({
 // MANAGEMENT SURFACE (owner/admin, gs_session)
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Invitation mails a workspace may send in a day, and one inviter in an
+ * hour, new invitations and resends together. Each one is a mail From the
+ * platform's own address to a person the inviter chose; without a limit an
+ * owner could mail any number of strangers in the workspace's name. Only
+ * invitations that were made count (a create the RPC refuses, a replay of a
+ * committed request: nothing), so a member who may not invite cannot use up
+ * the workspace's allowance by trying.
+ *
+ * Each use is taken before the RPC, in one statement per limit, and given
+ * back when no invitation was made: a check first and a count afterwards
+ * let requests sent at the same moment all pass on the same count.
+ */
+const INVITATION_LIMITS = [
+  { scope: 'invitations_workspace_day', windowSeconds: 24 * 60 * 60, max: 50, of: 'workspace' },
+  { scope: 'invitations_actor_hour', windowSeconds: 60 * 60, max: 20, of: 'actor' },
+] as const;
+
+function invitationQuotas(workspaceId: string, actorId: string) {
+  return INVITATION_LIMITS.map(({ of, ...q }) => ({ ...q, key: of === 'workspace' ? workspaceId : actorId }));
+}
+
+/** The uses one request took, to give back if no invitation is made. */
+type InvitationUses = Array<{ quota: EmailQuota; taken: EmailQuotaVerdict }>;
+
+/** Gives back what a request took: the invitation was refused, replayed or never asked for. */
+async function returnInvitationMail(config: ServerConfig, uses: InvitationUses): Promise<void> {
+  for (const { quota, taken } of uses) await returnEmailQuota(config, quota, taken);
+}
+
+/**
+ * Takes one use of each allowance for the invitation mail this request may
+ * make. 429 INVITATION_RATE_LIMITED, with what it took given back, when
+ * either is used up; else the uses, which the caller gives back
+ * (returnInvitationMail) if the RPC then makes no invitation.
+ */
+async function takeInvitationMail(
+  config: ServerConfig,
+  res: Response,
+  workspaceId: string,
+  actorId: string,
+): Promise<InvitationUses | null> {
+  const uses: InvitationUses = [];
+  for (const quota of invitationQuotas(workspaceId, actorId)) {
+    const taken = await takeEmailQuota(config, quota);
+    uses.push({ quota, taken });
+    if (!taken.allowed) {
+      await returnInvitationMail(config, uses);
+      res.setHeader('Retry-After', String(taken.retryAfterSeconds));
+      res.status(429).json({ error: 'INVITATION_RATE_LIMITED', retry_after_seconds: taken.retryAfterSeconds });
+      return null;
+    }
+  }
+  return uses;
+}
+
 const createSchema = z.object({
   workspaceId: z.string().uuid(),
   firstName: z.string().trim().min(1).max(80),
@@ -357,6 +414,8 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
 
   const body = parsed.data;
   const config = cfg(req);
+  const uses = await takeInvitationMail(config, res, body.workspaceId, authUserOf(req).id);
+  if (!uses) return;
 
   const email = body.email.toLowerCase();
   const manualToken = randomToken();
@@ -411,11 +470,13 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
   });
 
   if (outcome.error) {
+    await returnInvitationMail(config, uses);
     const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
 
   if (outcome.replayed) {
+    await returnInvitationMail(config, uses);
     // The raw link is never stored, so a committed create can only be
     // acknowledged — never replayed with a token.
     return res.status(409).json({
@@ -588,10 +649,13 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
 
   const { data: inv } = await sb
     .from('workspace_invitations')
-    .select('invited_email_normalized')
+    .select('invited_email_normalized, workspace_id')
     .eq('id', id)
     .maybeSingle();
   if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
+  const workspaceId = String(inv.workspace_id || '');
+  const uses = workspaceId ? await takeInvitationMail(config, res, workspaceId, authUserOf(req).id) : [];
+  if (!uses) return;
 
   const outcome = await runIdempotent(config, {
     operation: 'resend',
@@ -607,10 +671,14 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
   });
 
   if (outcome.error) {
+    await returnInvitationMail(config, uses);
     const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
-  if (outcome.replayed) return res.json({ ...outcome.safeResult, replayed: true });
+  if (outcome.replayed) {
+    await returnInvitationMail(config, uses);
+    return res.json({ ...outcome.safeResult, replayed: true });
+  }
   return res.json({ ...(outcome.result as RpcRecord | null), replayed: false });
 });
 

@@ -290,7 +290,9 @@ suite('who has a conversation, on a real database (278b)', () => {
     const digest = await audienceFor(config as never, ws, 'unread_messages');
     expect(digest).not.toContain(seo);
     expect(digest).toEqual(expect.arrayContaining([owner, a, admin]));
-    expect(await audienceFor(config as never, ws, 'weekly_summary')).toContain(seo);
+    // The weekly summary links to the Inbox too, so it goes to the same roles.
+    expect(await audienceFor(config as never, ws, 'weekly_summary')).not.toContain(seo);
+    expect(await audienceFor(config as never, ws, 'transcripts')).toContain(seo);
   });
 
   it('B1 two take-overs at once: one takes it, the other hears who has it (409 already_assigned)', async () => {

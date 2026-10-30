@@ -71,10 +71,11 @@ import {
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
-import { uploadFile } from '../services/storage/index.js';
+import { downloadFile, uploadFile } from '../services/storage/index.js';
 import { emailAttachmentKey } from '../services/storage/keys.js';
 import { notifyEmailMessage } from '../services/push/index.js';
 import { scheduleYahooMailboxChanged } from '../services/email/yahooChangeNotifier.js';
+import { isComposeAttachmentKey, isOwnLegacyEmailAttachmentKey } from '../services/email/inbox.js';
 import { checkStorageUpload, isProviderStopped } from '../services/billing/planStops.js';
 
 export const internalChannelsRouter = Router();
@@ -743,13 +744,17 @@ internalChannelsRouter.post('/gmail/outbound-result', async (req: Request, res) 
   try {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
-    const { error } = await sb
+    let update = sb
       .from('email_messages')
       .update({
         delivery_status: data.outcome,
         delivery_error: data.outcome === 'failed' ? (data.error_message || 'unknown error').slice(0, 1000) : null,
       })
       .eq('id', data.email_message_id);
+    // A late 'failed' (a run that lost its claim, or one that could not tell
+    // whether the mail went) never overwrites a 'sent' already recorded.
+    if (data.outcome === 'failed') update = update.neq('delivery_status', 'sent');
+    const { error } = await update;
     if (error) throw new Error(error.message);
 
     if (data.outcome === 'sent' && data.local_thread_id && data.gmail_thread_id) {
@@ -790,6 +795,8 @@ const rescheduleYahooPollSchema = z.object({
   workspace_id: z.string().uuid(),
   email_address: z.string().email(),
   since_uid: z.number().int().positive().nullable().optional(),
+  // The spam folder's own watermark (pollYahooInbox's `spam`).
+  spam_since_uid: z.number().int().positive().nullable().optional(),
   delay_ms: z.number().int().min(1_000).max(600_000).optional(),
 });
 
@@ -806,7 +813,11 @@ internalChannelsRouter.post('/yahoo/reschedule-poll', async (req: Request, res) 
       jobType: 'yahoo_poll_inbox',
       workspaceId: parsed.data.workspace_id,
       integrationId: parsed.data.integration_id,
-      payload: { email_address: parsed.data.email_address, since_uid: parsed.data.since_uid ?? null },
+      payload: {
+        email_address: parsed.data.email_address,
+        since_uid: parsed.data.since_uid ?? null,
+        spam_since_uid: parsed.data.spam_since_uid ?? null,
+      },
       availableAt: new Date(Date.now() + (parsed.data.delay_ms ?? 75_000)),
     });
     res.json({ ok: true, ...(enqueued ? {} : { already_scheduled: true }) });
@@ -831,11 +842,43 @@ function deriveYahooThreadId(input: { messageIdHeader: string; inReplyTo: string
   return input.references[0] || input.inReplyTo || input.messageIdHeader;
 }
 
+/**
+ * The thread of this mailbox that a message answers, found by any message id
+ * it cites (In-Reply-To, References) rather than by its thread root alone: a
+ * reply filed as spam is kept only when it belongs to one of our threads, and
+ * some mail clients cite the last message only.
+ */
+async function threadCitedBy(
+  sb: ReturnType<typeof getServiceClient>,
+  data: z.infer<typeof yahooUpsertSchema>,
+): Promise<{ id: string } | null> {
+  const cited = Array.from(new Set([data.message.in_reply_to, ...(data.message.references ?? [])].filter(Boolean) as string[])).slice(0, 50);
+  if (!cited.length) return null;
+  const { data: messages } = await sb
+    .from('email_messages')
+    .select('thread_id')
+    .eq('workspace_id', data.workspace_id)
+    .in('external_message_id', cited)
+    .limit(50);
+  const threadIds = Array.from(new Set(((messages ?? []) as Array<{ thread_id: string }>).map((m) => m.thread_id)));
+  if (!threadIds.length) return null;
+  const { data: thread } = await sb
+    .from('email_threads')
+    .select('id')
+    .eq('integration_id', data.integration_id)
+    .in('id', threadIds)
+    .limit(1)
+    .maybeSingle();
+  return (thread as { id: string } | null) ?? null;
+}
+
 const yahooUpsertSchema = z.object({
   integration_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
   subject: z.string().nullable().optional(),
   participants: z.array(z.object({ email: z.string() })).optional(),
+  // From the spam folder: kept only as part of a thread this mailbox has.
+  reply_only: z.boolean().optional(),
   message: z.object({
     external_message_id: z.string().min(1),
     in_reply_to: z.string().nullable().optional(),
@@ -872,12 +915,16 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request,
       references: data.message.references ?? [],
     });
 
-    const { data: existingThread } = await sb
+    const { data: threadByRoot } = await sb
       .from('email_threads')
       .select('id')
       .eq('integration_id', data.integration_id)
       .eq('external_thread_id', externalThreadId)
       .maybeSingle();
+    const existingThread = threadByRoot ?? (data.reply_only ? await threadCitedBy(sb, data) : null);
+    if (data.reply_only && !existingThread) {
+      return res.json({ thread_id: null, message_id: null, is_new_message: false, accepted: false, reason: 'not_a_reply' });
+    }
 
     let threadId: string;
     if (existingThread) {
@@ -1037,8 +1084,10 @@ internalChannelsRouter.post(
  */
 const yahooCheckpointSchema = z.object({
   integration_id: z.string().uuid(),
-  last_uid: z.number().int().positive(),
-});
+  last_uid: z.number().int().positive().optional(),
+  // The spam folder's watermark (yahoo_last_spam_uid), when it moved.
+  last_spam_uid: z.number().int().positive().optional(),
+}).refine((v) => v.last_uid !== undefined || v.last_spam_uid !== undefined);
 
 internalChannelsRouter.post('/yahoo/poll-checkpoint', async (req: Request, res) => {
   const parsed = yahooCheckpointSchema.safeParse(req.body);
@@ -1051,9 +1100,13 @@ internalChannelsRouter.post('/yahoo/poll-checkpoint', async (req: Request, res) 
     // Only an ADVANCED watermark is written. The worker reports its
     // checkpoint after every poll, including the (usual) poll that found
     // nothing, which rewrote channel_integrations with the value it held.
-    if (integration.metadata?.yahoo_last_uid === parsed.data.last_uid) return res.json({ ok: true });
+    const next = {
+      ...(parsed.data.last_uid !== undefined ? { yahoo_last_uid: parsed.data.last_uid } : {}),
+      ...(parsed.data.last_spam_uid !== undefined ? { yahoo_last_spam_uid: parsed.data.last_spam_uid } : {}),
+    };
+    if (Object.entries(next).every(([key, value]) => integration.metadata?.[key] === value)) return res.json({ ok: true });
     await updateIntegration(config, integration.id, {
-      metadata: { ...integration.metadata, yahoo_last_uid: parsed.data.last_uid },
+      metadata: { ...integration.metadata, ...next },
     });
     res.json({ ok: true });
   } catch (err) {
@@ -1078,13 +1131,17 @@ internalChannelsRouter.post('/yahoo/outbound-result', async (req: Request, res) 
   try {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
-    const { error } = await sb
+    let update = sb
       .from('email_messages')
       .update({
         delivery_status: data.outcome,
         delivery_error: data.outcome === 'failed' ? (data.error_message || 'unknown error').slice(0, 1000) : null,
       })
       .eq('id', data.email_message_id);
+    // A late 'failed' (a run that lost its claim, or one that could not tell
+    // whether the mail went) never overwrites a 'sent' already recorded.
+    if (data.outcome === 'failed') update = update.neq('delivery_status', 'sent');
+    const { error } = await update;
     if (error) throw new Error(error.message);
 
     if (data.integration_id) {
@@ -1102,6 +1159,53 @@ internalChannelsRouter.post('/yahoo/outbound-result', async (req: Request, res) 
   } catch (err) {
     console.error('[internal-channels] yahoo outbound-result failed:', err);
     res.status(500).json({ error: 'yahoo_outbound_result_failed' });
+  }
+});
+
+/**
+ * POST /mail/outbound-attachment — one file of a queued mailbox reply, as
+ * bytes, for the Worker to attach. Read by key from the storage provider that
+ * is primary now, so the Worker needs no public URL (private buckets, local
+ * storage) and a file it cannot get fails the job instead of the mail going
+ * out without it. Only a file of that very message is served. 410: the row or
+ * the file is gone, which no retry fixes.
+ */
+const mailOutboundAttachmentSchema = z.object({
+  email_message_id: z.string().uuid(),
+  attachment_id: z.string().uuid(),
+});
+
+internalChannelsRouter.post('/mail/outbound-attachment', async (req: Request, res) => {
+  const parsed = mailOutboundAttachmentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+    const { data: row, error } = await sb
+      .from('email_attachments')
+      .select('workspace_id, storage_key, content_type')
+      .eq('id', parsed.data.attachment_id)
+      .eq('message_id', parsed.data.email_message_id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const found = row as { workspace_id: string; storage_key: string; content_type: string | null } | null;
+    if (!found) return res.status(410).json({ error: 'attachment_missing' });
+    const legacy = isOwnLegacyEmailAttachmentKey(found.workspace_id, found.storage_key);
+    if (!legacy && !isComposeAttachmentKey(found.workspace_id, found.storage_key)) {
+      return res.status(410).json({ error: 'attachment_missing' });
+    }
+    const file = await downloadFile(config, found.workspace_id, found.storage_key, { allowLegacyKey: legacy });
+    if (!file.success || !file.data) {
+      // A file the provider no longer has is gone; anything else may pass.
+      if (/not ?found|404|ENOENT/i.test(file.error || '')) return res.status(410).json({ error: 'attachment_missing' });
+      return res.status(502).json({ error: 'attachment_unreadable' });
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(file.data);
+  } catch (err) {
+    console.error('[internal-channels] mail outbound-attachment failed:', err);
+    res.status(500).json({ error: 'mail_outbound_attachment_failed' });
   }
 });
 

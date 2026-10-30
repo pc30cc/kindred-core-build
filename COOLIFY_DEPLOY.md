@@ -80,12 +80,7 @@ https://api.example.com/api → https://api.example.com/api/...
 | `WIDGET_ASSET_BASE_URL` | `https://example.com` | ✅ (split deploy) |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | ❌ (no effect — limits are fixed per route) |
 | `RATE_LIMIT_MAX` | `100` | ❌ (no effect — limits are fixed per route) |
-| `RESEND_API_KEY` | `re_xxx` | ❌ |
-| `SENDGRID_API_KEY` | `SG.xxx` | ❌ |
-| `SMTP_HOST` | `smtp.example.com` | ❌ |
-| `SMTP_PORT` | `587` | ❌ |
-| `SMTP_USER` | | ❌ |
-| `SMTP_PASS` | | ❌ |
+| `RESEND_API_KEY`, `SENDGRID_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | | ❌ (fallback only: the email provider is the Super Admin's setting in the database, which wins; see `docs/operations/EMAIL.md`. Leave unset.) |
 | `PHONE_VERIFICATION_PEPPER` | `openssl rand -hex 32` | ✅ (phone OTP) |
 | `GENERIC_VERIFICATION_PEPPER` | `openssl rand -hex 32` | ✅ (email OTP / guest order lookup) |
 

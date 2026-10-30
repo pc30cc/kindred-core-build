@@ -27,6 +27,7 @@ import { extractProviderRefCandidates, requiresReferenceBinding } from '../provi
 import { IRANIAN_PAYMENT_PROVIDERS } from '../../../../shared/edition.js';
 import type { BillingProviderConfig, WebhookEvent } from '../types.js';
 import type { Edition } from '../../../../shared/edition.js';
+import { parseEmailAddress } from '../../../../shared/emailProviders.js';
 import {
   BILLING_PROFILE_KEYS,
   SELLER_KEYS,
@@ -278,8 +279,17 @@ export async function updateBillingProfile(
   workspaceId: string,
   profile: unknown,
 ): Promise<AccountRow> {
-  await ensureAccount(config, workspaceId);
   const clean = cleanProfile(profile, BILLING_PROFILE_KEYS);
+  // Receipts go to this address, one RCPT TO: a comma list or a display name
+  // ("a@x.com, b@y.com", any text with an "@") used to be stored as it was,
+  // and then made every billing mail of the workspace fail (or, over SMTP,
+  // go to each address in it).
+  if (clean.invoice_email !== undefined) {
+    const address = parseEmailAddress(clean.invoice_email);
+    if (!address) throw new AccountBillingError('INVALID_INVOICE_EMAIL', 400, { field: 'invoice_email' });
+    clean.invoice_email = address;
+  }
+  await ensureAccount(config, workspaceId);
   const { data, error } = await getServiceClient(config)
     .from('billing_accounts')
     .update({ billing_profile: clean, updated_at: new Date().toISOString() })

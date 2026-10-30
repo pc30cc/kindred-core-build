@@ -56,6 +56,12 @@ export interface NotificationEmailDefinition {
    * urgent is what push is for — so all of them wait.
    */
   respectsQuietHours: boolean;
+  /**
+   * What kind of mail it is for the email core (email_logs, a provider that
+   * tags mail): every one is a notification a person subscribed to, but an
+   * announcement is the platform telling everybody about itself.
+   */
+  category: 'notification' | 'marketing';
 }
 
 export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmailDefinition> = {
@@ -65,6 +71,7 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'inbox',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   transcripts: {
     type: 'transcripts',
@@ -72,6 +79,7 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'members',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   paid_invoices: {
     type: 'paid_invoices',
@@ -79,13 +87,16 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'admins',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   weekly_summary: {
     type: 'weekly_summary',
     slug: 'operator_weekly_summary',
-    audience: 'members',
+    // Its link is the Inbox, which staff cannot open.
+    audience: 'inbox',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'notification',
   },
   product_updates: {
     type: 'product_updates',
@@ -93,11 +104,40 @@ export const NOTIFICATION_EMAILS: Record<NotificationEmailType, NotificationEmai
     audience: 'members',
     operatorOptOut: true,
     respectsQuietHours: true,
+    category: 'marketing',
   },
 };
 
 export function isNotificationEmailType(value: unknown): value is NotificationEmailType {
   return (NOTIFICATION_EMAIL_TYPES as readonly string[]).includes(String(value));
+}
+
+/**
+ * The one operator mail a person may decline that this queue does not
+ * carry: the notice a workspace's owners and admins get when a visitor
+ * leaves a message while the team is away (services/widget/offlineNotice.ts,
+ * sent through the email outbox, at once or as its window's summary). It has
+ * no platform switch and no producer here: it is the workspace's own
+ * operational mail, sent whatever Super Admin → Notifications says, so only
+ * each recipient's own switch (user_email_notification_prefs.offline_messages,
+ * migration 289g) and its unsubscribe link stop it.
+ */
+export const OFFLINE_MESSAGES_EMAIL = 'offline_messages' as const;
+
+/** Who gets the offline-message notice, and so who is offered its switch. */
+export const OFFLINE_NOTICE_ROLES = ['owner', 'admin'] as const;
+
+/**
+ * Every switch of the operator's own email preferences (a column each in
+ * user_email_notification_prefs), and so every type an unsubscribe link may
+ * name: the queued types, and the offline-message notice.
+ */
+export const EMAIL_PREFERENCE_TYPES = [...NOTIFICATION_EMAIL_TYPES, OFFLINE_MESSAGES_EMAIL] as const;
+
+export type EmailPreferenceType = (typeof EMAIL_PREFERENCE_TYPES)[number];
+
+export function isEmailPreferenceType(value: unknown): value is EmailPreferenceType {
+  return (EMAIL_PREFERENCE_TYPES as readonly string[]).includes(String(value));
 }
 
 /** The template slug a type renders through. */

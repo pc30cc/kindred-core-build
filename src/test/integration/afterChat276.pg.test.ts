@@ -38,9 +38,12 @@ const published = vi.hoisted(() => [] as Array<{ ws: string; cid: string; envelo
 // transcript_disabled): this suite tests the kept code with it on.
 vi.mock('../../../shared/visitorEmail.js', () => ({ VISITOR_EMAIL_FEATURES_ENABLED: true, VISITOR_EMAIL_TEMPLATE_OPTIONS: ['transcriptEmail'] }));
 vi.mock('../../../server/services/email/providers/resend.js', () => ({
-  sendViaResend: async (_cfg: unknown, to: string, subject: string, html: string, text: string) => {
-    sent.push({ to, subject, html, text });
-    return { success: true, provider: 'resend', id: `m-${sent.length}` };
+  resendAdapter: {
+    name: 'resend',
+    send: async (_cfg: unknown, message: { to: string; subject: string; html: string; text: string }) => {
+      sent.push({ to: message.to, subject: message.subject, html: message.html, text: message.text });
+      return { success: true, provider: 'resend', id: `m-${sent.length}` };
+    },
   },
 }));
 vi.mock('../../../server/services/realtime/publish.js', async (orig) => ({

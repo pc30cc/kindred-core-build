@@ -13,6 +13,13 @@ import { getSmsProviderInfo } from '../sms/index.js';
 import type { SmsProviderInfo } from '../sms/types.js';
 import { ADMIN_MANAGED_VERIFICATION_PURPOSES, type VerificationPurpose } from './types.js';
 import { getAllPurposeOverviews, type PurposeOverview } from './adminSettings.js';
+import { loadEmailProviderConfig } from '../email/providerConfigStore.js';
+import { emailProviderReadiness } from '../email/providers/index.js';
+import {
+  canonicalEmailProviderConfig,
+  emailProviderConfigProblems,
+  isEmailProviderAdapter,
+} from '../../../shared/emailProviders.js';
 
 /**
  * Readiness is OBSERVATIONAL ONLY — computing one of these values never
@@ -48,49 +55,47 @@ export interface ReadinessSnapshot {
   }>;
 }
 
-function nonEmptyString(source: Record<string, unknown> | undefined, key: string): boolean {
-  const value = source?.[key];
-  return typeof value === 'string' && value.trim() !== '';
-}
-
 /**
  * Classifies the SAME shape `default_email_provider` stores
- * (`{provider_name, config, secrets}` — see server/services/email/index.ts's
- * own `normalizeProviderConfig`) into a readiness state without importing
- * that module's send-path internals. Only checks for the PRESENCE of the
- * credential field each provider's own adapter requires
- * (server/services/email/providers/{resend,sendgrid,smtp}.ts) — never its
- * value.
+ * (`{provider_name, config, secrets}`; see
+ * server/services/email/providerConfigStore.ts) into a readiness state.
+ * `configured` only for a provider this server has an adapter for
+ * (shared/emailProviders.ts, the registry's own list) with every field it
+ * requires and a valid from_email, exactly as the send path reads it: what
+ * reads `configured` here can send, and a provider missing its sender, its
+ * key or the password for its user reads `invalid`. A secret is checked
+ * for PRESENCE only (an encrypted one counts), never its value; an
+ * environment variable fills a field the database left blank, as it does
+ * for a send.
  */
 export function classifyEmailProviderConfig(value: unknown, env: NodeJS.ProcessEnv = process.env): ProviderReadinessState {
   const row = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   const providerNameRaw = typeof row?.provider_name === 'string' ? row.provider_name : typeof row?.provider === 'string' ? row.provider : '';
   const providerName = providerNameRaw.trim().toLowerCase();
   if (!providerName || providerName === 'disabled') return 'unconfigured';
+  // A provider_name that isn't one of the platform's own adapters.
+  if (!isEmailProviderAdapter(providerName)) return 'invalid';
 
-  const cfg = row?.config && typeof row.config === 'object' && !Array.isArray(row.config) ? (row.config as Record<string, unknown>) : undefined;
-  const secrets = row?.secrets && typeof row.secrets === 'object' && !Array.isArray(row.secrets) ? (row.secrets as Record<string, unknown>) : undefined;
-  const hasCredential = (key: string) => nonEmptyString(cfg, key) || nonEmptyString(secrets, key);
-
-  switch (providerName) {
-    case 'resend':
-      return hasCredential('api_key') || Boolean(env.RESEND_API_KEY) ? 'configured' : 'invalid';
-    case 'sendgrid':
-      return hasCredential('api_key') || Boolean(env.SENDGRID_API_KEY) ? 'configured' : 'invalid';
-    case 'smtp':
-      return hasCredential('smtp_host') || Boolean(env.SMTP_HOST) ? 'configured' : 'invalid';
-    default:
-      // A provider_name that isn't one of the platform's own adapters.
-      return 'invalid';
+  const cfg = row?.config && typeof row.config === 'object' && !Array.isArray(row.config) ? (row.config as Record<string, unknown>) : {};
+  const secrets = row?.secrets && typeof row.secrets === 'object' && !Array.isArray(row.secrets) ? (row.secrets as Record<string, unknown>) : {};
+  // An encrypted secret is an envelope object: present, whatever it holds.
+  const fields: Record<string, unknown> = {};
+  for (const [key, stored] of Object.entries({ ...cfg, ...secrets })) {
+    fields[key] = stored && typeof stored === 'object' ? 'set' : stored;
   }
+  const canonical = canonicalEmailProviderConfig(providerName, fields);
+  return emailProviderConfigProblems(providerName, canonical, env).length === 0 ? 'configured' : 'invalid';
 }
 
+/**
+ * The stored provider through the config store (secrets decrypted), so a
+ * secret that cannot be decrypted reads `invalid` here as it fails a send.
+ */
 async function getEmailProviderStatus(config: ServerConfig): Promise<ProviderReadinessState> {
   try {
-    const sb = getServiceClient(config);
-    const { data, error } = await sb.from('app_runtime_config').select('value').eq('key', 'default_email_provider').maybeSingle();
-    if (error) return 'unavailable';
-    return classifyEmailProviderConfig((data as { value?: unknown } | null)?.value);
+    const loaded = await loadEmailProviderConfig(config, 'default_email_provider');
+    if (loaded.status === 'error') return 'unavailable';
+    return emailProviderReadiness(loaded.status === 'ok' ? loaded.provider : null);
   } catch {
     return 'unavailable';
   }

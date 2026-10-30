@@ -131,6 +131,7 @@ vi.mock('../../../../server/services/billing/account/notify.js', () => ({
     new Map(ids.filter(Boolean).map((id) => [id as string, { name: 'Pro', localized: {} }])),
   localizedPlanName: (plan: { name: string } | undefined) => plan?.name ?? '',
   billingIntervalLabel: (interval: string) => interval,
+  billingMailKey: (...parts: unknown[]) => parts.join(':'),
 }));
 vi.mock('../../../../server/services/billing/account/card.js', () => ({
   readLiveCard: h.card.readLiveCard,

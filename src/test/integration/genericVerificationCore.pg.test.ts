@@ -1568,6 +1568,29 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     expect(req.deliveryOutcome).toBe('unconfigured');
   });
 
+  it.each([
+    // A provider missing a setting, or one whose stored secret cannot be decrypted.
+    ['a provider that cannot send', { success: false, provider: 'smtp', errorCode: 'unconfigured', permanent: true, error: 'unconfigured: the email provider has no SMTP host' }, 'unconfigured', 'delivery_failed'],
+    ['a suppressed address', { success: false, provider: 'none', errorCode: 'suppressed', permanent: true, error: 'suppressed: the address is on the suppression list' }, 'permanent_failure', 'delivery_failed'],
+    ['a refused sign-in', { success: false, provider: 'smtp', errorCode: 'auth', permanent: true, error: 'auth: the SMTP server refused the sign-in (535)' }, 'permanent_failure', 'delivery_failed'],
+    ['a timeout', { success: false, provider: 'smtp', errorCode: 'timeout', permanent: false, error: 'timeout: the SMTP server did not answer in time' }, 'retryable_failure', 'pending_delivery'],
+  ])('CC1c: an email the core reports as %s finalizes as the core means it', async (_what, result, outcome, status) => {
+    const userId = randomUUID();
+    platformEmailSendMock.mockResolvedValueOnce(result);
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_email', channel: 'email', destination: `cc1c-${outcome}-${userId.slice(0, 8)}@example.test`, subjectKind: 'user',
+      subjectRef: userId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.112', authenticatedUserId: userId },
+    });
+    expect(req.deliveryOutcome).toBe(outcome);
+    const chal = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    expect(chal.rows[0].status).toBe(status);
+    const delivery = await db.query(
+      `SELECT outcome, error_code FROM public.verification_delivery_attempts WHERE challenge_id = (SELECT id FROM public.verification_challenges WHERE handle = $1)`,
+      [req.handle],
+    );
+    expect(delivery.rows[0]).toMatchObject({ outcome, error_code: result.error });
+  });
+
   // ── DD. remaining database defects (item 9) ─────────────────────────────
   it('DD1: gv_purge_expired_idempotency deletes ALL matching expired rows in one call and returns the EXACT count, never just the first row', async () => {
     const keys = Array.from({ length: 5 }, () => `purge-test-${randomUUID()}`);

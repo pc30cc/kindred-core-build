@@ -11,7 +11,9 @@
  *
  * The selected provider may be any vendor the storage subsystem already
  * supports (local, s3, bunny_storage, …). Provider-specific credentials
- * are stored in app_runtime_config under key 'privacy_export_storage'.
+ * are stored in app_runtime_config under key 'privacy_export_storage'. The
+ * server never sends them back: a stored one shows as saved, and saving
+ * with it left blank keeps it (server/routes/adminManagement.ts).
  * Workspace-level overrides live in provider_configs with provider_type
  * 'privacy_export_storage'.
  */
@@ -84,20 +86,27 @@ const PROVIDER_FIELDS: Record<Provider, Array<{ key: string; label: string; plac
 
 export function PrivacyExportStorageCard() {
   const [value, setValue] = useState<PolicyValue>(DEFAULT_VALUE);
+  // Credentials the server holds for the stored provider (`config.<field>`).
+  const [savedSecrets, setSavedSecrets] = useState<{ provider: Provider; fields: string[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const loaded = await adminFetch<{ value: unknown }>(
+      const loaded = await adminFetch<{ value: unknown; secretKeysSet?: string[] }>(
         '/api/admin/management/runtime-config/privacy_export_storage',
-      ).catch(() => ({ value: null }));
+      ).catch(() => ({ value: null, secretKeysSet: [] }));
       if (loaded.value && typeof loaded.value === 'object' && !Array.isArray(loaded.value)) {
         const v = loaded.value as Record<string, unknown>;
+        const provider = (v.provider as Provider) || 'local';
         setValue({
-          provider: (v.provider as Provider) || 'local',
+          provider,
           config: (v.config as Record<string, string | undefined>) || {},
           allow_attachment_fallback: Boolean(v.allow_attachment_fallback),
+        });
+        setSavedSecrets({
+          provider,
+          fields: (loaded.secretKeysSet ?? []).filter((p) => p.startsWith('config.')).map((p) => p.slice(7)),
         });
       }
       setLoading(false);
@@ -125,6 +134,8 @@ export function PrivacyExportStorageCard() {
   };
 
   const fields = PROVIDER_FIELDS[value.provider] || [];
+  const isSaved = (key: string) =>
+    savedSecrets?.provider === value.provider && savedSecrets.fields.includes(key) && !value.config[key];
 
   return (
     <Card className="border-warning/30">
@@ -180,7 +191,7 @@ export function PrivacyExportStorageCard() {
                   <Label className="text-xs">{f.label}</Label>
                   <Input
                     type={f.secret ? 'password' : 'text'}
-                    placeholder={f.placeholder}
+                    placeholder={isSaved(f.key) ? 'Saved — leave blank to keep it' : f.placeholder}
                     value={value.config[f.key] ?? ''}
                     onChange={(e) =>
                       setValue({ ...value, config: { ...value.config, [f.key]: e.target.value } })

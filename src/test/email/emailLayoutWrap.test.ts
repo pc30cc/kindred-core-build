@@ -265,6 +265,17 @@ describe('a row that is a whole document of its own goes as it is', () => {
     expect(sent().text).toBe('Own design R-7001\n\nF');
   });
 
+  it('the closing line goes before its </body> after Turkish text, whose «İ» lowercases to two characters', async () => {
+    db.templates[0].html_body = '<!doctype html><html lang="tr"><body><p>İptal İşlemi {receipt_number}</p></body></html>';
+    db.templates[0].text_body = 'İptal İşlemi {receipt_number}';
+    await receipt({ footer: { html: '<p>F</p>', text: 'F' } });
+    expect(sent().html).toBe('<!doctype html><html lang="tr"><body><p>İptal İşlemi R-7001</p><p>F</p></body></html>');
+    // The İ may be the sender's too: a visitor's name or message filled in.
+    db.templates[0].html_body = '<!doctype html><html><body><p>Message from {receipt_number}</p></body></html>';
+    await receipt({ templateData: { receipt_number: 'İrem' }, footer: { html: '<p>F</p>', text: 'F' } });
+    expect(sent(1).html).toBe('<!doctype html><html><body><p>Message from İrem</p><p>F</p></body></html>');
+  });
+
   it('but for what no mail may carry, head and body alike; the lines a document\'s head needs stay', async () => {
     db.templates[0].html_body = '<!DOCTYPE html>\n<html lang="tr"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
       + '<meta http-equiv="refresh" content="0;url=https://evil.example"><title>İptal</title><script>steal()</script><link rel="stylesheet" href="https://evil.example/a.css"></head>'

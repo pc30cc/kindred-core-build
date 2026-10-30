@@ -36,6 +36,7 @@ import {
   decodeEntities,
   documentBody,
   isWholeDocument,
+  lastBodyClose,
   legalLine,
   localYear,
   renderEmailDocument,
@@ -302,7 +303,7 @@ function withFooter(html: string, text: string, footer: EmailRequest['footer']):
   if (!footer) return { html, text };
   let nextHtml = html;
   if (html && footer.html) {
-    const close = html.toLowerCase().lastIndexOf('</body');
+    const close = lastBodyClose(html);
     nextHtml = close >= 0 ? `${html.slice(0, close)}${footer.html}${html.slice(close)}` : `${html}${footer.html}`;
   }
   const nextText = text.trim() && footer.text ? `${text.trimEnd()}\n\n${footer.text}` : text;

@@ -666,6 +666,8 @@ describe('whole documents', () => {
     expect(isWholeDocument('<!-- never closed <html>')).toBe(false);
     expect(documentBody('<!doctype html><html><head><title>t</title></head><body style="font-family:sans-serif"><p>a</p><p>b</p></body></html>')).toBe('<p>a</p><p>b</p>');
     expect(documentBody('<html><head><style>p{}</style></head><p>a</p></html>')).toBe('<p>a</p>');
+    // Its </body> is found in the text itself: Turkish «İ» lowercases to two characters.
+    expect(documentBody('<!doctype html><html><body><p>İptal edildi İşletme</p></BODY></html>')).toBe('<p>İptal edildi İşletme</p>');
   });
 });
 

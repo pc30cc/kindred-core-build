@@ -1318,6 +1318,18 @@ export function sendableDocument(html: string): string {
   return serialize(withoutForbidden(parseHtml(String(html ?? '')), isDocumentMeta));
 }
 
+/**
+ * Where a document's last `</body` begins, in any case: found in the text
+ * itself, not in a lowercased copy, whose indexes are one off after each
+ * Turkish «İ» (it lowercases to two characters). -1 when it has none.
+ */
+export function lastBodyClose(html: string): number {
+  const closeTag = /<\/body/gi;
+  let at = -1;
+  for (let m = closeTag.exec(html); m; m = closeTag.exec(html)) at = m.index;
+  return at;
+}
+
 /** The inside of a whole document's `<body>` (a caller's fallback written as one), for the layout to wear. */
 export function documentBody(html: string): string {
   const s = String(html ?? '');
@@ -1326,7 +1338,7 @@ export function documentBody(html: string): string {
     return serialize(parseHtml(s).flatMap((n) => (n.kind === 'el' && n.name === 'html' ? n.children : [n])).filter((n) => !(n.kind === 'el' && n.name === 'head') && n.kind !== 'comment'));
   }
   const from = open.index + open[0].length;
-  const close = s.toLowerCase().lastIndexOf('</body');
+  const close = lastBodyClose(s);
   return s.slice(from, close > from ? close : s.length);
 }
 

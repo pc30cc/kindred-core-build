@@ -24,6 +24,8 @@ type Row = Record<string, unknown>;
 type Builder = Record<string, unknown>;
 type Settle = (value: { data: unknown; error: null }) => unknown;
 const db: Record<string, Row[]> = {};
+/** Single-row reads of a table that fail next (a statement timeout, the pool exhausted). */
+const faults: Record<string, number> = {};
 
 function fakeClient() {
   return {
@@ -36,7 +38,13 @@ function fakeClient() {
         eq(col: string, val: unknown) { filters.push((r: Row) => r[col] === val); return builder; },
         is(col: string, val: null) { filters.push((r: Row) => r[col] === val); return builder; },
         order(col: string) { orderCol = col; return builder; },
-        maybeSingle: async () => ({ data: rows.filter((r) => filters.every((f) => f(r)))[0] ?? null, error: null }),
+        maybeSingle: async () => {
+          if (faults[table]) {
+            faults[table] -= 1;
+            return { data: null, error: { message: 'canceling statement due to statement timeout' } };
+          }
+          return { data: rows.filter((r) => filters.every((f) => f(r)))[0] ?? null, error: null };
+        },
         insert(payload: Row) {
           const inserted = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...payload };
           rows.push(inserted);
@@ -183,6 +191,7 @@ const ORDINARY_USER = crypto.randomUUID();
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
+  for (const key of Object.keys(faults)) delete faults[key];
   db.__sessions = [
     { token: 'admin-token', userId: ADMIN_USER },
     { token: 'ordinary-token', userId: ORDINARY_USER },
@@ -323,6 +332,20 @@ describe('a mail the platform sends keeps its template', () => {
     });
     expect(put.status).toBe(200);
     expect(db.email_templates.find((t) => t.id === 't-reset')).toMatchObject({ subject: 'Choose a new password', is_active: true });
+  });
+
+  it('its row is kept when it cannot be told what the row is: a failed read refuses the delete or the switch-off', async () => {
+    faults.email_templates = 1;
+    const del = await call('DELETE', '/api/admin/management/email-templates/t-reset', 'admin-token');
+    expect(del.status).toBe(500);
+    expect(db.email_templates.find((t) => t.id === 't-reset')).toBeDefined();
+    faults.email_templates = 1;
+    const put = await call('PUT', '/api/admin/management/email-templates/t-reset', 'admin-token', {
+      subject: 'Reset', html_body: '<p>r</p>', is_active: false,
+    });
+    expect(put.status).toBe(500);
+    expect(db.email_templates.find((t) => t.id === 't-reset')?.is_active).toBe(true);
+    expect(faults.email_templates).toBe(0);
   });
 
   it('a mail nothing sends can still be switched off', async () => {

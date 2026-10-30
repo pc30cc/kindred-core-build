@@ -620,16 +620,22 @@ function refuseSentTemplateRemoval(res: Response): void {
   res.status(409).json({ error: 'template_in_use' });
 }
 
-/** The slug of a platform row of this edition, '' when there is no such row (the write then finds nothing either). */
-async function platformTemplateSlug(config: ServerConfig, id: string, edition: Edition): Promise<string> {
-  const { data } = await getServiceClient(config)
+/**
+ * The slug of a platform row of this edition, '' when there is no such row
+ * (the write then finds nothing either), or the read's error. A read that
+ * failed stops the write: taken for "no such row", it let a sent mail's row
+ * be deleted or switched off whenever that one lookup timed out.
+ */
+async function platformTemplateSlug(config: ServerConfig, id: string, edition: Edition): Promise<{ slug: string } | { error: string }> {
+  const { data, error } = await getServiceClient(config)
     .from('email_templates')
     .select('slug')
     .eq('id', id)
     .is('workspace_id', null)
     .eq('edition', edition)
     .maybeSingle();
-  return String((data as { slug?: unknown } | null)?.slug ?? '');
+  if (error) return { error: error.message };
+  return { slug: String((data as { slug?: unknown } | null)?.slug ?? '') };
 }
 
 adminManagementRouter.post('/email-templates', async (req, res) => {
@@ -692,8 +698,10 @@ adminManagementRouter.put('/email-templates/:id', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
-  if (!parsed.data.is_active && isSentTemplate(await platformTemplateSlug(config, req.params.id, edition))) {
-    return refuseSentTemplateRemoval(res);
+  if (!parsed.data.is_active) {
+    const row = await platformTemplateSlug(config, req.params.id, edition);
+    if ('error' in row) return res.status(500).json({ error: row.error });
+    if (isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
   }
   const { data, error } = await sb
     .from('email_templates')
@@ -718,7 +726,9 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
     if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
     return;
   }
-  if (isSentTemplate(await platformTemplateSlug(config, req.params.id, edition))) return refuseSentTemplateRemoval(res);
+  const row = await platformTemplateSlug(config, req.params.id, edition);
+  if ('error' in row) return res.status(500).json({ error: row.error });
+  if (isSentTemplate(row.slug)) return refuseSentTemplateRemoval(res);
   const { error } = await sb
     .from('email_templates')
     .delete()

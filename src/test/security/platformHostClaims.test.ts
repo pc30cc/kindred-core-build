@@ -107,7 +107,7 @@ describe.each([
   it(`help-host on api.${apex} answers the platform's own workspace, as today`, async () => {
     const res = await helpHost(`api.${apex}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ workspace_id: PLATFORM });
+    expect(res.body).toEqual({ workspace_id: PLATFORM, platform: true });
   });
 
   it(`a customer's verified api.${apex} or app.${apex} row does not take it over`, async () => {
@@ -116,8 +116,8 @@ describe.each([
     verified(ATTACKER, `deep.api.${apex}`);
     subdomains(ATTACKER, true);
 
-    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
-    expect((await helpHost(`API.${apex.toUpperCase()}:443`)).body).toEqual({ workspace_id: PLATFORM });
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM, platform: true });
+    expect((await helpHost(`API.${apex.toUpperCase()}:443`)).body).toEqual({ workspace_id: PLATFORM, platform: true });
     for (const origin of [`https://app.${apex}`, `https://x.api.${apex}`, `https://deep.api.${apex}`, `https://www.api.${apex}`]) {
       expect(await resolveWorkspaceIdFromOrigin(config, origin)).toBe(PLATFORM);
     }
@@ -150,14 +150,14 @@ describe.each([
     ['primary on app.', { primary_domain: `app.${apex}` }],
   ])('with %s, the platform keeps its help center and its domains, and a claim still gains nothing', async (_case, change) => {
     Object.assign(db.platform_domains[0], change);
-    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM, platform: true });
     expect(await resolveWorkspaceIdFromOrigin(config, `https://${apex}`)).toBe(PLATFORM);
     expect(await isPlatformWorkspace(config, PLATFORM)).toBe(true);
     __resetWidgetOriginCaches();
     verified(ATTACKER, `api.${apex}`);
     verified(ATTACKER, `help.${apex}`);
     subdomains(ATTACKER, true);
-    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM, platform: true });
     expect(await resolveWorkspaceIdFromOrigin(config, `https://help.${apex}`)).toBe(PLATFORM);
   });
 
@@ -176,7 +176,9 @@ describe.each([
     config = { corsOrigins: [`https://${apex}`, `https://app.${apex}`] };
     db.fail = true;
     expect(await resolveWorkspaceIdFromOrigin(config, `https://${apex}`)).toBe(PLATFORM);
-    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM });
+    // Which workspace is the platform's is not known without platform_domains,
+    // so the help center goes without the platform's logo, as before it had one.
+    expect((await helpHost(`api.${apex}`)).body).toEqual({ workspace_id: PLATFORM, platform: false });
     expect(await isPlatformHost(config, `app.${apex}`)).toBe(true);
     warn.mockRestore();
   });
@@ -218,7 +220,9 @@ describe('a deployment that names no platform domain', () => {
     verified(PLATFORM, 'example.com');
     subdomains(PLATFORM, true);
     expect(await resolveWorkspaceIdFromOrigin(config, 'https://example.com')).toBe(PLATFORM);
-    expect((await helpHost('api.example.com')).body).toEqual({ workspace_id: PLATFORM });
+    // Nothing names the platform's workspace, so this help center is a
+    // workspace's own and wears no platform logo.
+    expect((await helpHost('api.example.com')).body).toEqual({ workspace_id: PLATFORM, platform: false });
     expect(await isPlatformHost(config, 'example.com')).toBe(false);
   });
 

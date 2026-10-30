@@ -8,7 +8,9 @@
  *     compiled text only for a missing template;
  *   - the invitation's {role} (server/services/invitations/
  *     notificationTemplates.ts), the role's name as the panel shows it in
- *     each language, never the key.
+ *     each language, never the key; and its {expiry}, the end date, or the
+ *     panel's words for an invitation that never expires (which is stored a
+ *     century ahead), never a date in 2126.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -75,8 +77,19 @@ describe('the invitation\'s role and end date', () => {
   });
 
   it('the end date in the reader\'s calendar, or that there is none', () => {
-    expect(renderInviteExpiry('fa', '2026-11-06T10:00:00Z', 'UTC', 'jalali')).toContain('۱۴۰۵');
-    expect(renderInviteExpiry('en', null)).toBe('no end date');
-    expect(renderInviteExpiry('tr', 'not a date')).toBe('bitiş tarihi yok');
+    expect(renderInviteExpiry('fa', '2026-11-06T10:00:00Z', 'UTC', 'jalali', AT)).toContain('۱۴۰۵');
+    expect(renderInviteExpiry('en', null)).toBe('No expiry');
+    expect(renderInviteExpiry('tr', 'not a date')).toBe('Süresiz');
+  });
+
+  it.each(['en', 'fa', 'tr'] as const)('%s: an invitation that never expires (stored a century ahead) says so in the panel\'s words', (locale) => {
+    const words = (panel[locale] as unknown as { invitations: { noExpiry: string } }).invitations.noExpiry;
+    const century = new Date(AT.getTime() + 100 * 365 * 24 * 3600 * 1000).toISOString();
+    expect(renderInviteExpiry(locale, century, 'UTC', 'jalali', AT)).toBe(words);
+    expect(renderInviteExpiry(locale, null, 'UTC', 'jalali', AT)).toBe(words);
+    // An end within the coming years is still a date (an invitation ends within 30 days).
+    const soon = new Date(AT.getTime() + 30 * 24 * 3600 * 1000).toISOString();
+    expect(renderInviteExpiry(locale, soon, 'UTC', 'gregorian', AT)).not.toBe(words);
+    expect(renderInviteExpiry(locale, soon, 'UTC', 'gregorian', AT)).toMatch(/2026|۲۰۲۶/);
   });
 });

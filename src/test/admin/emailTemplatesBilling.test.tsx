@@ -1,33 +1,32 @@
 /**
- * Super Admin → Branding → Email templates lists the simple billing's mails
- * (billing v2 and its mails were removed in phase 7A), each with the variables
- * its sender really fills. Every platform mail is edited there, per edition;
- * a billing mail missing from the list could only be changed in SQL.
+ * Super Admin → Branding → Email templates lists the simple billing's mails,
+ * each with the variables its sender really fills, and billing v2's old
+ * mails too, under "No longer sent": every template the platform keeps is
+ * viewable there (owner, 2026-10-30), and none is hidden because nothing
+ * sends it any more.
  *
- * The slugs are read from the sender (notify.ts) and the seeds (migrations
- * 261, 262, 264 and 265), so a mail added there and forgotten here fails in this test.
- * The saved card's mails (262: a renewal the card paid, a failed payment, a
- * removed card) are sent in the International edition only and not listed
- * in the Iranian one; the balance's renewal mail names no card. The notice
- * that locked data is deleted (265, sent 30 and 7 days before) is listed in
- * both editions.
+ * The tab draws its list from the server's catalog
+ * (server/services/email/templateCatalog.ts), so the catalog is what is
+ * checked against the sender (notify.ts BillingEmailSlug) and against the
+ * content the migration chain seeds today (291): a billing mail added there
+ * and forgotten here fails in this test. The saved card's mails (262) are
+ * sent in the International edition only; the Iranian edition lists them
+ * too, as rows it keeps and never sends, and the balance's renewal mail
+ * names no card.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import en from '@/i18n/locales/en';
 import fa from '@/i18n/locales/fa';
 import tr from '@/i18n/locales/tr';
+import { catalogView } from '../../../server/services/email/templateCatalog.js';
 
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (k: string) => `[${k}]`, locale: 'en', dir: 'ltr' }),
 }));
-vi.mock('@/lib/api', () => ({ API_BASE: '' }));
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-vi.mock('@/hooks/usePlatformRegion', () => ({
-  usePlatformRegion: () => ({ allowedLocales: ['fa', 'en', 'tr'], canSwitchLanguage: true }),
-}));
 // A plain stand-in for the Radix select: each option is a button.
 vi.mock('@/components/ui/select', async () => {
   const { createContext, useContext } = await import('react');
@@ -54,15 +53,15 @@ const LOCALES = { en, fa, tr } as const;
 /** The variables each mail fills besides the ones every billing mail has. */
 const OWN_VARIABLES: Record<string, string[]> = {
   billing_renewal_reminder: ['{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
-  billing_renewed: ['{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
+  billing_renewed: ['{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_expired: ['{plan_name}', '{expired_at}'],
   billing_plan_changed: ['{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_change_scheduled: ['{plan_name}', '{new_plan_name}', '{effective_at}'],
-  billing_payment_receipt: ['{receipt_number}', '{amount}', '{balance}', '{receipt_url}'],
-  billing_plan_activated: ['{plan_name}', '{amount}', '{balance}', '{period_end}'],
+  billing_payment_receipt: ['{receipt_url}', '{receipt_number}', '{amount}', '{balance}'],
+  billing_plan_activated: ['{plan_name}', '{period_end}', '{amount}', '{balance}'],
   billing_trial_ending: ['{trial_end}', '{days_left}'],
   billing_trial_ended: [],
-  billing_card_renewed: ['{plan_name}', '{card}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
+  billing_card_renewed: ['{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}', '{card}'],
   billing_card_payment_failed: ['{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}'],
   billing_card_removed: ['{card}', '{reason}', '{plan_name}', '{period_end}'],
   billing_locked_data_deletion: ['{plan_name}', '{days_left}', '{deletion_date}', '{locked_summary}', '{export_url}'],
@@ -70,6 +69,12 @@ const OWN_VARIABLES: Record<string, string[]> = {
 };
 const CARD_SLUGS = ['billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed'];
 const EVERY_BILLING_MAIL = ['{brand}', '{year}', '{support_email}', '{workspace}', '{billing_url}'];
+/** Billing v2's mails (seeded by 239, retired with billing v2 in 267 and 268), which nothing sends. */
+const BILLING_V2 = [
+  'invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'payment_success', 'payment_failed',
+  'payment_received', 'subscription_renewed', 'subscription_cancelled', 'subscription_restored',
+  'subscription_free_fallback', 'wallet_autopay_insufficient',
+];
 
 /** The slugs the sender knows (BillingEmailSlug in notify.ts). */
 function senderSlugs(): string[] {
@@ -80,22 +85,16 @@ function senderSlugs(): string[] {
   return [...source.slice(start, end).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 }
 
-/** Every {placeholder} migrations 261, 262, 264 and 265 seed for a slug, in any language. */
+/** Every {placeholder} migration 291 (the content every sent template has now) writes for a slug, in any language. */
 function seededPlaceholders(): Map<string, Set<string>> {
+  const sql = readFileSync('database/migrations/291_email_templates_redesign.sql', 'utf8');
   const out = new Map<string, Set<string>>();
-  for (const [file, helper] of [
-    ['database/migrations/261_simple_billing_renewals.sql', '_email_261_seed'],
-    ['database/migrations/262_simple_billing_card.sql', '_email_262_seed'],
-    ['database/migrations/264_simple_billing_ai_packs.sql', '_email_264_seed'],
-    ['database/migrations/265_billing_computed_locks.sql', '_email_265_seed'],
-  ]) {
-    const sql = readFileSync(file, 'utf8');
-    const seed = new RegExp(`^SELECT pg_temp\\.${helper}\\('([a-z_]+)', '[a-z]{2}',\\n([\\s\\S]*?)'\\);$`, 'gm');
-    for (const m of sql.matchAll(seed)) {
-      const found = out.get(m[1]) ?? new Set<string>();
-      for (const v of m[2].matchAll(/\{[a-z_]+\}/g)) found.add(v[0]);
-      out.set(m[1], found);
-    }
+  const rows = sql.split(/^ {2}-- ([a-z_]+) \((?:fa|en|tr)\)$/m);
+  for (let i = 1; i < rows.length; i += 2) {
+    const found = out.get(rows[i]) ?? new Set<string>();
+    const body = rows[i + 1].split(/\n\);?\n|;\n/)[0];
+    for (const v of body.matchAll(/\{[a-z_]+\}/g)) found.add(v[0]);
+    out.set(rows[i], found);
   }
   return out;
 }
@@ -109,30 +108,37 @@ function resolves(locale: unknown, path: string): boolean {
   return typeof current === 'string' && current.trim() !== '';
 }
 
-/** The slugs in the template list, in order (each row is "[name key]slug"). */
-function listedSlugs(): string[] {
-  return screen.getAllByRole('button')
-    .map((b) => (b.textContent ?? '').match(/^\[admin\.brandingPage\.emailTemplates\.slugs\.([a-z_]+)\]([a-z_]+)$/))
-    .filter((m): m is RegExpMatchArray => m !== null && m[1] === m[2])
-    .map((m) => m[1]);
+/** The slugs a list group shows, in order. */
+function listed(group: 'sent' | 'legacy'): string[] {
+  const box = screen.queryByTestId(`email-templates-${group}`);
+  if (!box) return [];
+  return within(box).queryAllByRole('button').map((b) => (b.getAttribute('data-testid') ?? '').replace(/^email-template-/, ''));
 }
 
 function variableChips(): string[] {
-  return screen.getAllByText(/^\{[a-z_]+\}$/).map((e) => e.textContent ?? '');
+  return within(screen.getByTestId('email-template-variables')).queryAllByText(/^\{[a-z_]+\}$/).map((e) => e.textContent ?? '');
 }
+
+let edition: 'iran' | 'international' = 'international';
 
 async function renderTab() {
   render(<EmailTemplatesTab />);
   await waitFor(() => expect(screen.getByTestId('email-templates-edition')).toBeInTheDocument());
 }
 
-describe('Branding → Email templates: the simple billing mails', () => {
+describe('Branding → Email templates: the billing mails', () => {
   const slugs = Object.keys(OWN_VARIABLES);
-  let edition = 'international';
 
   beforeEach(() => {
     edition = 'international';
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ templates: [], edition }) })));
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const body = String(url).endsWith('/catalog')
+        ? { edition, locales: { offered: edition === 'iran' ? ['fa'] : ['en', 'fa', 'tr'], fallback: 'en' }, templates: catalogView(edition) }
+        : String(url).endsWith('/preview') && init?.method === 'POST'
+          ? { subject: 's', html: '<p>h</p>', text: 't', problems: [] }
+          : { templates: [], edition };
+      return { ok: true, status: 200, json: async () => body };
+    }));
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -140,37 +146,45 @@ describe('Branding → Email templates: the simple billing mails', () => {
 
   it('are the mails the sender sends', () => {
     expect(senderSlugs().sort()).toEqual([...slugs].sort());
+    const billing = catalogView('international').filter((v) => v.category === 'billing');
+    expect(billing.filter((v) => v.status === 'sent').map((v) => v.slug).sort()).toEqual([...slugs].sort());
   });
 
-  it('are the billing category, and billing v2\'s old mails are not listed', async () => {
+  it('are the billing category, and billing v2\'s old mails are listed as no longer sent', async () => {
     await renderTab();
     fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.categories.billing]'));
-    expect(listedSlugs()).toEqual(slugs);
+    expect(listed('sent')).toEqual(slugs);
+    expect(listed('legacy')).toEqual(BILLING_V2);
 
     fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.allCategories]'));
-    const all = listedSlugs();
-    for (const slug of slugs) expect(all).toContain(slug);
-    for (const legacy of ['invoice_issued', 'payment_received', 'subscription_renewed', 'trial_expired']) {
-      expect(all).not.toContain(legacy);
-    }
+    for (const slug of slugs) expect(listed('sent')).toContain(slug);
+    for (const legacy of BILLING_V2) expect(listed('legacy')).toContain(legacy);
+    // Billing v2's archived names never had a row in this table.
+    expect([...listed('sent'), ...listed('legacy')]).not.toContain('trial_expired');
   });
 
-  it('in the Iranian edition leave out the card mails; the renewal mail (the balance\'s) names no card', async () => {
+  it('in the Iranian edition list the card mails as not sent here; the renewal mail (the balance\'s) names no card', async () => {
     edition = 'iran';
     await renderTab();
     fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.categories.billing]'));
-    expect(listedSlugs()).toEqual(slugs.filter((slug) => !CARD_SLUGS.includes(slug)));
-    fireEvent.click(screen.getByText(`[${SLUG_KEY}.billing_renewed]`));
+    expect(listed('sent')).toEqual(slugs);
+    for (const slug of slugs) {
+      const marked = within(screen.getByTestId(`email-template-${slug}`)).queryByText('[admin.brandingPage.emailTemplates.groups.notSentHere]');
+      expect(Boolean(marked), slug).toBe(CARD_SLUGS.includes(slug));
+    }
+    fireEvent.click(screen.getByTestId('email-template-billing_card_removed'));
+    expect(screen.getByTestId('email-template-notices')).toHaveTextContent('[admin.brandingPage.emailTemplates.notices.notSentInEdition]');
+    fireEvent.click(screen.getByTestId('email-template-billing_renewed'));
     expect(variableChips().sort()).toEqual([...EVERY_BILLING_MAIL, ...OWN_VARIABLES.billing_renewed].sort());
     expect(variableChips()).not.toContain('{card}');
   });
 
-  it('offer the variables each mail fills, covering everything the seed uses', async () => {
+  it('offer the variables each mail fills, covering everything the seeds print', async () => {
     const seeded = seededPlaceholders();
     await renderTab();
     fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.categories.billing]'));
     for (const slug of slugs) {
-      fireEvent.click(screen.getByText(`[${SLUG_KEY}.${slug}]`));
+      fireEvent.click(screen.getByTestId(`email-template-${slug}`));
       const chips = variableChips();
       expect(chips.sort(), slug).toEqual([...EVERY_BILLING_MAIL, ...OWN_VARIABLES[slug]].sort());
       expect(seeded.get(slug)?.size, `${slug} is seeded`).toBeGreaterThan(0);
@@ -180,12 +194,12 @@ describe('Branding → Email templates: the simple billing mails', () => {
 
   for (const [name, locale] of Object.entries(LOCALES)) {
     it(`have a name in ${name}`, () => {
-      expect(slugs.filter((slug) => !resolves(locale, `${SLUG_KEY}.${slug}`))).toEqual([]);
+      expect([...slugs, ...BILLING_V2].filter((slug) => !resolves(locale, `${SLUG_KEY}.${slug}`))).toEqual([]);
     });
   }
 
   it('write Persian with Persian letters, not Arabic ي and ك', () => {
-    const names = slugs.map((slug) => (fa.admin.brandingPage.emailTemplates.slugs as Record<string, string>)[slug]);
+    const names = [...slugs, ...BILLING_V2].map((slug) => (fa.admin.brandingPage.emailTemplates.slugs as Record<string, string>)[slug]);
     expect(names.join('\n')).not.toMatch(/[يك]/);
   });
 });

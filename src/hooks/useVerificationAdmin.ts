@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/apiBase';
 import type { Locale } from '@/i18n/config';
+import { previewEmailTemplate } from '@/features/emailTemplates/emailTemplatesApi';
 
 export type VerificationPurpose =
   | 'signup_email' | 'signup_phone' | 'password_reset' | 'login_step_up'
@@ -102,9 +103,9 @@ export interface AuditRow {
   createdAt: string;
 }
 
+/** The SMS wording; the email is useVerificationEmailPreview's. */
 export interface TemplatePreview {
   locale: Locale;
-  email: { subject: string; text: string; html: string };
   /**
    * `providerTemplated` is always true: a real SMS OTP is sent through the
    * vendor's own verification template (high-priority service line), so
@@ -223,5 +224,20 @@ export function useTemplatePreview() {
       method: 'POST',
       body: JSON.stringify({ locale }),
     }),
+  });
+}
+
+/**
+ * The code's email as it is sent: the running edition's Super Admin template
+ * `verification_code` (Branding → Email templates), rendered by Branding's
+ * own preview through the email core, with the fixed sample code. The
+ * compiled text the verification service keeps is only the fallback for a
+ * missing row, so it is not what this shows.
+ */
+export function useVerificationEmailPreview(locale: Locale) {
+  return useQuery({
+    queryKey: ['gv-admin-email-preview', locale],
+    queryFn: () => previewEmailTemplate({ slug: 'verification_code', locale, scheme: 'light' }),
+    retry: false,
   });
 }

@@ -903,6 +903,15 @@ function LoadingCard() {
 // ── Main Page ──
 export default function AdminBrandingPage() {
   const { t } = useTranslation();
+  const [tab, setTab] = useState('identity');
+  // Another tab unmounts the email templates' editor, edits and all: leaving
+  // it with unsaved changes asks first.
+  const [emailTemplatesDirty, setEmailTemplatesDirty] = useState(false);
+  const changeTab = (next: string) => {
+    if (tab === 'email-templates' && next !== tab && emailTemplatesDirty
+      && !window.confirm(t('admin.brandingPage.emailTemplates.unsaved.leave'))) return;
+    setTab(next);
+  };
   return (
     <div className="space-y-6 max-w-4xl animate-fade-in">
       <div>
@@ -912,7 +921,7 @@ export default function AdminBrandingPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="identity">
+      <Tabs value={tab} onValueChange={changeTab}>
         <TabsList className="w-full justify-start flex-wrap">
           <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> {t('admin.brandingPage.tabs.identity')}</TabsTrigger>
           <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings')}</TabsTrigger>
@@ -924,7 +933,7 @@ export default function AdminBrandingPage() {
         <TabsContent value="ui-defaults" className="mt-4"><UiDefaultsSection /></TabsContent>
 
         <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>
-        <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>
+        <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab onDirtyChange={setEmailTemplatesDirty} /></TabsContent>
         <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>
       </Tabs>
     </div>

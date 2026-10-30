@@ -342,11 +342,31 @@ export function templateValues(
     templateData.transcript = transcript.text;
     htmlData.transcript = transcript.html;
   } else if (typeof payload?.transcript === 'string') {
-    // A transcript queued before this release: its producer wrote it as
-    // HTML, every line already escaped.
-    htmlData.transcript = payload.transcript;
+    // A transcript queued before #372 (its job may still be waiting or
+    // retrying when this release starts): its producer wrote it as HTML, a
+    // <p> a line. The layout draws only div.msg rows inside div.transcript,
+    // so passed as it is those lines would vanish from the mail, and the
+    // text part would print the markup; it is read back into its lines.
+    const transcript = transcriptValues(legacyTranscriptLines(payload.transcript), templateData.contact ?? '', locale);
+    templateData.transcript = transcript.text;
+    htmlData.transcript = transcript.html;
   }
   return { templateData, htmlData };
+}
+
+/**
+ * The lines of a transcript the pre-#372 producer wrote: `<p>← text</p>` a
+ * line, the text escaped (& < > "), so a `<p>` inside a line is impossible.
+ * Each comes back as the plain line it was, with its "← " or "→ " mark,
+ * escaped again where it becomes a row.
+ */
+export function legacyTranscriptLines(html: string): string[] {
+  return [...html.matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => m[1]
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&'));
 }
 
 /**

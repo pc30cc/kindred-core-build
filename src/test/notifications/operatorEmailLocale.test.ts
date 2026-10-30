@@ -37,7 +37,7 @@ vi.mock('../../../server/services/widget/operatorPresenceSource.js', () => ({
 }));
 
 const { queueTranscript, sweepUnreadDigest } = await import('../../../server/services/notificationEmail/producers.js');
-const { dispatchNotificationEmails } = await import('../../../server/services/notificationEmail/dispatcher.js');
+const { dispatchNotificationEmails, templateValues } = await import('../../../server/services/notificationEmail/dispatcher.js');
 const { invalidateNotificationEmailSettingsCache } = await import('../../../server/services/notificationEmail/settings.js');
 const { resolveRecipients } = await import('../../../server/services/push/recipients.js');
 const { __resetOperatorLocaleCache } = await import('../../../server/services/operatorLocale.js');
@@ -170,6 +170,22 @@ describe('the transcript', () => {
     await queueTranscript(CONFIG, { conversationId: CONV, workspaceId: WS, actorId: null });
     await dispatchNotificationEmails(CONFIG);
     expect(sent[0].html?.transcript).toBe('<div class="msg msg-visitor"><div class="meta">Mina</div><div class="bubble" dir="auto">&lt;a href=&quot;//evil.example&quot;&gt;Verify your account&lt;/a&gt;</div></div>');
+  });
+
+  it('reads a transcript queued before #372 (escaped <p> lines) back into chat rows and plain lines', () => {
+    // The layout draws only div.msg rows inside div.transcript: passed as it
+    // was, the old <p> lines would vanish from the mail, and the text part
+    // would print their markup.
+    const legacy = '<p>← سلام &amp; &lt;b&gt;درود&lt;/b&gt;</p><p>→ در راه است.\nفردا</p><p>→ &quot;ok&quot;</p>';
+    const { templateData, htmlData } = templateValues({ contact: 'Mina', transcript: legacy }, 'Ali', 'fa');
+    const row = (side: string, meta: string, text: string) =>
+      `<div class="msg msg-${side}"><div class="meta">${meta}</div><div class="bubble" dir="auto">${text}</div></div>`;
+    expect(htmlData.transcript).toBe([
+      row('visitor', 'Mina', 'سلام &amp; &lt;b&gt;درود&lt;/b&gt;'),
+      row('agent', 'تیم', 'در راه است.<br>فردا'),
+      row('agent', 'تیم', '&quot;ok&quot;'),
+    ].join(''));
+    expect(templateData.transcript).toBe('← سلام & <b>درود</b>\n→ در راه است.\nفردا\n→ "ok"');
   });
 
   it("prints a placeholder subject as '—'", async () => {

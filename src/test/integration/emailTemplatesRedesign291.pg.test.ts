@@ -10,9 +10,15 @@
  *     aside, whose text part is made from its HTML);
  *   - each row prints only the keys its sender fills, plus the core's, and
  *     the same words in both editions;
+ *   - the transcripts: the operator's container says the team reads it, the
+ *     visitor's keeps the line for someone who never asked for it, and the
+ *     operator's says resolved, never closed;
+ *   - an invitation's end is a details row, never inside a sentence (it can
+ *     be "No expiry");
  *   - a row a Super Admin edited is kept and named, a switched-off one is
- *     replaced and stays off, a missing one is added, the slugs nothing sends
- *     are untouched, and a second run changes and names nothing new.
+ *     replaced and stays off, a missing one is added, an edited visitor
+ *     transcript gets only its new container, the slugs nothing sends are
+ *     untouched, and a second run changes and names nothing new.
  *
  * Driven by TEST_DATABASE_URL; skipped without it.
  */
@@ -68,6 +74,8 @@ const SENT: Record<string, string[]> = {
   billing_ai_pack_purchased: [...BILLING, 'pack_name', 'credit', 'amount', 'balance', 'ai_balance'],
 };
 const SLUGS = Object.keys(SENT);
+/** The rows this test edits before 291, which 291 keeps. */
+const EDITED = ['iran/password_reset/en', 'international/visitor_conversation_transcript/tr'];
 
 interface Row { edition: string; slug: string; locale: string; subject: string; html_body: string; text_body: string | null; is_active: boolean }
 
@@ -112,9 +120,12 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     for (const file of files.filter((f) => f < FILE)) await apply(file);
     before = await rows();
 
-    // A Super Admin's own subject, a row deleted and one switched off.
+    // A Super Admin's own subject (on a reset and on a visitor transcript),
+    // a row deleted and one switched off.
     await db.query(`UPDATE public.email_templates SET subject = 'Our own reset — {brand}'
                      WHERE workspace_id IS NULL AND edition = 'iran' AND slug = 'password_reset' AND locale = 'en'`);
+    await db.query(`UPDATE public.email_templates SET subject = 'Sohbetiniz — {workspace_name}'
+                     WHERE workspace_id IS NULL AND edition = 'international' AND slug = 'visitor_conversation_transcript' AND locale = 'tr'`);
     await db.query(`DELETE FROM public.email_templates
                      WHERE workspace_id IS NULL AND edition = 'international' AND slug = 'billing_trial_ended' AND locale = 'tr'`);
     await db.query(`UPDATE public.email_templates SET is_active = false
@@ -143,7 +154,7 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     expect(after).toHaveLength(SLUGS.length * 6);
     for (const r of after) {
       const at = `${r.edition}/${r.slug}/${r.locale}`;
-      if (at === 'iran/password_reset/en') continue;
+      if (EDITED.includes(at)) continue;
       expect(r.html_body, at).not.toMatch(/<html|<head|<body|<style|<script|style="/i);
       expect(r.html_body.startsWith('<div class="preheader">'), at).toBe(true);
       expect(r.html_body.match(/<h1>/g), at).toHaveLength(1);
@@ -157,7 +168,7 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     // The same words in both editions.
     for (const slug of SLUGS) {
       for (const locale of ['fa', 'en', 'tr']) {
-        if (slug === 'password_reset' && locale === 'en') continue;
+        if (EDITED.some((at) => at.endsWith(`/${slug}/${locale}`))) continue;
         const pair = after.filter((r) => r.slug === slug && r.locale === locale);
         expect([pair[0].subject, pair[0].html_body, pair[0].text_body], `${slug}/${locale}`)
           .toEqual([pair[1].subject, pair[1].html_body, pair[1].text_body]);
@@ -192,6 +203,53 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     }
   });
 
+  it('the transcripts: the operator\'s is read by the team and was resolved; the visitor\'s says what to do if unasked', async () => {
+    for (const r of await rows(`slug = 'operator_conversation_transcript'`)) {
+      const at = `${r.edition}/${r.locale}`;
+      expect(r.html_body, at).toContain('<div class="transcript" data-reader="team">{{transcript}}</div>');
+      // Queued only when a conversation is resolved (routes/conversations.ts),
+      // which is not closed: a closed one has told the visitor it ended.
+      for (const part of [r.html_body, r.text_body ?? '']) {
+        expect(part, at).not.toMatch(/closed|بسته|kapan|kapat/i);
+        expect(part, at).toMatch(/resolved|حل شد|çözül/);
+      }
+    }
+    const ignore: Record<string, string> = {
+      fa: 'اگر شما این ایمیل را نخواسته‌اید، آن را نادیده بگیرید.',
+      en: 'If you didn’t ask for this email, you can ignore it.',
+      tr: 'Bu e-postayı siz istemediyseniz yok sayabilirsiniz.',
+    };
+    for (const r of await rows(`slug = 'visitor_conversation_transcript'`)) {
+      const at = `${r.edition}/${r.locale}`;
+      if (EDITED.includes(`${r.edition}/${r.slug}/${r.locale}`)) continue;
+      expect(r.html_body, at).toContain('<div class="transcript">{transcript}</div>');
+      expect(r.html_body, at).toContain(`<p class="note">${ignore[r.locale]}</p>`);
+      expect(r.text_body, at).toContain(ignore[r.locale]);
+    }
+  });
+
+  it('an invitation\'s end is a details row, in the HTML and the text part, never inside a sentence', async () => {
+    const label: Record<string, string> = { fa: 'اعتبار تا', en: 'Valid until', tr: 'Geçerlilik sonu' };
+    for (const r of await rows(`slug = 'invite_member'`)) {
+      const at = `${r.edition}/${r.locale}`;
+      expect(r.html_body.match(/\{expiry\}/g), at).toHaveLength(1);
+      expect(r.html_body, at).toContain(`<table class="details"><tr><th>${label[r.locale]}</th><td>{expiry}</td></tr></table>`);
+      expect(r.text_body?.match(/\{expiry\}/g), at).toHaveLength(1);
+      expect(r.text_body, at).toContain(`${label[r.locale]}: {expiry}`);
+    }
+  });
+
+  it('an edited visitor transcript keeps the Super Admin\'s words and gets only the container its rows belong in', async () => {
+    const kept = (await rows(`edition = 'international' AND slug = 'visitor_conversation_transcript' AND locale = 'tr'`))[0];
+    const seeded = before.find((r) => r.edition === 'international' && r.slug === 'visitor_conversation_transcript' && r.locale === 'tr')!;
+    const table = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">{transcript}</table>';
+    expect(seeded.html_body).toContain(table);
+    expect(kept.subject).toBe('Sohbetiniz — {workspace_name}');
+    expect(kept.text_body).toBe(seeded.text_body);
+    expect(kept.html_body).toBe(seeded.html_body.replace(table, '<div class="transcript">{transcript}</div>'));
+    expect(kept.html_body).toMatch(/<html/i);
+  });
+
   it('keeps and names an edited row, replaces and names a switched-off one, adds a missing one', async () => {
     const edited = (await rows(`edition = 'iran' AND slug = 'password_reset' AND locale = 'en'`))[0];
     const seeded = before.find((r) => r.edition === 'iran' && r.slug === 'password_reset' && r.locale === 'en')!;
@@ -206,9 +264,10 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     expect(added).toMatchObject({ subject: twin.subject, html_body: twin.html_body, text_body: twin.text_body, is_active: true });
 
     expect(firstRun).toEqual([
-      '291: 166 rows replaced, 1 added',
-      '291: kept as the Super Admin wrote them (not replaced): iran/password_reset/en',
+      '291: 165 rows replaced, 1 added',
+      '291: kept as the Super Admin wrote them (not replaced): iran/password_reset/en, international/visitor_conversation_transcript/tr',
       '291: switched off (left off): iran/email_test/fa',
+      '291: kept, the transcript\'s table changed to div.transcript: international/visitor_conversation_transcript/tr',
     ]);
   });
 
@@ -224,7 +283,7 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     expect(await rows()).toEqual(was);
     expect(secondRun).toEqual([
       '291: 0 rows replaced, 0 added',
-      '291: kept as the Super Admin wrote them (not replaced): iran/password_reset/en',
+      '291: kept as the Super Admin wrote them (not replaced): iran/password_reset/en, international/visitor_conversation_transcript/tr',
       '291: switched off (left off): iran/email_test/fa',
     ]);
     expect((await db.query(`SELECT to_regclass('pg_temp._email_291') AS t`)).rows[0].t).toBeNull();

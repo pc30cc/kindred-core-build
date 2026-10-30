@@ -12,8 +12,11 @@
 -- one link), the one-time code (div.code), a summary (table.details with th
 -- and td rows), a quoted message (blockquote), callouts (div.warning,
 -- div.notice) and a chat transcript (div.transcript, whose rows the sender
--- builds). A row that is still a whole document (it has <html) is sent as it
--- is, so a design a Super Admin wrote in full keeps working.
+-- builds: msg-visitor the customer's lines, msg-agent the team's; the
+-- operator's copy marks its container data-reader="team", so there the
+-- team's lines take the reader's side, as in the inbox). A row that is still
+-- a whole document (it has <html) is sent as it is, so a design a Super
+-- Admin wrote in full keeps working.
 --
 -- 1. The 28 slugs the code sends get a new subject, HTML and text part in
 --    fa, en and tr: email_verify, password_reset, verification_code,
@@ -35,8 +38,16 @@
 --    language). A row a Super Admin changed is kept as written and named in a
 --    NOTICE, and so is a sent row that is switched off (it is replaced, and
 --    stays off). On 2026-10-30 all 276 platform rows of both brands'
---    databases matched the fresh chain. A missing row of a sent slug is added
---    for its edition and language, never over an existing one.
+--    databases matched the fresh chain by md5(html_body) and length; their
+--    subjects and text parts were not compared then, so which rows this
+--    guard keeps is what the dry run on each brand shows (Rollout). A
+--    missing row of a sent slug is added for its edition and language, never
+--    over an existing one.
+--    A kept visitor_conversation_transcript row is 276's whole document, with
+--    {transcript} inside a table, where the sender's new div rows do not
+--    belong: only that container becomes <div class="transcript">, and the
+--    row is named in a NOTICE (one with a table of its own is named for the
+--    Super Admin to change).
 -- 3. The slugs nothing sends any more (magic_link, welcome, new_conversation,
 --    task_assigned, account_expiry, system_alert, invoice_*, payment_*,
 --    subscription_*, wallet_autopay_insufficient) are not touched; the
@@ -44,20 +55,30 @@
 --
 -- Checked by src/test/integration/emailTemplatesRedesign291.pg.test.ts (the
 -- whole chain): every sent slug has its six rows, each content only and
--- printing no key its sender does not fill; an edited row is kept and named;
--- a second run changes nothing.
+-- printing no key its sender does not fill; an edited row is kept and named,
+-- an edited visitor transcript gets the new container; a second run changes
+-- nothing.
 --
--- Rollout: on WebYar by hand, AFTER the backend that wraps content rows is
--- live (CLAUDE.md, Migrations; as 283 and 286 were): that backend sends the
--- old whole-document rows unchanged, while an older backend would send a
--- content row as a bare fragment, so this order never sends a mail without
--- its layout. On RESPOK by its migrator on push; its backend is deployed in
--- the same round, so for the minutes between the two a mail may go out bare
--- but complete. It deletes nothing and changes no table's shape. Safe to run
--- twice: a replaced row is no longer as seeded, and a second run neither
--- changes nor names it. Dry run: wrap the file in BEGIN; … ROLLBACK; (it
--- opens no transaction of its own) and read its NOTICEs. Like 284 to 289d,
--- it sets lock_timeout 5s itself.
+-- Rollout: before the merge, dry-run it on both brands (wrap the file in
+-- BEGIN; … ROLLBACK; it opens no transaction of its own) and read its
+-- NOTICEs: which rows it would keep, by the full hash this guard uses, is
+-- known only then. Keep the logs in /root/webyar-migrate-291/ and
+-- /root/respok-migrate-291/, as for 287. A row it would keep on RESPOK
+-- keeps its old design there, and its migrator applies the file on push with
+-- nobody reading the NOTICEs, so such a row is for the owner to decide on
+-- before the merge. Then on WebYar by hand, AFTER the backend that wraps
+-- content rows is live (CLAUDE.md, Migrations; as 283 and 286 were): that
+-- backend sends the old whole-document rows unchanged, while an older
+-- backend would send a content row as a bare fragment, so this order never
+-- sends a mail without its layout. Run it right after that backend is live:
+-- until it runs, a visitor's transcript reaches them complete but plain (the
+-- old row's table cannot hold the new rows). On RESPOK by its migrator on
+-- push; its backend is deployed in the same round, so for the minutes
+-- between the two a mail may go out bare or plain but complete. It deletes
+-- nothing and changes no table's shape. Safe to run twice: a replaced row is
+-- no longer as seeded, and a second run neither changes nor names it, nor
+-- touches a transcript container again. Like 284 to 289d, it sets
+-- lock_timeout 5s itself.
 
 SET lock_timeout = '5s';
 
@@ -225,42 +246,48 @@ INSERT INTO pg_temp._email_291 (slug, locale, seeded_md5, subject, html_body, te
   -- invite_member (fa)
   ('invite_member', 'fa', 'c9a8f8c3d4aca4c92d94ce66470b784e',
      'دعوت به {workspace} — {brand}',
-     '<div class="preheader">{inviter} شما را با نقش {role} به تیم دعوت کرده است. این دعوت تا {expiry} معتبر است.</div>'
+     '<div class="preheader">{inviter} شما را با نقش {role} به تیم دعوت کرده است.</div>'
      || '<h1>به {workspace} بپیوندید</h1>'
      || '<p>سلام {name}،</p>'
      || '<p><strong>{inviter}</strong> شما را دعوت کرده است تا با نقش {role} به فضای کاری <strong>{workspace}</strong> در {brand} بپیوندید.</p>'
+     || '<table class="details"><tr><th>اعتبار تا</th><td>{expiry}</td></tr></table>'
      || '<p class="action"><a href="{action_url}">پذیرش دعوت</a></p>'
-     || '<p class="note">این دعوت تا {expiry} معتبر است. اگر انتظار این دعوت را نداشتید، می‌توانید این ایمیل را نادیده بگیرید.</p>'
+     || '<p class="note">اگر انتظار این دعوت را نداشتید، می‌توانید این ایمیل را نادیده بگیرید.</p>'
      || '<p class="note">اگر دکمه کار نکرد، این نشانی را در مرورگر باز کنید:<br><a href="{action_url}">{action_url}</a></p>',
      'سلام {name}،'
      || chr(10) || chr(10) || '{inviter} شما را دعوت کرده است تا با نقش {role} به فضای کاری «{workspace}» در {brand} بپیوندید. برای پذیرش دعوت، این لینک را باز کنید:' || chr(10) || '{action_url}'
-     || chr(10) || chr(10) || 'این دعوت تا {expiry} معتبر است. اگر انتظار این دعوت را نداشتید، می‌توانید این ایمیل را نادیده بگیرید.'),
+     || chr(10) || chr(10) || 'اعتبار تا: {expiry}'
+     || chr(10) || chr(10) || 'اگر انتظار این دعوت را نداشتید، می‌توانید این ایمیل را نادیده بگیرید.'),
   -- invite_member (en)
   ('invite_member', 'en', 'f0427dfbd95f8afb5af0b4ef54de4534',
      'You’re invited to {workspace} — {brand}',
-     '<div class="preheader">{inviter} invited you to join the team as {role}. The invitation is valid until {expiry}.</div>'
+     '<div class="preheader">{inviter} invited you to join the team as {role}.</div>'
      || '<h1>Join {workspace}</h1>'
      || '<p>Hi {name},</p>'
      || '<p><strong>{inviter}</strong> invited you to join the <strong>{workspace}</strong> workspace on {brand} as {role}.</p>'
+     || '<table class="details"><tr><th>Valid until</th><td>{expiry}</td></tr></table>'
      || '<p class="action"><a href="{action_url}">Accept invitation</a></p>'
-     || '<p class="note">The invitation is valid until {expiry}. If you weren’t expecting it, you can ignore this email.</p>'
+     || '<p class="note">If you weren’t expecting this invitation, you can ignore this email.</p>'
      || '<p class="note">If the button doesn’t work, open this address in your browser:<br><a href="{action_url}">{action_url}</a></p>',
      'Hi {name},'
      || chr(10) || chr(10) || '{inviter} invited you to join the {workspace} workspace on {brand} as {role}. To accept, open this link:' || chr(10) || '{action_url}'
-     || chr(10) || chr(10) || 'The invitation is valid until {expiry}. If you weren’t expecting it, you can ignore this email.'),
+     || chr(10) || chr(10) || 'Valid until: {expiry}'
+     || chr(10) || chr(10) || 'If you weren’t expecting this invitation, you can ignore this email.'),
   -- invite_member (tr)
   ('invite_member', 'tr', '140fdf6c7bc54f235769699332b55930',
      '{workspace} çalışma alanına davet edildiniz — {brand}',
-     '<div class="preheader">{inviter} sizi ekibe {role} rolüyle davet etti. Davet {expiry} tarihine kadar geçerli.</div>'
+     '<div class="preheader">{inviter} sizi ekibe {role} rolüyle davet etti.</div>'
      || '<h1>{workspace} ekibine katılın</h1>'
      || '<p>Merhaba {name},</p>'
      || '<p><strong>{inviter}</strong>, sizi {brand} üzerindeki <strong>{workspace}</strong> çalışma alanına {role} rolüyle davet etti.</p>'
+     || '<table class="details"><tr><th>Geçerlilik sonu</th><td>{expiry}</td></tr></table>'
      || '<p class="action"><a href="{action_url}">Daveti kabul et</a></p>'
-     || '<p class="note">Bu davet {expiry} tarihine kadar geçerlidir. Bir davet beklemiyorsanız bu e-postayı yok sayabilirsiniz.</p>'
+     || '<p class="note">Bir davet beklemiyorsanız bu e-postayı yok sayabilirsiniz.</p>'
      || '<p class="note">Düğme çalışmazsa bu adresi tarayıcınızda açın:<br><a href="{action_url}">{action_url}</a></p>',
      'Merhaba {name},'
      || chr(10) || chr(10) || '{inviter}, sizi {brand} üzerindeki "{workspace}" çalışma alanına {role} rolüyle davet etti. Kabul etmek için bu bağlantıyı açın:' || chr(10) || '{action_url}'
-     || chr(10) || chr(10) || 'Bu davet {expiry} tarihine kadar geçerlidir. Bir davet beklemiyorsanız bu e-postayı yok sayabilirsiniz.'),
+     || chr(10) || chr(10) || 'Geçerlilik sonu: {expiry}'
+     || chr(10) || chr(10) || 'Bir davet beklemiyorsanız bu e-postayı yok sayabilirsiniz.'),
   -- email_test (fa)
   ('email_test', 'fa', '7ed00a09feb18d5cc79c837c889b1b3a',
      'ایمیل آزمایشی — {brand}',
@@ -298,10 +325,12 @@ INSERT INTO pg_temp._email_291 (slug, locale, seeded_md5, subject, html_body, te
      || '<h1>متن گفتگوی شما</h1>'
      || '<p>این متن گفتگوی شما با <strong>{workspace}</strong> در {date} است، همان‌طور که از پنجرهٔ گفتگو خواستید.</p>'
      || '<div class="transcript">{transcript}</div>'
-     || '<p class="note">پاسخ به این ایمیل به {workspace} نمی‌رسد؛ برای ادامهٔ گفتگو از پنجرهٔ گفتگو در وب‌سایت آن استفاده کنید.</p>',
+     || '<p class="note">پاسخ به این ایمیل به {workspace} نمی‌رسد؛ برای ادامهٔ گفتگو از پنجرهٔ گفتگو در وب‌سایت آن استفاده کنید.</p>'
+     || '<p class="note">اگر شما این ایمیل را نخواسته‌اید، آن را نادیده بگیرید.</p>',
      'این متن گفتگوی شما با {workspace_name} در {date} است، همان‌طور که از پنجرهٔ گفتگو خواستید.'
      || chr(10) || chr(10) || '{transcript_text}'
-     || chr(10) || chr(10) || 'پاسخ به این ایمیل به {workspace_name} نمی‌رسد؛ برای ادامهٔ گفتگو از پنجرهٔ گفتگو در وب‌سایت آن استفاده کنید.'),
+     || chr(10) || chr(10) || 'پاسخ به این ایمیل به {workspace_name} نمی‌رسد؛ برای ادامهٔ گفتگو از پنجرهٔ گفتگو در وب‌سایت آن استفاده کنید.'
+     || chr(10) || chr(10) || 'اگر شما این ایمیل را نخواسته‌اید، آن را نادیده بگیرید.'),
   -- visitor_conversation_transcript (en)
   ('visitor_conversation_transcript', 'en', '48fe9d6ae88c9a85ac48fcb9f98fbece',
      'Your conversation with {workspace_name}',
@@ -309,10 +338,12 @@ INSERT INTO pg_temp._email_291 (slug, locale, seeded_md5, subject, html_body, te
      || '<h1>Your conversation</h1>'
      || '<p>Here is your conversation with <strong>{workspace}</strong> on {date}, as you asked from the chat window.</p>'
      || '<div class="transcript">{transcript}</div>'
-     || '<p class="note">Replies to this email don’t reach {workspace}. To continue the conversation, use the chat on their website.</p>',
+     || '<p class="note">Replies to this email don’t reach {workspace}. To continue the conversation, use the chat on their website.</p>'
+     || '<p class="note">If you didn’t ask for this email, you can ignore it.</p>',
      'Here is your conversation with {workspace_name} on {date}, as you asked from the chat window.'
      || chr(10) || chr(10) || '{transcript_text}'
-     || chr(10) || chr(10) || 'Replies to this email don’t reach {workspace_name}. To continue the conversation, use the chat on their website.'),
+     || chr(10) || chr(10) || 'Replies to this email don’t reach {workspace_name}. To continue the conversation, use the chat on their website.'
+     || chr(10) || chr(10) || 'If you didn’t ask for this email, you can ignore it.'),
   -- visitor_conversation_transcript (tr)
   ('visitor_conversation_transcript', 'tr', 'c2f9bf6775817a47af37246ca2e3c6dd',
      '{workspace_name} ile sohbetiniz',
@@ -320,10 +351,12 @@ INSERT INTO pg_temp._email_291 (slug, locale, seeded_md5, subject, html_body, te
      || '<h1>Sohbetiniz</h1>'
      || '<p>Sohbet penceresinden istediğiniz üzere, <strong>{workspace}</strong> ile {date} tarihli sohbetiniz aşağıda.</p>'
      || '<div class="transcript">{transcript}</div>'
-     || '<p class="note">Bu e-postaya verdiğiniz yanıt {workspace} ekibine ulaşmaz. Sohbete devam etmek için web sitesindeki sohbet penceresini kullanın.</p>',
+     || '<p class="note">Bu e-postaya verdiğiniz yanıt {workspace} ekibine ulaşmaz. Sohbete devam etmek için web sitesindeki sohbet penceresini kullanın.</p>'
+     || '<p class="note">Bu e-postayı siz istemediyseniz yok sayabilirsiniz.</p>',
      'Sohbet penceresinden istediğiniz üzere, {workspace_name} ile {date} tarihli sohbetiniz:'
      || chr(10) || chr(10) || '{transcript_text}'
-     || chr(10) || chr(10) || 'Bu e-postaya verdiğiniz yanıt {workspace_name} ekibine ulaşmaz. Sohbete devam etmek için web sitesindeki sohbet penceresini kullanın.'),
+     || chr(10) || chr(10) || 'Bu e-postaya verdiğiniz yanıt {workspace_name} ekibine ulaşmaz. Sohbete devam etmek için web sitesindeki sohbet penceresini kullanın.'
+     || chr(10) || chr(10) || 'Bu e-postayı siz istemediyseniz yok sayabilirsiniz.'),
   -- offline_message_received (fa)
   ('offline_message_received', 'fa', '0e672e1c5e9da40252ee53df5cbc4356',
      'پیام آفلاین جدید',
@@ -429,40 +462,40 @@ INSERT INTO pg_temp._email_291 (slug, locale, seeded_md5, subject, html_body, te
   -- operator_conversation_transcript (fa)
   ('operator_conversation_transcript', 'fa', '499b83829e261d7353a082f7c3bd4e3c',
      'متن گفتگو — {{subject}}',
-     '<div class="preheader">گفتگو با {{contact}} در {{workspace}} بسته شد؛ متن آن برای سابقهٔ شما.</div>'
+     '<div class="preheader">گفتگو با {{contact}} در {{workspace}} حل شد؛ متن آن برای سابقهٔ شما.</div>'
      || '<h1>متن گفتگو</h1>'
      || '<p>سلام {{name}}،</p>'
-     || '<p>این متن گفتگو با <strong>{{contact}}</strong> در {{workspace}} است که به‌تازگی بسته شد.</p>'
-     || '<div class="transcript">{{transcript}}</div>'
+     || '<p>این متن گفتگو با <strong>{{contact}}</strong> در {{workspace}} است که به‌تازگی حل شد.</p>'
+     || '<div class="transcript" data-reader="team">{{transcript}}</div>'
      || '<p class="action"><a href="{{action_url}}">باز کردن گفتگو</a></p>',
      'سلام {{name}}،'
-     || chr(10) || chr(10) || 'این متن گفتگو با {{contact}} در {{workspace}} است که به‌تازگی بسته شد.'
+     || chr(10) || chr(10) || 'این متن گفتگو با {{contact}} در {{workspace}} است که به‌تازگی حل شد.'
      || chr(10) || chr(10) || '{{transcript}}'
      || chr(10) || chr(10) || 'باز کردن گفتگو: {{action_url}}'),
   -- operator_conversation_transcript (en)
   ('operator_conversation_transcript', 'en', 'e5aef388f40bb4e8f8a4aca59791b8bc',
      'Transcript — {{subject}}',
-     '<div class="preheader">Your conversation with {{contact}} in {{workspace}} is closed. Here is the transcript for your records.</div>'
+     '<div class="preheader">Your conversation with {{contact}} in {{workspace}} was resolved. Here is the transcript for your records.</div>'
      || '<h1>Conversation transcript</h1>'
      || '<p>Hi {{name}},</p>'
-     || '<p>Here is the transcript of the conversation with <strong>{{contact}}</strong> in {{workspace}}, which has just been closed.</p>'
-     || '<div class="transcript">{{transcript}}</div>'
+     || '<p>Here is the transcript of the conversation with <strong>{{contact}}</strong> in {{workspace}}, which has just been resolved.</p>'
+     || '<div class="transcript" data-reader="team">{{transcript}}</div>'
      || '<p class="action"><a href="{{action_url}}">Open the conversation</a></p>',
      'Hi {{name}},'
-     || chr(10) || chr(10) || 'Here is the transcript of the conversation with {{contact}} in {{workspace}}, which has just been closed.'
+     || chr(10) || chr(10) || 'Here is the transcript of the conversation with {{contact}} in {{workspace}}, which has just been resolved.'
      || chr(10) || chr(10) || '{{transcript}}'
      || chr(10) || chr(10) || 'Open the conversation: {{action_url}}'),
   -- operator_conversation_transcript (tr)
   ('operator_conversation_transcript', 'tr', '42cda442af49e80683e4c8993b14977c',
      'Konuşma dökümü — {{subject}}',
-     '<div class="preheader">{{workspace}} alanında {{contact}} ile konuşma kapandı. Kayıtlarınız için dökümü.</div>'
+     '<div class="preheader">{{workspace}} alanında {{contact}} ile konuşma çözüldü. Kayıtlarınız için dökümü.</div>'
      || '<h1>Konuşma dökümü</h1>'
      || '<p>Merhaba {{name}},</p>'
-     || '<p>{{workspace}} alanında <strong>{{contact}}</strong> ile yapılan ve az önce kapatılan konuşmanın dökümü aşağıda.</p>'
-     || '<div class="transcript">{{transcript}}</div>'
+     || '<p>{{workspace}} alanında <strong>{{contact}}</strong> ile yapılan ve az önce çözülen konuşmanın dökümü aşağıda.</p>'
+     || '<div class="transcript" data-reader="team">{{transcript}}</div>'
      || '<p class="action"><a href="{{action_url}}">Konuşmayı aç</a></p>',
      'Merhaba {{name}},'
-     || chr(10) || chr(10) || '{{workspace}} alanında {{contact}} ile yapılan ve az önce kapatılan konuşmanın dökümü:'
+     || chr(10) || chr(10) || '{{workspace}} alanında {{contact}} ile yapılan ve az önce çözülen konuşmanın dökümü:'
      || chr(10) || chr(10) || '{{transcript}}'
      || chr(10) || chr(10) || 'Konuşmayı aç: {{action_url}}'),
   -- operator_invoice_paid (fa)
@@ -1083,6 +1116,10 @@ DECLARE
   v_off text;
   v_replaced integer;
   v_added integer;
+  v_container text;
+  v_tabled text;
+  -- Where 276's layout put the visitor transcript's rows.
+  v_old_container constant text := '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">{transcript}</table>';
 BEGIN
   -- Rows a Super Admin changed: neither the seeded text nor the new one.
   SELECT string_agg(format('%s/%s/%s', t.edition, t.slug, t.locale), ', ' ORDER BY t.slug, t.locale, t.edition)
@@ -1111,6 +1148,34 @@ BEGIN
      AND md5(t.subject || t.html_body || coalesce(t.text_body, '')) = n.seeded_md5;
   GET DIAGNOSTICS v_replaced = ROW_COUNT;
 
+  -- A kept visitor transcript row is 276's whole document, with its
+  -- {transcript} inside a table. The sender's rows are div.msg rows now
+  -- (transcriptEmailRows.ts), and a mail reader moves a div it finds
+  -- directly in a table out before it, with none of the table's styles. Only
+  -- that container changes, to the one the rows belong in; everything else
+  -- stays as the Super Admin wrote it. After the replace above, no replaced
+  -- row has it, so this touches kept rows only, and once.
+  WITH fixed AS (
+    UPDATE public.email_templates t
+       SET html_body = replace(t.html_body, v_old_container, '<div class="transcript">{transcript}</div>')
+     WHERE t.workspace_id IS NULL
+       AND t.slug = 'visitor_conversation_transcript'
+       AND strpos(t.html_body, v_old_container) > 0
+    RETURNING t.edition, t.slug, t.locale
+  )
+  SELECT string_agg(format('%s/%s/%s', f.edition, f.slug, f.locale), ', ' ORDER BY f.locale, f.edition)
+    INTO v_container
+    FROM fixed f;
+
+  -- One whose {transcript} sits in a table of its own making is left to
+  -- the Super Admin, named: its messages would reach the visitor unstyled.
+  SELECT string_agg(format('%s/%s/%s', t.edition, t.slug, t.locale), ', ' ORDER BY t.locale, t.edition)
+    INTO v_tabled
+    FROM public.email_templates t
+   WHERE t.workspace_id IS NULL
+     AND t.slug = 'visitor_conversation_transcript'
+     AND t.html_body ~* '<(table|tbody|tr)[^>]*>\s*\{transcript\}';
+
   INSERT INTO public.email_templates (workspace_id, edition, slug, locale, subject, html_body, text_body, is_active)
   SELECT NULL, e.edition, n.slug, n.locale, n.subject, n.html_body, n.text_body, true
     FROM pg_temp._email_291 n
@@ -1127,6 +1192,12 @@ BEGIN
   END IF;
   IF v_off IS NOT NULL THEN
     RAISE NOTICE '291: switched off (left off): %', v_off;
+  END IF;
+  IF v_container IS NOT NULL THEN
+    RAISE NOTICE '291: kept, the transcript''s table changed to div.transcript: %', v_container;
+  END IF;
+  IF v_tabled IS NOT NULL THEN
+    RAISE NOTICE '291: kept, {transcript} still inside a table (change it to <div class="transcript">{transcript}</div> by hand): %', v_tabled;
   END IF;
 END
 $m291$;

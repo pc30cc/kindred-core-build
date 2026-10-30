@@ -10,11 +10,16 @@
  *
  *   <div class="msg msg-visitor"><div class="meta">Sara · 10:24</div><div class="bubble" dir="auto">text</div></div>
  *
- * msg-visitor is a line the customer wrote, msg-agent one of the team's. A
- * row with a meta line and no bubble is a notice: a system line, or the note
- * that older messages were left out. Every value is escaped here, a line
- * break becomes <br>, and each bubble takes the direction of its own text
- * (dir="auto"), so an English message in a Persian mail reads left to right.
+ * msg-visitor is a line the customer wrote and msg-agent one of the team's,
+ * whoever reads the mail; the container says who the reader is. The
+ * visitor's copy has a plain div.transcript, so the visitor's lines take the
+ * reader's side; the operator's copy has
+ * `<div class="transcript" data-reader="team">`, so there the team's lines
+ * do, as in the inbox. A row with a meta line and no bubble is a notice: a
+ * system line, or the note that older messages were left out. Every value is
+ * escaped here, a line break becomes <br>, and each bubble takes the
+ * direction of its own text (dir="auto"), so an English message in a
+ * Persian mail reads left to right.
  */
 
 export type TranscriptSide = 'visitor' | 'agent';

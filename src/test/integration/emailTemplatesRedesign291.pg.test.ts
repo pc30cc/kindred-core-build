@@ -4,10 +4,11 @@
  * built by every migration before 291 (as production had it), then 291, then
  * whatever follows it.
  *
- *   - every slug the code sends has its six rows (both editions, fa/en/tr),
- *     each content only (the layout is the email core's), with a preview
- *     line, one title and a hand-written text part (offline_message_received
- *     aside, whose text part is made from its HTML);
+ *   - every slug the code sends (the template catalog's `sent` ones) has its
+ *     six rows (both editions, fa/en/tr), each content only (the layout is
+ *     the email core's), with a preview line, one title and a hand-written
+ *     text part (offline_message_received aside, whose text part is made
+ *     from its HTML);
  *   - each row prints only the keys its sender fills, plus the core's, and
  *     the same words in both editions;
  *   - the transcripts: the operator's container says the team reads it, the
@@ -18,7 +19,9 @@
  *   - a row a Super Admin edited is kept and named, a switched-off one is
  *     replaced and stays off, a missing one is added, an edited visitor
  *     transcript gets only its new container, the slugs nothing sends are
- *     untouched, and a second run changes and names nothing new.
+ *     untouched, and a second run changes and names nothing new;
+ *   - every slug the chain leaves in the table is one the catalog names, so
+ *     Super Admin → Branding → Email templates lists every row.
  *
  * Driven by TEST_DATABASE_URL; skipped without it.
  */
@@ -27,52 +30,28 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pg from 'pg';
 import { applyMigrationSql } from './pgMigrationChain';
+import { CORE_TEMPLATE_KEYS, EMAIL_TEMPLATE_CATALOG, catalogEntry } from '../../../server/services/email/templateCatalog.js';
 
 const DSN = process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
 const DIR = resolve(process.cwd(), 'database/migrations');
 const FILE = '291_email_templates_redesign.sql';
 
-/** Filled for every template by the email core (renderEditionTemplate). */
-const CORE = ['brand', 'year', 'support_email'];
-const BILLING = ['workspace', 'billing_url'];
+/** Filled for every template by the email core (index.ts coreData). */
+const CORE: string[] = [...CORE_TEMPLATE_KEYS];
 /**
- * Every slug the code sends and the keys its sender fills (the sends of the
- * email map: auth-email.ts, verification/service.ts, invitations/worker.ts,
- * adminEmailProviders.ts, visitorTranscript.ts, widget/offlineNotice.ts,
- * notificationEmail/producers.ts and the billing senders through
- * billing/account/notify.ts, which adds {workspace} and {billing_url}).
+ * Every slug the code sends and the keys its sender fills: the email
+ * template catalog's (server/services/email/templateCatalog.ts), which
+ * src/test/email/emailTemplateCatalog.test.ts holds to the senders
+ * themselves (auth-email.ts, verification/service.ts, invitations/worker.ts,
+ * email/testMail.ts, visitorTranscript.ts, widget/offlineNotice.ts, the
+ * operator notices' dispatcher and billing/account/notify.ts, which adds
+ * {workspace} and {billing_url}). So this chain must seed every slug the
+ * catalog calls sent, and the tab that lists the catalog edits every row.
  */
-const SENT: Record<string, string[]> = {
-  email_verify: ['name', 'action_url', 'email', 'expiry_time'],
-  password_reset: ['name', 'action_url', 'email', 'expiry_time'],
-  verification_code: ['code', 'minutes'],
-  invite_otp: ['code', 'expiry_minutes'],
-  invite_member: ['name', 'workspace', 'inviter', 'role', 'action_url', 'expiry'],
-  email_test: ['provider', 'slot', 'sent_at'],
-  visitor_conversation_transcript: ['workspace', 'workspace_name', 'date', 'transcript', 'transcript_text'],
-  offline_message_received: ['conversation_id', 'action_url', 'contact_name', 'contact_email', 'contact_phone', 'message_body'],
-  offline_messages_summary: ['count', 'minutes', 'action_url'],
-  operator_unread_digest: ['name', 'count', 'minutes', 'workspace', 'list', 'action_url'],
-  operator_conversation_transcript: ['name', 'subject', 'contact', 'workspace', 'resolved_at', 'transcript', 'action_url'],
-  operator_invoice_paid: ['name', 'workspace', 'amount', 'invoice_label', 'action_url'],
-  operator_weekly_summary: ['name', 'workspace', 'conversations', 'resolved', 'messages', 'action_url'],
-  operator_product_update: ['name', 'title', 'body'],
-  billing_renewal_reminder: [...BILLING, 'plan_name', 'new_plan_name', 'amount', 'balance', 'period_end', 'days_left'],
-  billing_renewed: [...BILLING, 'plan_name', 'old_plan_name', 'amount', 'balance', 'period_start', 'period_end'],
-  billing_plan_changed: [...BILLING, 'plan_name', 'old_plan_name', 'amount', 'balance', 'period_start', 'period_end'],
-  billing_card_renewed: [...BILLING, 'plan_name', 'old_plan_name', 'amount', 'balance', 'period_start', 'period_end', 'card'],
-  billing_plan_activated: [...BILLING, 'plan_name', 'period_end', 'amount', 'balance'],
-  billing_expired: [...BILLING, 'plan_name', 'expired_at'],
-  billing_change_scheduled: [...BILLING, 'plan_name', 'new_plan_name', 'effective_at'],
-  billing_payment_receipt: [...BILLING, 'receipt_url', 'receipt_number', 'amount', 'balance'],
-  billing_trial_ending: [...BILLING, 'trial_end', 'days_left'],
-  billing_trial_ended: [...BILLING],
-  billing_card_payment_failed: [...BILLING, 'plan_name', 'amount', 'card', 'failure_reason', 'due_at'],
-  billing_card_removed: [...BILLING, 'card', 'reason', 'plan_name', 'period_end'],
-  billing_locked_data_deletion: [...BILLING, 'plan_name', 'days_left', 'deletion_date', 'locked_summary', 'export_url'],
-  billing_ai_pack_purchased: [...BILLING, 'pack_name', 'credit', 'amount', 'balance', 'ai_balance'],
-};
+const SENT: Record<string, string[]> = Object.fromEntries(
+  EMAIL_TEMPLATE_CATALOG.filter((e) => e.status === 'sent').map((e) => [e.slug, [...e.keys]]),
+);
 const SLUGS = Object.keys(SENT);
 /** The rows this test edits before 291, which 291 keeps. */
 const EDITED = ['iran/password_reset/en', 'international/visitor_conversation_transcript/tr'];
@@ -275,6 +254,13 @@ suite('291 — the content of every sent email template (real PostgreSQL)', () =
     const legacy = (r: Row) => !SLUGS.includes(r.slug);
     expect((await rows()).filter(legacy)).toEqual(before.filter(legacy));
     expect(before.filter(legacy).length).toBeGreaterThan(0);
+  });
+
+  it('leaves no slug in the table that the catalog does not name, so Branding lists every row', async () => {
+    const slugs = [...new Set((await rows()).map((r) => r.slug))].sort();
+    expect(slugs.filter((slug) => !catalogEntry(slug))).toEqual([]);
+    // And each slug the catalog keeps as no longer sent is still there to be seen.
+    for (const entry of EMAIL_TEMPLATE_CATALOG.filter((e) => e.status === 'legacy')) expect(slugs, entry.slug).toContain(entry.slug);
   });
 
   it('a second run changes nothing and names only what it named before', async () => {

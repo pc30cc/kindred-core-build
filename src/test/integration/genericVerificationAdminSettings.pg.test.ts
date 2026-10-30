@@ -519,8 +519,11 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     const before = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges`);
     const res = await call('POST', '/api/admin/verification/templates/preview', 'super-admin-token', { locale: 'en' });
     expect(res.status).toBe(200);
-    expect(res.json.email.text).toContain('123456');
     expect(res.json.sms.text).toContain('123456');
+    // The email is the verification_code template itself, previewed through
+    // Branding → Email templates (the page asks that preview), never the
+    // compiled fallback text, which no real send uses while the row exists.
+    expect(res.json.email).toBeUndefined();
     const after = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges`);
     expect(after.rows[0].n).toBe(before.rows[0].n);
     expect(emailSendMock).not.toHaveBeenCalled();

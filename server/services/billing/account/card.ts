@@ -2280,7 +2280,7 @@ export function cardLabel(brand: string | null | undefined, last4: string | null
   return name || generic;
 }
 
-const REMOVED_REASONS: Record<string, Record<'removed' | 'canceled_at_paddle' | 'period_end', string>> = {
+export const REMOVED_REASONS: Record<string, Record<'removed' | 'canceled_at_paddle' | 'period_end', string>> = {
   en: {
     removed: 'you removed the card',
     canceled_at_paddle: "the automatic payment was cancelled in Paddle's customer portal",
@@ -2322,7 +2322,7 @@ const FAILURE_REASONS: Record<string, Record<'declined' | 'expired' | 'authentic
   },
 };
 
-function failureText(code: string, locale: string): string {
+export function failureText(code: string, locale: string): string {
   const texts = FAILURE_REASONS[locale] ?? FAILURE_REASONS.en;
   // Paddle's error codes (payments[].error_code), as the billing page reads them.
   if (/expired|invalid_payment_details/.test(code)) return texts.expired;

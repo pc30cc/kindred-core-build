@@ -11,7 +11,7 @@
  *     text being edited, never the stored row), in its own language even
  *     where the platform sends another, as platform mail: no workspace's log,
  *     no one-click unsubscribe header, a closing line that switches nothing
- *     off.
+ *     off, and no content-check line in the stored row's name.
  *
  * The database is an in-memory stand-in; the Resend adapter is the real one,
  * over a stubbed fetch.
@@ -202,6 +202,32 @@ describe('the test', () => {
     const mail = sent();
     expect(mail.html).toContain('https://app.example.com/app/settings/notifications');
     expect(Object.keys(mail.headers ?? {})).not.toContain('List-Unsubscribe');
+  });
+
+  it('leaves the stored row\'s content check to the stored row: a draft\'s problem is not logged against it', async () => {
+    // The core logs a template's content problems once per template and
+    // language in a process: that line is how a hand-edited row with a
+    // foreign link is found (EMAIL.md). A test of a draft is neither that
+    // row nor a mail anybody gets, and the Super Admin sees its problems in
+    // the preview.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await sendPlatformTemplateTest(CONFIG, {
+      edition: 'iran', slug: 'password_reset', locale: 'fa', to: 'admin@example.com',
+      content: { subject: 'بازیابی — {brand}', html_body: '<h1>بازیابی</h1><p><a href="https://phish.example.org/login">ورود</a></p>', text_body: null },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls.flat().join('\n')).not.toContain('password_reset');
+
+    db.templates = [{
+      edition: 'iran', slug: 'password_reset', locale: 'fa', subject: 'بازیابی — {brand}', text_body: null,
+      html_body: '<h1>بازیابی</h1><p><a href="https://phish.example.org/login">ورود</a></p><div style="display:none">x</div>',
+    }];
+    await sendEmail(CONFIG, {
+      workspaceId: null, to: 'user@example.com', templateSlug: 'password_reset', locale: 'fa',
+      templateData: { name: 'سارا', action_url: 'https://app.example.com/auth/reset-password?token=t', email: 'user@example.com' },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith('[email] password_reset (iran, fa): foreign_link, hidden_element');
   });
 
   it('is never sent to a suppressed or malformed address', async () => {

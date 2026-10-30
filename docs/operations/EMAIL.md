@@ -159,7 +159,8 @@ filled value is checked when the mail goes. At send time the core drops the
 first group whatever the row says (a form or a button keeps its words) and
 logs the rest as `[email] <slug> (<edition>, <locale>): <codes>`, once per
 template in a process and never the content, so a row edited by hand can be
-fixed in Super Admin. Super Admin sees the same list while editing, as
+fixed in Super Admin. A "Send me a test" is not logged there: its text need
+not be the stored row's, and it would use up that row's one line. Super Admin sees the same list while editing, as
 warnings under Branding → Email templates' preview (`templateContentProblems`
 in `index.ts`: the same rules, against the same brand hosts); a save is not
 refused for them. Every row 291

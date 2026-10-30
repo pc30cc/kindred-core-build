@@ -784,7 +784,8 @@ function logContentProblems(message: PreparedMessage, content: string, brand: Em
  * The text part is the row's own when it has one (the closing line under
  * it); else, for a laid-out mail, its content as text with the footer's
  * lines, never the layout around it. A content is checked before it is
- * laid out (logContentProblems), unless `check` is false (a preview).
+ * laid out (logContentProblems), unless `check` is false: a preview, or a
+ * Super Admin's test, whose content need not be the stored row's.
  */
 async function composeMessage(
   config: ServerConfig,
@@ -1017,7 +1018,11 @@ async function deliver(
     };
   }
 
-  const { html, text } = await composeMessage(config, ready, { category: input.category, footer: input.footer });
+  // A template carried by the request (Super Admin's test: the text being
+  // edited, or one language's row) is not checked here: its problems would
+  // be logged under the stored row's name, and use up that row's one line
+  // until a restart. The Super Admin sees them in the preview.
+  const { html, text } = await composeMessage(config, ready, { category: input.category, footer: input.footer, check: !input.template });
   const replyTo = parseEmailAddress(effective.config.reply_to);
   const message: OutboundMessage = {
     from: resolveFromAddress(effective, ready.basics.name),

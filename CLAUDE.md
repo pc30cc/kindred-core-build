@@ -469,6 +469,21 @@ over unchanged. A full disk stops Postgres too.
     six seeded `offline_message_received` templates (both editions, all still
     as seeded) their plain subject and added `offline_messages_summary`; the
     rest writes no data. RESPOK by its migrator on push.
+    Then the email redesign and the one logo source (PR #375):
+    `290_platform_brand_assets.sql` (the uploaded logo's columns; writes no
+    data), applied by hand before the merge, 2026-10-30 19:23 UTC (a schema
+    dump of `platform_branding` and the dry run in `/root/webyar-migrate-290/`);
+    RESPOK by its migrator on push (20:19). And
+    `291_email_templates_redesign.sql` (the 168 seeded rows of the 28 sent
+    templates, replaced only while as seeded), which needs the backend that
+    wraps content rows: dry-run on both brands at 17:47; RESPOK's ledger got
+    its name before the merge (19:23) so its migrator skipped it; once the
+    merge's backends (25, 32) were live it was run by hand, WebYar's by the
+    script at 20:19:42 UTC and RESPOK's by `psql -f` at 20:20:06, each
+    replacing 168 rows (0 added, none kept). Dumps of `email_templates` and
+    the schema taken just before each, and the logs:
+    `/root/webyar-migrate-291/`, `/root/respok-migrate-291/`. RESPOK's ledger
+    row for 291 reads 19:23:29, when it was entered, not run.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

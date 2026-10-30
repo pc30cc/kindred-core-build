@@ -265,6 +265,17 @@ brand (291's header says the same):
 4. **Rolling a backend back past 291** sends every mail bare: restore the
    old rows from the dump of step 1 first, then roll back.
 
+Done 2026-10-30, with PR #375:
+- 290 by hand on WebYar at 19:23 UTC, before the merge, and by RESPOK's
+  migrator at 20:19.
+- 291 entered in RESPOK's ledger at 19:23, then merged at 20:18.
+- Backends 25 and 32 were live by 20:19.
+- 291 by hand, after fresh dumps: WebYar at 20:19:42, RESPOK at 20:20:06.
+  Each run replaced 168 rows and added none.
+- Every sent template was rendered in the live backends (WebYar 50 renders,
+  RESPOK 168; light and dark) and none was flagged.
+- No mail went out between the merge and the run.
+
 ## The outbox: retries
 
 `server/services/email/outbox.ts`, table `public.email_outbox` (289b).

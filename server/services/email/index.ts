@@ -311,6 +311,17 @@ function withFooter(html: string, text: string, footer: EmailRequest['footer']):
 }
 
 /**
+ * Where `closer` (a global, case-blind pattern) next matches in `text` from
+ * `from`, or -1. Found in the text itself, never in a lowercased copy, whose
+ * indexes are one off after each Turkish «İ» (it lowercases to two
+ * characters), as lastBodyClose does.
+ */
+function nextMatch(closer: RegExp, text: string, from: number): number {
+  closer.lastIndex = from;
+  return closer.exec(text)?.index ?? -1;
+}
+
+/**
  * `html` without the elements named (and everything inside them) and without
  * comments. A scan rather than one lazy regex: an opener with no closer
  * would make `<style[\s\S]*?</style>` read to the end of the text once for
@@ -330,17 +341,17 @@ function stripElements(html: string, names: readonly string[]): string {
   }
   for (const name of names) {
     const opener = new RegExp(`<${name}(?=[\\s/>])`, 'gi');
-    const lower = s.toLowerCase();
+    const closer = new RegExp(`</${name}`, 'gi');
     let out = '';
     let from = 0;
     for (let m = opener.exec(s); m; m = opener.exec(s)) {
-      const close = lower.indexOf(`</${name}`, m.index);
+      const close = nextMatch(closer, s, m.index);
       if (close < 0) {
         out += s.slice(from, m.index);
         from = s.length;
         break;
       }
-      const end = lower.indexOf('>', close);
+      const end = s.indexOf('>', close);
       out += s.slice(from, m.index);
       from = end < 0 ? s.length : end + 1;
       opener.lastIndex = from;
@@ -363,14 +374,14 @@ function isPreheaderOpener(attrs: string): boolean {
  */
 function stripPreheaders(html: string): string {
   const opener = /<div\b([^<>]*)>/gi;
-  const lower = html.toLowerCase();
+  const closer = /<\/div/gi;
   let out = '';
   let from = 0;
   for (let m = opener.exec(html); m; m = opener.exec(html)) {
     if (!isPreheaderOpener(m[1])) continue;
-    const close = lower.indexOf('</div', opener.lastIndex);
+    const close = nextMatch(closer, html, opener.lastIndex);
     if (close < 0) break;
-    const end = lower.indexOf('>', close);
+    const end = html.indexOf('>', close);
     out += html.slice(from, m.index);
     from = end < 0 ? html.length : end + 1;
     opener.lastIndex = from;
@@ -385,13 +396,13 @@ function stripPreheaders(html: string): string {
  */
 function inlineLinks(html: string): string {
   const opener = /<a\b([^<>]*)>/gi;
-  const lower = html.toLowerCase();
+  const closer = /<\/a/gi;
   let out = '';
   let from = 0;
   for (let m = opener.exec(html); m; m = opener.exec(html)) {
-    const close = lower.indexOf('</a', opener.lastIndex);
+    const close = nextMatch(closer, html, opener.lastIndex);
     if (close < 0) break;
-    const end = lower.indexOf('>', close);
+    const end = html.indexOf('>', close);
     const href = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(m[1]);
     const target = (href?.[1] ?? href?.[2] ?? href?.[3] ?? '').trim();
     const label = html.slice(opener.lastIndex, close).replace(/<[^<>]*>/g, '').replace(/\s+/g, ' ').trim();

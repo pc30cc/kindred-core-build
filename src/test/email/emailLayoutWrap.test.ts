@@ -276,6 +276,14 @@ describe('a row that is a whole document of its own goes as it is', () => {
     expect(sent(1).html).toBe('<!doctype html><html><body><p>Message from İrem</p><p>F</p></body></html>');
   });
 
+  it('a Turkish one with no text part of its own gets its text from its HTML, the closing line included', async () => {
+    db.templates[0].html_body = '<!doctype html><html lang="tr"><head><title>İptal İşlemi</title><style>p{color:red}</style></head>'
+      + '<body><p>İptal edildi {receipt_number}</p><p>Merhaba</p></body></html>';
+    db.templates[0].text_body = null;
+    await receipt({ locale: 'tr', footer: { html: '<p>F <a href="https://app.respok.app/u">Abonelik</a></p>', text: 'F' } });
+    expect(sent().text).toBe('İptal edildi R-7001\n\nMerhaba\n\nF Abonelik (https://app.respok.app/u)');
+  });
+
   it('but for what no mail may carry, head and body alike; the lines a document\'s head needs stay', async () => {
     db.templates[0].html_body = '<!DOCTYPE html>\n<html lang="tr"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
       + '<meta http-equiv="refresh" content="0;url=https://evil.example"><title>İptal</title><script>steal()</script><link rel="stylesheet" href="https://evil.example/a.css"></head>'

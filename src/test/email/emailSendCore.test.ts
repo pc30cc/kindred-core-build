@@ -356,4 +356,11 @@ describe('htmlToText', () => {
     expect(htmlToText('')).toBe('');
     expect(htmlToText('<p>&#1587;&#1604;&#1575;&#1605;&nbsp;</p><p>می&zwnj;خواهم</p>')).toBe('سلام\n\nمی\u200cخواهم');
   });
+
+  it('cuts where the text itself has its tags after Turkish «İ», which lowercases to two characters', () => {
+    expect(htmlToText('<!doctype html><html lang="tr"><head><title>İptal İşlemi</title><style>p{color:red}</style></head><body><p>İptal edildi</p><p>Merhaba</p></body></html>'))
+      .toBe('İptal edildi\n\nMerhaba');
+    expect(htmlToText('<p>İİİ <a href="https://x.example/a">Tıkla</a> sonra</p>')).toBe('İİİ Tıkla (https://x.example/a) sonra');
+    expect(htmlToText('<p>İİ</p><div class="preheader">Ön</div><p>Gövde</p>')).toBe('İİ\n\nGövde');
+  });
 });

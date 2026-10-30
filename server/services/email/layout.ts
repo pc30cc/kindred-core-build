@@ -1059,8 +1059,10 @@ function textDirection(attrs: Attr[], content: Node[], ctx: StyleContext): 'rtl'
   if (dir === 'rtl' || dir === 'ltr') return dir;
   if (dir !== 'auto') return null;
   for (const ch of decodeEntities(rawText(content))) {
-    if (RTL_LETTER.test(ch)) return 'rtl';
-    if (LETTER.test(ch)) return 'ltr';
+    // Only a letter counts: Persian and Arabic digits are of the Arabic
+    // script, but a browser passes them by, as it does any other digit.
+    if (!LETTER.test(ch)) continue;
+    return RTL_LETTER.test(ch) ? 'rtl' : 'ltr';
   }
   return ctx.rtl ? 'rtl' : 'ltr';
 }

@@ -197,6 +197,14 @@ describe('a transcript\'s sides follow who reads it', () => {
     expect(styleContent(persian, fa)).toBe(persian);
   });
 
+  it('a bubble\'s direction is its first letter\'s, as a browser reads dir="auto": Persian or Arabic digits are not letters', () => {
+    const bubbles = (html: string) => [...html.matchAll(/<td dir="(ltr|rtl)" class="x-b[ro]"[^>]*style="[^"]*text-align:(left|right);[^"]*" align="(left|right)">/g)].map((m) => m.slice(1));
+    const ltr = ['ltr', 'left', 'left'];
+    const rows = (...texts: string[]) => `<div class="transcript">${texts.map((t) => transcriptRow('visitor', 'Sara', t)).join('')}</div>`;
+    expect(bubbles(styleContent(rows('۱۲۳۴ is my order number, it has not arrived', '٤٥ minutes waiting', '۱۰۴۲'), en))).toEqual([ltr, ltr, ltr]);
+    expect(bubbles(styleContent(rows('۰۹۱۲۱۲۳۴۵۶۷ shomare-ye man'), fa))).toEqual([ltr]);
+  });
+
   it('right to left, the end side is the left one; a notice stays in the middle', () => {
     expect(sides(styleContent(teamCopy, fa))).toEqual([
       ['right', 'x-bo', EMAIL_PALETTES.iran.light.bubbleOther],

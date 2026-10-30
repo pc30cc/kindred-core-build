@@ -1055,6 +1055,28 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
  * own note) is the author's and is kept, in its own full-width row, or
  * under the message's bubble: the text part has it, so the HTML part must.
  */
+/** Letters of the scripts written right to left; any other letter is a left-to-right one. */
+const RTL_LETTER = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u;
+const LETTER = /\p{L}/u;
+
+/**
+ * The direction an element's own `dir` gives its words, written out: as
+ * written for `rtl` or `ltr`, and for `auto` that of its first letter, as a
+ * browser reads `dir="auto"` (Outlook does not, and would set the text the
+ * mail's way), else the mail's when it has none (digits, signs, emoji).
+ * Null when the element sets none.
+ */
+function textDirection(attrs: Attr[], content: Node[], ctx: StyleContext): 'rtl' | 'ltr' | null {
+  const dir = String(attrs.find((a) => a.name === 'dir')?.value ?? '').trim().toLowerCase();
+  if (dir === 'rtl' || dir === 'ltr') return dir;
+  if (dir !== 'auto') return null;
+  for (const ch of decodeEntities(rawText(content))) {
+    if (RTL_LETTER.test(ch)) return 'rtl';
+    if (LETTER.test(ch)) return 'ltr';
+  }
+  return ctx.rtl ? 'rtl' : 'ltr';
+}
+
 function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
   const [metaSize, metaLh] = ctx.t.meta;
   const [size, lh] = ctx.t.bubble;
@@ -1090,9 +1112,15 @@ function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
       const bp = pal(bubbleCtx);
       const bg = own ? bp.bubbleReader : bp.bubbleOther;
       const ink = own ? bp.bubbleReaderInk : bp.bubbleOtherInk;
-      const inner: StyleContext = { ...bubbleCtx, box: { ink, cls, size: ctx.t.bubble } };
-      const bubbleStyle = `background-color:${bg};border-radius:${r};padding:11px 16px;font-size:${size}px;line-height:${lh}px;color:${ink};text-align:${ctx.start};overflow-wrap:anywhere;word-break:break-word;${MSO}`;
-      return `<tr>${startTag('td', attrs, { class: dk(bubbleCtx, cls), bgcolor: bg, style: bubbleStyle }, [], ['class'])}${renderBoxChildren(content, inner).trim()}</td></tr>`;
+      // The bubble's words keep their own direction (a Finglish line in a
+      // Persian mail, a Persian one in an English mail), aligned to match;
+      // where the bubble sits stays the mail's.
+      const dir = textDirection(attrs, content, bubbleCtx);
+      const textCtx: StyleContext = dir ? { ...bubbleCtx, rtl: dir === 'rtl', start: dir === 'rtl' ? 'right' : 'left', end: dir === 'rtl' ? 'left' : 'right' } : bubbleCtx;
+      const inner: StyleContext = { ...textCtx, box: { ink, cls, size: ctx.t.bubble } };
+      const bubbleStyle = `background-color:${bg};border-radius:${r};padding:11px 16px;font-size:${size}px;line-height:${lh}px;color:${ink};text-align:${textCtx.start};overflow-wrap:anywhere;word-break:break-word;${MSO}`;
+      const add = { class: dk(bubbleCtx, cls), bgcolor: bg, style: bubbleStyle, ...(dir ? { dir, align: textCtx.start } : {}) };
+      return `<tr>${startTag('td', attrs, add, dir ? ['dir', 'align'] : [], ['class'])}${renderBoxChildren(content, inner).trim()}</td></tr>`;
     };
     let bubbleHtml = '';
     if (bubbles.length) {

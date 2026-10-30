@@ -173,11 +173,28 @@ describe('a transcript\'s sides follow who reads it', () => {
       ['center', null, null],
     ]);
     // The reader's bubble has its tail on the end side, the other one on the start side.
-    expect(html).toMatch(/class="x-bo" bgcolor="[^"]*" style="[^"]*border-radius:18px 18px 18px 4px;[^"]*">Hi<\/td>/);
-    expect(html).toMatch(/class="x-br" bgcolor="[^"]*" style="[^"]*border-radius:18px 18px 4px 18px;[^"]*color:#FFFFFF;[^"]*">Hello<\/td>/);
+    expect(html).toMatch(/<td dir="ltr" class="x-bo" bgcolor="[^"]*" style="[^"]*border-radius:18px 18px 18px 4px;[^"]*" align="left">Hi<\/td>/);
+    expect(html).toMatch(/<td dir="ltr" class="x-br" bgcolor="[^"]*" style="[^"]*border-radius:18px 18px 4px 18px;[^"]*color:#FFFFFF;[^"]*" align="left">Hello<\/td>/);
     // A notice is a muted line in the middle, with no bubble.
     expect(html).toMatch(/<td class="x-muted" align="center" style="padding:0 4px;[^"]*text-align:center;[^"]*">Ali closed the conversation<\/td>/);
     expect(html).toContain('<table class="transcript x-transcript" data-reader="team"');
+  });
+
+  it('a bubble\'s words keep their own direction, aligned to match, wherever the bubble sits', () => {
+    // An Iranian visitor's Finglish line and the team's Persian answer in a
+    // Persian mail; a Persian line in an English one; digits alone read the mail's way.
+    const rows = transcriptRow('visitor', 'سارا · ۱۰:۲۴', 'Salam, sefaresh-am hanooz naresideh va peygiri ham kardam')
+      + transcriptRow('agent', 'مریم', 'سلام سارا، Order 1042 فردا می‌رسد.')
+      + transcriptRow('visitor', 'سارا', '۱۰۴۲ - 1042');
+    const bubbles = (html: string) => [...html.matchAll(/<td dir="(ltr|rtl)" class="x-b[ro]"[^>]*style="[^"]*text-align:(left|right);[^"]*" align="(left|right)">/g)].map((m) => m.slice(1));
+    const persian = styleContent(`<div class="transcript">${rows}</div>`, fa);
+    expect(bubbles(persian)).toEqual([['ltr', 'left', 'left'], ['rtl', 'right', 'right'], ['rtl', 'right', 'right']]);
+    // Where each bubble sits is still the mail's: the reader's on the end side.
+    expect(sides(persian).map((x) => x[0])).toEqual(['left', 'right', 'left']);
+    const english = styleContent(`<div class="transcript">${transcriptRow('visitor', 'Sara', 'سلام، سفارشم نرسیده')}${transcriptRow('agent', 'Maria', '42')}</div>`, en);
+    expect(bubbles(english)).toEqual([['rtl', 'right', 'right'], ['ltr', 'left', 'left']]);
+    // Styled once more, it stays as it is.
+    expect(styleContent(persian, fa)).toBe(persian);
   });
 
   it('right to left, the end side is the left one; a notice stays in the middle', () => {
@@ -196,7 +213,7 @@ describe('a transcript\'s sides follow who reads it', () => {
       ['center', null, null],
     ]);
     // RESPOK's reader bubble in the dark is signal with ink text.
-    expect(styleContent(teamCopy, { ...en, scheme: 'dark' })).toMatch(/class="x-br" bgcolor="#FF5A3C" style="[^"]*color:#16142B;[^"]*">Hello<\/td>/);
+    expect(styleContent(teamCopy, { ...en, scheme: 'dark' })).toMatch(/class="x-br" bgcolor="#FF5A3C" style="[^"]*color:#16142B;[^"]*" align="left">Hello<\/td>/);
     const media = /@media \(prefers-color-scheme:dark\)\{(.*)\}\n/.exec(doc(teamCopy))?.[1] ?? '';
     expect(media).toContain(`.x-br{background-color:${P.dark.bubbleReader}!important;color:${P.dark.bubbleReaderInk}!important}`);
     expect(media).toContain(`.x-bo{background-color:${P.dark.bubbleOther}!important;color:${P.dark.bubbleOtherInk}!important}`);

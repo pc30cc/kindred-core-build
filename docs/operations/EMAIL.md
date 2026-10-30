@@ -147,7 +147,11 @@ Inside a transcript or a details table, what is not a message or a row (an
 older mail's `<p>` lines, a caption, a note of the Super Admin's) is kept, in
 a row of its own or above the rows. A visitor's message keeps its lines: its
 sender turns each line break into `<br>` (HTML folds a bare one, and Outlook
-ignores `white-space`), which the derived text part reads back as a line.
+ignores `white-space`), which the derived text part reads back as a line. A
+message keeps the direction of its own words (its sender writes
+`dir="auto"`): the layout writes it out from its first letter, with the
+alignment to match (Outlook reads no `dir="auto"`), so a Finglish line in a
+Persian mail reads left to right and lines up left, wherever its bubble sits.
 
 **What a mail may not send** (`contentProblems` in `layout.ts`, the design
 panel's deliverability rules): anything that runs code, loads a page or takes

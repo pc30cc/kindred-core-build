@@ -64,4 +64,15 @@ export const INTL_BRAND = {
   pwa192: `${INTL_BRAND_BASE}/android-chrome-192x192.png`,
   pwa512: `${INTL_BRAND_BASE}/android-chrome-512x512.png`,
   pwaMaskable: `${INTL_BRAND_BASE}/maskable-icon-512.png`,
+  /**
+   * The horizontal logo as PNG, for email (clients show no SVG): rendered at
+   * 3x from the two SVGs above, transparent, with their natural size. Read by
+   * the server only (server/services/platformBrandAssets.ts).
+   */
+  emailLogo: {
+    light: `${INTL_BRAND_BASE}/email/respok-logo.png`,
+    dark: `${INTL_BRAND_BASE}/email/respok-logo-dark.png`,
+    width: 400,
+    height: 92,
+  },
 } as const;

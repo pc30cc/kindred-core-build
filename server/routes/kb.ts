@@ -37,6 +37,8 @@ import type { ServerConfig } from '../config.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
+import { isPlatformWorkspace } from '../services/platformHosts.js';
+import { resolveBrandAssets } from '../services/platformBrandAssets.js';
 import { sanitizeKbArticleHtml } from '../services/knowledge-base/articleHtml.js';
 import { kbFoldedSearch } from '../services/knowledge-base/foldedSearch.js';
 import { resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
@@ -451,6 +453,27 @@ interface SsrShellOpts {
   jsonLd?: Record<string, unknown> | Array<Record<string, unknown>>;
   bodyHtml: string;
   status?: number;
+  /** The platform's logo and icon, on the platform's own help center only (helpCenterBrand). */
+  brand?: HelpCenterBrand | null;
+}
+
+interface HelpCenterBrand {
+  logo: string;
+  icon: string;
+  home: string;
+}
+
+/**
+ * The platform's own help center (its own workspace's) wears the platform's
+ * logo at its head and its icon in the tab, from the one place the logo is
+ * set (Super Admin → Branding; server/services/platformBrandAssets.ts). A
+ * customer's help center, on the customer's domain, shows none of it, as
+ * before.
+ */
+async function helpCenterBrand(config: ServerConfig, workspaceId: string, locale: Locale): Promise<HelpCenterBrand | null> {
+  if (!(await isPlatformWorkspace(config, workspaceId).catch(() => false))) return null;
+  const assets = await resolveBrandAssets(config).catch(() => null);
+  return assets ? { logo: assets.logo.light, icon: assets.icons.png192, home: `/help/${locale}` } : null;
 }
 
 function renderShell(opts: SsrShellOpts): string {
@@ -461,6 +484,11 @@ function renderShell(opts: SsrShellOpts): string {
   const hreflangTags = opts.hreflangs
     .map((h) => `<link rel="alternate" hreflang="${escapeAttr(h.hreflang)}" href="${escapeAttr(h.href)}" />`)
     .join('');
+  const brand = opts.brand;
+  const iconTag = brand ? `<link rel="icon" type="image/png" href="${escapeAttr(brand.icon)}" />` : '';
+  const brandHtml = brand
+    ? `<a class="kb-brand" href="${escapeAttr(brand.home)}"><img src="${escapeAttr(brand.logo)}" alt="" /></a>`
+    : '';
   return `<!doctype html>
 <html lang="${escapeAttr(opts.locale)}" dir="${dir}">
 <head>
@@ -469,6 +497,7 @@ function renderShell(opts: SsrShellOpts): string {
   <title>${escapeHtml(opts.title)}</title>
   <meta name="description" content="${escapeAttr(opts.description)}" />
   <link rel="canonical" href="${escapeAttr(opts.canonical)}" />
+  ${iconTag}
   ${hreflangTags}
   <meta property="og:title" content="${escapeAttr(opts.title)}" />
   <meta property="og:description" content="${escapeAttr(opts.description)}" />
@@ -501,10 +530,13 @@ function renderShell(opts: SsrShellOpts): string {
     .kb-search-form{margin-bottom:24px;}
     .kb-search-form input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:15px;box-sizing:border-box;}
     .kb-empty{color:#666;padding:24px 0;}
+    .kb-brand{display:inline-block;margin-bottom:24px;}
+    .kb-brand img{display:block;height:28px;width:auto;}
   </style>
 </head>
 <body>
   <div class="kb-wrap">
+    ${brandHtml}
     ${opts.bodyHtml}
   </div>
 </body>
@@ -676,6 +708,7 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
       inLanguage: locale,
     },
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });
 
@@ -749,6 +782,7 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
       },
     ],
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });
 
@@ -783,6 +817,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
     locale,
     hreflangs: [],
     bodyHtml: '<h1>Article not found</h1>',
+    brand: await helpCenterBrand(config, workspaceId, locale),
     status: 404,
   }));
 
@@ -837,6 +872,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
       },
     ],
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });
 
@@ -902,5 +938,6 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
     locale,
     hreflangs: buildHreflangs(req, (l) => `/help/${l}/search${q ? `?q=${encodeURIComponent(q)}` : ''}`),
     bodyHtml: body,
+    brand: await helpCenterBrand(config, workspaceId, locale),
   }));
 });

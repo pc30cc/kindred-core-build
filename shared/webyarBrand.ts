@@ -42,6 +42,17 @@ export const WEBYAR_BRAND = {
   pwaMaskable: `${WEBYAR_BRAND_BASE}/icon-maskable-512.png`,
   /** Deep turquoise: theme-color, the mask icon's colour. */
   themeColor: '#0B7D6C',
+  /**
+   * The logotype as PNG, for email (clients show no SVG): rendered at 3x
+   * from the two SVGs above, transparent, with their natural size. Read by
+   * the server only (server/services/platformBrandAssets.ts).
+   */
+  emailLogo: {
+    light: `${WEBYAR_BRAND_BASE}/email/webyar-logo.png`,
+    dark: `${WEBYAR_BRAND_BASE}/email/webyar-logo-dark.png`,
+    width: 360,
+    height: 139,
+  },
 } as const;
 
 /**

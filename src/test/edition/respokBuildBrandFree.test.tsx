@@ -112,6 +112,19 @@ describe.each(editions)('a build without the Iranian kit, with %s', (_label, rem
     }
   });
 
+  it('a logo the Super Admin uploaded is drawn in the Iranian kit\'s place, and nothing of the kit comes back', () => {
+    state.data = {
+      branding: null, localized: [], region: { region_mode: 'multi' }, realtime: null,
+      brand_assets: { logo_light: 'https://cdn.example.test/platform/brand/l.svg', logo_dark: null, symbol: 'https://cdn.example.test/platform/brand/s.svg' },
+    };
+    for (const ui of [<BrandLogo />, <BrandLockup name="Platform" />, <BrandFooter />, <BrandWordmark />]) {
+      const html = renderHtml(ui);
+      expect(html).toContain('https://cdn.example.test/platform/brand/');
+      expectBrandFree(html, 'with an upload');
+      expect(html).not.toContain('/brand/webyar');
+    }
+  });
+
   it('fills the brand words with the platform, never the Iranian strings', () => {
     for (const locale of ['en', 'fa', 'tr']) expectBrandFree(JSON.stringify(brandTokens(locale)), `brandTokens(${locale})`);
     for (const edition of ['iran', 'international', null] as const) {
@@ -148,6 +161,8 @@ describe('index.html per build brand', () => {
     expect(out).toContain('<div class="wy-loader wy-intl" aria-hidden="true">');
     expect(out).toContain('/brand/intl/respok-thread-horizontal-color.svg');
     expect(out).toContain('window.__wyApplySplash();');
+    // The uploaded logo's splash is in every build.
+    expect(out).toContain('function applyBrandAssets()');
   });
 
   it('every other build: the page exactly as written, without the markers', () => {

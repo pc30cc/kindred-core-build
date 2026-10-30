@@ -8,9 +8,10 @@
  *
  * The preview is what visitors see, per widget language: the prefix where it
  * is written in that language's script, else the widget's own word
- * (shared/poweredByCredit.ts, the renderers' rule), and the edition's logo
- * where the widget draws one (configSnapshot.ts: the International edition's
- * RESPOK lockup, the Iranian edition's Persian logotype), else the name.
+ * (shared/poweredByCredit.ts, the renderers' rule), and the platform's logo
+ * where the widget draws one (configSnapshot.ts: the one uploaded in
+ * Branding, else the International edition's RESPOK lockup or the Iranian
+ * edition's Persian logotype), else the name.
  */
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import { useEdition } from '@/hooks/useEdition';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
+import { useBrandAssets } from '@/lib/brandAssets';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
 import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
@@ -38,6 +40,7 @@ export function PoweredBySection({ settings, onSave, saving }: Props) {
   const { t, locale } = useTranslation();
   const { isInternational } = useEdition();
   const localKit = useWebyarKit();
+  const brandAssets = useBrandAssets();
   const { allowedLocales } = usePlatformRegion();
   const { platformName } = useBrandingContext();
   const [enabled, setEnabled] = useState(settings.powered_by_enabled ?? true);
@@ -58,10 +61,13 @@ export function PoweredBySection({ settings, onSave, saving }: Props) {
     (lang): lang is PoweredByLocale => lang in POWERED_BY_WIDGET_WORDS,
   );
   const brandName = brand.trim() || (platformName || '').trim() || t('admin.widgetSettingsPage.poweredBy.defaultBrand');
-  // The edition's logo in the name's place, as the widget draws it.
-  const logo = isInternational
-    ? INTL_BRAND.horizontal.light
-    : SHIPS_IRAN_KIT && localKit ? WEBYAR_BRAND.logo.light : '';
+  // The platform's logo in the name's place, as the widget draws it: the
+  // upload in either edition, else the edition's kit.
+  const logo = brandAssets.source === 'custom' && brandAssets.lockup && (isInternational || localKit)
+    ? brandAssets.lockup.light
+    : isInternational
+      ? INTL_BRAND.horizontal.light
+      : SHIPS_IRAN_KIT && localKit ? WEBYAR_BRAND.logo.light : '';
 
   return (
     <Card>

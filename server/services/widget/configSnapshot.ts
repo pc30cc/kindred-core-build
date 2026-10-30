@@ -75,6 +75,7 @@ import { INTL_BRAND } from '../../../shared/internationalMode.js';
 import { resolveLauncherStyle } from '../../../shared/launcherStyles.js';
 import { onlineFirst, widgetTeamMembers, widgetTeamName } from '../../../shared/widgetTeam.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
+import { resolveBrandAssets } from '../platformBrandAssets.js';
 import type { Edition } from '../../../shared/edition.js';
 import { isAuthoredWidgetText, resolveWelcomeMessage, widgetTextDefault } from '../../../shared/widgetTextDefaults.js';
 import { widgetWireColor } from '../../../shared/widgetColor.js';
@@ -1263,6 +1264,14 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // stays the alt text and the fallback if the image cannot load.
   if (poweredBy && isWebyarKitEdition(edition) && assetBase) {
     (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${WEBYAR_BRAND.logo.light}`;
+  }
+  // A logo the Super Admin uploaded (server/services/platformBrandAssets.ts)
+  // credits the platform in both editions, in every template and logo
+  // direction: its light file, absolute on the storage provider. The public
+  // config memo holds it, so this costs no query on a warm process.
+  if (poweredBy && edition) {
+    const brandAssets = await resolveBrandAssets(config, { edition, base: assetBase }).catch(() => null);
+    if (brandAssets?.source === 'custom') (poweredBy as typeof poweredBy & { logo?: string }).logo = brandAssets.logo.light;
   }
   // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
   // before); Gregorian in the visitor's own zone in the International one.

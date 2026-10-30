@@ -444,7 +444,6 @@ const ALLOWED: Array<[string, string]> = [
   ['src/pages/app/InboxPage.tsx', "if (email) return email.charAt(0).toUpperCase();"],
   ['src/features/calls/remoteTileFace.ts', "return { letter: (visitorName || visitorIdentity || 'V').slice(0, 1).toUpperCase() };"],
   ['src/pages/app/email/EmailInboxPage.tsx', "return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();"],
-  ['src/mobile/MobileLoginPage.tsx', '{brandName.charAt(0)}'],
   ['src/components/admin/notifications/NotificationTemplatesTab.tsx', '{appName.slice(0, 2).toUpperCase()}'],
 ];
 

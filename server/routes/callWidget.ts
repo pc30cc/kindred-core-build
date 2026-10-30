@@ -74,6 +74,7 @@ import { CALLBACK_BOOKING_MAX_AHEAD_MS, computeCallbackSlots, isBookableSlot, ty
 import { visitorPageUrl } from '../../shared/callCenter/visitorPageUrl.js';
 import { INTL_BRAND } from '../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../shared/webyarBrand.js';
+import { resolveBrandAssets } from '../services/platformBrandAssets.js';
 import {
   callbackSlotHours,
   callWidgetPanelAssetKeys,
@@ -695,6 +696,12 @@ async function computePublicBootstrap(
   // International edition credits its own platform, by the same rules as the
   // chat widget (platform switch, brand text, link, plan gate).
   const brand = edition === 'international' ? await readCallWidgetBrand(config, ws.workspace_id) : null;
+  // A logo the Super Admin uploaded (server/services/platformBrandAssets.ts)
+  // credits the platform in both editions, absolute on the storage provider;
+  // the panel then draws it as an image instead of the kit's own art. An
+  // edition that cannot be read keeps the words.
+  const brandAssets = edition ? await resolveBrandAssets(config, { edition }).catch(() => null) : null;
+  const customLogo = brandAssets?.source === 'custom' ? brandAssets.logo.light : null;
   // Persian dates: Jalali in Tehran time in Iran (and unknown), Gregorian in
   // the visitor's zone abroad (shared/widgetTemplates.ts).
   const dateHints = widgetDateHints(edition);
@@ -718,7 +725,7 @@ async function computePublicBootstrap(
     ws,
     disabled: null,
     fontName,
-    brand: brand ? { ...brand, logoDirection } : null,
+    brand: brand ? { ...brand, logoDirection, customLogo } : null,
     launcherStyle: launcher.style,
     body: {
       assets_version: CALL_WIDGET_ASSETS_VERSION,
@@ -733,6 +740,7 @@ async function computePublicBootstrap(
       // asset origin (the runtime resolves it against the origin it was loaded
       // from); the runtime keeps the words if the image cannot load.
       ...(isWebyarKitEdition(edition) ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
+      ...(isWebyarKitEdition(edition) && customLogo ? { powered_by_logo: customLogo, powered_by_logo_custom: true } : {}),
       assets: {
         presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,
         presentation_script_url: `/call-widget/${callTemplateAssets.script}`,
@@ -1012,6 +1020,8 @@ type CallWidgetBrandRows = {
   bases: { widgetBaseUrl?: string | null; widgetLoaderBaseUrl?: string | null; widgetPublicBaseUrl?: string | null };
   /** The workspace's logo direction (the chat widget's), for the credit's lockup. */
   logoDirection?: 'open' | 'thread' | null;
+  /** The logo the Super Admin uploaded (absolute), over the kit's lockups. */
+  customLogo?: string | null;
 };
 
 /**
@@ -1066,7 +1076,7 @@ function buildCallWidgetBrand(
   loaderAssetBase: string | null,
 ): {
   names: Record<string, string>;
-  poweredBy: { brand: string; brands: Record<string, string>; url: string | null; logo: string } | null;
+  poweredBy: { brand: string; brands: Record<string, string>; url: string | null; logo: string; custom?: true } | null;
 } {
   if (!rows.footer) return { names: rows.names, poweredBy: null };
   // The platform's logo (the RESPOK kit's horizontal mark, "color" variant
@@ -1078,9 +1088,13 @@ function buildCallWidgetBrand(
   // The Open lockup when the workspace's widgets wear the Open logo (as the
   // chat widget's credit does), so the footer agrees with the launcher.
   const lockup = rows.logoDirection === 'open' ? `${assetBase ?? ''}${INTL_BRAND.horizontalOpen.light}` : logo;
+  const brands = rows.override ? {} : rows.names;
+  if (rows.customLogo) {
+    return { names: rows.names, poweredBy: { brand: rows.footer.brand, brands, url: rows.footer.url, logo: rows.customLogo, custom: true } };
+  }
   return {
     names: rows.names,
-    poweredBy: { brand: rows.footer.brand, brands: rows.override ? {} : rows.names, url: rows.footer.url, logo: lockup },
+    poweredBy: { brand: rows.footer.brand, brands, url: rows.footer.url, logo: lockup },
   };
 }
 

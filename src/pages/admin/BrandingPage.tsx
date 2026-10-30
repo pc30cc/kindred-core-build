@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import EmailTemplatesTab from '@/components/admin/EmailTemplatesTab';
+import { BrandAssetUploads } from '@/components/admin/BrandAssetUploads';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -108,12 +109,16 @@ function VisualIdentitySection() {
         <CardDescription>{t('admin.brandingPage.identity.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {/* The logo and symbol: uploads, saved on their own (each control
+            saves at once); the favicon and the app icons are made from the
+            symbol. The old URL fields are gone from here, their columns
+            kept. */}
+        <BrandAssetUploads background={form.pwa_background_color} />
+
+        <Separator />
         <div className="grid gap-5 md:grid-cols-2">
-          <FieldRow label={t('admin.brandingPage.identity.logoUrl')} desc={t('admin.brandingPage.identity.logoHint')} value={form.logo_url ?? ''} onChange={(v) => set('logo_url', v)} placeholder="https://cdn.example.com/logo.svg" />
-          <FieldRow label={t('admin.brandingPage.identity.faviconUrl')} desc={t('admin.brandingPage.identity.faviconHint')} value={form.favicon_url ?? ''} onChange={(v) => set('favicon_url', v)} placeholder="https://cdn.example.com/favicon.ico" />
           <FieldRow label={t('admin.brandingPage.identity.primaryColor')} type="color" value={form.primary_color ?? '#3B82F6'} onChange={(v) => set('primary_color', v)} />
           <FieldRow label={t('admin.brandingPage.identity.secondaryColor')} type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
-          <FieldRow label={t('admin.brandingPage.identity.pwaIconUrl')} desc={t('admin.brandingPage.identity.pwaIconHint')} value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
         </div>
 
         <Separator />
@@ -133,13 +138,12 @@ function VisualIdentitySection() {
           </div>
         </div>
 
-        {(form.logo_url || form.primary_color) && (
+        {form.primary_color && (
           <>
             <Separator />
             <div className="rounded-lg border border-border p-4">
               <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> {t('admin.brandingPage.identity.preview')}</p>
               <div className="flex items-center gap-3">
-                {form.logo_url && <img src={form.logo_url} alt={t('admin.brandingPage.identity.logoPreview')} className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                 <div className="flex gap-2">
                   <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title={t('admin.brandingPage.identity.primaryColor')} />
                   <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title={t('admin.brandingPage.identity.secondaryColor')} />

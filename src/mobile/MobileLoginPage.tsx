@@ -15,6 +15,7 @@ import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { normalizeEmail, stripInvisible } from './normalizeCredentials';
 import { brandTokens } from '@/lib/brand';
+import { BrandImage } from '@/components/brand/BrandLogo';
 import { inAppRedirect } from '@/lib/inAppRedirect';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -81,11 +82,9 @@ export default function MobileLoginPage() {
       <div className="flex-1 overflow-y-auto px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-4">
         <div className="mx-auto w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-3 pt-2 pb-6">
-            <div className="h-16 w-16 rounded-[1.25rem] bg-primary flex items-center justify-center shadow-elegant">
-              <span className="text-2xl font-black text-primary-foreground">
-                {brandName.charAt(0)}
-              </span>
-            </div>
+            {/* The platform's symbol (the uploaded one, else the edition's
+                kit), never a letter (owner, 2026-10-24). */}
+            <BrandImage variant="symbol" alt={brandName} className="h-16 w-16 rounded-[1.25rem]" />
             <div className="text-center space-y-1">
               <h1 className="text-[28px] font-bold tracking-tight text-foreground">
                 {t('auth.loginTitle')}

@@ -203,6 +203,15 @@ export function platformCallCenterRingbackKey(opts: { slot: string; fileName: st
 }
 
 /**
+ * One of the platform's own brand files (Super Admin → Branding → Visual
+ * identity: its logo, its symbol and their PNG copies). A new uuid per upload,
+ * so a replaced logo gets a new URL and no cache keeps the old one.
+ */
+export function platformBrandAssetKey(opts: { variant: string; ext: string }): string {
+  return `platform/brand/${newUuid()}-${safePathSegment(opts.variant)}.${safeExt(opts.ext)}`;
+}
+
+/**
  * A bank receipt uploaded with a card-to-card wallet top-up. Platform-owned:
  * a financial record the Super Admin reviews, never counted toward the
  * workspace's storage and streamed by the backend only.

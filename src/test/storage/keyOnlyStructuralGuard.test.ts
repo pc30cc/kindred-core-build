@@ -80,6 +80,12 @@ describe('no writer persists a provider URL', () => {
       pattern: /logo_url:\s*url\b/,
       what: 'workspace_branding.logo_url rewritten by the legacy key migration',
     },
+    {
+      // The platform's own logo and symbol (migration 290): keys only.
+      file: 'server/routes/platformBrandAssets.ts',
+      pattern: /\b(?:logo|favicon|pwa_icon)_url\b|_storage_key\]?\s*=\s*\w*[uU]rl\b|getFileUrlWithConfig/,
+      what: 'platform_branding URL columns, or a derived link, from the brand upload',
+    },
   ];
 
   for (const { file, pattern, what } of FORBIDDEN_ASSIGNMENTS) {

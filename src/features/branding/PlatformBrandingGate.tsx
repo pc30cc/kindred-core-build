@@ -17,6 +17,11 @@
  *
  * A build without the Iranian kit (shared/buildBrand.ts SHIPS_IRAN_KIT: the
  * RESPOK build) has none of the kit's handling: nothing there wears it.
+ *
+ * A symbol the Super Admin uploaded (Super Admin → Branding → Visual
+ * identity; src/lib/brandAssets.ts) is the favicon and the home-screen icon
+ * in both editions, over the kits and the old icon URLs (its 192 px and
+ * opaque 180 px PNGs). Without one everything above holds unchanged.
  */
 import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -27,6 +32,7 @@ import { API_BASE } from '@/lib/apiBase';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { WEBYAR_BRAND, isUncustomisedColor, useWebyarKit } from '@/lib/webyarBrand';
 import { setPlatformBrand } from '@/lib/brand';
+import { brandAssetsView, normalizeBrandAssets } from '@/lib/brandAssets';
 import { resolveEdition } from '../../../shared/edition';
 import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
 
@@ -55,7 +61,7 @@ function usePlatformBrandingGlobal() {
   return useQuery({
     queryKey: ['platform_branding_global'],
     queryFn: async () => {
-      const { branding, localized, region, brand } = await fetchPlatformPublicConfig();
+      const { branding, localized, region, brand, brand_assets } = await fetchPlatformPublicConfig();
       return {
         branding: branding as PlatformBrandingRow | null,
         localized: localized as PlatformBrandingLocalizedRow[],
@@ -63,6 +69,8 @@ function usePlatformBrandingGlobal() {
         edition: resolveEdition(region?.region_mode),
         siteUrl: brand?.site_url ?? null,
         supportEmail: brand?.support_email ?? null,
+        // The Super Admin's uploaded logo and symbol (URLs), or null.
+        brandAssets: normalizeBrandAssets(brand_assets),
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -148,6 +156,18 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
       else if (woreIntlIcon || woreKitIcon) link.type = 'image/png';
       link.href = iconHref || DEFAULT_FAVICON;
     }
+    // An uploaded symbol is the tab's icon, in either edition.
+    const uploadedIcons = brandAssetsView(data.brandAssets, data.edition).icons;
+    if (uploadedIcons) {
+      let link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.type = 'image/png';
+      link.href = uploadedIcons.png192;
+    }
 
     // ── PWA head tags ────────────────────────────────────────────────
     // Never inside the native Capacitor shell: that webview loads the
@@ -212,7 +232,9 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     setLink(
       'apple-touch-icon',
       pwaOn
-        ? (international
+        ? (uploadedIcons
+          ? uploadedIcons.appleTouch180
+          : international
           ? INTL_BRAND.appleTouchIcon
           : branding?.pwa_icon_url || branding?.favicon_url || (SHIPS_IRAN_KIT && webyarKit ? WEBYAR_BRAND.appleTouchIcon : null))
         : null,
@@ -221,7 +243,8 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // edition's only. Elsewhere they are removed only if they are the kit's
     // (left by index.html's boot script before the edition changed).
     if (SHIPS_IRAN_KIT && webyarKit) {
-      setLink('mask-icon', WEBYAR_BRAND.maskIcon);
+      // The kit's pinned-tab mask draws the kit's symbol: not under an uploaded one.
+      setLink('mask-icon', uploadedIcons ? null : WEBYAR_BRAND.maskIcon);
       document.querySelector('link[rel="mask-icon"]')?.setAttribute('color', WEBYAR_BRAND.themeColor);
       setMeta('og:image', WEBYAR_BRAND.ogImage, 'property');
     } else if (SHIPS_IRAN_KIT) {

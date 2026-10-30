@@ -242,7 +242,13 @@ anywhere on WebYar, none of the following ever shows.
   `public/brand/intl/`, from the kit's `1-Logo/SVG` and
   `2-App-Icons/signal/web`; "color" on light, "reversed" on dark, picked by
   `.dark`). In international mode the kit wins over any operator logo or
-  favicon (Super Admin → Branding, a workspace's favicon):
+  favicon URL (Super Admin → Branding's old URL fields, a workspace's
+  favicon), unless the Super Admin uploaded the platform's own logo or symbol
+  (Super Admin → Branding → Visual identity, migration 290): an upload wins
+  over the kit in both editions, read from one place on the client
+  (`src/lib/brandAssets.ts` `useBrandAssets`, `BrandImage`) and the server
+  (`server/services/platformBrandAssets.ts` `resolveBrandAssets`), and
+  without one every mark below is exactly the kit's:
   - `BrandLogo` (the square app mark: panel skeletons of both themes, reset
     password, legal pages) is the kit's app icon (`favicon.svg`, the Signal
     tile);
@@ -260,7 +266,8 @@ anywhere on WebYar, none of the following ever shows.
   - Not changed: the live panel frames show the *workspace's* mark (its own
     logo, else a building icon), which is the customer's, not the platform's
     brand. The small inline spinner (`BrandSpinner`) keeps its colours.
-- Tests: `src/test/themes/internationalMode.test.tsx`, plus the scheme's
+- Tests: `src/test/themes/internationalMode.test.tsx` (the kit, and the kit
+  giving way to an upload), `src/test/branding/`, plus the scheme's
   contrasts in `artPalettes.test.ts` and its contract in
   `panelThemeOptions.test.ts`.
 

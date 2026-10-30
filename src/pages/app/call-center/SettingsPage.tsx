@@ -71,6 +71,7 @@ import { launcherInitial } from '../../../../shared/launcherStyles';
 import type { Edition } from '../../../../shared/edition';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
+import { useBrandAssets } from '@/lib/brandAssets';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
 // Team & Departments instead of the deprecated Call Center departments
 // hook. Only departments with a Call Center channel enabled are
@@ -1253,6 +1254,10 @@ function CallWidgetPreview({ settings, platform, chat, members, departments, rec
   const webyarKit = useWebyarKit() && !isInternational;
   const { locale } = useTranslation();
   useBrandVersion();
+  // A logo the Super Admin uploaded credits the platform in both editions,
+  // drawn as an image over the kit's art (server/routes/callWidget.ts).
+  const brandAssets = useBrandAssets();
+  const uploadedLogo = brandAssets.source === 'custom' && brandAssets.lockup ? brandAssets.lockup.light : null;
   // One instant for the frame's lifetime: slots before it are past.
   const [now] = useState(() => Date.now());
   const templateId = isInternational
@@ -1305,13 +1310,15 @@ function CallWidgetPreview({ settings, platform, chat, members, departments, rec
             brand: platformBrandName(locale),
             brands: { en: platformBrandName('en'), fa: platformBrandName('fa'), tr: platformBrandName('tr') },
             url: null,
-            logo: logoDirection === 'open' ? INTL_BRAND.horizontalOpen.light : INTL_BRAND.horizontal.light,
+            logo: uploadedLogo ?? (logoDirection === 'open' ? INTL_BRAND.horizontalOpen.light : INTL_BRAND.horizontal.light),
+            ...(uploadedLogo ? { custom: true } : {}),
           },
         }
       : {}),
     // The Iranian edition (known, never assumed) previews WebYar's logotype
     // in its credit, as the bootstrap sends it (server/routes/callWidget.ts).
     ...(webyarKit ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
+    ...(webyarKit && uploadedLogo ? { powered_by_logo: uploadedLogo, powered_by_logo_custom: true } : {}),
     config: {
       display_name: settings.display_name,
       avatar_url: settings.avatar_url,

@@ -15,7 +15,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { NOTIFICATION_EMAILS, type NotificationEmailType } from './types.js';
+import { NOTIFICATION_EMAILS, type EmailPreferenceType, type NotificationEmailType } from './types.js';
 import { isTypeEnabled, loadNotificationEmailSettings } from './settings.js';
 
 export interface EnqueueRequest {
@@ -116,12 +116,14 @@ export function isMissingColumn(error: { code?: unknown; message?: unknown } | n
  *
  * No row means yes: the defaults are on, and the platform switch above is
  * what decides whether a type is offered at all. An operator who has never
- * opened the page gets what the platform chose.
+ * opened the page gets what the platform chose. No column means yes too: a
+ * switch that a database before its migration cannot store cannot have been
+ * turned off.
  */
 export async function operatorWants(
   config: ServerConfig,
   userId: string,
-  type: NotificationEmailType,
+  type: EmailPreferenceType,
 ): Promise<boolean> {
   try {
     const sb = getServiceClient(config);
@@ -130,6 +132,7 @@ export async function operatorWants(
       .select(type)
       .eq('user_id', userId)
       .maybeSingle();
+    if (error && isMissingColumn(error)) return true;
     if (error) throw new Error(error.message);
     if (!data) return true;
     const value = (data as Record<string, unknown>)[type];
@@ -142,6 +145,36 @@ export async function operatorWants(
       message: err instanceof Error ? err.message : String(err),
     });
     return false;
+  }
+}
+
+/**
+ * Of `userIds`, the ones who turned `type` off, for a mail with several
+ * recipients at once (the offline-message notice); null when that cannot be
+ * known, which, as in operatorWants, is not consent to send. Before the
+ * type's column exists nobody can have turned it off.
+ */
+export async function operatorsDeclining(
+  config: ServerConfig,
+  userIds: string[],
+  type: EmailPreferenceType,
+): Promise<Set<string> | null> {
+  if (!userIds.length) return new Set();
+  try {
+    const { data, error } = await getServiceClient(config)
+      .from('user_email_notification_prefs')
+      .select(`user_id, ${type}`)
+      .in('user_id', userIds);
+    if (error && isMissingColumn(error)) return new Set();
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+    return new Set(rows.filter((row) => row[type] === false).map((row) => String(row.user_id)));
+  } catch (err) {
+    console.error('[notification-email] preference lookup failed; not sending', {
+      type,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return null;
   }
 }
 

@@ -23,11 +23,19 @@
 // against its signature and a timestamp window before anything is read from
 // it, so a replayed or forged one changes nothing.
 //
-// What is suppressed, for every provider alike:
+// What is suppressed, for every provider alike (record(), isSuppressible):
 //   - a hard bounce whose status is 5.1.x (the address does not exist):
 //     permanently;
-//   - any other hard bounce: for 30 days, since a full mailbox or a policy
-//     refusal can clear;
+//   - a hard bounce about the mailbox (5.2.x: disabled, full) or the
+//     recipient's domain (5.4.4: no mail route to it), or one the provider
+//     reports without a status: for 30 days, since those can clear;
+//   - a hard bounce about our sending, not the address (5.7.x: the sending
+//     IP's reputation, SPF, DKIM, DMARC, a policy; 5.0.0 and 5.3.x to 5.6.x:
+//     the receiving system, a route, the protocol, the content): nothing.
+//     The console names their statuses, and the relay's watcher alerts
+//     Telegram. Suppressing them would keep every reset and receipt from
+//     each address a block touched for 30 days, long after its cause (a new
+//     IP, one DKIM mistake) is fixed;
 //   - a complaint: permanently;
 //   - a soft bounce (4.x.x, a deferral): nothing; the provider retries it.
 //
@@ -84,6 +92,21 @@ export interface EmailEvent {
 export function enhancedStatus(text: unknown): string | undefined {
   if (typeof text !== 'string') return undefined;
   return /\b([245]\.\d{1,3}\.\d{1,3})\b/.exec(text)?.[1];
+}
+
+/**
+ * Whether an event puts its address on the list at all. A complaint does, and
+ * so does a hard bounce about the address: 5.1.x the address itself, 5.2.x
+ * its mailbox, 5.4.4 a domain with no mail route, or no status at all (the
+ * provider's own word that the address bounced: Resend's Permanent,
+ * SendGrid's bounce or dropped "Bounced Address"). Any other status is the
+ * receiving server refusing our sending, which says nothing about the
+ * address; SendGrid's `blocked` and Resend's Transient, the same thing in
+ * those providers' words, are skipped by their parsers already.
+ */
+export function isSuppressible(event: EmailEvent): boolean {
+  if (event.kind === 'complaint' || !event.status) return true;
+  return /^5\.[12]\./.test(event.status) || event.status === '5.4.4';
 }
 
 /**
@@ -179,7 +202,9 @@ function stringField(cfg: ProviderConfig, field: string): string {
 /**
  * Writes each event to the suppression list. A database failure answers
  * 500, so the provider delivers the report again; an address that is not
- * one plain address is skipped (nothing could ever be sent to it anyway).
+ * one plain address is skipped (nothing could ever be sent to it anyway),
+ * and so is a refusal of our sending (isSuppressible), whose statuses the
+ * console counts.
  */
 async function record(
   config: ServerConfig,
@@ -189,8 +214,14 @@ async function record(
   events: EmailEvent[],
 ): Promise<void> {
   let recorded = 0;
+  const refusals = new Map<string, number>();
   for (const event of events) {
     if (!suppressionKey(event.address)) continue;
+    if (!isSuppressible(event)) {
+      const status = event.status ?? 'unknown';
+      refusals.set(status, (refusals.get(status) ?? 0) + 1);
+      continue;
+    }
     try {
       await suppressEmailAddress(config, {
         address: event.address,
@@ -208,6 +239,13 @@ async function record(
   }
   markSeen(reportId);
   if (recorded > 0) console.info(`[email-events] ${source}: ${recorded} suppression event(s) recorded`);
+  if (refusals.size > 0) {
+    const statuses = [...refusals].map(([status, n]) => `${status} ×${n}`).join(', ');
+    console.warn(
+      `[email-events] ${source}: refusals of our sending, not of the address, left off the suppression list (${statuses}): `
+      + 'check the sender\'s reputation, SPF, DKIM and DMARC',
+    );
+  }
   res.json({ ok: true, recorded });
 }
 
@@ -429,7 +467,10 @@ export function verifyRelaySignature(
  * The watcher's report: `{ events: [{ type: 'bounce', recipient, status,
  * detail?, queue_id? }] }`. Postfix's `status=bounced` is a permanent
  * failure, so its dsn is 5.x.x; a 4.x.x is a deferral, and is skipped here
- * too, whatever the watcher sends.
+ * too, whatever the watcher sends. Which of the rest suppress is record()'s
+ * rule, the same as for every provider: the watcher leaves out the
+ * refusals of our sending itself, and a watcher of an older version that
+ * sends them changes nothing.
  */
 export function relayEvents(payload: unknown): EmailEvent[] {
   const events = asRecord(payload).events;

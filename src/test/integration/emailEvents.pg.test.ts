@@ -5,8 +5,9 @@
  *
  *   - the relay's report, signed with the smtp config's events_token as the
  *     Super Admin saved it (encrypted by the config store), suppresses a
- *     5.1.1 for good and a 5.7.1 for 30 days, and the next send to that
- *     address is refused before the provider;
+ *     5.1.1 for good and a 5.2.2 for 30 days, leaves a 5.7.1 (a refusal of
+ *     our sending) off the list, and the next send to a suppressed address
+ *     is refused before the provider;
  *   - switching the default provider to Resend closes the relay's route and
  *     opens Resend's, whose Svix-signed complaint suppresses for good.
  *
@@ -89,6 +90,7 @@ suite('email events → suppressions (real PostgreSQL)', () => {
     const res = await relayPost({
       events: [
         { type: 'bounce', recipient: 'Gone@Example.org', status: '5.1.1', detail: 'said: 550 5.1.1 unknown user' },
+        { type: 'bounce', recipient: 'full@example.org', status: '5.2.2' },
         { type: 'bounce', recipient: 'policy@example.org', status: '5.7.1' },
       ],
     });
@@ -96,7 +98,8 @@ suite('email events → suppressions (real PostgreSQL)', () => {
     expect(res.body).toEqual({ ok: true, recorded: 2 });
 
     const rows = await q(`SELECT address, reason, source, expires_at FROM public.email_suppressions
-                           WHERE address IN ('gone@example.org', 'policy@example.org') ORDER BY address`);
+                           WHERE address IN ('gone@example.org', 'full@example.org', 'policy@example.org') ORDER BY address DESC`);
+    expect(rows.map((r) => r.address)).toEqual(['gone@example.org', 'full@example.org']);
     expect(rows[0]).toMatchObject({ address: 'gone@example.org', reason: 'hard_bounce', source: 'relay', expires_at: null });
     const days = (new Date(rows[1].expires_at as string).getTime() - Date.now()) / 86_400_000;
     expect(days).toBeGreaterThan(29.9);

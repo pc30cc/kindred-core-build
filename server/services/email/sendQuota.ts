@@ -74,6 +74,7 @@ function dateOf(value: unknown): Date | null {
 
 const memory = new Map<string, { startedAt: number; endsAt: number; used: number }>();
 let warnedMemory = false;
+let warnedReturn = false;
 
 function memoryVerdict(quota: EmailQuota, take: boolean): EmailQuotaVerdict {
   const now = Date.now();
@@ -96,6 +97,7 @@ function memoryVerdict(quota: EmailQuota, take: boolean): EmailQuotaVerdict {
 export function __resetEmailQuotaMemoryForTests(): void {
   memory.clear();
   warnedMemory = false;
+  warnedReturn = false;
 }
 
 async function run(config: ServerConfig, quota: EmailQuota, take: boolean): Promise<EmailQuotaVerdict> {
@@ -137,4 +139,41 @@ export function takeEmailQuota(config: ServerConfig, quota: EmailQuota): Promise
 /** Says whether one more use would fit, counting nothing. Never throws. */
 export function peekEmailQuota(config: ServerConfig, quota: EmailQuota): Promise<EmailQuotaVerdict> {
   return run(config, quota, false);
+}
+
+/**
+ * Gives back one use that `taken` (a take of this quota) counted, when what
+ * it was taken for was then not done: an invitation the RPC refused. Taking
+ * first and giving back is what makes a limit hold for requests that arrive
+ * together; a peek, then a take afterwards, let them all pass on the same
+ * count. Only within the window the use was taken in, never below zero.
+ * Without migration 289g a use counted in the database stays counted (its
+ * window ends anyway); one counted in memory is given back there. Never
+ * throws.
+ */
+export async function returnEmailQuota(config: ServerConfig, quota: EmailQuota, taken: EmailQuotaVerdict): Promise<void> {
+  const scope = quota.scope.slice(0, 64);
+  const key = quota.key.slice(0, 200);
+  try {
+    const { data, error } = await getServiceClient(config).rpc('email_send_quota_return', {
+      p_scope: scope,
+      p_key: key,
+      p_window_started_at: taken.windowStartedAt.toISOString(),
+    });
+    // Given back in the database; else the use may have been counted here.
+    if (!error && data === true) return;
+    if (error && !warnedReturn) {
+      warnedReturn = true;
+      console.warn('[email-quota] a use could not be given back (migration 289g?):', error.message);
+    }
+  } catch (err) {
+    if (!warnedReturn) {
+      warnedReturn = true;
+      console.warn('[email-quota] a use could not be given back:', err instanceof Error ? err.message : String(err));
+    }
+  }
+  const entry = memory.get(`${scope}\u0000${key}`);
+  if (entry && entry.startedAt === taken.windowStartedAt.getTime() && entry.endsAt > Date.now() && entry.used > 0) {
+    entry.used -= 1;
+  }
 }

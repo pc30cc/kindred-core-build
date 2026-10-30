@@ -13,21 +13,30 @@
  * together within one bound, and the process then exits. A second signal
  * while they run finds no listener of ours left (they are `once`) and gets
  * Node's own: an immediate exit.
+ *
+ * The HTTP server's drain is the one registered `last`: it starts only once
+ * every other drain has settled. Its close() stops accepting connections at
+ * once, while the proxy in front (Traefik under Coolify) keeps sending
+ * requests to this container until it exits; closed first, every request
+ * routed here while a mail was still being sent got a 502. Now the window is
+ * only the time the requests already in flight take.
  */
 
 const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 25_000);
 
-const drains = new Map<string, () => Promise<unknown>>();
+const drains = new Map<string, { drain: () => Promise<unknown>; last: boolean }>();
 let installed = false;
 let shuttingDown = false;
 
 /**
  * Registers a drain to run on SIGTERM or SIGINT (the latest registration of a
- * name wins). Installs the two signal listeners on the first call, and never
- * again. Never logs anything a drain carries.
+ * name wins). With `last`, it starts only once the others have settled (the
+ * HTTP server, which keeps answering while the loops drain). Installs the
+ * two signal listeners on the first call, and never again. Never logs
+ * anything a drain carries.
  */
-export function onProcessShutdown(name: string, drain: () => Promise<unknown>): void {
-  drains.set(name, drain);
+export function onProcessShutdown(name: string, drain: () => Promise<unknown>, opts: { last?: boolean } = {}): void {
+  drains.set(name, { drain, last: opts.last === true });
   if (installed) return;
   installed = true;
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
@@ -37,15 +46,10 @@ export function onProcessShutdown(name: string, drain: () => Promise<unknown>): 
   }
 }
 
-/**
- * Runs every registered drain at once and resolves when all have settled or
- * `timeoutMs` has passed, whichever is first; a drain that throws is logged
- * and counted as done. Exported for the tests; the signal handler is its only
- * caller in production.
- */
-export async function runShutdownDrains(timeoutMs: number = SHUTDOWN_TIMEOUT_MS): Promise<{ timedOut: boolean }> {
-  const all = Promise.allSettled(
-    [...drains.entries()].map(async ([name, drain]) => {
+/** Runs the named drains together; a drain that throws is logged and counted as done. */
+function runTogether(entries: Array<[string, { drain: () => Promise<unknown> }]>): Promise<false> {
+  return Promise.allSettled(
+    entries.map(async ([name, { drain }]) => {
       try {
         await drain();
       } catch (err) {
@@ -53,14 +57,26 @@ export async function runShutdownDrains(timeoutMs: number = SHUTDOWN_TIMEOUT_MS)
       }
     }),
   ).then(() => false);
+}
+
+/**
+ * Runs every registered drain at once, then the `last` ones, and resolves
+ * when all have settled or `timeoutMs` has passed, whichever is first. A
+ * bound that passes while the first ones run still starts the last ones (the
+ * HTTP server then stops accepting before the exit). Exported for the tests;
+ * the signal handler is its only caller in production.
+ */
+export async function runShutdownDrains(timeoutMs: number = SHUTDOWN_TIMEOUT_MS): Promise<{ timedOut: boolean }> {
+  const entries = [...drains.entries()];
   let timer: NodeJS.Timeout | undefined;
   const bound = new Promise<true>((resolve) => {
     timer = setTimeout(() => resolve(true), Math.max(0, timeoutMs));
     timer.unref?.();
   });
-  const timedOut = await Promise.race([all, bound]);
+  const firstTimedOut = await Promise.race([runTogether(entries.filter(([, d]) => !d.last)), bound]);
+  const lastTimedOut = await Promise.race([runTogether(entries.filter(([, d]) => d.last)), bound]);
   if (timer) clearTimeout(timer);
-  return { timedOut };
+  return { timedOut: firstTimedOut || lastTimedOut };
 }
 
 async function shutdownProcess(signal: 'SIGTERM' | 'SIGINT'): Promise<void> {

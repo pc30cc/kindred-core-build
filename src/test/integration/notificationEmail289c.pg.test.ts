@@ -257,6 +257,8 @@ suite('289c — the operator notification emails (real PostgreSQL, real email co
     it('is written down by the request, fanned out by the ticker, and sent as platform mail', async () => {
       const { adminNotificationEmailRouter } = await import('../../../server/routes/adminNotificationEmail.js');
       const a = app();
+      // As adminRouter's requireAdmin leaves it: the Super Admin is adminUser.
+      a.use((req, _res, next) => { Object.assign(req, { adminUser: { id: admin } }); next(); });
       a.use('/api/admin/notification-email', adminNotificationEmailRouter);
       provider.sent.length = 0;
       await q(`DELETE FROM public.notification_email_jobs`);
@@ -264,6 +266,8 @@ suite('289c — the operator notification emails (real PostgreSQL, real email co
       const res = await request(a).post('/api/admin/notification-email/announce').send({ title: 'New inbox', body: 'Line one\n<script>x</script>' });
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ queued: true, announcement: { status: 'sending', recipients_queued: 0 } });
+      // Its author is the Super Admin who sent it.
+      expect(await q(`SELECT created_by FROM public.notification_email_announcements`)).toEqual([{ created_by: admin }]);
       // The request queued nobody.
       expect(await q(`SELECT count(*)::int AS n FROM public.notification_email_jobs`)).toEqual([{ n: 0 }]);
       // The same again within the hour: one announcement.
@@ -285,6 +289,10 @@ suite('289c — the operator notification emails (real PostgreSQL, real email co
       const state = await request(a).get('/api/admin/notification-email');
       expect(state.body).toMatchObject({ provider_configured: false, notification_provider: { provider_name: null, configured: false } });
       expect(state.body.announcements[0]).toMatchObject({ title: 'New inbox', status: 'done' });
+
+      // A change of the settings names its Super Admin too.
+      expect((await request(a).patch('/api/admin/notification-email').send({ weekly_summary_hour: 8 })).status).toBe(200);
+      expect(await q(`SELECT updated_by FROM public.notification_email_settings`)).toEqual([{ updated_by: admin }]);
     });
   });
 

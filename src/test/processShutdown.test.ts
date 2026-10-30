@@ -31,10 +31,24 @@ describe('process shutdown', () => {
     expect(order).toEqual(['fast', 'slow']);
   });
 
+  it('the last drain (the HTTP server) starts only once the others have settled', async () => {
+    const order: string[] = [];
+    onProcessShutdown('http-test', async () => { order.push('http'); }, { last: true });
+    onProcessShutdown('mail', () => new Promise<void>((resolve) => setTimeout(() => { order.push('mail'); resolve(); }, 30)));
+    onProcessShutdown('ticker', async () => { order.push('ticker'); });
+    expect(await runShutdownDrains(1_000)).toEqual({ timedOut: false });
+    expect(order.indexOf('http')).toBe(order.length - 1);
+    expect(order).toEqual(expect.arrayContaining(['mail', 'ticker', 'http']));
+  });
+
   it('is bounded: a drain that never ends does not hold the exit', async () => {
+    let closed = false;
+    onProcessShutdown('http-test', async () => { closed = true; }, { last: true });
     onProcessShutdown('stuck', () => new Promise(() => undefined));
     const started = Date.now();
     expect(await runShutdownDrains(50)).toEqual({ timedOut: true });
     expect(Date.now() - started).toBeLessThan(1_000);
+    // The listener is still closed before the exit.
+    expect(closed).toBe(true);
   });
 });

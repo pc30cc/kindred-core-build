@@ -12,10 +12,17 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { isMissingColumn } from './queue.js';
 
 type DbError = { code?: string; message?: string } | null;
 
-/** The jobs of `workspaceId` about any of `conversationIds`, deleted. */
+/**
+ * The jobs of `workspaceId` about any of `conversationIds`, deleted. Before
+ * migration 289c the queue has no conversation_ids, so no job can be found
+ * by them: nothing to delete, rather than an erasure that fails halfway (on
+ * RESPOK the backend can start before its migrator has run). Such a job's
+ * payload is emptied when it finishes, and the row goes with the purge.
+ */
 export async function deleteNotificationJobsAboutConversations(
   config: ServerConfig,
   workspaceId: string,
@@ -29,6 +36,7 @@ export async function deleteNotificationJobsAboutConversations(
       .eq('workspace_id', workspaceId)
       .overlaps('conversation_ids', conversationIds.slice(i, i + 100))
       .select('id');
+    if (error && isMissingColumn(error)) return { count, error: null };
     if (error) return { count, error };
     count += (data ?? []).length;
   }

@@ -10,7 +10,13 @@
  *  - only invitations that were made count: a create the RPC refuses (a
  *    member who may not invite, a duplicate) and a replay use up nothing;
  *  - a resend counts like a new invitation;
- *  - the workspace's 50 a day hold across inviters.
+ *  - the workspace's 50 a day hold across inviters;
+ *  - requests sent at the same moment are counted one after the other (the
+ *    use is taken before the RPC and given back when no invitation is
+ *    made), so a burst cannot pass on the same count.
+ *
+ * The give-back of a use counted in the database (migration 289g) is in
+ * integration/emailReviewFixes289g.pg.test.ts.
  *
  * The router runs in-process; the session, the e-mail verification gate and
  * the idempotent RPC are stand-ins, and the data layer's rpc answers nothing
@@ -28,6 +34,8 @@ const state = vi.hoisted(() => ({
   user: 'actor-1',
   outcome: 'ok' as 'ok' | 'refused' | 'replayed',
   calls: [] as string[],
+  /** How long the RPC takes: long enough for a burst's requests to overlap. */
+  rpcDelayMs: 0,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
@@ -45,6 +53,7 @@ vi.mock('../../../server/services/invitations/idempotency.js', async (orig) => (
   ...(await orig<typeof import('../../../server/services/invitations/idempotency.js')>()),
   runIdempotent: async (_c: unknown, call: { operation: string }) => {
     state.calls.push(call.operation);
+    if (state.rpcDelayMs) await new Promise((resolve) => setTimeout(resolve, state.rpcDelayMs));
     if (state.outcome === 'refused') {
       return { replayed: false, resultCode: 'ERROR', safeResult: {}, result: null, error: { message: 'FORBIDDEN_ROLE_ESCALATION' } };
     }
@@ -103,6 +112,7 @@ beforeEach(() => {
   state.user = 'actor-1';
   state.outcome = 'ok';
   state.calls.length = 0;
+  state.rpcDelayMs = 0;
   __resetEmailQuotaMemoryForTests();
 });
 afterEach(() => { vi.useRealTimers(); });
@@ -135,6 +145,30 @@ describe('invitation mails per inviter and per workspace', () => {
     for (let i = 0; i < 10; i += 1) expect((await resend()).status).toBe(200);
     expect((await resend()).status).toBe(429);
     expect((await invite()).status).toBe(429);
+  });
+
+  it('a burst at the same moment passes no further than the limit', async () => {
+    state.rpcDelayMs = 100;
+    const results = await Promise.all(Array.from({ length: 30 }, () => invite()));
+    expect(results.filter((r) => r.status === 201)).toHaveLength(20);
+    expect(results.filter((r) => r.status === 429)).toHaveLength(10);
+    expect(state.calls).toHaveLength(20);
+  });
+
+  it('a refused create gives back the workspace\'s use too, so a refused inviter blocks nobody', async () => {
+    state.outcome = 'refused';
+    state.rpcDelayMs = 20;
+    const refused = await Promise.all(Array.from({ length: 60 }, (_, i) => {
+      state.user = `actor-r${i % 3}`;
+      return invite();
+    }));
+    expect(refused.every((r) => r.status === 403 || r.status === 429)).toBe(true);
+    state.outcome = 'ok';
+    state.rpcDelayMs = 0;
+    for (let i = 0; i < 50; i += 1) {
+      state.user = `actor-${Math.floor(i / 10)}`;
+      expect((await invite()).status).toBe(201);
+    }
   });
 
   it('50 a day for the workspace, across inviters; another workspace is not touched', async () => {

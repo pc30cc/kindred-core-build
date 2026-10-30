@@ -2362,6 +2362,8 @@ const en = {
     emailPaidInvoicesHelp: 'Only workspace owners and admins can receive this one.',
     emailWeeklySummary: 'A weekly summary',
     emailProductUpdates: 'Product announcements',
+    emailOfflineMessages: 'Offline messages from visitors',
+    emailOfflineMessagesHelp: 'For workspace owners and admins: a mail when a visitor writes while the team is away, then at most one summary every 15 minutes.',
     emailFooter: 'You get this email because “{{label}}” is on in your email notifications.',
     emailFooterUnsubscribe: 'Unsubscribe',
     emailFooterSettings: 'Change your email notifications',

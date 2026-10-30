@@ -136,12 +136,17 @@ adapter may special-case a provider. The setting
 encrypted under `PLUGIN_SECRETS_MASTER_KEY` on save and never reach a browser.
 Since 2026-10-29 15:11 UTC both brands send through our own Postfix relay,
 `mail-relay` on host.respok.app (`deploy/mail-relay/`: SASL per brand on
-`mail-relay:587` over the coolify network, no STARTTLS on that hop, DKIM
-selector `mx2026`, PTR `mail.respok.app`); receiving stays on iCloud. Failed
-transactional mail is retried by the email outbox (289b); a suppressed
-address (289; hard bounces and complaints, fed by
-`/api/email-events/{resend,sendgrid,relay}` and the relay's bounce watcher)
-is never mailed. A container that sends mail must be on the coolify network.
+`mail-relay:587` over the coolify network, DKIM selector `mx2026`, PTR
+`mail.respok.app`); receiving stays on iCloud. That hop gets STARTTLS with
+the relay's own certificate (self-signed for `mail-relay`, made on the host
+into `deploy/mail-relay/tls/`, never committed; the providers check it as
+`tls_ca`) and no AUTH before it; until its rollout (`deploy/mail-relay/README.md`,
+"TLS", step 0 first: `encryption` `none`, or every mail fails) it is plain.
+Failed transactional mail is retried by the email outbox (289b); a
+suppressed address (289; hard bounces of the address and complaints, fed by
+`/api/email-events/{resend,sendgrid,relay}` and the relay's bounce watcher;
+a 5.7.x refusal of our sending suppresses nothing and is alerted) is never
+mailed. A container that sends mail must be on the coolify network.
 How it works, DNS, rollout and the way back to Resend:
 `docs/operations/EMAIL.md`.
 

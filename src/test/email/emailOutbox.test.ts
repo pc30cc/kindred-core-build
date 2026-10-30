@@ -17,7 +17,13 @@
  *   - a duplicate dedupe key is the mail already queued, not an error;
  *   - an after-sent action outside the closed list is refused;
  *   - the worker starts once, stops, drains within its bound and registers
- *     its drain for SIGTERM.
+ *     its drain for SIGTERM;
+ *   - a mail the provider took is never given back to the queue because its
+ *     'sent' could not be written at once: the write is retried, and what
+ *     follows the hand-over still runs;
+ *   - with a supersedeRank, the highest rank wins whatever the order of
+ *     queueing: lower ones are cancelled, and one queued after a higher one
+ *     is cancelled at once; before migration 289g, the newer wins as before.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decryptPluginSecret } from '../../../server/lib/pluginCrypto';
@@ -33,7 +39,15 @@ interface Write {
 const db = vi.hoisted(() => ({
   writes: [] as Write[],
   insertError: null as { code?: string; message: string } | null,
+  /** Errors for the next inserts, one each, before insertError. */
+  insertErrorsOnce: [] as Array<{ code?: string; message: string }>,
   existing: null as Row | null,
+  /** Rows the next claim hands out. */
+  claim: [] as Row[],
+  /** Writes of a claimed row's outcome (complete()) that fail, from now on. */
+  completeFailures: 0,
+  /** A mail of a higher rank is under the key (outranked()). */
+  outranked: false,
 }));
 
 const sendEmail = vi.hoisted(() => vi.fn());
@@ -47,9 +61,10 @@ vi.mock('../../../server/supabase.js', () => ({
         write.filters.push([op, column, value]);
         return builder;
       };
+      let selected = false;
       const builder: Record<string, unknown> = {
         insert: (values: Row) => {
-          Object.assign(write, { op: 'insert', values });
+          Object.assign(write, { op: 'insert', values: { ...values } });
           db.writes.push(write);
           return builder;
         },
@@ -63,22 +78,37 @@ vi.mock('../../../server/supabase.js', () => ({
           db.writes.push(write);
           return builder;
         },
-        select: () => builder,
+        select: () => {
+          if (!db.writes.includes(write)) selected = true;
+          return builder;
+        },
         eq: filter('eq'),
         neq: filter('neq'),
         lt: filter('lt'),
+        gt: filter('gt'),
         is: filter('is'),
         in: filter('in'),
-        single: async () =>
-          db.insertError
+        limit: () => builder,
+        single: async () => {
+          const once = db.insertErrorsOnce.shift();
+          if (once) return { data: null, error: once };
+          return db.insertError
             ? { data: null, error: db.insertError }
-            : { data: { id: 'row-1', created_at: '2026-10-29T10:00:00.000000+00:00' }, error: null },
-        maybeSingle: async () => ({ data: db.existing, error: null }),
-        then: (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null }),
+            : { data: { id: 'row-1', created_at: '2026-10-29T10:00:00.000000+00:00' }, error: null };
+        },
+        maybeSingle: async () => {
+          if (table === 'email_outbox' && write.op === 'update' && db.completeFailures > 0) {
+            db.completeFailures -= 1;
+            return { data: null, error: { message: 'Connection terminated unexpectedly' } };
+          }
+          return { data: db.existing, error: null };
+        },
+        then: (resolve: (v: unknown) => unknown) =>
+          resolve({ data: selected && db.outranked && write.filters.some(([op]) => op === 'gt') ? [{ id: 'row-0' }] : null, error: null }),
       };
       return builder;
     },
-    rpc: async () => ({ data: [], error: null }),
+    rpc: async () => ({ data: db.claim.splice(0), error: null }),
   }),
 }));
 vi.mock('../../../server/services/email/index.js', () => ({ sendEmail }));
@@ -100,7 +130,11 @@ const updatesOf = (table: string) => db.writes.filter((w) => w.op === 'update' &
 beforeEach(() => {
   db.writes.length = 0;
   db.insertError = null;
+  db.insertErrorsOnce.length = 0;
   db.existing = null;
+  db.claim.length = 0;
+  db.completeFailures = 0;
+  db.outranked = false;
   sendEmail.mockReset();
 });
 
@@ -235,6 +269,86 @@ describe('enqueueEmail', () => {
   it('platform mail (no workspace) is queued like any other', async () => {
     expect(await outbox.enqueueEmail(CONFIG, { ...REQUEST, workspaceId: null })).toEqual({ queued: true, id: 'row-1' });
     expect(inserted()[0].workspace_id).toBeNull();
+  });
+});
+
+describe('a ranked supersede key', () => {
+  const KEY_OPT = { supersedeKey: `offline_summary:${WS}:1`, notBefore: new Date(Date.now() + 15 * 60_000) };
+
+  it('the rank is stored, lower ranks are cancelled whenever they were queued, and older unranked ones by time', async () => {
+    expect(await outbox.enqueueEmail(CONFIG, REQUEST, { ...KEY_OPT, supersedeRank: 3 })).toEqual({ queued: true, id: 'row-1' });
+    expect(inserted()[0]).toMatchObject({ supersede_key: KEY_OPT.supersedeKey, supersede_rank: 3 });
+    const cancels = updatesOf('email_outbox');
+    expect(cancels).toHaveLength(2);
+    expect(cancels[0].filters).toEqual(expect.arrayContaining([['lt', 'supersede_rank', 3], ['neq', 'id', 'row-1'], ['eq', 'status', 'pending']]));
+    expect(cancels[0].filters.some(([op, column]) => op === 'lt' && column === 'created_at')).toBe(false);
+    expect(cancels[1].filters).toEqual(expect.arrayContaining([['is', 'supersede_rank', null], ['lt', 'created_at', '2026-10-29T10:00:00.000000+00:00']]));
+  });
+
+  it('queued after a higher rank, it is cancelled at once', async () => {
+    db.outranked = true;
+    expect(await outbox.enqueueEmail(CONFIG, REQUEST, { ...KEY_OPT, supersedeRank: 1 })).toEqual({ queued: true, id: 'row-1', superseded: true });
+    const own = updatesOf('email_outbox').find((w) => w.filters.some(([op, column, value]) => op === 'eq' && column === 'id' && value === 'row-1'));
+    expect(own?.values).toMatchObject({ status: 'cancelled', payload: null, last_error_code: 'superseded' });
+  });
+
+  it('before migration 289g: queued without its rank, the newer replacing the older by time', async () => {
+    db.insertErrorsOnce.push({ code: 'PGRST204', message: "Could not find the 'supersede_rank' column of 'email_outbox'" });
+    expect(await outbox.enqueueEmail(CONFIG, REQUEST, { ...KEY_OPT, supersedeRank: 2 })).toEqual({ queued: true, id: 'row-1' });
+    const [first, second] = inserted();
+    expect(first).toHaveProperty('supersede_rank', 2);
+    expect(second).not.toHaveProperty('supersede_rank');
+    const cancels = updatesOf('email_outbox');
+    expect(cancels).toHaveLength(1);
+    expect(cancels[0].filters).toEqual(expect.arrayContaining([['lt', 'created_at', '2026-10-29T10:00:00.000000+00:00']]));
+  });
+
+  it('without a rank, nothing changes: the newer wins by time', async () => {
+    await outbox.enqueueEmail(CONFIG, REQUEST, KEY_OPT);
+    expect(inserted()[0]).not.toHaveProperty('supersede_rank');
+    const cancels = updatesOf('email_outbox');
+    expect(cancels).toHaveLength(1);
+    expect(cancels[0].filters).toEqual(expect.arrayContaining([['lt', 'created_at', '2026-10-29T10:00:00.000000+00:00']]));
+  });
+});
+
+describe('a mail the provider took', () => {
+  const claimed = (): Row => ({
+    id: 'row-9',
+    claim_token: '99999999-9999-4999-8999-999999999999',
+    payload: { v: 1, plain: REQUEST },
+    attempts: 1,
+    max_attempts: 12,
+    give_up_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+    supersede_key: null,
+    after_sent: { action: 'revoke_earlier_tokens', table: 'auth_reset_tokens', userId: USER, issuedAt: '2026-10-29T10:00:00Z' },
+    created_at: '2026-10-29T10:00:00Z',
+    last_error_code: null,
+    last_error: null,
+  });
+  const outboxStatuses = () => updatesOf('email_outbox').map((w) => w.values?.status);
+
+  it('a failed write of its \'sent\' is retried, never turned into a retry of the mail', async () => {
+    sendEmail.mockResolvedValue({ success: true, provider: 'smtp', id: 'q9' });
+    db.claim.push(claimed());
+    db.completeFailures = 1;
+    expect(await outbox.drainEmailOutbox(CONFIG, { runMaintenance: false })).toBe(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(outboxStatuses()).toEqual(['sent', 'sent']);
+    expect(updatesOf('auth_reset_tokens')).toHaveLength(1);
+  });
+
+  it('if it can never be written, the row is left to its lease, and what follows the hand-over still runs', async () => {
+    sendEmail.mockResolvedValue({ success: true, provider: 'smtp', id: 'q9' });
+    db.claim.push(claimed());
+    db.completeFailures = 10;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await outbox.drainEmailOutbox(CONFIG, { runMaintenance: false })).toBe(1);
+    expect(outboxStatuses()).toEqual(['sent', 'sent', 'sent']);
+    expect(outboxStatuses()).not.toContain('pending');
+    expect(updatesOf('auth_reset_tokens')).toHaveLength(1);
+    expect(warn.mock.calls.some((args) => String(args[0]).includes('a sent mail could not be recorded'))).toBe(true);
+    warn.mockRestore();
   });
 });
 

@@ -21,7 +21,6 @@ export {
   useAuthProvider,
   useDatabaseProvider,
   useRealtimeProvider,
-  useEmailProvider,
   useAIProvider,
   useStorageProvider,
   useBillingProvider,

@@ -2,8 +2,9 @@
  * ONE CLICK, AND THIS KIND OF MAIL STOPS.
  *
  * Every operator notification email (the digest, a transcript, a payment
- * notice, the weekly summary, an announcement) is mail a person can decline,
- * so every one carries a way to decline it without signing in:
+ * notice, the weekly summary, an announcement, and the owners' notice of a
+ * visitor's offline message) is mail a person can decline, so every one
+ * carries a way to decline it without signing in:
  *
  *   - `List-Unsubscribe` with its one-click partner (RFC 8058, added by the
  *     email core from EmailRequest.listUnsubscribe): the mailbox's own
@@ -29,7 +30,7 @@ import type { ServerConfig } from '../../config.js';
 import { platformSigningSecret } from '../../lib/platformSecret.js';
 import { resolveApiBaseUrl } from '../calls/rtcResolver.js';
 import type { OperatorLocale } from '../operatorLocale.js';
-import { isNotificationEmailType, type NotificationEmailType } from './types.js';
+import { isEmailPreferenceType, type EmailPreferenceType } from './types.js';
 
 /** Where the link points, under the API's own base. */
 export const UNSUBSCRIBE_PATH = '/api/notifications/email/unsubscribe';
@@ -53,7 +54,7 @@ function signature(key: Buffer, body: string): string {
 /** A link's token for this user and type, or null when the server has no signing secret. */
 export function signUnsubscribeToken(
   userId: string,
-  type: NotificationEmailType,
+  type: EmailPreferenceType,
   now: Date = new Date(),
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
@@ -65,7 +66,7 @@ export function signUnsubscribeToken(
 }
 
 export type UnsubscribeTokenCheck =
-  | { ok: true; userId: string; type: NotificationEmailType }
+  | { ok: true; userId: string; type: EmailPreferenceType }
   | { ok: false; reason: 'malformed' | 'signature' | 'expired' | 'unavailable' };
 
 /** What a token says, once its signature and its date hold. */
@@ -92,7 +93,7 @@ export function verifyUnsubscribeToken(
   } catch {
     return { ok: false, reason: 'malformed' };
   }
-  if (claims.v !== 1 || typeof claims.u !== 'string' || !UUID.test(claims.u) || !isNotificationEmailType(claims.t)) {
+  if (claims.v !== 1 || typeof claims.u !== 'string' || !UUID.test(claims.u) || !isEmailPreferenceType(claims.t)) {
     return { ok: false, reason: 'malformed' };
   }
   if (typeof claims.x !== 'number' || claims.x * 1000 <= now.getTime()) return { ok: false, reason: 'expired' };
@@ -116,7 +117,7 @@ export async function unsubscribeBaseUrl(config: ServerConfig): Promise<string |
 }
 
 /** The one-click link for this user and type under `base`, or null. */
-export function unsubscribeUrl(base: string | null, userId: string, type: NotificationEmailType): string | null {
+export function unsubscribeUrl(base: string | null, userId: string, type: EmailPreferenceType): string | null {
   if (!base) return null;
   const token = signUnsubscribeToken(userId, type);
   return token ? `${base}${UNSUBSCRIBE_PATH}/${token}` : null;
@@ -125,12 +126,13 @@ export function unsubscribeUrl(base: string | null, userId: string, type: Notifi
 // ─── The words ────────────────────────────────────────────────────────────
 
 /** Each type's name, as the operator's own settings page shows it. */
-const TYPE_LABEL_KEYS: Record<NotificationEmailType, string> = {
+const TYPE_LABEL_KEYS: Record<EmailPreferenceType, string> = {
   unread_messages: 'notifications.emailUnreadMessages',
   transcripts: 'notifications.emailTranscripts',
   paid_invoices: 'notifications.emailPaidInvoices',
   weekly_summary: 'notifications.emailWeeklySummary',
   product_updates: 'notifications.emailProductUpdates',
+  offline_messages: 'notifications.emailOfflineMessages',
 };
 
 export const UNSUBSCRIBE_STRINGS: Record<OperatorLocale, Record<string, string>> = {
@@ -140,6 +142,7 @@ export const UNSUBSCRIBE_STRINGS: Record<OperatorLocale, Record<string, string>>
     'notifications.emailPaidInvoices': 'پرداخت‌های دریافت‌شده',
     'notifications.emailWeeklySummary': 'خلاصه‌ی هفتگی',
     'notifications.emailProductUpdates': 'اعلان‌های محصول',
+    'notifications.emailOfflineMessages': 'پیام‌های آفلاین بازدیدکنندگان',
     'notifications.emailFooter': 'این ایمیل را دریافت می‌کنید چون «{{label}}» در اعلان‌های ایمیلی شما روشن است.',
     'notifications.emailFooterUnsubscribe': 'لغو اشتراک',
     'notifications.emailFooterSettings': 'تغییر اعلان‌های ایمیلی',
@@ -156,6 +159,7 @@ export const UNSUBSCRIBE_STRINGS: Record<OperatorLocale, Record<string, string>>
     'notifications.emailPaidInvoices': 'Payments received',
     'notifications.emailWeeklySummary': 'A weekly summary',
     'notifications.emailProductUpdates': 'Product announcements',
+    'notifications.emailOfflineMessages': 'Offline messages from visitors',
     'notifications.emailFooter': 'You get this email because “{{label}}” is on in your email notifications.',
     'notifications.emailFooterUnsubscribe': 'Unsubscribe',
     'notifications.emailFooterSettings': 'Change your email notifications',
@@ -172,6 +176,7 @@ export const UNSUBSCRIBE_STRINGS: Record<OperatorLocale, Record<string, string>>
     'notifications.emailPaidInvoices': 'Alınan ödemeler',
     'notifications.emailWeeklySummary': 'Haftalık özet',
     'notifications.emailProductUpdates': 'Ürün duyuruları',
+    'notifications.emailOfflineMessages': 'Ziyaretçilerin çevrimdışı mesajları',
     'notifications.emailFooter': 'Bu e-postayı, e-posta bildirimlerinizde “{{label}}” açık olduğu için alıyorsunuz.',
     'notifications.emailFooterUnsubscribe': 'Abonelikten çık',
     'notifications.emailFooterSettings': 'E-posta bildirimlerini değiştir',
@@ -185,7 +190,7 @@ export const UNSUBSCRIBE_STRINGS: Record<OperatorLocale, Record<string, string>>
 };
 
 /** One string in `locale`, its {{label}} filled in. */
-export function unsubscribeText(locale: OperatorLocale, key: string, type?: NotificationEmailType): string {
+export function unsubscribeText(locale: OperatorLocale, key: string, type?: EmailPreferenceType): string {
   const strings = UNSUBSCRIBE_STRINGS[locale] ?? UNSUBSCRIBE_STRINGS.en;
   const text = strings[`notifications.${key}`] ?? UNSUBSCRIBE_STRINGS.en[`notifications.${key}`] ?? '';
   const label = type ? strings[TYPE_LABEL_KEYS[type]] ?? '' : '';
@@ -208,7 +213,7 @@ export function escapeHtml(value: string): string {
  */
 export function notificationFooter(
   locale: OperatorLocale,
-  type: NotificationEmailType,
+  type: EmailPreferenceType,
   links: { unsubscribe: string | null; settings: string | null },
 ): { html: string; text: string } {
   const why = unsubscribeText(locale, 'emailFooter', type);

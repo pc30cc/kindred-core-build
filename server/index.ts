@@ -1102,8 +1102,9 @@ httpServer.headersTimeout = 67_000;
 httpServer.on('close', () => {
   void stopCacheBusListener();
 });
-// SIGTERM (a container being replaced) drains the outboxes and stops taking
-// requests, then exits (services/jobs/processShutdown.ts).
-onProcessShutdown('http', () => new Promise<void>((resolve) => httpServer.close(() => resolve())));
+// SIGTERM (a container being replaced) drains the outboxes while requests
+// are still answered, then stops taking them and exits: the proxy keeps
+// routing here until the process is gone (services/jobs/processShutdown.ts).
+onProcessShutdown('http', () => new Promise<void>((resolve) => httpServer.close(() => resolve())), { last: true });
 
 export default app;

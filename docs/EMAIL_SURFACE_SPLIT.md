@@ -1,6 +1,7 @@
 # Email Surface Split — Platform vs Channel
 
-Status: implemented (Phase: Email Surface Split + Channel Gating).
+Status: implemented (Phase: Email Surface Split + Channel Gating); the
+caller-composed send routes retired on 2026-10-29.
 
 ## Why this exists
 
@@ -18,7 +19,10 @@ Slapping `requireChannel('email')` on the existing route would have
 broken auth, reset, and invitations for any workspace whose plan does
 not include the email channel. That risk was explicitly recorded in
 `ENFORCEMENT_COVERAGE_AUDIT.md` as the reason this surface stayed
-deferred during earlier rollouts.
+deferred during earlier rollouts. The split first added a gated
+`POST /api/email/send-channel` beside it; on 2026-10-29 both routes were
+retired, because each sent mail its caller composed From the platform's own
+address (below).
 
 Which provider carries these mails (the platform's one, chosen by the Super
 Admin: our own relay since 2026-10-29), retries, suppressions and bounces:
@@ -26,42 +30,45 @@ Admin: our own relay since 2026-10-29), retries, suppressions and bounces:
 
 ## Route truth audit (current callers)
 
-| Caller                                                 | Path                          | Class              |
-| ------------------------------------------------------ | ----------------------------- | ------------------ |
-| `server/services/auth-email.ts` (verify, recovery)     | in-process `sendEmail()`      | PLATFORM / AUTH    |
-| Invitation outbox worker                              | in-process `sendEmail()`      | PLATFORM (auth)    |
-| `server/routes/widget.ts` offline-message notification | in-process `sendEmail()`      | PLATFORM (ops)     |
-| `server/routes/widget.ts` admin-test offline email     | in-process `sendEmail()`      | PLATFORM (test)    |
+| Caller | Path | Class |
+| --- | --- | --- |
+| `server/services/auth-email.ts` (verify, recovery) | in-process `sendEmailWithRetry()` | PLATFORM / AUTH |
+| Invitation outbox worker | in-process `sendEmail()` | PLATFORM (auth) |
+| `server/services/widget/offlineNotice.ts` (a visitor's offline message, to the owners and admins) | in-process `enqueueEmail()` | PLATFORM (ops) |
+| The panel's test buttons | `POST /api/email/test-send`, `POST /api/email/test-offline-notice` | PLATFORM (test) |
 | `server/services/visitorTranscript.ts` transcript by email (the visitor asks, from the widget) | in-process `sendEmail()` | PLATFORM (visitor's request) |
-| `src/providers/email/api.ts` (registered as `__default__`; nothing uses it) | `POST /api/email/send-channel` | CHANNEL (unused) |
-| (future) workspace channel-email customer comms        | `POST /api/email/send-channel` or `sendChannelEmail()` | CHANNEL |
+| Operator notification emails (`server/services/notificationEmail/`) | in-process `sendEmail()` | PLATFORM (notification) |
+| A workspace writing to its customers | the workspace's own connected mailbox, `/api/email-inbox` | CHANNEL |
 
-No current caller of the HTTP route is unambiguously a channel-email
-customer-facing send. The split therefore introduces the dedicated
-channel surface as the single safe gate point and leaves all existing
-callers on the platform surface.
+No route takes a recipient, a subject and a body from its caller any more.
+Mail to a workspace's customers goes through the workspace's own mailbox
+(Gmail, Yahoo or IMAP/SMTP, the Email Inbox), never through the platform's
+sender.
 
 ## Canonical split
 
-- `POST /api/email/send` — **retired arbitrary relay**; always returns 410.
-- `POST /api/email/test-send` — manager-gated test send through the
-  platform's provider (workspaces have no provider of their own; no screen
-  calls it today).
-- `POST /api/email/send-channel` — **channel email**. Gated with
-  `requireChannel('email')` from the canonical
-  `server/middleware/featureGating.ts`. The dedicated boundary that
-  future channel-email integrations must use.
-- `server/services/email/sendChannelEmail.ts` — in-process equivalent
-  of the channel route. Performs `checkChannelAccess(workspaceId,
-  'email')` before delegating to `sendEmail()`. Use this from server
-  code when sending true channel email without going through HTTP.
+- `POST /api/email/send` and `POST /api/email/send-channel` — **retired**;
+  both answer 410 `ARBITRARY_EMAIL_RELAY_RETIRED`. They took a recipient, a
+  subject, a body or any platform template with the caller's own values,
+  and sent it From the platform's address: a member could send the
+  platform's real password-reset mail with a link of their choosing, signed
+  with our domain's DKIM key. `server/services/email/sendChannelEmail.ts`,
+  their in-process twin, and the browser's `src/providers/email/api.ts`
+  are gone with them.
+- `POST /api/email/test-send` and `POST /api/email/test-offline-notice` —
+  the test buttons: an owner or admin of the workspace (or the platform's
+  admin), to their own verified address only, within per-member and
+  per-workspace limits.
+- `/api/email-inbox` — **channel email**, from the workspace's own mailbox,
+  gated by the plan's `email_inbox` module (`enforceModule` on each route).
 
 ## Always-allowed (never plan-gated)
 
 - Auth email verification (`server/services/auth-email.ts`)
 - Password reset / recovery
 - Team invitations
-- Workspace operational notifications
+- Workspace operational notifications (the offline-message notice; each
+  owner or admin may turn it off for themselves, Settings → Notifications)
 - The transcript a visitor asks for from the widget
   (`services/visitorTranscript.ts`: every plan, the platform's default
   provider; only to the address already on the conversation's contact, with
@@ -71,22 +78,13 @@ callers on the platform surface.
 
 ## Plan-gated
 
-- `POST /api/email/send-channel`
-- Any future code path that calls `sendChannelEmail()`
+- The Email Inbox (`/api/email-inbox`, module `email_inbox`): the
+  workspace's own mailbox.
 
 ## Backward compatibility
 
-- The unsafe arbitrary-recipient relay is intentionally retired with 410.
+- The unsafe arbitrary-recipient relays are intentionally retired with 410.
 - No capability key renamed.
-- No env var or schema change.
+- No env var change.
 - No middleware contract change.
-- All existing callers keep working unchanged.
-
-## Intentionally deferred
-
-- Migrating future workspace email-channel sends onto
-  `sendChannelEmail()` / `/api/email/send-channel`. There is no
-  current code path that does customer-facing channel-email sends in
-  the product, so there is nothing to migrate today; the boundary
-  exists so the next phase that adds such a path lands on the gated
-  surface by default.
+- Every in-process caller keeps working unchanged.

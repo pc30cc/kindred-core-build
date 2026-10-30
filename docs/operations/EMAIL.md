@@ -17,7 +17,8 @@ provider), `server/services/email/providerConfigStore.ts` (the setting),
 `server/services/email/outbox.ts` (the retries),
 `server/routes/emailEvents.ts` (bounces and complaints),
 `deploy/mail-relay/` (our relay and its bounce watcher). The SQL is in
-migrations 289 (suppressions) and 289b (the outbox).
+migrations 289 (suppressions), 289b (the outbox) and 289g (the offline
+notice's switch, the outbox's supersede rank, a quota's use given back).
 
 ## Production today (2026-10-29)
 
@@ -63,7 +64,9 @@ a code change or a deploy. The stored shape is
   `reply_to` (where replies go; unset, they go to the From address, whose
   mailbox at iCloud nobody reads). `smtp`: `smtp_host`, `smtp_port`,
   `smtp_user`, `smtp_pass`, `encryption` (`auto`, `none`, `starttls`, `ssl`),
-  `tls_servername`, `events_token`. `resend`: `api_key`, `webhook_secret`.
+  `tls_servername`, `tls_ca` (the PEM a self-signed server certificate is
+  checked against: our relay's, below), `events_token`. `resend`: `api_key`,
+  `webhook_secret`.
   `sendgrid`: `api_key`, `webhook_public_key`.
 - **The database wins.** `RESEND_API_KEY`, `SENDGRID_API_KEY` and `SMTP_HOST`,
   `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` only fill a field the Super Admin left
@@ -109,6 +112,11 @@ recipient's server comes back as a bounce (below).
   (`timeout`, `connection`, a provider's own error), the same mail is queued.
   Reset and verification links use it; a link is never sent after it expires,
   and a newer link of the same kind cancels the older queued one.
+- A mail can name what replaces it (`supersedeKey`) and, when the order of
+  queueing is not the order things happened in, a rank (`supersedeRank`,
+  289g): the highest rank under a key is the one sent. The offline-message
+  summary is ranked by its count, so of a burst's summaries the one with the
+  most messages goes, whichever reached the queue last.
 - `enqueueEmail`: the mail is queued and sent in the background. Receipts,
   plan mails, the trial's end and AI packs use it, each with a dedupe key (the
   ledger row), so the same mail is never sent twice.
@@ -117,6 +125,11 @@ recipient's server comes back as a bounce (below).
   attempt goes through `sendEmail`, so each is logged and each checks the
   suppression list. A permanent failure is never retried. Invitations keep
   their own outbox (the invitation worker), on the same schedule.
+- A mail the provider took stays taken: if the row's `sent` cannot be
+  written (a database hiccup at that moment), the write is retried, and if
+  it still fails the row is left to its lease rather than put back in the
+  queue; only a lease that runs out before anything is written sends it
+  again (at least once).
 - A queued row can hold a live link, so its payload is sealed with
   `PLUGIN_SECRETS_MASTER_KEY` and emptied the moment the row is final; final
   rows are deleted after 7 days. A pending row lives at most 24 hours (plus
@@ -131,7 +144,10 @@ recipient's server comes back as a bounce (below).
 - On SIGTERM every in-process loop drains through
   `server/services/jobs/processShutdown.ts` (`onProcessShutdown`), bounded at
   25 s; an attempt still in flight then is abandoned and its lease reclaimed.
-  A new loop registers there, never with `process.on('SIGTERM')` of its own.
+  The HTTP server keeps answering while they drain and closes last (its
+  drain is registered `last`): Traefik routes to the old container until it
+  exits, so a listener closed first answered those requests with 502. A new
+  loop registers there, never with `process.on('SIGTERM')` of its own.
 - Re-sending receipts a provider lost (RESPOK's of 2026-10-09 to 10-15, 36
   mails refused by Resend with 403): `server/scripts/resendFailedBillingReceipts.ts`,
   inside the backend container, dry run first, `--apply` after the owner's
@@ -156,8 +172,9 @@ codes that share them).
 - To take an address off: the Super Admin's suppression list
   (`unsuppressEmailAddress`), or by hand on the database as `postgres`:
   `DELETE FROM public.email_suppressions WHERE address = lower('<address>');`.
-  Do it when a person says they fixed their mailbox, or after a run of 5.7.x
-  policy bounces that were the relay's fault (below).
+  Do it when a person says they fixed their mailbox. Refusals of our sending
+  (5.7.x) are not suppressed (below), so a DNS or relay fault leaves nothing
+  to take off.
 
 ## Bounces and complaints
 
@@ -183,9 +200,14 @@ codes that share them).
   | Report | Suppression |
   | --- | --- |
   | Hard bounce with status 5.1.x (no such address; Resend's `NoEmail`, SendGrid's dropped `Invalid`) | for good |
-  | Any other hard bounce (5.x.x: mailbox disabled, too large, policy; SendGrid's dropped `Bounced Address`) | 30 days |
+  | Hard bounce about the mailbox or its domain (5.2.x: disabled, full; 5.4.4: no mail route), or one without a status (Resend's `Permanent`, SendGrid's `bounce`, SendGrid's dropped `Bounced Address`) | 30 days |
+  | Hard bounce about our sending, not the address (5.7.x: IP reputation, SPF, DKIM, DMARC, a policy; 5.0.0, 5.3.x to 5.6.x) | nothing; the console names the statuses, and the relay's watcher alerts Telegram |
   | Complaint (Resend `email.complained`, SendGrid `spamreport` or dropped `Spam Reporting Address`) | for good |
   | Soft bounce (4.x.x, Resend `Transient`, SendGrid `blocked`), deferral, delivery | nothing |
+
+  The rule is `isSuppressible` in `emailEvents.ts`, the same for every
+  provider; the relay's watcher applies it too, and leaves those refusals
+  out of its reports.
 
 - The console gets counts and reasons, never a secret, a signature or a body.
 
@@ -206,9 +228,15 @@ Setting each one up:
   (base64) as `webhook_public_key`.
 
 **Policy bounces.** A 5.7.x is the receiver refusing the sender (SPF, DKIM,
-DMARC, reputation), not the address; it is still suppressed for 30 days, like
-any hard bounce. If a run of them follows a DNS or relay fault (Gmail's
-5.7.26, for example), fix the cause, then take those addresses off the list.
+DMARC, the relay's IP reputation), not the address, so it suppresses
+nothing: a new IP refused by Gmail or Outlook, or one DKIM mistake, must not
+keep every reset and receipt from those addresses for 30 days after it is
+fixed. Each one is named on the backend's console and, for the relay, in the
+watcher's log and its Telegram alert (the first at once), by recipient
+domain and status, never by address. When it comes: check the mail's
+`Authentication-Results` at a Gmail address (above, "DNS"), the relay's DKIM
+key and the IP's standing (Google Postmaster Tools, Microsoft SNDS), then
+send again; the mail that was refused is not resent by itself.
 
 **What still reaches nobody.** Postfix's bounce notices go to the envelope
 sender, `noreply@<domain>`, at iCloud, where nobody reads them; the watcher
@@ -220,11 +248,19 @@ Telegram alert says so.
 
 Every message carries `Auto-Submitted: auto-generated` (an auto-responder must
 not answer it), a text part, and `Reply-To` when `reply_to` is set. Mail a
-person subscribed to (operator notifications, product updates) is sent with
+person subscribed to (operator notifications, product updates, and the
+owners' and admins' notice of a visitor's offline message) is sent with
 `category` `notification` or `marketing` and a `listUnsubscribe` URL: the
 message then carries `List-Unsubscribe: <https://…>[, <mailto:…>]` and
 `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058), which Gmail and
 Yahoo show as an unsubscribe button. A URL that is not https is left out.
+The same link is in a line under the mail's text, which opens a page that
+asks first; the one click turns that one type off in the person's own
+switches (`user_email_notification_prefs`, Settings → Notifications).
+The offline-message notice has no platform switch (it is the workspace's own
+mail), only each recipient's (`offline_messages`, 289g), and the workspace's
+reply-to address, which stands in when no owner or admin has an address,
+gets no link: it is a setting, not a subscription.
 Transactional mail (resets, codes, receipts, invitations) carries none: a
 person cannot opt out of it.
 
@@ -232,15 +268,35 @@ person cannot opt out of it.
 
 `deploy/mail-relay/` is the service as production runs it, with the deploy
 and rotation steps. In short: Postfix on the `coolify` network, port 587, SASL
-PLAIN per brand, no STARTTLS on that hop, senders `@webyar.ai` and
-`@respok.app` only, DKIM selector `mx2026`, IPv4 only.
+PLAIN per brand, STARTTLS with the relay's own certificate and no AUTH before
+it, senders `@webyar.ai` and `@respok.app` only, DKIM selector `mx2026`,
+IPv4 only.
 
-**STARTTLS** is off between the backends and the relay: the password and the
-mail cross the coolify Docker network (one host, no other tenant) in clear. To
-turn it on: give the relay a certificate for its name and enable
-`smtpd_tls_security_level=may` (or `encrypt`), then set the provider's
-`encryption` to `starttls` (and `tls_servername` when the certificate names
-another host). The code is ready.
+**STARTTLS between the backends and the relay.** Every Coolify application
+on the host joins the coolify Docker network, so in clear the SASL password
+and every mail (reset links, codes, invitation tokens) can be read by any
+container there that can watch it. The relay offers STARTTLS with a
+certificate of its own, self-signed for `mail-relay` (CN and SAN), made once
+on the host into `deploy/mail-relay/tls/`, mounted read-only and never
+committed; the backends check it against that same certificate, saved as
+the smtp provider's `tls_ca`. Production's hop stays plain until this is
+rolled out, without a mail outage, in this order (the commands are in
+`deploy/mail-relay/README.md`, "TLS"):
+
+0. Save each brand's smtp provider with `encryption` `none`. Today's rows have
+   none set, which is `auto`: it would take the STARTTLS the relay starts to
+   offer and refuse the self-signed certificate, and every mail would fail.
+1. Deploy the relay with TLS offered but not yet required
+   (`RELAY_TLS_AUTH_ONLY=no` in its `.env`).
+2. Save each brand's smtp provider with `encryption` `starttls`,
+   `tls_servername` `mail-relay` and `tls_ca` the certificate's PEM.
+3. Test: the form's Test, then one real mail, and the relay's log shows TLS
+   before the sign-in.
+4. Turn on `smtpd_tls_auth_only` (remove `RELAY_TLS_AUTH_ONLY` from `.env`;
+   the compose's default is `yes`) and test again.
+
+Until step 4 a client may still sign in without TLS; after it, a provider
+saved with `encryption` `none` can no longer send through the relay.
 
 **DNS** (both domains unless noted; Cloudflare):
 
@@ -263,7 +319,7 @@ Check a change with a mail to a Gmail address: Show original must read
 ## Rollout of 289, 289b and the later 289 files
 
 The email work of 2026-10-29 comes with `289_email_suppressions.sql`,
-`289b_email_outbox.sql` and, per package, `289c_*.sql` to `289f_*.sql` (the
+`289b_email_outbox.sql` and, per package, `289c_*.sql` to `289g_*.sql` (the
 migration script applies them in C-locale order: 289, 289b, 289c, …). Each is
 idempotent and the code runs without it (no suppressions, no queue), so the
 order of code and SQL is safe either way; still:
@@ -280,8 +336,9 @@ order of code and SQL is safe either way; still:
 3. Add the files to the ledger in CLAUDE.md once applied.
 4. After the deploy: save each brand's email provider once in the Super Admin
    (this encrypts `smtp_pass`), set the `events_token` and start the watcher
-   (`deploy/mail-relay/README.md`), and, on RESPOK, run the receipt re-send
-   tool (dry run, then `--apply` after the owner's go).
+   (`deploy/mail-relay/README.md`), roll out the relay's STARTTLS ("The
+   relay", above), and, on RESPOK, run the receipt re-send tool (dry run,
+   then `--apply` after the owner's go).
 
 ## Back to Resend
 

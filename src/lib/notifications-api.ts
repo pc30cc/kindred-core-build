@@ -90,7 +90,9 @@ export function updateNotificationPrefs(updates: Partial<NotificationPrefs>) {
  *
  * Push is sent to a device, so it has a browser row and a phone row. An
  * email is sent to a person, once — so it has its own endpoint, its own
- * table and no platform in sight.
+ * table and no platform in sight. `offline_messages` is the owners' and
+ * admins' notice of a visitor's offline message, which has no platform
+ * switch: the server offers it to whoever gets it.
  */
 export const NOTIFICATION_EMAIL_TYPES = [
   'unread_messages',
@@ -98,6 +100,7 @@ export const NOTIFICATION_EMAIL_TYPES = [
   'paid_invoices',
   'weekly_summary',
   'product_updates',
+  'offline_messages',
 ] as const;
 
 export type NotificationEmailType = (typeof NOTIFICATION_EMAIL_TYPES)[number];

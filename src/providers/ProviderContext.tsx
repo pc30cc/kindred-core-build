@@ -95,10 +95,6 @@ export function useRealtimeProvider(workspaceId?: string) {
   return useProvider('realtime', workspaceId);
 }
 
-export function useEmailProvider(workspaceId?: string) {
-  return useProvider('email', workspaceId);
-}
-
 export function useAIProvider(workspaceId?: string) {
   return useProvider('ai', workspaceId);
 }

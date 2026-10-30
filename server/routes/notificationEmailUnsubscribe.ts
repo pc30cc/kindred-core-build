@@ -19,7 +19,9 @@
  *
  * Turning a type off is the operator's own switch
  * (user_email_notification_prefs, the same row Settings → Notifications
- * writes), so it is undone there.
+ * writes), so it is undone there. The offline-message notice's switch is
+ * one of them (migration 289g); before that column exists its link answers
+ * that it did not work, to try again in a few minutes.
  */
 import { Router, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -28,7 +30,7 @@ import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { operatorLocaleFrom, type OperatorLocale } from '../services/operatorLocale.js';
 import { escapeHtml, unsubscribeText, verifyUnsubscribeToken } from '../services/notificationEmail/unsubscribe.js';
-import type { NotificationEmailType } from '../services/notificationEmail/types.js';
+import type { EmailPreferenceType } from '../services/notificationEmail/types.js';
 
 export const notificationEmailUnsubscribeRouter = Router();
 
@@ -147,7 +149,7 @@ notificationEmailUnsubscribeRouter.post('/:token', async (req, res) => {
  * The operator's own switch for this type, off. An account that no longer
  * exists has nothing to turn off, which is the outcome asked for.
  */
-async function turnOff(config: ServerConfig, userId: string, type: NotificationEmailType): Promise<boolean> {
+async function turnOff(config: ServerConfig, userId: string, type: EmailPreferenceType): Promise<boolean> {
   const { error } = await getServiceClient(config)
     .from('user_email_notification_prefs')
     .upsert({ user_id: userId, [type]: false, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });

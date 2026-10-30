@@ -20,6 +20,14 @@
 //     the phones still have every message, the mail does not.
 //   - Each mail goes through the outbox (enqueueEmail: retries, never twice
 //     for one message and one recipient), not from the visitor's request.
+//   - Each owner and admin may turn it off, like the other operator
+//     notification emails (Settings → Notifications, or the mail's one-click
+//     unsubscribe link; services/notificationEmail/unsubscribe.ts): every
+//     mail to a member carries List-Unsubscribe and the line under its text.
+//     It has no platform switch: it is the workspace's own operational mail.
+//   - The window's summary is ranked by its count in the outbox
+//     (supersedeRank): of the summaries a burst queues, the one with the
+//     highest count is the one sent, whichever reached the queue last.
 //   - What a visitor typed never reaches a Subject: the notice's subject and
 //     text part get nothing of it; its HTML part gets it escaped (htmlData),
 //     and the platform's own template makes its text part from that HTML
@@ -36,6 +44,10 @@ import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { resolveAvailability } from './availability.js';
 import { parseEmailAddress } from '../../../shared/emailProviders.js';
+import { operatorsDeclining } from '../notificationEmail/queue.js';
+import { OFFLINE_MESSAGES_EMAIL, OFFLINE_NOTICE_ROLES } from '../notificationEmail/types.js';
+import { notificationFooter, unsubscribeBaseUrl, unsubscribeUrl } from '../notificationEmail/unsubscribe.js';
+import type { OperatorLocale } from '../operatorLocale.js';
 
 /** A workspace's notice window: its first capture is mailed at once, the rest at its end, merged. */
 export const OFFLINE_NOTICE_WINDOW_SECONDS = 15 * 60;
@@ -67,16 +79,19 @@ interface NoticeRecipient {
   /** The member's user id, or 'reply_to' for the workspace's own address. */
   key: string;
   to: string;
-  locale: string;
+  locale: OperatorLocale;
+  /** A member, who may turn this mail off: its unsubscribe link and line go with it. */
+  member: boolean;
 }
 
 /**
  * The workspace's owners and admins who may read visitors' messages, each in
  * their own language (operatorLocale.ts), never the visitor's. A suspended
  * member, one whose seat the plan has paused and one whose account is
- * disabled hear nothing. With nobody left who has an address, the
- * workspace's reply-to address (Settings → Email) stands in, unless it is
- * the address of one of those excluded.
+ * disabled hear nothing, nor one who turned this mail off. With nobody left
+ * who has an address, the workspace's reply-to address (Settings → Email)
+ * stands in, unless it is the address of one of those excluded; members who
+ * turned it off do not hand it to that address.
  */
 async function noticeRecipients(config: ServerConfig, workspaceId: string): Promise<NoticeRecipient[]> {
   const sb = getServiceClient(config);
@@ -84,7 +99,7 @@ async function noticeRecipients(config: ServerConfig, workspaceId: string): Prom
     .from('workspace_members')
     .select('user_id, role, suspended_at')
     .eq('workspace_id', workspaceId)
-    .in('role', ['owner', 'admin']);
+    .in('role', [...OFFLINE_NOTICE_ROLES]);
   if (error) {
     console.warn('[offline-notice] owners not readable; nobody mailed:', error.message);
     return [];
@@ -118,8 +133,13 @@ async function noticeRecipients(config: ServerConfig, workspaceId: string): Prom
     .filter((p): p is { id: string; to: string } => Boolean(p.to));
 
   if (reachable.length) {
-    const locales = await operatorLocales(config, reachable.map((p) => p.id));
-    return reachable.map((p) => ({ key: p.id, to: p.to, locale: locales.get(p.id) || 'en' }));
+    // Each one's own switch; a lookup that fails mails nobody, since not
+    // knowing is not consent (notificationEmail/queue.ts).
+    const declined = await operatorsDeclining(config, reachable.map((p) => p.id), OFFLINE_MESSAGES_EMAIL);
+    const wanted = declined ? reachable.filter((p) => !declined.has(p.id)) : [];
+    if (!wanted.length) return [];
+    const locales = await operatorLocales(config, wanted.map((p) => p.id));
+    return wanted.map((p) => ({ key: p.id, to: p.to, locale: locales.get(p.id) || 'en', member: true }));
   }
 
   const { data: settings } = await sb
@@ -129,7 +149,7 @@ async function noticeRecipients(config: ServerConfig, workspaceId: string): Prom
     .maybeSingle();
   const replyTo = parseEmailAddress((settings as { reply_to_email?: string | null } | null)?.reply_to_email);
   if (!replyTo || excludedAddresses.has(replyTo.toLowerCase())) return [];
-  return [{ key: 'reply_to', to: replyTo, locale: await operatorFallbackLocale(config) }];
+  return [{ key: 'reply_to', to: replyTo, locale: await operatorFallbackLocale(config), member: false }];
 }
 
 // ─── At once, merged, or not at all ───────────────────────────────────────
@@ -159,12 +179,35 @@ async function noticeVerdict(config: ServerConfig, workspaceId: string): Promise
 
 // ─── The mails ────────────────────────────────────────────────────────────
 
-async function inboxLink(config: ServerConfig, workspaceId: string, path: string): Promise<string> {
+async function appLink(config: ServerConfig, workspaceId: string, path: string): Promise<string> {
   try {
     return await resolveWorkspaceAppUrl(config, workspaceId, path);
   } catch {
     return '';
   }
+}
+
+/**
+ * The way out, for a member: the one-click List-Unsubscribe and the line
+ * under the mail's text, in their language, as every operator notification
+ * email carries them; the line points at the settings page when there is no
+ * https link to give. The workspace's reply-to address gets neither: it is
+ * the workspace's own setting (Settings → Email), not a person's
+ * subscription.
+ */
+async function optOut(
+  config: ServerConfig,
+  workspaceId: string,
+  recipient: NoticeRecipient,
+  linkBase: string | null,
+): Promise<Pick<EmailRequest, 'listUnsubscribe' | 'footer'>> {
+  if (!recipient.member) return {};
+  const unsubscribe = unsubscribeUrl(linkBase, recipient.key, OFFLINE_MESSAGES_EMAIL);
+  const settings = unsubscribe ? null : (await appLink(config, workspaceId, '/settings/notifications')) || null;
+  return {
+    ...(unsubscribe ? { listUnsubscribe: { url: unsubscribe } } : {}),
+    footer: notificationFooter(recipient.locale, OFFLINE_MESSAGES_EMAIL, { unsubscribe, settings }),
+  };
 }
 
 /**
@@ -317,23 +360,27 @@ export async function notifyOfflineCapture(
   }
 
   const item = capture.messageId || capture.conversationId;
+  const linkBase = await unsubscribeBaseUrl(config);
   if (verdict.kind === 'immediate') {
-    const inboxUrl = await inboxLink(config, workspaceId, `/inbox?c=${encodeURIComponent(capture.conversationId)}`);
+    const inboxUrl = await appLink(config, workspaceId, `/inbox?c=${encodeURIComponent(capture.conversationId)}`);
     for (const r of recipients) {
-      await queue(config, noticeRequest(workspaceId, capture, inboxUrl, r.to, r.locale), {
-        dedupeKey: `offline_message:${item}:${r.key}`,
-      }, true);
+      const request = { ...noticeRequest(workspaceId, capture, inboxUrl, r.to, r.locale), ...(await optOut(config, workspaceId, r, linkBase)) };
+      await queue(config, request, { dedupeKey: `offline_message:${item}:${r.key}` }, true);
     }
     return 'immediate';
   }
 
   // Each later capture queues the summary anew with the new count, for the
-  // window's end; the newer one cancels the one it replaces (supersedeKey).
-  const inboxUrl = await inboxLink(config, workspaceId, '/inbox');
+  // window's end, ranked by that count: of the summaries under one
+  // supersedeKey the outbox sends the highest, so two captures of a burst
+  // that reach the queue out of order still end in the larger count.
+  const inboxUrl = await appLink(config, workspaceId, '/inbox');
   for (const r of recipients) {
-    await queue(config, summaryRequest(workspaceId, verdict.count, inboxUrl, r.to, r.locale), {
+    const request = { ...summaryRequest(workspaceId, verdict.count, inboxUrl, r.to, r.locale), ...(await optOut(config, workspaceId, r, linkBase)) };
+    await queue(config, request, {
       dedupeKey: `offline_summary:${item}:${r.key}`,
       supersedeKey: `offline_summary:${workspaceId}:${verdict.windowStartedAt.getTime()}:${r.key}`,
+      supersedeRank: verdict.count,
       notBefore: verdict.windowEndsAt,
     }, false);
   }
@@ -348,7 +395,7 @@ export async function sendOfflineNoticeTest(
   config: ServerConfig,
   input: { workspaceId: string; to: string; locale: string },
 ): Promise<SendResult> {
-  const inboxUrl = await inboxLink(config, input.workspaceId, '/inbox');
+  const inboxUrl = await appLink(config, input.workspaceId, '/inbox');
   return sendEmail(config, noticeRequest(input.workspaceId, {
     conversationId: 'test-conversation-id',
     message: 'Hello — this is a test message confirming your offline notification pipeline works.',

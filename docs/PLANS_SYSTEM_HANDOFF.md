@@ -161,10 +161,11 @@ canonical resolver — same payload that the admin and customer UIs read.
   - **Queue offer/accept** — still deferred: act on already-existing
     entries; gating would strand in-flight queue work.
 - ~~Splitting `email.ts` into platform/auth vs channel-email before gating.~~
-  **Resolved (Phase: Email Surface Split + Channel Gating).** Platform
-  email stays on `POST /api/email/send` (un-gated). Channel email lands
-  on `POST /api/email/send-channel` and `sendChannelEmail()`, both
-  gated with `requireChannel('email')`. See `EMAIL_SURFACE_SPLIT.md`.
+  **Resolved (Phase: Email Surface Split + Channel Gating), then retired
+  (2026-10-29).** `POST /api/email/send` and `POST /api/email/send-channel`
+  answer 410, and `sendChannelEmail()` is gone: no route sends mail its
+  caller composes. Channel email goes through the workspace's own mailbox
+  (`/api/email-inbox`, module `email_inbox`). See `EMAIL_SURFACE_SPLIT.md`.
 - `aiAgent.ts` per-route audit — **partially resolved** (Phase: AI Agent
   route audit + selective gating). `POST /generate-business-description`
   and `POST /learning-candidates/generate` are now gated with

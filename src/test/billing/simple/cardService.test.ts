@@ -14,7 +14,7 @@
  *   - card events: a declined renewal marks the card past_due and mails once
  *     per transaction; a paid one is recorded once and settled.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 type Row = Record<string, unknown>;
 type PaddleReply = { status?: number; body: unknown };
@@ -687,6 +687,16 @@ describe('syncCard', () => {
   });
 
   it('a renewal settled by its own notification while Paddle is asked: Paddle\'s date is not moved earlier (decided again on what is paid)', async () => {
+    // On a mid-month day, where Paddle's month on from its charge (our end −
+    // 24 h) is our next charge date (the prepaid period's end − 24 h). Near a
+    // month's end the two can be a day or more apart (Oct 30 + 1 month = Nov
+    // 30, while Oct 31's next period ends Nov 30, − 24 h = Nov 29), and the
+    // reconciler then rightly puts Paddle's date at ours.
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-15T12:00:00.000Z') });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    seed();
     // Paddle charged a minute ago (our end − 24 h) and moved its date a month on.
     const end = Date.now() + D - MIN;
     table('workspace_subscriptions')[0].current_period_end = iso(end);

@@ -746,7 +746,14 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect(mailsOf(ws, 'billing_card_renewed').map((m) => m.data.card)).toEqual(['Visa •••• 4242']);
     expect(mailsOf(ws, 'billing_renewed')).toEqual([]);
     expect(mailsOf(ws, 'billing_payment_receipt')).toHaveLength(1); // the checkout's only: Paddle's invoice is the renewal's
-    // Paddle's next date is the end of the prepaid period − 24 h.
+    // Paddle's next date is the end of the prepaid period − 24 h. On a
+    // mid-month day that is Paddle's own month on from its charge; near a
+    // month's end the two can be a day or more apart (Oct 30 + 1 month = Nov
+    // 30, while Oct 31's next period ends Nov 30, − 24 h = Nov 29), and the
+    // reconciler moves Paddle's date to ours when it looks again at the
+    // renewal it settled (renewal_settled: a minute later, from the job).
+    await travel(ws, 2 * MINUTE);
+    await settle();
     expect(Math.abs(nextBilled(subId) - (await expectedChargeAt(ws)))).toBeLessThan(1000);
 
     // The due moment: the prepaid period starts, with no second mail; Paddle is not asked to change or charge anything.
@@ -1602,6 +1609,15 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
   // ─── I8 ──────────────────────────────────────────────────────────────────
 
   it('I8 every notification again, shuffled and twice, then again as new notifications: the same state and no new mail', async () => {
+    // At rest first: every card's own pass, which each subscription
+    // notification replayed below runs too. A renewal settled while Paddle was
+    // asked is looked at again a minute later (renewal_settled), and near a
+    // month's end that pass moves Paddle's date to ours (S2): the replay is not
+    // what does it.
+    const { syncCard } = await import('../../../server/services/billing/account/card.js');
+    for (const row of await q(`SELECT id FROM public.billing_account_cards WHERE status <> 'canceled' ORDER BY id`)) {
+      await syncCard(config, String(row.id));
+    }
     await settle();
     const before = await billingState();
     const mails = captured.emails.length;

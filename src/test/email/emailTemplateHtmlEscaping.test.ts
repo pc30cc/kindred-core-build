@@ -135,8 +135,8 @@ describe('the verification and reset mails', () => {
     expect(mail.html).not.toContain('<a href="https://evil.example');
     expect(mail.html).not.toContain('<div style="display:none">');
     expect(mail.html).toContain('Hi &lt;a href=&quot;https://evil.example/refund&quot;&gt;Confirm your refund&lt;/a&gt;');
-    // The mail's own link is still a link.
-    expect(mail.html).toMatch(/<a href="https:\/\/app\.webyar\.ai\/auth\/[a-z-]+\?token=[0-9a-f-]+">/);
+    // The mail's own link is still a link (the layout adds its look after the href).
+    expect(mail.html).toMatch(/<a href="https:\/\/app\.webyar\.ai\/auth\/[a-z-]+\?token=[0-9a-f-]+"[ >]/);
     // One line: the name holds no line break anywhere.
     expect(mail.text).toContain('Hi <a href="https://evil.example/refund">Confirm your refund</a><div style="display:none"> Bcc: x@evil.example,');
     expect(mail.subject).toBe('Verify your email for Webyar');

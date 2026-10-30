@@ -176,11 +176,18 @@ describe('what every message carries', () => {
     expect(body(1).headers['List-Unsubscribe']).toBeUndefined();
   });
 
-  it('a text part always: derived from the HTML, with link targets kept', async () => {
+  it('a text part always: derived from the content, with link targets kept, then the footer\'s lines', async () => {
+    // A caller's own whole document wears the layout too (its body is the
+    // content); the text part is that content as text, never the layout
+    // around it, and the footer's lines under it.
     await send({
       html: '<html><head><style>p{}</style></head><body><p>Hello &amp; welcome</p><p><a href="https://x.example/reset?t=1">Reset password</a></p><a href="https://x.example/raw">https://x.example/raw</a><br>Bye</body></html>',
     });
-    expect(body().text).toBe('Hello & welcome\n\nReset password (https://x.example/reset?t=1)\nhttps://x.example/raw\nBye');
+    expect(body().html).toMatch(/^<!DOCTYPE html>/);
+    expect(body().html).not.toContain('<style>p{}</style>');
+    expect(body().text).toBe(
+      'Hello & welcome\n\nReset password (https://x.example/reset?t=1)\n\nhttps://x.example/raw\nBye\n\nThis is a service email from Brand.\nBrand\n© 2026 Brand'.replace('2026', String(new Date().getUTCFullYear())),
+    );
     await send({ text: 'Own text' });
     expect(body(1).text).toBe('Own text');
   });

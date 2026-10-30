@@ -4,9 +4,14 @@
  * sendEmail are stood in for; the real lifecycle and fault semantics are in
  * the integration suites.
  *
- *   - the subject and the text part get each value as typed and the HTML
- *     part its escaped copy (htmlData): "A&B" in a subject, and the link's
- *     "&p=e" in the text part, used to read "A&amp;B" and "&amp;p=e";
+ *   - every value goes as typed and the email core escapes it for the HTML
+ *     part alone: "A&B" in a subject, and the link's "&p=e" in the text
+ *     part, used to read "A&amp;B" and "&amp;p=e";
+ *   - {role} is the role's name as the panel shows it ("Operator", never
+ *     "agent"), and {expiry} the invitation's end in the reader's calendar;
+ *     both, and "a team member" for an inviter with no name, go in every
+ *     language (localizedData), since the core picks the template's language
+ *     at send time;
  *   - {brand} is left to the email service (the platform's own name): the
  *     workspace's name never stands in for the brand of a mail sent From the
  *     platform;
@@ -24,6 +29,7 @@ const h = vi.hoisted(() => ({
   inviter: 'Dana Admin' as string | null,
   locale: 'en',
   workspaceName: 'A&B "Co" <x>',
+  expiresAt: '2026-11-06T10:00:00Z' as string | null,
   sendEmail: vi.fn(),
 }));
 
@@ -46,7 +52,7 @@ vi.mock('../../server/supabase.js', () => ({
         return {
           data: {
             cancelled: false, email: 'invitee@example.org', phone: '', first_name: 'Sam\nLee', workspace_name: h.workspaceName,
-            workspace_id: 'ws-1', role: 'agent', locale: h.locale, expires_at: null, time_zone: null,
+            workspace_id: 'ws-1', role: 'agent', locale: h.locale, expires_at: h.expiresAt, time_zone: 'UTC',
           },
           error: null,
         };
@@ -83,12 +89,13 @@ vi.mock('../../server/services/invitations/tokens.js', async (importOriginal) =>
 }));
 
 const worker = await import('../../server/services/invitations/worker.js');
+const { fillEmailTemplate } = await vi.importActual<typeof import('../../server/services/email/index.js')>('../../server/services/email/index.js');
 const CONFIG = {} as never;
 
 async function runOnce(result: Record<string, unknown>) {
   h.sendEmail.mockResolvedValue(result);
   await worker.drainInvitationJobs(CONFIG, { runMaintenance: false });
-  return { request: h.sendEmail.mock.calls[0]?.[1] as Record<string, Record<string, string>>, completion: h.completions[0] };
+  return { request: h.sendEmail.mock.calls[0]?.[1] as Record<string, Record<string, string> & Record<string, Record<string, string>>>, completion: h.completions[0] };
 }
 
 beforeEach(() => {
@@ -96,27 +103,51 @@ beforeEach(() => {
   h.completions.length = 0;
   h.inviter = 'Dana Admin';
   h.locale = 'en';
+  h.expiresAt = '2026-11-06T10:00:00Z';
   h.sendEmail.mockReset();
 });
 
 describe('the invitation e-mail', () => {
-  it('raw values for the subject and text, escaped copies for the HTML, and the platform\'s own brand', async () => {
+  it('raw values for the subject and text, escaped by the core for the HTML, and the platform\'s own brand', async () => {
     const { request } = await runOnce({ success: true, provider: 'smtp', id: 'q1' });
     expect(request.templateData).toEqual({
       name: 'Sam Lee',
       workspace: 'A&B "Co" <x>',
       inviter: 'Dana Admin',
-      role: 'agent',
       action_url: 'https://app.example.com/invite#token=tok123&p=e',
+      role: 'Operator',
+      expiry: 'November 6, 2026 at 10:00 AM',
     });
-    expect(request.htmlData).toEqual({
-      name: 'Sam Lee',
-      workspace: 'A&amp;B &quot;Co&quot; &lt;x&gt;',
-      inviter: 'Dana Admin',
-      role: 'agent',
-      action_url: 'https://app.example.com/invite#token=tok123&amp;p=e',
-    });
+    expect(request).not.toHaveProperty('htmlData');
     expect(request.templateData).not.toHaveProperty('brand');
+    // What the core makes of them: the HTML part escaped, the rest as typed.
+    const filled = fillEmailTemplate(
+      { subject: 'Join {workspace}', html_body: '<p>{workspace}</p><a href="{action_url}">x</a>', text_body: '{workspace} {action_url}' },
+      request.templateData,
+    );
+    expect(filled.subject).toBe('Join A&B "Co" <x>');
+    expect(filled.html).toBe('<p>A&amp;B &quot;Co&quot; &lt;x&gt;</p><a href="https://app.example.com/invite#token=tok123&amp;p=e">x</a>');
+    expect(filled.text).toBe('A&B "Co" <x> https://app.example.com/invite#token=tok123&p=e');
+  });
+
+  it('the role\'s name and the end date in every language the template may be sent in', async () => {
+    const { request } = await runOnce({ success: true, provider: 'smtp' });
+    expect(Object.keys(request.localizedData).sort()).toEqual(['en', 'fa', 'tr']);
+    expect(request.localizedData.fa.role).toBe('اپراتور');
+    expect(request.localizedData.tr.role).toBe('Operatör');
+    expect(request.localizedData.en.role).toBe('Operator');
+    // The International edition (mocked): Gregorian, also in Persian.
+    expect(request.localizedData.fa.expiry).toContain('۲۰۲۶');
+    expect(request.localizedData.tr.expiry).toContain('2026');
+    // The inviter has a name: no fallback words for it.
+    expect(request.localizedData.fa).not.toHaveProperty('inviter');
+  });
+
+  it('an invitation with no end date says so, in each language', async () => {
+    h.expiresAt = null;
+    const { request } = await runOnce({ success: true, provider: 'smtp' });
+    expect(request.localizedData.en.expiry).toBe('no end date');
+    expect(request.localizedData.fa.expiry).toBe('بدون تاریخ پایان');
   });
 
   it('names "a team member" in the mail\'s language when the inviter has no name', async () => {
@@ -124,6 +155,8 @@ describe('the invitation e-mail', () => {
     h.locale = 'fa';
     const { request } = await runOnce({ success: true, provider: 'smtp' });
     expect(request.templateData.inviter).toBe('یکی از اعضای تیم');
+    expect(request.localizedData.en.inviter).toBe('A team member');
+    expect(request.localizedData.fa.inviter).toBe('یکی از اعضای تیم');
   });
 });
 

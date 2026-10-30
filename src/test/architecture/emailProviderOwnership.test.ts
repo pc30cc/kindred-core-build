@@ -196,13 +196,26 @@ describe('Super Admin shows no email setting the runtime ignores', () => {
     }
   });
 
-  it('no email template can express a logo or a footer, which is why they went', () => {
-    // The evidence for removing them rather than wiring them up: `{brand}` is
-    // the only branding hook the renderer provides, and the code-side wrapper
-    // has no slot for anything else.
-    const service = read(SERVICE);
-    expect(service).toContain('brand: await resolveBrandName');
-    expect(service).not.toMatch(/\blogo\b/i);
+  it('the logo comes from the one brand-asset resolver, never from an email setting', () => {
+    // The ban here was on an email-logo SETTING: email_logo_url and its footer
+    // text sat in Branding and nothing read them, which is why they went.
+    // Since the layout (owner, 2026-10-30) every mail wears the platform's
+    // logo, read from the one place the whole project reads it
+    // (server/services/platformBrandAssets.ts): a logo changed in Branding
+    // changes every mail with it. So the core names a logo only through that
+    // resolver, nothing in the email service reads a logo or footer column,
+    // and the layout draws whatever it is handed, naming no image file.
+    const service = stripTs(read(SERVICE));
+    expect(service).toContain("from '../platformBrandAssets.js'");
+    expect(service).toMatch(/resolveBrandAssets\(config, \{ edition, base: basics\.appUrl \}\)/);
+    // {brand} is still the platform's own name, in the template's language.
+    expect(service).toMatch(/brand: basics\.name/);
+    for (const file of readdirSync('server/services/email')) {
+      if (!file.endsWith('.ts')) continue;
+      const body = stripTs(read(join('server/services/email', file)));
+      expect(body, file).not.toMatch(/\b(email_logo_url|email_footer_text|logo_url|footer_text)\b/);
+    }
+    expect(stripTs(read('server/services/email/layout.ts'))).not.toMatch(/\.(png|svg|jpe?g|gif|webp)\b/i);
     const wrapper = read('server/services/verification/templates.ts');
     expect(wrapper).not.toMatch(/<img/i);
     expect(wrapper).not.toMatch(/\bfooter\b/i);

@@ -54,6 +54,8 @@ vi.mock('../../../server/services/auth/identity.js', () => ({
 }));
 vi.mock('../../../server/services/email/index.js', () => ({
   sendEmail: async (_c: unknown, request: Record<string, unknown>) => { state.sent.push(request); return state.result; },
+  // The test mail names the platform provider (template email_test, {provider}).
+  platformEmailProviderName: async () => 'smtp',
 }));
 vi.mock('../../../server/services/operatorLocale.js', () => ({
   operatorLocale: async (_c: unknown, id: string) => (id === 'u-fa' ? 'fa' : 'en'),
@@ -197,5 +199,18 @@ describe('the offline test\'s language', () => {
       templateData: expect.objectContaining({ contact_name: '', message_body: '' }),
       htmlData: expect.objectContaining({ contact_name: 'Test Visitor' }),
     });
+  });
+});
+
+describe('the workspace test mail', () => {
+  it('fills email_test as Super Admin\'s test does: the platform provider, and the slot and time in every language', async () => {
+    state.user = 'u-fa';
+    await post('/test-send', { workspaceId: WS });
+    const request = state.sent[0] as { templateData: Record<string, string>; localizedData: Record<string, Record<string, string>>; locale: string };
+    expect(request.locale).toBe('fa');
+    expect(request.templateData.provider).toBe('smtp');
+    expect(Object.keys(request.localizedData).sort()).toEqual(['en', 'fa', 'tr']);
+    expect(request.localizedData.en.slot).toBe('the platform email provider');
+    expect(request.localizedData.fa.sent_at).toBeTruthy();
   });
 });

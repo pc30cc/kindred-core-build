@@ -90,25 +90,6 @@ export async function resolveAppBaseUrl(config: ServerConfig): Promise<string> {
 }
 
 
-async function resolveBrandName(config: ServerConfig, locale: string = 'en'): Promise<string> {
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('platform_branding_localized')
-    .select('platform_name')
-    .eq('locale', locale)
-    .maybeSingle();
-  if (data?.platform_name) return data.platform_name;
-  if (locale !== 'en') {
-    const { data: fallback } = await sb
-      .from('platform_branding_localized')
-      .select('platform_name')
-      .eq('locale', 'en')
-      .maybeSingle();
-    if (fallback?.platform_name) return fallback.platform_name;
-  }
-  return 'Platform';
-}
-
 interface VerificationEmailOptions {
   userId: string;
   email: string;
@@ -125,20 +106,20 @@ interface RecoveryEmailOptions {
 }
 
 /**
- * Localized "valid for N hours" label used inside auth email templates.
- * The templates only interpolate {{expiry_time}}, so the string itself must
- * already be in the recipient's language — otherwise Persian/Turkish emails
- * show an English duration.
+ * The "valid for N hours" label of the auth mails ({expiry_time}), in each
+ * language the template may be sent in. The email core picks the template's
+ * language at send time (the platform's languages, then its fallback chain:
+ * an Iranian platform sends Persian whatever the request said), so the words
+ * go per language (EmailRequest.localizedData) and the core takes the set of
+ * the language it actually sends. One label in the request's language put
+ * "24 hours" into a Persian mail.
  */
-function expiryLabel(locale: string | undefined, hours: number): string {
-  switch ((locale || 'en').slice(0, 2)) {
-    case 'fa':
-      return `${hours} ساعت`;
-    case 'tr':
-      return `${hours} saat`;
-    default:
-      return `${hours} hour${hours === 1 ? '' : 's'}`;
-  }
+function expiryLabels(hours: number): Record<string, { expiry_time: string }> {
+  return {
+    fa: { expiry_time: `${hours.toLocaleString('fa-IR')} ساعت` },
+    tr: { expiry_time: `${hours} saat` },
+    en: { expiry_time: `${hours} hour${hours === 1 ? '' : 's'}` },
+  };
 }
 
 
@@ -183,12 +164,9 @@ async function issueAuthLink(
   const link = AUTH_LINKS[kind];
   const sb = getServiceClient(config);
 
-  // Both before the token: a base URL that cannot be resolved must not
-  // leave a fresh token behind.
-  const [appBaseUrl, brandName] = await Promise.all([
-    resolveAppBaseUrl(config),
-    resolveBrandName(config, options.locale),
-  ]);
+  // Before the token: a base URL that cannot be resolved must not leave a
+  // fresh token behind.
+  const appBaseUrl = await resolveAppBaseUrl(config);
 
   const rawToken = generateToken();
   const expiresAt = new Date(Date.now() + AUTH_LINK_TTL_MS);
@@ -214,6 +192,9 @@ async function issueAuthLink(
   // the email core escapes every value for the HTML part, so a name written
   // as a link or a hidden block shows as the characters typed.
   const userName = String(options.fullName ?? '').replace(/\s+/g, ' ').trim() || options.email.split('@')[0];
+  // {brand} and {year} are the email core's, in the language and calendar of
+  // the template it sends; {expiry_time} goes in every language, for the same
+  // reason (expiryLabels).
   const result = await sendEmailWithRetry(
     config,
     {
@@ -222,12 +203,10 @@ async function issueAuthLink(
       templateSlug: link.slug,
       templateData: {
         name: userName,
-        brand: brandName,
         action_url: actionUrl,
         email: options.email,
-        expiry_time: expiryLabel(options.locale, AUTH_LINK_TTL_MS / 3_600_000),
-        year: new Date().getFullYear().toString(),
       },
+      localizedData: expiryLabels(AUTH_LINK_TTL_MS / 3_600_000),
       locale: options.locale || 'en',
     },
     {

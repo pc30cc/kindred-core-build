@@ -11,7 +11,9 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { sendEmail, type SendResult } from '../services/email/index.js';
+import { platformEmailProviderName, sendEmail, type SendResult } from '../services/email/index.js';
+import { testMailRequest } from '../services/email/testMail.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { takeEmailQuota } from '../services/email/sendQuota.js';
 import { sendOfflineNoticeTest } from '../services/widget/offlineNotice.js';
 import type { ServerConfig } from '../config.js';
@@ -113,22 +115,27 @@ function answer(res: Response, to: string, result: SendResult) {
 /**
  * POST /api/email/test-send { workspaceId, locale? }
  * The Super Admin template `email_test` (per edition, migration 260), to the
- * caller's own address; the text here is only what is sent if that template
- * was deleted.
+ * caller's own address, filled as Super Admin's own test fills it (the
+ * platform provider's name, when, through which provider); its compiled text
+ * is only what is sent if that template was deleted.
  */
 emailRouter.post('/test-send', async (req, res) => {
   try {
     const sender = await testSender(req, res);
     if (!sender) return;
     const config = serverConfigOf(req);
+    const locale = sender.locale || await operatorLocale(config, sender.auth.userId);
     const result = await sendEmail(config, {
       workspaceId: sender.workspaceId,
       to: sender.to,
-      templateSlug: 'email_test',
-      locale: sender.locale || await operatorLocale(config, sender.auth.userId),
-      subject: 'Email provider test',
-      text: 'This is a test email. The email provider is configured correctly.',
-      html: '<p>This is a test email. The email provider is configured correctly.</p>',
+      ...testMailRequest({
+        slot: 'default',
+        provider: await platformEmailProviderName(config),
+        at: new Date(),
+        edition: await getPlatformEditionOrNull(config),
+        locale,
+      }),
+      locale,
     });
     return answer(res, sender.to, result);
   } catch (err) {

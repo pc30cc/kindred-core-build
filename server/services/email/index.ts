@@ -25,10 +25,23 @@ import {
 import { isEmailProviderKey, loadEmailProviderConfig, type LoadedEmailProvider } from './providerConfigStore.js';
 import { isEmailSuppressed } from './suppressions.js';
 import { buildEmailLogMetadata, redactEmailLogError, redactEmailLogSubject } from './redactLogMetadata.js';
-import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../platformRegion.js';
+import { EditionUnavailableError, getPlatformAllowedLocales, getPlatformEditionOrNull } from '../platformRegion.js';
+import { resolveBrandAssets } from '../platformBrandAssets.js';
 import type { Edition } from '../../../shared/edition.js';
 import { IRAN_BRAND, brandContactFromDomains } from '../../../shared/brand.js';
 import { parseEmailAddress } from '../../../shared/emailProviders.js';
+import {
+  baseLocale,
+  contentProblems,
+  decodeEntities,
+  documentBody,
+  isWholeDocument,
+  legalLine,
+  localYear,
+  renderEmailDocument,
+  renderEmailText,
+  type EmailBrand,
+} from './layout.js';
 
 export type {
   EmailCategory,
@@ -94,6 +107,17 @@ export interface EmailRequest {
    * and the text part always get `templateData`'s value. Never logged.
    */
   htmlData?: Record<string, string>;
+  /**
+   * Values that depend on the language the mail is SENT in, per language
+   * (`{ fa: { expiry_time: '۲۴ ساعت' }, en: { … }, tr: { … } }`). The
+   * template is chosen at send time (the platform's languages, then the
+   * fallback chain, resolveEmailScope), so a caller cannot know in advance
+   * which language its words must be in: the set for the template's own
+   * language goes in over `templateData`, escaped for the HTML part like it.
+   * A key given here must not also be in `htmlData`, which would win over it
+   * in the HTML part.
+   */
+  localizedData?: Record<string, Record<string, string>>;
   locale?: string;
   /**
    * Send through a provider chosen for this KIND of mail rather than the
@@ -126,9 +150,11 @@ export interface EmailRequest {
   /**
    * A closing line the caller adds in code below the mail's own text,
    * whatever the template says: the operator notification emails' visible
-   * unsubscribe line. `html` goes at the end of the HTML part (before
-   * `</body>` in a whole document) and the caller escapes what it puts in
-   * it; `text` goes at the end of the text part.
+   * unsubscribe line. In the layout (./layout.ts) `html` takes the footer's
+   * first line, in place of the line saying why the mail came: its words and
+   * links are kept and the footer gives it its look. A row that is a whole
+   * document of its own gets it before `</body>`. The caller escapes what it
+   * puts in it; `text` goes at the end of the text part.
    */
   footer?: { html: string; text: string };
 }
@@ -190,6 +216,20 @@ export async function isEmailProviderConfigured(config: ServerConfig): Promise<b
 }
 
 /**
+ * The platform provider's name (smtp, resend, sendgrid), or `none`: for a
+ * test mail that says which provider sent it. Only the name, never its
+ * settings.
+ */
+export async function platformEmailProviderName(config: ServerConfig): Promise<string> {
+  try {
+    const loaded = await loadEmailProviderConfig(config, 'default_email_provider');
+    return loaded.status === 'ok' ? loaded.provider.provider_name : 'none';
+  } catch {
+    return 'none';
+  }
+}
+
+/**
  * The From header, fail-closed.
  *
  * Transport identity (who the mail is *from*) comes from the provider config
@@ -204,19 +244,16 @@ export async function isEmailProviderConfigured(config: ServerConfig): Promise<b
  * says so.
  *
  * `from_name` is the one part that may fall back: the provider config still
- * owns it, but a blank one becomes the platform's own brand name, which is
- * the same name the template body already prints. The name and the address
- * travel apart, and each adapter quotes the name the way its wire needs, so
- * a comma, a quote or an `@` in a brand name can never split the header.
+ * owns it, but a blank one becomes the platform's own brand name in the
+ * mail's language, the same name the mail itself prints. The name and the
+ * address travel apart, and each adapter quotes the name the way its wire
+ * needs, so a comma, a quote or an `@` in a brand name can never split the
+ * header.
  */
-async function resolveFromAddress(
-  supabase: SupabaseClient,
-  provider: ProviderConfig,
-  locale: string,
-): Promise<{ name: string; address: string }> {
+function resolveFromAddress(provider: ProviderConfig, brandName: string): { name: string; address: string } {
   const cfg = provider.config;
   const address = parseEmailAddress(cfg.from_email) as string;
-  const name = configText(cfg, 'from_name') || (await resolveBrandName(supabase, locale));
+  const name = configText(cfg, 'from_name') || brandName;
   // A header is one line, whatever the name holds.
   return { name: name.replace(/[\r\n]+/g, ' ').trim(), address };
 }
@@ -246,8 +283,10 @@ function listUnsubscribeHeaders(value: EmailRequest['listUnsubscribe']): Record<
 }
 
 /**
- * The caller's closing line (EmailRequest.footer) under the mail's own text.
- * A mail with no HTML part gets none from it: its text part carries the line.
+ * The caller's closing line (EmailRequest.footer) under the text of a row
+ * that is a whole document of its own (the layout gives it a place in its
+ * footer instead). A mail with no HTML part gets none from it: its text part
+ * carries the line.
  */
 function withFooter(html: string, text: string, footer: EmailRequest['footer']): { html: string; text: string } {
   if (!footer) return { html, text };
@@ -258,20 +297,6 @@ function withFooter(html: string, text: string, footer: EmailRequest['footer']):
   }
   const nextText = text.trim() && footer.text ? `${text.trimEnd()}\n\n${footer.text}` : text;
   return { html: nextHtml, text: nextText };
-}
-
-const ENTITIES: Record<string, string> = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', zwnj: '\u200c', zwj: '\u200d', lrm: '\u200e', rlm: '\u200f',
-};
-
-function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    if (entity[0] === '#') {
-      const code = entity[1] === 'x' || entity[1] === 'X' ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
-    }
-    return ENTITIES[entity.toLowerCase()] ?? match;
-  });
 }
 
 /**
@@ -314,6 +339,34 @@ function stripElements(html: string, names: readonly string[]): string {
   return s;
 }
 
+/** A `<div>` start tag of the hidden inbox preview: `data-preheader`, or the class `preheader`. */
+function isPreheaderOpener(attrs: string): boolean {
+  if (/(^|\s)data-preheader(\s|=|$)/i.test(attrs)) return true;
+  const cls = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+  return !!cls && (cls[1] ?? cls[2] ?? cls[3] ?? '').split(/\s+/).includes('preheader');
+}
+
+/**
+ * `html` without its hidden inbox preview, up to the preview's `</div>` (it
+ * holds text only). The same linear scan as stripElements.
+ */
+function stripPreheaders(html: string): string {
+  const opener = /<div\b([^<>]*)>/gi;
+  const lower = html.toLowerCase();
+  let out = '';
+  let from = 0;
+  for (let m = opener.exec(html); m; m = opener.exec(html)) {
+    if (!isPreheaderOpener(m[1])) continue;
+    const close = lower.indexOf('</div', opener.lastIndex);
+    if (close < 0) break;
+    const end = lower.indexOf('>', close);
+    out += html.slice(from, m.index);
+    from = end < 0 ? html.length : end + 1;
+    opener.lastIndex = from;
+  }
+  return out + html.slice(from);
+}
+
 /**
  * Each link as its text and its target ("Reset password (https://…)"), the
  * same scan for the same reason: an `<a` with no `</a>` after it ends the
@@ -345,16 +398,24 @@ function inlineLinks(html: string): string {
 }
 
 /**
- * A text part for a message that has only HTML. Every mail carries one: a
- * client that shows text, a screen reader, and the spam filters that score
- * an HTML-only message all read it. Links keep their target ("Reset your
- * password (https://…)"), because in a reset or an invitation the link is
- * the message; blocks become lines, and styles and scripts go. Linear in
- * the length of the HTML, whatever it holds.
+ * A text part for a message that has only HTML: a row that is a whole
+ * document of its own (a laid-out mail derives its text from its content,
+ * layout.ts contentToText). Every mail carries one: a client that shows
+ * text, a screen reader, and the spam filters that score an HTML-only
+ * message all read it. Links keep their target ("Reset your password
+ * (https://…)"), because in a reset or an invitation the link is the
+ * message; an image is its alt text; blocks become lines, and styles,
+ * scripts and the hidden inbox preview go. Linear in the length of the HTML,
+ * whatever it holds.
  */
 export function htmlToText(html: string): string {
   if (!html) return '';
-  const s = inlineLinks(stripElements(html, ['head', 'style', 'script', 'title']))
+  const withAlts = stripPreheaders(stripElements(html, ['head', 'style', 'script', 'title']))
+    .replace(/<img\b([^<>]*)>/gi, (_m, attrs: string) => {
+      const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+      return alt ? ` ${alt[1] ?? alt[2] ?? alt[3] ?? ''} ` : '';
+    });
+  const s = inlineLinks(withAlts)
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<li\b[^<>]*>/gi, '\n- ')
     .replace(/<\/?(p|div|h[1-6]|tr|table|tbody|thead|ul|ol|blockquote|section|article|header|footer|hr)\b[^<>]*>/gi, '\n')
@@ -437,58 +498,123 @@ export function interpolate(text: string, data: Record<string, string>): string 
 }
 
 /**
- * Platform brand name for a locale, used to brand every template that
- * references {brand}. Falls back: locale → en → 'Platform'.
+ * The platform's name and legal words for a language, from
+ * `platform_branding_localized`: the name falls back locale → en →
+ * 'Platform' (it brands every mail: {brand}, the layout and the From name);
+ * the footer text and the legal company name are that language's own or
+ * nothing (an English legal line in a Persian mail would read wrong).
  */
-async function resolveBrandName(supabase: SupabaseClient, locale: string): Promise<string> {
+async function readBranding(
+  supabase: SupabaseClient,
+  locale: string,
+): Promise<{ name: string; footerText: string; company: string }> {
   const read = async (lc: string) => {
     const { data } = await supabase
       .from('platform_branding_localized')
-      .select('platform_name')
+      .select('platform_name, footer_company_text, legal_company_display_name')
       .eq('locale', lc)
       .maybeSingle();
-    return (data?.platform_name || '').trim();
+    return (data ?? null) as { platform_name?: string | null; footer_company_text?: string | null; legal_company_display_name?: string | null } | null;
   };
+  const clean = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
   try {
-    const primary = await read(locale);
-    if (primary) return primary;
-    if (locale !== 'en') {
-      const fallback = await read('en');
-      if (fallback) return fallback;
-    }
+    const own = await read(locale);
+    let name = clean(own?.platform_name);
+    if (!name && locale !== 'en') name = clean((await read('en'))?.platform_name);
     // No third tier: platform_name only exists on platform_branding_localized
     // now, so the old platform_branding fallback that used to sit here was
     // dead code that returned 400 on every miss.
+    return { name: name || 'Platform', footerText: clean(own?.footer_company_text), company: clean(own?.legal_company_display_name) };
   } catch {
     /* branding is optional — never block delivery */
+    return { name: 'Platform', footerText: '', company: '' };
   }
-  return 'Platform';
 }
 
-/**
- * The platform's support address for {support_email}, per edition
- * (shared/brand.ts): the Iranian edition's fixed address, else
- * support@<the platform's own site host> from platform_domains. Empty when
- * unknown — never an address made from the recipient's own domain.
- */
-async function resolveSupportEmail(supabase: SupabaseClient, edition: Edition): Promise<string> {
-  if (edition === 'iran') return IRAN_BRAND.supportEmail;
+/** An absolute http(s) address without its trailing slash, or ''. */
+function absoluteBase(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!/^https?:\/\//i.test(raw)) return '';
   try {
-    const { data } = await supabase
-      .from('platform_domains')
-      .select('primary_domain, canonical_base_url, public_base_url')
-      .limit(1)
-      .maybeSingle();
-    return brandContactFromDomains(data as Record<string, unknown> | null).support_email || '';
+    new URL(raw);
+    return raw.replace(/\/+$/, '');
   } catch {
     return '';
   }
 }
 
-type RenderedTemplate =
-  | { status: 'ok'; subject: string; html: string; text: string; locale: string }
-  | { status: 'missing' }
-  | { status: 'edition_unavailable' };
+/** What a mail says about the platform that sends it, in the mail's language. */
+interface BrandBasics {
+  /** {brand}: the platform's name. */
+  name: string;
+  /**
+   * {support_email}, per edition (shared/brand.ts): the Iranian edition's
+   * fixed address, else support@<the platform's own site host> from
+   * platform_domains. Empty when unknown — never an address made from the
+   * recipient's own domain.
+   */
+  supportEmail: string;
+  /** The panel's address (platform_domains.app_base_url, else APP_BASE_URL), '' when unknown. */
+  appUrl: string;
+  /** The platform's public site: the logo's link. */
+  siteUrl: string;
+  footerText: string;
+  company: string;
+}
+
+async function readBrandBasics(supabase: SupabaseClient, edition: Edition, locale: string): Promise<BrandBasics> {
+  const domainsRead = (async () => {
+    try {
+      const { data } = await supabase
+        .from('platform_domains')
+        .select('app_base_url, primary_domain, canonical_base_url, public_base_url')
+        .limit(1)
+        .maybeSingle();
+      return (data ?? null) as Record<string, unknown> | null;
+    } catch {
+      return null;
+    }
+  })();
+  const [branding, domains] = await Promise.all([readBranding(supabase, locale), domainsRead]);
+  const contact = brandContactFromDomains(domains);
+  const appUrl = absoluteBase(domains?.app_base_url) || absoluteBase(process.env.APP_BASE_URL);
+  return {
+    name: branding.name,
+    supportEmail: edition === 'iran' ? IRAN_BRAND.supportEmail : contact.support_email || '',
+    appUrl,
+    siteUrl: edition === 'iran' ? IRAN_BRAND.siteUrl : contact.site_url || appUrl,
+    footerText: branding.footerText,
+    company: branding.company,
+  };
+}
+
+/**
+ * The brand the layout wears, resolved at send time (a queued mail gets
+ * today's): the name and addresses, the legal line, and the logo from the
+ * platform's one brand-asset resolver (the Super Admin's own upload, else the
+ * edition's kit), as PNGs.
+ */
+async function emailBrand(config: ServerConfig, edition: Edition, locale: string, basics: BrandBasics): Promise<EmailBrand> {
+  let logo: EmailBrand['logo'] = null;
+  if (basics.appUrl) {
+    try {
+      const assets = await resolveBrandAssets(config, { edition, base: basics.appUrl });
+      if (assets) logo = assets.logoPng;
+    } catch (err) {
+      // The name stands in for the logo; the mail still goes.
+      console.warn('[email] brand assets could not be read:', err instanceof Error ? err.message : err);
+    }
+  }
+  return {
+    edition,
+    name: basics.name,
+    appUrl: basics.appUrl,
+    siteUrl: basics.siteUrl,
+    supportEmail: basics.supportEmail,
+    legal: legalLine({ footerText: basics.footerText, company: basics.company, brand: basics.name, locale, edition }),
+    logo,
+  };
+}
 
 /** Text as HTML shows it: `&`, `<`, `>` and both quotes as entities. */
 function escapeHtml(value: string): string {
@@ -524,32 +650,212 @@ export function fillEmailTemplate(
   };
 }
 
+/** A mail ready for the layout: the row filled in, or the caller's own text, with its brand. */
+interface PreparedMessage {
+  edition: Edition;
+  /** The language it is in: the row's, or the caller's own for its text. */
+  locale: string;
+  subject: string;
+  html: string;
+  text: string;
+  /** A Super Admin's row (a whole document of its own is sent as it is). */
+  fromRow: boolean;
+  /** The template it was asked for (the row's, or the one whose row was missing), for the content check's log. */
+  slug: string | null;
+  basics: BrandBasics;
+}
+
+type Prepared =
+  | { status: 'ok'; message: PreparedMessage }
+  | { status: 'missing' }
+  | { status: 'edition_unavailable' };
+
+/** The core's own values, under the caller's: {brand}, {year} and {support_email}. */
+function coreData(edition: Edition, locale: string, basics: BrandBasics): Record<string, string> {
+  return { brand: basics.name, year: localYear(locale, edition), support_email: basics.supportEmail };
+}
+
 /**
  * The running edition's Super Admin template for `slug`, filled in
- * (fillEmailTemplate). Branding defaults ({brand}, {year}, {support_email})
- * are added so every template renders them, while the caller's templateData
- * always wins. The subject is one line whatever a value holds (a visitor's
- * name typed with a line break): a header never carries one.
+ * (fillEmailTemplate), or the caller's own text when there is no active row
+ * (or no slug). The core's values ({brand}, {year}, {support_email}) are
+ * added under the caller's templateData, and the caller's values for the
+ * template's own language (localizedData) over it. The subject is one line
+ * whatever a value holds (a visitor's name typed with a line break): a header
+ * never carries one.
+ *
+ * With no edition, nothing is sent (a transient failure, retried): which
+ * brand's text and which brand's layout cannot be told, and a guess could
+ * put one brand's logo on the other's mail.
  */
-async function renderEditionTemplate(
+async function prepareMessage(
   config: ServerConfig,
   supabase: SupabaseClient,
-  slug: string,
-  templateData: Record<string, string> | undefined,
-  locale: string | undefined,
-  htmlData?: Record<string, string>,
-): Promise<RenderedTemplate> {
-  const scope = await resolveEmailScope(config, locale);
+  input: {
+    subject: string;
+    html: string;
+    text: string;
+    templateSlug?: string;
+    templateData?: Record<string, string>;
+    htmlData?: Record<string, string>;
+    localizedData?: Record<string, Record<string, string>>;
+    locale?: string;
+  },
+): Promise<Prepared> {
+  const scope = await resolveEmailScope(config, input.locale);
   if (!scope) return { status: 'edition_unavailable' };
-  const tpl = await resolveTemplate(supabase, scope.edition, slug, scope.locales);
-  if (!tpl) return { status: 'missing' };
+  const tpl = input.templateSlug ? await resolveTemplate(supabase, scope.edition, input.templateSlug, scope.locales) : null;
+  if (!tpl && !input.subject && !input.html) return { status: 'missing' };
+  // The caller's own text is in the language it asked for, when that is one
+  // the platform writes; the row is in its own.
+  const asked = baseLocale(input.locale);
+  const locale = tpl ? tpl.locale : ['fa', 'en', 'tr'].includes(asked) ? asked : scope.locales[0] || 'en';
+  const basics = await readBrandBasics(supabase, scope.edition, locale);
+  if (!tpl) {
+    return {
+      status: 'ok',
+      message: {
+        edition: scope.edition, locale, subject: input.subject, html: input.html, text: input.text,
+        fromRow: false, slug: input.templateSlug || null, basics,
+      },
+    };
+  }
   const data: Record<string, string> = {
-    brand: await resolveBrandName(supabase, tpl.locale),
-    year: String(new Date().getFullYear()),
-    support_email: await resolveSupportEmail(supabase, scope.edition),
-    ...(templateData || {}),
+    ...coreData(scope.edition, locale, basics),
+    ...(input.templateData || {}),
+    ...(input.localizedData?.[locale] || {}),
   };
-  return { status: 'ok', ...fillEmailTemplate(tpl, data, htmlData), locale: tpl.locale };
+  return {
+    status: 'ok',
+    message: { edition: scope.edition, locale, ...fillEmailTemplate(tpl, data, input.htmlData), fromRow: true, slug: input.templateSlug || null, basics },
+  };
+}
+
+/** Plain text as content (a caller that gave only text): escaped, its blank lines as paragraphs. */
+function textAsContent(text: string): string {
+  return text
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => `<p>${escapeHtml(part).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
+/** Which templates' content problems were logged already: once per template, edition and language in a process. */
+const contentProblemsLogged = new Set<string>();
+
+/**
+ * A laid-out mail's content checked against what a platform mail may send
+ * (layout.ts contentProblems): a row a Super Admin edited by hand, or before
+ * the editor checked it, can hold what the styler passes on. The forbidden
+ * elements never go out (the styler drops them); the rest (a foreign link,
+ * a hidden block, an extra image) is logged, by its codes and never its
+ * content, once per template, so it can be fixed in Super Admin.
+ */
+function logContentProblems(message: PreparedMessage, content: string, brand: EmailBrand): void {
+  const key = `${message.slug || 'no template'} (${message.edition}, ${message.locale})${message.fromRow ? '' : ' fallback'}`;
+  if (contentProblemsLogged.has(key)) return;
+  const problems = contentProblems(content, { hosts: [brand.appUrl, brand.siteUrl], supportEmail: brand.supportEmail });
+  if (!problems.length) return;
+  contentProblemsLogged.add(key);
+  console.warn(`[email] ${key}: ${problems.join(', ')}`);
+}
+
+/**
+ * The HTML and text parts as they go out. Every platform mail wears the
+ * layout (./layout.ts) — a row's content, a caller's own text (written as a
+ * whole document or not), a Super Admin test — except a row that is a whole
+ * document of its own: a Super Admin's hand-made full design goes as it is,
+ * the caller's closing line before its `</body>`.
+ *
+ * The text part is the row's own when it has one (the closing line under
+ * it); else, for a laid-out mail, its content as text with the footer's
+ * lines, never the layout around it. A content is checked before it is
+ * laid out (logContentProblems), unless `check` is false (a preview).
+ */
+async function composeMessage(
+  config: ServerConfig,
+  message: PreparedMessage,
+  opts: { category: EmailCategory; footer?: EmailRequest['footer']; scheme?: 'auto' | 'light' | 'dark'; check?: boolean },
+): Promise<{ html: string; text: string }> {
+  const { html, text } = message;
+  if (message.fromRow && isWholeDocument(html)) {
+    const out = withFooter(html, text, opts.footer);
+    return { html: out.html, text: out.text.trim() ? out.text : htmlToText(out.html) };
+  }
+  const content = html ? (isWholeDocument(html) ? documentBody(html) : html) : textAsContent(text);
+  const brand = await emailBrand(config, message.edition, message.locale, message.basics);
+  if (opts.check !== false) logContentProblems(message, content, brand);
+  const layout = { brand, locale: message.locale, contentHtml: content, category: opts.category, footer: opts.footer ?? null };
+  const doc = renderEmailDocument({ ...layout, title: message.subject, scheme: opts.scheme ?? 'auto' });
+  const ownText = text.trim() ? (opts.footer?.text ? `${text.trimEnd()}\n\n${opts.footer.text}` : text) : '';
+  return { html: doc, text: ownText || renderEmailText(layout) };
+}
+
+/**
+ * A template rendered exactly as it would be sent, for Super Admin →
+ * Branding's preview: the same fill (the core's values, then the sample
+ * `data`), the same layout and the same brand (the running edition's, in the
+ * row's language). `scheme` forces one colour scheme (`dark` shows the dark
+ * palette in any viewer); without it the document carries both, as a sent
+ * mail does. `category` and `footer` stand for what the sender passes
+ * (default: a transactional mail with no closing line). `edition` renders
+ * another edition's row in its own look (the development render script);
+ * without it, the running edition's. Throws EditionUnavailableError when
+ * the edition cannot be read.
+ */
+export async function renderEmailForPreview(
+  config: ServerConfig,
+  input: {
+    slug: string;
+    locale: string;
+    subject: string;
+    html_body: string;
+    text_body: string | null;
+    data: Record<string, string>;
+    htmlData?: Record<string, string>;
+    scheme?: 'light' | 'dark';
+    category?: EmailCategory;
+    footer?: { html: string; text: string };
+    edition?: Edition;
+  },
+): Promise<{ subject: string; html: string; text: string }> {
+  const edition = input.edition ?? (await getPlatformEditionOrNull(config));
+  if (!edition) throw new EditionUnavailableError();
+  const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const locale = baseLocale(input.locale);
+  const basics = await readBrandBasics(supabase, edition, locale);
+  const filled = fillEmailTemplate(
+    { subject: input.subject, html_body: input.html_body, text_body: input.text_body },
+    { ...coreData(edition, locale, basics), ...input.data },
+    input.htmlData,
+  );
+  const composed = await composeMessage(
+    config,
+    { edition, locale, ...filled, fromRow: true, slug: input.slug, basics },
+    { category: input.category ?? 'transactional', footer: input.footer, scheme: input.scheme, check: false },
+  );
+  return { subject: filled.subject, ...composed };
+}
+
+/**
+ * What a template's content holds that a platform mail must not send
+ * (layout.ts contentProblems), against the same brand hosts and support
+ * address the send checks: for Super Admin to refuse a save on the same
+ * rules. A whole document of its own is checked by its body (it is sent as
+ * it is, its head included). An empty list: nothing to refuse.
+ */
+export async function templateContentProblems(
+  config: ServerConfig,
+  input: { edition: Edition; locale: string; html_body: string },
+): Promise<string[]> {
+  const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const basics = await readBrandBasics(supabase, input.edition, baseLocale(input.locale));
+  const html = String(input.html_body ?? '');
+  return contentProblems(isWholeDocument(html) ? documentBody(html) : html, {
+    hosts: [basics.appUrl, basics.siteUrl],
+    supportEmail: basics.supportEmail,
+  });
 }
 
 /** Same rule as EmailRequest: the platform provider owns the From header. */
@@ -564,6 +870,8 @@ export interface PlatformEmailRequest {
   templateData?: Record<string, string>;
   /** As in EmailRequest: the HTML part's own values, inserted as they are. */
   htmlData?: Record<string, string>;
+  /** As in EmailRequest: values in the language the mail is sent in. */
+  localizedData?: Record<string, Record<string, string>>;
   locale?: string;
   /** As in EmailRequest. */
   category?: EmailCategory;
@@ -587,15 +895,19 @@ interface Delivery {
  *   2. A suppressed address (it hard-bounced, complained, or a Super Admin
  *      held it back) is not mailed.
  *   3. The platform's provider (no provider: `stub`, as callers expect).
- *   4. The running edition's template, filled in.
+ *   4. The running edition's template, filled in (or the caller's own text
+ *      when the row is missing); no edition, no mail (prepareMessage).
  *   5. The provider must be able to send: an adapter for its name, its
  *      required fields, a valid from_email (the same reading as readiness).
- *   6. One OutboundMessage: From as name and address, a text part always
- *      (derived from the HTML when the template has none), the provider's
- *      `reply_to`, `Auto-Submitted: auto-generated` on every message (an
- *      auto-responder must not answer it), the one-click unsubscribe pair
- *      and the closing line (`footer`) when the caller gives them.
- *   7. The adapter sends it, within its own timeouts.
+ *   6. The layout around it, with the brand as it is now (composeMessage):
+ *      every platform mail wears it but a row that is a whole document.
+ *   7. One OutboundMessage: From as name and address, a text part always
+ *      (derived from the content when the template has none), the
+ *      provider's `reply_to`, `Auto-Submitted: auto-generated` on every
+ *      message (an auto-responder must not answer it), the one-click
+ *      unsubscribe pair and the closing line (`footer`) when the caller
+ *      gives them.
+ *   8. The adapter sends it, within its own timeouts.
  *
  * Every failure is a SendResult with an errorCode, `permanent` when a retry
  * of the same message cannot succeed, and an `error` that is ours alone.
@@ -611,6 +923,7 @@ async function deliver(
     templateSlug?: string;
     templateData?: Record<string, string>;
     htmlData?: Record<string, string>;
+    localizedData?: Record<string, Record<string, string>>;
     locale?: string;
     category: EmailCategory;
     listUnsubscribe?: EmailRequest['listUnsubscribe'];
@@ -618,7 +931,7 @@ async function deliver(
     providerConfigKey?: string;
   },
 ): Promise<Delivery> {
-  let { subject, html, text } = input;
+  let { subject } = input;
 
   const to = parseEmailAddress(input.to);
   if (!to) {
@@ -647,24 +960,17 @@ async function deliver(
   const provider = loaded.status === 'ok' ? loaded.provider : null;
   const providerName = provider?.provider_name || 'stub';
 
-  let tplLocale = input.locale || 'en';
-  if (input.templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, input.templateSlug, input.templateData, input.locale, input.htmlData);
-    if (rendered.status === 'ok') {
-      ({ subject, html, text } = rendered);
-      tplLocale = rendered.locale;
-    } else if (rendered.status === 'edition_unavailable' && !subject && !html) {
-      // Which brand's text to send cannot be told: retry later rather than
-      // guess. With the caller's own text, that text goes out instead.
-      return {
-        result: emailFailure(providerName, 'edition_unavailable', 'the platform edition could not be read; try again'),
-        subject,
-        providerName,
-      };
-    }
+  const prepared = await prepareMessage(config, supabase, input);
+  if (prepared.status === 'edition_unavailable') {
+    // Which brand's text and which brand's look cannot be told: retry later
+    // rather than guess.
+    return {
+      result: emailFailure(providerName, 'edition_unavailable', 'the platform edition could not be read; try again'),
+      subject,
+      providerName,
+    };
   }
-
-  if (!subject && !html) {
+  if (prepared.status === 'missing') {
     return {
       result: input.templateSlug
         ? emailFailure(providerName, 'template_missing', `no active template "${input.templateSlug}" and no subject or body of its own`)
@@ -673,6 +979,8 @@ async function deliver(
       providerName,
     };
   }
+  const ready = prepared.message;
+  subject = ready.subject;
 
   if (!provider) {
     // Never claim delivery when no provider is active. Invitation/OTP
@@ -695,14 +1003,14 @@ async function deliver(
     };
   }
 
-  ({ html, text } = withFooter(html, text, input.footer));
+  const { html, text } = await composeMessage(config, ready, { category: input.category, footer: input.footer });
   const replyTo = parseEmailAddress(effective.config.reply_to);
   const message: OutboundMessage = {
-    from: await resolveFromAddress(supabase, effective, tplLocale),
+    from: resolveFromAddress(effective, ready.basics.name),
     to,
     subject: subject.replace(/[\r\n]+/g, ' '),
     html,
-    text: text.trim() ? text : htmlToText(html),
+    text,
     ...(replyTo ? { replyTo } : {}),
     headers: { 'Auto-Submitted': 'auto-generated', ...listUnsubscribeHeaders(input.listUnsubscribe) },
     category: input.category,
@@ -743,6 +1051,7 @@ export async function sendPlatformEmail(
     templateSlug: request.templateSlug,
     templateData: request.templateData,
     htmlData: request.htmlData,
+    localizedData: request.localizedData,
     locale: request.locale,
     category: request.category ?? 'transactional',
     listUnsubscribe: request.listUnsubscribe,
@@ -778,6 +1087,7 @@ export async function sendEmail(
     templateSlug,
     templateData,
     htmlData: request.htmlData,
+    localizedData: request.localizedData,
     locale: request.locale,
     category,
     listUnsubscribe: request.listUnsubscribe,

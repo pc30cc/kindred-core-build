@@ -90,7 +90,8 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
-  const [preview, setPreview] = useState<EmailTemplatePreview | null>(null);
+  /** The server's last render, and the template and language it is of. */
+  const [rendered, setRendered] = useState<{ of: string; mail: EmailTemplatePreview } | null>(null);
   const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'failed'>('idle');
   const [previewView, setPreviewView] = useState<'email' | 'text'>('email');
   const [previewWidth, setPreviewWidth] = useState<keyof typeof PREVIEW_WIDTH>('desktop');
@@ -104,6 +105,10 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
   const row = templates.find((r) => r.slug === selectedSlug && r.locale === selectedLocale);
   const editable = offered.includes(selectedLocale);
   const dirty = form.subject !== saved.subject || form.html !== saved.html || form.text !== saved.text || form.active !== saved.active;
+  // Only the selected template's render is shown: the previous one's, kept
+  // while the new one loads or after it failed, would put a different mail
+  // under this one's editor.
+  const preview = rendered?.of === `${selectedSlug}:${selectedLocale}` ? rendered.mail : null;
 
   useEffect(() => {
     void (async () => {
@@ -158,7 +163,7 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
     if (!catalog || !selectedLocale) return;
     if (!form.html.trim()) {
       previewSeq.current += 1;
-      setPreview(null);
+      setRendered(null);
       setPreviewState('idle');
       return;
     }
@@ -172,11 +177,13 @@ export default function EmailTemplatesTab({ onDirtyChange }: Props) {
       )
         .then((next) => {
           if (seq !== previewSeq.current) return;
-          setPreview(next);
+          setRendered({ of: `${selectedSlug}:${selectedLocale}`, mail: next });
           setPreviewState('idle');
         })
         .catch(() => {
           if (seq !== previewSeq.current || controller.signal.aborted) return;
+          // An older text's render is not this text's: it goes with the failure.
+          setRendered(null);
           setPreviewState('failed');
         });
     }, PREVIEW_DELAY_MS);

@@ -9,7 +9,9 @@
  *     Turkish one is never sent);
  *   - the preview is the server's render of the text as it stands (light or
  *     dark), drawn in an iframe with an empty sandbox, at a desktop or phone
- *     width, with its plain-text part and its content problems in words;
+ *     width, with its plain-text part and its content problems in words, and
+ *     never another template's or language's render, nor an older text's
+ *     once the current one fails;
  *   - "Send me a test" sends the text as it stands;
  *   - a mail the platform sends can be neither deleted nor switched off, and
  *     a save switches a switched-off row back on;
@@ -48,6 +50,8 @@ const EmailTemplatesTab = (await import('@/components/admin/EmailTemplatesTab'))
 interface Call { url: string; method: string; body: Record<string, unknown> | null }
 let calls: Call[] = [];
 let testSendStatus = 200;
+/** Slugs whose render the server cannot build (a 500). */
+let failingPreviews = new Set<string>();
 let rows: Array<Record<string, unknown>> = [];
 
 const row = (slug: string, locale: string, extra: Record<string, unknown> = {}) => ({
@@ -62,6 +66,7 @@ function previewCalls(): Array<Record<string, unknown>> {
 beforeEach(() => {
   calls = [];
   testSendStatus = 200;
+  failingPreviews = new Set();
   rows = [
     row('email_verify', 'fa'), row('email_verify', 'en'), row('email_verify', 'tr'),
     row('password_reset', 'fa'),
@@ -82,6 +87,7 @@ beforeEach(() => {
       return reply(200, { edition: 'iran', locales: { offered: ['fa'], fallback: 'en' }, templates: catalogView('iran') });
     }
     if (String(url).endsWith('/preview')) {
+      if (failingPreviews.has(String(body?.slug))) return reply(500, { error: 'preview_failed' });
       return reply(200, {
         subject: `Rendered: ${String(body?.subject)}`,
         html: `<!doctype html><html><body><p>${String(body?.scheme)}</p></body></html>`,
@@ -200,6 +206,34 @@ describe('the preview', () => {
 
     fireEvent.click(screen.getByTestId('email-template-preview-text'));
     expect(screen.getByTestId('email-template-preview-plain')).toHaveTextContent('The plain part');
+  });
+
+  it('never shows one template\'s render under another, while the other loads or when it fails', async () => {
+    failingPreviews.add('password_reset');
+    await renderTab();
+    await waitFor(() => expect(screen.getByTestId('email-template-preview-subject')).toHaveTextContent('Rendered: email_verify fa'));
+    const title = '[admin.brandingPage.emailTemplates.previewTitle]';
+
+    fireEvent.click(screen.getByTestId('email-template-password_reset'));
+    await waitFor(() => expect(subjectInput().value).toBe('password_reset fa'));
+    expect(screen.queryByTestId('email-template-preview-subject')).toBeNull();
+    expect(screen.queryByTitle(title)).toBeNull();
+    expect(screen.queryByTestId('email-template-problems')).toBeNull();
+
+    await screen.findByText('[admin.brandingPage.emailTemplates.previewPanel.failed]');
+    expect(screen.queryByTestId('email-template-preview-subject')).toBeNull();
+    expect(screen.queryByTitle(title)).toBeNull();
+    expect(screen.queryByTestId('email-template-problems')).toBeNull();
+  });
+
+  it('drops its render when the text as it stands cannot be rendered', async () => {
+    await renderTab();
+    await waitFor(() => expect(screen.getByTestId('email-template-preview-subject')).toHaveTextContent('Rendered: email_verify fa'));
+    failingPreviews.add('email_verify');
+    fireEvent.change(subjectInput(), { target: { value: 'Edited subject' } });
+    await screen.findByText('[admin.brandingPage.emailTemplates.previewPanel.failed]');
+    expect(screen.queryByTestId('email-template-preview-subject')).toBeNull();
+    expect(screen.queryByTitle('[admin.brandingPage.emailTemplates.previewTitle]')).toBeNull();
   });
 
   it('says what the content holds that a mail must not send', async () => {

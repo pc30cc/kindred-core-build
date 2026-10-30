@@ -15,9 +15,11 @@
  *   hr, strong, a, br              separators and inline text
  *   div.transcript > div.msg.msg-visitor|msg-agent > div.meta + div.bubble
  *
- * Anything else passes through as it is. The email core (./index.ts) fills a
- * row's placeholders and hands the result here at send time, with the brand
- * resolved then too, so a mail queued yesterday still wears today's logo.
+ * Anything else passes through as it is, but what a mail may never send
+ * (contentProblems: what runs code, loads a page or takes input), which the
+ * styler drops. The email core (./index.ts) fills a row's placeholders and
+ * hands the result here at send time, with the brand resolved then too, so a
+ * mail queued yesterday still wears today's logo.
  * The look is the "brand band" design (owner, 2026-10-30): a solid band in
  * the brand's colour carrying the logo, a white card rising out of it, the
  * logos' chat-bubble tail on the card, the button, the code box, the details
@@ -317,12 +319,32 @@ function parseAttrs(source: string): Attr[] {
   return out;
 }
 
+/** Where a comment that starts at `at` (with `<!--`) ends, as a browser reads it; -1 when it never does. */
+function commentEnd(html: string, at: number): number {
+  const body = at + 4;
+  // `<!-->` and `<!--->` are whole (empty) comments to a browser.
+  if (html.startsWith('>', body)) return body + 1;
+  if (html.startsWith('->', body)) return body + 2;
+  const plain = html.indexOf('-->', body);
+  const bang = html.indexOf('--!>', body);
+  if (bang >= 0 && (plain < 0 || bang < plain)) return bang + 4;
+  return plain < 0 ? -1 : plain + 3;
+}
+
 /**
  * A forgiving HTML reader, enough for a mail's content: elements with their
  * attributes exactly as written (entities kept), text as written, comments
  * (Outlook's conditional ones included) as written. An element left open is
  * closed where its parent ends; a closing tag that closes nothing is dropped
  * (left in, it could close the layout's own table around the content).
+ *
+ * Nothing the content leaves unfinished may run on into the layout after it:
+ * a comment or a `<!…>` that never ends is dropped (a browser would read the
+ * layout's own Outlook comment as its end and hide the footer, the
+ * unsubscribe line with it), and a `<` that starts no tag is written `&lt;`
+ * (an unfinished tag would take the layout's next tag into itself). Comments
+ * end where a browser ends them (`--!>` and `<!-->` included), so what is
+ * kept as a comment is exactly what a browser hides.
  */
 function parseHtml(html: string): Node[] {
   const root: ElementNode = { kind: 'el', name: '#root', attrs: [], children: [] };
@@ -348,22 +370,24 @@ function parseHtml(html: string): Node[] {
     text += html.slice(i, lt);
     i = lt;
     if (html.startsWith('<!--', i)) {
-      const end = html.indexOf('-->', i + 4);
+      const end = commentEnd(html, i);
       flush();
-      top().children.push({ kind: 'comment', raw: end < 0 ? html.slice(i) : html.slice(i, end + 3) });
-      i = end < 0 ? n : end + 3;
+      if (end < 0) break;
+      top().children.push({ kind: 'comment', raw: html.slice(i, end) });
+      i = end;
       continue;
     }
     if (html[i + 1] === '!' || html[i + 1] === '?') {
       const end = html.indexOf('>', i);
       flush();
-      top().children.push({ kind: 'comment', raw: end < 0 ? html.slice(i) : html.slice(i, end + 1) });
-      i = end < 0 ? n : end + 1;
+      if (end < 0) break;
+      top().children.push({ kind: 'comment', raw: html.slice(i, end + 1) });
+      i = end + 1;
       continue;
     }
     const head = /^<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)/.exec(html.slice(i, i + 80));
     if (!head) {
-      text += '<';
+      text += '&lt;';
       i += 1;
       continue;
     }
@@ -382,7 +406,7 @@ function parseHtml(html: string): Node[] {
       }
     }
     if (end < 0) {
-      text += '<';
+      text += '&lt;';
       i += 1;
       continue;
     }
@@ -424,6 +448,8 @@ function parseHtml(html: string): Node[] {
 const attrOf = (el: ElementNode, name: string): string | null | undefined => el.attrs.find((a) => a.name === name)?.value;
 const classesOf = (el: ElementNode): string[] => String(attrOf(el, 'class') ?? '').split(/\s+/).filter(Boolean);
 const hasClass = (el: ElementNode, cls: string) => classesOf(el).includes(cls);
+/** The hidden inbox preview: a `div` whose class list holds `preheader`, or that carries `data-preheader`. */
+const isPreheader = (el: ElementNode) => el.name === 'div' && (hasClass(el, 'preheader') || attrOf(el, 'data-preheader') !== undefined);
 /** Made by this layout already: passed on as it is (the styler is idempotent). */
 const isOurs = (el: ElementNode) => classesOf(el).some((c) => c.startsWith('x-'));
 const isBlank = (node: Node) => (node.kind === 'text' && !node.raw.trim()) || node.kind === 'comment';
@@ -447,10 +473,165 @@ function serialize(nodes: Node[]): string {
   return out;
 }
 
-/** The visible text of a subtree, as written (entities kept). */
+/** The visible text of a subtree, as written (entities kept): never a style's or a script's source. */
 function rawText(nodes: Node[]): string {
-  return nodes.map((n) => (n.kind === 'text' ? n.raw : n.kind === 'el' ? rawText(n.children) : '')).join('');
+  return nodes.map((n) => (n.kind === 'text' ? n.raw : n.kind === 'el' && !RAW_TEXT.has(n.name) ? rawText(n.children) : '')).join('');
 }
+
+/* ───────────────────────────────────────────── what content may not hold ── */
+
+/**
+ * Elements a mail's content never sends, with everything inside them: what
+ * runs code, loads another page or document, or takes input (spam filters
+ * score them, and no mail client runs them), what belongs in a document's
+ * head, and inline SVG and MathML (email clients do not show inline SVG, and
+ * their markup follows parsing rules this reader does not follow, so what it
+ * would keep as text there could be markup to a browser).
+ */
+const FORBIDDEN = new Set([
+  'script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'input', 'select', 'textarea',
+  'link', 'meta', 'base', 'plaintext', 'svg', 'math',
+]);
+/** Forbidden too, but their words are the author's: the element goes, what is inside it stays. */
+const UNWRAPPED = new Set(['form', 'button']);
+const isEventAttr = (a: Attr) => /^on/i.test(a.name);
+
+/** The content without what it may never send (FORBIDDEN, UNWRAPPED, `on…` handlers). */
+function withoutForbidden(nodes: Node[]): Node[] {
+  const out: Node[] = [];
+  for (const node of nodes) {
+    if (node.kind !== 'el') {
+      out.push(node);
+      continue;
+    }
+    if (FORBIDDEN.has(node.name)) continue;
+    const children = RAW_TEXT.has(node.name) ? node.children : withoutForbidden(node.children);
+    if (UNWRAPPED.has(node.name)) {
+      out.push(...children);
+      continue;
+    }
+    out.push({ ...node, attrs: node.attrs.filter((a) => !isEventAttr(a)), children });
+  }
+  return out;
+}
+
+/** A content that has grown past this (a transcript is capped well under it) would bring a mail near Gmail's clip. */
+export const CONTENT_MAX_BYTES = 40 * 1024;
+const MAX_IMAGES = 2;
+const PLACEHOLDER_LEAD = /^\s*\{/;
+
+export interface ContentRules {
+  /** The brand's own hosts or addresses (the panel's, the site's): their subdomains count as theirs. */
+  hosts: string[];
+  /** The one address a content may write to (mailto:). */
+  supportEmail: string;
+}
+
+function hostName(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/** Where a link or an image may point: the brand's own hosts, or a placeholder the sender fills. */
+function urlProblem(value: string, hosts: string[], supportEmail: string, kind: 'link' | 'image'): string | null {
+  const url = decodeEntities(value).trim();
+  if (!url || PLACEHOLDER_LEAD.test(url)) return null;
+  if (kind === 'link' && url.startsWith('#')) return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase() ?? '';
+  if (kind === 'link' && scheme === 'mailto') {
+    const address = url.slice(7).split('?')[0].trim().toLowerCase();
+    if (address.includes('{')) return null;
+    let decoded = address;
+    try {
+      decoded = decodeURIComponent(address);
+    } catch {
+      /* compared as written */
+    }
+    return supportEmail && decoded === supportEmail.trim().toLowerCase() ? null : 'foreign_link';
+  }
+  if (kind === 'link' && scheme === 'tel') return null;
+  if (/^(javascript|vbscript|data)$/.test(scheme)) return kind === 'link' ? 'script_link' : 'foreign_image';
+  if (scheme !== 'http' && scheme !== 'https') return kind === 'link' ? 'bad_link' : 'foreign_image';
+  let host = '';
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return url.includes('{') ? null : kind === 'link' ? 'bad_link' : 'foreign_image';
+  }
+  if (host.includes('{') || host.includes('%7b')) return null;
+  const own = hosts.some((h) => h && (host === h || host.endsWith(`.${h}`)));
+  return own ? null : kind === 'link' ? 'foreign_link' : 'foreign_image';
+}
+
+const HIDDEN_STYLE = /(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden|max-height\s*:\s*0(?![.\d]))/i;
+
+/**
+ * What a content holds that a platform mail must not send (the
+ * deliverability rules of the design panel, 2026-10-30): elements that run
+ * code, load a page or take input (`forbidden_element:<name>`, and `on…`
+ * handlers, `event_handler`); anything hidden but the one preheader
+ * (`hidden_element`); a background image (`background_url`); more than two
+ * images, or one without its width, height and alt text
+ * (`too_many_images`, `image_without_size_or_alt`); a link or an image off
+ * the brand's own hosts (`foreign_link`, `foreign_image`), a mailto other
+ * than the support address included; a script or relative link
+ * (`script_link`, `bad_link`); and a content past CONTENT_MAX_BYTES
+ * (`too_large`). A placeholder the sender fills (`href="{action_url}"`)
+ * passes: the filled value is checked when the mail is sent.
+ *
+ * The codes, each once, in the order found; never a piece of the content.
+ * The core checks every mail it lays out and logs what it finds (the styler
+ * drops the forbidden elements whatever this says); Super Admin's save check
+ * applies the same rules (index.ts templateContentProblems).
+ */
+export function contentProblems(html: string, rules: ContentRules): string[] {
+  const source = String(html ?? '');
+  const found = new Set<string>();
+  const hosts = rules.hosts.map(hostName).filter(Boolean);
+  const supportEmail = String(rules.supportEmail || '');
+  let images = 0;
+  const nodes = parseHtml(source);
+  const preheaderAt = nodes.findIndex((n) => n.kind === 'el' && isPreheader(n));
+  const visit = (list: Node[]) => {
+    for (const node of list) {
+      if (node.kind !== 'el') continue;
+      const name = node.name;
+      if (FORBIDDEN.has(name) || UNWRAPPED.has(name)) found.add(`forbidden_element:${name}`);
+      if (node.attrs.some(isEventAttr)) found.add('event_handler');
+      const style = String(attrOf(node, 'style') ?? '');
+      if (HIDDEN_STYLE.test(style) || attrOf(node, 'hidden') !== undefined) found.add('hidden_element');
+      if (/url\s*\(/i.test(style) || (attrOf(node, 'background') ?? '').trim()) found.add('background_url');
+      if (name === 'style' && /url\s*\(/i.test(rawStyleText(node))) found.add('background_url');
+      if (name === 'img') {
+        images += 1;
+        const sized = ['width', 'height'].every((a) => String(attrOf(node, a) ?? '').trim());
+        if (!sized || !String(attrOf(node, 'alt') ?? '').trim()) found.add('image_without_size_or_alt');
+        const problem = urlProblem(String(attrOf(node, 'src') ?? ''), hosts, supportEmail, 'image');
+        if (problem) found.add(problem);
+      }
+      if (name === 'a' || name === 'area') {
+        const href = attrOf(node, 'href');
+        if (href) {
+          const problem = urlProblem(href, hosts, supportEmail, 'link');
+          if (problem) found.add(problem);
+        }
+      }
+      if (!RAW_TEXT.has(name)) visit(node.children);
+    }
+  };
+  // The preheader is hidden by design: only its words are taken (extractPreheader).
+  visit(preheaderAt < 0 ? nodes : [...nodes.slice(0, preheaderAt), ...nodes.slice(preheaderAt + 1)]);
+  if (images > MAX_IMAGES) found.add('too_many_images');
+  if (Buffer.byteLength(source, 'utf8') > CONTENT_MAX_BYTES) found.add('too_large');
+  return [...found];
+}
+
+const rawStyleText = (el: ElementNode) => el.children.map((c) => (c.kind === 'text' ? c.raw : '')).join('');
 
 /**
  * A start tag from the author's attributes plus ours. Theirs are kept: class
@@ -568,7 +749,7 @@ function renderBoxChildren(nodes: Node[], ctx: StyleContext): string {
       continue;
     }
     if (node.name === 'p' && !isOurs(node)) {
-      out += paragraph(node, ctx, node === lastP, 'box');
+      out += paragraph(node, ctx, node === lastP, ctx.box ? 'box' : hasClass(node, 'note') ? 'note' : 'body');
       continue;
     }
     out += renderElement(node, ctx, false);
@@ -700,20 +881,36 @@ function codeBox(el: ElementNode, ctx: StyleContext, last: boolean): string {
   );
 }
 
+/** The context inside an author's own background: pinned to the light palette, no dark classes. */
+const pinnedFor = (el: ElementNode, ctx: StyleContext): StyleContext => (ownBackground(el) && !ctx.pinned ? { ...ctx, pinned: true } : ctx);
+
 function details(el: ElementNode, ctx: StyleContext, last: boolean): string {
   const p = pal(ctx);
+  // Rows are the table's; anything else in it (a caption, a note) is the
+  // author's too and goes above the rows rather than being lost.
   const rows: ElementNode[] = [];
-  for (const child of elements(el.children)) {
-    if (child.name === 'tr') rows.push(child);
-    else if (child.name === 'thead' || child.name === 'tbody' || child.name === 'tfoot') rows.push(...elements(child.children).filter((r) => r.name === 'tr'));
-  }
+  const extras: Node[] = [];
+  const take = (nodes: Node[]) => {
+    for (const child of nodes) {
+      if (child.kind === 'el' && child.name === 'tr') rows.push(child);
+      else if (child.kind === 'el' && (child.name === 'thead' || child.name === 'tbody' || child.name === 'tfoot')) take(child.children);
+      else if (!isBlank(child)) extras.push(child);
+    }
+  };
+  take(el.children);
   const [size, lh] = ctx.t.key;
   const body = rows.map((row, k) => {
     const lastRow = k === rows.length - 1;
-    const border = lastRow ? '' : `border-bottom:1px solid ${p.line};`;
-    const lineCls = lastRow ? '' : ` ${dk(ctx, 'x-line')}`;
+    // A row or a cell with its own background (a highlighted amount) keeps
+    // light-scheme text on it, as any element with one does.
+    const rowCtx = pinnedFor(row, ctx);
     const cells = elements(row.children).filter((c) => c.name === 'th' || c.name === 'td');
     const out = cells.map((cell, ci) => {
+      const cellCtx = pinnedFor(cell, rowCtx);
+      const cp = pal(cellCtx);
+      const border = lastRow ? '' : `border-bottom:1px solid ${cp.line};`;
+      // Pinned, both are the one plain marker.
+      const classes = (text: string) => [...new Set([dk(cellCtx, text), ...(lastRow ? [] : [dk(cellCtx, 'x-line')])])].join(' ');
       const label = cell.name === 'th';
       const ltr = attrOf(cell, 'dir') === 'ltr';
       const gap = ci > 0 ? `padding-${ctx.start}:14px;` : '';
@@ -721,22 +918,30 @@ function details(el: ElementNode, ctx: StyleContext, last: boolean): string {
       // anywhere, which would let a label be squeezed to a letter a line);
       // a long value breaks anywhere, a short one only between words.
       if (label) {
-        const style = `padding:13px 0;${gap}${border}font-family:${ctx.font};font-size:${size}px;line-height:${lh}px;font-weight:400;color:${p.muted};text-align:${ctx.start};vertical-align:top;word-break:normal;overflow-wrap:normal;${MSO}`;
-        return `${startTag('th', cell.attrs, { class: `${dk(ctx, 'x-muted')}${lineCls}`, scope: 'row', align: ctx.start, valign: 'top', style })}${renderNodes(cell.children, ctx)}</th>`;
+        const style = `padding:13px 0;${gap}${border}font-family:${ctx.font};font-size:${size}px;line-height:${lh}px;font-weight:400;color:${cp.muted};text-align:${ctx.start};vertical-align:top;word-break:normal;overflow-wrap:normal;${MSO}`;
+        return `${startTag('th', cell.attrs, { class: classes('x-muted'), scope: 'row', align: ctx.start, valign: 'top', style })}${renderNodes(cell.children, cellCtx)}</th>`;
       }
       const long = decodeEntities(rawText(cell.children)).trim().length > SHORT_LTR;
       const wrap = long ? 'overflow-wrap:anywhere;word-break:break-word;' : 'word-break:normal;overflow-wrap:normal;';
       const style =
-        `padding:13px 0;${gap}${border}font-family:${ctx.font};font-size:${size}px;line-height:${lh}px;font-weight:700;color:${p.ink};` +
+        `padding:13px 0;${gap}${border}font-family:${ctx.font};font-size:${size}px;line-height:${lh}px;font-weight:700;color:${cp.ink};` +
         `text-align:${ctx.end};vertical-align:top;${wrap}${ltr ? ltrRun(cell) : ''}${MSO}`;
-      return `${startTag('td', cell.attrs, { class: `${dk(ctx, 'x-ink')}${lineCls}`, align: ctx.end, valign: 'top', style })}${renderNodes(cell.children, ctx)}</td>`;
+      return `${startTag('td', cell.attrs, { class: classes('x-ink'), align: ctx.end, valign: 'top', style })}${renderNodes(cell.children, cellCtx)}</td>`;
     }).join('');
     return `${startTag('tr', row.attrs, {})}${out}</tr>`;
+  }).join('');
+  const above = extras.map((node) => {
+    if (node.kind !== 'el') return node.kind === 'text' ? `<div class="${dk(ctx, 'x-ink')}" style="padding:13px 0 0;color:${p.ink};text-align:${ctx.start};">${node.raw.trim()}</div>` : '';
+    if (node.name !== 'caption') return renderElement(node, ctx, false);
+    const capCtx = pinnedFor(node, ctx);
+    const style = `padding:13px 0 0;font-family:${ctx.font};font-size:${size}px;line-height:${lh}px;font-weight:700;color:${pal(capCtx).ink};text-align:${ctx.start};${MSO}`;
+    return `${startTag('div', node.attrs, { class: dk(capCtx, 'x-ink'), style })}${renderNodes(node.children, capCtx)}</div>`;
   }).join('');
   const r = bubbleRadius(14, 4, ctx, 'end');
   // The inner table is real data (th scope="row"), so it is not presentation.
   return block(
     `<table ${PRESENTATION} width="100%" class="${dk(ctx, 'x-panel')}" bgcolor="${p.panel}" style="width:100%;background-color:${p.panel};border-radius:${r};border-collapse:separate;"><tr><td style="padding:4px 18px;">` +
+      above +
       `${startTag('table', el.attrs, { class: 'x-details', width: '100%', border: '0', cellpadding: '0', cellspacing: '0', style: 'width:100%;border-collapse:collapse;' })}${body}</table>` +
       '</td></tr></table>',
     8, 24, last,
@@ -783,37 +988,60 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
  * One row per message: the reader's own (the visitor's) at the end side in
  * the brand's colour, the team's at the start side in grey, as in the
  * widget. The font is the card's, inherited: a long transcript repeats as
- * little as it can (Gmail clips a mail over about 102 KB).
+ * little as it can (Gmail clips a mail over about 102 KB). Whatever else the
+ * container or a message holds (an older mail's `<p>` lines, a Super Admin's
+ * own note) is the author's and is kept, in its own full-width row, or
+ * under the message's bubble: the text part has it, so the HTML part must.
  */
 function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
-  const p = pal(ctx);
   const [metaSize, metaLh] = ctx.t.meta;
   const [size, lh] = ctx.t.bubble;
   const rows: string[] = [];
-  for (const msg of elements(el.children)) {
-    if (!hasClass(msg, 'msg')) continue;
+  const fullRow = (inner: string) =>
+    `<tr><td align="${ctx.start}" style="padding:0 0 14px;text-align:${ctx.start};">${inner}</td></tr>`;
+  for (const child of el.children) {
+    if (isBlank(child)) continue;
+    if (child.kind !== 'el' || !hasClass(child, 'msg') || isOurs(child)) {
+      rows.push(fullRow(child.kind === 'el' ? renderElement(child, ctx, true) : child.raw.trim()));
+      continue;
+    }
+    const msg = child;
+    // A message with its own background keeps light-scheme text, as any element with one does.
+    const msgCtx = pinnedFor(msg, ctx);
     const visitor = hasClass(msg, 'msg-visitor');
     const side = visitor ? ctx.end : ctx.start;
     const parts = elements(msg.children);
     const meta = parts.find((c) => hasClass(c, 'meta'));
-    const bubble = parts.find((c) => hasClass(c, 'bubble'));
-    const bg = visitor ? p.bubbleVisitor : p.bubbleAgent;
-    const ink = visitor ? p.bubbleVisitorInk : p.bubbleAgentInk;
+    const bubbles = parts.filter((c) => hasClass(c, 'bubble'));
+    const extras = meta || bubbles.length ? msg.children.filter((c) => c !== meta && !bubbles.includes(c as ElementNode) && !isBlank(c)) : [];
     const cls = visitor ? 'x-bv' : 'x-ba';
-    const inner: StyleContext = { ...ctx, box: { ink, cls, size: ctx.t.bubble } };
     const r = bubbleRadius(18, 4, ctx, visitor ? 'end' : 'start');
-    const metaStyle = `padding:0 4px 5px;font-size:${metaSize}px;line-height:${metaLh}px;color:${p.muted};text-align:${side};${MSO}`;
-    const metaHtml = meta
-      ? `<tr>${startTag('td', meta.attrs, { class: dk(ctx, 'x-muted'), align: side, style: metaStyle }, [], ['class'])}${renderNodes(meta.children, ctx).trim()}</td></tr>`
-      : '';
-    const content = bubble ? bubble.children : meta ? [] : msg.children;
-    const bubbleStyle = `background-color:${bg};border-radius:${r};padding:11px 16px;font-size:${size}px;line-height:${lh}px;color:${ink};text-align:${ctx.start};overflow-wrap:anywhere;word-break:break-word;${MSO}`;
-    const bubbleHtml = content.length
-      ? `<tr>${startTag('td', bubble?.attrs ?? [], { class: dk(ctx, cls), bgcolor: bg, style: bubbleStyle }, [], ['class'])}${renderBoxChildren(content, inner).trim()}</td></tr>`
+    let metaHtml = '';
+    if (meta) {
+      const metaCtx = pinnedFor(meta, msgCtx);
+      const metaStyle = `padding:0 4px 5px;font-size:${metaSize}px;line-height:${metaLh}px;color:${pal(metaCtx).muted};text-align:${side};${MSO}`;
+      metaHtml = `<tr>${startTag('td', meta.attrs, { class: dk(metaCtx, 'x-muted'), align: side, style: metaStyle }, [], ['class'])}${renderNodes(meta.children, metaCtx).trim()}</td></tr>`;
+    }
+    const bubbleRow = (attrs: Attr[], content: Node[], bubbleCtx: StyleContext) => {
+      const bp = pal(bubbleCtx);
+      const bg = visitor ? bp.bubbleVisitor : bp.bubbleAgent;
+      const ink = visitor ? bp.bubbleVisitorInk : bp.bubbleAgentInk;
+      const inner: StyleContext = { ...bubbleCtx, box: { ink, cls, size: ctx.t.bubble } };
+      const bubbleStyle = `background-color:${bg};border-radius:${r};padding:11px 16px;font-size:${size}px;line-height:${lh}px;color:${ink};text-align:${ctx.start};overflow-wrap:anywhere;word-break:break-word;${MSO}`;
+      return `<tr>${startTag('td', attrs, { class: dk(bubbleCtx, cls), bgcolor: bg, style: bubbleStyle }, [], ['class'])}${renderBoxChildren(content, inner).trim()}</td></tr>`;
+    };
+    let bubbleHtml = '';
+    if (bubbles.length) {
+      for (const bubble of bubbles) if (bubble.children.length) bubbleHtml += bubbleRow(bubble.attrs, bubble.children, pinnedFor(bubble, msgCtx));
+    } else if (!meta && msg.children.length) {
+      bubbleHtml = bubbleRow([], msg.children, msgCtx);
+    }
+    const extraHtml = extras.length
+      ? `<tr><td align="${side}" style="padding:6px 4px 0;text-align:${side};">${renderBoxChildren(extras, msgCtx).trim()}</td></tr>`
       : '';
     rows.push(
       `<tr><td align="${side}" style="padding:0 0 14px;text-align:${side};">` +
-        `<table ${PRESENTATION} align="${side}" style="border-collapse:separate;max-width:86%;">${metaHtml}${bubbleHtml}</table>` +
+        `<table ${PRESENTATION} align="${side}" style="border-collapse:separate;max-width:86%;">${metaHtml}${bubbleHtml}${extraHtml}</table>` +
         '</td></tr>',
     );
   }
@@ -850,16 +1078,15 @@ function contextFor(opts: StyleContentOptions): StyleContext {
 
 /**
  * The content vocabulary as inline-styled, table-based markup (the card's
- * inside). A preheader is left where it is: renderEmailDocument takes it out
+ * inside), without what a content may never send (contentProblems lists
+ * it). A preheader is left where it is: renderEmailDocument takes it out
  * first (extractPreheader).
  */
 export function styleContent(contentHtml: string, opts: StyleContentOptions): string {
-  return renderNodes(parseHtml(String(contentHtml ?? '')), contextFor(opts), true);
+  return renderNodes(withoutForbidden(parseHtml(String(contentHtml ?? ''))), contextFor(opts), true);
 }
 
 /* ───────────────────────────────────────────────────────────── preheader ── */
-
-const isPreheader = (el: ElementNode) => el.name === 'div' && (hasClass(el, 'preheader') || attrOf(el, 'data-preheader') !== undefined);
 
 /**
  * The first top-level `div` whose class list holds `preheader` (or that
@@ -871,7 +1098,7 @@ export function extractPreheader(contentHtml: string): { preheader: string; rest
   const at = nodes.findIndex((n) => n.kind === 'el' && isPreheader(n));
   if (at < 0) return { preheader: '', rest: String(contentHtml ?? '') };
   const el = nodes[at] as ElementNode;
-  const preheader = rawText(el.children).replace(/\s+/g, ' ').trim();
+  const preheader = rawText(withoutForbidden(el.children)).replace(/\s+/g, ' ').trim();
   return { preheader, rest: serialize([...nodes.slice(0, at), ...nodes.slice(at + 1)]) };
 }
 
@@ -953,7 +1180,7 @@ function tidyText(text: string): string {
  * with their targets, a details row as "Label: value".
  */
 export function contentToText(contentHtml: string): string {
-  return tidyText(textOf(parseHtml(String(contentHtml ?? ''))));
+  return tidyText(textOf(withoutForbidden(parseHtml(String(contentHtml ?? '')))));
 }
 
 /* ─────────────────────────────────────────────────────────────── document ── */

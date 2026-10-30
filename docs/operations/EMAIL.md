@@ -124,7 +124,8 @@ wears the brand as it is then:
   its `</body>`.
 
 **What a row holds.** Only the content, in this vocabulary; anything else
-passes through as it is, and an inline `style` of the author's wins over ours:
+passes through as it is (but for what a mail may not send, below), and an
+inline `style` of the author's wins over ours:
 
 | Element | Role |
 | --- | --- |
@@ -138,6 +139,31 @@ passes through as it is, and an inline `style` of the author's wins over ours:
 | `div.warning`, `div.notice` | callouts |
 | `hr`, `strong`, `a`, `br` | separators and inline text |
 | `div.transcript > div.msg.msg-visitor\|msg-agent > div.meta + div.bubble` | a chat transcript |
+
+Inside a transcript or a details table, what is not a message or a row (an
+older mail's `<p>` lines, a caption, a note of the Super Admin's) is kept, in
+a row of its own or above the rows. A visitor's message keeps its lines: its
+sender turns each line break into `<br>` (HTML folds a bare one, and Outlook
+ignores `white-space`), which the derived text part reads back as a line.
+
+**What a mail may not send** (`contentProblems` in `layout.ts`, the design
+panel's deliverability rules): anything that runs code, loads a page or takes
+input (`script`, `iframe`, `object`, `embed`, `form`, `input`, `button`,
+`select`, `textarea`, `link`, `meta`, `base`, inline `svg` and `math`, and
+`on…` handlers); anything hidden but the one preheader; a background image;
+more than two images, or one without its width, height and alt text; a link
+or an image off the brand's own hosts (the panel's and the site's, with their
+subdomains), a mailto other than the support address included; and a content
+over 40 KB. A placeholder the sender fills (`href="{action_url}"`) passes; the
+filled value is checked when the mail goes. At send time the core drops the
+first group whatever the row says (a form or a button keeps its words) and
+logs the rest as `[email] <slug> (<edition>, <locale>): <codes>`, once per
+template in a process and never the content, so a row edited by hand can be
+fixed in Super Admin. Super Admin's save check is `templateContentProblems`
+in `index.ts`: the same rules, against the same brand hosts. Every row 291
+writes passes them on both brands. The content's comments end where a
+browser ends them, and one that never ends is dropped, so nothing in a row can
+hide the footer and its unsubscribe line.
 
 **What the core adds at send time.** `{brand}` (the platform's name in the
 template's language), `{year}` (the Persian year in a Persian mail of the

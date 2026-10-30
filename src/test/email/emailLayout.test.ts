@@ -9,7 +9,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  CONTENT_MAX_BYTES,
   EMAIL_PALETTES,
+  contentProblems,
   contentToText,
   documentBody,
   extractPreheader,
@@ -165,6 +167,139 @@ describe('what passes through', () => {
   });
 });
 
+/** The document as a browser shows it: every comment out, ended where a browser ends it (an unended one hides the rest). */
+function withoutComments(html: string): string {
+  let out = '';
+  let from = 0;
+  for (let at = html.indexOf('<!--', from); at >= 0; at = html.indexOf('<!--', from)) {
+    out += html.slice(from, at);
+    const body = at + 4;
+    if (html.startsWith('>', body)) from = body + 1;
+    else if (html.startsWith('->', body)) from = body + 2;
+    else {
+      const ends = [html.indexOf('-->', body), html.indexOf('--!>', body)].filter((k) => k >= 0);
+      if (!ends.length) return out;
+      const end = Math.min(...ends);
+      from = end + (html.startsWith('-->', end) ? 3 : 4);
+    }
+  }
+  return out + html.slice(from);
+}
+
+describe('content cannot run on into the layout after it', () => {
+  const footer = { html: '<p>Notifications are on. <a href="https://app.respok.app/u/abc">Unsubscribe</a></p>', text: 'x' };
+
+  it('an unended comment or <!…> is dropped: the footer, its unsubscribe link and the legal line still show', () => {
+    for (const tail of ['<!-- internal note', '<!-- note -', '<!x', '<?x', '<!DOCTYPE']) {
+      const shown = withoutComments(doc(`<h1>Hi</h1><p>Body</p>${tail}`, { footer, category: 'notification' }));
+      expect(shown).toContain('>Body</p>');
+      expect(shown).toContain('>Unsubscribe</a>');
+      expect(shown).toContain('>© 2026 RESPOK</td>');
+      expect(shown).toMatch(/<\/body>\n<\/html>$/);
+    }
+  });
+
+  it('a < that starts no finished tag is text, so it cannot take the layout\'s next tag into itself', () => {
+    for (const tail of ['<a href="https://app.respok.app/x', '<p class="action"><a href="', '<img src=x', '< 3', '</ b']) {
+      const html = doc(`<p>Body</p>${tail}`, { footer, category: 'notification' });
+      expect(html).not.toContain(tail);
+      expect(html).toContain(`&lt;${tail.slice(tail.lastIndexOf('<') + 1)}`);
+      expect(withoutComments(html)).toContain('>Unsubscribe</a>');
+    }
+    expect(contentToText('<p>a < b</p>')).toBe('a < b');
+  });
+
+  it('a comment ends where a browser ends it, so what is kept as one is what a browser hides', () => {
+    const html = styleContent('<!-- a --!><p>After</p><!--><p>Next</p><!---><p>Third</p><!-- b -->', en);
+    expect(html).toMatch(/^<!-- a --!><p class="x-ink"[^>]*>After<\/p><!--><p class="x-ink"[^>]*>Next<\/p><!---><p class="x-ink"[^>]*>Third<\/p><!-- b -->$/);
+    // Nothing hides behind an early end: what follows it is content, and checked as content.
+    expect(styleContent('<!-- x --!><script>alert(1)</script>-->', en)).not.toContain('<script');
+  });
+});
+
+describe('what a content may not send', () => {
+  const rules = { hosts: ['https://app.respok.app', 'https://respok.app'], supportEmail: 'support@respok.app' };
+
+  it('a row in the vocabulary, its placeholders included, has nothing to fix', () => {
+    expect(contentProblems(RECEIPT, rules)).toEqual([]);
+    const links =
+      '<div class="preheader" style="display:none">P</div><p class="action"><a href="{action_url}">Go</a></p>' +
+      '<p><a href="{{action_url}}">x</a> <a href="mailto:{support_email}">s</a> <a href="mailto:Support@respok.app?subject=Hi">s</a> ' +
+      '<a href="https://help.respok.app/a">h</a> <a href="#top">t</a> <a href="tel:+14155550100">c</a></p>' +
+      '<img src="https://app.respok.app/brand/x.png" width="120" height="40" alt="Chart"><div class="transcript"><div class="msg msg-visitor"><div class="meta">You</div><div class="bubble">Hi</div></div></div>';
+    expect(contentProblems(links, rules)).toEqual([]);
+  });
+
+  it('names each problem once, by its code, never by what the content says', () => {
+    const bad =
+      '<div class="preheader">ok</div><script>steal()</script><iframe src="https://evil.example"></iframe>' +
+      '<form action="https://evil.example"><input name="pw"><button>Send</button></form>' +
+      '<p style="display:none">a</p><div style="visibility: hidden">b</div><div style="max-height:0;overflow:hidden">c</div><div hidden>d</div>' +
+      '<p style="background-image:url(https://evil.example/x.png)">e</p><table background="https://evil.example/y.png"><tr><td>f</td></tr></table>' +
+      '<img src="https://app.respok.app/a.png" width="1" height="1" alt="a"><img src="https://evil.example/b.png" width="1" height="1" alt="b"><img src="https://app.respok.app/c.png">' +
+      '<p onclick="x()"><a href="https://evil.example/login">Sign in</a> <a href="javascript:alert(1)">j</a> <a href="/settings">r</a> <a href="mailto:someone@else.example">m</a></p>';
+    const problems = contentProblems(bad, rules);
+    expect([...problems].sort()).toEqual([
+      'background_url', 'bad_link', 'event_handler', 'forbidden_element:button', 'forbidden_element:form', 'forbidden_element:iframe',
+      'forbidden_element:input', 'forbidden_element:script', 'foreign_image', 'foreign_link', 'hidden_element',
+      'image_without_size_or_alt', 'script_link', 'too_many_images',
+    ]);
+    expect(problems.join(' ')).not.toMatch(/evil|steal|pw|someone|settings/);
+    // Hidden is hidden, whichever way: one at a time.
+    for (const one of ['<p style="display:none">a</p>', '<div style="visibility:hidden">b</div>', '<div style="max-height:0px">c</div>', '<div hidden>d</div>']) {
+      expect(contentProblems(one, rules)).toEqual(['hidden_element']);
+    }
+    expect(contentProblems('<div style="max-height:0.5em">c</div>', rules)).toEqual([]);
+    // A second preheader is not the preview: hidden, it is hidden text.
+    expect(contentProblems('<div class="preheader">one</div><p>x</p><div class="preheader" style="display:none">two</div>', rules)).toEqual(['hidden_element']);
+  });
+
+  it('a content past its budget is too large', () => {
+    expect(contentProblems(`<p>${'x'.repeat(CONTENT_MAX_BYTES)}</p>`, rules)).toEqual(['too_large']);
+  });
+
+  it('the styler never sends what runs code, loads a page or takes input; a form or a button keeps its words', () => {
+    const content =
+      '<div class="preheader">Hi<script>p()</script><style>p{}</style></div><p onclick="x()" onmouseover="y()">Hi</p><script>steal()</script>' +
+      '<iframe src="https://evil.example"></iframe><form action="https://evil.example"><p>Inside</p><input name="pw"><button type="submit">Send</button></form>' +
+      '<svg><style><img src=x onerror=alert(1)></style></svg><object data="https://evil.example"></object>' +
+      '<meta http-equiv="refresh" content="0;url=https://evil.example"><base href="https://evil.example/"><select><option>Pick</option></select><textarea>Typed</textarea>';
+    const html = doc(content);
+    const body = html.slice(html.indexOf('<body'));
+    expect(body).not.toMatch(/<(script|iframe|form|input|button|svg|object|meta|base|select|textarea)\b/i);
+    expect(body).not.toMatch(/\bon(click|mouseover|error)=/i);
+    expect(html).not.toMatch(/steal|evil|alert|Pick|Typed|p\(\)/);
+    expect(html).toMatch(/<p class="x-ink"[^>]*>Inside<\/p>/);
+    expect(html).toContain('Send');
+    expect(html).toMatch(/<div data-preheader[^>]*>Hi&#847;/);
+    const text = contentToText(content);
+    expect(text).not.toMatch(/steal|alert|Pick|Typed|p\(\)/);
+    expect(text).toContain('Inside');
+  });
+});
+
+describe('the author\'s own children inside a container of the vocabulary are kept', () => {
+  it('a transcript keeps what is not a message (an older mail\'s lines), each in its own row', () => {
+    const legacy = styleContent('<div class="transcript"><p>legacy line</p></div>', en);
+    expect(legacy).toMatch(/<table class="transcript x-transcript"[\s\S]*<td align="left" style="padding:0 0 14px;text-align:left;"><p class="x-ink"[^>]*>legacy line<\/p><\/td>/);
+    const mixed = '<div class="transcript">loose words<div class="msg msg-agent"><div class="meta">M</div><div class="bubble">One</div><div class="bubble">Two</div><p class="note">Seen</p></div></div>';
+    const html = styleContent(mixed, en);
+    expect(html).toContain('>loose words</td>');
+    expect(html).toMatch(/class="x-ba"[^>]*>One<\/td><\/tr><tr><td[^>]*class="x-ba"[^>]*>Two<\/td><\/tr><tr><td align="left" style="padding:6px 4px 0;text-align:left;"><p class="note x-muted"[^>]*>Seen<\/p>/);
+    expect(contentToText(mixed)).toBe('loose words\n\nM\nOne\nTwo\n\nSeen');
+    // Still idempotent.
+    expect(styleContent(html, en)).toBe(html);
+  });
+
+  it('a details table keeps its caption and any other child, above its rows', () => {
+    const content = '<table class="details"><caption>Your plan</caption><tr><th>Plan</th><td>Pro</td></tr></table>';
+    const html = styleContent(content, en);
+    expect(html).toMatch(/<td style="padding:4px 18px;"><div class="x-ink" style="padding:13px 0 0;[^"]*font-weight:700;[^"]*">Your plan<\/div><table class="details x-details"/);
+    expect(html).not.toContain('<caption');
+    expect(contentToText(content)).toContain('Your plan');
+  });
+});
+
 describe('a value is text, whatever it says', () => {
   it('escaped markup and control characters stay text: no block is copied or made', () => {
     // As the core fills it: the visitor's message escaped by fillEmailTemplate.
@@ -182,6 +317,25 @@ describe('dark mode keeps an author\'s colours readable', () => {
     const html = styleContent('<p><span style="background:#FFF3C4">highlight <a href="https://x.example">link</a></span></p>', en);
     expect(html).toContain('<span style="color:#16142B;background:#FFF3C4">');
     expect(html).toMatch(/<a href="https:\/\/x\.example" class="x-pin" style="color:#B92F17;/);
+  });
+
+  it('a details row or value with its own background keeps light-scheme text, in a dark mail too', () => {
+    const table = '<table class="details"><tr><th>Plan</th><td style="background:#FFF3C4">$29.00</td></tr><tr style="background-color:#FFF3C4"><th>Total</th><td>$31.90</td></tr></table>';
+    for (const scheme of ['auto', 'dark'] as const) {
+      const html = styleContent(table, { ...en, scheme });
+      // The highlighted value: RESPOK's light ink and line, no dark class (which would turn it near-white on yellow).
+      expect(html).toMatch(/<td style="padding:13px 0;padding-left:14px;border-bottom:1px solid #E4E3EC;[^"]*color:#16142B;[^"]*;background:#FFF3C4" class="x-pin" align="right"/);
+      // The highlighted row: both its cells.
+      expect(html).toMatch(/<tr style="background-color:#FFF3C4"><th class="x-pin"[^>]*color:#5E5C75;[^>]*>Total<\/th><td class="x-pin"[^>]*color:#16142B;[^>]*>\$31\.90<\/td><\/tr>/);
+      // The plain label beside the highlighted value is the scheme's own.
+      expect(html).toMatch(/<th class="x-muted x-line"[^>]*>Plan<\/th>/);
+    }
+  });
+
+  it('a transcript\'s meta line or bubble with its own background keeps light-scheme text', () => {
+    const html = styleContent('<div class="transcript"><div class="msg msg-agent"><div class="meta" style="background:#FFF3C4">Maria</div><div class="bubble" style="background:#FFF3C4">Hi</div></div></div>', { ...en, scheme: 'dark' });
+    expect(html).toMatch(/<td style="padding:0 4px 5px;[^"]*color:#5E5C75;[^"]*;background:#FFF3C4" class="x-pin" align="left">Maria<\/td>/);
+    expect(html).toMatch(/<td style="background-color:#F2F1F7;[^"]*color:#16142B;[^"]*;background:#FFF3C4" class="x-pin" bgcolor="#F2F1F7">Hi<\/td>/);
   });
 
   it('a colour without a background still gets the dark class, which wins on a dark card', () => {

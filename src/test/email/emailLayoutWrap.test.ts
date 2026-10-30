@@ -86,8 +86,9 @@ vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => 
   getPlatformAllowedLocales: async () => db.locales,
 }));
 
-const { sendEmail, sendPlatformEmail, renderEmailForPreview } = await import('../../../server/services/email/index.js');
+const { sendEmail, sendPlatformEmail, renderEmailForPreview, templateContentProblems } = await import('../../../server/services/email/index.js');
 const { issueVerificationEmail } = await import('../../../server/services/auth-email.js');
+const { mailTextLines } = await import('../../../server/services/widget/offlineNotice.js');
 
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'], deliveryDiagnosticsLoggingEnabled: false } as never;
 const YEAR = String(new Date().getUTCFullYear());
@@ -184,6 +185,61 @@ describe('the caller\'s closing line sits inside the designed footer', () => {
     expect(html).not.toContain('border-top:1px solid #e5e7eb');
     expect(html).not.toContain('This is a service email');
     expect(text).toContain('You get this because receipts are on.\nUnsubscribe: https://app.respok.app/u/t\nRESPOK · app.respok.app');
+  });
+});
+
+describe('a visitor\'s message keeps its lines', () => {
+  it('in the HTML part (a <br>) and in the text part derived from it (a line break), as the offline notice sends it', async () => {
+    // offline_message_received as 291 writes it: no text part of its own, the message in a quote.
+    db.templates = [{
+      edition: 'international', slug: 'offline_message_received', locale: 'en', subject: 'New offline message',
+      html_body: '<div class="preheader">A visitor left a message.</div><h1>New offline message</h1><table class="details"><tr><th>Name</th><td>{contact_name}</td></tr></table><blockquote>{message_body}</blockquote><p class="action"><a href="{action_url}">Reply in the inbox</a></p>',
+      text_body: null,
+    }];
+    const message = 'Hello,\nmy order 1234\r\nhas not arrived.\n\nThanks <3';
+    await sendEmail(CONFIG, {
+      workspaceId: null, to: 'owner@example.com', subject: 'New offline message', html: '', text: '',
+      templateSlug: 'offline_message_received',
+      templateData: { contact_name: '', message_body: '', action_url: 'https://app.respok.app/acme/inbox?c=1' },
+      htmlData: { contact_name: 'Ali', message_body: mailTextLines(message) },
+      locale: 'en', category: 'notification',
+    } as never);
+    const { html, text } = sent();
+    expect(html).toMatch(/<td class="x-quote"[^>]*>Hello,<br>my order 1234<br>has not arrived\.<br><br>Thanks &lt;3<\/td>/);
+    expect(text).toContain('Name: Ali\n\nHello,\nmy order 1234\nhas not arrived.\n\nThanks <3\n\nReply in the inbox (https://app.respok.app/acme/inbox?c=1)');
+  });
+});
+
+describe('a content is checked when it is sent', () => {
+  it('what runs code never goes out; the problems are logged by their codes, once per template, never the content', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // A slug of its own: the log is once per template, edition and language in a process.
+    db.templates = [{
+      ...RECEIPT, slug: 'billing_trial_ending',
+      html_body: '<h1>Receipt</h1><p style="display:none">secret words</p><script>steal()</script><p><a href="https://evil.example/pay">Pay</a> {receipt_number}</p>',
+    }];
+    await receipt({ templateSlug: 'billing_trial_ending' });
+    await receipt({ templateSlug: 'billing_trial_ending' });
+    expect(sent(0).html).not.toContain('<script');
+    expect(sent(0).html).not.toContain('steal');
+    expect(sent(1).html).toContain('R-7001');
+    const lines = warn.mock.calls.map((c) => c.join(' ')).filter((l) => l.startsWith('[email] billing_trial_ending'));
+    expect(lines).toEqual(['[email] billing_trial_ending (international, en): hidden_element, forbidden_element:script, foreign_link']);
+    expect(lines[0]).not.toMatch(/secret|steal|evil|R-7001/);
+  });
+
+  it('a clean row logs nothing, and Super Admin\'s save check reads the same brand hosts', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    db.templates = [{ ...RECEIPT, slug: 'billing_payment_failed' }];
+    await receipt({ templateSlug: 'billing_payment_failed' });
+    expect(sent().html).toContain('View receipt');
+    expect(warn.mock.calls.filter((c) => String(c[0]).startsWith('[email]'))).toEqual([]);
+    const check = (html_body: string) => templateContentProblems(CONFIG, { edition: 'international', locale: 'en', html_body });
+    expect(await check(RECEIPT.html_body)).toEqual([]);
+    expect(await check('<p><a href="https://respok.app/pricing">Plans</a> <a href="mailto:support@respok.app">Write</a></p>')).toEqual([]);
+    expect(await check('<p><a href="https://evil.example">x</a></p><iframe></iframe>')).toEqual(['foreign_link', 'forbidden_element:iframe']);
+    // A whole document of its own is checked by its body.
+    expect(await check('<!doctype html><html><head><meta charset="utf-8"></head><body><p>ok</p></body></html>')).toEqual([]);
   });
 });
 

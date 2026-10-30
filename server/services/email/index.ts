@@ -32,6 +32,7 @@ import { IRAN_BRAND, brandContactFromDomains } from '../../../shared/brand.js';
 import { parseEmailAddress } from '../../../shared/emailProviders.js';
 import {
   baseLocale,
+  contentProblems,
   decodeEntities,
   documentBody,
   isWholeDocument,
@@ -659,6 +660,8 @@ interface PreparedMessage {
   text: string;
   /** A Super Admin's row (a whole document of its own is sent as it is). */
   fromRow: boolean;
+  /** The template it was asked for (the row's, or the one whose row was missing), for the content check's log. */
+  slug: string | null;
   basics: BrandBasics;
 }
 
@@ -711,7 +714,10 @@ async function prepareMessage(
   if (!tpl) {
     return {
       status: 'ok',
-      message: { edition: scope.edition, locale, subject: input.subject, html: input.html, text: input.text, fromRow: false, basics },
+      message: {
+        edition: scope.edition, locale, subject: input.subject, html: input.html, text: input.text,
+        fromRow: false, slug: input.templateSlug || null, basics,
+      },
     };
   }
   const data: Record<string, string> = {
@@ -721,7 +727,7 @@ async function prepareMessage(
   };
   return {
     status: 'ok',
-    message: { edition: scope.edition, locale, ...fillEmailTemplate(tpl, data, input.htmlData), fromRow: true, basics },
+    message: { edition: scope.edition, locale, ...fillEmailTemplate(tpl, data, input.htmlData), fromRow: true, slug: input.templateSlug || null, basics },
   };
 }
 
@@ -735,6 +741,26 @@ function textAsContent(text: string): string {
     .join('');
 }
 
+/** Which templates' content problems were logged already: once per template, edition and language in a process. */
+const contentProblemsLogged = new Set<string>();
+
+/**
+ * A laid-out mail's content checked against what a platform mail may send
+ * (layout.ts contentProblems): a row a Super Admin edited by hand, or before
+ * the editor checked it, can hold what the styler passes on. The forbidden
+ * elements never go out (the styler drops them); the rest (a foreign link,
+ * a hidden block, an extra image) is logged, by its codes and never its
+ * content, once per template, so it can be fixed in Super Admin.
+ */
+function logContentProblems(message: PreparedMessage, content: string, brand: EmailBrand): void {
+  const key = `${message.slug || 'no template'} (${message.edition}, ${message.locale})${message.fromRow ? '' : ' fallback'}`;
+  if (contentProblemsLogged.has(key)) return;
+  const problems = contentProblems(content, { hosts: [brand.appUrl, brand.siteUrl], supportEmail: brand.supportEmail });
+  if (!problems.length) return;
+  contentProblemsLogged.add(key);
+  console.warn(`[email] ${key}: ${problems.join(', ')}`);
+}
+
 /**
  * The HTML and text parts as they go out. Every platform mail wears the
  * layout (./layout.ts) — a row's content, a caller's own text (written as a
@@ -744,12 +770,13 @@ function textAsContent(text: string): string {
  *
  * The text part is the row's own when it has one (the closing line under
  * it); else, for a laid-out mail, its content as text with the footer's
- * lines, never the layout around it.
+ * lines, never the layout around it. A content is checked before it is
+ * laid out (logContentProblems), unless `check` is false (a preview).
  */
 async function composeMessage(
   config: ServerConfig,
   message: PreparedMessage,
-  opts: { category: EmailCategory; footer?: EmailRequest['footer']; scheme?: 'auto' | 'light' | 'dark' },
+  opts: { category: EmailCategory; footer?: EmailRequest['footer']; scheme?: 'auto' | 'light' | 'dark'; check?: boolean },
 ): Promise<{ html: string; text: string }> {
   const { html, text } = message;
   if (message.fromRow && isWholeDocument(html)) {
@@ -758,6 +785,7 @@ async function composeMessage(
   }
   const content = html ? (isWholeDocument(html) ? documentBody(html) : html) : textAsContent(text);
   const brand = await emailBrand(config, message.edition, message.locale, message.basics);
+  if (opts.check !== false) logContentProblems(message, content, brand);
   const layout = { brand, locale: message.locale, contentHtml: content, category: opts.category, footer: opts.footer ?? null };
   const doc = renderEmailDocument({ ...layout, title: message.subject, scheme: opts.scheme ?? 'auto' });
   const ownText = text.trim() ? (opts.footer?.text ? `${text.trimEnd()}\n\n${opts.footer.text}` : text) : '';
@@ -804,10 +832,30 @@ export async function renderEmailForPreview(
   );
   const composed = await composeMessage(
     config,
-    { edition, locale, ...filled, fromRow: true, basics },
-    { category: input.category ?? 'transactional', footer: input.footer, scheme: input.scheme },
+    { edition, locale, ...filled, fromRow: true, slug: input.slug, basics },
+    { category: input.category ?? 'transactional', footer: input.footer, scheme: input.scheme, check: false },
   );
   return { subject: filled.subject, ...composed };
+}
+
+/**
+ * What a template's content holds that a platform mail must not send
+ * (layout.ts contentProblems), against the same brand hosts and support
+ * address the send checks: for Super Admin to refuse a save on the same
+ * rules. A whole document of its own is checked by its body (it is sent as
+ * it is, its head included). An empty list: nothing to refuse.
+ */
+export async function templateContentProblems(
+  config: ServerConfig,
+  input: { edition: Edition; locale: string; html_body: string },
+): Promise<string[]> {
+  const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const basics = await readBrandBasics(supabase, input.edition, baseLocale(input.locale));
+  const html = String(input.html_body ?? '');
+  return contentProblems(isWholeDocument(html) ? documentBody(html) : html, {
+    hosts: [basics.appUrl, basics.siteUrl],
+    supportEmail: basics.supportEmail,
+  });
 }
 
 /** Same rule as EmailRequest: the platform provider owns the From header. */

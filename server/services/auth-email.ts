@@ -194,7 +194,13 @@ async function issueAuthLink(
   const userName = String(options.fullName ?? '').replace(/\s+/g, ' ').trim() || options.email.split('@')[0];
   // {brand} and {year} are the email core's, in the language and calendar of
   // the template it sends; {expiry_time} goes in every language, for the same
-  // reason (expiryLabels).
+  // reason (expiryLabels). The request's own language's label goes in
+  // templateData too: the outbox keeps this request for a day of retries,
+  // and a core that reads no localizedData (a backend rolled back meanwhile)
+  // would print the placeholder itself.
+  const expiry = expiryLabels(AUTH_LINK_TTL_MS / 3_600_000);
+  const locale = options.locale || 'en';
+  const asked = locale.trim().toLowerCase().split(/[-_]/)[0];
   const result = await sendEmailWithRetry(
     config,
     {
@@ -205,9 +211,10 @@ async function issueAuthLink(
         name: userName,
         action_url: actionUrl,
         email: options.email,
+        ...expiry[asked in expiry ? asked : 'en'],
       },
-      localizedData: expiryLabels(AUTH_LINK_TTL_MS / 3_600_000),
-      locale: options.locale || 'en',
+      localizedData: expiry,
+      locale,
     },
     {
       // A retry is pointless once the link has expired.

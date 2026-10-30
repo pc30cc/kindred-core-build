@@ -8,8 +8,9 @@
  *
  *   - every slug a sender names is here as `sent`, with the placeholders that
  *     sender fills (src/test/email/emailTemplateCatalog.test.ts reads the
- *     senders and fails on a slug, or a way of naming one, missing here), and
- *     the migration chain must seed it for both editions in fa, en and tr
+ *     senders and fails on a slug, a way of naming one, or a key they fill,
+ *     missing here, and on a key here that no send fills), and the migration
+ *     chain must seed it for both editions in fa, en and tr
  *     (emailTemplatesRedesign291.pg.test.ts takes its list from here);
  *   - every other slug the table still holds — the hosted seed's six
  *     placeholders and billing v2's twelve mails, which nothing sends — is

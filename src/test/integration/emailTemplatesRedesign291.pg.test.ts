@@ -43,11 +43,14 @@ const CORE: string[] = [...CORE_TEMPLATE_KEYS];
  * Every slug the code sends and the keys its sender fills: the email
  * template catalog's (server/services/email/templateCatalog.ts), which
  * src/test/email/emailTemplateCatalog.test.ts holds to the senders
- * themselves (auth-email.ts, verification/service.ts, invitations/worker.ts,
- * email/testMail.ts, visitorTranscript.ts, widget/offlineNotice.ts, the
- * operator notices' dispatcher and billing/account/notify.ts, which adds
- * {workspace} and {billing_url}). So this chain must seed every slug the
- * catalog calls sent, and the tab that lists the catalog edits every row.
+ * themselves, slugs and keys, read from their code: the requests that name
+ * a template (auth-email.ts, verification/service.ts, invitations/worker.ts,
+ * email/testMail.ts, visitorTranscript.ts, widget/offlineNotice.ts), each
+ * billing mail's values with what billing/account/notify.ts adds
+ * ({workspace}, {billing_url}, {receipt_url}), and each operator notice's
+ * payload through the dispatcher's fill. So this chain must seed every slug
+ * the catalog calls sent, a row printing a key no sender fills fails here,
+ * and the tab that lists the catalog edits every row.
  */
 const SENT: Record<string, string[]> = Object.fromEntries(
   EMAIL_TEMPLATE_CATALOG.filter((e) => e.status === 'sent').map((e) => [e.slug, [...e.keys]]),

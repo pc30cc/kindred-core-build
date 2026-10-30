@@ -458,6 +458,17 @@ over unchanged. A full disk stops Postgres too.
     host.respok.app before the merge of the website rule, 2026-10-28
     21:59 UTC (a schema dump and the dry run in `/root/webyar-migrate-288/`;
     the 3 verified domain rows unchanged); RESPOK by its migrator on push.
+    Then the email migrations of PR #372, `289_email_suppressions.sql`,
+    `289b_email_outbox.sql`, `289c_notification_email_queue.sql`,
+    `289d_email_send_quota.sql`, `289f_email_inbox_request_ids.sql` and
+    `289g_email_review_fixes.sql`, applied by hand in one run before its merge,
+    2026-10-30 02:07 UTC, after a dry run of the six inside one `BEGIN …
+    ROLLBACK` at 01:22 (a dump of `email_templates`, `notification_email_jobs`,
+    `email_messages` and `user_email_notification_prefs`, a schema dump, the
+    dry run's and the run's logs: `/root/webyar-migrate-289/`). 289d gave the
+    six seeded `offline_message_received` templates (both editions, all still
+    as seeded) their plain subject and added `offline_messages_summary`; the
+    rest writes no data. RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

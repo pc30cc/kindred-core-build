@@ -1102,7 +1102,7 @@ describe('the logo the Super Admin uploaded (Super Admin → Branding): bootstra
     const body = await bootstrap();
     expect(body).toMatchObject({ powered_by_logo: URL_OF_KEY, powered_by_logo_custom: true });
     const own = 'ساخته‌شده با وب‌یار';
-    body.config.custom_texts = { fa: { powered_by: own } };
+    (body.config as Dict).custom_texts = { fa: { powered_by: own } };
     const m = visit(body);
     m.open();
     const credit = m.q('.scr.on .ccw-footer .ccw-powered');
@@ -1113,7 +1113,7 @@ describe('the logo the Super Admin uploaded (Super Admin → Branding): bootstra
     db.platform_branding = [{ id: 'b1', logo_light_storage_key: null }];
     publishCacheInvalidation(['platform']);
     const kitBody = await bootstrap();
-    kitBody.config.custom_texts = { fa: { powered_by: own } };
+    (kitBody.config as Dict).custom_texts = { fa: { powered_by: own } };
     const kit = visit(kitBody);
     kit.open();
     expect(kit.q('.scr.on .ccw-footer svg.wm')).not.toBeNull();

@@ -350,6 +350,21 @@ describe('what a content may not send', () => {
     expect(contentProblems('<div class="preheader">one</div><p>x</p><div class="preheader" style="display:none">two</div>', rules)).toEqual(['hidden_element']);
   });
 
+  it('a whole document\'s preheader goes as written: only its own hiding is the preview\'s, what is inside it is checked', () => {
+    const page = (preheader: string) => `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${preheader}<p>Body</p></body></html>`;
+    expect(contentProblems(page('<div class="preheader" style="display:none">Soon</div>'), rules)).toEqual([]);
+    expect(contentProblems(page('<div data-preheader hidden>Soon</div>'), rules)).toEqual([]);
+    const tracked = page('<div class="preheader" style="display:none">Hi<img src="https://tracker.example/p.gif" width="1" height="1" alt="x">'
+      + '<a href="javascript:alert(1)">x</a><div style="background:url(https://tracker.example/b.gif)">b</div></div>');
+    expect([...contentProblems(tracked, rules)].sort()).toEqual(['background_url', 'foreign_image', 'script_link']);
+    // Shown or not, a block named the preheader hides nothing inside it.
+    const shown = page('<div class="preheader" style="background:url(https://cdn.other.example/bg.png)"><p style="display:none">hidden words</p>'
+      + '<a href="https://respok.app/view">View in browser</a></div>');
+    expect([...contentProblems(shown, rules)].sort()).toEqual(['background_url', 'hidden_element']);
+    // A content's preheader goes as its words only (extractPreheader): nothing in it is sent.
+    expect(contentProblems('<div class="preheader" style="display:none">Hi<img src="https://tracker.example/p.gif"></div><p>Body</p>', rules)).toEqual([]);
+  });
+
   it('a content past its budget is too large', () => {
     expect(contentProblems(`<p>${'x'.repeat(CONTENT_MAX_BYTES)}</p>`, rules)).toEqual(['too_large']);
   });

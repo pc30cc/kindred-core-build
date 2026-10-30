@@ -655,13 +655,16 @@ export function contentProblems(html: string, rules: ContentRules): string[] {
   const preheader = (doc ? contentLevel(nodes) : nodes).find((n) => n.kind === 'el' && isPreheader(n));
   const visit = (list: Node[]) => {
     for (const node of list) {
-      // The preheader is hidden by design: only its words are taken (extractPreheader).
-      if (node.kind !== 'el' || node === preheader) continue;
+      if (node.kind !== 'el') continue;
+      // The preheader is hidden by design. A content's goes as its words
+      // only (extractPreheader); a whole document's goes as written, so all
+      // of it is checked but its own hiding.
+      if (node === preheader && !doc) continue;
       const name = node.name;
       if ((FORBIDDEN.has(name) && !(doc && isDocumentMeta(node))) || UNWRAPPED.has(name)) found.add(`forbidden_element:${name}`);
       if (node.attrs.some(isEventAttr)) found.add('event_handler');
       const style = String(attrOf(node, 'style') ?? '');
-      if (HIDDEN_STYLE.test(style) || attrOf(node, 'hidden') !== undefined) found.add('hidden_element');
+      if ((HIDDEN_STYLE.test(style) || attrOf(node, 'hidden') !== undefined) && node !== preheader) found.add('hidden_element');
       if (/url\s*\(/i.test(style) || (attrOf(node, 'background') ?? '').trim()) found.add('background_url');
       if (name === 'style' && /url\s*\(/i.test(rawStyleText(node))) found.add('background_url');
       if (name === 'img') {

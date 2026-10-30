@@ -21,6 +21,7 @@ import { platformCardTransferReceiptKey } from '../../storage/keys.js';
 import { insertAuditLogRows } from '../../auditLog.js';
 import {
   AccountBillingError,
+  UPSTREAM_FAILURE_STATUS,
   accountCurrency,
   getBillingSettings,
 } from './index.js';
@@ -249,7 +250,7 @@ export async function createCardTransfer(config: ServerConfig, input: CreateCard
   });
   if (!uploaded.success) {
     console.error('[card-transfer] receipt upload failed:', uploaded.error);
-    throw new AccountBillingError('CARD_TRANSFER_RECEIPT_UPLOAD_FAILED', 502);
+    throw new AccountBillingError('CARD_TRANSFER_RECEIPT_UPLOAD_FAILED', UPSTREAM_FAILURE_STATUS);
   }
 
   const { data, error } = await sb
@@ -324,7 +325,7 @@ export async function readCardTransferReceipt(
   if (!row.id) throw new AccountBillingError('CARD_TRANSFER_NOT_FOUND', 404);
   const mime = String(row.receipt_mime);
   const file = await downloadForOwner(config, { kind: 'platform' }, String(row.receipt_key));
-  if (!file.success || !file.data) throw new AccountBillingError('CARD_TRANSFER_RECEIPT_UNAVAILABLE', 502);
+  if (!file.success || !file.data) throw new AccountBillingError('CARD_TRANSFER_RECEIPT_UNAVAILABLE', UPSTREAM_FAILURE_STATUS);
   return { data: Buffer.from(file.data), mime, fileName: `receipt-${requestId.slice(0, 8)}.${EXTENSION[mime] ?? 'bin'}` };
 }
 

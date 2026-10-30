@@ -65,6 +65,7 @@ import {
   readAccountPayment,
   updateBillingProfile,
   verifyAccountPayment,
+  UPSTREAM_FAILURE_STATUS,
 } from '../services/billing/account/index.js';
 import { accountGateways, isIranianGateway, resolveAccountGateway, type GatewayViewer } from '../services/billing/account/gateways.js';
 import {
@@ -412,16 +413,36 @@ const topupSchema = z.object({
 
 type CheckoutAuth = NonNullable<Awaited<ReturnType<typeof authorizeWorkspaceAccess>>>;
 
-const CHECKOUTS_PER_HOUR = 10;
+/** A workspace's payment attempts in an hour (owner, 2026-10-30: 50; platform admins are not limited). */
+export const CHECKOUTS_PER_HOUR = 50;
+/**
+ * Every attempt in an hour, the refused ones included: a backstop against a
+ * loop on a gateway that refuses every checkout (each attempt still calls the
+ * gateway, which may then block the merchant for too many requests).
+ */
+export const CHECKOUT_ATTEMPTS_PER_HOUR = 200;
 
-async function recentCheckoutCount(cfg: ReturnType<typeof serverConfigOf>, workspaceId: string): Promise<number> {
-  const { count, error } = await getServiceClient(cfg)
+/**
+ * Whether this checkout is over the hourly limit; a platform admin never is.
+ * An attempt the gateway refused before opening its page (`checkout_failed: <its
+ * reason>`, e.g. Zibal's 103 while the gateway is not active yet; not the bare
+ * `checkout_failed` of a later failure) does not count toward
+ * CHECKOUTS_PER_HOUR: no gateway transaction exists for it, and retrying it
+ * must not lock the owner out. It counts only toward the backstop.
+ */
+async function overCheckoutLimit(cfg: ReturnType<typeof serverConfigOf>, workspaceId: string, auth: { isAdmin: boolean }): Promise<boolean> {
+  if (auth.isAdmin) return false;
+  const { data, error } = await getServiceClient(cfg)
     .from('billing_account_payments')
-    .select('id', { count: 'exact', head: true })
+    .select('status, failure_reason')
     .eq('workspace_id', workspaceId)
-    .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString());
+    .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
+    .limit(CHECKOUT_ATTEMPTS_PER_HOUR);
   if (error) throw new Error(error.message || 'payment count failed');
-  return count ?? 0;
+  const attempts = (data ?? []) as Array<{ status?: unknown; failure_reason?: unknown }>;
+  if (attempts.length >= CHECKOUT_ATTEMPTS_PER_HOUR) return true;
+  const counted = attempts.filter((row) => !(row.status === 'failed' && String(row.failure_reason ?? '').startsWith('checkout_failed:')));
+  return counted.length >= CHECKOUTS_PER_HOUR;
 }
 
 /**
@@ -454,9 +475,9 @@ async function startAccountCheckout(
   const workspaceId = req.params.workspaceId;
   let paymentId: string | null = null;
   try {
-    // Each attempt is a payment row and a live gateway transaction: a few an
-    // hour are plenty for a person; a loop is refused.
-    if ((await recentCheckoutCount(cfg, workspaceId)) >= CHECKOUTS_PER_HOUR) {
+    // Each attempt is a payment row and a live gateway transaction: 50 an
+    // hour are plenty for a person; a loop is refused (overCheckoutLimit).
+    if (await overCheckoutLimit(cfg, workspaceId, auth)) {
       return res.status(429).json({ error: 'TOO_MANY_CHECKOUTS' });
     }
     const resolved = await resolveAccountGateway(cfg, workspaceId, input.currency, input.providerName, viewerOf(auth));
@@ -546,7 +567,7 @@ async function startAccountCheckout(
       const message = (providerError instanceof Error ? providerError.message : String(providerError || '')).trim().slice(0, 300) || 'checkout failed';
       console.warn(`[billing-account] provider=${resolved.provider.name} refused: ${message}`);
       await failAccountPayment(cfg, payment.id, 'failed', `checkout_failed: ${message}`).catch(() => undefined);
-      return res.status(502).json({
+      return res.status(UPSTREAM_FAILURE_STATUS).json({
         error: 'CHECKOUT_PROVIDER_ERROR',
         message,
         details: { provider: resolved.provider.name, providerMessage: message },
@@ -559,7 +580,7 @@ async function startAccountCheckout(
       await patchAccountPayment(cfg, payment.id, { provider_ref: ref });
     } else if (accountPaymentNeedsBinding(resolved.provider.name)) {
       await failAccountPayment(cfg, payment.id, 'failed', 'binding_failed');
-      return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
+      return res.status(UPSTREAM_FAILURE_STATUS).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
     }
 
     await logBillingEvent(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, {
@@ -979,7 +1000,7 @@ const cardChargeSchema = z.object({
  * settled; 202 'processing' when Paddle's answer is not known yet (the
  * webhook, the verify route or the job settles it; it is never charged twice).
  * Each attempt is a payment row and a charge at the card's issuer: it counts
- * toward the checkouts' 10 an hour (TOO_MANY_CHECKOUTS).
+ * toward the checkouts' 50 an hour (TOO_MANY_CHECKOUTS).
  */
 billingAccountRouter.post('/account/:workspaceId/card/charge', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -989,7 +1010,7 @@ billingAccountRouter.post('/account/:workspaceId/card/charge', async (req, res) 
   try {
     const cfg = serverConfigOf(req);
     if (!(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
-    if ((await recentCheckoutCount(cfg, req.params.workspaceId)) >= CHECKOUTS_PER_HOUR) {
+    if (await overCheckoutLimit(cfg, req.params.workspaceId, auth)) {
       return res.status(429).json({ error: 'TOO_MANY_CHECKOUTS' });
     }
     const result = await chargeCardForUpgrade(cfg, req.params.workspaceId, {

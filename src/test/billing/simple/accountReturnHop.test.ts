@@ -30,7 +30,7 @@ vi.mock('../../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: () => {
       const b: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'gte']) b[m] = () => b;
+      for (const m of ['select', 'eq', 'gte', 'limit']) b[m] = () => b;
       b.maybeSingle = async () => ({ data: null, error: null });
       b.then = (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null, count: 0 });
       return b;

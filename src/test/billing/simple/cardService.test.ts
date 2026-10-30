@@ -1158,7 +1158,7 @@ describe('removeCard / setCardAutoRenew (Paddle first, P7)', () => {
 
   it("no answer to the cancel keeps our intent (Paddle's later cancel event reads as ours); a sync finding no cancel clears it", async () => {
     h.paddleOverride[`POST /subscriptions/${SUB}/cancel`] = () => ({ status: 503, body: { error: { code: 'service_unavailable', detail: 'busy' } } });
-    await expect(card.removeCard(CFG, W)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 502 });
+    await expect(card.removeCard(CFG, W)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 424 });
     expect(cardRow()).toMatchObject({ status: 'active', cancel_intent: 'now' });
     delete h.paddleOverride[`POST /subscriptions/${SUB}/cancel`];
     expect((await card.syncCard(CFG, CARD)).status).toBe('unchanged');
@@ -1185,7 +1185,7 @@ describe('removeCard / setCardAutoRenew (Paddle first, P7)', () => {
 
   it('auto-renew off refused by Paddle: the flag stays on', async () => {
     h.paddleOverride[`POST /subscriptions/${SUB}/cancel`] = () => ({ status: 400, body: { error: { code: 'bad_request', detail: 'no' } } });
-    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 502 });
+    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 424 });
     expect(accountRow().auto_renew).toBe(true);
     expect(cardRow().cancel_intent).toBeNull();
   });
@@ -1203,7 +1203,7 @@ describe('removeCard / setCardAutoRenew (Paddle first, P7)', () => {
   it('auto-renew off on a past_due card that Paddle does not cancel: refused, nothing changes', async () => {
     cardRow().status = 'past_due';
     h.paddleOverride[`POST /subscriptions/${SUB}/cancel`] = () => ({ status: 400, body: { error: { code: 'bad_request', detail: 'no' } } });
-    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 502 });
+    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 424 });
     expect(cardRow().status).toBe('past_due');
     expect(accountRow().auto_renew).toBe(true);
   });

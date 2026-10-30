@@ -96,11 +96,15 @@ vi.mock('../../../../server/lib/workspaceAuth.js', () => ({
 }));
 vi.mock('../../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    from: () => {
+    from: (table: string) => {
       const b: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'gte']) b[m] = () => b;
+      for (const m of ['select', 'eq', 'gte', 'limit']) b[m] = () => b;
       b.maybeSingle = async () => ({ data: { email: 'owner@acme.test' }, error: null });
-      b.then = (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null, count: h.paymentCount });
+      // The hour's payment attempts (overCheckoutLimit reads them).
+      const rows = table === 'billing_account_payments'
+        ? Array.from({ length: h.paymentCount }, () => ({ status: 'succeeded', failure_reason: null }))
+        : null;
+      b.then = (resolve: (v: unknown) => unknown) => resolve({ data: rows, error: null, count: h.paymentCount });
       return b;
     },
   }),
@@ -470,11 +474,11 @@ describe('POST card/charge (upgrade charged to the card)', () => {
     expect(h.card.chargeCardForUpgrade).toHaveBeenCalledTimes(1);
   });
 
-  it('counts toward the 10 payment attempts an hour: the 11th is refused before the card is touched', async () => {
+  it('counts toward the 50 payment attempts an hour: the 51st is refused before the card is touched', async () => {
     h.card.chargeCardForUpgrade.mockResolvedValue({ status: 'succeeded', paymentId: PAY, purposeResult: { action: 'upgraded' } });
-    h.paymentCount = 9;
+    h.paymentCount = 49;
     expect((await call('POST', '/card/charge', body)).status).toBe(200);
-    h.paymentCount = 10;
+    h.paymentCount = 50;
     expect(await call('POST', '/card/charge', body)).toEqual({ status: 429, json: { error: 'TOO_MANY_CHECKOUTS' } });
     expect(h.card.chargeCardForUpgrade).toHaveBeenCalledTimes(1);
   });

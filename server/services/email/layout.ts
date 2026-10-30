@@ -225,8 +225,11 @@ export interface EmailBrand {
   /**
    * The logo as PNGs (email clients do not show SVG): the one for light
    * backgrounds, the one for dark ones (the same URL when the brand has no
-   * dark variant), and the light one's natural size. Null: the brand name
-   * stands in, in text.
+   * dark variant), and the light one's natural size. Either is drawn in a
+   * box made from that size's shape, never at its own pixels, and a dark
+   * logo keeps the light one's shape (Branding refuses one of another shape,
+   * server/routes/platformBrandAssets.ts), so the dark PNG's own size is not
+   * needed. Null: the brand name stands in, in text.
    */
   logo: { light: string; dark: string; width: number; height: number } | null;
 }

@@ -558,13 +558,16 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
       to: 'visitor@example.test',
       templateSlug: 'visitor_conversation_transcript',
       locale: 'tr',
+      // Text as typed (the email core escapes it for the HTML part); the
+      // transcript's rows are HTML of their own, so they come in htmlData.
       templateData: {
-        workspace: 'Acme &amp; Co $1',
+        workspace: 'Acme & Co $1',
         workspace_name: 'Acme & Co $1',
         date: '18.10.2026',
-        transcript: `<tr><td>${visitorText}</td></tr>`,
+        transcript: visitorText,
         transcript_text: visitorText,
       },
+      htmlData: { transcript: `<tr><td>${visitorText}</td></tr>` },
     });
     expect(res.success).toBe(true);
     const mail = sent[sent.length - 1];

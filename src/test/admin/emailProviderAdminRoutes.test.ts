@@ -24,6 +24,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 
 type Row = Record<string, unknown>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed JSON, asserted on its shape
@@ -349,6 +350,46 @@ describe('the generic runtime-config PUT keeps what the form never received', ()
       { provider: 's3', config: { secret_access_key: 'x' } },
       { provider: 'minio', config: {} },
     )).toEqual({ provider: 'minio', config: {} });
+  });
+
+  it('every provider form: its password inputs are hidden, its ordinary inputs shown', () => {
+    // Billing keeps only the vendor's name in runtime config (its
+    // credentials have their own store) and email has its own route, so
+    // neither form's fields ever reach this read. An `api_key` is a
+    // credential for almost every vendor, so it stays hidden where two
+    // vendors' forms show theirs (Firebase's web key, Vonage's key id): a
+    // blank input there is the safe side of the rule.
+    const hiddenThoughOrdinary = new Set(['auth/firebase_auth.api_key', 'sms/vonage.api_key']);
+    const checked: string[] = [];
+    for (const [type, schema] of Object.entries(PROVIDER_SCHEMAS)) {
+      if (type === 'billing' || type === 'email') continue;
+      for (const vendor of schema.vendors) {
+        for (const field of vendor.fields) {
+          const secret = field.type === 'password';
+          const sample = secret && /url/.test(field.key) ? 'redis://user:pass-123@cache:6379' : secret ? 'pass-123' : field.type === 'number' ? 4096 : 'shown';
+          const { value, secretKeysSet } = redactRuntimeConfigValue({ provider_name: vendor.name, config: { [field.key]: sample } });
+          const where = `${type}/${vendor.name}.${field.key}`;
+          if (secret || hiddenThoughOrdinary.has(where)) {
+            expect(secretKeysSet, where).toEqual([`config.${field.key}`]);
+          } else {
+            expect(secretKeysSet, where).toEqual([]);
+            expect((value as { config: Row }).config[field.key], where).toBe(sample);
+          }
+          checked.push(where);
+        }
+      }
+    }
+    expect(checked.length).toBeGreaterThan(200);
+  });
+
+  it('an ordinary field the old pattern hid (max_tokens) reads back and can be cleared', () => {
+    const stored = { provider_name: 'anthropic', config: { model: 'c', max_tokens: 8000, api_key: 'sk-ant-1' } };
+    expect(redactRuntimeConfigValue(stored)).toEqual({
+      value: { provider_name: 'anthropic', config: { model: 'c', max_tokens: 8000 } },
+      secretKeysSet: ['config.api_key'],
+    });
+    expect(keepStoredRuntimeSecrets(stored, { provider_name: 'anthropic', config: { model: 'c' } }))
+      .toEqual({ provider_name: 'anthropic', config: { model: 'c', api_key: 'sk-ant-1' } });
   });
 });
 

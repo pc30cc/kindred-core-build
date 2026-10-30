@@ -84,6 +84,7 @@ const FIELD_LABELS: Record<string, string> = {
   smtp_pass: 'SMTP password',
   encryption: 'SMTP encryption',
   tls_servername: 'TLS server name',
+  tls_ca: 'TLS CA certificate',
 };
 
 /** A short, value-free sentence for the first thing that stops a provider. */

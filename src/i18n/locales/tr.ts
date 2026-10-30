@@ -9409,6 +9409,7 @@ const tr: TranslationKeys = {
         smtp_pass: { label: 'SMTP şifresi' },
         encryption: { label: 'Şifreleme', hint: 'Otomatik, STARTTLS sunmayan bir sunucuyla düz metinle devam eder. Sunucunun sertifikası olunca "STARTTLS zorunlu" seçin.' },
         tls_servername: { label: 'TLS sunucu adı', hint: 'Sunucu sertifikasındaki ad, sunucu adından farklıysa (servis adıyla ulaşılan bir aktarıcı).' },
+        tls_ca: { label: 'TLS CA sertifikası', hint: 'Sertifikasını kendi CA\'nızın imzaladığı bir sunucu için: CA sertifikasını (PEM) yapıştırın. Sunucu genel CA\'lar yerine buna göre doğrulanır. Genel bir sertifika için boş bırakın.' },
         events_token: { label: 'Olay belirteci', hint: 'Aktarıcının geri dönme raporlarının taşıması gereken ortak gizli anahtar.' },
       },
       history: {

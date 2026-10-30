@@ -12,10 +12,12 @@
  *   - the relay's queue id ("queued as …") comes back as serverMessageId;
  *   - every step has a timeout, and a stalled greeting ends as `timeout`;
  *   - `starttls` refuses a server without STARTTLS before any password is
- *     sent; `auto` still talks to it (today's relay);
- *   - a refused sign-in is `auth` and permanent, a 550 recipient permanent,
- *     a 451 transient, a closed port `connection`; the server's own text and
- *     the password never reach the SendResult;
+ *     sent, as a permanent fault that names STARTTLS; `auto` still talks to
+ *     it (today's relay); `tls_ca` and `tls_servername` reach the TLS options;
+ *   - a refused sign-in is `auth` and permanent, a sign-in the server cannot
+ *     check right now (454, or 421 while it restarts) transient, a 550
+ *     recipient permanent, a 451 transient, a closed port `connection`; the
+ *     server's own text and the password never reach the SendResult;
  *   - verify() signs in without sending.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -190,6 +192,11 @@ describe('transport options', () => {
     [{ smtp_port: '465' }, { secure: true }],
     [{ smtp_secure: 'true' }, { requireTLS: true }],
     [{ encryption: 'starttls', tls_servername: 'relay.webyar.ai' }, { tls: { rejectUnauthorized: true, servername: 'relay.webyar.ai' } }],
+    // A CA pasted into the one-line input, its line breaks gone, goes in as PEM.
+    [
+      { encryption: 'starttls', tls_servername: 'mail-relay', tls_ca: `-----BEGIN CERTIFICATE-----${'Q'.repeat(80)}-----END CERTIFICATE-----` },
+      { requireTLS: true, tls: { rejectUnauthorized: true, servername: 'mail-relay', ca: [`-----BEGIN CERTIFICATE-----\n${'Q'.repeat(64)}\n${'Q'.repeat(16)}\n-----END CERTIFICATE-----\n`] } },
+    ],
   ])('%j → %j', async (over, expected) => {
     const spy = vi.spyOn(nodemailer, 'createTransport').mockReturnValue({
       sendMail: async () => ({ messageId: 'm' }),
@@ -219,7 +226,9 @@ describe('TLS', () => {
   it('starttls refuses a relay without STARTTLS before any password crosses the wire', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const result = await smtpAdapter.send(relay({ encryption: 'starttls' }), message());
-    expect(result).toMatchObject({ success: false, errorCode: 'connection' });
+    // A setting that does not fit the server: said as such, and not retried.
+    expect(result).toMatchObject({ success: false, errorCode: 'connection', permanent: true });
+    expect(result.error).toBe('connection: the SMTP server refused STARTTLS (502); check the encryption setting');
     expect(sessions[0].startTls).toBe(true);
     expect(sessions[0].auth).toBeUndefined();
     expect(sessions[0].data).toBeUndefined();
@@ -242,6 +251,18 @@ describe('failures', () => {
     const printed = warn.mock.calls.map((c) => c.join(' ')).join('\n');
     expect(printed).toContain('172.18.0.5');
     expect(printed).not.toContain(PASSWORD);
+  });
+
+  it.each([
+    ['454 4.7.0 Temporary authentication failure', { errorCode: 'auth', permanent: false }, 'auth: the SMTP server cannot check the sign-in right now (454)'],
+    ['421 4.3.2 Service shutting down', { errorCode: 'connection', permanent: false }, 'connection: the SMTP server closed the connection during the sign-in (421)'],
+  ])('a sign-in the server cannot take right now (%s) is transient, so the outbox retries it', async (reply, expected, error) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    behaviour.authReply = `${reply}\r\n`;
+    const result = await smtpAdapter.send(relay(), message());
+    expect(result).toMatchObject({ success: false, ...expected });
+    expect(result.error).toBe(error);
+    expect(sessions[0].data).toBeUndefined();
   });
 
   it('a 550 recipient is permanent, a 451 transient', async () => {
@@ -271,6 +292,22 @@ describe('failures', () => {
     expect(classifySmtpError({ code: 'EMESSAGE', responseCode: 503 })).toMatchObject({ permanent: false });
     expect(classifySmtpError({ code: 'ETIMEDOUT' })).toMatchObject({ errorCode: 'timeout', permanent: false });
     expect(classifySmtpError({ responseCode: 421 })).toMatchObject({ errorCode: 'connection', permanent: false });
+  });
+
+  it('a sign-in and a STARTTLS are told apart by their reply', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Sign-in: 5xx or no reply at all is a refusal; 4xx is "not now".
+    expect(classifySmtpError({ code: 'EAUTH', responseCode: 535, permanent: true })).toMatchObject({ errorCode: 'auth', permanent: true });
+    expect(classifySmtpError({ code: 'EAUTH', responseCode: 503 })).toMatchObject({ errorCode: 'auth', permanent: true });
+    expect(classifySmtpError({ code: 'ENOAUTH' })).toMatchObject({ errorCode: 'auth', permanent: true });
+    expect(classifySmtpError({ code: 'EAUTH', responseCode: 454, permanent: false })).toMatchObject({ errorCode: 'auth', permanent: false });
+    expect(classifySmtpError({ code: 'EAUTH', responseCode: 421, permanent: false })).toMatchObject({ errorCode: 'connection', permanent: false });
+    // STARTTLS: a 5xx is the server refusing it; no reply is a failed handshake.
+    expect(classifySmtpError({ code: 'ETLS', responseCode: 502, permanent: true })).toMatchObject({ errorCode: 'connection', permanent: true });
+    expect(classifySmtpError({ code: 'ETLS', responseCode: 454, permanent: false })).toMatchObject({ errorCode: 'connection', permanent: false });
+    expect(classifySmtpError({ code: 'ETLS' })).toMatchObject({
+      errorCode: 'connection', permanent: false, error: 'connection: the TLS connection to the SMTP server could not be made',
+    });
   });
 });
 

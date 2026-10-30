@@ -68,9 +68,14 @@ async function sendViaResend(config: ProviderConfig, message: OutboundMessage): 
     return httpFailure('resend', res.status, body, [apiKey]);
   }
 
+  // A 2xx is Resend taking the mail, whatever its body says. A body that
+  // cannot be read (the deadline passing during the read, a proxy's page, a
+  // new shape) used to turn an accepted mail into a transient failure, and
+  // the outbox then sent the same mail again.
   const data: unknown = await res.json().catch(() => null);
   if (!isResendSendResponse(data)) {
-    return emailFailure('resend', 'provider_error', 'Resend returned an unexpected response shape');
+    console.warn(`[email:resend] HTTP ${res.status} accepted the mail, but its answer had no message id`);
+    return { success: true, id: `resend-${Date.now()}`, provider: 'resend' };
   }
   return { success: true, id: data.id, provider: 'resend' };
 }

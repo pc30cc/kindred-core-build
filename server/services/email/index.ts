@@ -86,10 +86,12 @@ export interface EmailRequest {
   templateSlug?: string;
   templateData?: Record<string, string>;
   /**
-   * Values for the template's HTML part only, over `templateData`: the
-   * caller's HTML-escaped copy of text a visitor typed, so the HTML shows it
-   * as text while the subject and the text part get `templateData`'s raw
-   * value (no `&amp;` where the visitor wrote `&`). Never logged.
+   * Values for the template's HTML part only, over `templateData`, inserted
+   * as they are: HTML the caller made itself (an escaped copy, a
+   * transcript's rows). Every `templateData` value is escaped for the HTML
+   * part anyway (fillEmailTemplate), so text needs no copy here, and one
+   * escaped by hand in `templateData` would show its `&amp;`. The subject
+   * and the text part always get `templateData`'s value. Never logged.
    */
   htmlData?: Record<string, string>;
   locale?: string;
@@ -488,13 +490,46 @@ type RenderedTemplate =
   | { status: 'missing' }
   | { status: 'edition_unavailable' };
 
+/** Text as HTML shows it: `&`, `<`, `>` and both quotes as entities. */
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+}
+
 /**
- * The running edition's Super Admin template for `slug`, filled in. Branding
- * defaults ({brand}, {year}, {support_email}) are added so every template
- * renders them, while the caller's templateData always wins; `htmlData`
- * (the HTML-escaped copies) wins over it in the HTML part alone. The subject
- * is one line whatever a value holds (a visitor's name typed with a line
- * break): a header never carries one.
+ * A template filled in: the subject and the text part with each value as it
+ * is, the HTML part with each value escaped, except the ones `htmlData`
+ * gives, which the caller has made HTML itself (an escaped copy, a
+ * transcript's rows) and which go in as they are, never escaped twice.
+ *
+ * Escaping is the default because the values are text, and much of it is
+ * typed by people the mail is not from: a sign-up's full name, which anyone
+ * can set for an address that is not theirs, used to reach the HTML of the
+ * verification mail as markup, so a stranger could put a link of their own
+ * into a platform mail signed with the platform's domain. A caller that
+ * forgets htmlData now sends that name as text, and so does a Super Admin's
+ * template that prints a value the caller never thought would be in HTML.
+ * Exported for its tests.
+ */
+export function fillEmailTemplate(
+  tpl: { subject: string; html_body: string; text_body: string | null },
+  data: Record<string, string>,
+  htmlData?: Record<string, string>,
+): { subject: string; html: string; text: string } {
+  const htmlValues: Record<string, string> = {};
+  for (const [key, value] of Object.entries(data)) htmlValues[key] = escapeHtml(String(value));
+  return {
+    subject: interpolate(tpl.subject, data).replace(/[\r\n]+/g, ' '),
+    html: interpolate(tpl.html_body, { ...htmlValues, ...(htmlData || {}) }),
+    text: interpolate(tpl.text_body || '', data),
+  };
+}
+
+/**
+ * The running edition's Super Admin template for `slug`, filled in
+ * (fillEmailTemplate). Branding defaults ({brand}, {year}, {support_email})
+ * are added so every template renders them, while the caller's templateData
+ * always wins. The subject is one line whatever a value holds (a visitor's
+ * name typed with a line break): a header never carries one.
  */
 async function renderEditionTemplate(
   config: ServerConfig,
@@ -514,13 +549,7 @@ async function renderEditionTemplate(
     support_email: await resolveSupportEmail(supabase, scope.edition),
     ...(templateData || {}),
   };
-  return {
-    status: 'ok',
-    subject: interpolate(tpl.subject, data).replace(/[\r\n]+/g, ' '),
-    html: interpolate(tpl.html_body, htmlData ? { ...data, ...htmlData } : data),
-    text: interpolate(tpl.text_body || '', data),
-    locale: tpl.locale,
-  };
+  return { status: 'ok', ...fillEmailTemplate(tpl, data, htmlData), locale: tpl.locale };
 }
 
 /** Same rule as EmailRequest: the platform provider owns the From header. */
@@ -533,7 +562,7 @@ export interface PlatformEmailRequest {
   /** The running edition's Super Admin template to send, as in EmailRequest. */
   templateSlug?: string;
   templateData?: Record<string, string>;
-  /** As in EmailRequest: the HTML part's escaped values. */
+  /** As in EmailRequest: the HTML part's own values, inserted as they are. */
   htmlData?: Record<string, string>;
   locale?: string;
   /** As in EmailRequest. */

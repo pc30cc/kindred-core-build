@@ -9426,6 +9426,7 @@ const en = {
         smtp_pass: { label: 'SMTP password' },
         encryption: { label: 'Encryption', hint: 'Auto goes on in plain text with a server that offers no STARTTLS. Choose "STARTTLS required" once the server has a certificate.' },
         tls_servername: { label: 'TLS server name', hint: 'The name on the server\'s certificate, when it differs from the host (a relay reached by a service name).' },
+        tls_ca: { label: 'TLS CA certificate', hint: 'For a server whose certificate your own CA signed: paste the CA certificate (PEM). The server is then checked against it instead of the public CAs. Leave blank for a public certificate.' },
         events_token: { label: 'Events token', hint: 'The shared secret the relay\'s bounce reports must carry.' },
       },
       history: {

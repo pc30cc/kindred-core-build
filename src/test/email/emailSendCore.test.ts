@@ -235,6 +235,20 @@ describe('failures: an errorCode, permanent or not, and never the provider\'s ow
     expect(await send()).toMatchObject({ errorCode: 'timeout', permanent: false });
   });
 
+  it('a 2xx is a mail the provider took, whatever its body: never a retry that sends it twice', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token <'); }, text: async () => '<html>' });
+    const unreadable = await send();
+    expect(unreadable).toMatchObject({ success: true, provider: 'resend' });
+    expect(unreadable.id).toMatch(/^resend-\d+$/);
+    expect(warn.mock.calls.join(' ')).toContain('no message id');
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ data: { id: 'new-shape' } }), text: async () => '' });
+    expect(await send()).toMatchObject({ success: true, provider: 'resend' });
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => { throw Object.assign(new Error('aborted'), { name: 'TimeoutError' }); }, text: async () => '' });
+    expect(await send()).toMatchObject({ success: true });
+    expect(logs().map((row) => row.status)).toEqual(['sent', 'sent', 'sent']);
+  });
+
   it('every HTTP adapter gives up after its timeout', async () => {
     await send();
     expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);

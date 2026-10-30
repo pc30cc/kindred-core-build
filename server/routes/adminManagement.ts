@@ -1180,9 +1180,32 @@ const WIDGET_INPUT_RUNTIME_KEYS = new Set([
  * A field whose value is a credential. Broad on purpose, as in the storage
  * pool's route: one field too many costs the Super Admin a blank input, one
  * too few a leaked password. A bare `key` (a pre-chat field's own key) is
- * not one; `api_key`, `site_key` and `access_key_id` are.
+ * not one; `api_key` and `access_key_id` are, and so are the connection
+ * strings that carry a password (`database_url`, `connection_string`) and
+ * Telegram's `api_hash`.
  */
-const SECRET_FIELD = /pass(word|wd)?|secret|token|credential|private|merchant|service_account|apikey|.+_key(_|$)/i;
+const SECRET_FIELD = /pass(word|wd)?|secret|token|credential|private|merchant|service_account|apikey|api_hash|database_url|connection_string|.+_key(_|$)/i;
+
+/**
+ * Names the pattern above catches that are not credentials, in the provider
+ * forms (src/features/providers/schemas.ts) as ordinary inputs: a number of
+ * tokens or seconds, and the keys a vendor makes public by design (a
+ * publishable or anon key, a captcha site key, a search-only key, a webhook's
+ * public key), which sit in the page or the browser bundle anyway. Hidden,
+ * they showed as saved with an empty input that could never be cleared.
+ */
+const NOT_SECRET_FIELD = /^(max_tokens|token_ttl_seconds|site_key|search_key|supabase_anon_key|anon_key)$|(^|_)public(_|$)|publishable/i;
+
+/**
+ * A URL with a password in it (`redis://user:pass@host`), whatever the field
+ * is called: the Redis and Dragonfly forms take their password that way.
+ */
+const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s@:]*:[^/?#\s@]+@/i;
+
+function isSecretField(field: string, value: unknown): boolean {
+  if (typeof value === 'string' && URL_WITH_PASSWORD.test(value.trim())) return true;
+  return SECRET_FIELD.test(field) && !NOT_SECRET_FIELD.test(field);
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -1210,7 +1233,7 @@ export function redactRuntimeConfigValue(value: unknown): { value: unknown; secr
     if (!isPlainObject(node)) return node;
     const out: Record<string, unknown> = {};
     for (const [field, child] of Object.entries(node)) {
-      if (SECRET_FIELD.test(field) && holdsValue(child)) {
+      if (isSecretField(field, child) && holdsValue(child)) {
         secretKeysSet.push([...path, field].join('.'));
         continue;
       }
@@ -1238,7 +1261,7 @@ export function keepStoredRuntimeSecrets(stored: unknown, incoming: unknown): un
   if (providerIdentity(stored) !== providerIdentity(incoming)) return incoming;
   const out: Record<string, unknown> = { ...incoming };
   for (const [field, kept] of Object.entries(stored)) {
-    if (SECRET_FIELD.test(field)) {
+    if (isSecretField(field, kept)) {
       if (holdsValue(kept) && !holdsValue(incoming[field])) out[field] = kept;
     } else if (isPlainObject(kept) && isPlainObject(incoming[field])) {
       out[field] = keepStoredRuntimeSecrets(kept, incoming[field]);

@@ -20,7 +20,7 @@
 // Super Admin learns only which ones are set.
 
 import type { ServerConfig } from '../../config.js';
-import { serviceClientFor } from '../../lib/serviceClient.js';
+import { getServiceClient } from '../../supabase.js';
 import {
   PLUGIN_SECRET_ALGORITHM,
   decryptPluginSecret,
@@ -31,9 +31,11 @@ import { insertAuditLogRows } from '../auditLog.js';
 import {
   EMAIL_PROVIDER_COMMON_FIELDS,
   EMAIL_PROVIDER_FIELDS,
+  EMAIL_PROVIDER_FIELD_MAX_LENGTH,
   EMAIL_PROVIDER_SECRET_FIELDS,
   canonicalEmailProviderConfig,
   emailProviderConfigProblems,
+  emailProviderSecretDestination,
   isEmailProviderAdapter,
 } from '../../../shared/emailProviders.js';
 import {
@@ -67,8 +69,16 @@ interface StoredSecret {
  */
 const SECRET_NAME = /pass|secret|token|api_?key|private|credential/i;
 
-/** Longest value a field may hold: far beyond any real key, password or name. */
+/**
+ * Longest value a field may hold: far beyond any real key, password or name
+ * (a field that holds more, a CA certificate, says so in
+ * EMAIL_PROVIDER_FIELD_MAX_LENGTH).
+ */
 const MAX_VALUE_LENGTH = 2048;
+
+function maxLength(field: string): number {
+  return EMAIL_PROVIDER_FIELD_MAX_LENGTH[field] ?? MAX_VALUE_LENGTH;
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -155,8 +165,13 @@ export type LoadedEmailProvider =
   | { status: 'none' }
   | { status: 'error'; message: string };
 
+/**
+ * The server's own database client, as every other platform setting is read
+ * (the verification readiness page read this row through it before the
+ * store existed, and its tests stand in for exactly this client).
+ */
 function client(config: ServerConfig) {
-  return serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
+  return getServiceClient(config);
 }
 
 type RowRead = { ok: true; value: unknown; message?: undefined } | { ok: false; value?: undefined; message: string };
@@ -231,8 +246,11 @@ type WriteResult = { ok: true } | { ok: false; error: string; field?: string };
  *   - Only the provider's own fields and the common ones are taken (older
  *     names fold into today's); anything else is refused, never kept.
  *   - A secret left blank or absent keeps the stored one, when the provider
- *     is the same; switching provider never carries a secret across (Resend
- *     and SendGrid both call theirs api_key).
+ *     is the same and the secret still goes where it went (an SMTP password
+ *     is dropped when the host, port or user changes, so it must be typed
+ *     again: shared/emailProviders.ts, EMAIL_PROVIDER_SECRET_DESTINATION);
+ *     switching provider never carries a secret across (Resend and SendGrid
+ *     both call theirs api_key).
  *   - A new secret is stored encrypted; without PLUGIN_SECRETS_MASTER_KEY it
  *     is refused rather than stored in clear. A kept one from an older row
  *     is encrypted now when the key is there.
@@ -294,7 +312,7 @@ export async function writeEmailProviderConfig(
     }
     if (typeof raw !== 'string' && typeof raw !== 'number') return { ok: false, error: 'invalid_field', field };
     const value = String(raw).trim();
-    if (value.length > MAX_VALUE_LENGTH) return { ok: false, error: 'invalid_field', field };
+    if (value.length > maxLength(field)) return { ok: false, error: 'invalid_field', field };
     if (value) nextConfig[field] = field === 'encryption' ? value.toLowerCase() : value;
   }
 
@@ -307,7 +325,14 @@ export async function writeEmailProviderConfig(
   if (!sameProvider) changed.add('provider_name');
 
   for (const field of secretFields) {
-    const kept = priorFields[field];
+    // A secret that goes to a destination the save changes (an SMTP
+    // password, when the host, port or user is not the stored one) is not
+    // kept: it must be typed again, or a save naming another host would hand
+    // it the stored password at the Test button and with every mail after.
+    const moved = sameProvider
+      && emailProviderSecretDestination(name, field, priorFields) !== emailProviderSecretDestination(name, field, nextConfig);
+    const kept = moved ? undefined : priorFields[field];
+    if (moved && isSet(priorFields[field]) && !(field in typedSecrets)) changed.add(field);
     if (field in typedSecrets) {
       if (!canEncrypt) return { ok: false, error: 'encryption_unavailable', field };
       secrets[field] = sealSecret(typedSecrets[field], masterKey);

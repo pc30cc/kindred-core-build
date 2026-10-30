@@ -21,7 +21,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
+import ts from 'typescript';
 
 const read = (p: string) => readFileSync(p, 'utf8');
 const stripTs = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
@@ -413,6 +414,621 @@ describe('every send path uses the shared sender', () => {
       expect(/sendEmail\(|sendPlatformEmail\(|sendEmailWithRetry\(|enqueueEmail\(/.test(body), file).toBe(true);
     }
     expect(stripTs(read('server/services/email/outbox.ts'))).toMatch(/await sendEmail\(config, request\)/);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// No mail without a template (owner, 2026-10-30: «هیچ ایمیلی بدون قالب نباید
+// باشه»). Every platform mail is a Super Admin template the Branding page
+// shows; a caller's own text is only the fallback for a row that is missing,
+// and wears the layout like the row would (index.ts composeMessage).
+// ───────────────────────────────────────────────────────────────────────────
+
+// The senders are read as TypeScript, with the compiler's own parser and
+// binder: a name means the declaration it means in that scope (a parameter of
+// an arrow function is that parameter, not a const of the same name elsewhere
+// in the file), and the core is found by what a file imports, under whatever
+// name it imports it. Anything the reading cannot follow fails, with where.
+
+/** The email core's entry points, by the module that exports them. */
+const CORE_ENTRIES: Record<string, readonly string[]> = {
+  [SERVICE]: ['sendEmail', 'sendPlatformEmail'],
+  'server/services/email/outbox.ts': ['sendEmailWithRetry', 'enqueueEmail'],
+};
+
+/** The repo file a relative module specifier names from `from` (`./x.js` is `./x.ts`); null for a package. */
+function moduleFile(from: string, specifier: string): string | null {
+  if (!specifier.startsWith('.')) return null;
+  return posix.normalize(posix.join(posix.dirname(from), specifier)).replace(/\.(m?)js$/, '.$1ts');
+}
+
+type Source = { file: string; sf: ts.SourceFile; checker: ts.TypeChecker };
+
+/** One file parsed and bound on its own (no lib, no import followed): enough to tell which declaration a name is. */
+function bind(file: string, text: string): Source {
+  const options: ts.CompilerOptions = { noLib: true, noResolve: true, types: [], target: ts.ScriptTarget.Latest, module: ts.ModuleKind.ESNext };
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const host = ts.createCompilerHost(options);
+  host.getSourceFile = (name) => (name === file ? sf : undefined);
+  return { file, sf, checker: ts.createProgram([file], options, host).getTypeChecker() };
+}
+
+const sources = new Map<string, Source>();
+function sourceOf(file: string): Source {
+  if (!sources.has(file)) sources.set(file, bind(file, read(file)));
+  return sources.get(file) as Source;
+}
+
+const where = (src: Source, node: ts.Node) => `${src.file}:${src.sf.getLineAndCharacterOfPosition(node.getStart(src.sf)).line + 1}`;
+
+/** The expression under parentheses, `await`, `as`, `satisfies` and `!`. */
+function inner(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e) || ts.isAwaitExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isNonNullExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression;
+  return e;
+}
+
+const isConst = (decl: ts.VariableDeclaration) => (ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) !== 0;
+const exportedStatement = (node: ts.Node) => ts.canHaveModifiers(node) && !!ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+/** A property's written name; null for a computed one (`[key]: …`). */
+const propertyKey = (p: ts.ObjectLiteralElementLike) => (p.name && !ts.isComputedPropertyName(p.name) ? p.name.text : null);
+
+/** The symbol a name refers to; for `{ name }`, the value's rather than the property's. */
+const symbolOf = (src: Source, id: ts.Identifier) =>
+  ts.isShorthandPropertyAssignment(id.parent) && id.parent.name === id
+    ? src.checker.getShorthandAssignmentValueSymbol(id.parent)
+    : src.checker.getSymbolAtLocation(id);
+
+/** The declaration a file exports under `name` (a function, a const or a type), or null. */
+function exportedDeclaration(src: Source, name: string): ts.Node | null {
+  for (const st of src.sf.statements) {
+    if (!exportedStatement(st)) continue;
+    if (ts.isFunctionDeclaration(st) && st.body && st.name?.text === name) return st;
+    if (ts.isTypeAliasDeclaration(st) && st.name.text === name) return st;
+    if (ts.isVariableStatement(st)) {
+      const decl = st.declarationList.declarations.find((d) => ts.isIdentifier(d.name) && d.name.text === name);
+      if (decl) return decl;
+    }
+  }
+  return null;
+}
+
+/** The declaration a name stands for where it is written, followed through an import to what the repo file it comes from exports. */
+function declarationOf(src: Source, id: ts.Identifier): { src: Source; decl: ts.Node } | null {
+  const symbol = symbolOf(src, id);
+  const decl = symbol?.declarations?.find((d) => ts.isFunctionDeclaration(d) && d.body) ?? symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (!decl) return null;
+  if (!ts.isImportSpecifier(decl)) return { src, decl };
+  const target = moduleFile(src.file, (decl.parent.parent.parent.moduleSpecifier as ts.StringLiteral).text);
+  if (!target || !existsSync(target)) return null;
+  const there = sourceOf(target);
+  const exported = exportedDeclaration(there, (decl.propertyName ?? decl.name).text);
+  return exported ? { src: there, decl: exported } : null;
+}
+
+type Fn = ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression;
+
+/** The function a name stands for: a function declaration, or a const that holds an arrow or a function expression. */
+function functionOf(src: Source, id: ts.Identifier): { src: Source; fn: Fn } | null {
+  const found = declarationOf(src, id);
+  if (!found) return null;
+  if (ts.isFunctionDeclaration(found.decl) && found.decl.body) return { src: found.src, fn: found.decl };
+  if (ts.isVariableDeclaration(found.decl) && isConst(found.decl) && found.decl.initializer) {
+    const init = inner(found.decl.initializer);
+    if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return { src: found.src, fn: init };
+  }
+  return null;
+}
+
+/** What a function can return: its expression body, or the value of each `return` of its own; null when one returns nothing. */
+function returnsOf(fn: Fn): ts.Expression[] | null {
+  if (!fn.body) return null;
+  if (!ts.isBlock(fn.body)) return [fn.body];
+  const values: ts.Expression[] = [];
+  let empty = false;
+  const visit = (node: ts.Node) => {
+    if (ts.isReturnStatement(node)) {
+      if (node.expression) values.push(node.expression);
+      else empty = true;
+    }
+    if (!ts.isFunctionLike(node)) ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(fn.body, visit);
+  return empty || !values.length ? null : values;
+}
+
+/** The name a function is called by in its file: its own, or that of the const holding it. */
+function functionName(fn: ts.SignatureDeclaration): ts.Identifier | null {
+  if (ts.isFunctionDeclaration(fn)) return fn.name ?? null;
+  const holder = fn.parent;
+  if ((ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && ts.isVariableDeclaration(holder) && holder.initializer === fn && ts.isIdentifier(holder.name)) return holder.name;
+  return null;
+}
+
+/** Whether other files can call the function: exported where it is declared, or by an `export { … }`. */
+function isExported(src: Source, fn: ts.SignatureDeclaration, name: ts.Identifier): boolean {
+  if (exportedStatement(ts.isFunctionDeclaration(fn) ? fn : fn.parent.parent.parent)) return true;
+  return src.sf.statements.some((st) =>
+    ts.isExportDeclaration(st) && !st.moduleSpecifier && !!st.exportClause && ts.isNamedExports(st.exportClause)
+    && st.exportClause.elements.some((el) => (el.propertyName ?? el.name).text === name.text));
+}
+
+/** Every other place the file names the same declaration as `name` does. */
+function usesOf(src: Source, name: ts.Identifier): ts.Identifier[] {
+  const symbol = symbolOf(src, name);
+  const uses: ts.Identifier[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && node !== name && node.text === name.text && symbolOf(src, node) === symbol) uses.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(src.sf);
+  return uses;
+}
+
+/**
+ * What a request, or the templateSlug in it, can be: the templates it may
+ * name, whether some way through it names none (`bare`), and what could not
+ * be followed (each with where, so a failure says where to look).
+ */
+type Reading = { slugs: string[]; bare: boolean; unread: string[] };
+type Reader = (src: Source, node: ts.Expression, depth: number) => Reading;
+const named = (slugs: string[]): Reading => ({ slugs, bare: false, unread: [] });
+const BARE: Reading = { slugs: [], bare: true, unread: [] };
+const unread = (src: Source, node: ts.Node, why: string): Reading => ({ slugs: [], bare: false, unread: [`${where(src, node)}: ${why}`] });
+/** One of several readings, any of which can be the one: every template any names, bare when one is. */
+const either = (readings: Reading[]): Reading => ({
+  slugs: [...new Set(readings.flatMap((r) => r.slugs))],
+  bare: readings.some((r) => r.bare),
+  unread: readings.flatMap((r) => r.unread),
+});
+const DEPTH = 12;
+
+/**
+ * What a parameter can be. Only for a function its file calls by name and
+ * does nothing else with (never exports, never hands on as a value), so that
+ * every call is in sight: whatever each of them passes.
+ */
+function readParameter(src: Source, param: ts.ParameterDeclaration, read: Reader, depth: number): Reading {
+  const fn = param.parent;
+  const name = functionName(fn);
+  const label = param.name.getText(src.sf);
+  if (!name || !ts.isIdentifier(param.name) || param.dotDotDotToken) return unread(src, param, `${label}: a parameter whose callers the check cannot see`);
+  if (isExported(src, fn, name)) return unread(src, param, `${label}: a parameter of ${name.text}, which is exported, so its callers are in other files`);
+  const index = fn.parameters.indexOf(param);
+  const uses = usesOf(src, name);
+  if (!uses.length) return unread(src, param, `${name.text} is never called`);
+  return either(uses.map((use) => {
+    const call = use.parent;
+    if (!ts.isCallExpression(call) || call.expression !== use) return unread(src, use, `${name.text} is used other than called, so not every call is in sight`);
+    if (call.arguments.slice(0, index + 1).some(ts.isSpreadElement)) return unread(src, call, `${name.text} is called with a spread`);
+    const arg = call.arguments[index] ?? param.initializer;
+    return arg ? read(src, arg, depth + 1) : unread(src, call, `${name.text} is called without its ${label}`);
+  }));
+}
+
+/** What a name can be, by its declaration: a const's value, or a parameter's arguments. */
+function readName(src: Source, id: ts.Identifier, read: Reader, depth: number): Reading {
+  const found = declarationOf(src, id);
+  if (!found) return unread(src, id, `${id.text} is not declared in a file the check can read`);
+  const { decl } = found;
+  if (ts.isVariableDeclaration(decl) && isConst(decl) && decl.initializer && ts.isIdentifier(decl.name)) return read(found.src, decl.initializer, depth + 1);
+  if (ts.isParameter(decl)) return readParameter(found.src, decl, read, depth);
+  return unread(src, id, `${id.text} is not a const or a parameter the check can follow`);
+}
+
+type Objects = Array<{ src: Source; obj: ts.ObjectLiteralExpression }>;
+
+/** The object literals an expression can be: one written there, a const's, or a map's member (any member, for a key not written out). */
+function readObjects(src: Source, node: ts.Expression, depth: number): Objects | Reading {
+  const e = inner(node);
+  if (depth > DEPTH) return unread(src, e, 'built through too many steps to follow');
+  if (ts.isObjectLiteralExpression(e)) return [{ src, obj: e }];
+  if (ts.isIdentifier(e)) {
+    const found = declarationOf(src, e);
+    if (found && ts.isVariableDeclaration(found.decl) && isConst(found.decl) && found.decl.initializer) return readObjects(found.src, found.decl.initializer, depth + 1);
+    return unread(src, e, `${e.text} is not a const the check can read`);
+  }
+  if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) {
+    const key = ts.isPropertyAccessExpression(e) ? e.name.text : ts.isStringLiteralLike(e.argumentExpression) ? e.argumentExpression.text : null;
+    const outer = readObjects(src, e.expression, depth + 1);
+    if (!Array.isArray(outer)) return outer;
+    const found: Objects = [];
+    for (const o of outer) {
+      for (const p of o.obj.properties) {
+        if (!ts.isPropertyAssignment(p) || propertyKey(p) === null) return unread(o.src, p, 'a member the check cannot read');
+        if (key !== null && propertyKey(p) !== key) continue;
+        const member = readObjects(o.src, p.initializer, depth + 1);
+        if (!Array.isArray(member)) return member;
+        found.push(...member);
+      }
+    }
+    return found;
+  }
+  return unread(src, e, `cannot read a ${ts.SyntaxKind[e.kind]} as an object`);
+}
+
+/** The string literals a type allows, when it is nothing but them (written there, or through a type alias); null otherwise. */
+function literalUnion(src: Source, type: ts.TypeNode): string[] | null {
+  if (ts.isLiteralTypeNode(type)) return ts.isStringLiteral(type.literal) ? [type.literal.text] : null;
+  if (ts.isParenthesizedTypeNode(type)) return literalUnion(src, type.type);
+  if (ts.isUnionTypeNode(type)) {
+    const parts = type.types.map((t) => literalUnion(src, t));
+    return parts.every((p) => p !== null) ? (parts as string[][]).flat() : null;
+  }
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && !type.typeArguments) {
+    const found = declarationOf(src, type.typeName);
+    return found && ts.isTypeAliasDeclaration(found.decl) ? literalUnion(found.src, found.decl.type) : null;
+  }
+  return null;
+}
+
+/** What templates a templateSlug value can be. */
+function readSlug(src: Source, node: ts.Expression, depth: number): Reading {
+  const e = inner(node);
+  if (depth > DEPTH) return unread(src, e, 'built through too many steps to follow');
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return named([e.text]);
+  if (ts.isConditionalExpression(e)) return either([readSlug(src, e.whenTrue, depth + 1), readSlug(src, e.whenFalse, depth + 1)]);
+  if (ts.isIdentifier(e)) {
+    // A parameter typed as a union of literals is one of them: tsc holds
+    // every caller to it, in whichever file.
+    const found = declarationOf(src, e);
+    const literals = found && ts.isParameter(found.decl) && found.decl.type ? literalUnion(found.src, found.decl.type) : null;
+    return literals ? named(literals) : readName(src, e, readSlug, depth);
+  }
+  if (ts.isPropertyAccessExpression(e) || (ts.isElementAccessExpression(e) && ts.isStringLiteralLike(e.argumentExpression))) {
+    const key = ts.isPropertyAccessExpression(e) ? e.name.text : (e.argumentExpression as ts.StringLiteralLike).text;
+    const objects = readObjects(src, e.expression, depth + 1);
+    if (!Array.isArray(objects)) return objects;
+    return either(objects.map(({ src: at, obj }) => {
+      if (obj.properties.some((p) => !ts.isPropertyAssignment(p) || propertyKey(p) === null)) return unread(at, obj, `cannot tell what its ${key} is`);
+      const member = obj.properties.find((p) => propertyKey(p) === key) as ts.PropertyAssignment | undefined;
+      return member ? readSlug(at, member.initializer, depth + 1) : BARE;
+    }));
+  }
+  return unread(src, e, `cannot read a templateSlug written as a ${ts.SyntaxKind[e.kind]}`);
+}
+
+/**
+ * What templates a request handed to the core can name: its own
+ * templateSlug, or one a spread brings (a builder's return, a const), with
+ * every way through it (each branch of a condition, each `return` of a
+ * builder, each call of a local helper that passes it on) followed.
+ */
+function readRequest(src: Source, node: ts.Expression, depth = 0): Reading {
+  const e = inner(node);
+  if (depth > DEPTH) return unread(src, e, 'built through too many steps to follow');
+  if (ts.isObjectLiteralExpression(e)) {
+    const own: Reading[] = [];
+    const spreads: Reading[] = [];
+    for (const p of e.properties) {
+      if (ts.isSpreadAssignment(p)) spreads.push(readRequest(src, p.expression, depth + 1));
+      else if (propertyKey(p) === null) own.push(unread(src, p, 'a computed key, which could be templateSlug'));
+      else if (propertyKey(p) !== 'templateSlug') continue;
+      else if (ts.isPropertyAssignment(p)) own.push(readSlug(src, p.initializer, depth + 1));
+      else if (ts.isShorthandPropertyAssignment(p)) own.push(readSlug(src, p.name, depth + 1));
+      else own.push(unread(src, p, 'a templateSlug that is not a value'));
+    }
+    // Its own templateSlug names the template, or else a spread that always brings one.
+    return { ...either([...own, ...spreads]), bare: own.length ? own.some((r) => r.bare) : spreads.every((r) => r.bare) };
+  }
+  if (ts.isIdentifier(e)) return readName(src, e, readRequest, depth);
+  if (ts.isCallExpression(e)) {
+    const called = ts.isIdentifier(e.expression) ? functionOf(src, e.expression) : null;
+    const returns = called && returnsOf(called.fn);
+    if (!called || !returns) return unread(src, e, `cannot see what ${e.expression.getText(src.sf)} returns`);
+    return either(returns.map((r) => readRequest(called.src, r, depth + 1)));
+  }
+  if (ts.isConditionalExpression(e)) return either([readRequest(src, e.whenTrue, depth + 1), readRequest(src, e.whenFalse, depth + 1)]);
+  return unread(src, e, `cannot read a request written as a ${ts.SyntaxKind[e.kind]}`);
+}
+
+/** Whether a name is written inside a type (`typeof sendEmail`), where it sends nothing. */
+function inType(node: ts.Node): boolean {
+  for (let at = node.parent; at && !ts.isStatement(at); at = at.parent) if (ts.isTypeNode(at)) return true;
+  return false;
+}
+
+/**
+ * How a file reaches the email core: whether it binds one of the entry
+ * points (a named import under any name, a namespace or a dynamic import),
+ * every call of one, and every other use of one, which cannot be followed (a
+ * sender or the module handed on as a value, a re-export).
+ */
+function sendsIn(src: Source): { reaches: boolean; calls: ts.CallExpression[]; unread: string[] } {
+  const entries = new Set<ts.Symbol>();
+  const modules = new Map<ts.Symbol, readonly string[]>();
+  const calls: ts.CallExpression[] = [];
+  const problems: string[] = [];
+  let reaches = false;
+  const coreOf = (spec: ts.Node | undefined) => (spec && ts.isStringLiteralLike(spec) ? CORE_ENTRIES[moduleFile(src.file, spec.text) ?? ''] : undefined);
+  const add = (set: Set<ts.Symbol>, id: ts.Identifier) => { const s = src.checker.getSymbolAtLocation(id); if (s) set.add(s); };
+  // A use of an entry point: a call is a send; anything else hides one.
+  const reach = (callee: ts.Expression, what: string) => {
+    reaches = true;
+    if (ts.isCallExpression(callee.parent) && callee.parent.expression === callee) calls.push(callee.parent);
+    else problems.push(`${where(src, callee)}: ${what} is used other than called`);
+  };
+  /** What a dynamic import of a core module is bound to; false when it is not bound to names. */
+  const bindModule = (name: ts.BindingName, core: readonly string[]): boolean => {
+    if (ts.isIdentifier(name)) {
+      const s = src.checker.getSymbolAtLocation(name);
+      if (s) modules.set(s, core);
+      return true;
+    }
+    if (!ts.isObjectBindingPattern(name)) return false;
+    return name.elements.every((el) => {
+      if (!ts.isIdentifier(el.name)) return false;
+      if (el.dotDotDotToken) return bindModule(el.name, core);
+      const imported = el.propertyName ? (ts.isIdentifier(el.propertyName) || ts.isStringLiteral(el.propertyName) ? el.propertyName.text : null) : el.name.text;
+      if (imported === null) return false;
+      if (core.includes(imported)) add(entries, el.name);
+      return true;
+    });
+  };
+  const collect = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node)) {
+      const core = coreOf(node.moduleSpecifier);
+      const clause = node.importClause;
+      if (core && clause && !clause.isTypeOnly) {
+        const bindings = clause.namedBindings;
+        if (clause.name) bindModule(clause.name, core);
+        if (bindings && ts.isNamespaceImport(bindings)) bindModule(bindings.name, core);
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const el of bindings.elements) if (!el.isTypeOnly && core.includes((el.propertyName ?? el.name).text)) add(entries, el.name);
+        }
+      }
+    } else if (ts.isExportDeclaration(node)) {
+      const core = coreOf(node.moduleSpecifier);
+      const clause = node.exportClause;
+      if (core && !node.isTypeOnly && (!clause || !ts.isNamedExports(clause) || clause.elements.some((el) => !el.isTypeOnly && core.includes((el.propertyName ?? el.name).text)))) {
+        problems.push(`${where(src, node)}: re-exports the email core's senders`);
+      }
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && coreOf(node.arguments[0])) {
+      const core = coreOf(node.arguments[0]) as readonly string[];
+      const climb = (n: ts.Node) => { while (ts.isAwaitExpression(n.parent) || ts.isParenthesizedExpression(n.parent)) n = n.parent; return n; };
+      const at = climb(node);
+      const up = at.parent;
+      if (ts.isPropertyAccessExpression(up) && up.expression === at) {
+        // (await import(…)).sendEmail(…)
+        if (core.includes(up.name.text)) reach(up, up.name.text);
+      } else {
+        let name: ts.BindingName | undefined;
+        if (ts.isVariableDeclaration(up) && up.initializer === at) name = up.name;
+        else if (ts.isArrayLiteralExpression(up) && ts.isCallExpression(up.parent) && up.parent.expression.getText(src.sf) === 'Promise.all') {
+          // const [config, mod] = await Promise.all([import(…), import(…)])
+          const all = climb(up.parent);
+          const pattern = ts.isVariableDeclaration(all.parent) && all.parent.initializer === all ? all.parent.name : undefined;
+          const el = pattern && ts.isArrayBindingPattern(pattern) ? pattern.elements[up.elements.indexOf(at as ts.Expression)] : undefined;
+          if (el && ts.isBindingElement(el) && !el.dotDotDotToken) name = el.name;
+        }
+        if (!name || !bindModule(name, core)) problems.push(`${where(src, node)}: an import of the email core the check cannot follow`);
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(src.sf);
+  const look = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && !inType(node)) {
+      const parent = node.parent;
+      const declares = (ts.isImportSpecifier(parent) || ts.isNamespaceImport(parent) || ts.isImportClause(parent) || ts.isBindingElement(parent) || ts.isVariableDeclaration(parent))
+        && (parent.name === node || (ts.isImportSpecifier(parent) && parent.propertyName === node) || (ts.isBindingElement(parent) && parent.propertyName === node));
+      const symbol = ts.isExportSpecifier(parent) ? src.checker.getExportSpecifierLocalTargetSymbol(parent) : symbolOf(src, node);
+      if (!declares && symbol && entries.has(symbol)) reach(node, node.text);
+      else if (!declares && symbol && modules.has(symbol)) {
+        const core = modules.get(symbol) as readonly string[];
+        if (!ts.isPropertyAccessExpression(parent) || parent.expression !== node) problems.push(`${where(src, node)}: the email core's module is handed on as a value`);
+        else if (core.includes(parent.name.text)) reach(parent, parent.name.text);
+      }
+    }
+    ts.forEachChild(node, look);
+  };
+  look(src.sf);
+  return { reaches, calls: calls.sort((a, b) => a.pos - b.pos), unread: problems };
+}
+
+/** Every repo file whose imports (static, dynamic or re-exports) name one of the core's two modules. */
+function coreImporters(files: string[]): string[] {
+  return files.filter((file) => {
+    const text = read(file);
+    // A path to server/services/email/… has `email/` in it unless it starts
+    // there: the rest cannot import the core, and are not read as code.
+    if (!file.startsWith('server/services/email/') && !text.includes('email/')) return false;
+    return ts.preProcessFile(text, true, true).importedFiles.some((imp) => (moduleFile(file, imp.fileName) ?? '') in CORE_ENTRIES);
+  });
+}
+
+describe('no mail without a template', () => {
+  /**
+   * Every file that hands a mail to the email core, how many times, and every
+   * template it can send, read from the file and what it imports (a literal,
+   * a const, each member of a map like AUTH_LINKS or NOTIFICATION_EMAILS, a
+   * slug parameter's union type, a builder's returns): exactly these, so a
+   * template is sent only once it is listed here, and it is listed only with
+   * its rows in fa, en and tr for both editions (291 rewrote every sent one;
+   * a later migration adds a new one). A new send path, or one more send in
+   * these files, fails until it is listed. The outbox only re-sends what was
+   * queued, as it was queued: each queued request is checked where it is
+   * queued.
+   */
+  const SEND_PATHS: Record<string, { calls: number; slugs: string[]; resendsQueued?: true }> = {
+    'server/services/auth-email.ts': { calls: 1, slugs: ['email_verify', 'password_reset'] },
+    'server/services/verification/service.ts': { calls: 2, slugs: ['verification_code'] },
+    'server/services/invitations/worker.ts': { calls: 2, slugs: ['invite_otp', 'invite_member'] },
+    'server/routes/adminEmailProviders.ts': { calls: 1, slugs: ['email_test'] },
+    'server/routes/email.ts': { calls: 1, slugs: ['email_test'] },
+    'server/services/visitorTranscript.ts': { calls: 1, slugs: ['visitor_conversation_transcript'] },
+    'server/services/widget/offlineNotice.ts': { calls: 3, slugs: ['offline_message_received', 'offline_messages_summary'] },
+    'server/services/notificationEmail/dispatcher.ts': {
+      calls: 1,
+      slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update'],
+    },
+    'server/services/billing/account/notify.ts': {
+      calls: 2,
+      slugs: [
+        'billing_renewal_reminder', 'billing_renewed', 'billing_expired', 'billing_plan_changed', 'billing_change_scheduled',
+        'billing_payment_receipt', 'billing_plan_activated', 'billing_trial_ending', 'billing_trial_ended', 'billing_card_renewed',
+        'billing_card_payment_failed', 'billing_card_removed', 'billing_locked_data_deletion', 'billing_ai_pack_purchased',
+      ],
+    },
+    'server/services/email/outbox.ts': { calls: 2, slugs: [], resendsQueued: true },
+  };
+
+  const ROOTS = ['server', 'worker', 'channels', 'shared', 'runtime', 'ai-runtime', 'scripts'];
+  const sourceFiles = (dir: string): string[] =>
+    !existsSync(dir) ? [] : readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const path = join(dir, e.name);
+      if (e.isDirectory()) return ['node_modules', 'dist'].includes(e.name) ? [] : sourceFiles(path);
+      return /\.(ts|mts)$/.test(e.name) && !/\.(test|spec)\.|\.d\.ts$/.test(e.name) ? [path] : [];
+    });
+  /** A reading of a request that always names a template, all of it followed. */
+  const templated = (r: Reading) => !r.bare && !r.unread.length && r.slugs.length > 0;
+
+  it('the reading of a send call finds a request that names no template (the check can fail)', () => {
+    const probe = (...lines: string[]) => {
+      const src = bind('server/services/probe/probe.ts', lines.join('\n'));
+      const sends = sendsIn(src);
+      return { sends, readings: sends.calls.map((c) => readRequest(src, c.arguments[1])) };
+    };
+    const bare = probe(
+      "import { sendEmail } from '../email/index.js';",
+      'function own(config) {',
+      "  const request = { to: 'a@b.example', subject: 'S', html: `<p>${x}</p>` };",
+      '  return sendEmail(config, request);',
+      '}',
+      // Its callers are in other files: what they pass is out of sight.
+      'export function passOn(config, request) { return sendEmail(config, request); }',
+    );
+    expect(bare.readings.map(templated)).toEqual([false, false]);
+    expect(bare.readings[1].unread[0]).toMatch(/probe\.ts:6: request: a parameter of passOn, which is exported/);
+    // Strings and comments with commas, quotes or brackets in them are read as what they are.
+    const tricky = probe(
+      "import { sendEmail } from '../email/index.js';",
+      "sendEmail(config /* the platform's (default) */, { subject: 'a, b', html: `<p>${f('x)')}</p>`, templateSlug: 'email_test' });",
+    );
+    expect(tricky.readings.map((r) => r.slugs)).toEqual([['email_test']]);
+    // One caller of a local helper names a template and one does not: not every mail has one.
+    const helper = (second: string) => probe(
+      "import { enqueueEmail } from '../email/outbox.js';",
+      'async function named(config, request) { await enqueueEmail(config, request, {}); }',
+      "named(config, { templateSlug: 'billing_renewed', to });",
+      `named(config, ${second});`,
+    );
+    expect(helper("{ to, subject: 'bare' }").readings.map(templated)).toEqual([false]);
+    expect(helper("{ to, templateSlug: 'billing_expired' }").readings.map((r) => [...r.slugs].sort())).toEqual([['billing_expired', 'billing_renewed']]);
+    // An arrow helper's parameter is that parameter, not another function's const of the same name.
+    const arrow = probe(
+      "import { sendEmail } from '../email/index.js';",
+      "function other(config) { const request = { templateSlug: 'billing_renewed', to }; return enqueue(config, request); }",
+      'const sendNow = (config, request) => sendEmail(config, request);',
+      "export function reminder(config) { return sendNow(config, { to, subject: 'Reminder', html: '<p>bare</p>' }); }",
+    );
+    expect(arrow.readings.map(templated)).toEqual([false]);
+    expect(arrow.readings[0].bare).toBe(true);
+    // A sender imported under another name, or reached through its module,
+    // still sends; one handed on as a value hides its sends.
+    const alias = probe(
+      "import { sendEmail as deliverMail } from '../email/index.js';",
+      "import * as mail from '../email/index.js';",
+      "deliverMail(config, { workspaceId: null, to, subject: 'Hello', html: '<p>bare</p>' });",
+      "mail.sendPlatformEmail(config, { to, templateSlug: 'email_test' });",
+      'retry(deliverMail);',
+      'register(mail);',
+      'type Send = typeof deliverMail;',
+    );
+    expect(alias.sends.reaches).toBe(true);
+    expect(alias.readings.map(templated)).toEqual([false, true]);
+    expect(alias.sends.unread).toEqual([
+      'server/services/probe/probe.ts:5: deliverMail is used other than called',
+      "server/services/probe/probe.ts:6: the email core's module is handed on as a value",
+    ]);
+    // So does one imported on demand.
+    const dynamic = probe(
+      'export async function later(config) {',
+      "  const { enqueueEmail: queue } = await import('../email/outbox.js');",
+      "  const [, core] = await Promise.all([import('../config.js'), import('../email/index.js')]);",
+      "  await queue(config, { to, subject: 'bare' });",
+      "  await core.sendEmail(config, { to, templateSlug: 'email_test' });",
+      "  await (await import('../email/index.js')).sendEmail(config, { to, templateSlug: 'email_test' });",
+      '}',
+    );
+    expect(dynamic.sends.unread).toEqual([]);
+    expect(dynamic.readings.map(templated)).toEqual([false, true, true]);
+    // Every template a send can name is read: each member of a map indexed by
+    // a key (one more kind is one more template), a slug parameter's union type.
+    const slugs = probe(
+      "import { sendEmail } from '../email/index.js';",
+      "const LINKS = { verify: { slug: 'email_verify' }, change: { slug: 'email_change_confirm' } } as const;",
+      "type Slug = 'billing_renewed' | 'billing_expired';",
+      'export function link(config, kind) { const l = LINKS[kind]; return sendEmail(config, { to, templateSlug: l.slug }); }',
+      'export function billing(config, slug: Slug) { return sendEmail(config, { to, templateSlug: slug }); }',
+    );
+    expect(slugs.readings.map((r) => [...r.slugs].sort())).toEqual([['email_change_confirm', 'email_verify'], ['billing_expired', 'billing_renewed']]);
+  });
+
+  it('every file that sends is listed, with each of its sends', () => {
+    const found: Record<string, number> = {};
+    const unreadUses: string[] = [];
+    for (const file of coreImporters(ROOTS.flatMap(sourceFiles))) {
+      const sends = sendsIn(sourceOf(file));
+      unreadUses.push(...sends.unread);
+      if (sends.reaches) found[file] = sends.calls.length;
+    }
+    expect(unreadUses, 'a use of the email core this check cannot follow').toEqual([]);
+    expect(found, 'a new send path: give it a templateSlug and list it in SEND_PATHS').toEqual(
+      Object.fromEntries(Object.entries(SEND_PATHS).map(([file, p]) => [file, p.calls])),
+    );
+  });
+
+  it.each(Object.entries(SEND_PATHS).filter(([, p]) => !p.resendsQueued))('%s: every send names its template, and sends only the ones listed', (file, path) => {
+    const src = sourceOf(file);
+    const sent = new Set<string>();
+    for (const call of sendsIn(src).calls) {
+      const request = call.arguments[1];
+      expect(request, `${where(src, call)} hands over no request`).toBeDefined();
+      const reading = readRequest(src, request);
+      expect(reading.unread, `${where(src, call)}: the check cannot tell which template it sends`).toEqual([]);
+      expect(reading.bare, `${where(src, call)} can send ${request.getText(src.sf).slice(0, 80)} without a templateSlug`).toBe(false);
+      for (const slug of reading.slugs) sent.add(slug);
+    }
+    expect([...sent].sort(), `${file} sends these templates`).toEqual([...path.slugs].sort());
+  });
+
+  it('the outbox sends only what was queued, as it was queued', () => {
+    const outbox = sourceOf('server/services/email/outbox.ts');
+    expect(sendsIn(outbox).calls.map((c) => c.arguments[1].getText(outbox.sf))).toEqual(['request', 'request']);
+    // The queued payload, opened (processRow), or the caller's own request, tried once first (sendEmailWithRetry).
+    const src = read('server/services/email/outbox.ts');
+    expect(src).toMatch(/const request = openRequest\(config, row\.payload\);/);
+    expect(src).toMatch(/export async function sendEmailWithRetry\(\s*config: ServerConfig,\s*request: EmailRequest,/);
+  });
+
+  it('every template a sender names has its rows in fa, en and tr, for both editions', () => {
+    // 291 writes each sent slug's row per language, and adds it for whichever edition lacks it.
+    const sql = read('database/migrations/291_email_templates_redesign.sql');
+    expect(sql).toMatch(/CROSS JOIN \(VALUES \('iran'\), \('international'\)\) AS e\(edition\)/);
+    const rows = new Set([...sql.matchAll(/\('([a-z_]+)', '(fa|en|tr)', '[0-9a-f]{32}',/g)].map((m) => `${m[1]}/${m[2]}`));
+    for (const slug of new Set(Object.values(SEND_PATHS).flatMap((p) => p.slugs))) {
+      for (const locale of ['fa', 'en', 'tr']) expect(rows.has(`${slug}/${locale}`), `${slug} (${locale})`).toBe(true);
+    }
+  });
+
+  it('only the core hands a mail to a provider\'s adapter, once the layout is on it', () => {
+    for (const file of ROOTS.flatMap(sourceFiles)) {
+      if (file.startsWith('server/services/email/providers/')) continue;
+      const body = stripTs(read(file));
+      if (!/\bgetEmailAdapter\(/.test(body)) continue;
+      expect([SERVICE, STORE], `${file} reaches an email adapter`).toContain(file);
+    }
+    // The store only checks the connection; it never sends.
+    expect(stripTs(read(STORE))).not.toMatch(/adapter\.send\(/);
+    const service = stripTs(read(SERVICE));
+    expect(service.match(/\badapter\.send\(/g)).toHaveLength(1);
+    expect(service.indexOf('adapter.send(')).toBeGreaterThan(service.indexOf('await composeMessage(config, ready,'));
+    // The adapters themselves are reached through the registry alone (the
+    // Yahoo mailbox client borrows the relay's timeouts, not its adapter).
+    for (const file of ROOTS.flatMap(sourceFiles)) {
+      if (file.startsWith('server/services/email/providers/')) continue;
+      expect(stripTs(read(file)), file).not.toMatch(/\b(smtpAdapter|resendAdapter|sendgridAdapter)\b/);
+    }
   });
 });
 

@@ -88,7 +88,10 @@ vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => 
 
 const { sendEmail, sendPlatformEmail, renderEmailForPreview, templateContentProblems } = await import('../../../server/services/email/index.js');
 const { issueVerificationEmail } = await import('../../../server/services/auth-email.js');
-const { mailTextLines } = await import('../../../server/services/widget/offlineNotice.js');
+const { mailTextLines, sendOfflineNoticeTest } = await import('../../../server/services/widget/offlineNotice.js');
+const { renderOtpEmail: renderVerificationOtp } = await import('../../../server/services/verification/templates.js');
+const { renderOtpEmail: renderInviteOtp, renderInviteEmail } = await import('../../../server/services/invitations/notificationTemplates.js');
+const { testMailRequest } = await import('../../../server/services/email/testMail.js');
 
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'], deliveryDiagnosticsLoggingEnabled: false } as never;
 const YEAR = String(new Date().getUTCFullYear());
@@ -282,6 +285,42 @@ describe('a caller\'s own text wears the layout too', () => {
     await sendPlatformEmail(CONFIG, { to: 'a@example.com', subject: 'S', text: 'Line one\nline two\n\n<b>Not markup</b>' });
     expect(sent(1).html).toContain('>Line one<br>line two</p>');
     expect(sent(1).html).toContain('>&lt;b&gt;Not markup&lt;/b&gt;</p>');
+  });
+});
+
+describe('every compiled fallback wears the layout, as the row it stands in for would', () => {
+  // The senders' own fallbacks for a missing row, built by their own code.
+  const FALLBACKS: Array<[string, () => Record<string, unknown>, string]> = [
+    ['verification_code', () => ({ templateSlug: 'verification_code', locale: 'fa', ...renderVerificationOtp('fa', '482917', 600) }), '482917'],
+    ['invite_otp', () => ({ templateSlug: 'invite_otp', locale: 'tr', ...renderInviteOtp('tr', '731904') }), '731904'],
+    ['invite_member', () => ({
+      templateSlug: 'invite_member', locale: 'en',
+      ...renderInviteEmail('en', { firstName: 'Sam', workspaceName: 'Acme', link: 'https://app.respok.app/invite#t=1' }),
+    }), 'Accept the invitation'],
+    ['email_test', () => ({ locale: 'en', ...testMailRequest({ slot: 'default', provider: 'smtp', at: new Date('2026-10-30T10:00:00Z'), edition: 'international', locale: 'en' }) }), '(smtp)'],
+  ];
+
+  it.each(FALLBACKS)('%s', async (_slug, build, words) => {
+    db.templates = [];
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect((await sendEmail(CONFIG, { workspaceId: null, to: 'owner@example.com', ...build() } as never)).success).toBe(true);
+    const { html } = sent();
+    expect(html).toMatch(/^<!DOCTYPE html>\n<html lang="(fa|en|tr)"/);
+    expect(html).toContain('class="x-card x-ink x-line x-pad"');
+    expect(html).toContain('src="https://app.respok.app/brand/intl/email/respok-logo-dark.png"');
+    expect(html).toContain(words);
+    // One document: a fallback written as a whole one gives its body.
+    expect(html.match(/<html\b/g)).toHaveLength(1);
+  });
+
+  it('offline_message_received: the notice the panel tests', async () => {
+    db.templates = [];
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await sendOfflineNoticeTest(CONFIG, { workspaceId: 'ws-1', to: 'owner@example.com', locale: 'en' });
+    const { html } = sent();
+    expect(html).toMatch(/^<!DOCTYPE html>/);
+    expect(html).toContain('class="x-card x-ink x-line x-pad"');
+    expect(html).toContain('this is a test message confirming your offline notification pipeline works.');
   });
 });
 

@@ -14,6 +14,7 @@
  *   div.warning, div.notice        callouts
  *   hr, strong, a, br              separators and inline text
  *   div.transcript > div.msg.msg-visitor|msg-agent > div.meta + div.bubble
+ *                                  a chat (data-reader="team": the team's copy)
  *
  * Anything else passes through as it is, but what a mail may never send
  * (contentProblems: what runs code, loads a page or takes input), which the
@@ -50,7 +51,8 @@
  *     layout (Outlook pads cells, not tables); the head's styles are split
  *     into blocks so one a client rejects cannot take the others with it;
  *     Outlook gets its own font list (it falls back to Times otherwise);
- *     nothing is hidden but the preheader; a long address, link or code
+ *     no words are hidden but the preheader (a phone loses only the footer's
+ *     last separator dot, where its line breaks); a long address, link or code
  *     breaks rather than widen a phone.
  *
  * No I/O here: the brand (name, logo, links, the legal line) is passed in.
@@ -70,8 +72,9 @@ export interface EmailPalette {
   warningBg: string; warningInk: string; warningEdge: string;
   noticeBg: string; noticeInk: string; noticeEdge: string;
   quoteBg: string; quoteInk: string;
-  bubbleVisitor: string; bubbleVisitorInk: string;
-  bubbleAgent: string; bubbleAgentInk: string;
+  /** A transcript's bubbles: the reader's own lines, and the other side's. */
+  bubbleReader: string; bubbleReaderInk: string;
+  bubbleOther: string; bubbleOtherInk: string;
   footInk: string; onBand: string;
 }
 
@@ -91,8 +94,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#FFF4DB', warningInk: '#5A3D00', warningEdge: '#FFB423',
       noticeBg: '#E6F6F2', noticeInk: '#0A4A42', noticeEdge: '#16C7A8',
       quoteBg: '#F1F4F6', quoteInk: '#12141F',
-      bubbleVisitor: '#0B7D6C', bubbleVisitorInk: '#FFFFFF',
-      bubbleAgent: '#F1F4F6', bubbleAgentInk: '#12141F',
+      bubbleReader: '#0B7D6C', bubbleReaderInk: '#FFFFFF',
+      bubbleOther: '#F1F4F6', bubbleOtherInk: '#12141F',
       footInk: '#565D6B', onBand: '#FFFFFF',
     },
     dark: {
@@ -103,8 +106,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#33270B', warningInk: '#FFD98C', warningEdge: '#FFB423',
       noticeBg: '#0E2C28', noticeInk: '#A6EEDF', noticeEdge: '#16C7A8',
       quoteBg: '#1F262D', quoteInk: '#ECF0F2',
-      bubbleVisitor: '#0B7D6C', bubbleVisitorInk: '#FFFFFF',
-      bubbleAgent: '#222A32', bubbleAgentInk: '#ECF0F2',
+      bubbleReader: '#0B7D6C', bubbleReaderInk: '#FFFFFF',
+      bubbleOther: '#222A32', bubbleOtherInk: '#ECF0F2',
       footInk: '#9AA2AD', onBand: '#FFFFFF',
     },
   },
@@ -117,8 +120,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#FFF0EB', warningInk: '#8A2410', warningEdge: '#FF5A3C',
       noticeBg: '#EFEEF6', noticeInk: '#2A2747', noticeEdge: '#5E5C75',
       quoteBg: '#F2F1F7', quoteInk: '#16142B',
-      bubbleVisitor: '#16142B', bubbleVisitorInk: '#FFFFFF',
-      bubbleAgent: '#F2F1F7', bubbleAgentInk: '#16142B',
+      bubbleReader: '#16142B', bubbleReaderInk: '#FFFFFF',
+      bubbleOther: '#F2F1F7', bubbleOtherInk: '#16142B',
       footInk: '#5E5C75', onBand: '#FFFFFF',
     },
     dark: {
@@ -129,8 +132,8 @@ export const EMAIL_PALETTES: Readonly<Record<Edition, { light: EmailPalette; dar
       warningBg: '#3A1912', warningInk: '#FFB9A7', warningEdge: '#FF5A3C',
       noticeBg: '#1D1C31', noticeInk: '#DAD8EC', noticeEdge: '#8E8BAD',
       quoteBg: '#1D1C31', quoteInk: '#F1F0F7',
-      bubbleVisitor: '#FF5A3C', bubbleVisitorInk: '#16142B',
-      bubbleAgent: '#1F1E33', bubbleAgentInk: '#F1F0F7',
+      bubbleReader: '#FF5A3C', bubbleReaderInk: '#16142B',
+      bubbleOther: '#1F1E33', bubbleOtherInk: '#F1F0F7',
       footInk: '#A09EB6', onBand: '#FFFFFF',
     },
   },
@@ -223,8 +226,11 @@ export interface EmailBrand {
   /**
    * The logo as PNGs (email clients do not show SVG): the one for light
    * backgrounds, the one for dark ones (the same URL when the brand has no
-   * dark variant), and the light one's natural size. Null: the brand name
-   * stands in, in text.
+   * dark variant), and the light one's natural size. Either is drawn in a
+   * box made from that size's shape, never at its own pixels, and a dark
+   * logo keeps the light one's shape (Branding refuses one of another shape,
+   * server/routes/platformBrandAssets.ts), so the dark PNG's own size is not
+   * needed. Null: the brand name stands in, in text.
    */
   logo: { light: string; dark: string; width: number; height: number } | null;
 }
@@ -985,9 +991,15 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
 }
 
 /**
- * One row per message: the reader's own (the visitor's) at the end side in
- * the brand's colour, the team's at the start side in grey, as in the
- * widget. The font is the card's, inherited: a long transcript repeats as
+ * One row per message, as in the widget and the inbox: the reader's own
+ * lines at the end side in the brand's colour, the other side's at the start
+ * side in grey. The container says who reads the mail: a plain
+ * div.transcript is the visitor's copy (the msg-visitor lines are the
+ * reader's), and `data-reader="team"` the team's (the operator's copy, where
+ * the msg-agent lines are; server/services/transcriptEmailRows.ts). A notice
+ * (a meta line with no bubble: a system line, or the line saying older
+ * messages were left out) is nobody's, so it sits in the middle, in either
+ * direction. The font is the card's, inherited: a long transcript repeats as
  * little as it can (Gmail clips a mail over about 102 KB). Whatever else the
  * container or a message holds (an older mail's `<p>` lines, a Super Admin's
  * own note) is the author's and is kept, in its own full-width row, or
@@ -996,6 +1008,7 @@ function quote(el: ElementNode, ctx: StyleContext, last: boolean): string {
 function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
   const [metaSize, metaLh] = ctx.t.meta;
   const [size, lh] = ctx.t.bubble;
+  const readerLines = String(attrOf(el, 'data-reader') ?? '').trim().toLowerCase() === 'team' ? 'msg-agent' : 'msg-visitor';
   const rows: string[] = [];
   const fullRow = (inner: string) =>
     `<tr><td align="${ctx.start}" style="padding:0 0 14px;text-align:${ctx.start};">${inner}</td></tr>`;
@@ -1008,24 +1021,25 @@ function transcript(el: ElementNode, ctx: StyleContext, last: boolean): string {
     const msg = child;
     // A message with its own background keeps light-scheme text, as any element with one does.
     const msgCtx = pinnedFor(msg, ctx);
-    const visitor = hasClass(msg, 'msg-visitor');
-    const side = visitor ? ctx.end : ctx.start;
     const parts = elements(msg.children);
     const meta = parts.find((c) => hasClass(c, 'meta'));
     const bubbles = parts.filter((c) => hasClass(c, 'bubble'));
     const extras = meta || bubbles.length ? msg.children.filter((c) => c !== meta && !bubbles.includes(c as ElementNode) && !isBlank(c)) : [];
-    const cls = visitor ? 'x-bv' : 'x-ba';
-    const r = bubbleRadius(18, 4, ctx, visitor ? 'end' : 'start');
+    const notice = !!meta && !bubbles.length;
+    const own = hasClass(msg, readerLines);
+    const side = notice ? 'center' : own ? ctx.end : ctx.start;
+    const cls = own ? 'x-br' : 'x-bo';
+    const r = bubbleRadius(18, 4, ctx, own ? 'end' : 'start');
     let metaHtml = '';
     if (meta) {
       const metaCtx = pinnedFor(meta, msgCtx);
-      const metaStyle = `padding:0 4px 5px;font-size:${metaSize}px;line-height:${metaLh}px;color:${pal(metaCtx).muted};text-align:${side};${MSO}`;
+      const metaStyle = `padding:${notice ? '0 4px' : '0 4px 5px'};font-size:${metaSize}px;line-height:${metaLh}px;color:${pal(metaCtx).muted};text-align:${side};${MSO}`;
       metaHtml = `<tr>${startTag('td', meta.attrs, { class: dk(metaCtx, 'x-muted'), align: side, style: metaStyle }, [], ['class'])}${renderNodes(meta.children, metaCtx).trim()}</td></tr>`;
     }
     const bubbleRow = (attrs: Attr[], content: Node[], bubbleCtx: StyleContext) => {
       const bp = pal(bubbleCtx);
-      const bg = visitor ? bp.bubbleVisitor : bp.bubbleAgent;
-      const ink = visitor ? bp.bubbleVisitorInk : bp.bubbleAgentInk;
+      const bg = own ? bp.bubbleReader : bp.bubbleOther;
+      const ink = own ? bp.bubbleReaderInk : bp.bubbleOtherInk;
       const inner: StyleContext = { ...bubbleCtx, box: { ink, cls, size: ctx.t.bubble } };
       const bubbleStyle = `background-color:${bg};border-radius:${r};padding:11px 16px;font-size:${size}px;line-height:${lh}px;color:${ink};text-align:${ctx.start};overflow-wrap:anywhere;word-break:break-word;${MSO}`;
       return `<tr>${startTag('td', attrs, { class: dk(bubbleCtx, cls), bgcolor: bg, style: bubbleStyle }, [], ['class'])}${renderBoxChildren(content, inner).trim()}</td></tr>`;
@@ -1235,8 +1249,9 @@ function darkRules(d: EmailPalette): Record<string, { bg?: string; grad?: string
     'x-warn': { bg: d.warningBg, color: d.warningInk, border: d.warningEdge },
     'x-notice': { bg: d.noticeBg, color: d.noticeInk, border: d.noticeEdge },
     'x-quote': { bg: d.quoteBg, color: d.quoteInk },
-    'x-bv': { bg: d.bubbleVisitor, color: d.bubbleVisitorInk },
-    'x-ba': { bg: d.bubbleAgent, color: d.bubbleAgentInk },
+    // A transcript's bubbles: the reader's own lines (x-br) and the other side's (x-bo).
+    'x-br': { bg: d.bubbleReader, color: d.bubbleReaderInk },
+    'x-bo': { bg: d.bubbleOther, color: d.bubbleOtherInk },
     'x-bar': { bg: d.highlight, grad: d.highlight },
   };
 }
@@ -1342,17 +1357,19 @@ export function renderEmailDocument(input: EmailDocumentInput): string {
 
   // The footer: why the mail came (or the caller's own closing line), the
   // brand with its panel and support addresses, then the legal line. Plain
-  // spaces around the dots: the line wraps on a narrow screen.
+  // spaces around the dots: the line wraps on a narrow screen. There the
+  // support address takes a line of its own (the narrow rules, x-fsup), and
+  // the dot before it goes (x-fdot), so no line ends on a separator.
   const footInk = p.footInk;
   const note = input.footer?.html ? footerLine(input.footer.html, ctx, footInk) : escapeText(whyLine(input.category, locale, brand.name));
   const footLink = (href: string, text: string) =>
     `<a href="${escapeText(href)}" class="x-foot" dir="ltr" style="color:${footInk};text-decoration:underline;text-underline-offset:2px;unicode-bidi:isolate;white-space:nowrap;">${escapeText(text)}</a>`;
-  const dot = `<span class="x-foot" style="color:${footInk};">${rtl ? '&rlm;·&rlm;' : '·'}</span>`;
-  const links = [
+  const dot = (cls: string) => `<span class="${cls}" style="color:${footInk};">${rtl ? '&rlm;·&rlm;' : '·'}</span>`;
+  let links = [
     `<strong class="x-ink" style="font-weight:700;color:${p.ink};">${name}</strong>`,
     brand.appUrl ? footLink(brand.appUrl, hostOf(brand.appUrl)) : '',
-    brand.supportEmail ? footLink(`mailto:${brand.supportEmail}`, brand.supportEmail) : '',
-  ].filter(Boolean).join(` ${dot} `);
+  ].filter(Boolean).join(` ${dot('x-foot')} `);
+  if (brand.supportEmail) links += ` ${dot('x-foot x-fdot')} <span class="x-fsup">${footLink(`mailto:${brand.supportEmail}`, brand.supportEmail)}</span>`;
   const footRow = (inner: string, pad: string, [size, lh]: [number, number]) =>
     `<tr><td align="center" class="x-foot" style="padding:${pad};font-family:${font};font-size:${size}px;line-height:${lh}px;color:${footInk};text-align:center;${MSO}">${inner}</td></tr>`;
 
@@ -1404,7 +1421,7 @@ export function renderEmailDocument(input: EmailDocumentInput): string {
   const faces = appBase
     ? fonts.faces.map((f) => `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${f.weight};font-display:swap;src:url(${appBase}/widget/fonts/${f.file}) format('woff2');unicode-range:${f.range};}`).join('')
     : '';
-  const narrow = `@media only screen and (max-width:620px){.x-gut{padding-left:12px!important;padding-right:12px!important;}.x-pad{padding-left:22px!important;padding-right:22px!important;}.x-h1{font-size:${t.h1[0] - 2}px!important;line-height:${t.h1[1] - 3}px!important;}.x-btnt{width:100%!important;}.x-btnt a{display:block!important;text-align:center!important;}.x-code{font-size:28px!important;}}`;
+  const narrow = `@media only screen and (max-width:620px){.x-gut{padding-left:12px!important;padding-right:12px!important;}.x-pad{padding-left:22px!important;padding-right:22px!important;}.x-h1{font-size:${t.h1[0] - 2}px!important;line-height:${t.h1[1] - 3}px!important;}.x-btnt{width:100%!important;}.x-btnt a{display:block!important;text-align:center!important;}.x-code{font-size:28px!important;}.x-fdot{display:none!important;}.x-fsup{display:block!important;}}`;
 
   const head = [
     '<!DOCTYPE html>',

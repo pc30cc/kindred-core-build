@@ -146,8 +146,19 @@ describe('the invitation e-mail', () => {
   it('an invitation with no end date says so, in each language', async () => {
     h.expiresAt = null;
     const { request } = await runOnce({ success: true, provider: 'smtp' });
-    expect(request.localizedData.en.expiry).toBe('no end date');
-    expect(request.localizedData.fa.expiry).toBe('بدون تاریخ پایان');
+    expect(request.localizedData.en.expiry).toBe('No expiry');
+    expect(request.localizedData.fa.expiry).toBe('بدون انقضا');
+    expect(request.localizedData.tr.expiry).toBe('Süresiz');
+  });
+
+  it('so does one made without an expiry, which is stored a hundred years ahead', async () => {
+    h.expiresAt = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000).toISOString();
+    const { request } = await runOnce({ success: true, provider: 'smtp' });
+    expect(request.templateData.expiry).toBe('No expiry');
+    expect(request.localizedData.fa.expiry).toBe('بدون انقضا');
+    expect(request.localizedData.tr.expiry).toBe('Süresiz');
+    // The compiled fallback names no end date either.
+    expect(request.text).not.toMatch(/valid until/);
   });
 
   it('names "a team member" in the mail\'s language when the inviter has no name', async () => {

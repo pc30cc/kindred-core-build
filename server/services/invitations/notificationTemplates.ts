@@ -120,9 +120,31 @@ export function formatExpiry(
   }
 }
 
+/**
+ * An end further away than this is no end: the invitation's CHECK needs an
+ * end date, so one made without an expiry is stored 100 years ahead
+ * (server/routes/workspaceInvitations.ts, NO_EXPIRY_TTL_MS), and a mail must
+ * not tell its reader the invitation is valid until 2126. Every other
+ * invitation ends within 30 days.
+ */
+const NO_EXPIRY_AFTER_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+
+/** The invitation's end date in the reader's calendar (formatExpiry), or null when it has none. */
+function inviteEndDate(
+  locale: unknown,
+  iso: string | null | undefined,
+  timeZone: string | null | undefined,
+  calendar: 'jalali' | 'gregorian' | null | undefined,
+  now: Date,
+): string | null {
+  const at = iso ? new Date(iso).getTime() : Number.NaN;
+  if (Number.isFinite(at) && at - now.getTime() > NO_EXPIRY_AFTER_MS) return null;
+  return formatExpiry(locale, iso, timeZone, calendar);
+}
+
 export function renderInviteEmail(locale: unknown, input: InviteEmailInput): RenderedEmail {
   const lc = normalizeNotificationLocale(locale);
-  const expiry = formatExpiry(lc, input.expiresAt, input.timeZone, input.calendar);
+  const expiry = inviteEndDate(lc, input.expiresAt, input.timeZone, input.calendar, new Date());
   const name = input.firstName;
   const ws = input.workspaceName;
   const link = input.link;
@@ -205,21 +227,30 @@ export function renderRoleLabel(locale: unknown, role: string): string {
   return ROLE_LABELS[normalizeNotificationLocale(locale)][role] ?? role;
 }
 
-/** {expiry} when the invitation has no end date (every invitation made now has one). */
+/**
+ * {expiry} for an invitation that never expires, in the panel's own words
+ * for it (src/i18n/locales/*.ts, `invitations.noExpiry`), so the mail and
+ * the invitations list say the same thing.
+ */
 const NO_EXPIRY: Record<NotificationLocale, string> = {
-  fa: 'بدون تاریخ پایان',
-  tr: 'bitiş tarihi yok',
-  en: 'no end date',
+  fa: 'بدون انقضا',
+  tr: 'Süresiz',
+  en: 'No expiry',
 };
 
-/** The invitation's end, as {expiry} prints it: the date in the locale's calendar, or that it has none. */
+/**
+ * The invitation's end, as {expiry} prints it: the date in the locale's
+ * calendar, or that it has none (no date, an unreadable one, or one stored
+ * far ahead for an invitation that never expires: inviteEndDate).
+ */
 export function renderInviteExpiry(
   locale: unknown,
   iso?: string | null,
   timeZone?: string | null,
   calendar?: 'jalali' | 'gregorian' | null,
+  now: Date = new Date(),
 ): string {
-  return formatExpiry(locale, iso, timeZone, calendar) ?? NO_EXPIRY[normalizeNotificationLocale(locale)];
+  return inviteEndDate(locale, iso, timeZone, calendar, now) ?? NO_EXPIRY[normalizeNotificationLocale(locale)];
 }
 
 // ── Invitation SMS (never carries a token) ────────────────────────────────

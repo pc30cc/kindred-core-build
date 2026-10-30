@@ -23,6 +23,8 @@ import type { Edition } from '../../../shared/edition.js';
 import { renderEmailForPreview, sendEmail, templateContentProblems, type EmailRequest, type SendResult } from './index.js';
 import { catalogEntry, sampleTemplateData } from './templateCatalog.js';
 import { notificationFooter } from '../notificationEmail/unsubscribe.js';
+import { operatorNoticeProviderKey } from '../notificationEmail/dispatcher.js';
+import { isNotificationEmailType } from '../notificationEmail/types.js';
 import { resolveAppBaseUrl, resolveWorkspaceAppUrl } from '../auth-email.js';
 import type { OperatorLocale } from '../operatorLocale.js';
 import type { EmailCategory } from './providers/types.js';
@@ -114,13 +116,19 @@ export async function previewPlatformTemplate(
 /**
  * The template, filled with the sample values, sent to `to` now as platform
  * mail (no workspace, so no workspace's email log): the given content in
- * place of the stored row (EmailRequest.template), in its own language.
+ * place of the stored row (EmailRequest.template), in its own language. An
+ * operator notice goes through the provider its real ones take (the
+ * notification provider, when Super Admin chose one), so the test shows
+ * their From and fails when they would.
  */
 export async function sendPlatformTemplateTest(
   config: ServerConfig,
   input: { edition: Edition; slug: string; locale: string; content: TemplateContent; to: string },
 ): Promise<SendResult> {
   const context = await sendContext(config, input.edition, input.slug, input.locale);
+  const providerConfigKey = isNotificationEmailType(catalogEntry(input.slug)?.footer)
+    ? await operatorNoticeProviderKey(config)
+    : undefined;
   return sendEmail(config, {
     workspaceId: null,
     to: input.to,
@@ -131,5 +139,6 @@ export async function sendPlatformTemplateTest(
     locale: input.locale,
     category: context.kind,
     footer: context.footer,
+    providerConfigKey,
   });
 }

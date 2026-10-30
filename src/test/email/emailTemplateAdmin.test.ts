@@ -11,7 +11,8 @@
  *     text being edited, never the stored row), in its own language even
  *     where the platform sends another, as platform mail: no workspace's log,
  *     no one-click unsubscribe header, a closing line that switches nothing
- *     off, and no content-check line in the stored row's name.
+ *     off, and no content-check line in the stored row's name; an operator
+ *     notice through the provider its real ones take.
  *
  * The database is an in-memory stand-in; the Resend adapter is the real one,
  * over a stubbed fetch.
@@ -28,6 +29,9 @@ const db = vi.hoisted(() => ({
   inserts: [] as string[],
   branding: {} as Record<string, Row>,
   domains: { app_base_url: 'https://app.example.com', canonical_base_url: 'https://example.com' } as Row | null,
+  /** app_runtime_config's email providers, by key. */
+  providers: {} as Record<string, Row>,
+  notificationSettings: null as Row | null,
 }));
 
 const client = vi.hoisted(() => () => ({
@@ -51,10 +55,10 @@ const client = vi.hoisted(() => () => ({
       then: (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null }),
       maybeSingle: async () => {
         if (table === 'app_runtime_config') {
-          return filters.key === 'default_email_provider'
-            ? { data: { value: { provider_name: 'resend', config: { api_key: 're_test', from_email: 'noreply@example.com' } } }, error: null }
-            : { data: null, error: null };
+          const value = db.providers[filters.key as string];
+          return { data: value ? { value } : null, error: null };
         }
+        if (table === 'notification_email_settings') return { data: db.notificationSettings, error: null };
         if (table === 'email_templates') {
           const row = db.templates.find((t) => t.edition === filters.edition && t.slug === filters.slug && t.locale === filters.locale);
           return { data: row ? { subject: row.subject, html_body: row.html_body, text_body: row.text_body } : null, error: null };
@@ -77,6 +81,7 @@ vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => 
 }));
 
 const { sendEmail } = await import('../../../server/services/email/index.js');
+const { invalidateNotificationEmailSettingsCache } = await import('../../../server/services/notificationEmail/settings.js');
 const { previewPlatformTemplate, sendPlatformTemplateTest } = await import('../../../server/services/email/templateAdmin.js');
 
 const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'], deliveryDiagnosticsLoggingEnabled: true } as never;
@@ -104,6 +109,9 @@ beforeEach(() => {
   db.inserts = [];
   db.branding = { fa: { platform_name: 'پلتفرم' }, en: { platform_name: 'Platform One' } };
   db.domains = { app_base_url: 'https://app.example.com', canonical_base_url: 'https://example.com' };
+  db.providers = { default_email_provider: { provider_name: 'resend', config: { api_key: 're_test', from_email: 'noreply@example.com' } } };
+  db.notificationSettings = null;
+  invalidateNotificationEmailSettingsCache();
   fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg_1' }), text: async () => '' });
   vi.stubGlobal('fetch', fetchMock);
   delete process.env.RESEND_API_KEY;
@@ -202,6 +210,33 @@ describe('the test', () => {
     const mail = sent();
     expect(mail.html).toContain('https://app.example.com/app/settings/notifications');
     expect(Object.keys(mail.headers ?? {})).not.toContain('List-Unsubscribe');
+  });
+
+  it('sends an operator notice through the provider its real ones take, and every other mail through the default', async () => {
+    db.providers.notification_email_provider = { provider_name: 'resend', config: { api_key: 're_notice', from_email: 'alerts@example.com' } };
+    db.notificationSettings = { enabled: true, provider_override: 'resend' };
+    const from = (call: number) => String((sent(call) as unknown as { from: string }).from);
+    const key = (call: number) => String((fetchMock.mock.calls[call][1].headers as Record<string, string>).Authorization);
+    await sendPlatformTemplateTest(CONFIG, {
+      edition: 'international', slug: 'operator_unread_digest', locale: 'en', content: DIGEST, to: 'admin@example.com',
+    });
+    expect(from(0)).toContain('alerts@example.com');
+    expect(key(0)).toBe('Bearer re_notice');
+    // The owners' offline-message notices and service mail go the default way, as theirs do.
+    for (const slug of ['offline_messages_summary', 'billing_payment_receipt']) {
+      await sendPlatformTemplateTest(CONFIG, { edition: 'iran', slug, locale: 'fa', content: RECEIPT, to: 'admin@example.com' });
+    }
+    expect([from(1), from(2)].every((f) => f.includes('noreply@example.com'))).toBe(true);
+    expect([key(1), key(2)]).toEqual(['Bearer re_test', 'Bearer re_test']);
+
+    // A notification provider chosen but not set up: the notices, and their test, take the default.
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    db.notificationSettings = { enabled: true, provider_override: 'sendgrid' };
+    invalidateNotificationEmailSettingsCache();
+    await sendPlatformTemplateTest(CONFIG, {
+      edition: 'international', slug: 'operator_unread_digest', locale: 'en', content: DIGEST, to: 'admin@example.com',
+    });
+    expect(key(3)).toBe('Bearer re_test');
   });
 
   it('leaves the stored row\'s content check to the stored row: a draft\'s problem is not logged against it', async () => {

@@ -95,11 +95,19 @@ describe('the email provider resolves from platform config only', () => {
     walk('server');
 
     // The Super Admin's "Send test email" of the notification slot names the
-    // same row, from its own slot table, never from the request.
-    expect(callers.sort()).toEqual(['server/routes/adminEmailProviders.ts', 'server/services/notificationEmail/dispatcher.ts']);
+    // same row, from its own slot table, never from the request; the test of
+    // an operator notice's template, the key the dispatcher itself picks.
+    expect(callers.sort()).toEqual([
+      'server/routes/adminEmailProviders.ts',
+      'server/services/email/templateAdmin.ts',
+      'server/services/notificationEmail/dispatcher.ts',
+    ]);
     const route = stripTs(read('server/routes/adminEmailProviders.ts'));
     expect(route).toContain('providerConfigKey: key');
     expect(route).toContain('const key = EMAIL_PROVIDER_SLOTS[slot]');
+    const templateTest = stripTs(read('server/services/email/templateAdmin.ts'));
+    expect(templateTest.match(/providerConfigKey/g)).toHaveLength(2);
+    expect(templateTest).toMatch(/const providerConfigKey = isNotificationEmailType\(catalogEntry\(input\.slug\)\?\.footer\)\s*\? await operatorNoticeProviderKey\(config\)\s*: undefined;/);
   });
 
   it('no other email module reaches for a workspace provider', () => {

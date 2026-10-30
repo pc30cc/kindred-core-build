@@ -395,6 +395,16 @@ async function notificationProviderKey(
   return undefined;
 }
 
+/**
+ * The provider an operator notice goes out through right now, as a pass
+ * picks it: for Super Admin's test of one of their templates
+ * (email/templateAdmin.ts), which must show the From and the provider the
+ * real notice has.
+ */
+export async function operatorNoticeProviderKey(config: ServerConfig): Promise<string | undefined> {
+  return notificationProviderKey(config, await loadNotificationEmailSettings(config));
+}
+
 function sb(config: ServerConfig) {
   return getServiceClient(config);
 }

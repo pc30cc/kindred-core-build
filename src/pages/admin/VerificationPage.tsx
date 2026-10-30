@@ -15,7 +15,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ShieldOff, ShieldCheck, Database, Mail, MessageSquare, KeyRound, RotateCcw } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { formatPattern as format } from '@/lib/date';
 import {
   useVerificationOverview, useVerificationPurpose, useUpdatePurposeSettings, useResetPurposeSettings,
@@ -220,6 +220,11 @@ export default function AdminVerificationPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">{t('admin.verification.preview.emailTemplateNote')}</p>
+                  {emailPreview.locale && emailPreview.locale !== previewLocale ? (
+                    <p className="text-xs text-amber-600" data-testid="verification-email-sent-in">
+                      {t('admin.verification.preview.emailSentIn', { language: t(`admin.brandingPage.languages.${emailPreview.locale}` as TranslationKey) })}
+                    </p>
+                  ) : null}
                   {emailPreview.isLoading ? (
                     <p className="text-sm text-muted-foreground">{t('admin.verification.preview.loading')}</p>
                   ) : emailPreview.isError ? (
@@ -227,9 +232,9 @@ export default function AdminVerificationPage() {
                   ) : emailPreview.data ? (
                     <>
                       <div className="text-sm font-medium">{t('admin.verification.preview.emailSubject' as any)}</div>
-                      <div className="rounded border p-2 text-sm" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.subject}</div>
+                      <div className="rounded border p-2 text-sm" dir={emailPreview.locale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.subject}</div>
                       <div className="text-sm font-medium">{t('admin.verification.preview.emailText' as any)}</div>
-                      <pre className="rounded border p-2 text-sm whitespace-pre-wrap" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.text}</pre>
+                      <pre className="rounded border p-2 text-sm whitespace-pre-wrap" dir={emailPreview.locale === 'fa' ? 'rtl' : 'ltr'}>{emailPreview.data.text}</pre>
                       <div className="text-sm font-medium">{t('admin.verification.preview.emailHtml' as any)}</div>
                       {/*
                         A fully locked-down sandbox: no script execution, no

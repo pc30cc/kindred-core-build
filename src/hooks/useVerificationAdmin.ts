@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/apiBase';
 import type { Locale } from '@/i18n/config';
-import { previewEmailTemplate } from '@/features/emailTemplates/emailTemplatesApi';
+import { fetchEmailTemplateCatalog, previewEmailTemplate } from '@/features/emailTemplates/emailTemplatesApi';
 
 export type VerificationPurpose =
   | 'signup_email' | 'signup_phone' | 'password_reset' | 'login_step_up'
@@ -228,16 +228,42 @@ export function useTemplatePreview() {
 }
 
 /**
- * The code's email as it is sent: the running edition's Super Admin template
- * `verification_code` (Branding → Email templates), rendered by Branding's
- * own preview through the email core, with the fixed sample code. The
- * compiled text the verification service keeps is only the fallback for a
- * missing row, so it is not what this shows.
+ * The language a code asked for in `asked` is mailed in: that one when the
+ * platform offers it, else the platform's first (the email core's
+ * resolveEmailScope). An Iranian platform mails Persian whatever was asked.
  */
-export function useVerificationEmailPreview(locale: Locale) {
-  return useQuery({
-    queryKey: ['gv-admin-email-preview', locale],
-    queryFn: () => previewEmailTemplate({ slug: 'verification_code', locale, scheme: 'light' }),
+export function emailSendLocale(asked: Locale, offered: readonly string[]): Locale {
+  if (offered.includes(asked)) return asked;
+  const first = offered[0];
+  return first === 'fa' || first === 'tr' ? first : 'en';
+}
+
+/**
+ * The code's email as it is sent for a code asked for in `asked`: the
+ * running edition's Super Admin template `verification_code` (Branding →
+ * Email templates) in the language it goes out in (`locale`, from the
+ * catalog's offered languages), rendered by Branding's own preview through
+ * the email core, with the fixed sample code. The compiled text the
+ * verification service keeps is only the fallback for a missing row, so it
+ * is not what this shows.
+ */
+export function useVerificationEmailPreview(asked: Locale) {
+  const offered = useQuery({
+    queryKey: ['gv-admin-email-locales'],
+    queryFn: async () => (await fetchEmailTemplateCatalog()).locales.offered,
     retry: false,
   });
+  const locale = offered.data ? emailSendLocale(asked, offered.data) : null;
+  const mail = useQuery({
+    queryKey: ['gv-admin-email-preview', locale],
+    queryFn: () => previewEmailTemplate({ slug: 'verification_code', locale: locale as Locale, scheme: 'light' }),
+    enabled: locale !== null,
+    retry: false,
+  });
+  return {
+    locale,
+    data: mail.data,
+    isLoading: offered.isLoading || mail.isLoading,
+    isError: offered.isError || mail.isError,
+  };
 }

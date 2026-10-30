@@ -7474,6 +7474,7 @@ const en = {
         fakeCodeNotice: 'Test code shown: 123456 (never a real, usable code)',
         emailTemplateNote: 'The email is the “Verification code” template of Branding → Email templates, filled as it is sent.',
         emailFailed: 'The email preview could not be made.',
+        emailSentIn: 'This platform does not send email in this language, so the code arrives in {{language}}, as below.',
         emailSubject: 'Email subject',
         emailText: 'Email (plain text)',
         emailHtml: 'Email (HTML)',

@@ -586,6 +586,18 @@ async function loadDefaultLocale(config: ServerConfig): Promise<Locale> {
   return normalizeLocale(visitorLocale, 'en');
 }
 
+/**
+ * A help page's language from its path: the language it names (any case, a
+ * region tag dropped), else the help center's default (loadDefaultLocale,
+ * the visitors' languages), as the dashboard's own help center does
+ * (src/components/help/useHelpDefaultLocale.ts). An unknown one used to read
+ * as English.
+ */
+async function helpLocaleOf(config: ServerConfig, raw: string | undefined): Promise<Locale> {
+  const short = String(raw || '').toLowerCase().split('-')[0];
+  return isLocale(short) ? short : loadDefaultLocale(config);
+}
+
 publicKbRouter.get('/help', async (req: Request, res: Response) => {
   const config = configOf(req);
   const def = await loadDefaultLocale(config);
@@ -647,7 +659,7 @@ publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
 publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
   const config = configOf(req);
   const rawLocale = paramStr(req.params.locale);
-  const locale = normalizeLocale(rawLocale);
+  const locale = await helpLocaleOf(config, rawLocale);
   if (rawLocale !== locale) {
     return res.redirect(302, `/help/${locale}`);
   }
@@ -743,7 +755,7 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
 publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) => {
   const config = configOf(req);
   const rawLocale = paramStr(req.params.locale);
-  const locale = normalizeLocale(rawLocale);
+  const locale = await helpLocaleOf(config, rawLocale);
   if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/c/${req.params.slug}`);
 
   const workspaceId = await resolveWorkspaceForHost(config, req);
@@ -817,7 +829,7 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
 publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) => {
   const config = configOf(req);
   const rawLocale = paramStr(req.params.locale);
-  const locale = normalizeLocale(rawLocale);
+  const locale = await helpLocaleOf(config, rawLocale);
   if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/a/${req.params.slug}`);
 
   const workspaceId = await resolveWorkspaceForHost(config, req);
@@ -907,7 +919,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
 publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) => {
   const config = configOf(req);
   const rawLocale = paramStr(req.params.locale);
-  const locale = normalizeLocale(rawLocale);
+  const locale = await helpLocaleOf(config, rawLocale);
   if (rawLocale !== locale) {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
     return res.redirect(302, `/help/${locale}/search${q ? `?q=${encodeURIComponent(q)}` : ''}`);

@@ -40,6 +40,8 @@ function renderPage() {
 const openTab = (name: string) => fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0, ctrlKey: false });
 
 beforeEach(() => {
+  // The page keeps its tabs for the session (useSessionTab): each test starts on the first.
+  sessionStorage.clear();
   vi.spyOn(window, 'confirm').mockReturnValue(false);
 });
 afterEach(() => {

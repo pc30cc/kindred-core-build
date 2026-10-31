@@ -69,3 +69,30 @@ describe('GET /help opens the help center in a visitor language', () => {
     expect(await helpRedirect()).toBe('/help/tr');
   });
 });
+
+describe('a help page asked for in an unknown language opens in the same default (helpLocaleOf)', () => {
+  const location = async (path: string) => {
+    const res = await request(app).get(path);
+    expect(res.status).toBe(302);
+    return res.headers.location;
+  };
+
+  it('WebYar: an unknown language goes to Persian, keeping the page', async () => {
+    platform({ region_mode: 'iran', active_locales: ['fa', 'tr', 'en'], default_locale: 'en', site_mode: 'multi_language' });
+    expect(await location('/help/xx')).toBe('/help/fa');
+    expect(await location('/help/xx/c/billing')).toBe('/help/fa/c/billing');
+    expect(await location('/help/xx/a/start')).toBe('/help/fa/a/start');
+    expect(await location('/help/xx/search?q=pay')).toBe('/help/fa/search?q=pay');
+  });
+
+  it('RESPOK: an unknown language goes to its default, English, as it did', async () => {
+    platform({ region_mode: 'multi', active_locales: ['en', 'tr'], default_locale: 'en', site_mode: 'multi_language' });
+    expect(await location('/help/xx')).toBe('/help/en');
+  });
+
+  it('a known language in another case or with a region tag keeps its language', async () => {
+    platform({ region_mode: 'iran', active_locales: ['fa'], default_locale: 'fa', site_mode: 'single_language' });
+    expect(await location('/help/EN')).toBe('/help/en');
+    expect(await location('/help/tr-TR')).toBe('/help/tr');
+  });
+});

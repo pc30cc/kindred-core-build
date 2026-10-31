@@ -92,6 +92,8 @@ dashboard, its sign-in pages, Super Admin and operators' push and API texts;
 what visitors and customers read (widget, AI, Telegram, every e-mail,
 operators' included, help center, knowledge base) keeps the region's
 languages (Persian only in Iran; in Multi the active languages serve both).
+The default shows for everyone who has not picked a language in a switcher
+(`app-locale-choice`; in Iran the old `app-locale` is never a pick).
 One rule, `shared/panelLanguages.ts`; details in
 `docs/operations/EDITIONS.md`, "The dashboard's languages".
 

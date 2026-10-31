@@ -77,9 +77,18 @@ pages and Super Admin (`usePanelLanguages()` in
 menu, Settings → Interface and Profile, Super Admin's layout and Users page,
 and the sign-in pages' `LanguageSelector`), and an operator's push and API
 texts (`server/services/operatorLocale.ts`, via `getPlatformPanelLanguages`).
-A language someone picks is kept (`app-locale`); a browser where nobody
-picked one follows the default when it changes; one outside the panel's
-languages is switched to the default and forgotten. Nothing changes before
+A language someone picks in a switcher is kept (`app-locale-choice`,
+`src/i18n/config.ts`) and outranks the default; a browser where nobody
+picked one follows the default, including when the Super Admin changes it;
+one outside the panel's languages is switched to the default and forgotten.
+`app-locale` is only the language the page was last shown in (index.html's
+title, the build's locale preload, the Inbox). The `app-locale` a browser
+kept before the choice key existed is read once
+(`app-locale-choice-migrated`): it is a pick in the International edition
+and the native shell, which always had switchers; in the Iranian edition
+English or Turkish there is a pick (only #376's switcher wrote them) and
+Persian is not: it was the old region lock's, and it kept the owner's new
+English default from showing (2026-10-31). Nothing changes before
 the platform's settings have arrived, and a failed settings read never
 moves the dashboard's language: the browser keeps the last good settings,
 or waits for the first (`usePlatformRegionSettings`). On the server a
@@ -103,8 +112,14 @@ them from the panel:
   languages, `server/routes/kb.ts`), the operator's AI-assist drafts (they
   go to a visitor), the AI knowledge-base builder, the AI playground and the
   widget previews (`contentLocaleFor` in `src/lib/region.ts`). The
-  dashboard's own `/help` route (app.*, `src/App.tsx`) still sends `/help`
-  to `/help/en` in every edition, as it did before this change.
+  platform's own help center on app.* (`src/App.tsx`) does the same since
+  2026-10-31: `/help`, and a help page in an unknown language, open in the
+  visitors' default (`src/components/help/useHelpDefaultLocale.ts`; WebYar
+  `/help/fa`, RESPOK `/help/en`; a browser that has seen the platform
+  answers at once from its cached region); it used to send everyone to
+  `/help/en`. The backend's help pages read an unknown language the same way
+  (`helpLocaleOf` in `server/routes/kb.ts`), and the contact page links to
+  `/help`.
 - An invitation: its e-mail values and its SMS are in the mail's language
   (a visitor language; Persian in Iran), whatever the inviter's dashboard
   language; the delivery failure the inviter reads stays in theirs
@@ -118,7 +133,14 @@ dashboard's language (`src/lib/phone-countries.ts`, `EDITION_PROFILE`).
 In Multi (RESPOK) the active languages are the visitors' and customers' too:
 to limit only the dashboard, set General → Language switcher to Hidden and
 choose its default language (the Languages tab says which of the two its
-list decides in each region). Clicking the region already chosen changes
+list decides in each region). In Iran the default-language list offers
+every language the dashboard is translated into, and one that is not active
+is turned on with it (and off again if another default is picked before
+saving); in Multi it keeps to the active languages, which are the visitors'
+too. Saving a new default forgets the Super Admin's own pick, and once the
+new settings are read the guard moves their dashboard to it, as it does for
+everyone who has not picked a language in a switcher (with the switcher
+hidden, for everyone); the toast says which. Clicking the region already chosen changes
 nothing; picking Iran from another region presets Persian only without a
 switcher. A stored default the dashboard cannot open in (a legacy `ar`, a
 tagged `fa-IR`) is shown, and saved with the next save, as the one it

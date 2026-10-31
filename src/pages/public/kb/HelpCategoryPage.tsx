@@ -6,6 +6,7 @@ import { API_BASE } from '@/lib/api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { KbSearchBox } from './KbSearchBox';
 import { HelpBrandHead } from './HelpBrandHead';
+import { HelpDefaultRedirect } from '@/components/help/HelpDefaultRedirect';
 
 const HELP_LABEL: Record<Locale, string> = {
   en: 'Help center',
@@ -71,7 +72,7 @@ export default function HelpCategoryPage() {
     });
   }, [valid, slug, cat]);
 
-  if (!valid) return <Navigate to="/help/en" replace />;
+  if (!valid) return <HelpDefaultRedirect />;
   if (cat === null) return <Navigate to={`/help/${valid}`} replace />;
 
   return (

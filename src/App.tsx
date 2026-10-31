@@ -39,6 +39,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { SettingsLayout } from "@/components/layout/SettingsLayout";
 import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
 import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
+import { HelpDefaultRedirect } from "@/components/help/HelpDefaultRedirect";
 
 // The SAME bundle powers web and the Capacitor iOS shell; only the native
 // shell gets the reduced mobile route table.
@@ -356,7 +357,8 @@ function pagesForPath(pathname: string): Preloadable[] {
     case "terms": return [LegalPage];
     case "contact": return [ContactPage];
     case "help":
-      if (!second) return [];
+      // /help redirects to the front page in its default language: load it meanwhile.
+      if (!second) return [HelpIndexPage];
       if (third === "c") return [HelpCategoryPage];
       if (third === "a") return [HelpArticlePage];
       if (third === "search") return [HelpSearchPage];
@@ -468,7 +470,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               {/* Public Knowledge Base — SSR (Express) is the source of truth
                   for first paint at /help/:locale/...; these client routes
                   hydrate that paint and handle subsequent client-side nav. */}
-              <Route path="/help" element={<Navigate to="/help/en" replace />} />
+              <Route path="/help" element={<HelpDefaultRedirect />} />
               <Route path="/help/:locale" element={<HelpIndexPage />} />
               <Route path="/help/:locale/c/:slug" element={<HelpCategoryPage />} />
               <Route path="/help/:locale/a/:slug" element={<HelpArticlePage />} />

@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { DirectionProvider } from '@radix-ui/react-direction';
 import { isNativePlatform } from '@/lib/native';
 
 import type { Locale, Direction } from './config';
-import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS, LOCALE_STORAGE_KEY, getChosenLocale } from './config';
+import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS, LOCALE_CHOICE_KEY, LOCALE_STORAGE_KEY, getChosenLocale } from './config';
 import en, { type TranslationKeys } from './locales/en';
 import { loadFontsForLocale } from '@/lib/fonts';
 import { installPersianDigits, uninstallPersianDigits } from '@/lib/persian-digits';
@@ -153,6 +153,13 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = dir;
+    // The language this page is shown in, for index.html's title, the
+    // build's locale preload and the Inbox on the next load (not a pick).
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    } catch {
+      /* storage unavailable */
+    }
     loadFontsForLocale(locale);
     installLocalizedDateDefaults();
     setAppDateLocale(locale);
@@ -162,9 +169,16 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
   }, [locale, dir]);
 
 
+  // The language asked for last: a load that finishes after a newer switch
+  // (two switches in a row, the slower chunk last) is dropped, never shown
+  // with the newer language's direction.
+  const requestedLocale = useRef(initialLocale);
+
   const loadLocale = useCallback(async (newLocale: Locale) => {
+    requestedLocale.current = newLocale;
     setIsLoading(true);
     const messages = await loadLocaleMessages(newLocale);
+    if (requestedLocale.current !== newLocale) return;
     setTranslations(messages);
     setIsLoading(false);
   }, []);
@@ -175,9 +189,12 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     // In memory too: a pick the browser cannot store (storage full or
     // blocked) still holds for this session.
     setChosenLocale(remember ? newLocale : null);
+    // The choice key says someone picked it, so it outranks the platform's
+    // default (src/i18n/config.ts LOCALE_CHOICE_KEY); a switch that is not a
+    // pick forgets it, and the next load opens in the default.
     try {
-      if (remember) localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
-      else localStorage.removeItem(LOCALE_STORAGE_KEY);
+      if (remember) localStorage.setItem(LOCALE_CHOICE_KEY, newLocale);
+      else localStorage.removeItem(LOCALE_CHOICE_KEY);
     } catch {
       /* storage unavailable: the switch still applies to this page */
     }
@@ -185,6 +202,7 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
 
   useEffect(() => {
     if (initialTranslations && locale === initialLocale) {
+      requestedLocale.current = locale;
       setTranslations(initialTranslations);
       setIsLoading(false);
       return;

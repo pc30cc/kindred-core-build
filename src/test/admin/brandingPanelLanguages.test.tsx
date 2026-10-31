@@ -39,7 +39,7 @@ vi.mock('@/lib/platformPublicConfig', async (orig) => ({
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: () => undefined }));
 vi.mock('@/i18n', () => ({
-  useI18n: () => ({ locale: 'en', dir: 'ltr', t: (key: string) => key }),
+  useI18n: () => ({ locale: 'en', dir: 'ltr', t: (key: string) => key, setLocale: () => undefined }),
   useTranslation: () => ({ locale: 'en', dir: 'ltr', t: (key: string) => key }),
 }));
 vi.mock('@/lib/native', () => ({ isNativePlatform: () => false, getNativePlatform: () => 'web' }));
@@ -82,6 +82,8 @@ const languageCard = (code: string) =>
   screen.getByText(`admin.brandingPage.languages.${code}`).closest('button') as HTMLElement;
 
 beforeEach(() => {
+  // The page keeps its tabs for the session (useSessionTab): each test starts on the first.
+  sessionStorage.clear();
   srv.settings = {};
   srv.puts = [];
   localStorage.clear();

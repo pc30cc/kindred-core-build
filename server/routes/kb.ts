@@ -34,7 +34,7 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { clampLocaleToPlatformRegion, getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
 import { isPlatformWorkspace } from '../services/platformHosts.js';
@@ -567,6 +567,13 @@ function buildHreflangs(req: Request, pathBuilder: (l: Locale) => string): Array
   return SUPPORTED_LOCALES.map((l) => ({ hreflang: l, href: `${base}${pathBuilder(l)}` }));
 }
 
+/**
+ * The language GET /help opens the help center in: the platform's default
+ * language, kept inside the VISITORS' languages (clampLocaleToPlatformRegion:
+ * Iran, Persian only). `default_locale` is the dashboard's default since the
+ * Super Admin sets the panel's languages (shared/panelLanguages.ts), and a
+ * WebYar panel opened in English must not send its visitors to /help/en.
+ */
 async function loadDefaultLocale(config: ServerConfig): Promise<Locale> {
   const supabase = getServiceClient(config);
   const { data } = await supabase
@@ -574,7 +581,9 @@ async function loadDefaultLocale(config: ServerConfig): Promise<Locale> {
     .select('default_locale')
     .limit(1)
     .maybeSingle();
-  return normalizeLocale((data as { default_locale?: string } | null)?.default_locale, 'en');
+  const wanted = (data as { default_locale?: string } | null)?.default_locale;
+  const visitorLocale = await clampLocaleToPlatformRegion(config, wanted).catch(() => wanted);
+  return normalizeLocale(visitorLocale, 'en');
 }
 
 publicKbRouter.get('/help', async (req: Request, res: Response) => {

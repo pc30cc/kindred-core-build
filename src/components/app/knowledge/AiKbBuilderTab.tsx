@@ -11,6 +11,8 @@ import {
   type AiKbJobEventDto,
 } from '@/lib/ai-kb-api';
 import { useTranslation } from '@/i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { contentLocaleFor } from '@/lib/region';
 import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
 import { formatAmountForEdition } from '@/lib/money';
 import { AI_WALLET_UNIT } from '../../../../shared/planLimits';
@@ -42,6 +44,14 @@ export default function AiKbBuilderTab() {
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
   const { t, locale, dir } = useTranslation();
+  // The articles are written for visitors, so in a visitors' language
+  // (usePlatformRegion().allowedLocales; Iran: Persian only): the dashboard's
+  // own when visitors have it (RESPOK: en and tr, as before), else the first.
+  // The dashboard may be English or Turkish on WebYar while its visitors stay
+  // Persian (shared/panelLanguages.ts), and the worker's duplicate check is
+  // keyed on the job's language.
+  const { allowedLocales } = usePlatformRegion();
+  const contentLocale = contentLocaleFor(locale, allowedLocales) as 'en' | 'fa' | 'tr';
   const { data: aiWallet } = useAiWalletSummary(workspace?.id);
   const aiCreditText = aiWallet
     ? aiWallet.availableMinor !== null && aiWallet.currency
@@ -168,8 +178,7 @@ export default function AiKbBuilderTab() {
     if (!workspace?.id) return;
     setBusy(true);
     try {
-      const uiLocale = (['en', 'fa', 'tr'].includes(locale as string) ? locale : 'en') as 'en' | 'fa' | 'tr';
-      const r = await aiKbApi.createJob(workspace.id, { locale: uiLocale });
+      const r = await aiKbApi.createJob(workspace.id, { locale: contentLocale });
       const id = r?.job?.id;
       toast.success(
         id

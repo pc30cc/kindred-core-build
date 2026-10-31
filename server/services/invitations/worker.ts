@@ -47,7 +47,7 @@ import {
 } from './tokens.js';
 import { IdleBackoff, IntervalGate } from '../jobs/idleBackoff.js';
 import { onProcessShutdown } from '../jobs/processShutdown.js';
-import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { clampLocaleToPlatformRegion, getPlatformEditionOrNull } from '../platformRegion.js';
 import { EDITION_PROFILE } from '../../../shared/edition.js';
 
 const WORKER_ID = `invitations-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -423,10 +423,20 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
   }
 
 
+  // What the invitee reads (the mail's values, the SMS) is in the language
+  // the mail template is chosen in: the platform's visitor languages
+  // (resolveEmailScope; Persian only in Iran), not the inviter's dashboard
+  // language, which can be English or Turkish there (shared/panelLanguages.ts).
+  // The delivery failures below are the inviter's to read and keep theirs.
+  const inviterLocale = normalizeNotificationLocale(payload.locale);
+  const inviteeLocale = normalizeNotificationLocale(
+    await clampLocaleToPlatformRegion(config, inviterLocale).catch(() => inviterLocale),
+  );
+
   if (job.channel === 'email') {
     const appBase = await resolveAppBaseUrl(config);
     const link = buildInviteUrl(appBase, emailToken as string, 'email_claim');
-    const mailLocale = normalizeNotificationLocale(payload.locale);
+    const mailLocale = inviteeLocale;
     // Jalali in the Iranian edition (and while unknown, as before), Gregorian elsewhere.
     const calendar = EDITION_PROFILE[(await getPlatformEditionOrNull(config)) ?? 'iran'].calendar;
     const mail = renderInviteEmail(mailLocale, {
@@ -483,13 +493,13 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
       await complete(config, job.id, claimToken, 'unconfigured', {
         provider: result.provider,
         errorCode: 'EMAIL_PROVIDER_UNCONFIGURED',
-        message: renderDeliveryFailure(mailLocale, 'EMAIL_PROVIDER_UNCONFIGURED'),
+        message: renderDeliveryFailure(inviterLocale, 'EMAIL_PROVIDER_UNCONFIGURED'),
       });
     } else if (terminal === 'permanently_failed') {
       await complete(config, job.id, claimToken, 'permanently_failed', {
         provider: result.provider,
         errorCode: 'EMAIL_SEND_FAILED',
-        message: renderDeliveryFailure(mailLocale, 'EMAIL_SEND_FAILED'),
+        message: renderDeliveryFailure(inviterLocale, 'EMAIL_SEND_FAILED'),
       });
     } else {
       // The same schedule as the email outbox (1, 5, 15, 60 minutes, then
@@ -498,7 +508,7 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
       await complete(config, job.id, claimToken, 'retry', {
         provider: result.provider,
         errorCode: 'EMAIL_SEND_FAILED',
-        message: renderDeliveryFailure(mailLocale, 'EMAIL_SEND_FAILED'),
+        message: renderDeliveryFailure(inviterLocale, 'EMAIL_SEND_FAILED'),
         retryIn: Math.round(emailRetryDelayMs(job.attempt_count) / 1000),
       });
     }
@@ -506,8 +516,7 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
   }
 
   // SMS notification carries NO token — only the fact of an invitation.
-  const smsLocale = normalizeNotificationLocale(payload.locale);
-  const smsBody = renderInviteSms(smsLocale, payload.workspace_name, payload.email);
+  const smsBody = renderInviteSms(inviteeLocale, payload.workspace_name, payload.email);
   const smsResult = await sendSms(config, {
     // Stored as E.164; the vendors want the local form (see toProviderFormat).
     to: toProviderFormat(payload.phone),
@@ -523,7 +532,7 @@ async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<
     await complete(config, job.id, claimToken, 'retry', {
       provider: smsResult.provider,
       errorCode: smsResult.errorCode || 'SMS_SEND_FAILED',
-      message: renderDeliveryFailure(smsLocale, 'SMS_SEND_FAILED'),
+      message: renderDeliveryFailure(inviterLocale, 'SMS_SEND_FAILED'),
       retryIn: backoffSeconds(job.attempt_count),
     });
   }

@@ -19,6 +19,18 @@ describe('panelLanguagesFor', () => {
     });
   });
 
+  it("WebYar's row as saved on 2026-10-31 07:58 UTC (iran, {fa,tr,ar,en}, fa, single_language): still Persian only, no switcher", () => {
+    const row = { region_mode: 'iran', active_locales: ['fa', 'tr', 'ar', 'en'], default_locale: 'fa', site_mode: 'single_language' };
+    expect(panelLanguagesFor(row)).toEqual({ locales: ['fa'], defaultLocale: 'fa', switcher: false });
+    // Showing the switcher alone offers the two ticked dashboard languages too
+    // (Arabic is branding text only).
+    expect(panelLanguagesFor({ ...row, site_mode: 'multi_language' })).toEqual({
+      locales: ['fa', 'tr', 'en'],
+      defaultLocale: 'fa',
+      switcher: true,
+    });
+  });
+
   it("RESPOK's settings on 2026-10-31 (multi, {en,tr}, en, multi_language) keep English and Turkish with a switcher, as before", () => {
     expect(panelLanguagesFor({ region_mode: 'multi', active_locales: ['en', 'tr'], default_locale: 'en', site_mode: 'multi_language' })).toEqual({
       locales: ['en', 'tr'],

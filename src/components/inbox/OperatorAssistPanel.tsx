@@ -23,6 +23,8 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useTranslation } from '@/i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { contentLocaleFor } from '@/lib/region';
 
 type Tone = 'friendly' | 'professional' | 'short' | 'detailed';
 
@@ -43,7 +45,7 @@ const KNOWN_NOTES = [
   'retrieval_failed',
   'low_confidence',
 ];
-function safetyNoteLabel(t: (k: string, v?: any) => string, note: string): string {
+function safetyNoteLabel(t: (k: string, v?: Record<string, string | number>) => string, note: string): string {
   const code = (note || '').split(':')[0];
   if (KNOWN_NOTES.includes(code)) return t(`inbox.aiAssist.notes.${code}`);
   return t('inbox.aiAssist.notes.generic');
@@ -53,6 +55,14 @@ export function OperatorAssistPanel({
   workspaceId, conversationId, composerHasText, onInsert, dir = 'ltr',
 }: Props) {
   const { t, locale } = useTranslation();
+  // The draft goes to a VISITOR, so it is written in a visitors' language
+  // (usePlatformRegion().allowedLocales; Iran: Persian only): the operator's
+  // own when visitors have it (RESPOK: en and tr, as before), else the first.
+  // The dashboard's language may be English or Turkish on WebYar while its
+  // visitors stay Persian (shared/panelLanguages.ts). The server keeps the
+  // same rule (server/routes/ai-agent/operatorAssist.ts).
+  const { allowedLocales } = usePlatformRegion();
+  const draftLocale = contentLocaleFor(locale, allowedLocales);
   const { data: capabilities } = useAiAgentCapabilities(workspaceId);
   const [open, setOpen] = useState(false);
   const [tone, setTone] = useState<Tone>('friendly');
@@ -87,12 +97,13 @@ export function OperatorAssistPanel({
         finalComposerText: payload.finalComposerText ?? null,
       });
       if (!silent) toast({ title: t('inbox.aiAssist.feedbackSent') });
-    } catch (e: any) {
+    } catch (e) {
+      const message = (e as { message?: string } | null)?.message;
       if (!silent) {
-        toast({ title: t('inbox.aiAssist.feedbackFailed'), description: e?.message || 'unknown', variant: 'destructive' });
+        toast({ title: t('inbox.aiAssist.feedbackFailed'), description: message || 'unknown', variant: 'destructive' });
       } else {
         // Non-blocking failure.
-        console.warn('[ai-assist] feedback failed:', e?.message);
+        console.warn('[ai-assist] feedback failed:', message);
       }
     }
   };
@@ -111,8 +122,7 @@ export function OperatorAssistPanel({
     try {
       const r = await aiAgentApi.suggestReply({
         workspaceId, conversationId, tone,
-        // Draft must follow the operator's active UI language (fa/tr/en).
-        locale,
+        locale: draftLocale,
         instruction: instruction.trim() || undefined,
         callLLM: true,
       });
@@ -125,8 +135,8 @@ export function OperatorAssistPanel({
             : t('inbox.aiAssist.noSuggestionDesc'),
         });
       }
-    } catch (e: any) {
-      const msg = e?.message || 'request_failed';
+    } catch (e) {
+      const msg = (e as { message?: string } | null)?.message || 'request_failed';
       setError(msg);
       toast({ title: t('inbox.aiAssist.failedTitle'), description: msg, variant: 'destructive' });
     } finally {

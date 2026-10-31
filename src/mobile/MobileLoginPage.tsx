@@ -11,6 +11,7 @@ import { useI18n, useTranslation } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { useAuth } from '@/features/auth/AuthContext';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { normalizeEmail, stripInvisible } from './normalizeCredentials';
@@ -33,6 +34,10 @@ export default function MobileLoginPage() {
   const { locale, setLocale, dir } = useI18n();
   const { signIn, user, isLoading: authLoading } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
+  // Only the panel's languages (Super Admin → Branding), and no picker when
+  // there is one language or the Super Admin hid the switcher.
+  const panel = usePanelLanguages();
+  const languages = panel.switcher ? LANGUAGES.filter((lang) => panel.locales.includes(lang.code)) : [];
 
   const destination = inAppRedirect(params.get('redirect'), '/app');
 
@@ -164,7 +169,7 @@ export default function MobileLoginPage() {
 
       <div className="px-6 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-0">
         <div className="mx-auto w-full max-w-[420px] flex items-center justify-center gap-2">
-          {LANGUAGES.map((lang) => (
+          {languages.map((lang) => (
             <button
               key={lang.code}
               type="button"

@@ -50,9 +50,10 @@ function getNestedValue(obj: Record<string, unknown>, path: string): string {
 export interface SetLocaleOptions {
   /**
    * false: switch without keeping it as this browser's choice, and forget a
-   * choice kept before, so the page goes on following the platform's default
-   * language (src/hooks/usePlatformRegion.ts usePanelLanguages). Default true:
-   * a language someone picked is kept.
+   * choice kept before (in the browser and in this session), so the page
+   * goes on following the platform's default language
+   * (src/hooks/usePlatformRegion.ts usePanelLanguages). Default true: a
+   * language someone picked is kept.
    */
   remember?: boolean;
 }
@@ -61,6 +62,13 @@ interface I18nContextValue {
   locale: Locale;
   dir: Direction;
   setLocale: (locale: Locale, options?: SetLocaleOptions) => void;
+  /**
+   * The language picked in this session (setLocale without
+   * `remember: false`), kept here even when the browser could not store it;
+   * null when none was, or it was forgotten. A choice from an earlier
+   * session is the browser's (getChosenLocale).
+   */
+  chosenLocale: Locale | null;
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   isLoading: boolean;
 }
@@ -69,6 +77,7 @@ const i18nFallbackContext: I18nContextValue = {
   locale: DEFAULT_LOCALE,
   dir: LOCALE_CONFIG[DEFAULT_LOCALE].dir,
   setLocale: () => {},
+  chosenLocale: null,
   t: (key) => key,
   isLoading: false,
 };
@@ -83,8 +92,10 @@ const I18nContext = createContext<I18nContextValue>(i18nFallbackContext);
  */
 export function getSiteDefaultLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
-  // Native (iOS) app ships with English as its base language; the user can
-  // still pick Türkçe / فارسی on the login screen or in Settings.
+  // Native (iOS) app ships with English as its base language; once the
+  // platform's settings are in, a language outside the panel's gives way to
+  // its default, which is kept (src/hooks/usePlatformRegion.ts), and the
+  // login screen and Settings offer the panel's other languages, if any.
   if (isNativePlatform()) return 'en';
   // Both editions start in the panel's default language (Super Admin →
   // Branding → Languages, shared/panelLanguages.ts, cached by index.html's
@@ -132,6 +143,7 @@ interface I18nProviderProps {
 export function I18nProvider({ children, initialLocale: initialLocaleProp, initialTranslations }: I18nProviderProps) {
   const initialLocale = initialLocaleProp ?? getStoredLocale();
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
+  const [chosenLocale, setChosenLocale] = useState<Locale | null>(null);
   const [translations, setTranslations] = useState<TranslationKeys>(initialTranslations ?? en);
   const [fallbackTranslations] = useState<TranslationKeys>(en);
   const [isLoading, setIsLoading] = useState(!initialTranslations && initialLocale !== 'en');
@@ -158,10 +170,14 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
   }, []);
 
   const setLocale = useCallback((newLocale: Locale, options?: SetLocaleOptions) => {
+    const remember = options?.remember !== false;
     setLocaleState(newLocale);
+    // In memory too: a pick the browser cannot store (storage full or
+    // blocked) still holds for this session.
+    setChosenLocale(remember ? newLocale : null);
     try {
-      if (options?.remember === false) localStorage.removeItem(LOCALE_STORAGE_KEY);
-      else localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
+      if (remember) localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
+      else localStorage.removeItem(LOCALE_STORAGE_KEY);
     } catch {
       /* storage unavailable: the switch still applies to this page */
     }
@@ -204,7 +220,7 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
   }
 
   return (
-    <I18nContext.Provider value={{ locale, dir, setLocale, t, isLoading }}>
+    <I18nContext.Provider value={{ locale, dir, setLocale, chosenLocale, t, isLoading }}>
       <DirectionProvider dir={dir}>{children}</DirectionProvider>
     </I18nContext.Provider>
   );

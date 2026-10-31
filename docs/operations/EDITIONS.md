@@ -80,17 +80,67 @@ texts (`server/services/operatorLocale.ts`, via `getPlatformPanelLanguages`).
 A language someone picks is kept (`app-locale`); a browser where nobody
 picked one follows the default when it changes; one outside the panel's
 languages is switched to the default and forgotten. Nothing changes before
-the platform's settings have arrived.
+the platform's settings have arrived, and a failed settings read never
+moves the dashboard's language: the browser keeps the last good settings,
+or waits for the first (`usePlatformRegionSettings`). On the server a
+failed read offers every language, so an operator's own choice is kept.
 
 What visitors and customers read keeps the region's rule
-(`getPlatformAllowedLocales`, `allowedLocalesFor`): in Iran the chat widget,
-AI replies, Telegram, e-mail templates, knowledge base and canned responses
-stay Persian, whatever the panel's languages are.
+(`getPlatformAllowedLocales`, `clampLocaleToPlatformRegion`,
+`allowedLocalesFor`): in Iran the chat widget, AI replies, Telegram, e-mail
+templates, knowledge base and canned responses stay Persian, whatever the
+panel's languages are. So do these, though operators or the public reach
+them from the panel:
 
-On 2026-10-31 WebYar's row was `iran | {fa} | fa | single_language` and
-RESPOK's `multi | {en,tr} | en | multi_language`: both read exactly as
-before, so the change shows only once the Super Admin changes them. Picking
-the Iran region again presets Persian only without a switcher.
+- E-mails to operators (transcripts, digests, offline messages) are written
+  in their template's language, which is a visitor language (Persian in
+  Iran): an operator whose panel is English still gets the Persian
+  template, and every value written into it is Persian too
+  (`operatorMailLocale` in `server/services/operatorLocale.ts`). Their push
+  and the operator API texts follow the dashboard's languages.
+- The public help center served by the backend (a workspace's help domain:
+  `/help` opens in the default language kept inside the visitors'
+  languages, `server/routes/kb.ts`), the operator's AI-assist drafts (they
+  go to a visitor), the AI knowledge-base builder, the AI playground and the
+  widget previews (`contentLocaleFor` in `src/lib/region.ts`). The
+  dashboard's own `/help` route (app.*, `src/App.tsx`) still sends `/help`
+  to `/help/en` in every edition, as it did before this change.
+- An invitation: its e-mail values and its SMS are in the mail's language
+  (a visitor language; Persian in Iran), whatever the inviter's dashboard
+  language; the delivery failure the inviter reads stays in theirs
+  (`server/services/invitations/worker.ts`).
+- The installed web app's manifest follows the dashboard's languages
+  (`server/routes/manifest.ts`), like the dashboard itself.
+
+The phone country stays Iran (+98) in the Iranian edition whatever the
+dashboard's language (`src/lib/phone-countries.ts`, `EDITION_PROFILE`).
+
+In Multi (RESPOK) the active languages are the visitors' and customers' too:
+to limit only the dashboard, set General → Language switcher to Hidden and
+choose its default language (the Languages tab says which of the two its
+list decides in each region). Clicking the region already chosen changes
+nothing; picking Iran from another region presets Persian only without a
+switcher. A stored default the dashboard cannot open in (a legacy `ar`, a
+tagged `fa-IR`) is shown, and saved with the next save, as the one it
+opens in.
+
+On 2026-10-31 at 07:58 UTC WebYar's row was saved as
+`iran | {fa,tr,ar,en} | fa | single_language` (earlier that day `{fa}`), and
+RESPOK's was `multi | {en,tr} | en | multi_language`. Both read exactly as
+before: WebYar's switcher is hidden, so its dashboard stays Persian only,
+and Arabic has no dashboard translation (branding text only). Note that
+Turkish and English are already ticked there: turning General → Language
+switcher to Shown offers Persian, Turkish and English at once; untick the
+ones not wanted under Languages first.
+
+Before offering English on WebYar's dashboard: on 2026-10-31 WebYar had 7
+profiles, 3 of them with `preferred_locale = 'en'`. Accounts from before
+migration 158 may carry an `en` they never chose; while the panel is
+Persian only it is ignored, but once English is one of the dashboard's
+languages those operators get their push and the operator API texts the
+native apps print in English until they pick Persian (Settings → Profile,
+or the top bar's language switcher, which writes the same field). Their
+panel in the browser follows the browser's own choice, not this field.
 
 ### The native apps' settings are kept per edition
 

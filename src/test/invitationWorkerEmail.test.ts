@@ -31,6 +31,8 @@ const h = vi.hoisted(() => ({
   workspaceName: 'A&B "Co" <x>',
   expiresAt: '2026-11-06T10:00:00Z' as string | null,
   sendEmail: vi.fn(),
+  /** The platform's visitor languages (server/services/platformRegion.ts); null: every language. */
+  visitorLocales: null as string[] | null,
 }));
 
 vi.mock('../../server/supabase.js', () => ({
@@ -79,7 +81,11 @@ vi.mock('../../server/supabase.js', () => ({
   }),
 }));
 vi.mock('../../server/services/email/index.js', () => ({ sendEmail: h.sendEmail }));
-vi.mock('../../server/services/platformRegion.js', () => ({ getPlatformEditionOrNull: async () => 'international' }));
+vi.mock('../../server/services/platformRegion.js', () => ({
+  getPlatformEditionOrNull: async () => 'international',
+  clampLocaleToPlatformRegion: async (_config: unknown, locale: string) =>
+    !h.visitorLocales || h.visitorLocales.includes(locale) ? locale : h.visitorLocales[0],
+}));
 vi.mock('../../server/services/invitations/tokens.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../server/services/invitations/tokens.js')>()),
   currentKeyVersion: () => 1,
@@ -105,6 +111,7 @@ beforeEach(() => {
   h.locale = 'en';
   h.expiresAt = '2026-11-06T10:00:00Z';
   h.sendEmail.mockReset();
+  h.visitorLocales = null;
 });
 
 describe('the invitation e-mail', () => {
@@ -190,5 +197,31 @@ describe('what the worker does with the result', () => {
   it('a failure that can pass is retried on the outbox schedule', async () => {
     const { completion } = await runOnce({ success: false, provider: 'smtp', errorCode: 'timeout', permanent: false, error: 'timeout: no answer' });
     expect(completion).toMatchObject({ _outcome: 'retry', _error_code: 'EMAIL_SEND_FAILED', _retry_in_seconds: 60 });
+  });
+});
+
+describe("the invitee's language is the mail's, not the inviter's dashboard language", () => {
+  // A WebYar inviter may use an English dashboard (shared/panelLanguages.ts)
+  // while the platform's mail is Persian only (resolveEmailScope): what the
+  // invitee reads follows the mail; the failure the inviter reads keeps theirs.
+  it('Persian-only visitor languages and an English inviter: the mail is asked for in Persian', async () => {
+    h.visitorLocales = ['fa'];
+    const { request } = await runOnce({ success: true, provider: 'smtp', id: 'q1' });
+    expect((request as unknown as { locale: string }).locale).toBe('fa');
+    expect(request.templateData.role).toBe('اپراتور');
+  });
+
+  it('the failure recorded for the inviter stays in the inviter\'s language', async () => {
+    h.visitorLocales = ['fa'];
+    const { completion } = await runOnce({ success: false, provider: 'smtp', errorCode: 'timeout', permanent: false, error: 'timeout: no answer' });
+    expect(String(completion._safe_error_message)).toMatch(/[A-Za-z]/);
+    expect(String(completion._safe_error_message)).not.toMatch(/[\u0600-\u06FF]/);
+  });
+
+  it('a platform that offers the inviter\'s language keeps it', async () => {
+    h.visitorLocales = ['en', 'tr'];
+    const { request } = await runOnce({ success: true, provider: 'smtp', id: 'q1' });
+    expect((request as unknown as { locale: string }).locale).toBe('en');
+    expect(request.templateData.role).toBe('Operator');
   });
 });

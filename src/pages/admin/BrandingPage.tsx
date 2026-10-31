@@ -380,7 +380,7 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?:
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
 import { isProviderAllowedInEdition, resolveEdition } from '../../../shared/edition';
-import { isPanelLocale } from '../../../shared/panelLanguages';
+import { isPanelLocale, panelLanguagesFor } from '../../../shared/panelLanguages';
 
 const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
   multi: {
@@ -436,8 +436,21 @@ function SettingsSection() {
 
   useEffect(() => {
     if (settings) {
-      setDefaultLocale((settings.default_locale as string) || 'en');
-      setActiveLocales((settings.active_locales as string[]) || ['en']);
+      // None stored reads as the panel does: Iran Persian, Multi all three.
+      const storedActive: string[] = Array.isArray(settings.active_locales) && settings.active_locales.length
+        ? (settings.active_locales as string[])
+        : panelLanguagesFor({ region_mode: settings.region_mode }).locales;
+      const storedDefault = settings.default_locale;
+      // A stored default the dashboard cannot open in (a legacy 'ar', a
+      // tagged 'fa-IR', one no longer active) is shown as the one it does
+      // open in (shared/panelLanguages.ts), so the Select is never blank and
+      // the Default badge sits on the language people actually see.
+      setDefaultLocale(
+        isPanelLocale(storedDefault) && storedActive.includes(storedDefault)
+          ? storedDefault
+          : panelLanguagesFor(settings).defaultLocale,
+      );
+      setActiveLocales(storedActive);
       setTimezone((settings.timezone as string) || 'UTC');
       setSiteMode((settings.site_mode as string) || 'multi_language');
       setRegionMode(isRegionMode(settings.region_mode) ? (settings.region_mode as RegionMode) : 'multi');
@@ -529,6 +542,9 @@ function SettingsSection() {
   };
 
   const pickRegion = (mode: RegionMode) => {
+    // The region already chosen: its preset would wipe the dashboard's
+    // languages set since (Iran: back to Persian only, no switcher).
+    if (mode === regionMode) return;
     setRegionMode(mode);
     setSettingsDirty(true);
     if (mode !== 'multi') {
@@ -548,7 +564,19 @@ function SettingsSection() {
   // gateways whatever the dashboard's languages are (shared/panelLanguages.ts).
   const languagesPinned = regionMode === 'turkey' || regionMode === 'global';
   // The dashboard is translated into these; the others are branding text only.
-  const panelDefaultChoices = activeLocales.filter(isPanelLocale);
+  // The default is always among them (the load above makes it a panel
+  // language), so the Select never shows blank.
+  const panelDefaultChoices: string[] = activeLocales.filter(isPanelLocale);
+  if (isPanelLocale(defaultLocale) && !panelDefaultChoices.includes(defaultLocale)) panelDefaultChoices.unshift(defaultLocale);
+  // In Iran the active languages are the dashboard's only (visitors stay
+  // Persian); in Multi they are the visitors' and customers' too; Türkiye and
+  // Global pin one language for both.
+  const languagesDescription =
+    regionMode === 'iran'
+      ? t('admin.brandingPage.settings.languages.description')
+      : regionMode === 'multi'
+        ? t('admin.brandingPage.settings.languages.descriptionMulti')
+        : t('admin.brandingPage.settings.languages.descriptionPinned');
   const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}` as never);
   const regionTitle = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.title`);
   const regionDescription = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.description`);
@@ -707,7 +735,7 @@ function SettingsSection() {
                   <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save')}
                 </Button>
               </div>
-              <CardDescription>{t('admin.brandingPage.settings.languages.description')}</CardDescription>
+              <CardDescription>{languagesDescription}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">

@@ -87,11 +87,13 @@ operator panel keep their own look.
 The panel's languages are a Super Admin setting in both editions (Branding →
 Platform settings: the active languages, the default one, the language
 switcher shown or hidden) and never change the brand: WebYar in English or
-Turkish stays WebYar (Toman, Iranian gateways). They cover the dashboard, its
-sign-in pages, Super Admin and operators' push; what visitors and customers
-read (widget, AI, Telegram, e-mails, knowledge base) keeps the region's
-languages (Persian only in Iran). One rule, `shared/panelLanguages.ts`;
-details in `docs/operations/EDITIONS.md`, "The dashboard's languages".
+Turkish stays WebYar (Toman, Iranian gateways, +98). They cover the
+dashboard, its sign-in pages, Super Admin and operators' push and API texts;
+what visitors and customers read (widget, AI, Telegram, every e-mail,
+operators' included, help center, knowledge base) keeps the region's
+languages (Persian only in Iran; in Multi the active languages serve both).
+One rule, `shared/panelLanguages.ts`; details in
+`docs/operations/EDITIONS.md`, "The dashboard's languages".
 
 ## The knowledge base on the owner's Mac (owner, 2026-10-24)
 

@@ -261,6 +261,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [editDialog, setEditDialog] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [emailVerifyLoading, setEmailVerifyLoading] = useState(false);
+  const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
+  // The phone country: Iran in the Iranian edition whatever the dashboard's
+  // language, never Iran outside it (src/lib/phone-countries.ts).
+  const { edition } = useEdition();
   const [editForm, setEditForm] = useState({
     full_name: '',
     email: '',
@@ -268,13 +272,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     website_domain: '',
     preferred_locale: '',
     phone: '',
-    phone_country: defaultPhoneCountry(),
+    phone_country: defaultPhoneCountry(uiLocale, edition),
   });
 
   const qc = useQueryClient();
-  const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
-  // The phone country never defaults to Iran outside the Iranian edition.
-  const { edition } = useEdition();
 
   const { data: phoneState } = useQuery({
     queryKey: ['admin-phone-verification', userId],

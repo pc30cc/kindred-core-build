@@ -7,13 +7,21 @@
  * nor that private job data is never requested for a blocked workspace.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+// The dashboard's language and the visitors' languages
+// (usePlatformRegion().allowedLocales), which differ on WebYar since the
+// Super Admin may open its dashboard in English (shared/panelLanguages.ts).
+const lang = vi.hoisted(() => ({ ui: 'en' as 'en' | 'fa' | 'tr', visitors: ['en', 'fa', 'tr'] as Array<'en' | 'fa' | 'tr'> }));
 
 vi.mock('@/hooks/useWorkspace', () => ({
   useCurrentWorkspace: () => ({ id: 'ws-1' }),
   useWorkspacePath: () => (path: string) => path,
 }));
-vi.mock('@/i18n', () => ({ useTranslation: () => ({ locale: 'en', t: (k: string) => k }) }));
+vi.mock('@/i18n', () => ({ useTranslation: () => ({ locale: lang.ui, t: (k: string) => k }) }));
+vi.mock('@/hooks/usePlatformRegion', () => ({
+  usePlatformRegion: () => ({ allowedLocales: lang.visitors, canSwitchLanguage: lang.visitors.length > 1 }),
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@/hooks/useAiWalletSummary', () => ({ useAiWalletSummary: () => ({ data: null }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
@@ -21,6 +29,7 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
 const getSource = vi.fn();
 const listJobs = vi.fn();
 const getJob = vi.fn();
+const createJob = vi.fn();
 
 vi.mock('@/lib/ai-kb-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ai-kb-api')>();
@@ -30,7 +39,7 @@ vi.mock('@/lib/ai-kb-api', async (importOriginal) => {
       getSource: (...a: unknown[]) => getSource(...a),
       listJobs: (...a: unknown[]) => listJobs(...a),
       getJob: (...a: unknown[]) => getJob(...a),
-      createJob: vi.fn(),
+      createJob: (...a: unknown[]) => createJob(...a),
       accept: vi.fn(), reject: vi.fn(), publish: vi.fn(), publishAll: vi.fn(),
     },
   };
@@ -64,8 +73,11 @@ function makeSource(over: Partial<AiKbSourceResponse['modules']> = {}, extra: Pa
 }
 
 beforeEach(() => {
-  getSource.mockReset(); listJobs.mockReset(); getJob.mockReset();
+  getSource.mockReset(); listJobs.mockReset(); getJob.mockReset(); createJob.mockReset();
   listJobs.mockResolvedValue({ jobs: [] });
+  createJob.mockResolvedValue({ job: { id: 'job-new-1' } });
+  lang.ui = 'en';
+  lang.visitors = ['en', 'fa', 'tr'];
 });
 
 describe('AiKbBuilderTab — access states', () => {
@@ -166,5 +178,47 @@ describe('AiKbBuilderTab — access states', () => {
     // Canonical Help Center link comes from the authoritative public_path.
     const link = await screen.findByRole('link', { name: /Open in Help Center/i });
     expect(link.getAttribute('href')).toContain('/help/en/pricing-2');
+  });
+});
+
+describe('AiKbBuilderTab — the language of the articles a scan writes', () => {
+  async function startScan() {
+    getSource.mockResolvedValue(makeSource());
+    render(<AiKbBuilderTab />);
+    const button = await screen.findByRole('button', { name: /Start AI scan of my website/i });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(createJob).toHaveBeenCalledTimes(1));
+    return createJob.mock.calls[0];
+  }
+
+  it('WebYar (iran) with an English dashboard: the job is Persian, the visitors\' language', async () => {
+    lang.ui = 'en';
+    lang.visitors = ['fa'];
+    expect(await startScan()).toEqual(['ws-1', { locale: 'fa' }]);
+  });
+
+  it('WebYar with a Turkish dashboard: still Persian', async () => {
+    lang.ui = 'tr';
+    lang.visitors = ['fa'];
+    expect(await startScan()).toEqual(['ws-1', { locale: 'fa' }]);
+  });
+
+  it('WebYar with a Persian dashboard: Persian, as before', async () => {
+    lang.ui = 'fa';
+    lang.visitors = ['fa'];
+    expect(await startScan()).toEqual(['ws-1', { locale: 'fa' }]);
+  });
+
+  it('RESPOK (multi, en and tr): the dashboard\'s language, as before', async () => {
+    lang.visitors = ['en', 'tr'];
+    lang.ui = 'tr';
+    expect(await startScan()).toEqual(['ws-1', { locale: 'tr' }]);
+  });
+
+  it('RESPOK with an English dashboard: English, as before', async () => {
+    lang.visitors = ['en', 'tr'];
+    lang.ui = 'en';
+    expect(await startScan()).toEqual(['ws-1', { locale: 'en' }]);
   });
 });

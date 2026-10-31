@@ -23,12 +23,17 @@
  * migration 158 still carries 'en', so on a Persian-only panel that operator
  * reads Persian.
  *
+ * A MAIL is the exception: its template is chosen in the visitors' languages
+ * (email/index.ts resolveEmailScope; Iran: Persian only), so every value a
+ * sender writes into one goes through operatorMailLocale below, and push and
+ * the operator APIs keep the operator's own language.
+ *
  * The dashboard decides its own UI language in the browser
  * (src/i18n/index.tsx); this is only for text the server writes.
  */
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { getPlatformPanelLanguages } from './platformRegion.js';
+import { getPlatformAllowedLocales, getPlatformPanelLanguages } from './platformRegion.js';
 
 export type OperatorLocale = 'fa' | 'en' | 'tr';
 
@@ -160,6 +165,34 @@ export async function operatorLocale(
   if (userCache.size > 5_000) userCache.clear();
   userCache.set(userId, { value, ts: Date.now() });
   return value;
+}
+
+/**
+ * The language of a MAIL to an operator whose own language is `locale`: the
+ * one sendEmail fills the template in. Templates follow the VISITORS'
+ * languages (email/index.ts resolveEmailScope, getPlatformAllowedLocales;
+ * Iran: Persian only), not the dashboard's, so on a WebYar panel the Super
+ * Admin opened to English an English operator still gets the Persian
+ * template. Every value a sender writes into the mail (a transcript's words
+ * and system lines, a count in the reader's digits, an amount, the
+ * unsubscribe line under it) is written in this language, never English
+ * words in a Persian template; their push and the operator APIs keep
+ * `locale` (operatorLocale*).
+ *
+ * The same choice as resolveEmailScope's first language (a test holds the
+ * two together): `locale` when the platform's mail offers it, else the
+ * platform's first language, else 'en'; a failed read keeps `locale`, as
+ * resolveEmailScope then offers every language.
+ */
+export async function operatorMailLocale(config: ServerConfig, locale: OperatorLocale): Promise<OperatorLocale> {
+  let allowed: string[];
+  try {
+    allowed = await getPlatformAllowedLocales(config);
+  } catch {
+    return locale;
+  }
+  if (allowed.includes(locale)) return locale;
+  return baseTag(allowed[0]) ?? 'en';
 }
 
 /** Test-only — forget the cached platform and per-user languages. */

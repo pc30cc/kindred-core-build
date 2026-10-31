@@ -3,6 +3,8 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings } from '@/hooks/useAiAgent';
 import { aiAgentApi, type PlaygroundResult, type TestRunResult } from '@/lib/ai-agent-api';
 import { useI18n } from '@/i18n';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { contentLocaleFor } from '@/lib/region';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,7 +16,14 @@ import { Beaker, Loader2, AlertTriangle, Bot, ArrowRight, Microscope } from 'luc
 
 export default function PlaygroundPage() {
   const { workspace } = useActiveWorkspace();
-  const { locale } = useI18n();
+  const { locale: uiLocale } = useI18n();
+  // The test plays a VISITOR's question, so it is answered in a visitors'
+  // language (usePlatformRegion().allowedLocales; Iran: Persian only): the
+  // dashboard's own when visitors have it (RESPOK: en and tr, as before),
+  // else the first. The dashboard may be English or Turkish on WebYar while
+  // its visitors stay Persian (shared/panelLanguages.ts).
+  const { allowedLocales } = usePlatformRegion();
+  const replyLocale = contentLocaleFor(uiLocale, allowedLocales);
   const { data: settingsData } = useAiAgentSettings(workspace?.id);
   const settings = settingsData?.settings;
   const [question, setQuestion] = useState('');
@@ -37,13 +46,13 @@ export default function PlaygroundPage() {
       const r = await aiAgentApi.playground({
         workspaceId: workspace.id,
         question,
-        locale,
+        locale: replyLocale,
         guidanceOverride: guidance === 'auto' ? undefined : guidance,
         modelOverride: model === 'auto' ? undefined : model,
       });
       setResult(r);
-    } catch (e: any) {
-      setError(e?.message || 'Test failed');
+    } catch (e) {
+      setError((e as { message?: string } | null)?.message || 'Test failed');
     } finally {
       setLoading(false);
     }
@@ -55,10 +64,10 @@ export default function PlaygroundPage() {
     setDryError(null);
     setDryResult(null);
     try {
-      const r = await aiAgentApi.testRun({ workspaceId: workspace.id, message: question, visitorLocale: locale });
+      const r = await aiAgentApi.testRun({ workspaceId: workspace.id, message: question, visitorLocale: replyLocale });
       setDryResult(r);
-    } catch (e: any) {
-      setDryError(e?.message || 'Test failed');
+    } catch (e) {
+      setDryError((e as { message?: string } | null)?.message || 'Test failed');
     } finally { setDryLoading(false); }
   };
 
@@ -88,7 +97,7 @@ export default function PlaygroundPage() {
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={(v: any) => setTab(v)}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>
           <TabsTrigger value="reply"><Bot className="h-3.5 w-3.5 me-1.5" />Full reply</TabsTrigger>
           <TabsTrigger value="analysis"><Microscope className="h-3.5 w-3.5 me-1.5" />Dry-run analysis</TabsTrigger>
@@ -116,7 +125,7 @@ export default function PlaygroundPage() {
               </div>
               <div>
                 <Label>Guidance</Label>
-                <Select value={guidance} onValueChange={(v: any) => setGuidance(v)}>
+                <Select value={guidance} onValueChange={(v) => setGuidance(v as typeof guidance)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="auto">Use settings</SelectItem>

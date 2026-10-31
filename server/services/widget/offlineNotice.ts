@@ -40,7 +40,7 @@ import { localNumber } from '../email/layout.js';
 import { enqueueEmail, type EmailOutboxOptions } from '../email/outbox.js';
 import { peekEmailQuota, takeEmailQuota } from '../email/sendQuota.js';
 import { resolveWorkspaceAppUrl } from '../auth-email.js';
-import { operatorFallbackLocale, operatorLocales } from '../operatorLocale.js';
+import { operatorFallbackLocale, operatorLocales, operatorMailLocale } from '../operatorLocale.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { resolveAvailability } from './availability.js';
@@ -91,6 +91,7 @@ interface NoticeRecipient {
   /** The member's user id, or 'reply_to' for the workspace's own address. */
   key: string;
   to: string;
+  /** The mail's language (operatorMailLocale): the template's, which its values and footer are written in. */
   locale: OperatorLocale;
   /** A member, who may turn this mail off: its unsubscribe link and line go with it. */
   member: boolean;
@@ -98,7 +99,10 @@ interface NoticeRecipient {
 
 /**
  * The workspace's owners and admins who may read visitors' messages, each in
- * their own language (operatorLocale.ts), never the visitor's. A suspended
+ * their own language (operatorLocale.ts), never the visitor's, as far as the
+ * mail offers it (operatorMailLocale: the template is in the visitors'
+ * languages, Iran Persian only, and the summary's numbers and the footer are
+ * written in the template's language). A suspended
  * member, one whose seat the plan has paused and one whose account is
  * disabled hear nothing, nor one who turned this mail off. With nobody left
  * who has an address, the workspace's reply-to address (Settings → Email)
@@ -151,7 +155,9 @@ async function noticeRecipients(config: ServerConfig, workspaceId: string): Prom
     const wanted = declined ? reachable.filter((p) => !declined.has(p.id)) : [];
     if (!wanted.length) return [];
     const locales = await operatorLocales(config, wanted.map((p) => p.id));
-    return wanted.map((p) => ({ key: p.id, to: p.to, locale: locales.get(p.id) || 'en', member: true }));
+    return Promise.all(wanted.map(async (p) => ({
+      key: p.id, to: p.to, locale: await operatorMailLocale(config, locales.get(p.id) || 'en'), member: true,
+    })));
   }
 
   const { data: settings } = await sb
@@ -161,7 +167,7 @@ async function noticeRecipients(config: ServerConfig, workspaceId: string): Prom
     .maybeSingle();
   const replyTo = parseEmailAddress((settings as { reply_to_email?: string | null } | null)?.reply_to_email);
   if (!replyTo || excludedAddresses.has(replyTo.toLowerCase())) return [];
-  return [{ key: 'reply_to', to: replyTo, locale: await operatorFallbackLocale(config), member: false }];
+  return [{ key: 'reply_to', to: replyTo, locale: await operatorMailLocale(config, await operatorFallbackLocale(config)), member: false }];
 }
 
 // ─── At once, merged, or not at all ───────────────────────────────────────

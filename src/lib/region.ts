@@ -75,6 +75,20 @@ export function allowedLocalesFor(mode: RegionMode, activeLocales?: string[] | n
 }
 
 /**
+ * The language of something a VISITOR or customer reads, made from the
+ * dashboard: an AI draft, a playground answer, a KB article, a widget
+ * preview. The dashboard's own language when visitors have it, else the
+ * visitors' first language (usePlatformRegion().allowedLocales; Iran:
+ * Persian only). The dashboard can be English or Turkish on WebYar while its
+ * visitors stay Persian (shared/panelLanguages.ts); with no visitor
+ * languages known, the dashboard's language.
+ */
+export function contentLocaleFor<L extends string>(uiLocale: L, visitorLocales: readonly string[]): L {
+  if (!visitorLocales.length || visitorLocales.includes(uiLocale)) return uiLocale;
+  return visitorLocales[0] as L;
+}
+
+/**
  * The currency every amount should be displayed in: Toman in `iran`, Lira in
  * `turkey`, USD in `multi` and `global` — whatever the language (`_locale` is
  * kept for callers; it no longer decides anything).

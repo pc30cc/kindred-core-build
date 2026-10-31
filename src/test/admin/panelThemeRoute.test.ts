@@ -42,6 +42,7 @@ vi.mock('../../../server/supabase.js', () => {
         const one = () => ({ data: copy(rows.find(match)), error: null });
         const builder = {
           select: () => builder,
+          order: () => builder,
           limit: () => builder,
           eq(col: string, val: unknown) {
             match = (r) => r[col] === val;
@@ -53,7 +54,8 @@ vi.mock('../../../server/supabase.js', () => {
             return {
               eq(col: string, val: unknown) {
                 for (const r of rows) if (r[col] === val) Object.assign(r, patch);
-                return { select: () => ({ maybeSingle: async () => ({ data: copy(rows.find((r) => r[col] === val)), error: null }) }) };
+                const found = async () => ({ data: copy(rows.find((r) => r[col] === val)), error: null });
+                return { select: () => ({ maybeSingle: found, single: found }) };
               },
             };
           },
@@ -65,12 +67,12 @@ vi.mock('../../../server/supabase.js', () => {
                 data: null,
                 error: { code: 'PGRST204', message: `Could not find the '${missing}' column of '${name}' in the schema cache` },
               };
-              return { select: () => ({ maybeSingle: async () => failed }), then: (resolve: (v: typeof failed) => unknown) => resolve(failed) };
+              return { select: () => ({ maybeSingle: async () => failed, single: async () => failed }), then: (resolve: (v: typeof failed) => unknown) => resolve(failed) };
             }
             const added = given.map((r) => ({ id: `row-${rows.length + 1}`, ...r }));
             rows.push(...added);
             const result = { data: added[0], error: null };
-            return { select: () => ({ maybeSingle: async () => result }), then: (resolve: (v: typeof result) => unknown) => resolve(result) };
+            return { select: () => ({ maybeSingle: async () => result, single: async () => result }), then: (resolve: (v: typeof result) => unknown) => resolve(result) };
           },
         };
         return builder;
@@ -114,7 +116,7 @@ app.use(express.json());
 app.use('/api/admin/management', adminManagementRouter);
 const server = http.createServer(app).listen(0);
 
-function put(token: string | null, body: unknown): Promise<{ status: number; json: Row }> {
+function put(token: string | null, body: unknown, path = '/api/admin/management/panel-theme'): Promise<{ status: number; json: Row }> {
   const payload = JSON.stringify(body);
   const headers: Record<string, string> = {
     'content-type': 'application/json',
@@ -123,7 +125,7 @@ function put(token: string | null, body: unknown): Promise<{ status: number; jso
   if (token) headers.cookie = `gs_session=${token}`;
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: '127.0.0.1', port: (server.address() as AddressInfo).port, path: '/api/admin/management/panel-theme', method: 'PUT', headers },
+      { host: '127.0.0.1', port: (server.address() as AddressInfo).port, path, method: 'PUT', headers },
       (res) => {
         let data = '';
         res.on('data', (chunk) => (data += chunk));
@@ -333,5 +335,22 @@ describe('PUT /api/admin/management/panel-theme — options', () => {
     withOptions({});
     expect((await put('member-token', { theme: 'art', options: { layout: 'sidebar' } })).status).toBe(403);
     expect(state.branding[0].workspace_panel_theme_options).toEqual({});
+  });
+});
+
+// Super Admin → Branding → General → Time zone picks from the IANA list
+// (src/components/common/TimeZoneSelect.tsx); the route refuses anything else,
+// which would break the schedules that fall back to it.
+describe('PUT /api/admin/management/platform-settings — time zone', () => {
+  const SETTINGS = '/api/admin/management/platform-settings';
+
+  it('refuses a time zone the runtime does not know', async () => {
+    const res = await put('admin-token', { timezone: 'Mars/Olympus' }, SETTINGS);
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts an IANA zone', async () => {
+    const res = await put('admin-token', { timezone: 'Asia/Tehran' }, SETTINGS);
+    expect(res.status).toBe(200);
   });
 });

@@ -47,6 +47,10 @@ vi.mock('@/components/admin/EmailTemplatesTab', () => ({ default: () => null }))
 
 const AdminBrandingPage = (await import('@/pages/admin/BrandingPage')).default;
 
+// The time zone list (cmdk) scrolls its items into view; jsdom has no layout.
+Element.prototype.scrollIntoView ??= () => undefined;
+globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+
 const K = 'admin.brandingPage.settings';
 
 /** Radix's tab trigger changes tab on a primary mouse down. */
@@ -65,7 +69,10 @@ const settingsTab = (key: string) => openTab(`${K}.tabs.${key}`);
 /** Change the time zone (any edit) and save: the payload is what the page holds. */
 async function saveWithAnEdit(): Promise<Record<string, unknown>> {
   settingsTab('general');
-  fireEvent.change(screen.getByPlaceholderText('UTC'), { target: { value: 'Asia/Tehran' } });
+  // Any edit: the time zone, picked in its searchable list.
+  fireEvent.click(screen.getByTestId('timezone-trigger'));
+  fireEvent.change(screen.getByTestId('timezone-search'), { target: { value: 'tehran' } });
+  fireEvent.click(screen.getByTestId('timezone-option-Asia/Tehran'));
   fireEvent.click(screen.getByRole('button', { name: /admin\.brandingPage\.common\.save/ }));
   await waitFor(() => expect(srv.puts).toHaveLength(1));
   return srv.puts[0];
@@ -156,6 +163,6 @@ describe('a stored default the dashboard cannot open in', () => {
   it('a default that is a panel language among the active ones is kept as it is', async () => {
     await openSettings({ region_mode: 'iran', active_locales: ['fa'], default_locale: 'fa', site_mode: 'single_language' });
     const put = await saveWithAnEdit();
-    expect(put).toMatchObject({ region_mode: 'iran', active_locales: ['fa'], default_locale: 'fa', site_mode: 'single_language' });
+    expect(put).toMatchObject({ region_mode: 'iran', active_locales: ['fa'], default_locale: 'fa', site_mode: 'single_language', timezone: 'Asia/Tehran' });
   });
 });

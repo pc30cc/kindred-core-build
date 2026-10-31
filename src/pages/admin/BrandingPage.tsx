@@ -382,6 +382,7 @@ import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedR
 import { isProviderAllowedInEdition, resolveEdition } from '../../../shared/edition';
 import { PANEL_LOCALES, isPanelLocale, panelLanguagesFor } from '../../../shared/panelLanguages';
 import { PLATFORM_PUBLIC_CONFIG_QUERY_KEY } from '@/lib/platformPublicConfig';
+import { TimeZoneSelect } from '@/components/common/TimeZoneSelect';
 import type { PlatformRegionSettings } from '@/hooks/usePlatformRegion';
 
 const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
@@ -681,8 +682,20 @@ function SettingsSection() {
                   </Select>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>{t('admin.brandingPage.settings.general.timezone')}</Label>
-                  <Input value={timezone} onChange={e => { setTimezone(e.target.value); setSettingsDirty(true); }} placeholder="UTC" />
+                  <Label htmlFor="platform-timezone">{t('admin.brandingPage.settings.general.timezone')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.timezoneHint')}</p>
+                  <TimeZoneSelect
+                    id="platform-timezone"
+                    value={timezone}
+                    onChange={(zone) => { setTimezone(zone); setSettingsDirty(true); }}
+                    locale={uiLocale}
+                    labels={{
+                      search: t('admin.brandingPage.settings.general.timezoneSearch'),
+                      noResults: t('admin.brandingPage.settings.general.timezoneNoResults'),
+                      suggested: t('admin.brandingPage.settings.general.timezoneSuggested'),
+                      all: t('admin.brandingPage.settings.general.timezoneAll'),
+                    }}
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label>{t('admin.brandingPage.settings.general.siteMode')}</Label>

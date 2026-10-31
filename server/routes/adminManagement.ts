@@ -916,10 +916,21 @@ adminManagementRouter.get('/platform-settings', async (req, res) => {
   return res.json({ settings: data });
 });
 
+function isKnownTimeZone(zone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const platformSettingsSchema = z.object({
   default_locale: z.string().min(2).max(10).optional(),
   active_locales: z.array(z.string().min(2).max(10)).min(1).optional(),
-  timezone: z.string().min(1).max(100).optional(),
+  // An IANA zone the runtime knows (Super Admin → Branding → General picks
+  // from them); anything else would break the schedules that fall back to it.
+  timezone: z.string().min(1).max(100).refine(isKnownTimeZone, 'Unknown time zone').optional(),
   site_mode: z.string().min(1).max(50).optional(),
   region_mode: z.string().min(1).max(50).optional(),
   region_currency: z.string().max(20).nullable().optional(),

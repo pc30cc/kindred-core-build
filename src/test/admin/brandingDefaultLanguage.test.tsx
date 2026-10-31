@@ -64,6 +64,10 @@ vi.mock('@/components/ui/select', () => ({
 
 const AdminBrandingPage = (await import('@/pages/admin/BrandingPage')).default;
 
+// The time zone list (cmdk) scrolls its items into view; jsdom has no layout.
+Element.prototype.scrollIntoView ??= () => undefined;
+globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+
 const K = 'admin.brandingPage.settings';
 const openTab = (name: string) => fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0, ctrlKey: false });
 
@@ -162,7 +166,10 @@ describe('the default language', () => {
 
   it("a save that keeps the default changes nobody's language", async () => {
     await openGeneral({ region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'en', site_mode: 'multi_language' });
-    fireEvent.change(screen.getByPlaceholderText('UTC'), { target: { value: 'Asia/Tehran' } });
+    // Any edit: the time zone, picked in its searchable list.
+    fireEvent.click(screen.getByTestId('timezone-trigger'));
+    fireEvent.change(screen.getByTestId('timezone-search'), { target: { value: 'tehran' } });
+    fireEvent.click(screen.getByTestId('timezone-option-Asia/Tehran'));
     await save();
     expect(srv.setLocale).not.toHaveBeenCalled();
     expect(srv.toasts.at(-1)?.description).toBeUndefined();

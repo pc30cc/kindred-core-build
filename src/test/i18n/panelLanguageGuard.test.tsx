@@ -60,6 +60,8 @@ function Probe() {
       {(['en', 'fa', 'tr'] as const).map((l) => (
         <button key={l} type="button" data-testid={`pick-${l}`} onClick={() => setLocale(l)} />
       ))}
+      {/* What Super Admin → Branding does on saving a new default. */}
+      <button type="button" data-testid="forget-pick" onClick={() => setLocale(locale, { remember: false })} />
     </div>
   );
 }
@@ -105,7 +107,7 @@ describe('the panel language guard', () => {
     await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
     expect((await now(r)).dataset.panel).toBe('en');
     expect((await now(r)).dataset.switcher).toBe('false');
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it('a choice the panel no longer offers is forgotten', async () => {
@@ -114,7 +116,7 @@ describe('the panel language guard', () => {
     h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'en', site_mode: 'single_language' };
     const r = mount('fa');
     await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
     expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
@@ -139,7 +141,7 @@ describe('the panel language guard', () => {
     h.region = { region_mode: 'iran', active_locales: ['fa', 'tr', 'en'], default_locale: 'en', site_mode: 'multi_language' };
     const r = mount('fa');
     await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
     expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
@@ -151,7 +153,60 @@ describe('the panel language guard', () => {
     await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
     await settle();
     expect((await now(r)).dataset.locale).toBe('tr');
-    expect(localStorage.getItem('app-locale')).toBe('tr');
+    expect(localStorage.getItem('app-locale-choice')).toBe('tr');
+  });
+
+  it("WebYar: English or Turkish kept in app-locale could only come from #376's switcher, so it stays a pick", async () => {
+    localStorage.setItem('wy-edition', 'iran');
+    localStorage.setItem('app-locale', 'tr');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'tr', 'en'], default_locale: 'en', site_mode: 'multi_language' };
+    const r = mount('tr');
+    await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
+    await settle();
+    expect((await now(r)).dataset.locale).toBe('tr');
+    expect(localStorage.getItem('app-locale-choice')).toBe('tr');
+  });
+
+  it('app-locale is the language the page was last shown in, not a pick', async () => {
+    localStorage.setItem('wy-edition', 'iran');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'en', site_mode: 'multi_language' };
+    const r = mount('fa');
+    await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
+    await waitFor(() => expect(localStorage.getItem('app-locale')).toBe('en'), WAIT);
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
+    // The legacy key was read once: a later 'app-locale' is never a pick.
+    expect(localStorage.getItem('app-locale-choice-migrated')).toBe('1');
+  });
+
+  it("the Super Admin saves a new default: their pick forgotten, the new settings read, one switch to it and no way back", async () => {
+    localStorage.setItem('wy-edition', 'iran');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'multi_language' };
+    const r = mount('fa');
+    await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
+    fireEvent.click(r.getByTestId('pick-fa'));
+    await settle();
+    expect(localStorage.getItem('app-locale-choice')).toBe('fa');
+    // Save: forget the pick (the page stays), then the settings are re-read.
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => {
+      const el = r.queryByTestId('probe');
+      if (el) seen.push(String(el.dataset.locale));
+    });
+    observer.observe(r.container, { attributes: true, subtree: true, childList: true });
+    fireEvent.click(r.getByTestId('forget-pick'));
+    await settle();
+    expect((await now(r)).dataset.locale).toBe('fa');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'en', site_mode: 'multi_language' };
+    await act(async () => {
+      await r.client.invalidateQueries(REGION_QUERY);
+    });
+    await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
+    await settle();
+    observer.disconnect();
+    expect((await now(r)).dataset.locale).toBe('en');
+    // Never back to Persian once English showed.
+    expect(seen.slice(seen.indexOf('en'))).not.toContain('fa');
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it('a pick in a switcher is kept as a pick, and outranks a later default', async () => {
@@ -174,7 +229,7 @@ describe('the panel language guard', () => {
     h.region = { region_mode: 'iran', active_locales: ['fa', 'tr'], default_locale: 'tr', site_mode: 'multi_language' };
     const r = mount('fa');
     await waitFor(() => expect(probe(r).dataset.locale).toBe('tr'), WAIT);
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it("the panel's languages never open the visitors' languages: Iran's content stays Persian", async () => {
@@ -205,7 +260,7 @@ describe('the panel language guard', () => {
     // The cached guess: a Persian panel without a switcher, as WebYar's settings read.
     expect((await now(r)).dataset.panel).toBe('fa');
     expect((await now(r)).dataset.switcher).toBe('false');
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
     // Visitors' languages and the region are the cached ones, never a made-up `multi`.
     expect((await now(r)).dataset.content).toBe('fa');
     expect((await now(r)).dataset.mode).toBe('iran');
@@ -227,14 +282,14 @@ describe('the panel language guard', () => {
     expect((await now(r)).dataset.panel).toBe('fa');
     expect((await now(r)).dataset.switcher).toBe('false');
     expect((await now(r)).dataset.content).toBe('fa');
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it('a pick holds for the session when the browser cannot store it', async () => {
     h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'multi_language' };
     const setItem = Storage.prototype.setItem;
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-      if (key === 'app-locale') throw new DOMException('quota', 'QuotaExceededError');
+      if (key === 'app-locale-choice') throw new DOMException('quota', 'QuotaExceededError');
       setItem.call(this, key, value);
     });
     const r = mount('fa');
@@ -242,7 +297,7 @@ describe('the panel language guard', () => {
     fireEvent.click(r.getByTestId('pick-en'));
     await settle();
     expect((await now(r)).dataset.locale).toBe('en');
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it('with no storage at all, a pick the panel stops offering still gives way', async () => {
@@ -268,7 +323,7 @@ describe('the panel language guard', () => {
     h.region = { region_mode: 'iran', active_locales: ['fa'], default_locale: 'fa', site_mode: 'single_language' };
     const r = mount('en');
     await waitFor(() => expect(probe(r).dataset.locale).toBe('fa'), WAIT);
-    expect(localStorage.getItem('app-locale')).toBe('fa');
+    expect(localStorage.getItem('app-locale-choice')).toBe('fa');
   });
 
   it('the native app does not follow the default when nobody picked: English stays while the panel offers it', async () => {
@@ -278,7 +333,7 @@ describe('the panel language guard', () => {
     await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
     await settle();
     expect((await now(r)).dataset.locale).toBe('en');
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it('changes nothing before the platform settings arrive', async () => {
@@ -288,7 +343,7 @@ describe('the panel language guard', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect((await now(r)).dataset.ready).toBe('false');
     expect((await now(r)).dataset.locale).toBe('en');
-    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 });
 

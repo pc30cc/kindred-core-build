@@ -357,7 +357,8 @@ function pagesForPath(pathname: string): Preloadable[] {
     case "terms": return [LegalPage];
     case "contact": return [ContactPage];
     case "help":
-      if (!second) return [];
+      // /help redirects to the front page in its default language: load it meanwhile.
+      if (!second) return [HelpIndexPage];
       if (third === "c") return [HelpCategoryPage];
       if (third === "a") return [HelpArticlePage];
       if (third === "search") return [HelpSearchPage];

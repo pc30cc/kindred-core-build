@@ -7,18 +7,21 @@
  * server's own help center does the same (server/routes/kb.ts
  * loadDefaultLocale).
  *
- * It waits for the platform's settings: before they arrive it gives null
- * (nothing is drawn), and if they cannot be read it falls back to the
- * region this browser last saw (Iran: Persian; unknown: English).
+ * A browser that has seen the platform answers at once from the region it
+ * last saw (Iran: Persian); one that never has waits for the settings
+ * (null: nothing is drawn), or, if they cannot be read, takes English.
  */
 import { usePlatformRegionSettings } from '@/hooks/usePlatformRegion';
-import { allowedLocalesFor, getCachedRegionMode } from '@/lib/region';
+import { allowedLocalesFor } from '@/lib/region';
+import { knownRegionModeOrNull } from '@/lib/edition';
 import type { Locale } from '@/i18n/config';
 
 export function useHelpDefaultLocale(): Locale | null {
   const { data, isError } = usePlatformRegionSettings();
-  if (!data && !isError) return null;
-  const visitors = allowedLocalesFor(data?.mode ?? getCachedRegionMode(), data?.activeLocales);
-  const wanted = data?.defaultLocale;
+  const cachedMode = knownRegionModeOrNull();
+  if (!data && !isError && !cachedMode) return null;
+  const visitors = allowedLocalesFor(data?.mode ?? cachedMode ?? 'multi', data?.activeLocales);
+  // A tagged default ('fa-IR') reads as its language, as on the server.
+  const wanted = String(data?.defaultLocale ?? '').trim().toLowerCase().split(/[-_]/)[0];
   return visitors.find((l) => l === wanted) ?? visitors[0] ?? 'en';
 }

@@ -404,7 +404,7 @@ const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
 
 function SettingsSection() {
   const { t } = useTranslation();
-  const { setLocale } = useI18n();
+  const { locale: uiLocale, setLocale } = useI18n();
   const { data: rows, isLoading: brandingLoading } = usePlatformBrandingLocalized();
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform_settings'],
@@ -424,6 +424,9 @@ function SettingsSection() {
   // Settings form state
   const [defaultLocale, setDefaultLocale] = useState('en');
   const [activeLocales, setActiveLocales] = useState<string[]>(['en']);
+  // A language the default-language list turned on (Iran), so picking
+  // another default before saving turns it off again.
+  const [autoAdded, setAutoAdded] = useState<string | null>(null);
   const [timezone, setTimezone] = useState('UTC');
   const [siteMode, setSiteMode] = useState('multi_language');
   const [regionMode, setRegionMode] = useState<RegionMode>('multi');
@@ -453,6 +456,7 @@ function SettingsSection() {
           : panelLanguagesFor(settings).defaultLocale,
       );
       setActiveLocales(storedActive);
+      setAutoAdded(null);
       setTimezone((settings.timezone as string) || 'UTC');
       setSiteMode((settings.site_mode as string) || 'multi_language');
       setRegionMode(isRegionMode(settings.region_mode) ? (settings.region_mode as RegionMode) : 'multi');
@@ -527,33 +531,39 @@ function SettingsSection() {
       toast({ title: t('admin.brandingPage.common.error'), description: e instanceof Error ? e.message : t('admin.brandingPage.common.saveFailed'), variant: 'destructive' });
       return;
     }
-    qc.invalidateQueries({ queryKey: ['platform_settings'] });
-    qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
-    // The public config feeds the next first paint's language (src/lib/edition.ts).
-    qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY });
-    setCachedRegionMode(regionMode);
-    // A new default language shows at once here: the Super Admin who chose it
-    // sees the dashboard in it, their own earlier pick forgotten. Everyone who
-    // has not picked one in a switcher opens in it too
-    // (src/hooks/usePlatformRegion.ts usePanelLanguages).
-    const before = settings ? panelLanguagesFor(settings).defaultLocale : null;
+    // A new default language shows at once here too: the Super Admin's own
+    // earlier pick is forgotten (the page stays as it is), and once the new
+    // settings are read the panel guard moves this dashboard to the default,
+    // as it does for everyone who has not picked a language in a switcher
+    // (src/hooks/usePlatformRegion.ts usePanelLanguages). Switching here
+    // before the read would be undone by the guard's old settings.
+    const before = settings ? panelLanguagesFor(settings) : null;
     const after = panelLanguagesFor({
       region_mode: regionMode,
       active_locales: activeLocales,
       default_locale: defaultLocale,
       site_mode: siteMode,
-    }).defaultLocale;
-    if (after !== before) setLocale(after, { remember: false });
+    });
+    const defaultChanged = after.defaultLocale !== before?.defaultLocale;
+    if (defaultChanged) setLocale(uiLocale, { remember: false });
+    setCachedRegionMode(regionMode);
+    setAutoAdded(null);
+    setSettingsDirty(false);
+    const language = t(`admin.brandingPage.languages.${after.defaultLocale}` as never);
     toast({
       title: t('admin.brandingPage.settings.saved'),
-      description: after !== before
-        ? t('admin.brandingPage.settings.general.defaultApplied', { language: t(`admin.brandingPage.languages.${after}` as never) })
+      description: defaultChanged
+        ? t(after.switcher ? 'admin.brandingPage.settings.general.defaultApplied' : 'admin.brandingPage.settings.general.defaultAppliedAll', { language })
         : undefined,
     });
-    setSettingsDirty(false);
+    qc.invalidateQueries({ queryKey: ['platform_settings'] });
+    // The public config feeds the next first paint's language (src/lib/edition.ts).
+    qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY });
+    await qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
   };
 
   const toggleLocale = (code: string) => {
+    if (code === autoAdded) setAutoAdded(null);
     setActiveLocales(prev => {
       const next = prev.includes(code) ? prev.filter(l => l !== code) : [...prev, code];
       if (next.length === 0) return prev;
@@ -567,6 +577,7 @@ function SettingsSection() {
     // languages set since (Iran: back to Persian only, no switcher).
     if (mode === regionMode) return;
     setRegionMode(mode);
+    setAutoAdded(null);
     setSettingsDirty(true);
     if (mode !== 'multi') {
       const pinned = REGION_LOCALES[mode];
@@ -587,19 +598,25 @@ function SettingsSection() {
   // The dashboard is translated into these; the others are branding text only.
   // The default is always among them (the load above makes it a panel
   // language), so the Select never shows blank.
-  // Every language the dashboard is translated into can be the default (the
-  // active ones first); picking one that is not active turns it on, so the
-  // choice always takes. Türkiye and Global keep their one language.
-  const panelDefaultChoices: string[] = languagesPinned
-    ? activeLocales.filter(isPanelLocale)
-    : [
+  // In Iran the active languages are the dashboard's only, so every language
+  // it is translated into can be the default (the active ones first), and
+  // picking one that is not active turns it on: the choice always takes. In
+  // Multi they are the visitors' too, so the list keeps to the active ones
+  // (turn one on under Languages first). Türkiye and Global keep theirs.
+  const panelDefaultChoices: string[] = regionMode === 'iran'
+    ? [
         ...activeLocales.filter(isPanelLocale),
         ...PANEL_LOCALES.filter((l) => !activeLocales.includes(l)),
-      ];
+      ]
+    : activeLocales.filter(isPanelLocale);
   if (isPanelLocale(defaultLocale) && !panelDefaultChoices.includes(defaultLocale)) panelDefaultChoices.unshift(defaultLocale);
   const pickDefaultLocale = (code: string) => {
+    // A language the list turned on for an earlier pick goes off again.
+    const base = autoAdded && autoAdded !== code ? activeLocales.filter((l) => l !== autoAdded) : activeLocales;
+    const adds = !base.includes(code);
+    setActiveLocales(adds ? [...base, code] : base);
+    setAutoAdded(adds ? code : autoAdded === code ? autoAdded : null);
     setDefaultLocale(code);
-    if (!activeLocales.includes(code)) setActiveLocales((prev) => (prev.includes(code) ? prev : [...prev, code]));
     setSettingsDirty(true);
   };
   // In Iran the active languages are the dashboard's only (visitors stay

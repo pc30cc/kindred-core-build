@@ -98,8 +98,10 @@ function pwaBuild(): Plugin {
  *    then jumps;
  *  - modulepreload of the locale file the app is about to load (src/main.tsx
  *    awaits it before the first render). Without it that request only starts
- *    after the whole entry script has downloaded and run. The choice mirrors
- *    getStoredLocale() in src/i18n/index.tsx. The small script that picks it
+ *    after the whole entry script has downloaded and run. It predicts
+ *    getStoredLocale() in src/i18n/index.tsx: the language picked in a
+ *    switcher, else the one the page was last shown in (which follows the
+ *    platform's default). The small script that picks it
  *    goes right after runtime-config.js (it reads the default locale from
  *    there), ahead of the stylesheet: an inline script after a stylesheet
  *    waits for that stylesheet to download, and so would the preload.
@@ -135,7 +137,7 @@ function bootHints(): Plugin {
         if (Object.keys(locales).length > 0) {
           const script =
             "(function(){try{var m=" + JSON.stringify(locales) + ",ok={en:1,fa:1,tr:1},l=null;" +
-            "try{l=localStorage.getItem('app-locale')}catch(e){}" +
+            "try{l=localStorage.getItem('app-locale-choice')||localStorage.getItem('app-locale')}catch(e){}" +
             "if(!ok[l]){var c=window.Capacitor,n=!!(c&&(c.isNativePlatform?c.isNativePlatform():c.isNative));" +
             "var d=(window.__APP_RUNTIME_CONFIG__||{}).defaultLocale;l=n?'en':(ok[d]?d:'en')}" +
             "if(m[l]){var k=document.createElement('link');k.rel='modulepreload';k.href=m[l];k.crossOrigin='';document.head.appendChild(k)}" +

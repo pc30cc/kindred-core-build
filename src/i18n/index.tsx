@@ -153,6 +153,13 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = dir;
+    // The language this page is shown in, for index.html's title, the
+    // build's locale preload and the Inbox on the next load (not a pick).
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    } catch {
+      /* storage unavailable */
+    }
     loadFontsForLocale(locale);
     installLocalizedDateDefaults();
     setAppDateLocale(locale);
@@ -175,18 +182,12 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     // In memory too: a pick the browser cannot store (storage full or
     // blocked) still holds for this session.
     setChosenLocale(remember ? newLocale : null);
-    // `app-locale` keeps the page's language for the next load; the choice
-    // key says someone picked it, so it outranks the platform's default
-    // (src/i18n/config.ts LOCALE_CHOICE_KEY). A switch that is not a pick
-    // forgets both, and the next load opens in the default.
+    // The choice key says someone picked it, so it outranks the platform's
+    // default (src/i18n/config.ts LOCALE_CHOICE_KEY); a switch that is not a
+    // pick forgets it, and the next load opens in the default.
     try {
-      if (remember) {
-        localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
-        localStorage.setItem(LOCALE_CHOICE_KEY, newLocale);
-      } else {
-        localStorage.removeItem(LOCALE_STORAGE_KEY);
-        localStorage.removeItem(LOCALE_CHOICE_KEY);
-      }
+      if (remember) localStorage.setItem(LOCALE_CHOICE_KEY, newLocale);
+      else localStorage.removeItem(LOCALE_CHOICE_KEY);
     } catch {
       /* storage unavailable: the switch still applies to this page */
     }

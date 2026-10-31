@@ -85,7 +85,7 @@ export const CONTACT_PAGE = {
       kind: 'help',
       title: 'Help center',
       text: 'Guides and answers to common questions.',
-      link: { label: 'Open the help center', to: '/help/en' },
+      link: { label: 'Open the help center', to: '/help' },
     },
     {
       kind: 'privacy',

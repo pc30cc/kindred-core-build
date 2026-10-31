@@ -5,8 +5,13 @@
  *   - every language the dashboard is translated into can be picked as the
  *     default; one that is not active is turned on with it, so the choice
  *     always takes;
- *   - saving a new default switches the Super Admin's own dashboard to it at
- *     once (their own earlier pick forgotten), and says so;
+ *   - saving a new default forgets the Super Admin's own earlier pick, so
+ *     the panel guard moves their dashboard to it once the new settings are
+ *     read (switching before would be undone by the old ones), and says so,
+ *     in the words that fit the switcher being shown or hidden;
+ *   - in Multi the list keeps to the active languages (they are the
+ *     visitors' too); a language turned on for a default picked and then
+ *     changed before saving goes off again;
  *   - a save that leaves the default as it was changes nobody's language.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -98,12 +103,33 @@ describe('the default language', () => {
     expect(put).toMatchObject({ default_locale: 'tr', active_locales: ['fa', 'tr'] });
   });
 
-  it("saving a new default switches the Super Admin's own dashboard to it and says so", async () => {
+  it("saving a new default forgets the Super Admin's own pick (the guard then moves them) and says so", async () => {
     await openGeneral({ region_mode: 'iran', active_locales: ['fa', 'tr', 'en'], default_locale: 'fa', site_mode: 'multi_language' });
     fireEvent.change(defaultSelect(), { target: { value: 'en' } });
     await save();
-    expect(srv.setLocale).toHaveBeenCalledWith('en', { remember: false });
-    expect(srv.toasts.at(-1)?.description).toBe(`${K}.general.defaultApplied`);
+    // The page stays in its language until the guard reads the new default.
+    expect(srv.setLocale).toHaveBeenCalledWith('fa', { remember: false });
+    await waitFor(() => expect(srv.toasts.at(-1)?.description).toBe(`${K}.general.defaultApplied`));
+  });
+
+  it('with the switcher hidden, the toast says everyone sees the new default', async () => {
+    await openGeneral({ region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'single_language' });
+    fireEvent.change(defaultSelect(), { target: { value: 'en' } });
+    await save();
+    await waitFor(() => expect(srv.toasts.at(-1)?.description).toBe(`${K}.general.defaultAppliedAll`));
+  });
+
+  it('Multi: only the active languages are offered (they are the visitors\' too)', async () => {
+    await openGeneral({ region_mode: 'multi', active_locales: ['en', 'tr'], default_locale: 'en', site_mode: 'multi_language' });
+    expect([...defaultSelect().options].map((o) => o.value)).toEqual(['en', 'tr']);
+  });
+
+  it('a language turned on for a default picked and then changed before saving goes off again', async () => {
+    await openGeneral({ region_mode: 'iran', active_locales: ['fa'], default_locale: 'fa', site_mode: 'single_language' });
+    fireEvent.change(defaultSelect(), { target: { value: 'tr' } });
+    fireEvent.change(defaultSelect(), { target: { value: 'en' } });
+    const put = await save();
+    expect(put).toMatchObject({ default_locale: 'en', active_locales: ['fa', 'en'] });
   });
 
   it("a save that keeps the default changes nobody's language", async () => {

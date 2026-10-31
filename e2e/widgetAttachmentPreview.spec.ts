@@ -67,6 +67,9 @@ const state = (page: Page) => page.evaluate(() => {
     })(),
     name: document.querySelector('[data-attach-name]')?.textContent ?? '',
     sub: document.querySelector('[data-attach-sub]')?.textContent ?? '',
+    // The progress bar inside the pill while the bytes are moving: it makes
+    // the pill taller, so heights are compared only once it is gone.
+    uploading: shown(document.querySelector('[data-attach-track]')),
     removeShown: shown(document.querySelector('[data-attach-remove]')),
     sendShown: shown(document.querySelector('[data-send-btn]')),
   };
@@ -137,10 +140,12 @@ test.describe('a pending attachment lives in the composer pill', () => {
     await openChat(page);
     await pick(page, 'shot.png', 'image/png', PNG);
     await expect.poll(async () => (await state(page)).name, { timeout: 10_000 }).toBe('shot.png');
+    await expect.poll(async () => (await state(page)).uploading, { timeout: 10_000 }).toBe(false);
     const oneRow = (await state(page)).pillHeight;
 
     await pick(page, 'invoice.pdf', 'application/pdf', Buffer.from('%PDF-1.4'));
     await expect.poll(async () => (await state(page)).name, { timeout: 10_000 }).toBe('invoice.pdf');
+    await expect.poll(async () => (await state(page)).uploading, { timeout: 10_000 }).toBe(false);
 
     const s = await state(page);
     expect(s.pillHeight).toBe(oneRow);

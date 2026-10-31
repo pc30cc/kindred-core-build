@@ -25,7 +25,7 @@ export function AdminLayout() {
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="z-20 flex h-16 shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label={t('admin.nav.openMenu' as any)}>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label={t('admin.nav.openMenu')}>
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
@@ -33,17 +33,17 @@ export function AdminLayout() {
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-semibold">{t('admin.nav.controlCenter' as any)}</span>
+                <span className="truncate text-sm font-semibold">{t('admin.nav.controlCenter')}</span>
                 <span className="hidden items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary sm:inline-flex">
-                  <Sparkles className="h-3 w-3" />{t('admin.nav.superAdmin' as any)}
+                  <Sparkles className="h-3 w-3" />{t('admin.nav.superAdmin')}
                 </span>
               </div>
-              <p className="hidden truncate text-xs text-muted-foreground sm:block">{t('admin.nav.controlCenterSubtitle' as any)}</p>
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">{t('admin.nav.controlCenterSubtitle')}</p>
             </div>
           </div>
           {canSwitchLanguage && (
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-            <SelectTrigger className="h-9 w-[7.5rem] border-border/70 bg-card/70 shadow-sm sm:w-36" aria-label={t('admin.nav.language' as any)}>
+            <SelectTrigger className="h-9 w-[7.5rem] border-border/70 bg-card/70 shadow-sm sm:w-36" aria-label={t('admin.nav.language')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

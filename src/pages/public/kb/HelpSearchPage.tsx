@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { applySeoHead } from '@/lib/seoHead';
 import { searchKbArticles, type KbSearchResult } from '@/lib/kb-api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { KbSearchBox } from './KbSearchBox';
 import { HelpBrandHead } from './HelpBrandHead';
+import { HelpDefaultRedirect } from '@/components/help/HelpDefaultRedirect';
 
 const COPY: Record<Locale, { help: string; results: string; empty: string; searching: string }> = {
   en: { help: 'Help center', results: 'Search results', empty: 'No results.', searching: 'Searching…' },
@@ -48,7 +49,7 @@ export default function HelpSearchPage() {
     });
   }, [valid, q]);
 
-  if (!valid) return <Navigate to="/help/en" replace />;
+  if (!valid) return <HelpDefaultRedirect />;
 
   return (
     <div className="container max-w-3xl py-10" dir={isRtl(valid) ? 'rtl' : 'ltr'}>

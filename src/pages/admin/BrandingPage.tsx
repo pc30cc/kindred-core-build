@@ -30,7 +30,7 @@ import {
   type PlatformBrandingLocalized,
   type PlatformDomains,
 } from '@/hooks/usePlatformBranding';
-import { useTranslation } from '@/i18n';
+import { useI18n, useTranslation } from '@/i18n';
 import { useInternationalMode } from '@/lib/internationalMode';
 import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiAccent, type UiFontSize } from '@/lib/ui-preferences';
 
@@ -380,7 +380,8 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?:
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
 import { isProviderAllowedInEdition, resolveEdition } from '../../../shared/edition';
-import { isPanelLocale, panelLanguagesFor } from '../../../shared/panelLanguages';
+import { PANEL_LOCALES, isPanelLocale, panelLanguagesFor } from '../../../shared/panelLanguages';
+import { PLATFORM_PUBLIC_CONFIG_QUERY_KEY } from '@/lib/platformPublicConfig';
 
 const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
   multi: {
@@ -403,6 +404,7 @@ const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
 
 function SettingsSection() {
   const { t } = useTranslation();
+  const { setLocale } = useI18n();
   const { data: rows, isLoading: brandingLoading } = usePlatformBrandingLocalized();
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform_settings'],
@@ -527,8 +529,27 @@ function SettingsSection() {
     }
     qc.invalidateQueries({ queryKey: ['platform_settings'] });
     qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
+    // The public config feeds the next first paint's language (src/lib/edition.ts).
+    qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY });
     setCachedRegionMode(regionMode);
-    toast({ title: t('admin.brandingPage.settings.saved') });
+    // A new default language shows at once here: the Super Admin who chose it
+    // sees the dashboard in it, their own earlier pick forgotten. Everyone who
+    // has not picked one in a switcher opens in it too
+    // (src/hooks/usePlatformRegion.ts usePanelLanguages).
+    const before = settings ? panelLanguagesFor(settings).defaultLocale : null;
+    const after = panelLanguagesFor({
+      region_mode: regionMode,
+      active_locales: activeLocales,
+      default_locale: defaultLocale,
+      site_mode: siteMode,
+    }).defaultLocale;
+    if (after !== before) setLocale(after, { remember: false });
+    toast({
+      title: t('admin.brandingPage.settings.saved'),
+      description: after !== before
+        ? t('admin.brandingPage.settings.general.defaultApplied', { language: t(`admin.brandingPage.languages.${after}` as never) })
+        : undefined,
+    });
     setSettingsDirty(false);
   };
 
@@ -566,8 +587,21 @@ function SettingsSection() {
   // The dashboard is translated into these; the others are branding text only.
   // The default is always among them (the load above makes it a panel
   // language), so the Select never shows blank.
-  const panelDefaultChoices: string[] = activeLocales.filter(isPanelLocale);
+  // Every language the dashboard is translated into can be the default (the
+  // active ones first); picking one that is not active turns it on, so the
+  // choice always takes. Türkiye and Global keep their one language.
+  const panelDefaultChoices: string[] = languagesPinned
+    ? activeLocales.filter(isPanelLocale)
+    : [
+        ...activeLocales.filter(isPanelLocale),
+        ...PANEL_LOCALES.filter((l) => !activeLocales.includes(l)),
+      ];
   if (isPanelLocale(defaultLocale) && !panelDefaultChoices.includes(defaultLocale)) panelDefaultChoices.unshift(defaultLocale);
+  const pickDefaultLocale = (code: string) => {
+    setDefaultLocale(code);
+    if (!activeLocales.includes(code)) setActiveLocales((prev) => (prev.includes(code) ? prev : [...prev, code]));
+    setSettingsDirty(true);
+  };
   // In Iran the active languages are the dashboard's only (visitors stay
   // Persian); in Multi they are the visitors' and customers' too; Türkiye and
   // Global pin one language for both.
@@ -610,7 +644,7 @@ function SettingsSection() {
                 <div className="grid gap-1.5">
                   <Label>{t('admin.brandingPage.settings.general.defaultLanguage')}</Label>
                   <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.defaultLanguageHint')}</p>
-                  <Select value={defaultLocale} onValueChange={(v) => { setDefaultLocale(v); setSettingsDirty(true); }} disabled={languagesPinned}>
+                  <Select value={defaultLocale} onValueChange={pickDefaultLocale} disabled={languagesPinned}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {panelDefaultChoices.map(code => {

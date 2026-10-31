@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams, Navigate } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { applySeoHead } from '@/lib/seoHead';
 import { fetchKbCategories, type KbCategory } from '@/lib/kb-api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { KbSearchBox } from './KbSearchBox';
 import { HelpBrandHead } from './HelpBrandHead';
+import { HelpDefaultRedirect } from '@/components/help/HelpDefaultRedirect';
 
 const TITLES: Record<Locale, string> = {
   en: 'Help center',
@@ -52,7 +53,7 @@ export default function HelpIndexPage() {
     });
   }, [valid]);
 
-  if (!valid) return <Navigate to="/help/en" replace />;
+  if (!valid) return <HelpDefaultRedirect />;
 
   return (
     <div className="container max-w-3xl py-10" dir={isRtl(valid) ? 'rtl' : 'ltr'}>

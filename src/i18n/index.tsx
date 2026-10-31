@@ -3,7 +3,7 @@ import { DirectionProvider } from '@radix-ui/react-direction';
 import { isNativePlatform } from '@/lib/native';
 
 import type { Locale, Direction } from './config';
-import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS, LOCALE_STORAGE_KEY, getChosenLocale } from './config';
+import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS, LOCALE_CHOICE_KEY, LOCALE_STORAGE_KEY, getChosenLocale } from './config';
 import en, { type TranslationKeys } from './locales/en';
 import { loadFontsForLocale } from '@/lib/fonts';
 import { installPersianDigits, uninstallPersianDigits } from '@/lib/persian-digits';
@@ -175,9 +175,18 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     // In memory too: a pick the browser cannot store (storage full or
     // blocked) still holds for this session.
     setChosenLocale(remember ? newLocale : null);
+    // `app-locale` keeps the page's language for the next load; the choice
+    // key says someone picked it, so it outranks the platform's default
+    // (src/i18n/config.ts LOCALE_CHOICE_KEY). A switch that is not a pick
+    // forgets both, and the next load opens in the default.
     try {
-      if (remember) localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
-      else localStorage.removeItem(LOCALE_STORAGE_KEY);
+      if (remember) {
+        localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
+        localStorage.setItem(LOCALE_CHOICE_KEY, newLocale);
+      } else {
+        localStorage.removeItem(LOCALE_STORAGE_KEY);
+        localStorage.removeItem(LOCALE_CHOICE_KEY);
+      }
     } catch {
       /* storage unavailable: the switch still applies to this page */
     }

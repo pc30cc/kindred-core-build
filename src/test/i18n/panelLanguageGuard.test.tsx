@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { I18nProvider, getSiteDefaultLocale, useI18n } from '@/i18n';
+import { I18nProvider, getSiteDefaultLocale, getStoredLocale, useI18n } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import en from '@/i18n/locales/en';
 import fa from '@/i18n/locales/fa';
@@ -110,21 +110,64 @@ describe('the panel language guard', () => {
 
   it('a choice the panel no longer offers is forgotten', async () => {
     localStorage.setItem('app-locale', 'fa');
+    localStorage.setItem('app-locale-choice', 'fa');
     h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'en', site_mode: 'single_language' };
     const r = mount('fa');
     await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
     expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
   });
 
   it('with the switcher shown, a language someone picked is kept', async () => {
     localStorage.setItem('app-locale', 'fa');
+    localStorage.setItem('app-locale-choice', 'fa');
     h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'en', site_mode: 'multi_language' };
     const r = mount('fa');
     await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
     expect((await now(r)).dataset.locale).toBe('fa');
     expect((await now(r)).dataset.panel).toBe('fa,en');
     expect((await now(r)).dataset.switcher).toBe('true');
-    expect(localStorage.getItem('app-locale')).toBe('fa');
+    expect(localStorage.getItem('app-locale-choice')).toBe('fa');
+  });
+
+  // The owner on 2026-10-31: WebYar set to open in English, and the panel
+  // stayed Persian. The old region lock had written 'fa' under app-locale,
+  // which read as a pick and outranked the default.
+  it("WebYar: the Persian the old lock left in app-locale is not a pick, so the Super Admin's default shows", async () => {
+    localStorage.setItem('wy-edition', 'iran');
+    localStorage.setItem('app-locale', 'fa');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'tr', 'en'], default_locale: 'en', site_mode: 'multi_language' };
+    const r = mount('fa');
+    await waitFor(() => expect(probe(r).dataset.locale).toBe('en'), WAIT);
+    expect(localStorage.getItem('app-locale')).toBeNull();
+    expect(localStorage.getItem('app-locale-choice')).toBeNull();
+  });
+
+  it('RESPOK: a language picked there before the choice key existed is still a pick', async () => {
+    localStorage.setItem('wy-edition', 'international');
+    localStorage.setItem('app-locale', 'tr');
+    h.region = { region_mode: 'multi', active_locales: ['en', 'tr'], default_locale: 'en', site_mode: 'multi_language' };
+    const r = mount('tr');
+    await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
+    await settle();
+    expect((await now(r)).dataset.locale).toBe('tr');
+    expect(localStorage.getItem('app-locale')).toBe('tr');
+  });
+
+  it('a pick in a switcher is kept as a pick, and outranks a later default', async () => {
+    localStorage.setItem('wy-edition', 'iran');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'multi_language' };
+    const r = mount('fa');
+    await waitFor(() => expect(probe(r).dataset.ready).toBe('true'), WAIT);
+    fireEvent.click(r.getByTestId('pick-en'));
+    await settle();
+    expect(localStorage.getItem('app-locale-choice')).toBe('en');
+    h.region = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'multi_language' };
+    await act(async () => {
+      await r.client.refetchQueries(REGION_QUERY);
+    });
+    await settle();
+    expect((await now(r)).dataset.locale).toBe('en');
   });
 
   it('with the switcher shown, a browser where nobody picked follows the default', async () => {
@@ -250,6 +293,22 @@ describe('the panel language guard', () => {
 });
 
 describe("the first paint's language", () => {
+  it("WebYar: a Persian left in app-locale by the old lock does not outrank the default on the next load", () => {
+    localStorage.setItem('wy-edition', 'iran');
+    localStorage.setItem('wy-default-locale', 'en');
+    localStorage.setItem('app-locale', 'fa');
+    expect(getStoredLocale()).toBe('en');
+    localStorage.setItem('app-locale-choice', 'fa');
+    expect(getStoredLocale()).toBe('fa');
+  });
+
+  it("RESPOK: a language kept in app-locale before the choice key existed still opens", () => {
+    localStorage.setItem('wy-edition', 'international');
+    localStorage.setItem('wy-default-locale', 'en');
+    localStorage.setItem('app-locale', 'tr');
+    expect(getStoredLocale()).toBe('tr');
+  });
+
   it("the Iranian edition opens in the panel's default once this browser knows it", () => {
     localStorage.setItem('wy-edition', 'iran');
     localStorage.setItem('wy-default-locale', 'en');

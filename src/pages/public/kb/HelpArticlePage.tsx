@@ -5,6 +5,7 @@ import { fetchKbArticle, type KbArticle } from '@/lib/kb-api';
 import { sanitizeKbHtml } from '@/lib/sanitizeKbHtml';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
 import { HelpBrandHead } from './HelpBrandHead';
+import { HelpDefaultRedirect } from '@/components/help/HelpDefaultRedirect';
 
 const HELP_LABEL: Record<Locale, string> = {
   en: 'Help center',
@@ -63,7 +64,7 @@ export default function HelpArticlePage() {
     });
   }, [valid, slug, article, description]);
 
-  if (!valid) return <Navigate to="/help/en" replace />;
+  if (!valid) return <HelpDefaultRedirect />;
   if (article === null) return <Navigate to={`/help/${valid}`} replace />;
 
   return (

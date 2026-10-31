@@ -39,7 +39,7 @@ vi.mock('@/lib/platformPublicConfig', async (orig) => ({
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: () => undefined }));
 vi.mock('@/i18n', () => ({
-  useI18n: () => ({ locale: 'en', dir: 'ltr', t: (key: string) => key }),
+  useI18n: () => ({ locale: 'en', dir: 'ltr', t: (key: string) => key, setLocale: () => undefined }),
   useTranslation: () => ({ locale: 'en', dir: 'ltr', t: (key: string) => key }),
 }));
 vi.mock('@/lib/native', () => ({ isNativePlatform: () => false, getNativePlatform: () => 'web' }));

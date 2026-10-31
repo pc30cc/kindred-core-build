@@ -82,6 +82,17 @@ two glyphs live once in `shared/avatarGlyphs.ts`; the guards are
 and `src/test/native/avatarGlyphs.test.ts`. Visitors and contacts in the
 operator panel keep their own look.
 
+## The dashboard's language (owner, 2026-10-31)
+
+The panel's languages are a Super Admin setting in both editions (Branding →
+Platform settings: the active languages, the default one, the language
+switcher shown or hidden) and never change the brand: WebYar in English or
+Turkish stays WebYar (Toman, Iranian gateways). They cover the dashboard, its
+sign-in pages, Super Admin and operators' push; what visitors and customers
+read (widget, AI, Telegram, e-mails, knowledge base) keeps the region's
+languages (Persian only in Iran). One rule, `shared/panelLanguages.ts`;
+details in `docs/operations/EDITIONS.md`, "The dashboard's languages".
+
 ## The knowledge base on the owner's Mac (owner, 2026-10-24)
 
 `~/Desktop/WebYar-RESPOK/knowledge-base` on `rass-MacBook-Pro-7.local` (inside

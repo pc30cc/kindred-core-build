@@ -40,7 +40,8 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Panel colour scheme `respok` | never offered | offered | `shared/panelThemes.ts` |
 | Brand in text | WebYar's fixed words ("Webyar", "وب‌یار", "Web Yar", info@webyar.ai, https://webyar.ai) | the platform's own name, site and support address | `shared/brand.ts`, `src/lib/brand.ts` |
 | First paint (before the bundle) | as before | edition, brand, title and default language from `/api/platform/public/boot.js` on a first visit (loaded asynchronously, never blocking; see below), the cache after | `index.html`, `server/routes/platformPublic.ts` |
-| Default UI language | `runtime-config.js` `defaultLocale` | the platform's `default_locale` (Super Admin → Languages) | `src/i18n/index.tsx` `getSiteDefaultLocale` |
+| Dashboard's languages | Persian by default; the Super Admin may add English and Turkish, pick the default and show or hide the switcher, and the brand stays WebYar (see "The dashboard's languages" below) | the same settings | `shared/panelLanguages.ts` |
+| Default UI language | the panel's default once the browser knows it, before that `runtime-config.js` `defaultLocale` | the panel's default (Super Admin → Branding → General) | `src/i18n/index.tsx` `getSiteDefaultLocale` |
 | Chat widget template | `default` (and `t1`, `t2` once the Super Admin enables them) | `intl` (skin over the same renderer; and `t1-intl`, `t2-intl`, RESPOK's skins over Templates 1 and 2, once enabled) | `shared/widgetTemplates.ts` |
 | Call widget template | `default`: WebYar's 2026-10 design (skin `presentation-default.css`; IRANSans, InterWY for Latin; Jalali dates in Tehran) | `intl`: Respok's 2026-10 design, the same core renderer, panel module and markup with its own skin `presentation-intl.css` (Figtree; Gregorian in the visitor's zone; the Thread or Open lockup as the chat template's `logoDirection`) | `shared/widgetTemplates.ts`, `docs/call-widget-handoff/IMPLEMENTATION_NOTES.md` |
 | Call widget "powered by" | an uploaded logo, when there is one, as an image in the brand's place (`powered_by_logo` with `powered_by_logo_custom: true`); else the designed lockup drawn inline in WebYar's build: WebYar's mark + «قدرت گرفته از» + bold «وب‌یار» (English and Turkish: the mark and the localized words around a bold "Web Yar"); a workspace's own "powered by" text keeps the mark only when it names the brand, else it is plain text; without the edition (an older backend) the words as text, no mark (`powered_by_logo` is no longer drawn) | "Powered by" + an uploaded logo as an image (`powered_by.custom: true`), else the platform's Thread (or Open) lockup drawn inline in the RESPOK build, else the platform's logo image (alt = platform name, the name if the image fails); its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js`, `public/call-widget/presentation-default-panel.js` |
@@ -51,6 +52,45 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Desktop apps (Windows, Mac) | WebYar's builds: `Webyar.exe` / `Webyar.app`, feeds `pc30cc/webyar-desktop-releases` and `pc30cc/mac-os`, downloads on app.webyar.ai | RESPOK's builds of the same source: `Respok.exe` / `RESPOK.app`, feeds in `pc30cc/respok-releases`, downloads on app.respok.app; Super Admin → Windows app / macOS app default to them and never serve a WebYar feed, link or note (a cloned value is replaced) | `shared/nativeAppBrands.ts`, `windows-native/src/Webyar.Core/Config/Brand.cs`, `macos/Webyar/Core/Config/AppBrand.swift`, `deploy/app-downloads/` |
 | Mobile apps (iOS, Android) | WebYar's: `com.webyar.ai` (the native iOS and Android apps; Super Admin's iOS record keeps its old default `com.webyar.app`), name "Webyar", Xcode scheme `Webyar`, Gradle flavor `webyar` (`-Pwebyar.version…`), the Android app opens in Persian, `Webyar-Android.apk` / `.json` | RESPOK's: `com.respok.app`, name "RESPOK", scheme `Respok`, flavor `respok` (`-Prespok.version…`), opens in English, `RESPOK-Android.apk` / `.json` (no shipped version until that sidecar exists); Super Admin → Mobile app defaults to them (a new RESPOK row is written with all of them, the columns' defaults being WebYar's) and never shows a name, privacy string, link or note that names WebYar (a cloned one is replaced by RESPOK's default or cleared). Identifiers (bundle id, package, URL scheme, associated domains, Firebase ids, push category ids) are never rewritten; the Android push channel is the edition's own (`android_channel_id`: Iran keeps the stored `webyar_messages`, International sends `messages`, the channel RESPOK's brand-neutral Android app creates), and the App Review account `apple@webyar.ai` is kept | `shared/nativeAppBrands.ts`, `server/services/mobileApp/settings.ts` (`mobileAppDefaults`, `mobileSettingsForEdition`), `androidRelease.ts`, `src/components/admin/mobile/nativeBuild.ts` |
 | Native apps' settings (Super Admin → Windows app, macOS app, Mobile app, Notifications; desktop ads and announcements) | the Iranian edition's own rows | the International edition's own rows | one row per edition, see below |
+
+### The dashboard's languages (both editions; owner, 2026-10-31)
+
+The language the dashboard is shown in never changes the brand or the
+edition: a WebYar panel in English or Turkish is still WebYar, with Toman,
+the Iranian gateways, +98 phones and WebYar's words ("Webyar" in Latin
+text). Only the Jalali calendar follows Persian text (`src/lib/date.ts`).
+
+Super Admin → Branding → Platform settings sets it, for both editions, in
+the columns that already existed (no migration):
+
+| Setting | Column | Where |
+| --- | --- | --- |
+| Which languages the panel may be in | `active_locales` (English, Persian, Turkish; the other languages listed there are branding text only) | Languages |
+| The language it opens in | `default_locale` | General → Default language |
+| Whether people see a switcher | `site_mode`: `multi_language` shown, `single_language` hidden (everyone sees the default) | General → Language switcher |
+
+`shared/panelLanguages.ts` (`panelLanguagesFor`) is the one rule: Türkiye and
+Global still pin one language; Iran and Multi use the three settings (Iran
+with none picked is Persian). The panel means the dashboard, its sign-in
+pages and Super Admin (`usePanelLanguages()` in
+`src/hooks/usePlatformRegion.ts`, read by the top bar, the Art theme's
+menu, Settings → Interface and Profile, Super Admin's layout and Users page,
+and the sign-in pages' `LanguageSelector`), and an operator's push and API
+texts (`server/services/operatorLocale.ts`, via `getPlatformPanelLanguages`).
+A language someone picks is kept (`app-locale`); a browser where nobody
+picked one follows the default when it changes; one outside the panel's
+languages is switched to the default and forgotten. Nothing changes before
+the platform's settings have arrived.
+
+What visitors and customers read keeps the region's rule
+(`getPlatformAllowedLocales`, `allowedLocalesFor`): in Iran the chat widget,
+AI replies, Telegram, e-mail templates, knowledge base and canned responses
+stay Persian, whatever the panel's languages are.
+
+On 2026-10-31 WebYar's row was `iran | {fa} | fa | single_language` and
+RESPOK's `multi | {en,tr} | en | multi_language`: both read exactly as
+before, so the change shows only once the Super Admin changes them. Picking
+the Iran region again presets Persian only without a switcher.
 
 ### The native apps' settings are kept per edition
 

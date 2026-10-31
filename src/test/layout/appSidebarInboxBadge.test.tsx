@@ -25,7 +25,10 @@ vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (k: string) => k, dir: 'ltr', locale: 'en' }),
   useI18n: () => ({ locale: 'en', setLocale: () => {} }),
 }));
-vi.mock('@/hooks/usePlatformRegion', () => ({ usePlatformRegion: () => ({ allowedLocales: ['en'], canSwitchLanguage: false }) }));
+vi.mock('@/hooks/usePlatformRegion', () => ({
+  usePlatformRegion: () => ({ allowedLocales: ['en'], canSwitchLanguage: false }),
+  usePanelLanguages: () => ({ locales: ['en'], defaultLocale: 'en', switcher: false, ready: true }),
+}));
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 'me', email: 'me@example.com' }, signOut: async () => {} }) }));
 vi.mock('@/hooks/useAdmin', () => ({ useIsGlobalAdmin: () => ({ data: false }) }));
 vi.mock('@/features/branding/BrandingContext', () => ({ useBrandingContext: () => ({ platformName: 'Platform' }) }));

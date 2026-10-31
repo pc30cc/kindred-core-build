@@ -7,22 +7,28 @@
  * billingRecipient) and migration 158 (profiles no longer default to 'en',
  * so the platform's default can apply):
  *
- *   profiles.preferred_locale (base tag, fa/en/tr), when the platform offers it
- *   → platform_settings.default_locale, when the platform offers it
- *   → the platform's first allowed locale
+ *   profiles.preferred_locale (base tag, fa/en/tr), when the panel offers it
+ *   → platform_settings.default_locale, when the panel offers it
+ *   → the panel's first language
  *   → 'en'
  *
- * A language the platform does not offer is never the operator's: the
- * dashboard switches it to the platform's first one (src/hooks/
- * usePlatformRegion.ts), and every account from before migration 158 still
- * carries 'en', so on a Persian-only platform that operator reads Persian.
+ * "Offers" means the dashboard's languages (shared/panelLanguages.ts,
+ * Super Admin → Branding → Languages), not the visitors': a WebYar panel the
+ * Super Admin opened to English writes an English operator's push in
+ * English, while the widget stays Persian.
+ *
+ * A language the panel does not offer is never the operator's: the
+ * dashboard switches it to the panel's default (src/hooks/
+ * usePlatformRegion.ts usePanelLanguages), and every account from before
+ * migration 158 still carries 'en', so on a Persian-only panel that operator
+ * reads Persian.
  *
  * The dashboard decides its own UI language in the browser
  * (src/i18n/index.tsx); this is only for text the server writes.
  */
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { getPlatformAllowedLocales } from './platformRegion.js';
+import { getPlatformPanelLanguages } from './platformRegion.js';
 
 export type OperatorLocale = 'fa' | 'en' | 'tr';
 
@@ -40,12 +46,12 @@ function baseTag(value: unknown): OperatorLocale | null {
 }
 
 /**
- * The platform's languages among fa/en/tr (getPlatformAllowedLocales, cached
+ * The panel's languages among fa/en/tr (getPlatformPanelLanguages, cached
  * there); [] when they cannot be read, and then any choice is kept.
  */
 async function offeredLocales(config: ServerConfig): Promise<OperatorLocale[]> {
   try {
-    return (await getPlatformAllowedLocales(config))
+    return (await getPlatformPanelLanguages(config)).locales
       .map(baseTag)
       .filter((l): l is OperatorLocale => l !== null);
   } catch {

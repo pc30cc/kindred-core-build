@@ -21,7 +21,7 @@ import {
   useAdminUserRoles, useAssignRole, useRemoveRole, adminFetch } from '@/hooks/useAdmin';
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages,
@@ -233,7 +233,8 @@ export default function AdminUsersPage() {
 /* ─── User Detail View ─── */
 function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void }) {
   const { t, dir } = useTranslation();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  // A member's preferred language is a panel language (shared/panelLanguages.ts).
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   const { data: detail, isLoading, refetch } = useAdminUserDetail(userId);
   // The website is registered (server/services/ownerWebsite.ts): fixed for good.
   const websiteFixed = !!(detail as { website_fixed?: boolean } | undefined)?.website_fixed;

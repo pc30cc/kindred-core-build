@@ -15,6 +15,7 @@ import { getServiceClient } from '../supabase.js';
 import { onInvalidate } from '../lib/cacheBus.js';
 import type { ServerConfig } from '../config.js';
 import { parseRegionMode, resolveEdition, type Edition, type RegionMode as SharedRegionMode } from '../../shared/edition.js';
+import { PANEL_LOCALES, panelLanguagesFor, type PanelLanguages } from '../../shared/panelLanguages.js';
 
 type RegionMode = 'multi' | 'iran' | 'turkey' | 'global';
 
@@ -34,6 +35,8 @@ const FAILURE_TTL_MS = 5_000;
 interface RegionRow {
   region_mode?: unknown;
   active_locales?: unknown;
+  default_locale?: unknown;
+  site_mode?: unknown;
 }
 
 /**
@@ -56,7 +59,7 @@ async function readRegionSettings(config: Pick<ServerConfig, 'supabaseUrl' | 'su
       const sb = getServiceClient(config as ServerConfig);
       const { data, error } = await sb
         .from('platform_settings')
-        .select('region_mode, active_locales')
+        .select('region_mode, active_locales, default_locale, site_mode')
         .limit(1)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -82,6 +85,19 @@ export async function getPlatformAllowedLocales(config: ServerConfig): Promise<s
   if (mode !== 'multi') return REGION_LOCALES[mode];
   const active = ((row?.active_locales as string[] | null) || []).filter((l) => SUPPORTED_LOCALES.includes(l));
   return active.length ? active : SUPPORTED_LOCALES;
+}
+
+/**
+ * The dashboard's own languages (shared/panelLanguages.ts): what an
+ * operator's server-written texts (push, the operator APIs the native apps
+ * print) may be in. In `iran` they can be more than Persian while the
+ * visitors' languages above stay Persian. A failed read offers every
+ * language, English first, as getPlatformAllowedLocales does.
+ */
+export async function getPlatformPanelLanguages(config: Pick<ServerConfig, 'supabaseUrl' | 'supabaseServiceRoleKey'>): Promise<PanelLanguages> {
+  const { row, ok } = await readRegionSettings(config);
+  if (!ok) return { locales: [...PANEL_LOCALES], defaultLocale: 'en', switcher: true };
+  return panelLanguagesFor(row);
 }
 
 /**

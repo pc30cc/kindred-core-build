@@ -4,7 +4,7 @@ import { useI18n, useTranslation } from '@/i18n';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import { useState } from 'react';
 import { Menu, ShieldCheck, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 export function AdminLayout() {
   const { locale, dir, setLocale } = useI18n();
   const { t } = useTranslation();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (

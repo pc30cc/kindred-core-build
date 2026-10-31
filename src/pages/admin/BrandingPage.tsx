@@ -380,6 +380,7 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?:
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
 import { isProviderAllowedInEdition, resolveEdition } from '../../../shared/edition';
+import { isPanelLocale } from '../../../shared/panelLanguages';
 
 const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
   multi: {
@@ -543,6 +544,11 @@ function SettingsSection() {
   if (brandingLoading || settingsLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
+  // Turkey and Global pin one language. Iran keeps WebYar's brand, Toman and
+  // gateways whatever the dashboard's languages are (shared/panelLanguages.ts).
+  const languagesPinned = regionMode === 'turkey' || regionMode === 'global';
+  // The dashboard is translated into these; the others are branding text only.
+  const panelDefaultChoices = activeLocales.filter(isPanelLocale);
   const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}` as never);
   const regionTitle = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.title`);
   const regionDescription = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.description`);
@@ -576,10 +582,10 @@ function SettingsSection() {
                 <div className="grid gap-1.5">
                   <Label>{t('admin.brandingPage.settings.general.defaultLanguage')}</Label>
                   <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.defaultLanguageHint')}</p>
-                  <Select value={defaultLocale} onValueChange={(v) => { setDefaultLocale(v); setSettingsDirty(true); }}>
+                  <Select value={defaultLocale} onValueChange={(v) => { setDefaultLocale(v); setSettingsDirty(true); }} disabled={languagesPinned}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {activeLocales.map(code => {
+                      {panelDefaultChoices.map(code => {
                         const l = ALL_LOCALES.find(x => x.code === code);
                         return <SelectItem key={code} value={code}>{l?.flag} {l ? localeLabel(l.code) : code}</SelectItem>;
                       })}
@@ -592,7 +598,8 @@ function SettingsSection() {
                 </div>
                 <div className="grid gap-1.5">
                   <Label>{t('admin.brandingPage.settings.general.siteMode')}</Label>
-                  <Select value={siteMode} onValueChange={(v) => { setSiteMode(v); setSettingsDirty(true); }}>
+                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.siteModeHint')}</p>
+                  <Select value={siteMode} onValueChange={(v) => { setSiteMode(v); setSettingsDirty(true); }} disabled={languagesPinned}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="multi_language">{t('admin.brandingPage.settings.general.multiLanguage')}</SelectItem>
@@ -678,10 +685,17 @@ function SettingsSection() {
 
         {/* ── Languages ── */}
         <TabsContent value="languages" className="mt-4">
-          {regionMode !== 'multi' && (
+          {languagesPinned && (
             <Card className="bg-muted/30 border-border mb-4">
               <CardContent className="p-4 text-sm text-muted-foreground">
                 {REGION_META[regionMode].flag} {t('admin.brandingPage.settings.languages.locked', { languages: REGION_META[regionMode].languages })}
+              </CardContent>
+            </Card>
+          )}
+          {regionMode === 'iran' && (
+            <Card className="bg-muted/30 border-border mb-4">
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                {REGION_META.iran.flag} {t('admin.brandingPage.settings.languages.iranNote')}
               </CardContent>
             </Card>
           )}
@@ -703,15 +717,19 @@ function SettingsSection() {
                   return (
                     <button
                       key={l.code}
-                      onClick={() => { if (!isDefault) toggleLocale(l.code); }}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left ${
+                      onClick={() => { if (!isDefault && !languagesPinned) toggleLocale(l.code); }}
+                      disabled={languagesPinned}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 ${
                         isActive ? 'bg-primary/10 border-primary/30 text-foreground' : 'bg-muted/30 border-border text-muted-foreground hover:bg-muted/50'
                       } ${isDefault ? 'ring-2 ring-primary/50' : ''}`}
                     >
                       <span className="text-lg">{l.flag}</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{localeLabel(l.code)}</div>
-                        <div className="text-xs text-muted-foreground">{l.code}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {l.code}
+                          {!isPanelLocale(l.code) && <> · {t('admin.brandingPage.settings.languages.textOnly')}</>}
+                        </div>
                       </div>
                       {isDefault && <Badge variant="default" className="text-[10px] shrink-0">{t('admin.brandingPage.common.default')}</Badge>}
                       {isActive && !isDefault && <Badge variant="outline" className="text-[10px] shrink-0">{t('admin.brandingPage.common.active')}</Badge>}

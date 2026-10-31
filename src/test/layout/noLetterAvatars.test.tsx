@@ -42,7 +42,10 @@ const state = vi.hoisted(() => ({
   roomIdentities: [] as string[],
 }));
 
-vi.mock('@/hooks/usePlatformRegion', () => ({ usePlatformRegion: () => ({ allowedLocales: ['en'], canSwitchLanguage: false }) }));
+vi.mock('@/hooks/usePlatformRegion', () => ({
+  usePlatformRegion: () => ({ allowedLocales: ['en'], canSwitchLanguage: false }),
+  usePanelLanguages: () => ({ locales: ['en'], defaultLocale: 'en', switcher: false, ready: true }),
+}));
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 'me', email: 'me@example.com' }, signOut: async () => {} }) }));
 vi.mock('@/hooks/useAdmin', async (orig) => ({
   ...(await orig<typeof import('@/hooks/useAdmin')>()),

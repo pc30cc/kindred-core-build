@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchAccountMe,
@@ -72,7 +72,7 @@ const SUPPORTED_AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/
 
 export default function SettingsProfilePage() {
   const { t } = useTranslation();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 

@@ -21,6 +21,7 @@
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getPlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { panelLanguagesFor } from '../../shared/panelLanguages.js';
 
 export const platformPublicRouter = Router();
 
@@ -70,7 +71,9 @@ platformPublicRouter.get('/boot.js', async (req, res) => {
       boot = {
         edition: body.brand.edition,
         regionMode: typeof region.region_mode === 'string' ? region.region_mode : null,
-        defaultLocale: typeof region.default_locale === 'string' ? region.default_locale : null,
+        // The panel's default language (shared/panelLanguages.ts): what a
+        // first visit opens in, in either edition.
+        defaultLocale: body.region ? panelLanguagesFor(region).defaultLocale : null,
         names,
         titles,
         siteUrl: body.brand.site_url,

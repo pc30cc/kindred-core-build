@@ -3,7 +3,7 @@ import { DirectionProvider } from '@radix-ui/react-direction';
 import { isNativePlatform } from '@/lib/native';
 
 import type { Locale, Direction } from './config';
-import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS } from './config';
+import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS, LOCALE_STORAGE_KEY, getChosenLocale } from './config';
 import en, { type TranslationKeys } from './locales/en';
 import { loadFontsForLocale } from '@/lib/fonts';
 import { installPersianDigits, uninstallPersianDigits } from '@/lib/persian-digits';
@@ -47,10 +47,20 @@ function getNestedValue(obj: Record<string, unknown>, path: string): string {
   return typeof current === 'string' ? current : path;
 }
 
+export interface SetLocaleOptions {
+  /**
+   * false: switch without keeping it as this browser's choice, and forget a
+   * choice kept before, so the page goes on following the platform's default
+   * language (src/hooks/usePlatformRegion.ts usePanelLanguages). Default true:
+   * a language someone picked is kept.
+   */
+  remember?: boolean;
+}
+
 interface I18nContextValue {
   locale: Locale;
   dir: Direction;
-  setLocale: (locale: Locale) => void;
+  setLocale: (locale: Locale, options?: SetLocaleOptions) => void;
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   isLoading: boolean;
 }
@@ -76,14 +86,20 @@ export function getSiteDefaultLocale(): Locale {
   // Native (iOS) app ships with English as its base language; the user can
   // still pick Türkçe / فارسی on the login screen or in Settings.
   if (isNativePlatform()) return 'en';
-  // The International edition starts in the platform's own default language
-  // (Super Admin → Languages, cached by index.html's boot script and the
-  // public config), never in the deployment file's Persian default. The
-  // Iranian edition — and an edition not known yet — keeps the deployment
-  // file's language, exactly as before.
-  if (cachedEdition() === 'international') {
-    const platformDefault = cachedPlatformDefaultLocale();
+  // Both editions start in the panel's default language (Super Admin →
+  // Branding → Languages, shared/panelLanguages.ts, cached by index.html's
+  // boot script and the public config). It never changes the brand: a WebYar
+  // panel in English is still WebYar. The International edition never falls
+  // back to the deployment file's Persian default; the Iranian edition —
+  // and an edition not known yet — uses that file until the platform's
+  // default is known, exactly as before.
+  const edition = cachedEdition();
+  const platformDefault = cachedPlatformDefaultLocale();
+  if (edition === 'international') {
     return platformDefault === 'fa' || platformDefault === 'tr' ? platformDefault : 'en';
+  }
+  if (edition === 'iran' && (platformDefault === 'en' || platformDefault === 'fa' || platformDefault === 'tr')) {
+    return platformDefault;
   }
   const configured = (window as Window & { __APP_RUNTIME_CONFIG__?: { defaultLocale?: unknown } }).__APP_RUNTIME_CONFIG__?.defaultLocale;
   if (configured === 'en' || configured === 'fa' || configured === 'tr') return configured as Locale;
@@ -92,9 +108,7 @@ export function getSiteDefaultLocale(): Locale {
 
 export function getStoredLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
-  const stored = localStorage.getItem('app-locale');
-  if (stored && (stored === 'en' || stored === 'fa' || stored === 'tr')) return stored as Locale;
-  return getSiteDefaultLocale();
+  return getChosenLocale() ?? getSiteDefaultLocale();
 }
 
 
@@ -143,9 +157,14 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     setIsLoading(false);
   }, []);
 
-  const setLocale = useCallback((newLocale: Locale) => {
+  const setLocale = useCallback((newLocale: Locale, options?: SetLocaleOptions) => {
     setLocaleState(newLocale);
-    localStorage.setItem('app-locale', newLocale);
+    try {
+      if (options?.remember === false) localStorage.removeItem(LOCALE_STORAGE_KEY);
+      else localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
+    } catch {
+      /* storage unavailable: the switch still applies to this page */
+    }
   }, []);
 
   useEffect(() => {

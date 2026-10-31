@@ -14,7 +14,7 @@
  *     changed before saving goes off again;
  *   - a save that leaves the default as it was changes nobody's language.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,6 +74,7 @@ async function openGeneral(settings: Record<string, unknown>) {
   openTab('admin.brandingPage.tabs.settings');
   await waitFor(() => expect(screen.getByRole('tab', { name: `${K}.tabs.languages` })).toBeInTheDocument());
   openTab(`${K}.tabs.general`);
+  return client;
 }
 
 /** The General tab's first select is the default language. */
@@ -85,6 +86,8 @@ const save = async () => {
 };
 
 beforeEach(() => {
+  // The page keeps its tabs for the session (useSessionTab): each test starts on the first.
+  sessionStorage.clear();
   srv.puts = [];
   srv.toasts = [];
   srv.setLocale.mockReset();
@@ -110,6 +113,31 @@ describe('the default language', () => {
     // The page stays in its language until the guard reads the new default.
     expect(srv.setLocale).toHaveBeenCalledWith('fa', { remember: false });
     await waitFor(() => expect(srv.toasts.at(-1)?.description).toBe(`${K}.general.defaultApplied`));
+  });
+
+  it("the saved settings go straight to the panel guard's cache, so a failed re-read cannot bring the old default back", async () => {
+    const client = await openGeneral({ region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'multi_language' });
+    fireEvent.change(defaultSelect(), { target: { value: 'en' } });
+    await save();
+    await waitFor(() =>
+      expect(client.getQueryData(['platform_region_settings'])).toMatchObject({
+        mode: 'iran',
+        activeLocales: ['fa', 'en'],
+        defaultLocale: 'en',
+        siteMode: 'multi_language',
+      }),
+    );
+  });
+
+  it('the page comes back on the tab it was on when the app re-mounts for the new language', async () => {
+    await openGeneral({ region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa', site_mode: 'multi_language' });
+    openTab(`${K}.tabs.languages`);
+    cleanup();
+    render(<QueryClientProvider client={new QueryClient()}><AdminBrandingPage /></QueryClientProvider>);
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: `${K}.tabs.languages` })).toHaveAttribute('aria-selected', 'true'),
+    );
+    expect(screen.getByRole('tab', { name: 'admin.brandingPage.tabs.settings' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('with the switcher hidden, the toast says everyone sees the new default', async () => {

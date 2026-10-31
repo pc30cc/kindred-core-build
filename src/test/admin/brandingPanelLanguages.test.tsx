@@ -82,6 +82,8 @@ const languageCard = (code: string) =>
   screen.getByText(`admin.brandingPage.languages.${code}`).closest('button') as HTMLElement;
 
 beforeEach(() => {
+  // The page keeps its tabs for the session (useSessionTab): each test starts on the first.
+  sessionStorage.clear();
   srv.settings = {};
   srv.puts = [];
   localStorage.clear();

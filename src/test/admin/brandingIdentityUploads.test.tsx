@@ -85,6 +85,8 @@ const upload = (variant: string) => fireEvent.change(row(variant).querySelector(
 });
 
 beforeEach(() => {
+  // The page keeps its tabs for the session (useSessionTab): each test starts on the first.
+  sessionStorage.clear();
   srv.branding = { ...ROW };
   srv.assets = null;
   srv.calls = [];

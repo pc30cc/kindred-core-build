@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { DirectionProvider } from '@radix-ui/react-direction';
 import { isNativePlatform } from '@/lib/native';
 
@@ -169,9 +169,16 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
   }, [locale, dir]);
 
 
+  // The language asked for last: a load that finishes after a newer switch
+  // (two switches in a row, the slower chunk last) is dropped, never shown
+  // with the newer language's direction.
+  const requestedLocale = useRef(initialLocale);
+
   const loadLocale = useCallback(async (newLocale: Locale) => {
+    requestedLocale.current = newLocale;
     setIsLoading(true);
     const messages = await loadLocaleMessages(newLocale);
+    if (requestedLocale.current !== newLocale) return;
     setTranslations(messages);
     setIsLoading(false);
   }, []);
@@ -195,6 +202,7 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
 
   useEffect(() => {
     if (initialTranslations && locale === initialLocale) {
+      requestedLocale.current = locale;
       setTranslations(initialTranslations);
       setIsLoading(false);
       return;

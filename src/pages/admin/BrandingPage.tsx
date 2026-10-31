@@ -382,6 +382,7 @@ import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedR
 import { isProviderAllowedInEdition, resolveEdition } from '../../../shared/edition';
 import { PANEL_LOCALES, isPanelLocale, panelLanguagesFor } from '../../../shared/panelLanguages';
 import { PLATFORM_PUBLIC_CONFIG_QUERY_KEY } from '@/lib/platformPublicConfig';
+import type { PlatformRegionSettings } from '@/hooks/usePlatformRegion';
 
 const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
   multi: {
@@ -419,7 +420,7 @@ function SettingsSection() {
   const [activeLocale, setActiveLocale] = useState('en');
   const [forms, setForms] = useState<Record<string, Partial<PlatformBrandingLocalized>>>({});
   const [dirtyLocales, setDirtyLocales] = useState<Set<string>>(new Set());
-  const [settingsTab, setSettingsTab] = useState('general');
+  const [settingsTab, setSettingsTab] = useSessionTab('branding-settings-tab', 'general');
 
   // Settings form state
   const [defaultLocale, setDefaultLocale] = useState('en');
@@ -545,6 +546,14 @@ function SettingsSection() {
       site_mode: siteMode,
     });
     const defaultChanged = after.defaultLocale !== before?.defaultLocale;
+    // The save succeeded, so these are the platform's settings now: the guard
+    // reads them at once (a failed re-read keeps them, never the old ones).
+    qc.setQueryData<PlatformRegionSettings>(['platform_region_settings'], {
+      mode: regionMode,
+      activeLocales,
+      defaultLocale,
+      siteMode,
+    });
     if (defaultChanged) setLocale(uiLocale, { remember: false });
     setCachedRegionMode(regionMode);
     setAutoAdded(null);
@@ -990,6 +999,31 @@ function DomainUrlsSection() {
  * setting, because it looks like it worked.
  */
 
+/**
+ * A tab kept for this browser tab's session: switching the dashboard's
+ * language re-mounts the app while the new messages load (src/i18n), and the
+ * page should come back where it was (a new default saved under Settings →
+ * General switches it).
+ */
+function useSessionTab(key: string, initial: string): [string, (next: string) => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      return window.sessionStorage.getItem(key) || initial;
+    } catch {
+      return initial;
+    }
+  });
+  const set = (next: string) => {
+    setValue(next);
+    try {
+      window.sessionStorage.setItem(key, next);
+    } catch {
+      /* storage unavailable: the tab still changes */
+    }
+  };
+  return [value, set];
+}
+
 // ── Loading placeholder ──
 function LoadingCard() {
   return (
@@ -1004,7 +1038,7 @@ function LoadingCard() {
 // ── Main Page ──
 export default function AdminBrandingPage() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState('identity');
+  const [tab, setTab] = useSessionTab('branding-tab', 'identity');
   // Another tab unmounts the email templates' editor, edits and all: leaving
   // it with unsaved changes asks first.
   const [emailTemplatesDirty, setEmailTemplatesDirty] = useState(false);

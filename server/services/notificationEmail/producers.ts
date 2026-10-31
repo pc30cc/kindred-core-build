@@ -22,7 +22,7 @@ import { canUseInbox } from '../../../shared/chatRoles.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { billingRecipient, formatBillingMoney } from '../billing/account/notify.js';
-import { operatorLocales, type OperatorLocale } from '../operatorLocale.js';
+import { operatorLocales, operatorMailLocale, type OperatorLocale } from '../operatorLocale.js';
 import { operatorSystemText } from '../operatorSystemText.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
 import { ANON_CONTACT_NAME } from '../widget/anonymousContact.js';
@@ -692,7 +692,9 @@ export async function queueTranscript(
   ]);
 
   // Each recipient reads the transcript (its system lines) and the mail in
-  // their own language: rendered once per language among them.
+  // their own language, as far as the mail offers it (operatorMailLocale:
+  // the template is in the visitors' languages, so a Persian template gets
+  // Persian lines): rendered once per language among them.
   const transcripts = new Map<OperatorLocale, Promise<string[]>>();
   const transcriptIn = (locale: OperatorLocale) => {
     let pending = transcripts.get(locale);
@@ -705,7 +707,7 @@ export async function queueTranscript(
 
   let queued = 0;
   for (const userId of recipients) {
-    const locale = locales.get(userId) ?? 'en';
+    const locale = await operatorMailLocale(config, locales.get(userId) ?? 'en');
     const result = await enqueueNotificationEmail(config, {
       userId,
       workspaceId: args.workspaceId,
@@ -820,7 +822,9 @@ export async function queueInvoicePaid(
   const locales = await operatorLocales(config, recipients);
   let queued = 0;
   for (const userId of recipients) {
-    const locale = locales.get(userId) ?? 'en';
+    // The amount is written in the mail's language (operatorMailLocale),
+    // which the template is sent in, not the panel's.
+    const locale = await operatorMailLocale(config, locales.get(userId) ?? 'en');
     const result = await enqueueNotificationEmail(config, {
       userId,
       workspaceId: args.workspaceId,

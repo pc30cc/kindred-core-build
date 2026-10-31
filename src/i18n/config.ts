@@ -23,3 +23,17 @@ export function getDirection(locale: Locale): Direction {
 export function isRtl(locale: Locale): boolean {
   return getDirection(locale) === 'rtl';
 }
+
+/** Where this browser keeps the language someone picked (index.html reads it too). */
+export const LOCALE_STORAGE_KEY = 'app-locale';
+
+/** The language someone picked in this browser (`app-locale`), or null when none was picked. */
+export function getChosenLocale(): Locale | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    return stored === 'en' || stored === 'fa' || stored === 'tr' ? stored : null;
+  } catch {
+    return null;
+  }
+}

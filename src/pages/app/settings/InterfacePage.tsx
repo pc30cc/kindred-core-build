@@ -12,7 +12,7 @@ import { useTheme } from 'next-themes';
 import { useTranslation, useI18n, type TranslationKey } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
@@ -49,7 +49,7 @@ const APPEARANCE_ICONS: Record<Appearance, typeof Sun> = {
 export default function InterfacePage() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { preferences, setPreference, reset } = useUiPreferences();
   // A platform theme other than Classic brings its own colours: the personal

@@ -8,7 +8,8 @@
  *
  * Mounted at /api/manifest.webmanifest (see server/index.ts). The frontend
  * links to it as `/api/manifest.webmanifest?locale=<current i18n locale>`
- * from PlatformBrandingGate.
+ * from PlatformBrandingGate. It is the dashboard's: its language is one of
+ * the panel's (shared/panelLanguages.ts), not the visitors'.
  *
  * In the International edition (platform_settings.region_mode is not 'iran';
  * shared/edition.ts, shared/internationalMode.ts) the icons are the RESPOK
@@ -29,7 +30,8 @@
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { clampLocaleToPlatformRegion, getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { getPlatformEditionOrNull, getPlatformPanelLanguages } from '../services/platformRegion.js';
+import { isPanelLocale } from '../../shared/panelLanguages.js';
 import { INTL_BRAND, isInternationalMode } from '../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isUncustomisedColor, isWebyarKitEdition } from '../../shared/webyarBrand.js';
 import { readCustomBrandAssets } from '../services/platformBrandAssets.js';
@@ -51,8 +53,15 @@ manifestRouter.get('/', async (req, res) => {
   const config = (req as unknown as { serverConfig: ServerConfig }).serverConfig;
   const sb = getServiceClient(config);
 
-  const locale = await clampLocaleToPlatformRegion(config, typeof req.query.locale === 'string' ? req.query.locale : undefined);
-  const effectiveLocale = locale || 'en';
+  // This is the dashboard's manifest (the app PlatformBrandingGate installs,
+  // asked with the UI language), so its language is one of the PANEL's
+  // (shared/panelLanguages.ts): a WebYar panel the Super Admin opened to
+  // English installs with an English name, description and `ltr`. Asked for
+  // one the panel does not offer, it is the panel's default. The icons stay
+  // the edition's, whatever the language.
+  const panel = await getPlatformPanelLanguages(config);
+  const asked = typeof req.query.locale === 'string' ? req.query.locale.trim().toLowerCase().split(/[-_]/)[0] : '';
+  const effectiveLocale = isPanelLocale(asked) && panel.locales.includes(asked) ? asked : panel.defaultLocale;
 
   const [{ data: branding }, { data: localizedRows }, edition, custom] = await Promise.all([
     sb.from('platform_branding').select('*').limit(1).maybeSingle(),

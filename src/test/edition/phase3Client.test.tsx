@@ -108,11 +108,15 @@ describe('src/lib/date.ts — the Persian calendar follows the edition', () => {
 });
 
 describe('phone input', () => {
-  it('Iran (default): Persian UI defaults to Iran — as before', () => {
+  it('Iran (default): Iran (+98) whatever the dashboard language', () => {
     expect(defaultPhoneCountry('fa')).toBe('IR');
     expect(defaultPhoneCountry('fa', 'iran')).toBe('IR');
-    expect(defaultPhoneCountry('tr', 'iran')).toBe('TR');
-    expect(defaultPhoneCountry('en', 'iran')).toBe('GB');
+    // A WebYar panel opened in English or Turkish (Super Admin → Branding)
+    // is still WebYar, with +98 phones (owner, 2026-10-31).
+    expect(defaultPhoneCountry('en', 'iran')).toBe('IR');
+    expect(defaultPhoneCountry('tr', 'iran')).toBe('IR');
+    expect(defaultPhoneCountry(undefined, 'iran')).toBe('IR');
+    expect(defaultPhoneCountry()).toBe('IR');
   });
 
   it('International: never Iran by default', () => {

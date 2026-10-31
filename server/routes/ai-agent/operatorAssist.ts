@@ -30,6 +30,7 @@ import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildU
 import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { getPlatformAllowedLocales } from '../../services/platformRegion.js';
 import { logRun } from '../../services/ai-agent/logs.js';
 
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
@@ -268,11 +269,21 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   //  - Otherwise the requested (operator UI) locale wins when it is allowed.
   //  - Fall back to the first allowed locale, then to the detected visitor
   //    language, then to 'en'.
+  //  - The draft goes to a VISITOR, so "allowed" is always inside the
+  //    visitors' languages (getPlatformAllowedLocales; Iran: Persian only),
+  //    as the AI agent's own replies are (engine/contextStage.ts): the
+  //    operator's UI language is the dashboard's, which the Super Admin may
+  //    open to English on WebYar while its visitors stay Persian.
   const normalizeLocale = (v?: string | null) =>
     (v || '').trim().toLowerCase().split(/[-_]/)[0];
-  const allowed = (settings.allowed_locales || [])
+  const platformAllowed = await getPlatformAllowedLocales(config).catch(() => [] as string[]);
+  const settingsAllowed = (settings.allowed_locales || [])
     .map((l: string) => normalizeLocale(l))
     .filter(Boolean);
+  const inPlatform = platformAllowed.length
+    ? settingsAllowed.filter((l: string) => platformAllowed.includes(l))
+    : settingsAllowed;
+  const allowed = inPlatform.length ? inPlatform : platformAllowed;
   const requested = normalizeLocale(locale);
   const detected = detectInputLanguage(inputMessage);
   let responseLocale: string;

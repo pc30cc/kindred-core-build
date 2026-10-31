@@ -50,7 +50,7 @@ import { NOTIFICATION_EMAILS, isNotificationEmailType, type NotificationEmailDef
 import { escapeHtml, notificationFooter, unsubscribeBaseUrl, unsubscribeUrl } from './unsubscribe.js';
 import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
-import { operatorLocaleFrom, type OperatorLocale } from '../operatorLocale.js';
+import { operatorLocaleFrom, operatorMailLocale, type OperatorLocale } from '../operatorLocale.js';
 import { resolveWorkspaceAppUrl } from '../auth-email.js';
 import { canUseInbox } from '../../../shared/chatRoles.js';
 import { keptRowsFrom, transcriptRow } from '../transcriptEmailRows.js';
@@ -244,9 +244,13 @@ async function deliver(
   }
 
   // The job's language (a transcript is rendered in it), else the
-  // operator's own when the platform offers it, else the platform's: never
-  // English by default on a Persian platform (operatorLocale.ts).
-  const locale = await operatorLocaleFrom(config, job.locale || recipient.locale);
+  // operator's own when the panel offers it, else the platform's: never
+  // English by default on a Persian platform (operatorLocale.ts). Then the
+  // language the template is sent in (operatorMailLocale: the visitors'
+  // languages, Iran Persian only), which every value below is written in:
+  // an English operator on a WebYar panel opened to English still gets the
+  // Persian template, with Persian digits, words and footer in it.
+  const locale = await operatorMailLocale(config, await operatorLocaleFrom(config, job.locale || recipient.locale));
   const { templateData, htmlData } = templateValues(job.payload, recipient.name || recipient.email, locale);
 
   const unsubscribe = unsubscribeUrl(ctx.linkBase, job.user_id, type);

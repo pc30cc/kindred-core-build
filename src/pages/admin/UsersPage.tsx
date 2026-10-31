@@ -21,7 +21,7 @@ import {
   useAdminUserRoles, useAssignRole, useRemoveRole, adminFetch } from '@/hooks/useAdmin';
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
   adminDeleteUserAvatar, adminGetUserMessages,
@@ -233,7 +233,8 @@ export default function AdminUsersPage() {
 /* ─── User Detail View ─── */
 function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void }) {
   const { t, dir } = useTranslation();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  // A member's preferred language is a panel language (shared/panelLanguages.ts).
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   const { data: detail, isLoading, refetch } = useAdminUserDetail(userId);
   // The website is registered (server/services/ownerWebsite.ts): fixed for good.
   const websiteFixed = !!(detail as { website_fixed?: boolean } | undefined)?.website_fixed;
@@ -260,6 +261,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [editDialog, setEditDialog] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [emailVerifyLoading, setEmailVerifyLoading] = useState(false);
+  const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
+  // The phone country: Iran in the Iranian edition whatever the dashboard's
+  // language, never Iran outside it (src/lib/phone-countries.ts).
+  const { edition } = useEdition();
   const [editForm, setEditForm] = useState({
     full_name: '',
     email: '',
@@ -267,13 +272,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     website_domain: '',
     preferred_locale: '',
     phone: '',
-    phone_country: defaultPhoneCountry(),
+    phone_country: defaultPhoneCountry(uiLocale, edition),
   });
 
   const qc = useQueryClient();
-  const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
-  // The phone country never defaults to Iran outside the Iranian edition.
-  const { edition } = useEdition();
 
   const { data: phoneState } = useQuery({
     queryKey: ['admin-phone-verification', userId],

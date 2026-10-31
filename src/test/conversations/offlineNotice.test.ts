@@ -78,6 +78,8 @@ vi.mock('../../../server/services/auth-email.js', () => ({
 vi.mock('../../../server/services/operatorLocale.js', () => ({
   operatorLocales: async (_c: unknown, ids: string[]) => new Map(ids.map((id) => [id, id === 'u-fa' || id.endsWith('fa00') ? 'fa' : 'en'])),
   operatorFallbackLocale: async () => 'fa',
+  // Every language the mail offers (the platform's rule is in operatorMailLanguage.test.ts).
+  operatorMailLocale: async (_c: unknown, locale: string) => locale,
 }));
 vi.mock('../../../server/services/calls/rtcResolver.js', () => ({ resolveApiBaseUrl: async () => 'https://api.test' }));
 process.env.PLATFORM_SIGNING_SECRET = 'signing-secret-for-this-test-only-0123456789';

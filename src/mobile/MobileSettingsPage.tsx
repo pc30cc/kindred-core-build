@@ -28,6 +28,7 @@ import { useI18n, useTranslation } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import { OperatorAvatar } from '@/components/ui/operator-avatar';
 import { cn } from '@/lib/utils';
 import { MobileScreen, MobileGroup, MobileRow } from './MobileScreen';
@@ -48,6 +49,10 @@ const THEMES = [
 export default function MobileSettingsPage() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
+  // Only the panel's languages (Super Admin → Branding), and no language
+  // group when there is one or the Super Admin hid the switcher.
+  const panel = usePanelLanguages();
+  const languages = panel.switcher ? LANGUAGES.filter((lang) => panel.locales.includes(lang.code)) : [];
   const { user, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
@@ -131,25 +136,27 @@ export default function MobileSettingsPage() {
         ))}
       </MobileGroup>
 
-      <MobileGroup title={t('interface.language')}>
-        {LANGUAGES.map((lang) => (
-          <button
-            key={lang.code}
-            type="button"
-            onClick={() => setLocale(lang.code)}
-            className="flex w-full items-center gap-3 px-4 py-3.5 text-start active:bg-muted/60"
-          >
-            <Languages className="h-5 w-5 text-muted-foreground" />
-            <span className="flex-1 text-[15px] text-foreground">{lang.label}</span>
-            <Check
-              className={cn(
-                'h-5 w-5 text-primary transition-opacity',
-                locale === lang.code ? 'opacity-100' : 'opacity-0',
-              )}
-            />
-          </button>
-        ))}
-      </MobileGroup>
+      {languages.length > 0 && (
+        <MobileGroup title={t('interface.language')}>
+          {languages.map((lang) => (
+            <button
+              key={lang.code}
+              type="button"
+              onClick={() => setLocale(lang.code)}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-start active:bg-muted/60"
+            >
+              <Languages className="h-5 w-5 text-muted-foreground" />
+              <span className="flex-1 text-[15px] text-foreground">{lang.label}</span>
+              <Check
+                className={cn(
+                  'h-5 w-5 text-primary transition-opacity',
+                  locale === lang.code ? 'opacity-100' : 'opacity-0',
+                )}
+              />
+            </button>
+          ))}
+        </MobileGroup>
+      )}
 
       {(store || support) && (
         <MobileGroup>

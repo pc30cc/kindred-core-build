@@ -4,7 +4,7 @@ import { useI18n } from '@/i18n';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Settings, Rocket, Search, Package, LayoutDashboard,
@@ -103,7 +103,8 @@ export function AppSidebar({
 }) {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  // Keeps the UI language inside the panel's languages.
+  usePanelLanguages();
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useAuth();

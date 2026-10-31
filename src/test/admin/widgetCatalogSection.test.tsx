@@ -27,6 +27,12 @@ import { I18nProvider } from '@/i18n';
 
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/use-toast', () => ({ toast: toastMock, useToast: () => ({ toasts: [], toast: toastMock }) }));
+// The visitors' languages (usePlatformRegion().allowedLocales; Iran: Persian
+// only), which the preview speaks, apart from the dashboard's own.
+const visitorLocales = vi.hoisted(() => ({ list: ['en', 'fa', 'tr'] as string[] }));
+vi.mock('@/hooks/usePlatformRegion', () => ({
+  usePlatformRegion: () => ({ allowedLocales: visitorLocales.list, canSwitchLanguage: visitorLocales.list.length > 1 }),
+}));
 // The transcript by email / the away email step as they come back once
 // visitor email is switched on (shared/visitorEmail.ts; off since 2026-10-21,
 // checked as such in src/test/widget/visitorEmailSwitch.test.ts).
@@ -66,6 +72,7 @@ beforeEach(() => {
   current = catalog();
   puts = [];
   putAnswer = null;
+  visitorLocales.list = ['en', 'fa', 'tr'];
   toastMock.mockReset();
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
     if (init?.method === 'PUT') {
@@ -258,6 +265,30 @@ describe('WidgetCatalogSection', () => {
     expect(p.config.templateOptions).toEqual({
       navStyle: 'vb', navMode: 'active', topics: [{ label: 'Shipping', icon: 'truck' }], prechatMode: 'card', csat: true, transcriptEmail: true,
     });
+  });
+
+  it('the preview speaks a visitors\' language: Persian on WebYar while the dashboard is English', async () => {
+    const previewOf = async () => {
+      const t1 = await mount();
+      fireEvent.click(within(t1()).getByRole('button', { name: 'Preview' }));
+      const frame = await waitFor(() => {
+        const el = document.querySelector('iframe');
+        if (!el) throw new Error('no preview frame');
+        return el;
+      });
+      const m = /var GS_PREVIEW = (\{.*\});\n/.exec(frame.getAttribute('srcdoc') || '');
+      expect(m).not.toBeNull();
+      return JSON.parse(m![1]) as { locale: string; rtl: boolean };
+    };
+    // WebYar (iran): its visitors read Persian only.
+    visitorLocales.list = ['fa'];
+    expect(await previewOf()).toMatchObject({ locale: 'fa', rtl: true });
+    // The template names stay in the dashboard's language.
+    expect(screen.getAllByText('Turquoise').length).toBeGreaterThan(0);
+    cleanup();
+    // RESPOK (multi, en and tr): the dashboard's language, as before.
+    visitorLocales.list = ['en', 'tr'];
+    expect(await previewOf()).toMatchObject({ locale: 'en', rtl: false });
   });
 
   it('the rating after a chat and the transcript by email are on/off defaults the save sends', async () => {

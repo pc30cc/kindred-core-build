@@ -390,6 +390,7 @@ describe('start.sh rewrites are obsolete (docs/operations/EDITIONS.md)', () => {
 
   it('the International edition starts in the platform\'s default language, not the deployment file\'s', () => {
     const i18n = read('src/i18n/index.tsx');
-    expect(i18n).toContain("if (cachedEdition() === 'international') {");
+    expect(i18n).toContain("if (edition === 'international') {");
+    // Behaviour, both editions: src/test/i18n/panelLanguageGuard.test.tsx.
   });
 });

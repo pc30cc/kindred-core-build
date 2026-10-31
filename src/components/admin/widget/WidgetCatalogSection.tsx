@@ -17,6 +17,8 @@ import { AlertTriangle, ArrowDown, ArrowUp, Eye, LayoutTemplate, Loader2, Rotate
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { contentLocaleFor } from '@/lib/region';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -106,8 +108,15 @@ export function WidgetCatalogSection() {
   const [confirming, setConfirming] = useState<Array<{ title: string; body: string }> | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [previewView, setPreviewView] = useState<PreviewView>('home');
+  // The preview speaks a visitors' language (usePlatformRegion().allowedLocales;
+  // Iran: Persian only), as the widget does: the dashboard's own when visitors
+  // have it (RESPOK: en and tr, as before), else the first. The dashboard may
+  // be English or Turkish on WebYar while its widget stays Persian
+  // (shared/panelLanguages.ts). Names above stay in the dashboard's language.
+  const { allowedLocales } = usePlatformRegion();
+  const previewLocale = contentLocaleFor(uiLocale, allowedLocales) as ChatTemplateLocale;
   // Stable, so the preview frame is not rebuilt on every render of the page.
-  const previewSettings = useMemo(() => ({ locale: uiLocale, widget_language: uiLocale }), [uiLocale]);
+  const previewSettings = useMemo(() => ({ locale: previewLocale, widget_language: previewLocale }), [previewLocale]);
 
   // The catalog the form was last filled from. A new answer (the window
   // regaining focus refetches; usage counts or another admin's save change

@@ -38,6 +38,7 @@ import {
   type RegionMode,
 } from '../../shared/edition';
 import { SHIPS_IRAN_KIT } from '../../shared/buildBrand';
+import { panelLanguagesFor } from '../../shared/panelLanguages';
 
 export interface EditionInfo {
   edition: Edition;
@@ -81,7 +82,9 @@ export function useKnownEdition(): Edition | null {
   const { data } = usePlatformPublicConfig();
   const fromConfig = data ? resolveEdition(data.region?.region_mode) : null;
   const regionMode = data ? parseRegionMode(data.region?.region_mode) : null;
-  const defaultLocale = data?.region?.default_locale ?? null;
+  // The panel's default language (shared/panelLanguages.ts), in either
+  // edition: what the next first paint opens in (src/i18n getSiteDefaultLocale).
+  const defaultLocale = data ? panelLanguagesFor(data.region).defaultLocale : null;
   useEffect(() => {
     if (fromConfig) rememberEdition(fromConfig);
     if (regionMode) rememberRegionMode(regionMode);

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import { updateAccount } from '@/lib/account-api';
 import { UserMenu } from '@/components/layout/UserMenu';
 import { AlertsMenu } from '@/components/layout/AlertsMenu';
@@ -32,7 +32,7 @@ import { AlertsMenu } from '@/components/layout/AlertsMenu';
  */
 export function AppTopBar() {
   const { t: tRaw, locale, setLocale } = useI18n();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   const t = tRaw as unknown as (key: string) => string;
   const { theme, setTheme } = useTheme();
   const wsPath = useWorkspacePath();

@@ -27,7 +27,7 @@
       // so the first paint does not flash a placeholder.
       (function () {
         try {
-          var l = localStorage.getItem('app-locale') || document.documentElement.lang || 'en';
+          var l = localStorage.getItem('app-locale') || localStorage.getItem('wy-default-locale') || document.documentElement.lang || 'en';
           var t = localStorage.getItem('gs_title:' + l) || localStorage.getItem('gs_title:en');
           if (t) document.title = t;
         } catch (e) {}
@@ -73,7 +73,7 @@
               if (Object.prototype.hasOwnProperty.call(titles, k) && !ls.getItem('gs_title:' + k)) ls.setItem('gs_title:' + k, titles[k]);
             }
             if (!document.title) {
-              var l = ls.getItem('app-locale') || (b.edition === 'international' && b.defaultLocale) || root.lang || 'en';
+              var l = ls.getItem('app-locale') || b.defaultLocale || root.lang || 'en';
               var t = ls.getItem('gs_title:' + l) || ls.getItem('gs_title:en');
               if (t) document.title = t;
             }

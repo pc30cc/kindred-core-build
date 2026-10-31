@@ -18,7 +18,7 @@ vi.mock('@/i18n', () => ({
   useI18n: () => ({ t: (k: string) => k, locale: 'en', setLocale: h.setLocale }),
 }));
 vi.mock('@/hooks/usePlatformRegion', () => ({
-  usePlatformRegion: () => ({ allowedLocales: ['en', 'fa', 'tr'], canSwitchLanguage: true }),
+  usePanelLanguages: () => ({ locales: ['en', 'fa', 'tr'], defaultLocale: 'en', switcher: true, ready: true }),
 }));
 vi.mock('@/lib/account-api', () => ({ updateAccount: h.updateAccount }));
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }));

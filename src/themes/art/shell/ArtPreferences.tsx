@@ -4,7 +4,7 @@ import { useI18n } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { cn } from '@/lib/utils';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +32,7 @@ export function ArtLanguageMenu({
   menuSide?: 'top' | 'bottom' | 'left' | 'right';
 }) {
   const { t, locale, setLocale } = useI18n();
-  const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
+  const { locales: allowedLocales, switcher: canSwitchLanguage } = usePanelLanguages();
   if (!canSwitchLanguage) return null;
 
   const label = t('artShell.language');

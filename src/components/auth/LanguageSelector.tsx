@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useI18n } from '@/i18n';
-import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { usePanelLanguages } from '@/hooks/usePlatformRegion';
 
 const LOCALE_LABELS: Record<string, string> = {
   en: 'English',
@@ -10,9 +10,11 @@ const LOCALE_LABELS: Record<string, string> = {
 
 export function LanguageSelector({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   const { locale, setLocale } = useI18n();
-  const { allowedLocales: locales, canSwitchLanguage } = usePlatformRegion();
+  // The panel's languages (Super Admin → Branding → Languages): none to
+  // pick between, or the switcher turned off, and there is no picker.
+  const { locales, switcher } = usePanelLanguages();
 
-  if (!canSwitchLanguage) return null;
+  if (!switcher) return null;
 
   return (
     <div

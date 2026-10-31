@@ -1,4 +1,4 @@
-import type { Edition } from '../../shared/edition';
+import { EDITION_PROFILE, type Edition } from '../../shared/edition';
 
 /**
  * Client-side mirror of the server phone country table
@@ -22,15 +22,20 @@ export const PHONE_COUNTRIES: PhoneCountry[] = [
 ];
 
 /**
- * The country a phone picker opens on. Iranian edition (the default, as
- * before): Farsi UI → Iran, Turkish → Türkiye, everything else → the UK. The
- * International edition never defaults to Iran: Turkish → Türkiye, every
- * other language (Persian included) → the UK.
+ * The country a phone picker opens on.
+ *
+ *   - Iranian edition (the default): Iran (+98), whatever the dashboard's
+ *     language. Its panel may be English or Turkish too (Super Admin →
+ *     Branding, shared/panelLanguages.ts), and it is still WebYar with +98
+ *     phones (shared/edition.ts EDITION_PROFILE.iran.phoneCountry); before
+ *     that it was only ever Persian, so Iran, as now.
+ *   - International edition: never Iran. Turkish → Türkiye, every other
+ *     language (Persian included) → the UK, as before.
  */
 export function defaultPhoneCountry(locale?: string, edition: Edition = 'iran'): string {
-  if (locale === 'fa' && edition === 'iran') return 'IR';
-  if (locale === 'tr') return 'TR';
-  return 'GB';
+  const national = EDITION_PROFILE[edition]?.phoneCountry;
+  if (national) return national;
+  return locale === 'tr' ? 'TR' : 'GB';
 }
 
 const FA_AR_DIGITS = /[۰-۹٠-٩]/g;

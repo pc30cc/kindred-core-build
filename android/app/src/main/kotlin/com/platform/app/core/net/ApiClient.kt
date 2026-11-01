@@ -721,6 +721,14 @@ class ApiClient(
     }
 
     @Serializable
+    private data class SpamBody(val workspace_id: String, val conversation_id: String)
+
+    override suspend fun setSpam(spam: Boolean, conversationId: String, workspaceId: String) {
+        val path = if (spam) "/api/conversations/spam" else "/api/conversations/not-spam"
+        build(HttpMethod.Post, path, body = SpamBody(workspaceId, conversationId)).orThrow()
+    }
+
+    @Serializable
     private data class ClaimBody(val workspace_id: String)
 
     override suspend fun claim(conversationId: String, workspaceId: String) {

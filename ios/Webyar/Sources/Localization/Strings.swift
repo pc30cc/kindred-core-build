@@ -2994,6 +2994,69 @@ extension Str {
         }
     }
 
+    static func markSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Mark as spam"
+        case .fa: "علامت هرزنامه"
+        case .tr: "Spam olarak işaretle"
+        case .ar: "وضع علامة غير مرغوب فيها"
+        }
+    }
+
+    static func notSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Not spam"
+        case .fa: "هرزنامه نیست"
+        case .tr: "Spam değil"
+        case .ar: "ليست غير مرغوب فيها"
+        }
+    }
+
+    static func markSpamQuestion(_ l: Language) -> String {
+        switch l {
+        case .en: "Mark this conversation as spam?"
+        case .fa: "این گفتگو هرزنامه علامت بخورد؟"
+        case .tr: "Bu sohbet spam olarak işaretlensin mi?"
+        case .ar: "وضع علامة غير مرغوب فيها على هذه المحادثة؟"
+        }
+    }
+
+    static func markSpamExplained(_ l: Language) -> String {
+        switch l {
+        case .en: "It moves to Spam with this customer's other conversations, and the AI stops replying to them. Nothing is deleted."
+        case .fa: "این گفتگو همراه گفتگوهای دیگر این مشتری به هرزنامه می‌رود و هوش مصنوعی دیگر به آن‌ها پاسخ نمی‌دهد. چیزی پاک نمی‌شود."
+        case .tr: "Bu müşterinin diğer sohbetleriyle birlikte Spam'e taşınır ve yapay zekâ onlara yanıt vermeyi bırakır. Hiçbir şey silinmez."
+        case .ar: "تنتقل إلى غير المرغوب فيها مع محادثات هذا العميل الأخرى، ويتوقف الذكاء الاصطناعي عن الرد عليها. لا يُحذف شيء."
+        }
+    }
+
+    static func markedSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Marked as spam"
+        case .fa: "به‌عنوان هرزنامه علامت خورد"
+        case .tr: "Spam olarak işaretlendi"
+        case .ar: "وُضعت علامة غير مرغوب فيها"
+        }
+    }
+
+    static func markedSpamBody(_ l: Language) -> String {
+        switch l {
+        case .en: "The conversation is in Spam. The AI will not reply to it."
+        case .fa: "گفتگو در هرزنامه است. هوش مصنوعی به آن پاسخ نمی‌دهد."
+        case .tr: "Sohbet Spam'de. Yapay zekâ ona yanıt vermeyecek."
+        case .ar: "المحادثة في غير المرغوب فيها. لن يرد عليها الذكاء الاصطناعي."
+        }
+    }
+
+    static func removedFromSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Removed from spam"
+        case .fa: "از هرزنامه خارج شد"
+        case .tr: "Spam'den çıkarıldı"
+        case .ar: "أُزيلت من غير المرغوب فيها"
+        }
+    }
+
     // MARK: - Online visitors
 
     /// The Visitors tab. Short, because it shares the bar with four others.

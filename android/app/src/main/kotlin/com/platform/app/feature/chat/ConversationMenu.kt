@@ -76,7 +76,7 @@ enum class ChatSheet { STATUS, PRIORITY, TRANSFER, TAGS, NOTES }
  *
  * Take-over is at the top and only when it means something — on a thread the
  * AI still owns. Offering it on a thread a person is already answering would
- * be a button that does nothing.
+ * be a button that does nothing. Marking as spam is at the foot.
  */
 @Composable
 fun ConversationMenu(
@@ -87,6 +87,8 @@ fun ConversationMenu(
     onTakeOver: () -> Unit,
     onVoiceCall: () -> Unit,
     onVideoCall: () -> Unit,
+    onMarkSpam: () -> Unit = {},
+    onNotSpam: () -> Unit = {},
 ) {
     var open by remember { mutableStateOf(false) }
     val aiManaged = conversation?.let { AiState.resolve(it) == AiState.AI_MANAGED } == true
@@ -116,6 +118,19 @@ fun ConversationMenu(
             }
             if (callChannels.video) {
                 MenuItem(Str.videoCall(language)) { open = false; onVideoCall() }
+            }
+            // Last, as on the web and on iOS: the way to report a sender.
+            // Red only while it marks; taking it back out is the safe way.
+            if (conversation != null) {
+                androidx.compose.material3.HorizontalDivider()
+                if (conversation.isSpam == true) {
+                    MenuItem(Str.notSpam(language)) { open = false; onNotSpam() }
+                } else {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(Str.markSpam(language), color = MaterialTheme.colorScheme.error) },
+                        onClick = { open = false; onMarkSpam() },
+                    )
+                }
             }
         }
     }

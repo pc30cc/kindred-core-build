@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 405 of 425 strings are generated.
+// 412 of 432 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1840,6 +1840,48 @@ object Str {
         Language.EN -> "Take-over failed"
         Language.FA -> "در دست گرفتن ناموفق بود"
         Language.TR -> "Devralma başarısız oldu"
+    }
+
+    fun markSpam(l: Language): String = when (l) {
+        Language.EN -> "Mark as spam"
+        Language.FA -> "علامت هرزنامه"
+        Language.TR -> "Spam olarak işaretle"
+    }
+
+    fun notSpam(l: Language): String = when (l) {
+        Language.EN -> "Not spam"
+        Language.FA -> "هرزنامه نیست"
+        Language.TR -> "Spam değil"
+    }
+
+    fun markSpamQuestion(l: Language): String = when (l) {
+        Language.EN -> "Mark this conversation as spam?"
+        Language.FA -> "این گفتگو هرزنامه علامت بخورد؟"
+        Language.TR -> "Bu sohbet spam olarak işaretlensin mi?"
+    }
+
+    fun markSpamExplained(l: Language): String = when (l) {
+        Language.EN -> "It moves to Spam with this customer's other conversations, and the AI stops replying to them. Nothing is deleted."
+        Language.FA -> "این گفتگو همراه گفتگوهای دیگر این مشتری به هرزنامه می‌رود و هوش مصنوعی دیگر به آن‌ها پاسخ نمی‌دهد. چیزی پاک نمی‌شود."
+        Language.TR -> "Bu müşterinin diğer sohbetleriyle birlikte Spam'e taşınır ve yapay zekâ onlara yanıt vermeyi bırakır. Hiçbir şey silinmez."
+    }
+
+    fun markedSpam(l: Language): String = when (l) {
+        Language.EN -> "Marked as spam"
+        Language.FA -> "به‌عنوان هرزنامه علامت خورد"
+        Language.TR -> "Spam olarak işaretlendi"
+    }
+
+    fun markedSpamBody(l: Language): String = when (l) {
+        Language.EN -> "The conversation is in Spam. The AI will not reply to it."
+        Language.FA -> "گفتگو در هرزنامه است. هوش مصنوعی به آن پاسخ نمی‌دهد."
+        Language.TR -> "Sohbet Spam'de. Yapay zekâ ona yanıt vermeyecek."
+    }
+
+    fun removedFromSpam(l: Language): String = when (l) {
+        Language.EN -> "Removed from spam"
+        Language.FA -> "از هرزنامه خارج شد"
+        Language.TR -> "Spam'den çıkarıldı"
     }
 
     /** The Visitors tab. Short, because it shares the bar with four others. */

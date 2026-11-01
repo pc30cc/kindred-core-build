@@ -291,8 +291,8 @@ struct SettingsView: View {
     }
 }
 
-/// One workspace in Settings: its logo, its name, and a tick when it is the
-/// one being worked in.
+/// One workspace in Settings: its logo, its name, its website, and a tick
+/// when it is the one being worked in.
 ///
 /// A single workspace is not a choice, so it reads as a plain labelled row
 /// rather than something that looks tappable and does nothing.
@@ -328,6 +328,17 @@ private struct WorkspaceRow: View {
                     .font(.app(.body))
                     .foregroundStyle(Theme.Palette.label)
                     .lineLimit(1)
+                // Which site this workspace answers for: two workspaces with
+                // similar names are told apart by it. A domain is Latin, so it
+                // reads left to right in Persian and Arabic too.
+                if let domain = workspace.websiteDomain, !domain.isEmpty {
+                    Text(verbatim: "\u{2066}\(domain)\u{2069}")
+                        .font(Theme.Typo.meta)
+                        .foregroundStyle(Theme.Palette.labelSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .accessibilityLabel(domain)
+                }
             }
 
             Spacer(minLength: 0)

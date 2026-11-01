@@ -41,6 +41,15 @@ final class ConversationActionsModel {
     var takeOverConfirmed = false
     var takeOverFailed = false
 
+    /// In the Spam box. Changes only once the server has taken it, like the
+    /// take-over: the move reaches the contact's other conversations too, so
+    /// the screen should not claim it before it happened.
+    private(set) var isSpam: Bool
+    /// The question before marking, because of those other conversations.
+    var confirmsSpam = false
+    /// What happened, once it has: marked, or taken back out.
+    var spamChanged = false
+
     /// `tags` in the conversation update schema: `z.string().max(50)`.
     static let maxTagLength = 50
 
@@ -55,6 +64,7 @@ final class ConversationActionsModel {
         self.priority = conversation.priority ?? .normal
         self.assignedTo = conversation.assignedTo
         self.tags = conversation.tags ?? []
+        self.isSpam = conversation.isSpam ?? false
         self.api = api
     }
 
@@ -253,6 +263,28 @@ final class ConversationActionsModel {
             await appState.handleUnauthorized()
         } catch {
             takeOverFailed = true
+        }
+    }
+
+    // MARK: - Spam
+
+    /// Marks the conversation as spam, or takes it back out of the Spam box.
+    ///
+    /// The way an operator reports a sender from the phone, as from the web
+    /// inbox: the conversation and the contact's others move to Spam, the AI
+    /// stops answering them, and nothing is deleted.
+    func setSpam(_ spam: Bool, appState: AppState) async {
+        guard !isSaving, spam != isSpam else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await api.setSpam(spam, conversationID: conversationID, workspaceID: workspaceID)
+            isSpam = spam
+            spamChanged = true
+        } catch APIError.unauthorized {
+            await appState.handleUnauthorized()
+        } catch {
+            saveFailed = true
         }
     }
 

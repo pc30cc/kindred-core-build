@@ -48,6 +48,12 @@ data class Workspace(
      * that never set one, which is most of them on the first day.
      */
     @SerialName("logo_url") val logoUrl: String? = null,
+    /**
+     * The website the workspace serves (`workspace_domains`, the verified
+     * primary first), shown under its name in Settings. Absent for a
+     * workspace with no domain, and from a server older than the field.
+     */
+    @SerialName("website_domain") val websiteDomain: String? = null,
 )
 
 // MARK: - Contact
@@ -156,6 +162,8 @@ data class Conversation(
      * server bookkeeping.
      */
     val metadata: JsonElement? = null,
+    /** Marked as spam: it sits in the Spam box and the AI does not answer it. */
+    @SerialName("is_spam") val isSpam: Boolean? = null,
 ) {
     val hasUnread: Boolean get() = (unreadCount ?: 0) > 0
 

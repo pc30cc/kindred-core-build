@@ -174,13 +174,27 @@ fun SettingsScreen(
                             // one, the platform's workspace mark — never the
                             // name's first letter, never an empty circle.
                             WorkspaceAvatar(logoUrl = workspace.logoUrl, size = 40.dp)
-                            Text(
-                                workspace.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(horizontal = Space.lg),
-                            )
+                            Column(Modifier.weight(1f).padding(horizontal = Space.lg)) {
+                                Text(
+                                    workspace.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                // Which site this workspace answers for: two
+                                // workspaces with similar names are told apart
+                                // by it. Isolated, so a Latin domain reads left
+                                // to right in Persian too.
+                                workspace.websiteDomain?.takeIf { it.isNotBlank() }?.let { domain ->
+                                    Text(
+                                        "\u2066$domain\u2069",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                             if (isCurrent) Tick()
                         }
                     }

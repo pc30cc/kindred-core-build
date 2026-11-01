@@ -512,6 +512,25 @@ class ChatViewModel(
     // MARK: - What the header menu does
 
     fun takeOver() = act("take over") { api.takeOverConversation(it, requireWorkspace()) }
+
+    /**
+     * Marks the conversation as spam, or takes it back out of the Spam box:
+     * the operator's way to report a sender, as on the web. The row is read
+     * again afterwards, which is what turns the menu's "Mark as spam" into
+     * "Not spam".
+     */
+    fun setSpam(spam: Boolean) {
+        val id = conversationId ?: return
+        val workspace = workspaceId ?: return
+        viewModelScope.launch {
+            runCatchingUnlessCancelled { api.setSpam(spam, id, workspace) }
+                .onSuccess {
+                    _notice.value = if (spam) Str.markedSpam(language()) else Str.removedFromSpam(language())
+                    sync.coordinator.onLocalChange(id, "spam")
+                }
+                .onFailure { _notice.value = it.displayText(language()) }
+        }
+    }
     fun claim() = act("claim") { api.claim(it, requireWorkspace()) }
 
     fun setStatus(status: ConversationStatus) =

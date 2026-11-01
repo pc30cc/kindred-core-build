@@ -28,6 +28,7 @@ extension TestAPIBase {
     func markSeen(conversationID: String) async throws { throw APIError.transport }
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws { throw APIError.transport }
     func takeOverConversation(conversationID: String, workspaceID: String) async throws { throw APIError.transport }
+    func setSpam(_ spam: Bool, conversationID: String, workspaceID: String) async throws { throw APIError.transport }
     func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws { throw APIError.transport }
     func claim(conversationID: String, workspaceID: String) async throws { throw APIError.transport }
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts { throw APIError.transport }

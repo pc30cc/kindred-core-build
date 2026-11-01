@@ -1134,6 +1134,24 @@ actor APIClient {
         let workspace_id: String
     }
 
+    private struct SpamBody: Encodable, Sendable {
+        let workspace_id: String
+        let conversation_id: String
+    }
+
+    /// `POST /api/conversations/spam` and `/not-spam`, the web inbox's own.
+    /// Marking flags the contact too, so every conversation of theirs moves to
+    /// Spam and the AI stops answering; taking one back out clears the contact
+    /// and this conversation, not the others.
+    func setSpam(_ spam: Bool, conversationID: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            spam ? "/api/conversations/spam" : "/api/conversations/not-spam",
+            body: SpamBody(workspace_id: workspaceID, conversation_id: conversationID)
+        )
+        try await performIgnoringBody(request)
+    }
+
     /// Takes ownership of a thread so the rest of the team can see it is
     /// handled.
     func claim(conversationID: String, workspaceID: String) async throws {

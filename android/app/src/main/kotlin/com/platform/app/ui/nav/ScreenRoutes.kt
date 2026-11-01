@@ -461,6 +461,7 @@ fun ChatRoute(
 
     var sheet by remember { mutableStateOf<ChatSheet?>(null) }
     var showShortcuts by remember { mutableStateOf(false) }
+    var confirmSpam by remember { mutableStateOf(false) }
 
     // Reading the bytes stays here rather than in the view model: a Uri is a
     // permission grant to one Activity, and a model that outlives the screen
@@ -656,9 +657,29 @@ fun ChatRoute(
                 onTakeOver = chatModel::takeOver,
                 onVoiceCall = { onStartCall(CallChannel.AUDIO) },
                 onVideoCall = { onStartCall(CallChannel.VIDEO) },
+                onMarkSpam = { confirmSpam = true },
+                onNotSpam = { chatModel.setSpam(false) },
             )
         },
     )
+
+    // Asked first: marking moves the contact's other conversations too.
+    if (confirmSpam) {
+        AlertDialog(
+            onDismissRequest = { confirmSpam = false },
+            title = { Text(Str.markSpamQuestion(language)) },
+            text = { Text(Str.markSpamExplained(language)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSpam = false
+                    chatModel.setSpam(true)
+                }) { Text(Str.markSpam(language), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSpam = false }) { Text(Str.cancel(language)) }
+            },
+        )
+    }
 
     when (sheet) {
         ChatSheet.STATUS -> StatusSheet(

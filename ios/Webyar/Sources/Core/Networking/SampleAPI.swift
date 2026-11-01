@@ -51,7 +51,7 @@ actor SampleAPI: WebyarAPI {
     /// accounts have one; the interesting one is the account that has two.
     func workspaces() async throws -> [Workspace] {
         [
-            Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample", logoURL: nil),
+            Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample", logoURL: nil, websiteDomain: "sample-shop.example"),
             Workspace(id: "ws-2", name: "Second Workspace", slug: "second", logoURL: nil)
         ]
     }
@@ -169,6 +169,8 @@ actor SampleAPI: WebyarAPI {
     // so accepting them is the whole of what a stub owes here.
 
     func takeOverConversation(conversationID: String, workspaceID: String) async throws {}
+
+    func setSpam(_ spam: Bool, conversationID: String, workspaceID: String) async throws {}
 
     func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws {}
 

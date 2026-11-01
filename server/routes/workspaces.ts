@@ -105,10 +105,32 @@ workspacesRouter.get('/', async (req, res) => {
     logos.set(id, row.logo_url || (await resolver.workspace(id, row.logo_storage_key)) || null);
   }
 
+  // The website, so a client can show which site a workspace serves beside
+  // its name (the native apps' Settings). It lives on `workspace_domains`,
+  // one row per domain: the verified primary first, then any verified one,
+  // then the primary, then the oldest.
+  const { data: domains } = await sb
+    .from('workspace_domains')
+    .select('workspace_id, domain, verified, is_primary, created_at')
+    .in('workspace_id', workspaceIds);
+
+  const websites = new Map<string, string>();
+  const rank = (d: { verified?: boolean | null; is_primary?: boolean | null }) =>
+    (d.verified ? 2 : 0) + (d.is_primary ? 1 : 0);
+  const ordered = [...(domains ?? [])].sort(
+    (a, b) => rank(b) - rank(a) || String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')),
+  );
+  for (const row of ordered) {
+    const id = String(row.workspace_id);
+    const domain = typeof row.domain === 'string' ? row.domain.trim() : '';
+    if (domain && !websites.has(id)) websites.set(id, domain);
+  }
+
   return res.json({
     workspaces: (workspaces || []).map((w) => ({
       ...w,
       logo_url: logos.get(String(w.id)) ?? null,
+      website_domain: websites.get(String(w.id)) ?? null,
     })),
   });
 });

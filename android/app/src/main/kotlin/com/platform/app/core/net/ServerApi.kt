@@ -304,6 +304,13 @@ interface ServerApi {
      */
     suspend fun takeOverConversation(conversationId: String, workspaceId: String)
 
+    /**
+     * Moves a conversation to the Spam box, with its contact's other
+     * conversations, or takes this one back out (`POST
+     * /api/conversations/spam` and `/not-spam`, the web inbox's own).
+     */
+    suspend fun setSpam(spam: Boolean, conversationId: String, workspaceId: String)
+
     suspend fun claim(conversationId: String, workspaceId: String)
 
     /** Has the assistant say something, in the operator's chosen voice. */

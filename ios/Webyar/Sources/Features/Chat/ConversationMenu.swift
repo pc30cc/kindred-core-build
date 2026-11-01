@@ -10,7 +10,8 @@ enum ConversationSheet: String, Identifiable {
 ///
 /// Everything an operator does to a conversation rather than in it: who owns
 /// it, what state it is in, how it is labelled, what the team should know
-/// about it, and — when the plan allows — asking the visitor onto a call.
+/// about it, asking the visitor onto a call when the plan allows, and
+/// marking it as spam.
 ///
 /// The call entries are gated the same way `SidebarCallCard` gates its
 /// buttons, down to reading "not explicitly false" as allowed. A button the
@@ -28,6 +29,9 @@ struct ConversationMenu: View {
     /// conversation already in human hands is an action with nothing to do.
     var isAIManaged: Bool = false
     var onTakeOver: () -> Void = {}
+    /// Called with what the conversation should become: `true` to mark it as
+    /// spam, `false` to take it back out.
+    var onSpam: (Bool) -> Void = { _ in }
 
     var body: some View {
         Menu {
@@ -117,6 +121,25 @@ struct ConversationMenu: View {
                         } label: {
                             Label(Str.videoCall(language), systemImage: CallChannel.video.icon)
                         }
+                    }
+                }
+            }
+
+            // Last and on its own, as on the web: the operator's way to
+            // report a sender. Red only while it marks; taking a conversation
+            // back out of Spam is the safe direction.
+            Section {
+                if model.isSpam {
+                    Button {
+                        onSpam(false)
+                    } label: {
+                        Label(Str.notSpam(language), systemImage: "tray.and.arrow.up")
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        onSpam(true)
+                    } label: {
+                        Label(Str.markSpam(language), systemImage: "exclamationmark.octagon")
                     }
                 }
             }

@@ -119,4 +119,22 @@ final class LaunchResumeTests: XCTestCase {
         await appState.restore()
         XCTAssertEqual(appState.session, .signedOut)
     }
+
+    /// Signing out happens on Settings, so the tab it leaves behind is
+    /// Settings. The next sign-in must open on the Inbox, not there.
+    func testASignInOpensOnTheInbox() async {
+        SessionCache.save(saved)
+        let api = LaunchAPI()
+        await api.set(.unauthorized)
+        let appState = AppState(api: api)
+        await appState.resumeSavedSession()
+        appState.selectedTab = .settings
+        await appState.restore()
+        XCTAssertEqual(appState.session, .signedOut)
+        XCTAssertEqual(appState.selectedTab, .inbox, "a session that ends leaves the Inbox for the next one")
+
+        appState.selectedTab = .settings
+        await appState.signedIn(saved)
+        XCTAssertEqual(appState.selectedTab, .inbox)
+    }
 }

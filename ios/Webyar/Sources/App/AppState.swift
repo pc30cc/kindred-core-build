@@ -109,7 +109,8 @@ final class AppState {
     /// switch, which rebuilds the shell from nothing — see `WebyarApp`. Kept
     /// here it survives that, so changing the language leaves the operator
     /// looking at the screen they changed it on. It is not persisted: where
-    /// you were last time you had the app open is not a preference.
+    /// you were last time you had the app open is not a preference. Signing
+    /// in or out puts it back on the Inbox.
     var selectedTab: AppTab = .inbox
 
     /// Set when the operator's session turns out to be void, so the login
@@ -328,6 +329,10 @@ final class AppState {
 
     func signedIn(_ user: User) async {
         sessionEndedMessage = nil
+        // A sign-in opens on the Inbox. The tab was the last one shown, and
+        // the last one shown before signing out is Settings, where the
+        // sign-out and the account deletion are.
+        selectedTab = .inbox
         session = .signedIn(user)
         SessionCache.save(user)
         adoptSnapshot(for: user.id)
@@ -394,6 +399,9 @@ final class AppState {
         // Whoever signs in next agrees to "Send with AI" for themselves.
         AIConsent.reset()
         session = .signedOut
+        // Whoever signs in next starts on the Inbox, not on the Settings
+        // screen this session was left from.
+        selectedTab = .inbox
         workspaces = []
         selectedWorkspace = nil
         planRefresh?.cancel()

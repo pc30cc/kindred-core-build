@@ -157,6 +157,13 @@ struct ChatView: View {
                         isAIManaged: AIState.resolve(conversation) == .aiManaged && !actions.didTakeOver,
                         onTakeOver: {
                             Task { await actions.takeOver(appState: appState) }
+                        },
+                        onSpam: { spam in
+                            if spam {
+                                actions.confirmsSpam = true
+                            } else {
+                                Task { await actions.setSpam(false, appState: appState) }
+                            }
                         }
                     )
                 }
@@ -273,6 +280,26 @@ struct ChatView: View {
                 isPresented: $actions.takeOverConfirmed
             ) {
                 Button(Str.ok(language), role: .cancel) {}
+            }
+            .confirmationDialog(
+                Str.markSpamQuestion(language),
+                isPresented: $actions.confirmsSpam,
+                titleVisibility: .visible
+            ) {
+                Button(Str.markSpam(language), role: .destructive) {
+                    Task { await actions.setSpam(true, appState: appState) }
+                }
+                Button(Str.cancel(language), role: .cancel) {}
+            } message: {
+                Text(Str.markSpamExplained(language))
+            }
+            .alert(
+                actions.isSpam ? Str.markedSpam(language) : Str.removedFromSpam(language),
+                isPresented: $actions.spamChanged
+            ) {
+                Button(Str.ok(language), role: .cancel) {}
+            } message: {
+                if actions.isSpam { Text(Str.markedSpamBody(language)) }
             }
             .alert(
                 Str.inviteFailed(language),

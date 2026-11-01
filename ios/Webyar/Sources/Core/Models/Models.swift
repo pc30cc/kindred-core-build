@@ -68,10 +68,15 @@ struct Workspace: Codable, Identifiable, Hashable, Sendable {
     /// pasted or a signed link into our own storage. Absent for a workspace
     /// that never set one, which is most of them on the first day.
     let logoURL: String?
+    /// The website the workspace serves (`workspace_domains`, the verified
+    /// primary first), shown under its name in Settings. Absent for a
+    /// workspace with no domain, and from a server older than the field.
+    var websiteDomain: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, name, slug
         case logoURL = "logo_url"
+        case websiteDomain = "website_domain"
     }
 }
 
@@ -218,6 +223,9 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     /// Only the keys the app reads are decoded; the rest of the object is
     /// server bookkeeping.
     let metadata: [String: JSONValue]?
+    /// Marked as spam: it sits in the Spam box and the AI does not answer it.
+    /// Last and defaulted, so a conversation built in code need not say.
+    var isSpam: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -232,6 +240,7 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         case unreadCount = "unread_count"
         case aiState = "ai_state"
         case metadata
+        case isSpam = "is_spam"
     }
 
     var hasUnread: Bool { (unreadCount ?? 0) > 0 }

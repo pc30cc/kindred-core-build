@@ -132,7 +132,7 @@ class SampleApi : ServerApi {
      * accounts have one; the interesting one is the account that has two.
      */
     override suspend fun workspaces(): List<Workspace> = listOf(
-        Workspace(id = "ws-1", name = "Sample Workspace", slug = "sample"),
+        Workspace(id = "ws-1", name = "Sample Workspace", slug = "sample", websiteDomain = "sample-shop.example"),
         Workspace(id = "ws-2", name = "Second Workspace", slug = "second"),
     )
 
@@ -270,6 +270,7 @@ class SampleApi : ServerApi {
     // every screenshot would then depend on the order the shots were taken in.
 
     override suspend fun takeOverConversation(conversationId: String, workspaceId: String) {}
+    override suspend fun setSpam(spam: Boolean, conversationId: String, workspaceId: String) {}
     override suspend fun claim(conversationId: String, workspaceId: String) {}
     override suspend fun aiSayNow(conversationId: String, body: String, voice: SayNowVoice) {}
 

@@ -63,6 +63,11 @@ const DEFAULT_DISPLAY_NAMES: Record<string, Record<string, string>> = {
     fa: 'زیبال (تست)',
     tr: 'Zibal (test)',
   },
+  apirone: {
+    en: 'Crypto (USDT on TRON)',
+    fa: 'پرداخت با تتر (ترون)',
+    tr: 'Kripto (TRON üzerinde USDT)',
+  },
 };
 
 function hasDisplayName(name: unknown): boolean {

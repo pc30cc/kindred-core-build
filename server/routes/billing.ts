@@ -22,8 +22,9 @@ import type { WebhookEvent } from '../services/billing/types.js';
 import { serviceClientFor } from '../lib/serviceClient.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { editionErrorResponse, getBillingRegion } from '../services/billing/edition.js';
+import { editionErrorResponse, getBillingRegion, getPlatformEdition, isProviderAllowedInEdition } from '../services/billing/edition.js';
 import {
+  LOOKUP_WEBHOOK_PROVIDERS,
   findAccountPaymentByProviderPayment,
   handleAccountPaymentWebhook,
   readAccountPayment,
@@ -100,8 +101,9 @@ billingRouter.get('/plans', async (req, res) => {
 //
 // Public by necessity (external providers call it), but fail-closed:
 // only providers whose `verifyWebhook` performs a cryptographic signature
-// check over the exact raw body are accepted. Everything else is rejected
-// without touching the database.
+// check over the exact raw body are accepted, and the lookup-verified ones
+// (LOOKUP_VERIFIED_WEBHOOK_PROVIDERS, below), whose callback credits nothing
+// by itself. Everything else is rejected without touching the database.
 //
 // What a verified event can act on (simple billing): a payment or refund of
 // a workspace account payment, and a saved card's Paddle subscription. Billing
@@ -121,6 +123,18 @@ export const billingWebhookRouter = Router();
  * sandbox has its own endpoint (`/paddle_sandbox`) and its own secret.
  */
 const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'paddle_sandbox', 'lemon_squeezy', 'paytr', 'paypal']);
+
+/**
+ * Providers whose callback is NOT signed but is only a nudge: Apirone posts
+ * {account, invoice, status}. Its `verifyWebhook` refuses another account
+ * and looks the invoice up at the provider (the event carries no amount);
+ * the account payment it names (its linkback) is then credited only when
+ * that invoice is the payment's stored reference, and only from a second
+ * lookup of the stored reference (handleAccountPaymentWebhook,
+ * account/index.ts LOOKUP_WEBHOOK_PROVIDERS), exactly as the customer's
+ * return is.
+ */
+const LOOKUP_VERIFIED_WEBHOOK_PROVIDERS: ReadonlySet<string> = LOOKUP_WEBHOOK_PROVIDERS;
 
 /** Gateways whose subscriptions can be a saved card's (simple billing, phase 3b). */
 const CARD_PROVIDERS = new Set(['paddle', 'paddle_sandbox']);
@@ -289,7 +303,21 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   const provider = getProvider(providerName);
   if (!provider) return res.status(404).json({ error: 'Unknown provider' });
 
-  if (!SIGNED_WEBHOOK_PROVIDERS.has(providerName)) {
+  if (LOOKUP_VERIFIED_WEBHOOK_PROVIDERS.has(providerName)) {
+    // Apirone is the Iranian edition's only (shared/edition.ts): elsewhere it
+    // is unknown, before anything is read. An edition that cannot be read
+    // answers 5xx, so the provider sends it again.
+    let edition;
+    try {
+      edition = await getPlatformEdition(serverConfigOf(req));
+    } catch {
+      logWebhookRejection(providerName, 'edition_unavailable');
+      return res.status(503).json({ error: 'Webhook processing failed' });
+    }
+    if (!isProviderAllowedInEdition(providerName, edition)) return res.status(404).json({ error: 'Unknown provider' });
+  }
+
+  if (!SIGNED_WEBHOOK_PROVIDERS.has(providerName) && !LOOKUP_VERIFIED_WEBHOOK_PROVIDERS.has(providerName)) {
     // No signed webhook contract → callback payloads are not proof of payment.
     // These providers must go through the authenticated verify-callback route,
     // which calls the provider's server-to-server verify API.
@@ -343,7 +371,7 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   // Evaluate EVERY candidate: stopping at the first verifying config would
   // hide an ambiguous secret collision between two workspaces, and stopping at
   // the first workspace mismatch would drop a later, correct candidate.
-  const accepted: Array<{ event: WebhookEvent; workspaceId: string }> = [];
+  const accepted: Array<{ event: WebhookEvent; workspaceId: string; config: Record<string, unknown> }> = [];
   // A saved card's events (Paddle subscriptions, simple billing phase 3b) are
   // kept apart: they are routed below by our own card row or card checkout,
   // never by the workspace their copied custom_data names (P6).
@@ -381,11 +409,11 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
         sawMismatch = true;
         continue;
       }
-      accepted.push({ event, workspaceId: candidate.workspaceId });
+      accepted.push({ event, workspaceId: candidate.workspaceId, config: candidate.config });
       continue;
     }
     if (typeof event.workspaceId === 'string' && event.workspaceId) {
-      accepted.push({ event, workspaceId: event.workspaceId });
+      accepted.push({ event, workspaceId: event.workspaceId, config: candidate.config });
       continue;
     }
     let resolvedWorkspace: Awaited<ReturnType<typeof resolveEventWorkspace>>;
@@ -397,7 +425,7 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
       logWebhookRejection(providerName, 'intent_read_failed');
       return res.status(500).json({ error: 'Webhook processing failed' });
     }
-    if (resolvedWorkspace.workspaceId) accepted.push({ event, workspaceId: resolvedWorkspace.workspaceId });
+    if (resolvedWorkspace.workspaceId) accepted.push({ event, workspaceId: resolvedWorkspace.workspaceId, config: candidate.config });
     else if (resolvedWorkspace.foreignIntent) foreignEvent = event;
     else sawUnresolved = true;
   }
@@ -435,7 +463,7 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     return res.status(400).json({ error: 'Webhook not verified' });
   }
 
-  const { event, workspaceId } = accepted[0];
+  const { event, workspaceId, config: acceptedConfig } = accepted[0];
   event.workspaceId = workspaceId;
 
   // A stable provider event id is required for replay protection.
@@ -489,7 +517,13 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
       return acknowledge({ received: true, duplicate: true });
     }
     try {
-      await handleAccountPaymentWebhook(cfg, { providerName, workspaceId, event, payment: accountPayment });
+      await handleAccountPaymentWebhook(cfg, {
+        providerName,
+        workspaceId,
+        event,
+        payment: accountPayment,
+        providerConfig: { ...acceptedConfig, provider: providerName },
+      });
     } catch {
       await finalizeBillingWebhookEvent(url, key, accountClaim.eventRowId, 'failed').catch(() => {});
       logWebhookRejection(providerName, 'account_payment_processing_failed');

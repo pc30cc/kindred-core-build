@@ -289,6 +289,7 @@ const en = {
         amountHint: 'Between {{min}} and {{max}}.',
         adminTest: 'Test {{amount}} (Super Admin)',
         taxAtCheckout: 'Sales tax or VAT for your country, if any, is added on top at checkout.',
+        cryptoAtCheckout: 'Paid in USDT on the TRON network. The gateway\'s fee is added on top at checkout.',
         quick: 'Quick amounts',
         gateway: 'Payment method',
         noGateway: 'No payment method is available right now. Please try again later.',
@@ -303,6 +304,7 @@ const en = {
         checking: 'Confirming your payment…',
         succeeded: 'Payment received. {{amount}} was added to your balance.',
         pending: 'Your payment is being confirmed. Your balance updates as soon as it is.',
+        cryptoPending: 'Your crypto payment is being confirmed by the network. This can take a few minutes; your balance updates as soon as it is confirmed, and you can leave this page meanwhile.',
         failed: 'The payment was not completed. Nothing was charged to your balance.',
         receipt: 'View receipt',
         checkAgain: 'Check again',
@@ -313,6 +315,7 @@ const en = {
           upgrade: 'Payment received. Your plan is upgraded.',
         },
         purposeFailed: 'Payment received and {{amount}} was added to your balance, but the plan could not be changed as asked because it changed in the meantime. The money stays in your balance; choose again below.',
+        purposeShort: 'Your payment was added to your balance, but the balance did not cover the price, so the plan was not changed. Top up the difference and choose the plan again.',
       },
       profile: {
         title: 'Billing details',

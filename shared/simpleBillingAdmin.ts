@@ -83,8 +83,25 @@ export interface AdjustResult {
 
 // ─── Accounts list ─────────────────────────────────────────────────────────
 
-/** The currencies an account can have in each edition: Toman (IRR) in Iran; USD (Multi Region, Global) and TRY (Turkey) abroad. */
+/**
+ * The currencies an account can have in each edition: Toman (IRR) in Iran,
+ * and USD for a WebYar account paid with Apirone (a dashboard not in Persian;
+ * owner, 2026-11-01, temporary); USD (Multi Region, Global) and TRY (Turkey)
+ * abroad. VAT and AI credit packs stay IRR-only in Iran.
+ */
 export const ACCOUNT_CURRENCIES: Readonly<Record<Edition, readonly string[]>> = {
+  iran: ['IRR', 'USD'],
+  international: ['USD', 'TRY'],
+};
+
+/**
+ * The currencies Finance's revenue report (and the Accounts tab's liability
+ * cards) always shows, even with no money yet: each edition's own. WebYar's
+ * USD accounts (ACCOUNT_CURRENCIES) are not among them: their section
+ * appears once USD money exists (a payment, a ledger row or a balance;
+ * bucketRevenue adds every currency its rows carry).
+ */
+export const REVENUE_CURRENCIES: Readonly<Record<Edition, readonly string[]>> = {
   iran: ['IRR'],
   international: ['USD', 'TRY'],
 };

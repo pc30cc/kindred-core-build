@@ -26,6 +26,7 @@ import {
   accountErrorText,
   billingReturnOrigin,
   followCheckout,
+  isCryptoGateway,
   toDisplayAmount,
   toMinorAmount,
 } from './accountUi';
@@ -261,6 +262,10 @@ export default function TopupDialog({
 
           {charge && method === 'online' && isPaddleProvider(chosen?.provider_name ?? '') && (
             <p className="text-xs text-muted-foreground" data-paddle-tax-note="">{t('billing.account.topup.taxAtCheckout')}</p>
+          )}
+
+          {charge && method === 'online' && isCryptoGateway(chosen?.provider_name) && (
+            <p className="text-xs text-muted-foreground" data-crypto-fee-note="">{t('billing.account.topup.cryptoAtCheckout')}</p>
           )}
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

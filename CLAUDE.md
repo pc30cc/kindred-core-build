@@ -97,6 +97,15 @@ The default shows for everyone who has not picked a language in a switcher
 One rule, `shared/panelLanguages.ts`; details in
 `docs/operations/EDITIONS.md`, "The dashboard's languages".
 
+One exception, temporary (owner, 2026-11-01, for Apple's App Review; to be
+removed later): in WebYar an account that has not moved money follows the
+dashboard's language for its currency: Persian pays in Toman through the
+Iranian gateways as before, any other language in US dollars with Apirone
+(USDT on TRON, the plans' USD prices, the fee on the customer, what arrives
+is credited). Once money moved the currency stays. Apirone is refused in
+RESPOK. Migration 292 is applied by hand before the merge; setup and the way
+back: `docs/operations/APIRONE.md`.
+
 ## The knowledge base on the owner's Mac (owner, 2026-10-24)
 
 `~/Desktop/WebYar-RESPOK/knowledge-base` on `rass-MacBook-Pro-7.local` (inside

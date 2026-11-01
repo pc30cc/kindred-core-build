@@ -56,6 +56,7 @@ export default function PlanCard({
   workspaceId,
   slug,
   view,
+  locked = false,
   onChanged,
   onChoosePlan,
   onPayOnline,
@@ -64,13 +65,17 @@ export default function PlanCard({
   /** The workspace's address, for the return from Paddle after a card change. */
   slug: string;
   view: AccountView;
+  /** Nothing can be started meanwhile (the account currency is being changed). */
+  locked?: boolean;
   onChanged: () => void;
   /** Opens the plan picker, on a plan when given. */
   onChoosePlan: (preselect?: PlanPreselect) => void;
   onPayOnline: (request: PayOnlineRequest) => void;
 }) {
   const { t, locale } = useTranslation();
-  const [busy, setBusy] = useState<string | null>(null);
+  const [acting, setBusy] = useState<string | null>(null);
+  // Locked counts as busy: every action below waits.
+  const busy = acting ?? (locked ? 'locked' : null);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const plan = view.plan;

@@ -9,7 +9,12 @@
  * outcome, and cleans the address bar. A payment that saved a card for
  * automatic renewal (`card=setup`) then waits for the card to show; coming
  * back from changing the card in Paddle (`?card=updated`, or `paid` for a
- * failed renewal paid there) the page waits for Paddle's confirmation.
+ * failed renewal paid there) the page waits for Paddle's confirmation. A
+ * crypto payment (Apirone) waits for the network, minutes rather than seconds.
+ *
+ * Iranian edition: an account that has not moved money takes the currency of
+ * the panel's language (Persian: Toman, any other: dollars, paid in crypto)
+ * before the page shows it; once money moved the currency stays.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -29,7 +34,7 @@ import PayOnlineDialog, { type PayOnlineRequest } from './PayOnlineDialog';
 import BillingProfileCard from './BillingProfileCard';
 import AiCreditCard from './AiCreditCard';
 import CardTransfersCard from './CardTransfersCard';
-import { accountErrorText, planLabel, takeCardReturn, type CardBefore } from './accountUi';
+import { accountErrorText, isCryptoGateway, panelCurrencySwitch, planLabel, takeCardReturn, type CardBefore } from './accountUi';
 import { refreshEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { packLabel } from '../../../../../shared/aiPacks';
 
@@ -39,11 +44,20 @@ type PendingReturn = { paymentId: string; provider: string; params: Record<strin
 /** A payment that saved a card: the card is waited for (saving), shows (saved), or is still on its way (later). */
 type CardSetup = 'saving' | 'saved' | 'later';
 type Return =
-  | { phase: 'checking' }
+  | { phase: 'checking'; crypto?: boolean }
   | { phase: 'done'; outcome: VerifyOutcome; amount?: number; pending: PendingReturn; card?: CardSetup };
 type CardReturn = { kind: 'updated' | 'paid'; phase: 'checking' | 'done' | 'pending' };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** How often a return is checked again while it is pending (20 times): a crypto payment waits for the network. */
+const RECHECK_MS = 3000;
+const CRYPTO_RECHECK_MS = 15_000;
+
+/** The payment was credited, but the balance it made did not cover the purchase (a crypto payment that arrived short). */
+function shortOfPrice(result: Record<string, unknown> | null | undefined): boolean {
+  return typeof result?.error === 'string' && /insufficient|underpaid/i.test(result.error);
+}
 
 /** The change made in Paddle's overlay shows on the card the server sends now. */
 function cardChangeShows(kind: CardReturn['kind'], before: CardBefore | null, card: AccountView['card'] | undefined): boolean {
@@ -82,19 +96,72 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
     };
   }, []);
 
+  // Iranian edition: while the account can still change currency
+  // (view.currency_choice), it takes the one of the panel's language. A
+  // request in flight is shared by the reads waiting for it; a refusal is
+  // logged, never shown and never asked again this visit, so nothing loops;
+  // a switch that went through is forgotten, so a later mismatch (the
+  // language switched back, another member's switch) is asked again.
+  // Until the page shows the account in the currency it ends in, nothing
+  // can be paid (in the currency that is about to go).
+  const currencySwitches = useRef(new Map<string, Promise<boolean> | false>());
+  const switchesInFlight = useRef(0);
+  const [switchingCurrency, setSwitchingCurrency] = useState(false);
+  const followPanelLanguage = useCallback((v: AccountView): Promise<boolean> | null => {
+    const desired = panelCurrencySwitch(v, locale);
+    if (!desired) return null;
+    const key = `${workspaceId}:${v.currency}>${desired}`;
+    const known = currencySwitches.current.get(key);
+    if (known === false) return null;
+    if (known) return known;
+    const run = accountBillingApi.setCurrency(workspaceId, desired).then(
+      () => true,
+      (e: unknown) => {
+        console.warn(`[billing] the account currency stays ${v.currency} (not ${desired}):`, (e as { code?: unknown } | null)?.code ?? e);
+        return false;
+      },
+    );
+    currencySwitches.current.set(key, run);
+    // Attached before any reader awaits it, so the map is current when they go on.
+    void run.then((ok) => {
+      if (ok) currencySwitches.current.delete(key);
+      else currencySwitches.current.set(key, false);
+    });
+    return run;
+  }, [workspaceId, locale]);
+
   const load = useCallback(async () => {
     setError(null);
+    let holding = false;
     try {
       const [v, l] = await Promise.all([
         accountBillingApi.view(workspaceId),
         accountBillingApi.ledger(workspaceId, page, PAGE_SIZE),
       ]);
-      setView(v);
+      let shown = v;
+      // The page opens in the currency the account ends in (the AI card too).
+      const switching = followPanelLanguage(v);
+      if (switching) {
+        holding = true;
+        switchesInFlight.current += 1;
+        setSwitchingCurrency(true);
+        if (await switching) {
+          shown = await accountBillingApi.view(workspaceId);
+          setAiVersion((n) => n + 1);
+        }
+      }
+      setView(shown);
       setLedger(l);
     } catch (e) {
       setError(accountErrorText(e, t));
+    } finally {
+      // Released with the view it was held for (same render), never before.
+      if (holding) {
+        switchesInFlight.current -= 1;
+        if (mounted.current && switchesInFlight.current === 0) setSwitchingCurrency(false);
+      }
     }
-  }, [workspaceId, page, t]);
+  }, [workspaceId, page, t, followPanelLanguage]);
 
   useEffect(() => {
     void load();
@@ -113,14 +180,16 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   // finish (network, a deploy) can be repeated — by the "check again" button
   // or a reload — without them. The server confirms with the gateway (or
   // from the confirmation it already recorded); while the payment is still
-  // pending the page asks again, every few seconds, for about a minute.
+  // pending the page asks again, every few seconds, for about a minute (a
+  // crypto payment, which the network confirms, every 15 s for five minutes).
   const stashKey = `billing:account-return:${workspaceId}`;
   const confirmReturn = useCallback(
     async (pending: PendingReturn) => {
-      setRet({ phase: 'checking' });
+      const crypto = isCryptoGateway(pending.provider);
+      setRet({ phase: 'checking', crypto });
       let outcome: VerifyOutcome = { status: 'pending' };
       for (let i = 0; i < 20 && mounted.current; i += 1) {
-        if (i > 0) await new Promise((r) => setTimeout(r, 3000));
+        if (i > 0) await wait(crypto ? CRYPTO_RECHECK_MS : RECHECK_MS);
         try {
           // Ask the server to confirm on the first tries and every fifth one;
           // in between, read the payment (a card's webhook may settle it).
@@ -293,7 +362,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{t('billing.account.balance.note')}</p>
             {view.can_manage && (
-              <Button onClick={() => setTopup({ open: true, amountMinor: null })}>
+              <Button disabled={switchingCurrency} onClick={() => setTopup({ open: true, amountMinor: null })}>
                 <Plus className="me-2 h-4 w-4" aria-hidden />
                 {t('billing.account.balance.topup')}
               </Button>
@@ -305,6 +374,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           workspaceId={workspaceId}
           slug={slug}
           view={view}
+          locked={switchingCurrency}
           onChanged={changed}
           onChoosePlan={(preselect) => setPicker({ open: true, preselect: preselect ?? null })}
           onPayOnline={setPayOnline}
@@ -319,6 +389,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         workspaceId={workspaceId}
         view={view}
         version={aiVersion}
+        locked={switchingCurrency}
         onChanged={changed}
         onPayOnline={setPayOnline}
       />
@@ -448,10 +519,11 @@ function ReturnBanner({ ret, currency, slug, onDismiss, onCheckAgain }: {
 }) {
   const { t, locale } = useTranslation();
   if (ret.phase === 'checking') {
+    // A crypto payment takes minutes: said calmly from the start.
     return (
-      <Alert role="status">
+      <Alert role="status" data-testid="payment-checking">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        <AlertDescription>{t('billing.account.result.checking')}</AlertDescription>
+        <AlertDescription>{t(ret.crypto ? 'billing.account.result.cryptoPending' : 'billing.account.result.checking')}</AlertDescription>
       </Alert>
     );
   }
@@ -470,11 +542,14 @@ function ReturnBanner({ ret, currency, slug, onDismiss, onCheckAgain }: {
           : t('billing.account.ai.return.done')
       : outcome.purpose
         ? purposeFailed
-          ? t('billing.account.result.purposeFailed', { amount: money(ret.amount ?? 0, locale, currency) })
+          ? shortOfPrice(outcome.purposeResult)
+            // Credited, but short of the price (a crypto payment that arrived short).
+            ? t('billing.account.result.purposeShort')
+            : t('billing.account.result.purposeFailed', { amount: money(ret.amount ?? 0, locale, currency) })
           : t(`billing.account.result.purposeDone.${outcome.purpose === 'renewal' ? 'renewal' : outcome.purpose === 'upgrade' ? 'upgrade' : 'plan'}` as TranslationKey)
         : t('billing.account.result.succeeded', { amount: money(ret.amount ?? 0, locale, currency) })
       : outcome.status === 'pending'
-        ? t('billing.account.result.pending')
+        ? t(isCryptoGateway(ret.pending.provider) ? 'billing.account.result.cryptoPending' : 'billing.account.result.pending')
         : t('billing.account.result.failed');
   return (
     <Alert role="status" variant={outcome.status === 'failed' ? 'destructive' : 'default'} data-testid="payment-result">

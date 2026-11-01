@@ -151,10 +151,23 @@ export function isInternationalOnlyProvider(provider: unknown): boolean {
   return INTERNATIONAL_ONLY_SET.has(vendorKey(provider));
 }
 
+/**
+ * Payment gateways of the Iranian edition only that are NOT Iranian gateways:
+ * Apirone (USDT on TRON, charged in US dollars), which a WebYar workspace
+ * whose dashboard is not in Persian pays with (owner, 2026-11-01: temporary,
+ * for Apple's App Review). Not an Iranian gateway (not IRR-only, not a bank
+ * checkout); the International edition never lists, resolves or charges it.
+ */
+export const IRAN_ONLY_PAYMENT_PROVIDERS = ['apirone'] as const;
+
+export function isIranOnlyPaymentProvider(provider: unknown): boolean {
+  return (IRAN_ONLY_PAYMENT_PROVIDERS as readonly string[]).includes(vendorKey(provider));
+}
+
 /** May this provider (payment gateway or other vendor) be listed or used in this edition? */
 export function isProviderAllowedInEdition(provider: unknown, edition: Edition): boolean {
   if (EDITION_PROFILE[edition].allowsIranianProviders) return !isInternationalOnlyProvider(provider);
-  return !isIranianVendor(provider);
+  return !isIranianVendor(provider) && !isIranOnlyPaymentProvider(provider);
 }
 
 // ─── Currencies ────────────────────────────────────────────────────────────

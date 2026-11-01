@@ -3,7 +3,7 @@
  * money; it only turns server values into labels.
  */
 import type { TranslationKey } from '@/i18n';
-import type { CardView } from '@/lib/accountBillingApi';
+import type { AccountView, CardView } from '@/lib/accountBillingApi';
 import { formatDateTime } from '@/lib/date';
 import { planPriceDecimals, planPriceFactor, planPriceToDisplay } from '@/lib/planPrice';
 
@@ -72,6 +72,29 @@ export function toMinorAmount(display: number, currency: string): number | null 
   const factor = planPriceFactor(currency);
   const scaled = Math.round(display * 10 ** decimals) / 10 ** decimals;
   return Math.round(scaled * factor);
+}
+
+/**
+ * Iranian edition: the currency the panel's language asks for (Persian: IRR,
+ * any other: USD), when the account can still change to it; else null. The
+ * dashboard's own language decides, never a visitor's or a content language.
+ */
+export function panelCurrencySwitch(
+  view: Pick<AccountView, 'currency' | 'can_manage' | 'currency_choice'>,
+  panelLocale: string,
+): string | null {
+  const choice = view.currency_choice;
+  if (!view.can_manage || !choice?.switchable || !Array.isArray(choice.options)) return null;
+  const desired = panelLocale === 'fa' ? 'IRR' : 'USD';
+  if ((view.currency || '').toUpperCase() === desired) return null;
+  return choice.options.some((c) => String(c).toUpperCase() === desired) ? desired : null;
+}
+
+/** Gateways paid in crypto: the network confirms the payment minutes after the customer is back. */
+const CRYPTO_GATEWAYS: ReadonlySet<string> = new Set(['apirone']);
+
+export function isCryptoGateway(provider: string | null | undefined): boolean {
+  return CRYPTO_GATEWAYS.has((provider ?? '').trim().toLowerCase());
 }
 
 /** The label of a gateway in this locale. */

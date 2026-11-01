@@ -110,6 +110,10 @@ function FieldInput({
   return (
     <Input
       type={field.type === 'number' ? 'number' : 'text'}
+      // Any decimal (a fee of 1.5 %, a temperature of 0.7): the browser's
+      // default step of 1 would refuse to submit the form; the server checks
+      // the value.
+      step={field.type === 'number' ? 'any' : undefined}
       dir={field.type === 'url' ? 'ltr' : undefined}
       placeholder={field.placeholder}
       value={value || ''}

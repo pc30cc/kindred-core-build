@@ -14,6 +14,12 @@ export interface CheckoutRequest {
   /** ISO 4217 code of the price being charged (`metadata.amount` is in its minor units). */
   currency: string;
   callbackUrl: string;
+  /**
+   * The server-to-server notification URL of this provider
+   * (`<public API origin>/api/billing/webhook/<provider>`), for a gateway
+   * whose invoice carries one (Apirone's `callback-url`). Others ignore it.
+   */
+  webhookUrl?: string;
   customerEmail?: string;
   customerName?: string;
   /**
@@ -70,6 +76,13 @@ export interface PaymentVerification {
    * customer may still complete the payment, so nothing may be failed yet.
    */
   status?: string;
+  /**
+   * `amount` is the gateway's FINAL received amount, which may differ from
+   * the invoice (a crypto payment: the customer sent less or more). Only the
+   * gateways in account/index.ts RECEIVED_AMOUNT_PROVIDERS (Apirone) may
+   * credit it instead of the payment's amount.
+   */
+  receivedFinal?: boolean;
 }
 
 /**

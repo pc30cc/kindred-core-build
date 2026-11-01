@@ -23,6 +23,7 @@ import { isPaddleProvider, isTestPaymentProvider } from '../../../../shared/test
 import { vatPercentFor } from '../../../../shared/simpleBilling.js';
 import {
   ACCOUNT_CURRENCIES,
+  REVENUE_CURRENCIES,
   bucketRevenue,
   localDayOf,
   revenueCalendarOf,
@@ -373,7 +374,7 @@ export async function revenueReport(
     days: dayRows,
     ledgerDays: ledgerRows,
     liability,
-    currencies: ACCOUNT_CURRENCIES[region.edition],
+    currencies: REVENUE_CURRENCIES[region.edition],
   });
 }
 

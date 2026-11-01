@@ -135,6 +135,22 @@ export interface AccountView {
   card_providers: string[];
   /** Iranian edition: the bank account for a card-to-card top-up, when the Super Admin turned it on. */
   card_transfer?: CardTransferAccount | null;
+  /**
+   * Iranian edition, for a member who manages billing, while both Toman and
+   * dollars can be paid: the currencies the account may take. Null elsewhere.
+   */
+  currency_choice?: CurrencyChoice | null;
+}
+
+/**
+ * The account currency follows the panel's language (Persian: IRR through
+ * the Iranian gateways; any other: USD through the crypto gateway) until
+ * money moves; then it stays (PUT …/currency).
+ */
+export interface CurrencyChoice {
+  options: string[];
+  /** No money moved and no payment pending: the currency can still change. */
+  switchable: boolean;
 }
 
 /** The bank account a card-to-card top-up goes to (shared/cardTransfer.ts). */
@@ -432,6 +448,15 @@ export const accountBillingApi = {
     request<LedgerPage>(`${base(workspaceId)}/ledger?page=${page}&pageSize=${pageSize}`),
   receipt: (workspaceId: string, ledgerId: string) =>
     request<{ receipt: LedgerEntry }>(`${base(workspaceId)}/receipts/${encodeURIComponent(ledgerId)}`),
+  /**
+   * Sets the account currency while it can still change (view.currency_choice);
+   * 409 CURRENCY_LOCKED, CURRENCY_PAYMENT_PENDING or CURRENCY_NOT_AVAILABLE otherwise.
+   */
+  setCurrency: (workspaceId: string, currency: string) =>
+    request<Record<string, unknown>>(`${base(workspaceId)}/currency`, {
+      method: 'PUT',
+      body: JSON.stringify({ currency }),
+    }),
   saveProfile: (workspaceId: string, profile: BillingProfile) =>
     request<{ billing_profile: BillingProfile }>(`${base(workspaceId)}/profile`, {
       method: 'PUT',

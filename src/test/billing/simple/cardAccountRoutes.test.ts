@@ -248,7 +248,7 @@ describe('GET /account: the card part of the view', () => {
     expect(h.card.cardView).not.toHaveBeenCalled();
     expect(h.card.cardAvailability).not.toHaveBeenCalled();
     expect(Object.keys(res.json).sort()).toEqual(
-      ['edition', 'currency', 'balance_minor', 'paid_period', 'can_manage', 'gateways', 'card', 'card_available', 'card_providers', 'card_transfer'].sort(),
+      ['edition', 'currency', 'balance_minor', 'paid_period', 'can_manage', 'gateways', 'card', 'card_available', 'card_providers', 'card_transfer', 'currency_choice'].sort(),
     );
   });
 

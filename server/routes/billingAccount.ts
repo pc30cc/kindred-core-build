@@ -2,6 +2,9 @@
 // SIMPLE BILLING — the workspace's account (docs/billing/SIMPLE_BILLING.md).
 //
 //   GET  /api/billing/account/:ws                         balance, plan, VAT, gateways
+//                                                         (Iran: currency_choice, IRR or USD)
+//   PUT  /api/billing/account/:ws/currency                the account's currency while it is
+//                                                         open (Iran only: IRR, or USD with Apirone)
 //   PUT  /api/billing/account/:ws/profile                 billing profile on receipts
 //   GET  /api/billing/account/:ws/ledger                  history
 //   GET  /api/billing/account/:ws/receipts/:ledgerId      one receipt
@@ -92,6 +95,12 @@ import {
   type CardView,
 } from '../services/billing/account/card.js';
 import { aiPackNeed } from '../services/billing/account/aiPacks.js';
+import {
+  chooseAccountCurrency,
+  currencyChoiceFor,
+  mayChooseAccountCurrency,
+  type CurrencyChoice,
+} from '../services/billing/account/currencyChoice.js';
 import {
   cancelCardTransfer,
   cardTransferForAccount,
@@ -225,6 +234,15 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
         return null;
       })
       : null;
+    // Iranian edition: Toman or US dollars (Apirone), after the dashboard's
+    // language, while the account is open (currencyChoice.ts). A failed read
+    // only hides the choice.
+    const currencyChoice: CurrencyChoice | null = canManage(auth) && view.edition === 'iran'
+      ? await currencyChoiceFor(cfg, req.params.workspaceId, auth, { currency: view.currency, listed: gateways.length }).catch((e) => {
+        console.warn('[billing-account] currency choice read failed:', e instanceof Error ? e.message : e);
+        return null;
+      })
+      : null;
     res.json({
       ...view,
       ...planState,
@@ -243,7 +261,38 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
           bank: cardTransfer.bank,
         }
         : null,
+      currency_choice: currencyChoice,
     });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ─── The account's currency (Iranian edition, migration 292) ──────────────
+
+const currencySchema = z.object({ currency: z.string().regex(/^[A-Za-z]{3}$/) }).strict();
+
+/**
+ * IRR or USD for a WebYar account that has not moved money: the browser asks
+ * for its dashboard language's currency (Persian: IRR; any other: USD while
+ * Apirone is listed). Managers only, as a checkout; a platform admin only
+ * with a role in the workspace (403 otherwise: browsing a customer never
+ * switches it). 400 CURRENCY_NOT_SUPPORTED outside the Iranian edition or
+ * for another currency; 409 CURRENCY_NOT_AVAILABLE (no USD gateway listed),
+ * CURRENCY_LOCKED (money moved), CURRENCY_PAYMENT_PENDING (a payment may
+ * still be credited). Answers { currency }.
+ */
+billingAccountRouter.put('/account/:workspaceId/currency', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = currencySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    const cfg = serverConfigOf(req);
+    if (!(await mayChooseAccountCurrency(cfg, req.params.workspaceId, auth))) {
+      return res.status(403).json({ error: 'NOT_A_WORKSPACE_MANAGER' });
+    }
+    res.json(await chooseAccountCurrency(cfg, req.params.workspaceId, parsed.data.currency, viewerOf(auth)));
   } catch (e) {
     fail(res, e);
   }
@@ -544,6 +593,8 @@ async function startAccountCheckout(
         interval: 'monthly',
         currency: input.currency,
         callbackUrl: gatewayCallbackUrl,
+        // The server-to-server notification URL (Apirone's callback-url; others ignore it).
+        webhookUrl: new URL(`/api/billing/webhook/${encodeURIComponent(resolved.provider.name)}`, apiOrigin).toString(),
         // Card gateways carry it in their signed custom metadata; the webhook
         // settles exactly this payment (billing.ts webhook route).
         intentId: payment.id,
@@ -1097,7 +1148,9 @@ billingAccountRouter.post('/account/:workspaceId/payments/:paymentId/verify', as
     });
     // An unpaid checkout past its window is ended, so it stops showing as
     // pending. A charge on a saved card has no checkout: Paddle may have
-    // taken it, so it is only ever resolved by looking it up (card.ts).
+    // taken it, so it is only ever resolved by looking it up (card.ts). An
+    // Apirone invoice is never lapsed here: Apirone ends it
+    // (isAccountPaymentLapsed, GATEWAY_ENDED_PROVIDERS).
     if (outcome.status === 'pending' && payment.status === 'pending' && !payment.verified_at
         && isCheckoutPayment(payment) && isAccountPaymentLapsed(payment)) {
       await expireAccountPayment(cfg, payment, resolved.config);

@@ -291,6 +291,7 @@ const tr: TranslationKeys = {
         amountHint: '{{min}} ile {{max}} arasında.',
         adminTest: 'Test {{amount}} (Süper Yönetici)',
         taxAtCheckout: 'Ülkenizin satış vergisi veya KDV’si varsa ödeme sırasında bu tutara eklenir.',
+        cryptoAtCheckout: 'TRON ağında USDT ile ödenir. Ödeme geçidinin ücreti ödeme sırasında bu tutara eklenir.',
         quick: 'Hızlı tutarlar',
         gateway: 'Ödeme yöntemi',
         noGateway: 'Şu anda kullanılabilir bir ödeme yöntemi yok. Lütfen daha sonra tekrar deneyin.',
@@ -305,6 +306,7 @@ const tr: TranslationKeys = {
         checking: 'Ödemeniz doğrulanıyor…',
         succeeded: 'Ödeme alındı. Bakiyenize {{amount}} eklendi.',
         pending: 'Ödemeniz doğrulanıyor. Doğrulanır doğrulanmaz bakiyeniz güncellenecek.',
+        cryptoPending: 'Kripto ödemeniz ağ tarafından onaylanıyor. Bu birkaç dakika sürebilir; onaylanır onaylanmaz bakiyeniz güncellenir, bu arada sayfadan ayrılabilirsiniz.',
         failed: 'Ödeme tamamlanmadı. Bakiyenizde hiçbir değişiklik olmadı.',
         receipt: 'Makbuzu görüntüle',
         checkAgain: 'Tekrar kontrol et',
@@ -315,6 +317,7 @@ const tr: TranslationKeys = {
           upgrade: 'Ödeme alındı. Planınız yükseltildi.',
         },
         purposeFailed: 'Ödeme alındı ve bakiyenize {{amount}} eklendi, ancak plan bu arada değiştiği için istenen değişiklik yapılamadı. Tutar bakiyenizde kalır; aşağıdan yeniden seçin.',
+        purposeShort: 'Ödemeniz bakiyenize eklendi, ancak bakiye fiyatı karşılamadığı için plan değiştirilmedi. Aradaki farkı yükleyip planı yeniden seçin.',
       },
       profile: {
         title: 'Fatura bilgileri',

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi, type RoutingRule, type RoutingTrigger, type RoutingAction } from '@/lib/ai-agent-api';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,21 +19,24 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { Route as RouteIcon, Plus, Pencil, Trash2, Loader2, ArrowRight } from 'lucide-react';
 
+type Translate = ReturnType<typeof useTranslation>['t'];
+
 // Master label lookup for ALL 8 trigger types — used everywhere a persisted
 // rule's trigger_type needs a human-readable label, including legacy rows
 // that use a trigger type no longer offered for new rules (see
 // UNSUPPORTED_NEW_TRIGGERS below). business_hours was wired by Follow-up 9C;
 // low_confidence/no_answer were wired by Follow-up 9E.3 (post-strategy
 // Routing) — none of the 6 live/wired triggers carry `unavailable` anymore.
-const TRIGGERS: { value: RoutingTrigger; label: string; unavailable?: boolean }[] = [
-  { value: 'human_request', label: 'Visitor asks for a human' },
-  { value: 'no_answer', label: 'AI cannot answer' },
-  { value: 'low_confidence', label: 'AI confidence is low' },
-  { value: 'topic_detected', label: 'A specific topic is detected' },
-  { value: 'business_hours', label: 'Outside business hours' },
-  { value: 'language', label: 'Visitor language matches' },
-  { value: 'vip_customer', label: 'VIP customer' },
-  { value: 'plan_limit', label: 'AI plan limit reached' },
+// The label is a translation key (aiAgent.routing.triggers), read at render.
+const TRIGGERS: { value: RoutingTrigger; labelKey: TranslationKey; unavailable?: boolean }[] = [
+  { value: 'human_request', labelKey: 'aiAgent.routing.triggers.human_request' },
+  { value: 'no_answer', labelKey: 'aiAgent.routing.triggers.no_answer' },
+  { value: 'low_confidence', labelKey: 'aiAgent.routing.triggers.low_confidence' },
+  { value: 'topic_detected', labelKey: 'aiAgent.routing.triggers.topic_detected' },
+  { value: 'business_hours', labelKey: 'aiAgent.routing.triggers.business_hours' },
+  { value: 'language', labelKey: 'aiAgent.routing.triggers.language' },
+  { value: 'vip_customer', labelKey: 'aiAgent.routing.triggers.vip_customer' },
+  { value: 'plan_limit', labelKey: 'aiAgent.routing.triggers.plan_limit' },
 ];
 // Trigger types conclusively dead in the live engine with no data model to
 // ever back them (plan_limit reads a field the answer strategy never
@@ -40,14 +45,32 @@ const TRIGGERS: { value: RoutingTrigger; label: string; unavailable?: boolean }[
 // constraint, API zod enum, and existing persisted rows are untouched.
 const UNSUPPORTED_NEW_TRIGGERS: RoutingTrigger[] = ['plan_limit', 'vip_customer'];
 
-const ACTIONS: { value: RoutingAction; label: string; plannedOnly?: boolean }[] = [
-  { value: 'handoff', label: 'Hand off to a human (Main Inbox)' },
-  { value: 'assign_team', label: 'Assign to a team', plannedOnly: true },
-  { value: 'assign_operator', label: 'Assign to a specific operator', plannedOnly: true },
-  { value: 'keep_ai', label: 'Keep the AI handling it' },
-  { value: 'create_ticket', label: 'Create a ticket', plannedOnly: true },
-  { value: 'mark_priority', label: 'Mark as priority' },
+const ACTIONS: { value: RoutingAction; labelKey: TranslationKey; plannedOnly?: boolean }[] = [
+  { value: 'handoff', labelKey: 'aiAgent.routing.actions.handoff' },
+  { value: 'assign_team', labelKey: 'aiAgent.routing.actions.assign_team', plannedOnly: true },
+  { value: 'assign_operator', labelKey: 'aiAgent.routing.actions.assign_operator', plannedOnly: true },
+  { value: 'keep_ai', labelKey: 'aiAgent.routing.actions.keep_ai' },
+  { value: 'create_ticket', labelKey: 'aiAgent.routing.actions.create_ticket', plannedOnly: true },
+  { value: 'mark_priority', labelKey: 'aiAgent.routing.actions.mark_priority' },
 ];
+
+// A persisted rule may carry a type this client does not know; it is shown
+// as stored rather than hidden.
+function triggerLabel(t: Translate, type: string): string {
+  const def = TRIGGERS.find((x) => x.value === type);
+  return def ? t(def.labelKey) : type;
+}
+function actionLabel(t: Translate, type: string): string {
+  const def = ACTIONS.find((x) => x.value === type);
+  return def ? t(def.labelKey) : type;
+}
+
+// What a failed request says, shown under a toast's title. It comes from the
+// server or the network and is shown as it arrives.
+function errorMessage(e: unknown): string | undefined {
+  return (e as { message?: string } | null | undefined)?.message;
+}
+
 // no_answer -> keep_ai is not a valid runtime combination (there is no
 // usable grounding to "keep the AI handling" with — Follow-up 9D.1/9E.2).
 // UI disabling alone is not a full guarantee (the API/DB can still contain
@@ -62,14 +85,17 @@ function isActionIllegalForTrigger(action: RoutingAction, trigger: RoutingTrigge
 // both used action_type=assign_team, which is planned-only and never
 // executes. Removed outright rather than swapped to a different live
 // action, to avoid silently changing their product semantics.
-const DEFAULTS: Array<Omit<RoutingRule, 'id' | 'workspace_id' | 'created_at' | 'updated_at'>> = [
-  { name: 'Visitor asks for a human → handoff', description: 'Always escalate when a visitor asks for a person',
-    trigger_type: 'human_request', conditions_json: {}, action_type: 'handoff', action_json: { target: 'main_inbox' }, priority: 10, enabled: true },
+// The name and description are free text the owner can rename, so they are
+// written in the dashboard's language when the rule is added.
+type RoutingDraft = Omit<RoutingRule, 'id' | 'workspace_id' | 'created_at' | 'updated_at' | 'name' | 'description'>;
+const DEFAULTS: Array<{ nameKey: TranslationKey; descriptionKey: TranslationKey; rule: RoutingDraft }> = [
+  { nameKey: 'aiAgent.routing.defaults.humanRequestName', descriptionKey: 'aiAgent.routing.defaults.humanRequestDescription',
+    rule: { trigger_type: 'human_request', conditions_json: {}, action_type: 'handoff', action_json: { target: 'main_inbox' }, priority: 10, enabled: true } },
 ];
 
 export default function RoutingPage() {
-  const ws = useCurrentWorkspace() as any;
-  const wsId = ws?.id as string | undefined;
+  const { t } = useTranslation();
+  const wsId = useCurrentWorkspace()?.id;
   const [items, setItems] = useState<RoutingRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -81,48 +107,50 @@ export default function RoutingPage() {
     try {
       const r = await aiAgentApi.listRouting(wsId);
       setItems(r.items || []);
-    } catch (e: any) {
-      toast({ title: 'Failed to load routing', description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('aiAgent.routing.toast.loadFailed'), description: errorMessage(e), variant: 'destructive' });
     } finally { setLoading(false); }
   }
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [wsId]);
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the workspace changes
+  }, [wsId]);
 
   async function toggle(r: RoutingRule) {
     try { await aiAgentApi.updateRouting(r.id, { enabled: !r.enabled });
       setItems((it) => it.map((x) => x.id === r.id ? { ...x, enabled: !r.enabled } : x));
-    } catch (e: any) { toast({ title: 'Update failed', description: e?.message, variant: 'destructive' }); }
+    } catch (e) { toast({ title: t('aiAgent.routing.toast.updateFailed'), description: errorMessage(e), variant: 'destructive' }); }
   }
   async function remove(r: RoutingRule) {
-    if (!confirm(`Delete routing rule "${r.name}"?`)) return;
+    if (!confirm(t('aiAgent.routing.confirmDelete', { name: r.name }))) return;
     try { await aiAgentApi.deleteRouting(r.id); setItems((it) => it.filter((x) => x.id !== r.id));
-    } catch (e: any) { toast({ title: 'Delete failed', description: e?.message, variant: 'destructive' }); }
+    } catch (e) { toast({ title: t('aiAgent.routing.toast.deleteFailed'), description: errorMessage(e), variant: 'destructive' }); }
   }
   async function seed() {
     if (!wsId) return;
     try {
-      for (const d of DEFAULTS) await aiAgentApi.createRouting({ workspaceId: wsId, ...d });
-      toast({ title: 'Default routing rules added' }); refresh();
-    } catch (e: any) { toast({ title: 'Seeding failed', description: e?.message, variant: 'destructive' }); }
+      for (const d of DEFAULTS) {
+        await aiAgentApi.createRouting({ workspaceId: wsId, name: t(d.nameKey), description: t(d.descriptionKey), ...d.rule });
+      }
+      toast({ title: t('aiAgent.routing.toast.seeded') }); refresh();
+    } catch (e) { toast({ title: t('aiAgent.routing.toast.seedFailed'), description: errorMessage(e), variant: 'destructive' }); }
   }
 
   if (!wsId) return null;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-            <RouteIcon className="h-5 w-5 text-primary" /> Routing
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">
-            Decide when the AI should answer, when to hand off, and which team or operator
-            should receive the conversation.
-          </p>
-        </div>
-        <Button onClick={() => { setEditing(null); setOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1.5" /> Add rule
-        </Button>
-      </div>
+      <AiPageHeader
+        icon={RouteIcon}
+        accent="sky"
+        title={t('aiAgent.routing.title')}
+        subtitle={t('aiAgent.routing.subtitle')}
+        actions={(
+          <Button onClick={() => { setEditing(null); setOpen(true); }}>
+            <Plus className="h-4 w-4 me-1.5" /> {t('aiAgent.routing.addRule')}
+          </Button>
+        )}
+      />
 
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -133,15 +161,15 @@ export default function RoutingPage() {
               <RouteIcon className="h-7 w-7" />
             </div>
             <div>
-              <h2 className="text-lg font-medium">No routing rules yet</h2>
+              <h2 className="text-lg font-medium">{t('aiAgent.routing.empty.title')}</h2>
               <p className="text-sm text-muted-foreground max-w-md mx-auto mt-1">
-                Add rules to control when the AI hands off to humans. Start with safe defaults that match common cases.
+                {t('aiAgent.routing.empty.description')}
               </p>
             </div>
             <div className="flex justify-center gap-2 pt-2">
-              <Button variant="outline" onClick={seed}>Add default rules</Button>
+              <Button variant="outline" onClick={seed}>{t('aiAgent.routing.empty.addDefaults')}</Button>
               <Button onClick={() => { setEditing(null); setOpen(true); }}>
-                <Plus className="h-4 w-4 mr-1.5" /> Add a rule
+                <Plus className="h-4 w-4 me-1.5" /> {t('aiAgent.routing.empty.addRule')}
               </Button>
             </div>
           </CardContent>
@@ -154,21 +182,21 @@ export default function RoutingPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm">{r.name}</span>
-                    <span className="text-[11px] text-muted-foreground">priority {r.priority}</span>
+                    <span className="text-[11px] text-muted-foreground">{t('aiAgent.routing.card.priority', { priority: r.priority })}</span>
                   </div>
                   {r.description && <p className="text-xs text-muted-foreground mt-1">{r.description}</p>}
                   <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
-                    <Badge variant="outline">When: {TRIGGERS.find((t) => t.value === r.trigger_type)?.label || r.trigger_type}</Badge>
-                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    <Badge variant="outline" className="bg-primary/5">Do: {ACTIONS.find((a) => a.value === r.action_type)?.label || r.action_type}</Badge>
+                    <Badge variant="outline">{t('aiAgent.routing.card.trigger', { label: triggerLabel(t, r.trigger_type) })}</Badge>
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground rtl:rotate-180" />
+                    <Badge variant="outline" className="bg-primary/5">{t('aiAgent.routing.card.action', { label: actionLabel(t, r.action_type) })}</Badge>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Switch checked={r.enabled} onCheckedChange={() => toggle(r)} />
-                  <Button variant="ghost" size="icon" onClick={() => { setEditing(r); setOpen(true); }}>
+                  <Switch checked={r.enabled} onCheckedChange={() => toggle(r)} aria-label={t('aiAgent.routing.card.enabled')} />
+                  <Button variant="ghost" size="icon" aria-label={t('aiAgent.routing.card.edit')} onClick={() => { setEditing(r); setOpen(true); }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => remove(r)}>
+                  <Button variant="ghost" size="icon" aria-label={t('aiAgent.routing.card.delete')} onClick={() => remove(r)}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
@@ -261,6 +289,7 @@ function RoutingDialog({
   open: boolean; onOpenChange: (b: boolean) => void; editing: RoutingRule | null;
   workspaceId: string; onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     name: '', description: '',
     trigger_type: 'human_request' as RoutingTrigger,
@@ -284,7 +313,7 @@ function RoutingDialog({
   // option renderable so the Select can display the current value without
   // silently corrupting it (see Follow-up 9C).
   const triggerOptions = TRIGGERS.filter(
-    (t) => !UNSUPPORTED_NEW_TRIGGERS.includes(t.value) || t.value === editing?.trigger_type,
+    (opt) => !UNSUPPORTED_NEW_TRIGGERS.includes(opt.value) || opt.value === editing?.trigger_type,
   );
 
   const editingConditions = (editing?.conditions_json || {}) as Record<string, unknown>;
@@ -306,8 +335,8 @@ function RoutingDialog({
 
   useEffect(() => {
     if (editing) {
-      const c = (editing.conditions_json || {}) as any;
-      const a = (editing.action_json || {}) as any;
+      const c = (editing.conditions_json || {}) as Record<string, unknown>;
+      const a = (editing.action_json || {}) as Record<string, unknown>;
       const topicClass = editing.trigger_type === 'topic_detected' ? classifyTopicCondition(c) : null;
       setForm({
         name: editing.name, description: editing.description || '',
@@ -317,7 +346,7 @@ function RoutingDialog({
         // always read from c.topic — Follow-up 9F.1); a genuinely dormant
         // row (no unambiguous single value) leaves the field blank.
         topic: topicClass && topicClass.kind !== 'dormant' ? topicClass.value : '',
-        team_slug: a.team_slug || '',
+        team_slug: (a.team_slug as string) || '',
         confidenceBelow: typeof c.confidence_below === 'number' ? String(c.confidence_below) : '',
       });
     } else {
@@ -329,7 +358,7 @@ function RoutingDialog({
   }, [editing, open]);
 
   async function save() {
-    if (!form.name.trim()) { toast({ title: 'Name is required', variant: 'destructive' }); return; }
+    if (!form.name.trim()) { toast({ title: t('aiAgent.routing.toast.nameRequired'), variant: 'destructive' }); return; }
 
     const triggerChanged = editing ? form.trigger_type !== editing.trigger_type : false;
     const actionChanged = editing ? form.action_type !== editing.action_type : false;
@@ -346,7 +375,7 @@ function RoutingDialog({
     if (persistingCanonicalConfidence) {
       validatedConfidenceBelow = parseConfidenceBelowStrict(form.confidenceBelow);
       if (validatedConfidenceBelow === null) {
-        toast({ title: 'Invalid confidence threshold', description: 'Enter a number between 0 and 1 (e.g. 0.5).', variant: 'destructive' });
+        toast({ title: t('aiAgent.routing.toast.invalidConfidence'), description: t('aiAgent.routing.toast.invalidConfidenceHint'), variant: 'destructive' });
         return;
       }
     }
@@ -360,7 +389,7 @@ function RoutingDialog({
       form.trigger_type === 'topic_detected' && (!editing || triggerChanged || topicEdited);
     const trimmedTopic = form.topic.trim();
     if (persistingCanonicalTopic && trimmedTopic === '') {
-      toast({ title: 'Topic name is required', description: 'Enter the topic slug this rule should match (e.g. billing).', variant: 'destructive' });
+      toast({ title: t('aiAgent.routing.toast.topicRequired'), description: t('aiAgent.routing.toast.topicRequiredHint'), variant: 'destructive' });
       return;
     }
 
@@ -407,8 +436,8 @@ function RoutingDialog({
       if (editing) await aiAgentApi.updateRouting(editing.id, payload);
       else await aiAgentApi.createRouting({ workspaceId, ...payload });
       onSaved();
-    } catch (e: any) {
-      toast({ title: 'Save failed', description: e?.message, variant: 'destructive' });
+    } catch (e) {
+      toast({ title: t('aiAgent.routing.toast.saveFailed'), description: errorMessage(e), variant: 'destructive' });
     } finally { setSaving(false); }
   }
 
@@ -416,21 +445,21 @@ function RoutingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editing ? 'Edit routing rule' : 'New routing rule'}</DialogTitle>
+          <DialogTitle>{editing ? t('aiAgent.routing.dialog.editTitle') : t('aiAgent.routing.dialog.newTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="routing-rule-name">Name</Label>
+            <Label htmlFor="routing-rule-name">{t('aiAgent.routing.dialog.name')}</Label>
             <Input id="routing-rule-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </div>
           <div className="space-y-1.5">
-            <Label>Description</Label>
+            <Label>{t('aiAgent.routing.dialog.description')}</Label>
             <Textarea rows={2} value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>When (trigger)</Label>
+              <Label>{t('aiAgent.routing.dialog.trigger')}</Label>
               <Select value={form.trigger_type} onValueChange={(v) => {
                 const nextType = v as RoutingTrigger;
                 setForm((f) => ({
@@ -449,25 +478,30 @@ function RoutingDialog({
               }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {triggerOptions.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}{t.unavailable ? ' — not live yet' : ''}
+                  {triggerOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.unavailable
+                        ? t('aiAgent.routing.option.notLiveYet', { label: t(opt.labelKey) })
+                        : t(opt.labelKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Do (action)</Label>
+              <Label>{t('aiAgent.routing.dialog.action')}</Label>
               <Select value={form.action_type} onValueChange={(v) => setForm((f) => ({ ...f, action_type: v as RoutingAction }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ACTIONS.map((a) => {
                     const illegalForTrigger = isActionIllegalForTrigger(a.value, form.trigger_type);
                     const disabled = a.plannedOnly || illegalForTrigger;
+                    const label = t(a.labelKey);
                     return (
                       <SelectItem key={a.value} value={a.value} disabled={disabled}>
-                        {a.label}{a.plannedOnly ? ' — coming soon' : illegalForTrigger ? ' — not applicable' : ''}
+                        {a.plannedOnly
+                          ? t('aiAgent.routing.option.comingSoon', { label })
+                          : illegalForTrigger ? t('aiAgent.routing.option.notApplicable', { label }) : label}
                       </SelectItem>
                     );
                   })}
@@ -475,37 +509,37 @@ function RoutingDialog({
               </Select>
               {form.action_type === 'keep_ai' && (
                 <p className="text-xs text-muted-foreground">
-                  Has no effect when "Answer only from knowledge base" blocks an ungrounded reply.
+                  {t('aiAgent.routing.dialog.keepAiNote')}
                 </p>
               )}
             </div>
           </div>
           {form.trigger_type === 'topic_detected' && (
             <div className="space-y-1.5">
-              <Label htmlFor="routing-topic-name">Topic name</Label>
+              <Label htmlFor="routing-topic-name">{t('aiAgent.routing.dialog.topicName')}</Label>
               <Input id="routing-topic-name" required value={form.topic}
                 onChange={(e) => {
                   setForm((f) => ({ ...f, topic: e.target.value }));
                   setTopicEdited(true);
                 }}
-                placeholder="e.g. pricing, technical_issue" />
+                placeholder={t('aiAgent.routing.dialog.topicPlaceholder')} />
               <p className="text-xs text-muted-foreground">
-                Match only when the AI detects this exact topic slug.
+                {t('aiAgent.routing.dialog.topicHint')}
               </p>
               {showTopicLegacyNote && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   {topicEdited
-                    ? 'Saving will replace the legacy/unsupported filter with the topic value above.'
+                    ? t('aiAgent.routing.dialog.topicConvertPending')
                     : topicClassification?.kind === 'dormant'
-                      ? "This rule's topic filter is unsupported or ambiguous and is currently inactive. Enter a topic name above to convert it to the supported format — other edits will preserve the persisted filter as-is."
-                      : 'This rule uses a legacy topic filter. It still works for compatibility. Changing the Topic name will convert it to the current format.'}
+                      ? t('aiAgent.routing.dialog.topicDormant')
+                      : t('aiAgent.routing.dialog.topicLegacy')}
                 </p>
               )}
             </div>
           )}
           {form.trigger_type === 'low_confidence' && (
             <div className="space-y-1.5">
-              <Label htmlFor="routing-confidence-below">Confidence threshold</Label>
+              <Label htmlFor="routing-confidence-below">{t('aiAgent.routing.dialog.confidence')}</Label>
               <Input id="routing-confidence-below" type="number" min={0} max={1} step={0.05} required
                 value={form.confidenceBelow}
                 onChange={(e) => {
@@ -514,41 +548,41 @@ function RoutingDialog({
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                Match when the AI's confidence score falls below this value (0 = no confidence, 1 = fully confident).
+                {t('aiAgent.routing.dialog.confidenceHint')}
               </p>
               {showLegacyConversionNote && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   {confidenceBelowEdited
-                    ? 'Saving will replace the legacy condition with the confidence value above.'
-                    : 'This rule uses an older, unsupported condition and is currently inactive. Change the confidence threshold above to convert it to the supported format — other edits will preserve the legacy condition as-is.'}
+                    ? t('aiAgent.routing.dialog.confidenceConvertPending')
+                    : t('aiAgent.routing.dialog.confidenceLegacy')}
                 </p>
               )}
             </div>
           )}
           {form.action_type === 'assign_team' && (
             <div className="space-y-1.5">
-              <Label>Team slug (falls back to Main Inbox if missing)</Label>
+              <Label>{t('aiAgent.routing.dialog.teamSlug')}</Label>
               <Input value={form.team_slug} onChange={(e) => setForm((f) => ({ ...f, team_slug: e.target.value }))}
-                placeholder="e.g. sales, support" />
+                placeholder={t('aiAgent.routing.dialog.teamSlugPlaceholder')} />
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Priority</Label>
+              <Label>{t('aiAgent.routing.dialog.priority')}</Label>
               <Input type="number" min={0} max={10000} value={form.priority}
                 onChange={(e) => setForm((f) => ({ ...f, priority: parseInt(e.target.value || '100', 10) }))} />
             </div>
             <div className="flex items-end gap-2 pb-1">
               <Switch checked={form.enabled} onCheckedChange={(b) => setForm((f) => ({ ...f, enabled: b }))} />
-              <span className="text-sm">Enabled</span>
+              <span className="text-sm">{t('aiAgent.routing.dialog.enabled')}</span>
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>{t('aiAgent.routing.dialog.cancel')}</Button>
           <Button onClick={save} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-            {editing ? 'Save changes' : 'Create rule'}
+            {saving && <Loader2 className="h-4 w-4 me-1.5 animate-spin" />}
+            {editing ? t('aiAgent.routing.dialog.saveChanges') : t('aiAgent.routing.dialog.createRule')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -15,6 +15,23 @@ vi.mock('@/hooks/useWorkspace', () => ({
   useCurrentWorkspace: () => ({ id: 'ws-1' }),
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
+// The page reads its copy through t('aiAgent.routing.…'). Outside an
+// I18nProvider t() returns the key itself, so resolve keys against the real
+// English catalogue: every query below keeps pointing at what a user reads,
+// and a key missing from en.ts renders as its raw path and fails here.
+vi.mock('@/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/i18n')>();
+  const en = (await import('@/i18n/locales/en')).default as Record<string, unknown>;
+  const at = (path: string): unknown => path.split('.').reduce<unknown>(
+    (acc, part) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined), en);
+  const t = (key: string, params?: Record<string, string | number>) => {
+    const raw = at(key);
+    let value = typeof raw === 'string' ? raw : key;
+    for (const [k, v] of Object.entries(params ?? {})) value = value.split(`{{${k}}}`).join(String(v));
+    return value;
+  };
+  return { ...actual, useTranslation: () => ({ t, locale: 'en' as const, dir: 'ltr' as const }) };
+});
 
 const listRouting = vi.fn();
 const createRouting = vi.fn();
@@ -26,7 +43,7 @@ vi.mock('@/lib/ai-agent-api', async (importOriginal) => {
   return {
     ...actual,
     aiAgentApi: {
-      ...(actual as any).aiAgentApi,
+      ...actual.aiAgentApi,
       listRouting: (...a: unknown[]) => listRouting(...a),
       createRouting: (...a: unknown[]) => createRouting(...a),
       updateRouting: (...a: unknown[]) => updateRouting(...a),
@@ -40,14 +57,15 @@ beforeAll(() => {
   window.HTMLElement.prototype.hasPointerCapture = window.HTMLElement.prototype.hasPointerCapture || (() => false);
   window.HTMLElement.prototype.releasePointerCapture = window.HTMLElement.prototype.releasePointerCapture || (() => {});
   window.HTMLElement.prototype.scrollIntoView = window.HTMLElement.prototype.scrollIntoView || (() => {});
-  (global as any).ResizeObserver = (global as any).ResizeObserver || class {
+  const g = globalThis as { ResizeObserver?: unknown };
+  g.ResizeObserver = g.ResizeObserver || class {
     observe() {} unobserve() {} disconnect() {}
   };
 });
 
 const RoutingPage = (await import('@/pages/app/ai-agent/RoutingPage')).default;
 
-function legacyRule(overrides: Record<string, any> = {}) {
+function legacyRule(overrides: Record<string, unknown> = {}) {
   return {
     id: 'r-legacy', workspace_id: 'ws-1', name: 'Old plan-limit rule', description: null,
     trigger_type: 'plan_limit', conditions_json: {}, action_type: 'handoff', action_json: {},
@@ -213,7 +231,7 @@ describe('RoutingPage — legacy persisted vip_customer rule rendering (Follow-u
   });
 });
 
-function legacyLowConfidenceRule(overrides: Record<string, any> = {}) {
+function legacyLowConfidenceRule(overrides: Record<string, unknown> = {}) {
   return {
     id: 'r-lc', workspace_id: 'ws-1', name: 'Old low-confidence rule', description: null,
     trigger_type: 'low_confidence', conditions_json: { threshold: 0.55, consecutive: 2 },
@@ -282,7 +300,7 @@ describe('RoutingPage — low_confidence/no_answer live UI (Follow-up 9E.3)', ()
 });
 
 describe('RoutingPage — confidence_below strict validation (Follow-up 9E.3.1)', () => {
-  beforeEach(() => { (toast as any).mockClear?.(); });
+  beforeEach(() => { vi.mocked(toast).mockClear(); });
 
   async function newLowConfidenceDialog() {
     const dialog = await openNewRuleDialog();
@@ -490,7 +508,7 @@ describe('RoutingPage — legacy round-trip contract (Follow-up 9E.3)', () => {
   });
 });
 
-function topicRule(conditions_json: Record<string, unknown>, overrides: Record<string, any> = {}) {
+function topicRule(conditions_json: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
   return {
     id: 'r-topic', workspace_id: 'ws-1', name: 'Topic rule', description: null,
     trigger_type: 'topic_detected', conditions_json,

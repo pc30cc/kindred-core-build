@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useTranslation } from '@/i18n';
+import { Link } from 'react-router-dom';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { aiAgentApi, type LearningCandidate } from '@/lib/ai-agent-api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,10 +14,19 @@ import { Check, X, FileText, Loader2, RefreshCw, GraduationCap, Save } from 'luc
 import { formatDateTime } from '@/lib/date';
 
 type Tab = 'pending' | 'approved' | 'rejected' | 'converted';
+type ListStatus = Parameters<typeof aiAgentApi.listLearningCandidates>[1];
+type Stats = Awaited<ReturnType<typeof aiAgentApi.getLearningCandidateStats>>;
+
+function errorText(e: unknown): string | undefined {
+  return e instanceof Error ? e.message : undefined;
+}
+function textOrUndefined(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
 
 function useLabels() {
   const { t } = useTranslation();
-  const tr = (key: string, params?: Record<string, string>) => t(`aiAgent.learning.${key}` as any, params);
+  const tr = (key: string, params?: Record<string, string>) => t(`aiAgent.learning.${key}` as TranslationKey, params);
   const enumLabel = (group: 'status' | 'source' | 'reason', value?: string | null) => {
     if (!value) return '';
     const label = tr(`${group}.${value}`);
@@ -28,11 +38,11 @@ function useLabels() {
 export default function LearningCandidatesPage() {
   const { dir } = useTranslation();
   const { tr, enumLabel } = useLabels();
-  const workspace = useCurrentWorkspace() as any;
+  const workspace = useCurrentWorkspace();
   const wsId = workspace?.id;
   const [tab, setTab] = useState<Tab>('pending');
   const [items, setItems] = useState<LearningCandidate[]>([]);
-  const [stats, setStats] = useState<{ pending: number; approved: number; converted_to_qna: number; converted_to_kb: number; rejected: number } | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -42,7 +52,7 @@ export default function LearningCandidatesPage() {
     try {
       const status = tab === 'converted' ? 'converted_to_qna' : tab;
       const [c, s] = await Promise.all([
-        aiAgentApi.listLearningCandidates(wsId, status as any),
+        aiAgentApi.listLearningCandidates(wsId, status as ListStatus),
         aiAgentApi.getLearningCandidateStats(wsId),
       ]);
       let list = c.items || [];
@@ -51,12 +61,15 @@ export default function LearningCandidatesPage() {
         list = [...list, ...(kb.items || [])];
       }
       setItems(list);
-      setStats(s as any);
-    } catch (e: any) {
-      toast({ title: tr('loadFailed'), description: e?.message, variant: 'destructive' });
+      setStats(s);
+    } catch (e: unknown) {
+      toast({ title: tr('loadFailed'), description: errorText(e), variant: 'destructive' });
     } finally { setLoading(false); }
   }
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [wsId, tab]);
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh reads wsId and tab
+  }, [wsId, tab]);
 
   async function generate() {
     if (!wsId) return;
@@ -68,8 +81,8 @@ export default function LearningCandidatesPage() {
         description: tr('scanSummary', { created: String(r.created), skipped: String(r.skipped), scanned: String(r.scanned) }),
       });
       refresh();
-    } catch (e: any) {
-      toast({ title: tr('scanFailed'), description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: tr('scanFailed'), description: errorText(e), variant: 'destructive' });
     } finally { setGenerating(false); }
   }
 
@@ -132,8 +145,10 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
   const [locale, setLocale] = useState(candidate.locale ?? 'en');
   const [busy, setBusy] = useState<null | 'qna' | 'kb' | 'reject' | 'learned' | 'kbpub'>(null);
   const [saving, setSaving] = useState(false);
-  const reason = ((candidate as any).reason as string | undefined) || ((candidate.metadata as any)?.reason as string | undefined);
-  const pageUrl = (candidate.metadata as any)?.page_context?.current_page_url as string | undefined;
+  const wsPath = useWorkspacePath();
+  const meta: Record<string, unknown> = candidate.metadata || {};
+  const reason = textOrUndefined((candidate as { reason?: unknown }).reason) || textOrUndefined(meta.reason);
+  const pageUrl = textOrUndefined((meta.page_context as { current_page_url?: unknown } | null | undefined)?.current_page_url);
   const answerEmpty = !answer || !answer.trim();
   const questionEmpty = !question || !question.trim();
 
@@ -143,8 +158,8 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
       await aiAgentApi.patchLearningCandidate(candidate.id, { question_text: question, suggested_answer: answer, locale });
       toast({ title: tr('updated') });
       onChanged();
-    } catch (e: any) {
-      toast({ title: tr('updateFailed'), description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: tr('updateFailed'), description: errorText(e), variant: 'destructive' });
     } finally { setSaving(false); }
   }
 
@@ -154,7 +169,7 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
       await aiAgentApi.approveLearningCandidateAsLearned(candidate.id, { final_answer: answer, question, locale });
       toast({ title: tr('approved') });
       onChanged();
-    } catch (e: any) { toast({ title: tr('approveFailed'), description: e?.message, variant: 'destructive' }); }
+    } catch (e: unknown) { toast({ title: tr('approveFailed'), description: errorText(e), variant: 'destructive' }); }
     finally { setBusy(null); }
   }
   async function convertQna() {
@@ -163,7 +178,7 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
       await aiAgentApi.convertLearningCandidateToQna(candidate.id, { question, answer, locale });
       toast({ title: tr('convertedQna') });
       onChanged();
-    } catch (e: any) { toast({ title: tr('convertFailed'), description: e?.message, variant: 'destructive' }); }
+    } catch (e: unknown) { toast({ title: tr('convertFailed'), description: errorText(e), variant: 'destructive' }); }
     finally { setBusy(null); }
   }
   async function convertKbDraft() {
@@ -172,7 +187,7 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
       await aiAgentApi.convertLearningCandidateToKbV2(candidate.id, { title: question.slice(0, 120), answer, locale, publish: false });
       toast({ title: tr('convertedKb') });
       onChanged();
-    } catch (e: any) { toast({ title: tr('convertFailed'), description: e?.message, variant: 'destructive' }); }
+    } catch (e: unknown) { toast({ title: tr('convertFailed'), description: errorText(e), variant: 'destructive' }); }
     finally { setBusy(null); }
   }
   async function convertKbPub() {
@@ -181,7 +196,7 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
       await aiAgentApi.convertLearningCandidateToKbV2(candidate.id, { title: question.slice(0, 120), answer, locale, publish: true });
       toast({ title: tr('publishedKb') });
       onChanged();
-    } catch (e: any) { toast({ title: tr('publishFailed'), description: e?.message, variant: 'destructive' }); }
+    } catch (e: unknown) { toast({ title: tr('publishFailed'), description: errorText(e), variant: 'destructive' }); }
     finally { setBusy(null); }
   }
   async function reject() {
@@ -190,7 +205,7 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
       await aiAgentApi.rejectLearningCandidate(candidate.id);
       toast({ title: tr('rejected') });
       onChanged();
-    } catch (e: any) { toast({ title: tr('rejectFailed'), description: e?.message, variant: 'destructive' }); }
+    } catch (e: unknown) { toast({ title: tr('rejectFailed'), description: errorText(e), variant: 'destructive' }); }
     finally { setBusy(null); }
   }
   return (
@@ -202,7 +217,8 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
         <Badge variant="outline">{enumLabel('status', candidate.status)}</Badge>
         <span>{formatDateTime(candidate.created_at)}</span>
         {candidate.conversation_id && (
-          <a href={`/${candidate.workspace_id}/inbox?c=${candidate.conversation_id}`} className="underline">{tr('viewConversation')}</a>
+          // Workspace URLs are /<slug>/…, never the workspace id.
+          <Link to={wsPath(`/inbox?c=${candidate.conversation_id}`)} className="underline">{tr('viewConversation')}</Link>
         )}
         {pageUrl && <a href={pageUrl} target="_blank" rel="noreferrer" className="underline truncate max-w-[260px]">{pageUrl}</a>}
       </div>

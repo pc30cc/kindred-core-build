@@ -44,12 +44,18 @@ const TONE: Record<string, string> = {
   blue: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
 };
 
-const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'learning_candidate'; icon: LucideIcon; tone: string }> = [
-  { key: 'qna', icon: MessageCircleQuestion, tone: 'bg-amber-500/10 text-amber-600 ring-amber-500/20' },
-  { key: 'website', icon: Globe, tone: 'bg-sky-500/10 text-sky-600 ring-sky-500/20' },
-  { key: 'file', icon: FileText, tone: 'bg-violet-500/10 text-violet-600 ring-violet-500/20' },
-  { key: 'kb_article', icon: BookMarked, tone: 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20' },
-  { key: 'learning_candidate', icon: GraduationCap, tone: 'bg-rose-500/10 text-rose-600 ring-rose-500/20' },
+/**
+ * `key` names the group (its `source.<key>` title); `types` are the summary's
+ * source types it lists (server/services/ai-agent/sourceHealth.ts).
+ */
+const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'learning_candidate'; types: string[]; icon: LucideIcon; tone: string }> = [
+  { key: 'qna', types: ['qna'], icon: MessageCircleQuestion, tone: 'bg-amber-500/10 text-amber-600 ring-amber-500/20' },
+  // A website and each page crawled from it.
+  { key: 'website', types: ['website', 'web_page'], icon: Globe, tone: 'bg-sky-500/10 text-sky-600 ring-sky-500/20' },
+  { key: 'file', types: ['file'], icon: FileText, tone: 'bg-violet-500/10 text-violet-600 ring-violet-500/20' },
+  { key: 'kb_article', types: ['kb_article'], icon: BookMarked, tone: 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20' },
+  // The summary calls learned answers `learned_qna`.
+  { key: 'learning_candidate', types: ['learned_qna'], icon: GraduationCap, tone: 'bg-rose-500/10 text-rose-600 ring-rose-500/20' },
 ];
 
 export default function KnowledgePage() {
@@ -101,10 +107,10 @@ export default function KnowledgePage() {
       ) : (
         <div className="grid gap-4">
           {SOURCE_GROUPS.map((g) => {
-            const groupItems = items.filter((it) => (it.source_type || it.kind) === g.key);
+            const groupItems = items.filter((it) => g.types.includes(it.source_type || it.kind || ''));
             const title = tr(`source.${g.key}`, g.key);
             return (
-              <Card key={g.key} className="overflow-hidden border-border/60 hover:shadow-md transition-shadow">
+              <Card key={g.key} data-source-group={g.key} className="overflow-hidden border-border/60 hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2.5">
                     <span className={`h-8 w-8 rounded-lg flex items-center justify-center ring-1 ${g.tone}`}>

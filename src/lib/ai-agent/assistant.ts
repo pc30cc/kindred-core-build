@@ -92,6 +92,14 @@ export interface AgentSettings {
   handoff_on_low_confidence: boolean;
   handoff_on_human_request: boolean;
   handoff_when_no_kb_match: boolean;
+  /**
+   * How an explicit request for a person is handled. null keeps the legacy
+   * rule, resolved from handoff_on_human_request (server handoffPolicy.ts):
+   * true → 'immediate', false → 'adaptive'.
+   */
+  handoff_policy?: 'immediate' | 'assist_first' | 'adaptive' | null;
+  /** Brief assist attempts before an explicit human request escalates ('assist_first'). */
+  max_assist_attempts?: number;
   confidence_threshold: number;
   instructions: {
     tone?: string;
@@ -114,6 +122,13 @@ export interface AgentSettings {
      * leaves it out; '' removes it.
      */
     custom_system_instruction?: string;
+    /**
+     * The reply language: 'visitor' (default, also when unset) answers in the
+     * visitor's language among the allowed ones; 'workspace_default' always
+     * answers in the workspace's default language when it is allowed.
+     * Independent of allowed_locales, which only lists the allowed languages.
+     */
+    reply_language?: 'visitor' | 'workspace_default';
   };
   /** Read-only, from the server: whether a custom system instruction is saved. */
   has_custom_system_instruction?: boolean;

@@ -3,6 +3,10 @@
  * a member may see, the open section's pages as tabs, and the agent's
  * on / suggestions-only / off chip. Mounted with the real router and the
  * English catalogue; the data hooks are stubbed.
+ *
+ * 2026-11-01: no knowledge section (knowledge is the Knowledge Base's), and
+ * the settings are one page, «شخصیت و رفتار» (`behavior`), which the chip
+ * opens.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
@@ -80,37 +84,74 @@ beforeEach(() => {
 });
 
 describe('AiAgentLayout', () => {
-  it('shows the six customer sections and no advanced one to an owner', () => {
+  it('shows the five customer sections and no advanced one to an owner', () => {
     renderAt('/shop/ai-agent/overview');
-    expect(sectionIds()).toEqual(['overview', 'knowledge', 'answers', 'automation', 'operatorAssist', 'activity']);
+    expect(sectionIds()).toEqual(['overview', 'behavior', 'automation', 'operatorAssist', 'activity']);
     expect(screen.getByTestId('page')).toBeTruthy();
   });
 
+  it('offers no knowledge entry: neither a section nor a tab', () => {
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).not.toContain('knowledge');
+    const hrefs = Array.from(document.querySelectorAll('[data-section-layout="ai-agent"] a')).map((a) => a.getAttribute('href'));
+    for (const old of ['knowledge', 'web-pages', 'learning-candidates', 'train', 'qna', 'files']) {
+      expect(hrefs).not.toContain(`/shop/ai-agent/${old}`);
+    }
+  });
+
   it('marks the open page’s section and shows its pages as tabs', () => {
-    renderAt('/shop/ai-agent/guidance');
+    renderAt('/shop/ai-agent/triggers');
     const active = document.querySelector('[data-ai-section][data-active="true"]');
-    expect(active?.getAttribute('data-ai-section')).toBe('answers');
-    expect(tabPaths()).toEqual(['behavior', 'instructions', 'guidance', 'settings']);
-    expect(document.querySelector('[data-ai-tab="guidance"]')?.getAttribute('aria-current')).toBe('page');
-    expect(document.querySelector('[data-ai-tab="behavior"]')?.getAttribute('aria-current')).toBeNull();
-    expect(document.querySelector('[data-ai-tab="guidance"]')?.getAttribute('href')).toBe('/shop/ai-agent/guidance');
+    expect(active?.getAttribute('data-ai-section')).toBe('automation');
+    expect(tabPaths()).toEqual(['routing', 'topics', 'triggers', 'workflow', 'integrations']);
+    expect(document.querySelector('[data-ai-tab="triggers"]')?.getAttribute('aria-current')).toBe('page');
+    expect(document.querySelector('[data-ai-tab="routing"]')?.getAttribute('aria-current')).toBeNull();
+    expect(document.querySelector('[data-ai-tab="triggers"]')?.getAttribute('href')).toBe('/shop/ai-agent/triggers');
+  });
+
+  it('opens «شخصیت و رفتار» as one page, with no tab rail', () => {
+    renderAt('/shop/ai-agent/behavior');
+    const active = document.querySelector('[data-ai-section][data-active="true"]');
+    expect(active?.getAttribute('data-ai-section')).toBe('behavior');
+    expect(active?.getAttribute('href')).toBe('/shop/ai-agent/behavior');
+    expect(active?.textContent).toContain('Personality & behavior');
+    expect(document.querySelector('[data-section-tabs]')).toBeNull();
+    expect(screen.getByTestId('page')).toBeTruthy();
   });
 
   it('a section link opens its first page', () => {
     renderAt('/shop/ai-agent/overview');
     expect(document.querySelector('[data-ai-section="automation"]')?.getAttribute('href')).toBe('/shop/ai-agent/routing');
+    expect(document.querySelector('[data-ai-section="behavior"]')?.getAttribute('href')).toBe('/shop/ai-agent/behavior');
   });
 
   it("hides a tab the Super Admin switched off", () => {
+    state.caps.customer_nav = { ...ALL_ON, overview: false };
+    renderAt('/shop/ai-agent/playground');
+    // The section keeps its other page, which its link now opens; one page
+    // left needs no tab rail.
+    expect(document.querySelector('[data-ai-section="overview"]')?.getAttribute('href')).toBe('/shop/ai-agent/playground');
+    expect(document.querySelector('[data-ai-tab="overview"]')).toBeNull();
+  });
+
+  it('shows «شخصیت و رفتار» while either of its two switches is on', () => {
+    state.caps.customer_nav = { ...ALL_ON, behavior: false };
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).toContain('behavior');
+    cleanup();
     state.caps.customer_nav = { ...ALL_ON, settings: false };
-    renderAt('/shop/ai-agent/behavior');
-    expect(tabPaths()).toEqual(['behavior', 'instructions', 'guidance']);
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).toContain('behavior');
+    cleanup();
+    state.caps.customer_nav = { ...ALL_ON, behavior: false, settings: false };
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).not.toContain('behavior');
   });
 
   it('keeps the open section’s tabs even when the cap leaves it out of the list', () => {
     state.caps.max_customer_visible_nav_items = 2;
     renderAt('/shop/ai-agent/activity');
-    expect(sectionIds()).toEqual(['overview', 'knowledge']);
+    expect(sectionIds()).toEqual(['overview', 'behavior']);
     expect(tabPaths()).toEqual(['activity', 'analytics']);
   });
 
@@ -135,7 +176,14 @@ describe('AiAgentLayout', () => {
     const chip = document.querySelector('[data-ai-agent-state]');
     expect(chip?.getAttribute('data-ai-agent-state')).toBe(key);
     expect(chip?.textContent).toBe(text);
-    expect(chip?.getAttribute('href')).toBe('/shop/ai-agent/activation');
+    expect(chip?.getAttribute('href')).toBe('/shop/ai-agent/behavior');
+  });
+
+  it('the chip still opens the page that turns the agent on when both of its menu switches are off', () => {
+    state.caps.customer_nav = { ...ALL_ON, behavior: false, settings: false };
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).not.toContain('behavior');
+    expect(document.querySelector('[data-ai-agent-state]')?.getAttribute('href')).toBe('/shop/ai-agent/behavior');
   });
 
   it('still sends the member to the inbox when the platform switch is off', () => {

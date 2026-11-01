@@ -24,6 +24,7 @@ import { buildRoutingMetadata } from '../runtime/routingRuntime.js';
 import { buildTriggerMetadata } from '../runtime/triggerRuntime.js';
 import { buildToolMetadata } from '../runtime/toolRuntime.js';
 import { getPlatformAllowedLocales } from '../../platformRegion.js';
+import { visitorAllowList, resolveReplyLanguage, pinnedReplyLocale } from '../replyLanguage.js';
 import { loadActiveGuidance, type ActiveGuidanceBundle } from '../guidance.js';
 import {
   loadWorkingMemory, deriveTurnPatch, applyMemoryPatch, renderMemoryBlock,
@@ -32,6 +33,29 @@ import {
 import type { MaybeRunInput } from './types.js';
 import type { PreflightResult } from './preflightStage.js';
 import { resolveHumanRequestSignal, NO_HUMAN_REQUEST, type HumanRequestSignal } from '../humanRequest.js';
+
+/** The turn's workflow observability; the automation stage appends to it. */
+export interface WorkflowMeta {
+  matchedWorkflowIds: string[];
+  matchedWorkflowNames: string[];
+  executedActions: unknown[];
+  blockedActions: unknown[];
+  plannedActions: unknown[];
+  skippedActions: unknown[];
+  runtimeExecutionEnabled: boolean;
+  safeExecutionOnly: boolean;
+}
+
+/** The visitor's page for the run log; the answer stage sets intent_override. */
+export interface PageContextMeta {
+  source?: string;
+  current_page_url?: string | null;
+  current_page_origin?: string | null;
+  current_page_path?: string | null;
+  current_page_title?: string | null;
+  page_intent_detected: boolean;
+  intent_override: string | null;
+}
 
 export interface ContextStageResult {
   sb: ReturnType<typeof getServiceClient>;
@@ -55,18 +79,9 @@ export interface ContextStageResult {
   guidanceMeta: Record<string, unknown>;
   routingMeta: ReturnType<typeof buildRoutingMetadata>;
   triggerMeta: ReturnType<typeof buildTriggerMetadata>;
-  workflowMeta: {
-    matchedWorkflowIds: string[];
-    matchedWorkflowNames: string[];
-    executedActions: any[];
-    blockedActions: any[];
-    plannedActions: any[];
-    skippedActions: any[];
-    runtimeExecutionEnabled: boolean;
-    safeExecutionOnly: boolean;
-  };
+  workflowMeta: WorkflowMeta;
   toolMeta: ReturnType<typeof buildToolMetadata>;
-  pageContextMetaRef: any;
+  pageContextMetaRef: PageContextMeta | null;
   state: Awaited<ReturnType<typeof getConversationState>>;
   availability: Awaited<ReturnType<typeof getOperatorAvailability>>;
   /** vNext — private operator guidance active for this generation. */
@@ -101,21 +116,19 @@ export async function runContextStage(
     .select('name, default_locale, widget_locale')
     .eq('id', workspaceId)
     .maybeSingle();
-  const widgetLocale = (wsRow as any)?.widget_locale || '';
+  const ws = wsRow as { name?: string | null; default_locale?: string | null; widget_locale?: string | null } | null;
+  const widgetLocale = ws?.widget_locale || '';
   // Business display name — feeds the dynamic assistant identity prompt.
-  const workspaceName = ((wsRow as any)?.name || '').toString().trim() || null;
-  const workspaceLocale = (wsRow as any)?.default_locale || '';
+  const workspaceName = (ws?.name || '').toString().trim() || null;
+  const workspaceLocale = ws?.default_locale || '';
 
   // Phase A — language policy. Decide what language to RESPOND in regardless
   // of what language the visitor wrote in.
   // Platform region lock — on a single-language deployment the visitor's
   // detected/browser language must never override the active language.
+  // allowed_locales ∩ the platform's languages, else the platform's.
   const platformAllowed = await getPlatformAllowedLocales(config);
-  const settingsAllowed = (settings.allowed_locales || []).map((l) => l.toLowerCase().split('-')[0]);
-  const effectiveAllowed = settingsAllowed.length
-    ? settingsAllowed.filter((l) => platformAllowed.includes(l))
-    : platformAllowed;
-  const allowList = effectiveAllowed.length ? effectiveAllowed : platformAllowed;
+  const allowList = visitorAllowList(settings.allowed_locales, platformAllowed);
 
   const langDecision = decideResponseLanguage({
     visitorText: question,
@@ -123,8 +136,14 @@ export async function runContextStage(
     workspaceLocale,
     allowedLocales: allowList,
   });
+  // instructions.reply_language 'workspace_default': the workspace's default
+  // language when it is an allowed one, whatever the visitor wrote in or the
+  // channel reported; otherwise (and in 'visitor', the default) the chain
+  // below, unchanged (replyLanguage.ts).
+  const replyLanguage = resolveReplyLanguage(settings);
+  const pinnedLocale = pinnedReplyLocale(replyLanguage, workspaceLocale, allowList);
   // `locale` from here on means the response locale.
-  let locale = (input.locale || '').toLowerCase() || langDecision.responseLanguage || 'en';
+  let locale = pinnedLocale || (input.locale || '').toLowerCase() || langDecision.responseLanguage || 'en';
   locale = locale.split('-')[0];
   if (allowList.length && !allowList.includes(locale)) {
     const widgetNorm = (widgetLocale || '').toLowerCase().split('-')[0];
@@ -143,7 +162,8 @@ export async function runContextStage(
     input_language: inputLanguage,
     response_language: locale,
     widget_locale: widgetLocale || null,
-    language_decision_source: langDecision.source,
+    reply_language: replyLanguage,
+    language_decision_source: pinnedLocale ? 'workspace_default' : langDecision.source,
     detection_confidence: langDecision.detectionConfidence,
     mixed_language_detected: langDecision.mixedLanguageDetected,
   };
@@ -181,8 +201,8 @@ export async function runContextStage(
           count: det.detectedTopics.length,
         });
       }
-    } catch (err: any) {
-      console.warn('[ai-agent.runtime] topic detection failed:', err?.message || err);
+    } catch (err) {
+      console.warn('[ai-agent.runtime] topic detection failed:', (err as Error | null)?.message || err);
     }
   }
 
@@ -198,7 +218,7 @@ export async function runContextStage(
   // Helper to enrich every logRun call below with the new metadata bundles.
   // `routing` is filled in once routing rules are evaluated (after we have
   // conversation state). Until then, defaults to an empty bundle.
-  let routingMeta: ReturnType<typeof buildRoutingMetadata> = {
+  const routingMeta: ReturnType<typeof buildRoutingMetadata> = {
     matchedRuleIds: [],
     matchedRuleNames: [],
     executedActions: [],
@@ -206,24 +226,15 @@ export async function runContextStage(
     skippedActions: [],
   };
   // C2B aggregators — populated as runtime evaluators run.
-  let triggerMeta: ReturnType<typeof buildTriggerMetadata> = {
+  const triggerMeta: ReturnType<typeof buildTriggerMetadata> = {
     matched: [], executed: [], planned: [], skipped: [],
   };
-  let workflowMeta: {
-    matchedWorkflowIds: string[];
-    matchedWorkflowNames: string[];
-    executedActions: any[];
-    blockedActions: any[];
-    plannedActions: any[];
-    skippedActions: any[];
-    runtimeExecutionEnabled: boolean;
-    safeExecutionOnly: boolean;
-  } = {
+  const workflowMeta: WorkflowMeta = {
     matchedWorkflowIds: [], matchedWorkflowNames: [],
     executedActions: [], blockedActions: [],
     plannedActions: [], skippedActions: [], runtimeExecutionEnabled: true, safeExecutionOnly: true,
   };
-  let toolMeta: ReturnType<typeof buildToolMetadata> = {
+  const toolMeta: ReturnType<typeof buildToolMetadata> = {
     allowedTools: [], usedTools: [], plannedTools: [], skippedTools: [],
   };
   const baseRuntimeMeta = () => ({
@@ -238,7 +249,7 @@ export async function runContextStage(
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
   // E2C — populated after retrieval. Captured by closure above.
-  let pageContextMetaRef: any = pageContext ? {
+  const pageContextMetaRef: PageContextMeta | null = pageContext ? {
     source: 'widget',
     current_page_url: pageContext.currentPageUrl || null,
     current_page_origin: pageContext.currentPageOrigin || null,
@@ -312,11 +323,12 @@ async function loadPreviousAssistantText(
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
       .limit(12);
-    for (const m of data || []) {
-      const st = String((m as any).sender_type || '').toLowerCase();
-      const src = String(((m as any).metadata || {}).source || '');
+    type MessageRow = { body?: unknown; sender_type?: unknown; metadata?: { source?: unknown } | null };
+    for (const m of (data || []) as MessageRow[]) {
+      const st = String(m.sender_type || '').toLowerCase();
+      const src = String((m.metadata || {}).source || '');
       if (st === 'ai' || st === 'bot' || src.startsWith('ai_agent')) {
-        return String((m as any).body || '') || null;
+        return String(m.body || '') || null;
       }
     }
     return null;

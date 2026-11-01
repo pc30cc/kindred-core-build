@@ -4,6 +4,7 @@
 import type { AgentSettings } from './settings.js';
 import type { RetrievedSource } from './retrieval.js';
 import { resolveHumanRequestSignal } from './humanRequest.js';
+import { decideHandoff, resolveHandoffPolicy, resolveMaxAssistAttempts } from './handoffPolicy.js';
 
 export type DecisionAction = 'answer' | 'handoff' | 'no_answer' | 'blocked';
 
@@ -34,8 +35,19 @@ export function decide({ settings, question, sources }: DecisionInput): Decision
   // crude confidence proxy in [0,1]
   const confidence = Math.min(1, topScore);
 
+  // A request for a person, as the runtime decides a conversation's first
+  // one (handoffPolicy.ts): 'immediate' hands over; 'assist_first' and
+  // 'adaptive' make one attempt instead, unless the visitor rejects the AI
+  // or no attempt is allowed. A preview has no conversation memory.
   if (settings.handoff_on_human_request && isHumanRequest(question, settings.handoff_keywords)) {
-    return { action: 'handoff', reason: 'human_request', confidence, topScore };
+    const first = decideHandoff({
+      policy: resolveHandoffPolicy(settings),
+      explicitHumanRequest: true,
+      visitorText: question,
+      memory: { handoffRequestCount: 0, assistAttemptCount: 0, resolutionAttempts: [], failedResources: [] },
+      maxAssistAttempts: resolveMaxAssistAttempts(settings),
+    });
+    if (first.kind === 'handoff') return { action: 'handoff', reason: 'human_request', confidence, topScore };
   }
   if (sources.length === 0) {
     if (settings.answer_only_from_kb || settings.handoff_when_no_kb_match) {

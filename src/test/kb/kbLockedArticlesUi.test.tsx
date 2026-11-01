@@ -46,6 +46,10 @@ vi.mock('react-router-dom', () => ({
 }));
 vi.mock('@/components/app/knowledge/KnowledgeQnaTab', () => ({ default: () => null }));
 vi.mock('@/components/app/knowledge/KnowledgeFilesTab', () => ({ default: () => null }));
+// The assistant's tabs and who sees them: knowledgeBaseAiTabs.test.tsx.
+vi.mock('@/components/app/knowledge/useKnowledgeAiTabs', () => ({
+  useKnowledgeAiTabs: () => ({ known: true, web: false, learning: false, status: false }),
+}));
 vi.mock('@/components/app/knowledge/RichTextEditor', () => ({
   default: ({ value }: { value: string }) => <div data-testid="rte">{value}</div>,
 }));

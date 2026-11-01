@@ -112,9 +112,11 @@ export function AiAgentLayout() {
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] font-semibold leading-tight text-foreground truncate">{t('aiAgent.title')}</h2>
+            {/* The chip opens the page that turns the agent on and off,
+                whatever the Super Admin's menu switches hide. */}
             {agentState ? (
               <Link
-                to={wsPath('/ai-agent/activation')}
+                to={wsPath('/ai-agent/behavior')}
                 data-ai-agent-state={agentState}
                 className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
               >

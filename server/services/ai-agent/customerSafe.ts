@@ -13,8 +13,10 @@
 import type { ServerConfig } from '../../config.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { getServiceClient } from '../../supabase.js';
-import type { AgentSettings } from './settings.js';
+import type { AgentSettings, ReplyLanguage } from './settings.js';
 import { getPlatformAiAgentSettings } from './platformSettings.js';
+import { resolveReplyLanguage } from './replyLanguage.js';
+import { resolveMaxAssistAttempts } from './handoffPolicy.js';
 
 export interface CustomerSafeAgentSettings {
   id: string;
@@ -34,8 +36,13 @@ export interface CustomerSafeAgentSettings {
   show_sources_to_operator: boolean;
   show_sources_to_visitor: boolean;
   handoff_on_low_confidence: boolean;
+  /** false: a request for a person is not acted on, whatever handoff_policy says. */
   handoff_on_human_request: boolean;
   handoff_when_no_kb_match: boolean;
+  /** The handoff control as stored; null is the legacy rule (hand over at once). */
+  handoff_policy: 'immediate' | 'assist_first' | 'adaptive' | null;
+  /** 0..3, as the runtime reads it (handoffPolicy.ts resolveMaxAssistAttempts). */
+  max_assist_attempts: number;
   ai_intro_enabled: boolean;
   intro_message: string | null;
   intro_message_localized: Record<string, string>;
@@ -51,6 +58,9 @@ export interface CustomerSafeAgentSettings {
   allow_clarifying_questions: boolean;
   max_clarification_attempts: number;
   allow_answer_with_caveat: boolean;
+  // Learning from operator replies (learning/candidates.ts).
+  learning_enabled: boolean;
+  auto_create_learning_candidates: boolean;
   /**
    * Whether instructions.custom_system_instruction is set. The text itself
    * is never returned; a settings write that leaves it out keeps it
@@ -73,6 +83,8 @@ export interface CustomerSafeAgentSettings {
     handoff_instructions?: string;
     pricing_instructions?: string;
     support_instructions?: string;
+    /** Always set: 'visitor' when the row has none (replyLanguage.ts). */
+    reply_language: ReplyLanguage;
   };
   handoff_keywords: string[];
   max_replies_per_conversation: number;
@@ -115,6 +127,11 @@ export function toCustomerSafeAiAgentSettings(
     handoff_on_low_confidence: !!s.handoff_on_low_confidence,
     handoff_on_human_request: !!s.handoff_on_human_request,
     handoff_when_no_kb_match: !!s.handoff_when_no_kb_match,
+    handoff_policy:
+      s.handoff_policy === 'immediate' || s.handoff_policy === 'assist_first' || s.handoff_policy === 'adaptive'
+        ? s.handoff_policy
+        : null,
+    max_assist_attempts: resolveMaxAssistAttempts(s),
     ai_intro_enabled: s.ai_intro_enabled !== false,
     intro_message: s.intro_message ?? null,
     intro_message_localized: (s.intro_message_localized && typeof s.intro_message_localized === 'object')
@@ -128,14 +145,18 @@ export function toCustomerSafeAiAgentSettings(
       : {},
     fallback_behavior: s.fallback_behavior || 'handoff',
     stop_on_handoff: s.stop_on_handoff !== false,
-    pause_auto_reply_after_human_reply: s.pause_auto_reply_after_human_reply,
-    allow_suggestions_after_takeover: s.allow_suggestions_after_takeover,
+    // As the runtime reads them (runtimePolicy.ts: on unless false).
+    pause_auto_reply_after_human_reply: s.pause_auto_reply_after_human_reply !== false,
+    allow_suggestions_after_takeover: s.allow_suggestions_after_takeover !== false,
     keep_in_automated_until_handoff: s.keep_in_automated_until_handoff,
     // The columns' defaults (migration 016a) when a row has none.
     escalation_style: s.escalation_style || 'balanced',
     allow_clarifying_questions: s.allow_clarifying_questions !== false,
     max_clarification_attempts: typeof s.max_clarification_attempts === 'number' ? s.max_clarification_attempts : 1,
     allow_answer_with_caveat: s.allow_answer_with_caveat !== false,
+    // The columns' defaults (migration 016a), as learning/candidates.ts reads them.
+    learning_enabled: s.learning_enabled !== false,
+    auto_create_learning_candidates: s.auto_create_learning_candidates !== false,
     has_custom_system_instruction:
       typeof customSystemInstruction === 'string' && customSystemInstruction.trim().length > 0,
     instructions: {
@@ -151,6 +172,7 @@ export function toCustomerSafeAiAgentSettings(
       handoff_instructions: instr.handoff_instructions,
       pricing_instructions: instr.pricing_instructions,
       support_instructions: instr.support_instructions,
+      reply_language: resolveReplyLanguage(s),
     },
     handoff_keywords: s.handoff_keywords || [],
     max_replies_per_conversation: s.max_replies_per_conversation,

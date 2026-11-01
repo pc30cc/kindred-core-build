@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi, type DataSource, type SourceSyncLog } from '@/lib/ai-agent-api';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,17 +16,36 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { Globe, Plus, RefreshCw, Trash2, Loader2, AlertCircle, Info, ChevronDown, ChevronRight } from 'lucide-react';
 
-export default function WebPagesPage() {
+type TFn = ReturnType<typeof useTranslation>['t'];
+type DataSourceLimits = Awaited<ReturnType<typeof aiAgentApi.getDataSourceLimits>>;
+type RefreshInterval = DataSource['refresh_interval'];
+
+const REFRESH_LABEL: Record<RefreshInterval, TranslationKey> = {
+  manual: 'aiAgent.webPages.dialog.refreshManual',
+  daily: 'aiAgent.webPages.dialog.refreshDaily',
+  weekly: 'aiAgent.webPages.dialog.refreshWeekly',
+  monthly: 'aiAgent.webPages.dialog.refreshMonthly',
+};
+
+function errorText(e: unknown): string | undefined {
+  return e instanceof Error ? e.message : undefined;
+}
+
+/**
+ * The workspace site's pages the assistant crawls (website sources under the
+ * registered domain). `embedded`: inside the Knowledge Base's web tab, whose
+ * hero and tab name the page, so only its one-line description stays.
+ */
+export default function WebPagesPage({ embedded = false }: { embedded?: boolean }) {
   const { t, dir } = useTranslation();
-  const ws = useCurrentWorkspace() as any;
-  const wsId = ws?.id as string | undefined;
+  const wsId = useCurrentWorkspace()?.id;
   const [items, setItems] = useState<DataSource[]>([]);
   const [domains, setDomains] = useState<Array<{ domain: string; is_primary: boolean; verified: boolean }>>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, SourceSyncLog[]>>({});
-  const [limits, setLimits] = useState<{ planName: string | null; planSlug: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number }; jobs_used_this_month: number; bypass?: boolean; bypassReason?: string | null; worker?: { inProcess: boolean; started: boolean } } | null>(null);
+  const [limits, setLimits] = useState<DataSourceLimits | null>(null);
   const [latestJobs, setLatestJobs] = useState<Record<string, { status: string; last_error: string | null } | null>>({});
 
   async function refresh() {
@@ -40,7 +59,7 @@ export default function WebPagesPage() {
       ]);
       setItems(srcs.items || []);
       setDomains(dom.domains || []);
-      setLimits(lim as any);
+      setLimits(lim);
       // Fetch latest job per source (for retry affordance).
       const sources = srcs.items || [];
       const jobs = await Promise.all(sources.map(async (s) => {
@@ -50,11 +69,14 @@ export default function WebPagesPage() {
         } catch { return [s.id, null] as const; }
       }));
       setLatestJobs(Object.fromEntries(jobs));
-    } catch (e: any) {
-      toast({ title: t('aiAgent.webPages.loadFailed'), description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('aiAgent.webPages.loadFailed'), description: errorText(e), variant: 'destructive' });
     } finally { setLoading(false); }
   }
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [wsId]);
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh reads wsId
+  }, [wsId]);
 
   async function expand(id: string) {
     if (expanded === id) { setExpanded(null); return; }
@@ -72,8 +94,8 @@ export default function WebPagesPage() {
       const r = await aiAgentApi.syncDataSource(s.id);
       toast({ title: r.bypass ? t('aiAgent.webPages.syncQueuedBypass') : t('aiAgent.webPages.syncQueued') });
       refresh();
-    } catch (e: any) {
-      const msg = String(e?.message || '');
+    } catch (e: unknown) {
+      const msg = errorText(e) ?? '';
       if (msg.includes('plan_limit_reached')) {
         toast({ title: t('aiAgent.webPages.planLimitReached'), description: t('aiAgent.webPages.planLimitReachedDesc'), variant: 'destructive' });
       } else {
@@ -86,14 +108,14 @@ export default function WebPagesPage() {
       const r = await aiAgentApi.retryFailedSourceJob(s.id);
       toast({ title: r.reused ? t('aiAgent.webPages.existingJobQueued') : t('aiAgent.webPages.retryQueued') });
       refresh();
-    } catch (e: any) {
-      toast({ title: t('aiAgent.webPages.retryFailed'), description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('aiAgent.webPages.retryFailed'), description: errorText(e), variant: 'destructive' });
     }
   }
   async function remove(s: DataSource) {
     if (!confirm(t('aiAgent.webPages.deleteConfirm', { name: s.name }))) return;
     try { await aiAgentApi.deleteDataSource(s.id); refresh(); }
-    catch (e: any) { toast({ title: t('aiAgent.webPages.deleteFailed'), description: e?.message, variant: 'destructive' }); }
+    catch (e: unknown) { toast({ title: t('aiAgent.webPages.deleteFailed'), description: errorText(e), variant: 'destructive' }); }
   }
 
   if (!wsId) return null;
@@ -103,15 +125,19 @@ export default function WebPagesPage() {
   return (
     <div className="space-y-6" dir={dir}>
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-            <Globe className="h-5 w-5 text-primary" /> {t('aiAgent.webPages.title')}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">
-            {t('aiAgent.webPages.subtitle')}
-          </p>
-        </div>
-        <Button onClick={() => setOpen(true)} disabled={!primaryDomain}>
+        {embedded ? (
+          <p className="text-sm text-muted-foreground max-w-2xl">{t('aiAgent.webPages.subtitle')}</p>
+        ) : (
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+              <Globe className="h-5 w-5 text-primary" /> {t('aiAgent.webPages.title')}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">
+              {t('aiAgent.webPages.subtitle')}
+            </p>
+          </div>
+        )}
+        <Button className="shrink-0" onClick={() => setOpen(true)} disabled={!primaryDomain}>
           <Plus className="h-4 w-4 me-1.5" /> {t('aiAgent.webPages.addSource')}
         </Button>
       </div>
@@ -184,7 +210,7 @@ export default function WebPagesPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm">{s.name}</span>
                       <StatusBadge status={s.status} t={t} />
-                      <Badge variant="outline" className="text-[10px]">{t(`aiAgent.webPages.dialog.refresh${capitalize(s.refresh_interval)}` as any)}</Badge>
+                      <Badge variant="outline" className="text-[10px]">{REFRESH_LABEL[s.refresh_interval] ? t(REFRESH_LABEL[s.refresh_interval]) : s.refresh_interval}</Badge>
                     </div>
                     {s.base_url && (
                       <a href={s.base_url} target="_blank" rel="noreferrer" dir="ltr"
@@ -251,16 +277,12 @@ export default function WebPagesPage() {
   );
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function StatusBadge({ status, t }: { status: DataSource['status']; t: (key: any, params?: Record<string, string | number>) => string }) {
+function StatusBadge({ status, t }: { status: DataSource['status']; t: TFn }) {
   const cls = status === 'active' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
     : status === 'syncing' ? 'bg-primary/10 text-primary border-primary/20'
     : status === 'failed' ? 'bg-destructive/10 text-destructive border-destructive/20'
     : status === 'paused' ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground';
-  const label = t(`aiAgent.webPages.status.${status}` as any);
+  const label = t(`aiAgent.webPages.status.${status}` as TranslationKey);
   return <Badge variant="outline" className={`text-[10px] ${cls}`}>{label}</Badge>;
 }
 
@@ -273,7 +295,7 @@ function NewWebsiteDialog({
   const { t } = useTranslation();
   const [form, setForm] = useState({
     base_url: '', crawl_depth: 2, max_pages: 50,
-    refresh_interval: 'manual' as 'manual' | 'daily' | 'weekly' | 'monthly',
+    refresh_interval: 'manual' as RefreshInterval,
   });
   const [saving, setSaving] = useState(false);
 
@@ -289,8 +311,8 @@ function NewWebsiteDialog({
     try {
       await aiAgentApi.createWebsiteSource({ workspaceId, ...form });
       onCreated();
-    } catch (e: any) {
-      toast({ title: t('aiAgent.webPages.addFailed'), description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('aiAgent.webPages.addFailed'), description: errorText(e), variant: 'destructive' });
     } finally { setSaving(false); }
   }
 
@@ -324,7 +346,7 @@ function NewWebsiteDialog({
             </div>
             <div className="space-y-1.5">
               <Label>{t('aiAgent.webPages.dialog.refresh')}</Label>
-              <Select value={form.refresh_interval} onValueChange={(v) => setForm((f) => ({ ...f, refresh_interval: v as any }))}>
+              <Select value={form.refresh_interval} onValueChange={(v) => setForm((f) => ({ ...f, refresh_interval: v as RefreshInterval }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="manual">{t('aiAgent.webPages.dialog.refreshManual')}</SelectItem>

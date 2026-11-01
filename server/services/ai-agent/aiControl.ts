@@ -46,6 +46,13 @@ export interface AiControl {
   /** Short factual description of the fix the assistant just proposed. */
   proposedSolution: string | null;
   /**
+   * The reply asks the visitor for a missing detail instead of answering (a
+   * clarifying question): true or false as the model reported it, null when
+   * it did not say (no block, or no such key). Counted against the owner's
+   * limit (clarification.ts); never authorization.
+   */
+  clarifyingQuestion: boolean | null;
+  /**
    * WHMCS: the account section the model needed to answer and did not have
    * (only offered when a billing connection is in context). A REQUEST for
    * data, never authorization — the billing system still decides, per read.
@@ -66,6 +73,7 @@ export const EMPTY_CONTROL: AiControl = {
   entities: [],
   awaitingUserAction: null,
   proposedSolution: null,
+  clarifyingQuestion: null,
   accountData: null,
 };
 
@@ -137,6 +145,7 @@ export function parseAiControl(rawText: string): ParsedAiControl {
     entities,
     awaitingUserAction: field(memory.awaiting_user_action),
     proposedSolution: field(json.proposed_solution),
+    clarifyingQuestion: typeof json.clarifying_question === 'boolean' ? json.clarifying_question : null,
     accountData: (ACCOUNT_DATA_SECTIONS as readonly string[]).includes(String(json.account_data ?? ''))
       ? (String(json.account_data) as AccountDataRequest)
       : null,
@@ -152,7 +161,7 @@ export function buildAiControlContract(opts: { allowGuidanceRequest: boolean; al
   lines.push('  - After your visitor-facing reply, append exactly one block:');
   lines.push('    <ai_control>{ ...json... }</ai_control>');
   lines.push('  - The visitor never sees it. It is removed before delivery.');
-  lines.push('  - Keys (all optional): "resolution_status" ("resolved"|"unresolved"|"awaiting_user"), "proposed_solution" (one short factual sentence describing the fix you just suggested), "memory" ({"current_issue": string, "entities": string[], "awaiting_user_action": string}).');
+  lines.push('  - Keys (all optional): "resolution_status" ("resolved"|"unresolved"|"awaiting_user"), "proposed_solution" (one short factual sentence describing the fix you just suggested), "memory" ({"current_issue": string, "entities": string[], "awaiting_user_action": string}), "clarifying_question" (true when your reply asks the visitor for a missing detail instead of answering; false otherwise).');
   if (opts.allowGuidanceRequest) {
     lines.push('  - Additional keys when — and only when — you can safely answer most of the question but ONE business decision or fact from a colleague is genuinely missing: "request_human_guidance": true, "guidance_question" (the single short question you want a colleague to answer), "missing_information" (what is missing), "known_summary" (what you already verified).');
     lines.push('  - Do NOT request guidance just because retrieval was empty, and do NOT request guidance when the visitor asked for a human — that is a handoff, not a guidance request.');

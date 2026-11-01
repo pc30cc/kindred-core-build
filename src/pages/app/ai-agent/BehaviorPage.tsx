@@ -1,241 +1,212 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, Sliders, MessageSquare, HelpCircle, FileText, Heart, Languages, ArrowUpRight, type LucideIcon } from 'lucide-react';
+import { useAiAgentDiagnostics, useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
+import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import type { AgentSettings } from '@/lib/ai-agent-api';
+import type { Workspace } from '@/types/models';
 import { toast } from '@/lib/toast';
-import type { AgentMode, AgentSettings } from '@/lib/ai-agent-api';
-import { useTranslation, type TranslationKey } from '@/i18n';
+import { useTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
+import { Loader2, Sparkles } from 'lucide-react';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
+import { displayMode, primaryLocale, type PersonaContext } from './persona/personaForm';
+import { usePersonaForm } from './persona/usePersonaForm';
+import { saveErrorText } from './persona/text';
+import { IdentitySection } from './persona/IdentitySection';
+import { StyleSection } from './persona/StyleSection';
+import { BehaviorSection } from './persona/BehaviorSection';
+import { AdvancedSettings } from './persona/AdvancedSettings';
+import { PersonaPreview } from './persona/PersonaPreview';
+import { SaveBar } from './persona/SaveBar';
 
-type Unsure = 'clarify' | 'transfer' | 'silent';
-type Style = 'short' | 'medium' | 'long';
-type Tone = 'friendly' | 'formal' | 'professional';
-type Lang = 'visitor' | 'workspace';
+/** Visitor languages when the platform's are not known yet (as the old settings page did). */
+const FALLBACK_LOCALES = ['fa', 'en', 'tr'];
 
 /**
- * The AI mode is set on the Activation page only (its on/off switch, its five
- * modes and the readiness checklist). This page shows it, by the names that
- * page uses, and links there: its own three-way control could not express
- * the five modes and rewrote them on save.
+ * «Personality & behavior»: the workspace AI assistant on one page. A few
+ * clear settings first (identity, personality and style, behavior), the
+ * specialist ones in closed Advanced groups below, a preview beside them,
+ * and one Save for all of it (persona/personaForm.ts says what a save
+ * sends). The picture, the answer rules and Remove of the saved custom
+ * instruction apply at once and say so.
  */
-const MODE_LABEL_KEYS: Record<AgentMode, TranslationKey> = {
-  off: 'aiAgent.activation.modeOff',
-  suggest_only: 'aiAgent.activation.modeSuggestOnly',
-  auto_reply_when_offline: 'aiAgent.activation.modeAutoOffline',
-  auto_reply_until_human_joins: 'aiAgent.activation.modeAutoUntilHuman',
-  auto_reply_always: 'aiAgent.activation.modeAutoAlways',
-};
-
-function deriveUnsure(s: AgentSettings | undefined): Unsure {
-  if (s?.allow_clarifying_questions) return 'clarify';
-  if (s?.handoff_on_low_confidence) return 'transfer';
-  return 'silent';
-}
-function deriveStyle(s: AgentSettings | undefined): Style {
-  return (s?.instructions?.max_answer_length as Style) || 'medium';
-}
-// Tone is now written exclusively from this page as one of the three preset
-// values below. This still tolerates any older free-text value a workspace
-// may have saved back when the (now-removed) Instructions page also had a
-// tone control, so an existing custom value still maps to a sane preset
-// instead of silently resetting to "friendly".
-function deriveTone(s: AgentSettings | undefined): Tone {
-  const t = (s?.instructions?.tone || '').toLowerCase();
-  if (t.includes('formal')) return 'formal';
-  if (t.includes('professional')) return 'professional';
-  return 'friendly';
-}
-function deriveLang(s: AgentSettings | undefined): Lang {
-  return (s?.allowed_locales?.length || 0) > 0 ? 'workspace' : 'visitor';
-}
-
 export default function BehaviorPage() {
   const { workspace } = useActiveWorkspace();
-  const wsPath = useWorkspacePath();
-  const { data, isLoading } = useAiAgentSettings(workspace?.id);
-  const update = useUpdateAiAgentSettings(workspace?.id);
-  const { t, dir } = useTranslation();
-  const tr = (k: string, fb: string) => {
-    const v = t(`aiAgent.behavior.${k}` as TranslationKey);
-    return !v || v === `aiAgent.behavior.${k}` ? fb : v;
-  };
+  const { data, isLoading, refetch } = useAiAgentSettings(workspace?.id);
+  const { dir } = useTranslation();
 
-  const [unsure, setUnsure] = useState<Unsure>('clarify');
-  // PHASE 2.1 FIX: deriveUnsure() collapses 3 independent backend fields
-  // (allow_clarifying_questions/handoff_on_low_confidence/fallback_behavior)
-  // into a single UI radio state, so resending a value derived from that
-  // collapse on every save could silently rewrite all three even when the
-  // operator only changed an unrelated field. Same dirty-tracking pattern
-  // as toneDirty below.
-  const [unsureDirty, setUnsureDirty] = useState(false);
-  const [style, setStyle] = useState<Style>('medium');
-  // PHASE 2.1 FIX: style shares the `instructions` object with tone, so it
-  // needs its own dirty flag to avoid resending max_answer_length (or
-  // clobbering the tone-preservation spread) on unrelated saves.
-  const [styleDirty, setStyleDirty] = useState(false);
-  const [tone, setTone] = useState<Tone>('friendly');
-  // PHASE 2 FIX: deriveTone() collapses any older free-text tone (from back
-  // when the Instructions page also had a tone control) into one of 3
-  // presets for display here. Without dirty tracking, saving Behavior for an
-  // unrelated reason would silently overwrite that legacy value with
-  // whichever preset it was collapsed to.
-  const [toneDirty, setToneDirty] = useState(false);
-  const [lang, setLang] = useState<Lang>('visitor');
-  // PHASE 2.1 FIX: deriveLang() collapses ANY non-empty allowed_locales
-  // array to the single UI state 'workspace', so resending a value derived
-  // from that collapse silently replaced e.g. ['fa', 'ar'] with just
-  // [workspace.default_locale] on unrelated saves.
-  const [languageDirty, setLanguageDirty] = useState(false);
-
-  useEffect(() => {
-    const s = data?.settings;
-    if (!s) return;
-    setUnsure(deriveUnsure(s));
-    setUnsureDirty(false);
-    setStyle(deriveStyle(s));
-    setStyleDirty(false);
-    setTone(deriveTone(s));
-    setToneDirty(false);
-    setLang(deriveLang(s));
-    setLanguageDirty(false);
-  }, [data]);
-
-  if (isLoading || !data?.settings) {
+  if (!workspace || isLoading || !data?.settings) {
     return <div className="flex justify-center py-20" dir={dir}><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
+  // Another workspace's settings start clean.
+  return <PersonaEditor key={workspace.id} workspace={workspace} settings={data.settings} refetch={refetch} />;
+}
 
-  const settings = data.settings;
-  const aiAnswering = settings.enabled && settings.mode !== 'off';
-  const modeLabel = settings.enabled
-    ? t(MODE_LABEL_KEYS[settings.mode] ?? 'aiAgent.activation.modeOff')
-    : t('aiAgent.activation.disabled');
+function PersonaEditor({
+  workspace, settings, refetch,
+}: {
+  workspace: Workspace;
+  settings: AgentSettings;
+  refetch?: () => unknown;
+}) {
+  const { t, dir } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const update = useUpdateAiAgentSettings(workspace.id);
+  const { data: diag } = useAiAgentDiagnostics(workspace.id);
+  const { allowedLocales } = usePlatformRegion();
+  const localesKey = (allowedLocales.length ? allowedLocales : FALLBACK_LOCALES).join(',');
+  const context = useMemo<PersonaContext>(() => ({ platformLocales: localesKey.split(',') }), [localesKey]);
+  const form = usePersonaForm(settings, context);
+  const primary = primaryLocale(workspace.default_locale, context.platformLocales);
+  const multiLanguage = context.platformLocales.length > 1;
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  // The picture saves at once; until the server's next copy shows it, the
+  // page shows the one just uploaded (or none).
+  const [avatar, setAvatar] = useState<{ url: string | null; over: AgentSettings } | null>(null);
+  const avatarUrl = avatar && avatar.over === settings ? avatar.url : settings.agent_logo_url;
+
+  const blocked = Object.keys(form.errors).length > 0;
+  const busy = saving || removing || update.isPending;
+
+  // Leaving the page (reload, closing the tab) with unsaved edits asks first.
+  useEffect(() => {
+    if (!form.dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [form.dirty]);
 
   const onSave = async () => {
-    // PHASE 2.1 FIX: BehaviorPage is a minimal PATCH producer — every field
-    // is only included when the operator intentionally touched the UI
-    // control it derives from during this editing session. Nothing is
-    // resent "just because Save was clicked." `enabled` and `mode` are never
-    // written here (see MODE_LABEL_KEYS).
-    const patch: Partial<AgentSettings> = {};
-    // Only include the 3 backend fields the "when AI is unsure" radio
-    // derives from when that control was intentionally changed — see
-    // unsureDirty comment above.
-    if (unsureDirty) {
-      patch.allow_clarifying_questions = unsure === 'clarify';
-      patch.handoff_on_low_confidence = unsure === 'transfer';
-      patch.fallback_behavior = unsure === 'silent' ? 'silent' : 'handoff';
-    }
-    // Only include allowed_locales when the language control was
-    // intentionally changed — see languageDirty comment above.
-    if (languageDirty) {
-      patch.allowed_locales = lang === 'workspace' && workspace?.default_locale
-        ? [workspace.default_locale]
-        : [];
-    }
-    // instructions.max_answer_length and instructions.tone are independently
-    // dirty-tracked but share one backend object, so instructions is only
-    // sent (and only the touched key(s) changed) when at least one of them
-    // was intentionally changed this session.
-    if (styleDirty || toneDirty) {
-      const instructions: AgentSettings['instructions'] = { ...(settings.instructions || {}) };
-      if (styleDirty) instructions.max_answer_length = style;
-      if (toneDirty) instructions.tone = tone;
-      patch.instructions = instructions;
-    }
+    if (!form.dirty || blocked || busy) return;
+    const sent = form.edits;
+    setSaving(true);
+    setSaveError(null);
     try {
-      await update.mutateAsync(patch);
-      toast.success(tr('saved', 'Behavior saved'));
+      await update.mutateAsync(form.patch);
+      form.markSaved(sent);
+      toast.success(t('aiAgent.persona.save.saved'));
     } catch (e: unknown) {
-      toast.error((e instanceof Error && e.message) || tr('saveFailed', 'Save failed'));
+      const message = saveErrorText(t, e);
+      setSaveError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  return (
-    <div className="space-y-8" dir={dir}>
-      <AiPageHeader icon={Sliders} accent="violet" title={tr('title', 'Behavior')} subtitle={tr('subtitle', 'Choose how your AI Agent talks to visitors.')} />
+  const onDiscard = () => {
+    form.discard();
+    setSaveError(null);
+  };
 
-      <SectionCard icon={MessageSquare} tone="bg-violet-500/10 text-violet-600 ring-violet-500/20" title={tr('aiMode.title', 'AI mode')} desc={tr('aiMode.desc', 'How the AI participates in conversations.')}>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/40 px-3 py-2.5">
-          <span className="flex items-center gap-2.5 text-sm font-medium">
-            <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${aiAnswering ? 'bg-emerald-500' : 'bg-muted-foreground/50'}`} />
-            {modeLabel}
+  const onRemoveCustomInstruction = async () => {
+    if (!window.confirm(t('aiAgent.persona.advanced.removeConfirm'))) return;
+    setRemoving(true);
+    try {
+      // Only this key changes; every other edit on the page stays for Save.
+      await update.mutateAsync({ instructions: { custom_system_instruction: '' } });
+      form.reset('custom_system_instruction');
+      toast.success(t('aiAgent.instructions.advanced.removed'));
+    } catch (e: unknown) {
+      toast.error(saveErrorText(t, e));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const onAvatarChange = (url: string | null) => {
+    setAvatar({ url, over: settings });
+    refetch?.();
+  };
+
+  const savedMode = displayMode(settings);
+  const state = savedMode === 'off' ? 'off' : savedMode === 'suggest_only' ? 'suggest' : 'on';
+
+  return (
+    <div className="space-y-6 animate-fade-in" dir={dir} data-page="ai-persona">
+      <AiPageHeader
+        icon={Sparkles}
+        accent="violet"
+        title={t('aiAgent.persona.title')}
+        subtitle={t('aiAgent.persona.subtitle')}
+        meta={(
+          <span
+            data-ai-agent-state={state}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium',
+              state === 'on' && 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+              state === 'suggest' && 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+              state === 'off' && 'border-border bg-muted text-muted-foreground',
+            )}
+          >
+            <span className={cn(
+              'h-1.5 w-1.5 rounded-full',
+              state === 'on' && 'bg-emerald-500 animate-pulse',
+              state === 'suggest' && 'bg-amber-500',
+              state === 'off' && 'bg-muted-foreground/50',
+            )} />
+            {state === 'on' ? t('aiAgent.menu.stateOn') : state === 'suggest' ? t('aiAgent.menu.stateSuggest') : t('aiAgent.menu.stateOff')}
           </span>
-          <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link to={wsPath('/ai-agent/activation')}>
-              {t('aiAgent.menu.tabActivation')}
-              <ArrowUpRight className="h-3.5 w-3.5 ms-1.5" />
-            </Link>
-          </Button>
+        )}
+      />
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-6">
+          <IdentitySection
+            form={form}
+            workspaceId={workspace.id}
+            primary={primary}
+            multiLanguage={multiLanguage}
+            avatarUrl={avatarUrl}
+            onAvatarChange={onAvatarChange}
+          />
+          <StyleSection form={form} workspaceId={workspace.id} />
+          <BehaviorSection
+            form={form}
+            diag={diag}
+            knowledgeBaseHref={wsPath('/knowledge-base')}
+            primary={primary}
+            multiLanguage={multiLanguage}
+          />
+          <AdvancedSettings
+            form={form}
+            primary={primary}
+            onRemoveCustomInstruction={onRemoveCustomInstruction}
+            removing={removing}
+          />
         </div>
-      </SectionCard>
 
-      <SectionCard icon={HelpCircle} tone="bg-amber-500/10 text-amber-600 ring-amber-500/20" title={tr('unsure.title', 'When AI is unsure')}>
-        <RadioGroup dir={dir} value={unsure} onValueChange={(v) => { setUnsure(v as Unsure); setUnsureDirty(true); }} className="space-y-2">
-          <Opt value="clarify" label={tr('unsure.clarify', 'Ask a clarification question')} />
-          <Opt value="transfer" label={tr('unsure.transfer', 'Transfer to operator')} />
-          <Opt value="silent" label={tr('unsure.silent', 'Do not answer')} />
-        </RadioGroup>
-      </SectionCard>
-
-      <div className="grid md:grid-cols-3 gap-4">
-        <SectionCard icon={FileText} tone="bg-sky-500/10 text-sky-600 ring-sky-500/20" title={tr('style.title', 'Answer style')}>
-          <RadioGroup dir={dir} value={style} onValueChange={(v) => { setStyle(v as Style); setStyleDirty(true); }} className="space-y-2">
-            <Opt value="short" label={tr('style.short', 'Short')} />
-            <Opt value="medium" label={tr('style.medium', 'Balanced')} />
-            <Opt value="long" label={tr('style.long', 'Detailed')} />
-          </RadioGroup>
-        </SectionCard>
-        <SectionCard icon={Heart} tone="bg-rose-500/10 text-rose-600 ring-rose-500/20" title={tr('tone.title', 'Tone')}>
-          <RadioGroup dir={dir} value={tone} onValueChange={(v) => { setTone(v as Tone); setToneDirty(true); }} className="space-y-2">
-            <Opt value="friendly" label={tr('tone.friendly', 'Friendly')} />
-            <Opt value="formal" label={tr('tone.formal', 'Formal')} />
-            <Opt value="professional" label={tr('tone.professional', 'Professional')} />
-          </RadioGroup>
-        </SectionCard>
-        <SectionCard icon={Languages} tone="bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" title={tr('lang.title', 'Language')}>
-          <RadioGroup dir={dir} value={lang} onValueChange={(v) => { setLang(v as Lang); setLanguageDirty(true); }} className="space-y-2">
-            <Opt value="visitor" label={tr('lang.visitor', 'Reply in visitor language')} />
-            <Opt value="workspace" label={tr('lang.workspace', 'Always use workspace default language')} />
-          </RadioGroup>
-        </SectionCard>
+        <aside
+          aria-label={t('aiAgent.persona.preview.title')}
+          className="min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto lg:pb-2"
+        >
+          <PersonaPreview
+            agentName={form.values.agent_name}
+            avatarUrl={avatarUrl}
+            welcomeEnabled={form.values.ai_intro_enabled}
+            welcome={form.localized('intro_message_localized', primary)}
+            primary={primary}
+            tone={form.values.tone}
+            length={form.values.max_answer_length}
+          />
+        </aside>
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={onSave} disabled={update.isPending} size="lg" className="shadow-lg shadow-primary/20">
-          {update.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />}{tr('save', 'Save behavior')}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SectionCard({ icon: Icon, tone, title, desc, children }: { icon: LucideIcon; tone: string; title: string; desc?: string; children: React.ReactNode }) {
-  return (
-    <Card className="overflow-hidden border-border/60 hover:shadow-md transition-shadow">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2.5">
-          <span className={`h-8 w-8 rounded-lg flex items-center justify-center ring-1 ${tone}`}>
-            <Icon className="h-4 w-4" />
-          </span>
-          {title}
-        </CardTitle>
-        {desc && <CardDescription className="mt-1">{desc}</CardDescription>}
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-function Opt({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-border/40 px-3 py-2.5 hover:border-primary/40 hover:bg-accent/30 transition-colors cursor-pointer has-[:checked]:border-primary/60 has-[:checked]:bg-primary/5">
-      <RadioGroupItem value={value} id={`opt-${value}`} />
-      <Label htmlFor={`opt-${value}`} className="text-sm font-normal cursor-pointer flex-1">{label}</Label>
+      <SaveBar
+        dirty={form.dirty}
+        saving={saving}
+        busy={busy}
+        blocked={blocked}
+        error={saveError}
+        onSave={onSave}
+        onDiscard={onDiscard}
+      />
     </div>
   );
 }

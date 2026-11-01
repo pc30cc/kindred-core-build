@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, BookOpen, MessageSquareText, Workflow, Sparkles, Activity, Wrench,
+  LayoutDashboard, MessageSquareText, Workflow, Sparkles, Activity, Wrench,
 } from 'lucide-react';
 import type { TranslationKey } from '@/i18n';
 import type { AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -9,13 +9,22 @@ import type { AiAgentCapabilities } from '@/lib/ai-agent/assistant';
  * The AI section's menu: a few plain sections, each opening its pages as
  * tabs (AiAgentLayout). Every customer page of the section is in exactly one
  * section (src/test/ai-agent/aiSectionMenu.test.ts), so none is reachable
- * only by typing its URL; the URLs themselves are unchanged.
+ * only by typing its URL.
  *
- * `navFlag` is the Super Admin's per-entry switch (capabilities.customer_nav,
- * server/services/ai-agent/platformSettings.ts): a tab whose flag is false is
- * hidden, and a section without a visible tab is hidden. Pages without a flag
- * are always offered, as they always were by URL. The Super Admin's cap on
- * visible entries (max_customer_visible_nav_items) counts sections.
+ * Knowledge is not in it (owner, 2026-11-01): sources, files, web pages, Q&A
+ * and learning from operators are managed in the workspace's Knowledge Base
+ * only, whose tabs the section's old knowledge pages became
+ * (src/components/app/knowledge/knowledgeBaseTabs.ts). The section's
+ * settings, once four pages, are one: «شخصیت و رفتار» (`behavior`). Their
+ * old URLs redirect (App.tsx).
+ *
+ * `navFlags` are the Super Admin's per-entry switches (capabilities.customer_nav,
+ * server/services/ai-agent/platformSettings.ts): a tab shows while any of its
+ * switches is on, and a section without a visible tab is hidden. Pages
+ * without a switch are always offered, as they always were by URL. The
+ * `knowledge` switch is the Knowledge Base's status tab now. The Super
+ * Admin's cap on visible entries (max_customer_visible_nav_items) counts
+ * sections.
  */
 export type CustomerNavKey = keyof AiAgentCapabilities['customer_nav'];
 
@@ -23,7 +32,8 @@ export interface AiMenuTab {
   /** The page's path under /ai-agent/ (also matches its sub-paths). */
   path: string;
   label: TranslationKey;
-  navFlag?: CustomerNavKey;
+  /** Shown while any of these switches is on; none: always shown. */
+  navFlags?: readonly CustomerNavKey[];
 }
 
 export interface AiMenuSection {
@@ -43,27 +53,16 @@ export const AI_MENU: AiMenuSection[] = [
   {
     id: 'overview', label: 'aiAgent.menu.overview', desc: 'aiAgent.menu.overviewDesc', icon: LayoutDashboard, accent: 'indigo',
     tabs: [
-      { path: 'overview', label: 'aiAgent.menu.tabOverview', navFlag: 'overview' },
-      { path: 'activation', label: 'aiAgent.menu.tabActivation' },
+      { path: 'overview', label: 'aiAgent.menu.tabOverview', navFlags: ['overview'] },
       { path: 'playground', label: 'aiAgent.menu.tabPlayground' },
     ],
   },
   {
-    id: 'knowledge', label: 'aiAgent.menu.knowledge', desc: 'aiAgent.menu.knowledgeDesc', icon: BookOpen, accent: 'cyan',
+    // One page, so no tab rail. It holds what the Behavior and the Settings
+    // pages did, so either switch offers it.
+    id: 'behavior', label: 'aiAgent.menu.behavior', desc: 'aiAgent.menu.behaviorDesc', icon: MessageSquareText, accent: 'violet',
     tabs: [
-      { path: 'knowledge', label: 'aiAgent.menu.tabKnowledge', navFlag: 'knowledge' },
-      { path: 'web-pages', label: 'aiAgent.menu.tabWebPages' },
-      { path: 'learning-candidates', label: 'aiAgent.menu.tabLearning' },
-      { path: 'train', label: 'aiAgent.menu.tabTrain' },
-    ],
-  },
-  {
-    id: 'answers', label: 'aiAgent.menu.answers', desc: 'aiAgent.menu.answersDesc', icon: MessageSquareText, accent: 'violet',
-    tabs: [
-      { path: 'behavior', label: 'aiAgent.menu.tabBehavior', navFlag: 'behavior' },
-      { path: 'instructions', label: 'aiAgent.menu.tabInstructions' },
-      { path: 'guidance', label: 'aiAgent.menu.tabGuidance' },
-      { path: 'settings', label: 'aiAgent.menu.tabSettings', navFlag: 'settings' },
+      { path: 'behavior', label: 'aiAgent.menu.behavior', navFlags: ['behavior', 'settings'] },
     ],
   },
   {
@@ -79,14 +78,14 @@ export const AI_MENU: AiMenuSection[] = [
   {
     id: 'operatorAssist', label: 'aiAgent.menu.operatorAssist', desc: 'aiAgent.menu.operatorAssistDesc', icon: Sparkles, accent: 'amber',
     tabs: [
-      { path: 'operator-assist', label: 'aiAgent.menu.tabOperatorAssist', navFlag: 'operatorAssist' },
-      { path: 'operator-assist-analytics', label: 'aiAgent.menu.tabAssistAnalytics', navFlag: 'operatorAssist' },
+      { path: 'operator-assist', label: 'aiAgent.menu.tabOperatorAssist', navFlags: ['operatorAssist'] },
+      { path: 'operator-assist-analytics', label: 'aiAgent.menu.tabAssistAnalytics', navFlags: ['operatorAssist'] },
     ],
   },
   {
     id: 'activity', label: 'aiAgent.menu.activity', desc: 'aiAgent.menu.activityDesc', icon: Activity, accent: 'sky',
     tabs: [
-      { path: 'activity', label: 'aiAgent.menu.tabActivity', navFlag: 'activity' },
+      { path: 'activity', label: 'aiAgent.menu.tabActivity', navFlags: ['activity'] },
       { path: 'analytics', label: 'aiAgent.menu.tabAnalytics' },
     ],
   },
@@ -119,6 +118,11 @@ export function aiSectionForPath(sub: string, sections: AiMenuSection[] = AI_MEN
   return sections.find((s) => s.tabs.some((tab) => aiTabMatches(sub, tab.path)) || s.also?.includes(first));
 }
 
+/** A tab without switches, or with one of them on (an unknown switch counts as on). */
+export function aiTabOffered(tab: AiMenuTab, navFlags: Partial<Record<CustomerNavKey, boolean>>): boolean {
+  return !tab.navFlags?.length || tab.navFlags.some((flag) => navFlags[flag] !== false);
+}
+
 /**
  * The sections a member sees: the Super Admin's flags hide tabs, empty
  * sections drop out, the advanced one needs AdvancedAiAgentGuard's access,
@@ -132,7 +136,7 @@ export function visibleAiMenu(opts: {
 }): AiMenuSection[] {
   const withTabs = AI_MENU
     .filter((s) => !s.advanced || opts.advancedAllowed)
-    .map((s) => ({ ...s, tabs: s.tabs.filter((tab) => !tab.navFlag || opts.navFlags[tab.navFlag] !== false) }))
+    .map((s) => ({ ...s, tabs: s.tabs.filter((tab) => aiTabOffered(tab, opts.navFlags)) }))
     .filter((s) => s.tabs.length > 0);
   if (opts.cap === null || opts.cap <= 0) return withTabs;
   return [

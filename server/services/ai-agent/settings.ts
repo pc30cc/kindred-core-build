@@ -18,14 +18,43 @@ export type AgentMode =
   | 'auto_reply_always';
 
 export type AnswerGuidance = 'conservative' | 'balanced' | 'creative';
+/**
+ * The column's values (CHECK in migration 016a), shared with the answer
+ * strategy (answerStrategy.ts thresholdsForStyle), which also reads the
+ * legacy 'proactive' as 'helpful_first'.
+ */
 export type EscalationStyle = 'conservative' | 'balanced' | 'helpful_first';
 
+/**
+ * The language the AI writes to the visitor in (instructions.reply_language):
+ * 'visitor' (also when unset) keeps each path's visitor-language rule;
+ * 'workspace_default' answers in the workspace's default language when it is
+ * an allowed one (replyLanguage.ts). allowed_locales stays the allow-list only.
+ */
+export type ReplyLanguage = 'visitor' | 'workspace_default';
+
+/**
+ * `ai_agent_settings.instructions`, one JSON column. A write merges into it
+ * key by key (mergeInstructions below); only the customer-safe subset ever
+ * reaches a browser (customerSafe.ts).
+ */
 export interface AgentInstructions {
   tone?: string;
   custom_instructions?: string;
   forbidden_topics?: string[];
   escalation_instructions?: string;
   max_answer_length?: 'short' | 'medium' | 'long';
+  brand_voice?: string;
+  /** @deprecated legacy key; the canonical field is AgentSettings.business_description. */
+  business_description?: string;
+  do_list?: string[];
+  dont_list?: string[];
+  handoff_instructions?: string;
+  pricing_instructions?: string;
+  support_instructions?: string;
+  /** Never returned to a browser (customerSafe.ts sends has_custom_system_instruction). */
+  custom_system_instruction?: string;
+  reply_language?: ReplyLanguage;
 }
 
 export interface AgentSettings {
@@ -60,14 +89,29 @@ export interface AgentSettings {
   show_sources_to_operator: boolean;
   show_sources_to_visitor: boolean;
   handoff_on_low_confidence: boolean;
+  /**
+   * Whether an explicit request for a person is acted on at all (every
+   * consumer reads this switch: runtimePolicy, contextStage,
+   * runtimeDecisionStage, answerStrategy, policy). false: the AI keeps
+   * answering, whatever handoff_policy says. A write that sets a
+   * handoff_policy turns it on (updateSettings), so the page's handoff
+   * control always takes effect.
+   */
   handoff_on_human_request: boolean;
   handoff_when_no_kb_match: boolean;
   /**
-   * vNext — adaptive handoff. NULL/undefined keeps legacy behaviour and is
-   * resolved from handoff_on_human_request (see handoffPolicy.ts).
+   * How an explicit request for a person is handled while
+   * handoff_on_human_request is on: 'immediate', 'assist_first' or
+   * 'adaptive' (handoffPolicy.ts). NULL (every row until an owner picks one)
+   * is the legacy rule: hand over at once.
    */
   handoff_policy?: 'immediate' | 'assist_first' | 'adaptive' | null;
-  /** Max brief assist attempts before an explicit human request escalates. */
+  /**
+   * Assist attempts before an explicit request hands over ('assist_first',
+   * 'adaptive'), 0..3 (handoffPolicy.ts resolveMaxAssistAttempts). The
+   * second explicit request always hands over (§19), so 0 means at once and
+   * any value from 1 means one attempt.
+   */
   max_assist_attempts?: number;
   confidence_threshold: number;
   instructions: AgentInstructions;
@@ -202,22 +246,68 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'require_approval_for_learning',
 ]);
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
 /**
- * `instructions` is one JSON column and a write replaces it whole. Its
- * `custom_system_instruction` never reaches the browser (customerSafe.ts
- * sends only `has_custom_system_instruction`), so a page saving the other
- * keys cannot send it back: a write that leaves it out keeps the stored one.
- * A write that carries it replaces it ('' removes it).
+ * `instructions` is one JSON column, and a write MERGES into it key by key:
+ *
+ *   - a key the write carries replaces the stored one; '' clears a text and
+ *     [] clears a list (the prompt reads both as unset);
+ *   - a key the write leaves out keeps its stored value, including the keys
+ *     a page never sees (`custom_system_instruction`, which only reaches a
+ *     browser as `has_custom_system_instruction`) or does not know (legacy
+ *     keys such as `custom_instructions`, `forbidden_topics`, `personality`).
+ *
+ * So a page sends only the keys the owner edited, and a client that sends
+ * the whole object (every key it shows) gets what it sent. The custom system
+ * instruction keeps its rule: left out, the stored one stays; sent, it
+ * replaces it ('' removes it). An `undefined` value counts as left out.
+ * Anything but an object (no current caller) is written as given.
+ *
+ * Two newer keys retire the legacy key they replaced (LEGACY_KEY_OF): the
+ * prompt reads the old one only while the new one is empty (prompt.ts), and
+ * the pages show the two as one field, so writing the new key, '' included,
+ * drops the old one, unless the same write sets it: a cleared field then
+ * clears what the assistant follows instead of bringing the old text back.
  */
-function keepStoredCustomSystemInstruction(next: unknown, stored: unknown): unknown {
-  if (!next || typeof next !== 'object' || Array.isArray(next)) return next;
-  const incoming = next as Record<string, unknown>;
-  if (incoming.custom_system_instruction !== undefined) return next;
-  const kept = stored && typeof stored === 'object' && !Array.isArray(stored)
-    ? (stored as Record<string, unknown>).custom_system_instruction
-    : undefined;
-  if (typeof kept !== 'string' || kept === '') return next;
-  return { ...incoming, custom_system_instruction: kept };
+const LEGACY_KEY_OF: Record<string, string> = {
+  handoff_instructions: 'escalation_instructions',
+  custom_system_instruction: 'custom_instructions',
+};
+
+export function mergeInstructions(next: unknown, stored: unknown): unknown {
+  if (!isPlainObject(next)) return next;
+  const merged: Record<string, unknown> = isPlainObject(stored) ? { ...stored } : {};
+  for (const [key, value] of Object.entries(next)) {
+    if (value === undefined) continue;
+    merged[key] = value;
+    const legacy = LEGACY_KEY_OF[key];
+    if (legacy && next[legacy] === undefined) delete merged[legacy];
+  }
+  return merged;
+}
+
+/**
+ * The handoff control and its switch stay one rule. handoff_on_human_request
+ * says whether a request for a person is acted on at all, and every consumer
+ * reads it (runtimePolicy.decideRuntime, engine/contextStage.ts,
+ * engine/runtimeDecisionStage.ts, answerStrategy.decideStrategy,
+ * policy.decide); handoff_policy says how (handoffPolicy.ts). Each of the
+ * three policies acts on the request (at once, or after one assist attempt),
+ * so a write that picks a policy and says nothing about the switch turns the
+ * switch on: otherwise a workspace whose switch was off would keep ignoring
+ * the visitor whatever the page shows. A write that sets the switch itself
+ * (false: "never hand over on request") is kept as written, and so is the
+ * stored policy, for when the switch is turned on again.
+ */
+function syncHumanRequestSwitch(update: Record<string, unknown>): void {
+  const policy = update.handoff_policy;
+  const picksPolicy = policy === 'immediate' || policy === 'assist_first' || policy === 'adaptive';
+  if (picksPolicy && !('handoff_on_human_request' in update)) {
+    update.handoff_on_human_request = true;
+  }
 }
 
 export async function updateSettings(
@@ -233,8 +323,9 @@ export async function updateSettings(
     if (ALLOWED_UPDATE_FIELDS.has(k)) update[k] = v;
   }
   if ('instructions' in update) {
-    update.instructions = keepStoredCustomSystemInstruction(update.instructions, current.instructions);
+    update.instructions = mergeInstructions(update.instructions, current.instructions);
   }
+  syncHumanRequestSwitch(update);
   if (Object.keys(update).length === 0) {
     return getOrCreateSettings(config, workspaceId);
   }

@@ -493,6 +493,18 @@ over unchanged. A full disk stops Postgres too.
     six seeded `offline_message_received` templates (both editions, all still
     as seeded) their plain subject and added `offline_messages_summary`; the
     rest writes no data. RESPOK by its migrator on push.
+    Then `290_platform_brand_assets.sql` (2026-10-30 19:23 UTC, before the
+    merge of PR #375) and `291_email_templates_redesign.sql` (20:19, once
+    #375's backend was live; RESPOK by hand at 20:20, its name recorded in
+    RESPOK's ledger before the merge so its migrator skipped it; dumps and
+    dry runs in `/root/webyar-migrate-290/`, `/root/webyar-migrate-291/` and
+    `/root/respok-migrate-291/`). Then `292_billing_crypto_usd_accounts.sql`
+    (Apirone's USD accounts, PR #379; two service_role functions, it writes
+    no data), applied by hand before the merge, 2026-11-01 07:40 UTC, after
+    a dry run inside `BEGIN … ROLLBACK` at 06:43 (an open IRR account and
+    the App Review workspace switched to USD, the account with ledger rows
+    and EUR refused; a schema dump and the logs: `/root/webyar-migrate-292/`).
+    RESPOK by its migrator on push (07:42).
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

@@ -142,7 +142,6 @@ describe('a server copy never wipes what is being edited', () => {
 
     const message = enText('aiAgent.persona.errors.generic');
     await waitFor(() => expect(document.querySelector('[data-persona-savebar] [role="alert"]')?.textContent).toContain(message));
-    expect(toast.error).toHaveBeenCalledWith(message);
     expect(toast.success).not.toHaveBeenCalled();
     expect(nameField()).toHaveValue('Nima');
     expect(screen.getByRole('radio', { name: 'Formal' })).toHaveAttribute('data-state', 'checked');

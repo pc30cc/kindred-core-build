@@ -267,12 +267,13 @@ describe('instructions: only the edited keys travel', () => {
     });
   });
 
-  it('emptying handoff instructions that show the legacy escalation text clears both, so the text really goes', async () => {
+  it('emptying handoff instructions that show the legacy escalation text sends only handoff_instructions "" (the server retires the legacy text), and the field stays clear', async () => {
     resetStore(baseSettings({ instructions: { tone: 'formal', escalation_instructions: 'Legacy escalation text' } }));
     await renderPage();
     openGroup('handoff');
     fireEvent.change(byId('persona-handoff-instructions'), { target: { value: '  ' } });
-    expect(await save()).toEqual({ instructions: { handoff_instructions: '', escalation_instructions: '' } });
+    expect(await save()).toEqual({ instructions: { handoff_instructions: '' } });
+    await waitFor(() => expect(saveButton()).toBeDisabled());
     expect(byId<HTMLTextAreaElement>('persona-handoff-instructions').value).toBe('');
   });
 
@@ -283,7 +284,7 @@ describe('instructions: only the edited keys travel', () => {
     fireEvent.click(switchNamed(enText('aiAgent.persona.behavior.clarify')));
     fireEvent.click(radio(enText('aiAgent.persona.behavior.handoffAssistFirst')));
     const patch = await save();
-    expect(Object.keys(patch).sort()).toEqual(['allow_clarifying_questions', 'handoff_policy', 'instructions']);
+    expect(Object.keys(patch).sort()).toEqual(['allow_clarifying_questions', 'handoff_on_human_request', 'handoff_policy', 'instructions']);
     expect(patch.instructions).toEqual({ tone: 'formal', max_answer_length: 'short' });
   });
 });
@@ -346,30 +347,71 @@ describe('the business description is the top-level field (canonical ownership)'
   });
 });
 
-describe('behavior controls of the simple view', () => {
-  it('handoff policy shows the effective value and is written only when changed', async () => {
+describe('when a visitor asks for a person (handoff_on_human_request + handoff_policy)', () => {
+  const OPTION = {
+    immediate: enText('aiAgent.persona.behavior.handoffImmediate'),
+    assist_first: enText('aiAgent.persona.behavior.handoffAssistFirst'),
+    adaptive: enText('aiAgent.persona.behavior.handoffAdaptive'),
+    off: enText('aiAgent.persona.behavior.handoffOff'),
+  };
+  const checkedOption = () => Object.entries(OPTION)
+    .filter(([, name]) => radio(name).getAttribute('data-state') === 'checked')
+    .map(([value]) => value);
+
+  it('offers four choices; a policy never picked (NULL) with the switch on reads as "right away"', async () => {
     resetStore(baseSettings({ handoff_policy: null, handoff_on_human_request: true }));
     await renderPage();
-    expect(radio(enText('aiAgent.persona.behavior.handoffImmediate'))).toHaveAttribute('data-state', 'checked');
-    fireEvent.click(radio(enText('aiAgent.persona.behavior.handoffAdaptive')));
-    expect(await save()).toEqual({ handoff_policy: 'adaptive' });
+    for (const name of Object.values(OPTION)) expect(radio(name)).toBeInTheDocument();
+    expect(checkedOption()).toEqual(['immediate']);
   });
 
-  it('a legacy workspace whose request switch is off shows the nearest policy and says what happens now', async () => {
-    resetStore(baseSettings({ handoff_policy: null, handoff_on_human_request: false }));
+  it('the switch off reads as "don\'t connect", whatever policy is stored', async () => {
+    resetStore(baseSettings({ handoff_policy: 'assist_first', handoff_on_human_request: false }));
     await renderPage();
-    expect(radio(enText('aiAgent.persona.behavior.handoffAdaptive'))).toHaveAttribute('data-state', 'checked');
-    expect(screen.getByText(enText('aiAgent.persona.behavior.handoffSwitchOff'))).toBeInTheDocument();
-    fireEvent.click(radio(enText('aiAgent.persona.behavior.handoffImmediate')));
-    expect(await save()).toEqual({ handoff_policy: 'immediate' });
-    // The server turned the switch on with the policy: the note goes.
-    expect(screen.queryByText(enText('aiAgent.persona.behavior.handoffSwitchOff'))).not.toBeInTheDocument();
+    expect(checkedOption()).toEqual(['off']);
   });
 
   it('the stored policy shows as it is', async () => {
-    resetStore(baseSettings({ handoff_policy: 'assist_first' }));
+    resetStore(baseSettings({ handoff_policy: 'adaptive' }));
     await renderPage();
-    expect(radio(enText('aiAgent.persona.behavior.handoffAssistFirst'))).toHaveAttribute('data-state', 'checked');
+    expect(checkedOption()).toEqual(['adaptive']);
+  });
+
+  for (const value of ['assist_first', 'adaptive', 'immediate'] as const) {
+    it(`choosing ${value} writes the switch on with the policy`, async () => {
+      resetStore(baseSettings(value === 'immediate'
+        ? { handoff_policy: 'adaptive', handoff_on_human_request: true }
+        : { handoff_policy: null, handoff_on_human_request: true }));
+      await renderPage();
+      fireEvent.click(radio(OPTION[value]));
+      expect(await save()).toEqual({ handoff_on_human_request: true, handoff_policy: value });
+    });
+  }
+
+  it('"don\'t connect" writes only the switch off, and the stored policy waits', async () => {
+    resetStore(baseSettings({ handoff_policy: 'assist_first', handoff_on_human_request: true }));
+    await renderPage();
+    fireEvent.click(radio(OPTION.off));
+    expect(await save()).toEqual({ handoff_on_human_request: false });
+    expect(checkedOption()).toEqual(['off']);
+  });
+
+  it('from the switch off, any policy turns it back on', async () => {
+    resetStore(baseSettings({ handoff_policy: null, handoff_on_human_request: false }));
+    await renderPage();
+    fireEvent.click(radio(OPTION.immediate));
+    expect(await save()).toEqual({ handoff_on_human_request: true, handoff_policy: 'immediate' });
+    expect(checkedOption()).toEqual(['immediate']);
+  });
+
+  it('choosing the shown option again, or nothing, writes neither', async () => {
+    resetStore(baseSettings({ handoff_policy: null, handoff_on_human_request: true }));
+    await renderPage();
+    fireEvent.click(radio(OPTION.immediate));
+    fireEvent.click(radio('Short'));
+    const patch = await save();
+    expect(patch).not.toHaveProperty('handoff_policy');
+    expect(patch).not.toHaveProperty('handoff_on_human_request');
   });
 });
 
@@ -435,7 +477,6 @@ describe('advanced groups', () => {
     fireEvent.click(switchNamed(enText('aiAgent.persona.advanced.stopAfterHuman')));
     fireEvent.change(byId('persona-max-clarify'), { target: { value: '3' } });
     fireEvent.change(byId('persona-max-per-conversation'), { target: { value: '7' } });
-    fireEvent.change(byId('persona-confidence'), { target: { value: '70' } });
     fireEvent.click(switchNamed(enText('aiAgent.persona.advanced.learningAuto')));
     fireEvent.click(switchNamed(enText('aiAgent.persona.advanced.learning')));
 
@@ -452,7 +493,6 @@ describe('advanced groups', () => {
       pause_auto_reply_after_human_reply: false,
       max_clarification_attempts: 3,
       max_replies_per_conversation: 7,
-      confidence_threshold: 0.7,
       auto_create_learning_candidates: false,
       learning_enabled: false,
     });
@@ -472,19 +512,33 @@ describe('advanced groups', () => {
     expect(await save()).toEqual({ max_replies_per_conversation: 100 });
   });
 
-  it('clarifying attempts are disabled while clarifying questions are off; help attempts show only for the assist policies', async () => {
+  it('clarifying attempts are disabled while clarifying questions are off', async () => {
     await renderPage();
     openGroup('answering');
-    openGroup('handoff');
     expect(byId('persona-max-clarify')).toBeEnabled();
-    expect(document.getElementById('persona-assist-attempts')).toBeNull();
-
     fireEvent.click(switchNamed(enText('aiAgent.persona.behavior.clarify')));
     expect(byId('persona-max-clarify')).toBeDisabled();
+    expect(screen.getByText(enText('aiAgent.persona.advanced.maxClarifyOff'))).toBeInTheDocument();
+    expect(await save()).toEqual({ allow_clarifying_questions: false });
+  });
+
+  it('no control without a real effect: no confidence threshold, no help-attempts count, and neither is ever written', async () => {
+    resetStore(baseSettings({ confidence_threshold: 0.55, max_assist_attempts: 1 }));
+    await renderPage();
+    for (const id of GROUPS) openGroup(id);
+    // Limits holds the two reply limits only.
+    const limits = document.querySelector('[data-persona-advanced="limits"]') as HTMLElement;
+    expect(within(limits).getAllByRole('spinbutton').map((el) => el.id)).toEqual(['persona-max-per-conversation', 'persona-max-per-hour']);
+    expect(screen.queryByText(/confidence needed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/help attempts|attempts before/i)).not.toBeInTheDocument();
 
     fireEvent.click(radio(enText('aiAgent.persona.behavior.handoffAssistFirst')));
-    fireEvent.change(byId('persona-assist-attempts'), { target: { value: '0' } });
-    expect(await save()).toEqual({ allow_clarifying_questions: false, handoff_policy: 'assist_first', max_assist_attempts: 0 });
+    fireEvent.click(switchNamed(enText('aiAgent.persona.advanced.lowConfidence')));
+    fireEvent.change(byId('persona-max-per-hour'), { target: { value: '40' } });
+    const patch = await save();
+    expect(patch).not.toHaveProperty('confidence_threshold');
+    expect(patch).not.toHaveProperty('max_assist_attempts');
+    expect(patch).toEqual({ handoff_on_human_request: true, handoff_policy: 'assist_first', handoff_on_low_confidence: true, max_replies_per_hour: 40 });
   });
 
   it('handoff keywords are chips of the form: added and removed locally, sent with Save as one list', async () => {

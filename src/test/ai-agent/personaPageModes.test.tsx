@@ -221,7 +221,6 @@ describe('turning the assistant on: the server says no', () => {
 
       const message = enText(key);
       await waitFor(() => expect(document.querySelector('[data-persona-savebar] [role="alert"]')?.textContent).toContain(message));
-      expect(toast.error).toHaveBeenCalledWith(message);
       expect(toast.success).not.toHaveBeenCalled();
       expect(screen.getByLabelText('Name')).toHaveValue('Nima');
       expect(checked()).toEqual(['auto_reply_always']);
@@ -239,7 +238,8 @@ describe('turning the assistant on: the server says no', () => {
     await renderPage();
     fireEvent.click(screen.getByRole('radio', { name: 'Short' }));
     await save();
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(enText('aiAgent.persona.errors.network')));
+    await waitFor(() => expect(document.querySelector('[data-persona-savebar] [role="alert"]')?.textContent).toContain(enText('aiAgent.persona.errors.network')));
+    expect(toast.success).not.toHaveBeenCalled();
     expect(screen.getByRole('radio', { name: 'Short' })).toHaveAttribute('data-state', 'checked');
     expect(saveButton()).toBeEnabled();
   });

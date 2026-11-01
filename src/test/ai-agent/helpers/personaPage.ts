@@ -101,6 +101,12 @@ export function baseDiagnostics(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** A newer instruction key retires the legacy one it replaced (server settings.ts LEGACY_KEY_OF). */
+const LEGACY_KEY_OF: Record<string, string> = {
+  handoff_instructions: 'escalation_instructions',
+  custom_system_instruction: 'custom_instructions',
+};
+
 /** The server's write (settings.ts updateSettings + customerSafe.ts), on the copy the page holds. */
 export function serverApply(current: Settings, patch: Patch): Settings {
   const next: Settings = { ...current };
@@ -110,7 +116,10 @@ export function serverApply(current: Settings, patch: Patch): Settings {
   if (patch.instructions) {
     const merged: Record<string, unknown> = { ...(current.instructions || {}) };
     for (const [key, value] of Object.entries(patch.instructions)) {
-      if (value !== undefined) merged[key] = value;
+      if (value === undefined) continue;
+      merged[key] = value;
+      const legacy = LEGACY_KEY_OF[key];
+      if (legacy && patch.instructions[legacy] === undefined) delete merged[legacy];
     }
     const custom = merged.custom_system_instruction;
     delete merged.custom_system_instruction;

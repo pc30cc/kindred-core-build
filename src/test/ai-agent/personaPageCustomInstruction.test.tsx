@@ -154,12 +154,15 @@ describe('C2 — the key is sent only when the owner typed a new instruction', (
     const patch = await save();
     expect(patch).toEqual({ instructions: { custom_system_instruction: 'Legacy free text, sharpened.' } });
     expect(patch.instructions).not.toHaveProperty('custom_instructions');
+    // Saved, and the server retired the legacy text: the field is empty under the note.
+    await waitFor(() => expect(screen.getByText(SAVED_NOTE)).toBeInTheDocument());
+    expect(customField().value).toBe('');
   });
 });
 
 describe('C3 — Remove clears it, after asking, at once', () => {
-  it("sends exactly { instructions: { custom_system_instruction: '' } }", async () => {
-    resetStore(serverSettings(true));
+  it("sends exactly { instructions: { custom_system_instruction: '' } }, and no old text comes back", async () => {
+    resetStore(serverSettings(true, { custom_instructions: 'Legacy free text' }));
     await renderPage();
     fireEvent.click(screen.getByRole('button', { name: REMOVE }));
     await waitFor(() => expect(store.patches).toHaveLength(1));
@@ -167,8 +170,9 @@ describe('C3 — Remove clears it, after asking, at once', () => {
     expect(confirmSpy).toHaveBeenCalledWith(enText('aiAgent.persona.advanced.removeConfirm'));
     expect(store.patches[0]).toEqual({ instructions: { custom_system_instruction: '' } });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(enText('aiAgent.instructions.advanced.removed')));
-    // Gone on the server: no note any more.
+    // Gone on the server, legacy text included (settings.ts retires it): no note, an empty field.
     await waitFor(() => expect(screen.queryByText(SAVED_NOTE)).not.toBeInTheDocument());
+    expect(customField().value).toBe('');
   });
 
   it('cancelling the question sends nothing', async () => {

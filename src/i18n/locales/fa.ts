@@ -8507,7 +8507,7 @@ const fa: TranslationKeys = {
       },
       server: {
         testPassed: 'تنظیمات درست است',
-        testFailed: 'تنظیمات کامل نیست',
+        testFailed: 'تنظیمات مشکل دارد',
         runtimeOff: 'تا وقتی مدیر پلتفرم اجرای MCP را روشن نکند، این سرور اجرا نمی‌شود.',
         testError: 'بررسی انجام نشد',
         confirmRemove: 'سرور «{{name}}» حذف شود؟',
@@ -8791,7 +8791,7 @@ const fa: TranslationKeys = {
       answers: 'پاسخ‌گویی',
       answersDesc: 'لحن، دستورالعمل‌ها و پیام‌ها',
       automation: 'خودکارسازی',
-      automationDesc: 'مسیریابی، موضوع‌ها و پیام‌های خودکار',
+      automationDesc: 'قوانین و پیام‌های خودکار',
       operatorAssist: 'دستیار اپراتور',
       operatorAssistDesc: 'پیشنهاد پاسخ به تیم شما',
       activity: 'فعالیت و گزارش',

@@ -8810,7 +8810,7 @@ const en = {
       answers: 'Answers',
       answersDesc: 'Tone, instructions and messages',
       automation: 'Automation',
-      automationDesc: 'Routing, topics and automatic messages',
+      automationDesc: 'Rules and automatic messages',
       operatorAssist: 'Operator assist',
       operatorAssistDesc: 'Reply suggestions for your team',
       activity: 'Activity & reports',

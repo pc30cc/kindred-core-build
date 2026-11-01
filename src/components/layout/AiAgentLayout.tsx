@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Outlet, Link, useLocation, Navigate } from 'react-router-dom';
 import { useWorkspacePath, useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
@@ -42,6 +43,19 @@ export function AiAgentLayout() {
   const { data: capabilities, isLoading, isError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: isAdmin } = useIsGlobalAdmin();
   const agentState = useAgentState(workspace?.id);
+  const frameRef = useRef<HTMLDivElement>(null);
+
+  // On a phone the sections and the tabs are rows that scroll sideways:
+  // keep the open ones in view (a no-op when they already are, as on a
+  // laptop). Art's frame does the same for its own rows.
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    for (const selector of ['[data-ai-section][data-active="true"]', '[data-ai-tab][aria-current="page"]']) {
+      const el = frame.querySelector<HTMLElement>(selector);
+      el?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [location.pathname, isLoading]);
 
   if (isLoading) {
     return (
@@ -87,7 +101,7 @@ export function AiAgentLayout() {
   // inner AI sidebar), so nothing AI-related mounts without `ai_assistant`.
   return (
     <PlanAccessGate moduleKey="ai_assistant">
-    <div data-section-layout="ai-agent" className="flex h-full flex-col md:flex-row">
+    <div ref={frameRef} data-section-layout="ai-agent" className="flex h-full flex-col md:flex-row">
       <div
         data-section-nav="ai-agent"
         className="w-full shrink-0 border-b border-border/60 bg-gradient-to-b from-indigo-500/[0.06] via-violet-500/[0.03] to-transparent md:w-[264px] md:overflow-y-auto md:border-b-0 md:border-e"

@@ -8466,7 +8466,7 @@ const tr: TranslationKeys = {
         title: 'Dahili araçlar',
         desc: 'Asistanın sizin izninizle kullanabileceği hazır eylemler.',
         addDefaults: 'Hazır araçları ekle',
-        empty: 'Henüz dahili araç yok. Eklemek için {{action}} düğmesine tıklayın.',
+        empty: 'Henüz dahili araç yok. Eklemek için “{{action}}” düğmesine tıklayın.',
         seeded: '{{count}} dahili araç eklendi',
       },
       mcp: {
@@ -8509,7 +8509,7 @@ const tr: TranslationKeys = {
       },
       server: {
         testPassed: 'Ayarlar doğru',
-        testFailed: 'Ayarlar eksik',
+        testFailed: 'Ayarlarda sorun var',
         runtimeOff: 'Platform yöneticisi MCP çalıştırmayı açana kadar bu sunucu çalıştırılmaz.',
         testError: 'Kontrol yapılamadı',
         confirmRemove: '"{{name}}" sunucusu kaldırılsın mı?',
@@ -8793,7 +8793,7 @@ const tr: TranslationKeys = {
       answers: 'Yanıtlar',
       answersDesc: 'Üslup, talimatlar ve mesajlar',
       automation: 'Otomasyon',
-      automationDesc: 'Yönlendirme, konular ve otomatik mesajlar',
+      automationDesc: 'Kurallar ve otomatik mesajlar',
       operatorAssist: 'Operatör yardımı',
       operatorAssistDesc: 'Ekibiniz için yanıt önerileri',
       activity: 'Etkinlik ve raporlar',

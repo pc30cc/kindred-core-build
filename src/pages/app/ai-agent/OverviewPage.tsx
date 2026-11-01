@@ -6,11 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, AlertTriangle, CheckCircle2, AlertCircle, Loader2,
-  RefreshCw, Plus, Globe, Beaker, GraduationCap, Tags, Workflow,
+  RefreshCw, Plus, Globe, GraduationCap, Tags, Workflow,
   Sparkles, Database, MessageSquare, BookOpen, Wrench, ArrowUpRight,
   Activity as ActivityIcon, Bot, Zap, Languages, UserCog, ListChecks,
 } from 'lucide-react';
@@ -32,7 +32,7 @@ export default function OverviewPage() {
   const { toast } = useToast();
   const { t, dir } = useTranslation();
   const tr = (k: string, fb: string) => {
-    const v = t(`aiAgent.overview.${k}` as any);
+    const v = t(`aiAgent.overview.${k}` as TranslationKey);
     return !v || v === `aiAgent.overview.${k}` ? fb : v;
   };
   const isRtl = dir === 'rtl';
@@ -40,13 +40,13 @@ export default function OverviewPage() {
     const key = `aiAgent.overview.warning.${w.code}`;
     const count = (w.message.match(/\d+/) || [])[0] || '';
     const name = (w.message.match(/"([^"]+)"/) || [])[1] || '';
-    const v = t(key as any, { count, name });
+    const v = t(key as TranslationKey, { count, name });
     return !v || v === key ? w.message : v;
   };
   const trEnum = (group: string, value?: string | null): string => {
     if (!value) return '—';
     const key = `aiAgent.overview.${group}.${value}`;
-    const v = t(key as any);
+    const v = t(key as TranslationKey);
     return !v || v === key ? value : v;
   };
   /** Sync-log status badge: prefer syncStatus, fall back to runStatus, then raw. */
@@ -60,7 +60,7 @@ export default function OverviewPage() {
   const trCode = (code: string): string => {
     const clean = code.trim();
     const key = `aiAgent.overview.syncCode.${clean}`;
-    const v = t(key as any);
+    const v = t(key as TranslationKey);
     if (v && v !== key) return v;
     const s = trEnum('syncStatus', clean);
     return s !== clean ? s : clean;
@@ -71,7 +71,7 @@ export default function OverviewPage() {
     if (!msg) return '';
     const m = (k: string, vars?: Record<string, string>) => {
       const key = `aiAgent.overview.syncMessage.${k}`;
-      const v = t(key as any, vars as any);
+      const v = t(key as TranslationKey, vars);
       return !v || v === key ? msg : v;
     };
     const exact: Record<string, string> = {
@@ -117,7 +117,7 @@ export default function OverviewPage() {
   const rebuild = useMutation({
     mutationFn: () => aiAgentApi.rebuildKnowledgeIndex(wsId!),
     onSuccess: () => { toast({ title: tr('toast.rebuilt', 'Knowledge index rebuilt') }); qc.invalidateQueries({ queryKey: ['ai-overview', wsId] }); },
-    onError: (e: any) => toast({ title: tr('toast.failed', 'Rebuild failed'), description: e?.message, variant: 'destructive' }),
+    onError: (e: unknown) => toast({ title: tr('toast.failed', 'Rebuild failed'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' }),
   });
 
   if (overview.isLoading) {
@@ -126,7 +126,20 @@ export default function OverviewPage() {
   const data = overview.data;
   if (!data) return <p className="text-sm text-muted-foreground">{tr('noData', 'No data available yet.')}</p>;
   const c = data.counts;
-  const ready = data.settings.enabled && c.activeChunks > 0;
+  // Live only when the agent is on, in a mode that answers visitors, and has
+  // knowledge to answer from; suggestions-only is its own state.
+  const agentOn = data.settings.enabled && data.settings.mode !== 'off';
+  const suggestOnly = agentOn && data.settings.mode === 'suggest_only';
+  const ready = agentOn && !suggestOnly && c.activeChunks > 0;
+  const statusLabel = ready
+    ? tr('statusReady', 'Ready')
+    : suggestOnly ? tr('statusSuggest', 'Suggestions only') : tr('statusNotReady', 'Not ready');
+  const statusHint = ready
+    ? tr('statusReadyHint', 'Your AI Agent is live and answering.')
+    : suggestOnly
+      ? tr('statusSuggestHint', 'The assistant suggests replies to your operators and sends nothing to visitors.')
+      : tr('statusNotReadyHint', 'Add knowledge or enable the agent to go live.');
+  const go = (path: string) => () => navigate(wsPath(path));
 
   return (
     <div className="space-y-8" dir={dir}>
@@ -137,18 +150,16 @@ export default function OverviewPage() {
         subtitle={tr('subtitle', 'Status, knowledge readiness, recent activity, and notices for your AI Agent.')}
         meta={
           <>
-            <span className={cn(
+            <span data-ai-overview-status={ready ? 'ready' : suggestOnly ? 'suggest' : 'not-ready'} className={cn(
               'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border',
               ready
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
                 : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300',
             )}>
               <span className={cn('h-1.5 w-1.5 rounded-full', ready ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500')} />
-              {ready ? tr('statusReady', 'Ready') : tr('statusNotReady', 'Not ready')}
+              {statusLabel}
             </span>
-            <span className="text-xs text-muted-foreground">
-              {ready ? tr('statusReadyHint', 'Your AI Agent is live and answering.') : tr('statusNotReadyHint', 'Add knowledge or enable the agent to go live.')}
-            </span>
+            <span className="text-xs text-muted-foreground">{statusHint}</span>
           </>
         }
         actions={
@@ -169,38 +180,7 @@ export default function OverviewPage() {
         }
       />
 
-      {/* Status & configuration */}
-      <Section title={tr('sectionStatus', 'Status & configuration')}>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard tone="emerald" icon={ready ? CheckCircle2 : AlertCircle} label={tr('stat.status', 'Status')} value={ready ? tr('statusReady', 'Ready') : tr('statusNotReady', 'Not ready')} />
-          <StatCard tone="violet" icon={Sparkles} label={tr('stat.mode', 'Mode')} value={trEnum('mode', data.settings.mode)} />
-          <StatCard tone="sky" icon={Database} label={tr('stat.chunks', 'Knowledge chunks')} value={`${c.embeddedChunks}/${c.activeChunks}`} hint={tr('embedded', 'embedded / active')} />
-          <StatCard tone="amber" icon={MessageSquare} label={tr('stat.qna', 'Q&A pairs')} value={String(c.qna)} />
-        </div>
-      </Section>
-
-      {/* Knowledge & automations */}
-      <Section title={tr('sectionKnowledge', 'Knowledge & automations')}>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard tone="rose" icon={Tags} label={tr('stat.topics', 'Topics')} value={String(c.topics)} />
-          <StatCard tone="indigo" icon={Workflow} label={tr('stat.workflows', 'Workflows')} value={String(c.workflows)} />
-          <StatCard tone="teal" icon={Zap} label={tr('stat.triggers', 'Triggers')} value={String(c.messageTriggers)} />
-          <StatCard tone="slate" icon={Wrench} label={tr('stat.tools', 'Tools')} value={String(c.tools)} />
-        </div>
-      </Section>
-
-      {/* Last 24h */}
-      <Section title={tr('sectionActivity', 'Last 24 hours')} icon={ActivityIcon}>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <StatCard tone="primary" icon={Sparkles} label={tr('stat.runs24h', 'AI runs')} value={String(c.aiRuns24h)} />
-          <StatCard tone="emerald" icon={MessageSquare} label={tr('stat.replies24h', 'Replies')} value={String(c.replies24h)} />
-          <StatCard tone="amber" icon={UserCog} label={tr('stat.handoffs24h', 'Handoffs')} value={String(c.handoffs24h)} />
-          <StatCard tone="rose" icon={AlertCircle} label={tr('stat.noAnswer24h', 'No answer')} value={String(c.noAnswer24h)} />
-          <StatCard tone="sky" icon={Languages} label={tr('stat.langRepairs24h', 'Language repairs')} value={String(c.outputLanguageRepairs24h)} />
-        </div>
-      </Section>
-
-      {/* Warnings */}
+      {/* Warnings: what needs the owner first. */}
       {data.warnings.length > 0 && (
         <Card className="border-amber-500/30 bg-amber-500/5">
           <CardHeader>
@@ -209,29 +189,58 @@ export default function OverviewPage() {
           <CardContent className="space-y-2">
             {data.warnings.map((w) => (
               <div key={w.code} className={cn('rounded-lg border px-3 py-2 text-sm', SEVERITY_STYLES[w.severity] || '')}>
-                {trWarning(w as any)}
+                {trWarning(w)}
               </div>
             ))}
           </CardContent>
         </Card>
       )}
 
-      {/* Quick actions */}
+      {/* Last 24h */}
+      <Section title={tr('sectionActivity', 'Last 24 hours')} icon={ActivityIcon}>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <StatCard tone="primary" icon={Sparkles} label={tr('stat.runs24h', 'AI runs')} value={String(c.aiRuns24h)} onClick={go('/ai-agent/activity')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="emerald" icon={MessageSquare} label={tr('stat.replies24h', 'Replies')} value={String(c.replies24h)} onClick={go('/ai-agent/activity')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="amber" icon={UserCog} label={tr('stat.handoffs24h', 'Handoffs')} value={String(c.handoffs24h)} onClick={go('/ai-agent/activity')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="rose" icon={AlertCircle} label={tr('stat.noAnswer24h', 'No answer')} value={String(c.noAnswer24h)} onClick={go('/ai-agent/learning-candidates')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="sky" icon={Languages} label={tr('stat.langRepairs24h', 'Language repairs')} value={String(c.outputLanguageRepairs24h)} />
+        </div>
+      </Section>
+
+      {/* Status & configuration: each tile opens the page that manages it. */}
+      <Section title={tr('sectionStatus', 'Status & configuration')}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <StatCard tone="violet" icon={Sparkles} label={tr('stat.mode', 'Mode')} value={trEnum('mode', data.settings.mode)} onClick={go('/ai-agent/activation')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="sky" icon={Database} label={tr('stat.chunks', 'Knowledge chunks')} value={`${c.embeddedChunks}/${c.activeChunks}`} hint={tr('embedded', 'embedded / active')} onClick={go('/ai-agent/knowledge')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="amber" icon={MessageSquare} label={tr('stat.qna', 'Q&A pairs')} value={String(c.qna)} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} openLabel={tr('openPage', 'Open')} />
+        </div>
+      </Section>
+
+      {/* Knowledge & automations */}
+      <Section title={tr('sectionKnowledge', 'Knowledge & automations')}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard tone="rose" icon={Tags} label={tr('stat.topics', 'Topics')} value={String(c.topics)} onClick={go('/ai-agent/topics')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="indigo" icon={Workflow} label={tr('stat.workflows', 'Workflows')} value={String(c.workflows)} onClick={go('/ai-agent/workflow')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="teal" icon={Zap} label={tr('stat.triggers', 'Triggers')} value={String(c.messageTriggers)} onClick={go('/ai-agent/triggers')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="slate" icon={Wrench} label={tr('stat.tools', 'Tools')} value={String(c.tools)} onClick={go('/ai-agent/integrations')} openLabel={tr('openPage', 'Open')} />
+        </div>
+      </Section>
+
+      {/* Quick actions: the next steps that are not already a tab. */}
       <Card className="overflow-hidden border-border/60">
         <CardHeader className="bg-gradient-to-r from-primary/5 to-transparent">
           <CardTitle className="text-base flex items-center gap-2"><Zap className="h-4 w-4 text-primary" /> {tr('sectionQuick', 'Quick actions')}</CardTitle>
           <CardDescription>{tr('sectionQuickDesc', 'Most common next steps for your AI Agent.')}</CardDescription>
         </CardHeader>
-        <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-5">
-          <QuickAction tone="primary" icon={RefreshCw} label={tr('action.rebuild', 'Rebuild knowledge index')} onClick={() => rebuild.mutate()} loading={rebuild.isPending} isRtl={isRtl} />
+        <CardContent className="grid sm:grid-cols-2 gap-2.5 pt-5">
           <QuickAction tone="emerald" icon={Plus} label={tr('action.addQna', 'Add Q&A')} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} isRtl={isRtl} />
-          <QuickAction tone="sky" icon={Globe} label={tr('action.addWeb', 'Add web page source')} onClick={() => navigate(wsPath('/ai-agent/web-pages'))} isRtl={isRtl} />
-          <QuickAction tone="violet" icon={Beaker} label={tr('action.test', 'Test AI Agent')} onClick={() => navigate(wsPath('/ai-agent/playground'))} isRtl={isRtl} />
+          <QuickAction tone="sky" icon={Globe} label={tr('action.addWeb', 'Add web page source')} onClick={go('/ai-agent/web-pages')} isRtl={isRtl} />
           <QuickAction tone="amber" icon={GraduationCap} label={tr('action.review', 'Review learning candidates')} onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))} isRtl={isRtl} />
-          <QuickAction tone="rose" icon={Tags} label={tr('action.topics', 'Add default topics')} onClick={() => navigate(wsPath('/ai-agent/topics'))} isRtl={isRtl} />
-          <QuickAction tone="indigo" icon={Workflow} label={tr('action.workflow', 'Create workflow')} onClick={() => navigate(wsPath('/ai-agent/workflow'))} isRtl={isRtl} />
+          <QuickAction tone="primary" icon={RefreshCw} label={tr('action.rebuild', 'Rebuild knowledge index')} onClick={() => rebuild.mutate()} loading={rebuild.isPending} isRtl={isRtl} />
         </CardContent>
       </Card>
+
+      <TestAiPanel />
 
       {/* Recent activity */}
       <div className="grid lg:grid-cols-2 gap-4">
@@ -247,7 +256,7 @@ export default function OverviewPage() {
                 <Badge variant="outline" className="text-[10px] shrink-0">{trEnum('runStatus', r.status)}</Badge>
                 <span className="text-muted-foreground shrink-0">{r.run_type ? trEnum('runType', r.run_type) : ''}</span>
                 <span className="flex-1 truncate">{r.input_text || ''}</span>
-                <span className="tabular-nums text-muted-foreground shrink-0">{new Date(r.created_at).toLocaleTimeString()}</span>
+                <span className="tabular-nums text-muted-foreground shrink-0">{new Date(r.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
               </div>
             ))}
           </CardContent>
@@ -264,16 +273,14 @@ export default function OverviewPage() {
               <div key={l.id} className="flex items-start gap-2 text-xs py-2 border-b border-border/40 last:border-b-0 hover:bg-accent/30 -mx-2 px-2 rounded-md transition-colors">
                 <Badge variant="outline" className="text-[10px] shrink-0">{trSyncStatus(l.status)}</Badge>
                 <span className="flex-1 truncate">
-                  {trSyncMessage(l.message) || t('aiAgent.overview.syncSummary' as any, { pages: String(l.pages_found ?? 0), chunks: String(l.chunks_created ?? 0) })}
+                  {trSyncMessage(l.message) || t('aiAgent.overview.syncSummary', { pages: String(l.pages_found ?? 0), chunks: String(l.chunks_created ?? 0) })}
                 </span>
-                <span className="tabular-nums text-muted-foreground shrink-0">{new Date(l.created_at).toLocaleTimeString()}</span>
+                <span className="tabular-nums text-muted-foreground shrink-0">{new Date(l.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
               </div>
             ))}
           </CardContent>
         </Card>
       </div>
-
-      <TestAiPanel />
     </div>
   );
 }
@@ -290,10 +297,10 @@ const TONE_STYLES: Record<string, { bg: string; ring: string; icon: string }> = 
   slate:    { bg: 'bg-slate-500/10',              ring: 'ring-slate-500/20',   icon: 'text-slate-500' },
 };
 
-function Section({ title, icon: Icon, children }: { title: string; icon?: any; children: React.ReactNode }) {
+function Section({ title, icon: Icon, children }: { title: string; icon?: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+      <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
         {Icon && <Icon className="h-3.5 w-3.5" />} {title}
       </h2>
       {children}
@@ -301,10 +308,24 @@ function Section({ title, icon: Icon, children }: { title: string; icon?: any; c
   );
 }
 
-function StatCard({ label, value, icon: Icon, hint, tone = 'primary' }: { label: string; value: string; icon: any; hint?: string; tone?: keyof typeof TONE_STYLES }) {
+function StatCard({ label, value, icon: Icon, hint, tone = 'primary', onClick, openLabel }: { label: string; value: string; icon: React.ElementType; hint?: string; tone?: keyof typeof TONE_STYLES; onClick?: () => void; openLabel?: string }) {
   const t = TONE_STYLES[tone] || TONE_STYLES.primary;
   return (
-    <Card className="group relative overflow-hidden border-border/60 hover:shadow-md transition-all hover:-translate-y-0.5">
+    <Card
+      className={cn(
+        'group relative overflow-hidden border-border/60 hover:shadow-md transition-all hover:-translate-y-0.5',
+        onClick && 'cursor-pointer focus-within:ring-2 focus-within:ring-ring',
+      )}
+      onClick={onClick}
+    >
+      {onClick && (
+        <button
+          type="button"
+          className="absolute inset-0 z-10 rounded-[inherit] focus:outline-none"
+          aria-label={openLabel ? `${openLabel}: ${label}` : label}
+          onClick={(e) => { e.stopPropagation(); onClick(); }}
+        />
+      )}
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -319,7 +340,7 @@ function StatCard({ label, value, icon: Icon, hint, tone = 'primary' }: { label:
   );
 }
 
-function QuickAction({ icon: Icon, label, onClick, loading, tone = 'primary', isRtl }: { icon: any; label: string; onClick: () => void; loading?: boolean; tone?: keyof typeof TONE_STYLES; isRtl?: boolean }) {
+function QuickAction({ icon: Icon, label, onClick, loading, tone = 'primary', isRtl }: { icon: React.ElementType; label: string; onClick: () => void; loading?: boolean; tone?: keyof typeof TONE_STYLES; isRtl?: boolean }) {
   const t = TONE_STYLES[tone] || TONE_STYLES.primary;
   return (
     <button

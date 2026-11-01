@@ -67,29 +67,29 @@ interface Props {
 }
 
 /**
- * Shared colorful hero header for every AI Agent page. Keeps the module
- * visually consistent while giving each page its own accent identity.
+ * Shared header for every AI Agent page: the page's name, one plain
+ * sentence on what it is for, and its actions. Kept compact, since the
+ * section's tabs (AiAgentLayout) already sit above it.
  */
 export function AiPageHeader({ icon: Icon, title, subtitle, accent = 'indigo', actions, meta }: Props) {
   const a = AI_ACCENT[accent];
   return (
     <div data-page-hero="ai-agent" className={cn(
-      'relative overflow-hidden rounded-2xl border border-border/60 p-6 sm:p-7 bg-gradient-to-br to-transparent',
+      'relative overflow-hidden rounded-2xl border border-border/60 p-5 sm:p-6 bg-gradient-to-br to-transparent',
       a.soft,
     )}>
-      <div className={cn('pointer-events-none absolute -top-20 -end-16 h-56 w-56 rounded-full blur-3xl', a.glow)} />
-      <div className={cn('pointer-events-none absolute -bottom-24 -start-12 h-52 w-52 rounded-full blur-3xl opacity-60', a.glow)} />
+      <div className={cn('pointer-events-none absolute -top-20 -end-16 h-48 w-48 rounded-full blur-3xl opacity-70', a.glow)} />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-3.5">
           <div data-hero-icon className={cn(
-            'h-12 w-12 shrink-0 rounded-2xl bg-gradient-to-br shadow-lg flex items-center justify-center text-white',
+            'h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br shadow-md flex items-center justify-center text-white',
             a.grad,
           )}>
-            <Icon className="h-6 w-6" />
+            <Icon className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight leading-tight">{title}</h1>
-            {subtitle && <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{subtitle}</p>}
+            <h1 className="text-xl sm:text-2xl font-bold leading-tight">{title}</h1>
+            {subtitle && <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">{subtitle}</p>}
             {meta && <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div>}
           </div>
         </div>

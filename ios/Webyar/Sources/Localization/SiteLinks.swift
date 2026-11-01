@@ -1,23 +1,23 @@
 import Foundation
 
-/// WebYar's own site, in the app's language (owner, 2026-11-01).
+/// The brand's own site, in the app's language (owner, 2026-11-01).
 ///
 /// The site keeps Persian at its root and every other language under its
-/// code: `https://webyar.ai`, `/privacy`, `/terms` in Persian;
-/// `https://webyar.ai/en`, `/en/privacy`, `/en/terms` in English; `/tr/…`
+/// code: `https://<site>`, `/privacy`, `/terms` in Persian;
+/// `https://<site>/en`, `/en/privacy`, `/en/terms` in English; `/tr/…`
 /// and `/ar/…` likewise. The links at the foot of Settings and of the sign-in
 /// screen open those pages, in the language the app is showing.
 ///
 /// The site's address is still Super Admin's: the root is taken from the
-/// website link set for the app (Mobile App → iOS → In-app settings), so
-/// moving the site moves the links. Until that link is known the configured
-/// pages are used as they are.
+/// website link set for the app (Mobile App → iOS → In-app settings), or
+/// before sign-in from the platform's canonical site, so moving the site
+/// moves the links. Without either the configured pages are used as they are.
 ///
-/// RESPOK keeps the links it is given: its site's main language is English
-/// and its pages are laid out its own way.
+/// A brand whose site is laid out its own way keeps the links it is given
+/// (`AppBrand.localizedSitePaths`).
 enum SiteLinks {
-    /// Whether this brand's links follow the language. WebYar only.
-    static var followsLanguage: Bool { AppBrand.id == "webyar" }
+    /// Whether this brand's links follow the language.
+    static var followsLanguage: Bool { AppBrand.localizedSitePaths }
 
     enum Page: String {
         case home = ""

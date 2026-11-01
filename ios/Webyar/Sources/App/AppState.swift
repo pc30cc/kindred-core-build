@@ -698,11 +698,17 @@ final class AppState {
 
     /// The website row's link in the language on screen (WebYar: `/en`, `/tr`,
     /// `/ar`, Persian at the root; RESPOK as configured), `SiteLinks`.
-    var siteWebsiteURL: URL? { SiteLinks.website(websiteURL, language: language) }
+    var siteWebsiteURL: URL? { SiteLinks.website(siteRoot ?? websiteURL, language: language) }
+
+    /// The site the language-following links are built on: the website link Super Admin
+    /// set (known after sign-in), else the brand's canonical site from the platform's
+    /// origins (known before it). Never the panel's public address: before sign-in that
+    /// is the app's own host, whose pages need an account.
+    private var siteRoot: URL? { appConfig.websiteURL ?? PlatformOrigin.siteURL }
 
     /// The privacy policy and the terms in the language on screen, on the
     /// site the website link names (WebYar); RESPOK's as configured.
-    var siteLegalLinks: LegalLinks { SiteLinks.legal(legalLinks, website: websiteURL, language: language) }
+    var siteLegalLinks: LegalLinks { SiteLinks.legal(legalLinks, website: siteRoot, language: language) }
 
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry

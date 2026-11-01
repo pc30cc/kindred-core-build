@@ -131,6 +131,7 @@ actor APIClient {
     private func adopt(_ origins: PlatformOrigins) {
         PlatformOrigin.rememberSupport(origins.support)
         PlatformOrigin.rememberWebsite(origins.website)
+        PlatformOrigin.rememberSite(origins.site)
         guard let api = origins.api, api != baseURL else { return }
         PlatformOrigin.remember(api)
         baseURL = api

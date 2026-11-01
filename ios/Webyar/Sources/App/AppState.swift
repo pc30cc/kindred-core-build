@@ -696,6 +696,14 @@ final class AppState {
     /// else the app's own word.
     var websiteLabel: String { appConfig.websiteName(language) ?? SettingsStr.website(language) }
 
+    /// The website row's link in the language on screen (WebYar: `/en`, `/tr`,
+    /// `/ar`, Persian at the root; RESPOK as configured), `SiteLinks`.
+    var siteWebsiteURL: URL? { SiteLinks.website(websiteURL, language: language) }
+
+    /// The privacy policy and the terms in the language on screen, on the
+    /// site the website link names (WebYar); RESPOK's as configured.
+    var siteLegalLinks: LegalLinks { SiteLinks.legal(legalLinks, website: websiteURL, language: language) }
+
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
     /// that opens onto a 403 is worse than no entry.

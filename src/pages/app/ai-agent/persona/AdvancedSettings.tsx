@@ -340,15 +340,6 @@ export function AdvancedSettings({
                 ]}
               />
             </Field>
-            {values.handoff_policy !== 'immediate' && (
-              <CountField
-                form={form}
-                field="max_assist_attempts"
-                id="persona-assist-attempts"
-                label={t('aiAgent.persona.advanced.assistAttempts')}
-                hint={t('aiAgent.persona.advanced.assistAttemptsHint')}
-              />
-            )}
             <SwitchRow
               id="persona-low-confidence"
               label={t('aiAgent.persona.advanced.lowConfidence')}
@@ -401,14 +392,6 @@ export function AdvancedSettings({
                 hint={t('aiAgent.persona.advanced.perHourHint')}
               />
             </div>
-            <CountField
-              form={form}
-              field="confidence_threshold"
-              id="persona-confidence"
-              label={t('aiAgent.persona.advanced.confidence')}
-              hint={t('aiAgent.persona.advanced.confidenceHint')}
-              suffix="%"
-            />
           </Group>
 
           <Group value="languages" title={t('aiAgent.persona.advanced.languagesTitle')} desc={t('aiAgent.persona.advanced.languagesDesc')}>

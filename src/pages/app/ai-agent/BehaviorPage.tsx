@@ -92,9 +92,9 @@ function PersonaEditor({
       form.markSaved(sent);
       toast.success(t('aiAgent.persona.save.saved'));
     } catch (e: unknown) {
-      const message = saveErrorText(t, e);
-      setSaveError(message);
-      toast.error(message);
+      // Said in the save bar, which stays in view (and is announced) until
+      // the next try or Discard; every edit stays for that try.
+      setSaveError(saveErrorText(t, e));
     } finally {
       setSaving(false);
     }

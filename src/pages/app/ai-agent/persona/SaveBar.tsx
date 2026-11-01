@@ -30,12 +30,18 @@ export function SaveBar({
         ? { icon: CircleDot, text: t('aiAgent.persona.save.unsaved'), tone: 'text-amber-700 dark:text-amber-300' }
         : { icon: CheckCircle2, text: t('aiAgent.persona.save.clean'), tone: 'text-muted-foreground' };
   const Icon = status.icon;
+  // On a phone the bar would cover a fifth of the screen while there is
+  // nothing to save: it shows only once something changed (or failed).
+  const quiet = !dirty && !saving && !busy && !error && !blocked;
 
   return (
     <div
       data-persona-savebar
       data-dirty={dirty}
-      className="sticky bottom-3 z-20 rounded-xl border border-border/70 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80"
+      className={cn(
+        'sticky bottom-3 z-20 rounded-xl border border-border/70 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80',
+        quiet && 'max-md:hidden',
+      )}
     >
       <div className="flex flex-wrap items-center gap-3">
         <p

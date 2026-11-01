@@ -13,6 +13,9 @@
  *     untouched field is not sent at all;
  *   - `enabled` and `mode` only when the owner picked a mode (Off writes
  *     `{ enabled: false, mode: 'off' }`, any other `{ enabled: true, mode }`);
+ *   - the handoff pair the same way: "do not connect" writes
+ *     `{ handoff_on_human_request: false }`, any other choice
+ *     `{ handoff_on_human_request: true, handoff_policy }`;
  *   - `instructions`: only the edited keys (the server merges them key by
  *     key); a custom system instruction only when one was typed;
  *   - a per-language message map: the latest server map with only the
@@ -23,7 +26,8 @@ import type { AgentMode, AgentSettings, AnswerGuidance, EscalationStyle } from '
 export type Tone = 'friendly' | 'formal' | 'professional';
 export type AnswerLength = 'short' | 'medium' | 'long';
 export type ReplyLanguage = 'visitor' | 'workspace_default';
-export type HandoffPolicy = 'immediate' | 'assist_first' | 'adaptive';
+/** A request for a person: how it is handed over (handoff_policy), or 'off' (handoff_on_human_request false). */
+export type HandoffChoice = 'immediate' | 'assist_first' | 'adaptive' | 'off';
 export type FallbackBehavior = 'handoff' | 'silent';
 export type LocalizedMap = 'intro_message_localized' | 'handoff_message_localized' | 'handoff_prechat_message_localized';
 
@@ -43,7 +47,8 @@ export interface PersonaValues {
   business_description: string;
   ai_intro_enabled: boolean;
   allow_clarifying_questions: boolean;
-  handoff_policy: HandoffPolicy;
+  /** handoff_on_human_request + handoff_policy, as one choice. */
+  handoff: HandoffChoice;
   max_clarification_attempts: string;
   allow_answer_with_caveat: boolean;
   answer_only_from_kb: boolean;
@@ -53,15 +58,12 @@ export interface PersonaValues {
   handoff_when_no_kb_match: boolean;
   fallback_message: string;
   escalation_style: EscalationStyle;
-  max_assist_attempts: string;
   handoff_on_low_confidence: boolean;
   handoff_keywords: string[];
   stop_on_handoff: boolean;
   pause_auto_reply_after_human_reply: boolean;
   max_replies_per_conversation: string;
   max_replies_per_hour: string;
-  /** Percent, 0-100 (the server stores 0-1). */
-  confidence_threshold: string;
   /** The platform languages the assistant may answer in (all of them = no limit). */
   allowed_locales: string[];
   learning_enabled: boolean;
@@ -111,10 +113,8 @@ function splitLocalizedKey(key: string): { map: LocalizedMap; lang: string } | n
 /** Ranges of the numeric fields (the settings PUT schema's). */
 export const COUNT_RANGES = {
   max_clarification_attempts: [0, 5],
-  max_assist_attempts: [0, 3],
   max_replies_per_conversation: [0, 100],
   max_replies_per_hour: [0, 1000],
-  confidence_threshold: [0, 100],
 } as const satisfies Partial<Record<FieldKey, readonly [number, number]>>;
 export type CountKey = keyof typeof COUNT_RANGES;
 
@@ -165,12 +165,14 @@ export function displayMode(s: Pick<AgentSettings, 'enabled' | 'mode'>): AgentMo
 }
 
 /**
- * The handoff policy the page shows: the stored one, else the nearest to the
- * legacy rule (at once; with handoff_on_human_request off, the assistant
- * keeps answering, nearest to 'adaptive').
+ * What happens when a visitor asks for a person: nothing while the server's
+ * switch (handoff_on_human_request) is off, else the stored policy; a
+ * policy never picked (NULL) is the legacy rule, at once (server
+ * handoffPolicy.ts).
  */
-export function effectiveHandoffPolicy(s: Pick<AgentSettings, 'handoff_policy' | 'handoff_on_human_request'>): HandoffPolicy {
-  return s.handoff_policy ?? (s.handoff_on_human_request === false ? 'adaptive' : 'immediate');
+export function displayHandoff(s: Pick<AgentSettings, 'handoff_policy' | 'handoff_on_human_request'>): HandoffChoice {
+  if (s.handoff_on_human_request === false) return 'off';
+  return s.handoff_policy ?? 'immediate';
 }
 
 function baseLocale(code: string): string {
@@ -238,7 +240,7 @@ export function serverValues(s: AgentSettings, ctx: PersonaContext): PersonaValu
     business_description: s.business_description || i.business_description || '',
     ai_intro_enabled: s.ai_intro_enabled !== false,
     allow_clarifying_questions: s.allow_clarifying_questions !== false,
-    handoff_policy: effectiveHandoffPolicy(s),
+    handoff: displayHandoff(s),
     max_clarification_attempts: String(s.max_clarification_attempts ?? 1),
     allow_answer_with_caveat: s.allow_answer_with_caveat !== false,
     answer_only_from_kb: !!s.answer_only_from_kb,
@@ -248,14 +250,12 @@ export function serverValues(s: AgentSettings, ctx: PersonaContext): PersonaValu
     handoff_when_no_kb_match: !!s.handoff_when_no_kb_match,
     fallback_message: s.fallback_message || '',
     escalation_style: s.escalation_style || 'balanced',
-    max_assist_attempts: String(s.max_assist_attempts ?? 1),
     handoff_on_low_confidence: !!s.handoff_on_low_confidence,
     handoff_keywords: s.handoff_keywords || [],
     stop_on_handoff: s.stop_on_handoff !== false,
     pause_auto_reply_after_human_reply: s.pause_auto_reply_after_human_reply !== false,
     max_replies_per_conversation: String(s.max_replies_per_conversation ?? 3),
     max_replies_per_hour: String(s.max_replies_per_hour ?? 20),
-    confidence_threshold: String(Math.round((s.confidence_threshold ?? 0.55) * 100)),
     allowed_locales: effectiveLocales(s.allowed_locales, ctx.platformLocales),
     learning_enabled: s.learning_enabled !== false,
     auto_create_learning_candidates: s.auto_create_learning_candidates !== false,
@@ -331,12 +331,14 @@ export function buildPatch(edits: Edits, s: AgentSettings, ctx: PersonaContext):
         patch.mode = value;
         changed.push(k);
       }
-    } else if (k === 'handoff_policy') {
-      // While the server's "act on a request for a person" switch is off,
-      // the policy shown is only the nearest one; any pick is a change (a
-      // saved policy turns the switch on, server settings.ts).
-      if (value !== before || s.handoff_on_human_request === false) {
-        patch[k] = value;
+    } else if (k === 'handoff') {
+      if (value !== before) {
+        if (value === 'off') {
+          patch.handoff_on_human_request = false;
+        } else {
+          patch.handoff_on_human_request = true;
+          patch.handoff_policy = value;
+        }
         changed.push(k);
       }
     } else if (BOOLEAN_KEYS.has(k) || CHOICE_KEYS.has(k)) {
@@ -357,7 +359,7 @@ export function buildPatch(edits: Edits, s: AgentSettings, ctx: PersonaContext):
     } else if (k in COUNT_RANGES) {
       const n = parseCount(String(value), k as CountKey);
       if (n !== null && n !== parseCount(String(before), k as CountKey)) {
-        patch[k] = k === 'confidence_threshold' ? n / 100 : n;
+        patch[k] = n;
         changed.push(k);
       }
     } else if (k === 'handoff_keywords') {
@@ -377,14 +379,12 @@ export function buildPatch(edits: Edits, s: AgentSettings, ctx: PersonaContext):
       }
     } else if (INSTRUCTION_TEXT_KEYS.has(k)) {
       const text = String(value).trim();
+      // The handoff field shows the legacy escalation text it replaced (the
+      // prompt reads it while the new key is empty); writing the new key,
+      // '' included, retires the old one on the server (settings.ts
+      // mergeInstructions), so a cleared field stays clear.
       if (text !== String(before).trim()) {
         instructions[k] = text;
-        // The handoff field shows the legacy escalation text it falls back
-        // to (as the prompt does): emptying the field empties that too, or
-        // the text the owner removed would still be used.
-        if (k === 'handoff_instructions' && !text && s.instructions?.escalation_instructions) {
-          instructions.escalation_instructions = '';
-        }
         changed.push(k);
       }
     } else if (INSTRUCTION_LIST_KEYS.has(k)) {

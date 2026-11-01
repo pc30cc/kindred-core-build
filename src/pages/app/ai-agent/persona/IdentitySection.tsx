@@ -154,7 +154,12 @@ export function IdentitySection({
       <Field
         label={t('aiAgent.persona.identity.business')}
         htmlFor="persona-business"
-        hint={t('aiAgent.persona.identity.businessHint')}
+        hint={(
+          <span className="flex items-start justify-between gap-3">
+            <span>{t('aiAgent.persona.identity.businessHint')}</span>
+            <span className="shrink-0 tabular-nums">{values.business_description.length}/{MAX_LENGTH.business_description}</span>
+          </span>
+        )}
         aside={(
           <Button type="button" size="sm" variant="outline" onClick={onGenerate} disabled={generating}>
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -170,9 +175,6 @@ export function IdentitySection({
           value={values.business_description}
           onChange={(e) => form.set('business_description', e.target.value)}
         />
-        <p className="text-end text-[11px] text-muted-foreground" data-latin-digits>
-          {values.business_description.length}/{MAX_LENGTH.business_description}
-        </p>
       </Field>
 
       <div className="space-y-2">

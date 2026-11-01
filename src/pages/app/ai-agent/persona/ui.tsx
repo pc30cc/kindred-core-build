@@ -160,7 +160,7 @@ export function SwitchRow({
  * number in range back (or the saved value when it is not a number).
  */
 export function CountField({
-  form, field, id, label, hint, disabled, suffix,
+  form, field, id, label, hint, disabled,
 }: {
   form: PersonaForm;
   field: CountKey;
@@ -168,30 +168,26 @@ export function CountField({
   label: string;
   hint?: string;
   disabled?: boolean;
-  suffix?: string;
 }) {
   const [min, max] = COUNT_RANGES[field];
   return (
     <Field label={label} htmlFor={id} hint={hint}>
-      <div className="flex items-center gap-2">
-        <Input
-          id={id}
-          type="number"
-          inputMode="numeric"
-          min={min}
-          max={max}
-          className="w-28"
-          value={form.values[field]}
-          disabled={disabled}
-          onChange={(e) => form.set(field, e.target.value)}
-          onBlur={(e) => {
-            const n = parseCount(e.target.value, field);
-            if (n === null) form.reset(field);
-            else if (String(n) !== e.target.value) form.set(field, String(n));
-          }}
-        />
-        {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
-      </div>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        className="w-28"
+        value={form.values[field]}
+        disabled={disabled}
+        onChange={(e) => form.set(field, e.target.value)}
+        onBlur={(e) => {
+          const n = parseCount(e.target.value, field);
+          if (n === null) form.reset(field);
+          else if (String(n) !== e.target.value) form.set(field, String(n));
+        }}
+      />
     </Field>
   );
 }

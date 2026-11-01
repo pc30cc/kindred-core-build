@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Check, Info, Power, X } from 'lucide-react';
-import type { HandoffPolicy, ReplyLanguage } from './personaForm';
+import type { HandoffChoice, ReplyLanguage } from './personaForm';
 import type { PersonaForm } from './usePersonaForm';
 import { languageName } from './text';
 import { ChoiceList, Field, SectionCard, SwitchRow } from './ui';
@@ -54,7 +54,8 @@ function CheckRow({ state, label, hint, children }: {
  * C) When the assistant answers (`enabled` + `mode`, the five modes the
  * server stores), with what turning it on still needs; the reply language
  * (`instructions.reply_language`); clarifying questions; and what happens
- * when a visitor asks for a person (`handoff_policy`).
+ * when a visitor asks for a person (`handoff_on_human_request` and
+ * `handoff_policy`, as one choice).
  */
 export function BehaviorSection({
   form, diag, knowledgeBaseHref, primary, multiLanguage,
@@ -189,23 +190,19 @@ export function BehaviorSection({
       />
 
       <Field label={t('aiAgent.persona.behavior.handoff')}>
-        <ChoiceList<HandoffPolicy>
-          id="persona-handoff-policy"
+        <ChoiceList<HandoffChoice>
+          id="persona-handoff"
           label={t('aiAgent.persona.behavior.handoff')}
-          value={values.handoff_policy}
-          onChange={(v) => form.set('handoff_policy', v)}
+          columns={2}
+          value={values.handoff}
+          onChange={(v) => form.set('handoff', v)}
           options={[
             { value: 'immediate', title: t('aiAgent.persona.behavior.handoffImmediate'), hint: t('aiAgent.persona.behavior.handoffImmediateHint') },
             { value: 'assist_first', title: t('aiAgent.persona.behavior.handoffAssistFirst'), hint: t('aiAgent.persona.behavior.handoffAssistFirstHint') },
             { value: 'adaptive', title: t('aiAgent.persona.behavior.handoffAdaptive'), hint: t('aiAgent.persona.behavior.handoffAdaptiveHint') },
+            { value: 'off', title: t('aiAgent.persona.behavior.handoffOff'), hint: t('aiAgent.persona.behavior.handoffOffHint') },
           ]}
         />
-        {form.settings.handoff_on_human_request === false && (
-          <p className="flex items-start gap-2 text-xs text-muted-foreground">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {t('aiAgent.persona.behavior.handoffSwitchOff')}
-          </p>
-        )}
       </Field>
     </SectionCard>
   );

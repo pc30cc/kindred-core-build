@@ -15,6 +15,27 @@ vi.mock('@/hooks/useWorkspace', () => ({
   useCurrentWorkspace: () => ({ id: 'ws-1' }),
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
+// The page reads its copy through useTranslation(); without the I18n
+// provider t() returns the key, so t resolves from the real English locale
+// here and every assertion below still reads the English text.
+vi.mock('@/i18n', async () => {
+  const en = (await import('@/i18n/locales/en')).default;
+  const get = (k: string): unknown =>
+    k.split('.').reduce<unknown>((o, p) => (o as Record<string, unknown> | undefined)?.[p], en);
+  return {
+    useTranslation: () => ({
+      t: (k: string, p?: Record<string, string | number>) => {
+        const found = get(k);
+        if (typeof found !== 'string') return k;
+        let v = found;
+        for (const [a, b] of Object.entries(p ?? {})) v = v.split(`{{${a}}}`).join(String(b));
+        return v;
+      },
+      dir: 'ltr',
+      locale: 'en',
+    }),
+  };
+});
 
 const listMessageTriggers = vi.fn();
 const createMessageTrigger = vi.fn();
@@ -27,7 +48,7 @@ vi.mock('@/lib/ai-agent-api', async (importOriginal) => {
   return {
     ...actual,
     aiAgentApi: {
-      ...(actual as any).aiAgentApi,
+      ...actual.aiAgentApi,
       listMessageTriggers: (...a: unknown[]) => listMessageTriggers(...a),
       createMessageTrigger: (...a: unknown[]) => createMessageTrigger(...a),
       updateMessageTrigger: (...a: unknown[]) => updateMessageTrigger(...a),
@@ -42,14 +63,15 @@ beforeAll(() => {
   window.HTMLElement.prototype.hasPointerCapture = window.HTMLElement.prototype.hasPointerCapture || (() => false);
   window.HTMLElement.prototype.releasePointerCapture = window.HTMLElement.prototype.releasePointerCapture || (() => {});
   window.HTMLElement.prototype.scrollIntoView = window.HTMLElement.prototype.scrollIntoView || (() => {});
-  (global as any).ResizeObserver = (global as any).ResizeObserver || class {
+  const g = globalThis as unknown as { ResizeObserver?: unknown };
+  g.ResizeObserver = g.ResizeObserver || class {
     observe() {} unobserve() {} disconnect() {}
   };
 });
 
 const TriggersPage = (await import('@/pages/app/ai-agent/TriggersPage')).default;
 
-function triggerRow(overrides: Record<string, any> = {}) {
+function triggerRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 't-1', workspace_id: 'ws-1', name: 'Test trigger', description: null,
     event_type: 'visitor_first_message', conditions_json: {},

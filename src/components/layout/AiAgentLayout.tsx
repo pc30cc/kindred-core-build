@@ -22,9 +22,10 @@ const STATE_LABEL: Record<AgentState, TranslationKey> = {
 /** On, off or suggestions only, for the chip in the list's header. */
 function useAgentState(workspaceId: string | undefined): AgentState | null {
   const { data } = useAiAgentSettings(workspaceId);
-  if (!data) return null;
-  if (!data.enabled || data.mode === 'off') return 'off';
-  if (data.mode === 'suggest_only') return 'suggest';
+  const settings = data?.settings;
+  if (!settings) return null;
+  if (!settings.enabled || settings.mode === 'off') return 'off';
+  if (settings.mode === 'suggest_only') return 'suggest';
   return 'on';
 }
 

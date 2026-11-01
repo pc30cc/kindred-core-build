@@ -36,6 +36,30 @@ const FALLBACK_HANDOFF_PRECHAT_TEMPLATES: Record<string, string> = {
 const LOCALE_LABELS: Record<string, string> = { fa: 'فارسی', en: 'English', tr: 'Türkçe' };
 const LOCALE_DIR: Record<string, 'rtl' | 'ltr'> = { fa: 'rtl', en: 'ltr', tr: 'ltr' };
 
+/**
+ * Per-language drafts of a visitor message that follow the server's copy,
+ * except in a language the owner is still typing in: one language's save
+ * coming back must not wipe what is being written in another.
+ */
+function useLocalizedDrafts(server: Record<string, string> | undefined) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
+  const lastServer = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const incoming = (server || {}) as Record<string, string>;
+    const before = lastServer.current;
+    lastServer.current = { ...incoming };
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const code of new Set([...Object.keys(current), ...Object.keys(incoming)])) {
+        // Untouched since the last server copy: follow the server.
+        if ((current[code] ?? '') === (before[code] ?? '')) next[code] = incoming[code] ?? '';
+      }
+      return next;
+    });
+  }, [server]);
+  return [drafts, setDrafts] as const;
+}
+
 export default function AiAgentSettingsPage() {
   const { workspace } = useActiveWorkspace();
   const { data, isLoading } = useAiAgentSettings(workspace?.id);
@@ -50,9 +74,9 @@ export default function AiAgentSettingsPage() {
   const [form, setForm] = useState<AgentSettings | null>(null);
   const [generating, setGenerating] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
-  const [handoffDrafts, setHandoffDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
-  const [handoffPrechatDrafts, setHandoffPrechatDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
+  const [introDrafts, setIntroDrafts] = useLocalizedDrafts(data?.settings?.intro_message_localized);
+  const [handoffDrafts, setHandoffDrafts] = useLocalizedDrafts(data?.settings?.handoff_message_localized);
+  const [handoffPrechatDrafts, setHandoffPrechatDrafts] = useLocalizedDrafts(data?.settings?.handoff_prechat_message_localized);
   const [newKeyword, setNewKeyword] = useState('');
   const [keywordError, setKeywordError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,23 +89,29 @@ export default function AiAgentSettingsPage() {
   // unconditionally from whatever stale value was loaded, silently
   // overwriting e.g. a language choice made on the Behavior page).
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
 
+  // The server's copy arrives on load and after every save, including the
+  // instant ones on this page (intro switch, messages, keywords, avatar).
+  // Take it, but keep what the owner is still editing behind "Save changes":
+  // resetting the whole form here used to drop those edits silently.
   useEffect(() => {
-    if (data?.settings) setForm(data.settings);
-    setDirty(new Set());
+    const incoming = data?.settings;
+    if (!incoming) return;
+    setForm((prev) => {
+      if (!prev || prev.workspace_id !== incoming.workspace_id) return incoming;
+      const merged: Record<string, unknown> = { ...incoming };
+      for (const key of dirtyRef.current) merged[key] = (prev as unknown as Record<string, unknown>)[key];
+      return merged as unknown as AgentSettings;
+    });
   }, [data]);
+  // Another workspace's settings start clean.
   useEffect(() => {
-    const localized = (data?.settings?.intro_message_localized || {}) as Record<string, string>;
-    setIntroDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
-  }, [data?.settings?.intro_message_localized]);
-  useEffect(() => {
-    const localized = (data?.settings?.handoff_message_localized || {}) as Record<string, string>;
-    setHandoffDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
-  }, [data?.settings?.handoff_message_localized]);
-  useEffect(() => {
-    const localized = (data?.settings?.handoff_prechat_message_localized || {}) as Record<string, string>;
-    setHandoffPrechatDrafts({ fa: localized.fa || '', en: localized.en || '', tr: localized.tr || '' });
-  }, [data?.settings?.handoff_prechat_message_localized]);
+    setDirty(new Set());
+  }, [workspace?.id]);
 
   if (isLoading || !form) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;

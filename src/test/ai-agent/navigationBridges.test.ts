@@ -47,7 +47,7 @@ describe('LC1 — Overview "Review learning candidates" CTA target', () => {
 
 describe('LC2 — Train "Review learning candidates" CTA target', () => {
   it('navigates to /ai-agent/learning-candidates, not /ai-agent/qna', () => {
-    const line = lineContaining(trainSrc, 'Review learning candidates');
+    const line = lineContaining(trainSrc, 'aiAgent.train.action.reviewLearning');
     expect(line).toContain("wsPath('/ai-agent/learning-candidates')");
     expect(line).not.toContain("wsPath('/ai-agent/qna')");
   });

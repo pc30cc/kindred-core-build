@@ -1,23 +1,38 @@
 import { useEffect, useState } from 'react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import type { AgentSettings } from '@/lib/ai-agent-api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { ScrollText, Loader2, AlertTriangle } from 'lucide-react';
+import { ScrollText, Loader2, AlertTriangle, Info } from 'lucide-react';
+
+type Instructions = AgentSettings['instructions'];
+
+function errorText(e: unknown): string | undefined {
+  return e instanceof Error ? e.message : undefined;
+}
 
 export default function InstructionsPage() {
-  const ws = useCurrentWorkspace() as any;
-  const wsId = ws?.id as string | undefined;
+  const ws = useCurrentWorkspace();
+  const wsId = ws?.id;
   const { data, isLoading } = useAiAgentSettings(wsId);
   const update = useUpdateAiAgentSettings(wsId);
   const { t } = useTranslation();
-  const tr = (k: string) => t(`aiAgent.instructions.${k}` as any);
+  const tr = (k: string) => t(`aiAgent.instructions.${k}` as TranslationKey);
+  // Newer copy, in English until every catalogue has it.
+  const trf = (k: string, fallback: string) => {
+    const v = tr(k);
+    return !v || v === `aiAgent.instructions.${k}` ? fallback : v;
+  };
 
-  const i = (data?.settings?.instructions ?? {}) as any;
+  const i: Instructions = data?.settings?.instructions ?? {};
+  // The saved custom instruction never reaches the browser
+  // (server/services/ai-agent/customerSafe.ts), only whether there is one.
+  const hasSavedCustomInstruction = data?.settings?.has_custom_system_instruction === true;
   const [form, setForm] = useState({
     brand_voice: '', business_description: '',
     do_list: '' as string,
@@ -28,13 +43,14 @@ export default function InstructionsPage() {
   // Every nested `instructions` key on this page is only written when the
   // operator actually edited its control this session -- the backend
   // replaces the ENTIRE `instructions` JSON column on write (no server-side
-  // per-key merge), so unconditionally resending all keys on every save
-  // (as before) could silently revert a key changed elsewhere (e.g. `tone`/
-  // `max_answer_length`, both owned exclusively by BehaviorPage -- this page
-  // no longer has a tone control at all, to avoid the two pages fighting
-  // over the same instructions.tone field) back to whatever this page had
-  // loaded, even when the operator only touched an unrelated field here.
-  // Same dirty-tracking discipline as BehaviorPage.
+  // per-key merge, except that a write without `custom_system_instruction`
+  // keeps the saved one), so unconditionally resending all keys on every
+  // save (as before) could silently revert a key changed elsewhere (e.g.
+  // `tone`/`max_answer_length`, both owned exclusively by BehaviorPage --
+  // this page no longer has a tone control at all, to avoid the two pages
+  // fighting over the same instructions.tone field) back to whatever this
+  // page had loaded, even when the operator only touched an unrelated field
+  // here. Same dirty-tracking discipline as BehaviorPage.
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const markDirty = (key: string) => setDirty((prev) => {
     const next = new Set(prev);
@@ -57,14 +73,17 @@ export default function InstructionsPage() {
       pricing_instructions: i.pricing_instructions || '',
       handoff_instructions: i.handoff_instructions || i.escalation_instructions || '',
       support_instructions: i.support_instructions || '',
-      custom_system_instruction: i.custom_system_instruction || i.custom_instructions || '',
+      // Never the saved custom instruction (the server does not send it):
+      // empty, under a note, when one is saved; otherwise the legacy
+      // custom_instructions text the prompt falls back to, if any.
+      custom_system_instruction: data.settings.has_custom_system_instruction ? '' : (i.custom_instructions || ''),
     });
     setDirty(new Set());
     // eslint-disable-next-line
   }, [data?.settings?.id]);
 
   async function save() {
-    const patch: Record<string, unknown> = {};
+    const patch: Partial<AgentSettings> = {};
 
     // Canonical field: business_description is a top-level ai_agent_settings
     // column (same one SettingsPage and the AI generator write, and the only
@@ -90,24 +109,48 @@ export default function InstructionsPage() {
       // preserved as-is. Only the keys the operator actually touched this
       // session are overlaid on top. The legacy business_description key, if
       // present, is carried over unchanged -- it is never written here.
-      const fresh = (data?.settings?.instructions || {}) as Record<string, unknown>;
-      const instructions: Record<string, unknown> = { ...fresh };
+      const fresh: Instructions = data?.settings?.instructions || {};
+      const instructions: Instructions = { ...fresh };
       if (dirty.has('brand_voice')) instructions.brand_voice = form.brand_voice.trim() || undefined;
       if (dirty.has('do_list')) instructions.do_list = form.do_list.split('\n').map((s) => s.trim()).filter(Boolean);
       if (dirty.has('dont_list')) instructions.dont_list = form.dont_list.split('\n').map((s) => s.trim()).filter(Boolean);
       if (dirty.has('pricing_instructions')) instructions.pricing_instructions = form.pricing_instructions.trim() || undefined;
       if (dirty.has('handoff_instructions')) instructions.handoff_instructions = form.handoff_instructions.trim() || undefined;
       if (dirty.has('support_instructions')) instructions.support_instructions = form.support_instructions.trim() || undefined;
-      if (dirty.has('custom_system_instruction')) instructions.custom_system_instruction = form.custom_system_instruction.trim() || undefined;
+      if (dirty.has('custom_system_instruction')) {
+        // Typed text replaces the saved instruction. An emptied field sends
+        // nothing, so the saved one stays (Remove is the way to clear it).
+        const text = form.custom_system_instruction.trim();
+        if (text) instructions.custom_system_instruction = text;
+        else delete instructions.custom_system_instruction;
+      }
       patch.instructions = instructions;
     }
 
     try {
-      await update.mutateAsync(patch as any);
+      await update.mutateAsync(patch);
       setDirty(new Set());
       toast({ title: tr('saved') });
-    } catch (e: any) {
-      toast({ title: tr('saveFailed'), description: e?.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: tr('saveFailed'), description: errorText(e), variant: 'destructive' });
+    }
+  }
+
+  async function removeCustomInstruction() {
+    if (!window.confirm(trf('advanced.removeConfirm', 'Remove the saved custom instruction? The AI will stop using it.'))) return;
+    const fresh: Instructions = data?.settings?.instructions || {};
+    try {
+      // Only this key changes; other unsaved edits on the page stay as they are.
+      await update.mutateAsync({ instructions: { ...fresh, custom_system_instruction: '' } });
+      setForm((f) => ({ ...f, custom_system_instruction: '' }));
+      setDirty((prev) => {
+        const next = new Set(prev);
+        next.delete('custom_system_instruction');
+        return next;
+      });
+      toast({ title: trf('advanced.removed', 'Custom instruction removed') });
+    } catch (e: unknown) {
+      toast({ title: tr('saveFailed'), description: errorText(e), variant: 'destructive' });
     }
   }
 
@@ -198,6 +241,17 @@ export default function InstructionsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {hasSavedCustomInstruction && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2">
+                  <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    {trf('advanced.savedNote', 'A custom instruction is saved. Type here to replace it; leave empty to keep it.')}
+                  </p>
+                  <Button type="button" variant="outline" size="sm" onClick={removeCustomInstruction} disabled={update.isPending}>
+                    {trf('advanced.remove', 'Remove')}
+                  </Button>
+                </div>
+              )}
               <Textarea rows={6} value={form.custom_system_instruction}
                 onChange={(e) => { setForm((f) => ({ ...f, custom_system_instruction: e.target.value })); markDirty('custom_system_instruction'); }}
                 placeholder={tr('advanced.placeholder')} />

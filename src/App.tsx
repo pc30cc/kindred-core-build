@@ -722,7 +722,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                     operators get the read-only member directory. */}
                 <Route path="team" element={<TeamPage />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
-                <Route path="ai" element={<Navigate to="../settings/ai" replace />} />
+                <Route path="ai" element={<Navigate to="../ai-agent" replace />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

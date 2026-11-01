@@ -1,4 +1,5 @@
-import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { Link } from 'react-router-dom';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useAiAgentDiagnostics, useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -38,6 +39,7 @@ const MODE_KEYS: Record<AgentMode, string> = {
 export default function ActivationPage() {
   const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
+  const wsPath = useWorkspacePath();
   const { data: diag, isLoading } = useAiAgentDiagnostics(workspace?.id);
   const { data: settingsData } = useAiAgentSettings(workspace?.id);
   const update = useUpdateAiAgentSettings(workspace?.id);
@@ -126,7 +128,11 @@ export default function ActivationPage() {
         <CardHeader><CardTitle className="text-base">{t('aiAgent.activation.introTitle')}</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            {t('aiAgent.activation.introPointerPrefix')} <strong>{t('aiAgent.activation.introPointerTab')}</strong> {t('aiAgent.activation.introPointerSuffix')}
+            {t('aiAgent.activation.introPointerPrefix')}{' '}
+            <Link to={wsPath('/ai-agent/settings')} className="font-semibold text-primary underline-offset-4 hover:underline">
+              {t('aiAgent.activation.introPointerTab')}
+            </Link>{' '}
+            {t('aiAgent.activation.introPointerSuffix')}
           </p>
         </CardContent>
       </Card>
@@ -360,7 +366,7 @@ export default function ActivationPage() {
             {/* Only when the operators are known to be offline: an unknown
                 state is not "the AI answers now". */}
             {isAutoMode && availabilityStatus === 'offline' && settings.mode === 'auto_reply_when_offline' && (
-              <Badge variant="secondary" className="ml-auto">{t('aiAgent.activation.aiWillAnswer')}</Badge>
+              <Badge variant="secondary" className="ms-auto">{t('aiAgent.activation.aiWillAnswer')}</Badge>
             )}
           </CardContent>
         </Card>

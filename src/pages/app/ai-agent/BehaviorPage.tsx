@@ -1,34 +1,42 @@
 import { useEffect, useState } from 'react';
-import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { Link } from 'react-router-dom';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, Sliders, MessageSquare, HelpCircle, FileText, Heart, Languages } from 'lucide-react';
+import { Loader2, Sliders, MessageSquare, HelpCircle, FileText, Heart, Languages, ArrowUpRight, type LucideIcon } from 'lucide-react';
 import { toast } from '@/lib/toast';
-import type { AgentMode, AnswerGuidance } from '@/lib/ai-agent-api';
-import { useTranslation } from '@/i18n';
+import type { AgentMode, AgentSettings } from '@/lib/ai-agent-api';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
-type AiMode = 'auto' | 'suggest' | 'off';
 type Unsure = 'clarify' | 'transfer' | 'silent';
 type Style = 'short' | 'medium' | 'long';
 type Tone = 'friendly' | 'formal' | 'professional';
 type Lang = 'visitor' | 'workspace';
 
-function deriveAiMode(s: any): AiMode {
-  if (!s) return 'off';
-  if (!s.enabled || s.mode === 'off') return 'off';
-  if (s.mode === 'suggest_only') return 'suggest';
-  return 'auto';
-}
-function deriveUnsure(s: any): Unsure {
+/**
+ * The AI mode is set on the Activation page only (its on/off switch, its five
+ * modes and the readiness checklist). This page shows it, by the names that
+ * page uses, and links there: its own three-way control could not express
+ * the five modes and rewrote them on save.
+ */
+const MODE_LABEL_KEYS: Record<AgentMode, TranslationKey> = {
+  off: 'aiAgent.activation.modeOff',
+  suggest_only: 'aiAgent.activation.modeSuggestOnly',
+  auto_reply_when_offline: 'aiAgent.activation.modeAutoOffline',
+  auto_reply_until_human_joins: 'aiAgent.activation.modeAutoUntilHuman',
+  auto_reply_always: 'aiAgent.activation.modeAutoAlways',
+};
+
+function deriveUnsure(s: AgentSettings | undefined): Unsure {
   if (s?.allow_clarifying_questions) return 'clarify';
   if (s?.handoff_on_low_confidence) return 'transfer';
   return 'silent';
 }
-function deriveStyle(s: any): Style {
+function deriveStyle(s: AgentSettings | undefined): Style {
   return (s?.instructions?.max_answer_length as Style) || 'medium';
 }
 // Tone is now written exclusively from this page as one of the three preset
@@ -36,44 +44,34 @@ function deriveStyle(s: any): Style {
 // may have saved back when the (now-removed) Instructions page also had a
 // tone control, so an existing custom value still maps to a sane preset
 // instead of silently resetting to "friendly".
-function deriveTone(s: any): Tone {
+function deriveTone(s: AgentSettings | undefined): Tone {
   const t = (s?.instructions?.tone || '').toLowerCase();
   if (t.includes('formal')) return 'formal';
   if (t.includes('professional')) return 'professional';
   return 'friendly';
 }
-function deriveLang(s: any): Lang {
+function deriveLang(s: AgentSettings | undefined): Lang {
   return (s?.allowed_locales?.length || 0) > 0 ? 'workspace' : 'visitor';
 }
 
 export default function BehaviorPage() {
   const { workspace } = useActiveWorkspace();
+  const wsPath = useWorkspacePath();
   const { data, isLoading } = useAiAgentSettings(workspace?.id);
   const update = useUpdateAiAgentSettings(workspace?.id);
   const { t, dir } = useTranslation();
   const tr = (k: string, fb: string) => {
-    const v = t(`aiAgent.behavior.${k}` as any);
+    const v = t(`aiAgent.behavior.${k}` as TranslationKey);
     return !v || v === `aiAgent.behavior.${k}` ? fb : v;
   };
 
-  const [aiMode, setAiMode] = useState<AiMode>('off');
-  // PHASE 2 FIX: deriveAiMode() collapses 5 real runtime modes
-  // (off/suggest_only/auto_reply_when_offline/auto_reply_until_human_joins/
-  // auto_reply_always) into 3 UI states, so re-sending a value DERIVED from
-  // the loaded settings on every save silently downgraded e.g.
-  // auto_reply_always to auto_reply_until_human_joins even when the
-  // operator only changed an unrelated field (answer style, tone, etc.).
-  // modeDirty tracks whether the operator actually touched this control in
-  // THIS editing session — mode/enabled are only included in the save
-  // payload when true.
-  const [modeDirty, setModeDirty] = useState(false);
   const [unsure, setUnsure] = useState<Unsure>('clarify');
   // PHASE 2.1 FIX: deriveUnsure() collapses 3 independent backend fields
   // (allow_clarifying_questions/handoff_on_low_confidence/fallback_behavior)
   // into a single UI radio state, so resending a value derived from that
   // collapse on every save could silently rewrite all three even when the
   // operator only changed an unrelated field. Same dirty-tracking pattern
-  // as modeDirty/toneDirty below.
+  // as toneDirty below.
   const [unsureDirty, setUnsureDirty] = useState(false);
   const [style, setStyle] = useState<Style>('medium');
   // PHASE 2.1 FIX: style shares the `instructions` object with tone, so it
@@ -97,8 +95,6 @@ export default function BehaviorPage() {
   useEffect(() => {
     const s = data?.settings;
     if (!s) return;
-    setAiMode(deriveAiMode(s));
-    setModeDirty(false);
     setUnsure(deriveUnsure(s));
     setUnsureDirty(false);
     setStyle(deriveStyle(s));
@@ -113,23 +109,19 @@ export default function BehaviorPage() {
     return <div className="flex justify-center py-20" dir={dir}><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
+  const settings = data.settings;
+  const aiAnswering = settings.enabled && settings.mode !== 'off';
+  const modeLabel = settings.enabled
+    ? t(MODE_LABEL_KEYS[settings.mode] ?? 'aiAgent.activation.modeOff')
+    : t('aiAgent.activation.disabled');
+
   const onSave = async () => {
-    const s = data.settings;
     // PHASE 2.1 FIX: BehaviorPage is a minimal PATCH producer — every field
     // is only included when the operator intentionally touched the UI
     // control it derives from during this editing session. Nothing is
-    // resent "just because Save was clicked."
-    const patch: Record<string, unknown> = {};
-    // Only include enabled/mode when the operator intentionally changed the
-    // AI mode control this session — see modeDirty comment above.
-    if (modeDirty) {
-      const mode: AgentMode =
-        aiMode === 'off' ? 'off' :
-        aiMode === 'suggest' ? 'suggest_only' :
-        'auto_reply_until_human_joins';
-      patch.enabled = aiMode !== 'off';
-      patch.mode = mode;
-    }
+    // resent "just because Save was clicked." `enabled` and `mode` are never
+    // written here (see MODE_LABEL_KEYS).
+    const patch: Partial<AgentSettings> = {};
     // Only include the 3 backend fields the "when AI is unsure" radio
     // derives from when that control was intentionally changed — see
     // unsureDirty comment above.
@@ -141,8 +133,8 @@ export default function BehaviorPage() {
     // Only include allowed_locales when the language control was
     // intentionally changed — see languageDirty comment above.
     if (languageDirty) {
-      patch.allowed_locales = lang === 'workspace' && (workspace as any)?.default_locale
-        ? [(workspace as any).default_locale]
+      patch.allowed_locales = lang === 'workspace' && workspace?.default_locale
+        ? [workspace.default_locale]
         : [];
     }
     // instructions.max_answer_length and instructions.tone are independently
@@ -150,16 +142,16 @@ export default function BehaviorPage() {
     // sent (and only the touched key(s) changed) when at least one of them
     // was intentionally changed this session.
     if (styleDirty || toneDirty) {
-      const instructions: Record<string, unknown> = { ...(s.instructions || {}) };
+      const instructions: AgentSettings['instructions'] = { ...(settings.instructions || {}) };
       if (styleDirty) instructions.max_answer_length = style;
       if (toneDirty) instructions.tone = tone;
       patch.instructions = instructions;
     }
     try {
-      await update.mutateAsync(patch as any);
+      await update.mutateAsync(patch);
       toast.success(tr('saved', 'Behavior saved'));
-    } catch (e: any) {
-      toast.error(e?.message || tr('saveFailed', 'Save failed'));
+    } catch (e: unknown) {
+      toast.error((e instanceof Error && e.message) || tr('saveFailed', 'Save failed'));
     }
   };
 
@@ -168,11 +160,18 @@ export default function BehaviorPage() {
       <AiPageHeader icon={Sliders} accent="violet" title={tr('title', 'Behavior')} subtitle={tr('subtitle', 'Choose how your AI Agent talks to visitors.')} />
 
       <SectionCard icon={MessageSquare} tone="bg-violet-500/10 text-violet-600 ring-violet-500/20" title={tr('aiMode.title', 'AI mode')} desc={tr('aiMode.desc', 'How the AI participates in conversations.')}>
-        <RadioGroup dir={dir} value={aiMode} onValueChange={(v) => { setAiMode(v as AiMode); setModeDirty(true); }} className="space-y-2">
-          <Opt value="auto" label={tr('aiMode.auto', 'Answer visitors automatically')} />
-          <Opt value="suggest" label={tr('aiMode.suggest', 'Suggest replies to operators only')} />
-          <Opt value="off" label={tr('aiMode.off', 'Off')} />
-        </RadioGroup>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/40 px-3 py-2.5">
+          <span className="flex items-center gap-2.5 text-sm font-medium">
+            <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${aiAnswering ? 'bg-emerald-500' : 'bg-muted-foreground/50'}`} />
+            {modeLabel}
+          </span>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link to={wsPath('/ai-agent/activation')}>
+              {t('aiAgent.menu.tabActivation')}
+              <ArrowUpRight className="h-3.5 w-3.5 ms-1.5" />
+            </Link>
+          </Button>
+        </div>
       </SectionCard>
 
       <SectionCard icon={HelpCircle} tone="bg-amber-500/10 text-amber-600 ring-amber-500/20" title={tr('unsure.title', 'When AI is unsure')}>
@@ -215,7 +214,7 @@ export default function BehaviorPage() {
   );
 }
 
-function SectionCard({ icon: Icon, tone, title, desc, children }: { icon: any; tone: string; title: string; desc?: string; children: React.ReactNode }) {
+function SectionCard({ icon: Icon, tone, title, desc, children }: { icon: LucideIcon; tone: string; title: string; desc?: string; children: React.ReactNode }) {
   return (
     <Card className="overflow-hidden border-border/60 hover:shadow-md transition-shadow">
       <CardHeader className="pb-3">

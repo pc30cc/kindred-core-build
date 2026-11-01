@@ -39,7 +39,7 @@ const SECTION_TASKS: Record<string, WizardTask[]> = {
   customize: [
     { key: 'customize_widget', icon: <Palette className="w-5 h-5" />, titleKey: 'wizard.customizeWidget', descKey: 'wizard.customizeWidgetDesc', subPath: '/widget', trialDays: 2 },
     { key: 'knowledge_base', icon: <BookOpen className="w-5 h-5" />, titleKey: 'wizard.knowledgeBase', descKey: 'wizard.knowledgeBaseDesc', subPath: '/knowledge-base', trialDays: 4 },
-    { key: 'setup_ai', icon: <Bot className="w-5 h-5" />, titleKey: 'wizard.setupAI', descKey: 'wizard.setupAIDesc', subPath: '/ai', trialDays: 2 },
+    { key: 'setup_ai', icon: <Bot className="w-5 h-5" />, titleKey: 'wizard.setupAI', descKey: 'wizard.setupAIDesc', subPath: '/ai-agent', trialDays: 2 },
   ],
   grow: [
     { key: 'shortcuts', icon: <Zap className="w-5 h-5" />, titleKey: 'wizard.shortcuts', descKey: 'wizard.shortcutsDesc', subPath: '/settings/general', trialDays: 2 },

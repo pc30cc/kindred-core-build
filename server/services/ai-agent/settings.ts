@@ -202,17 +202,38 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'require_approval_for_learning',
 ]);
 
+/**
+ * `instructions` is one JSON column and a write replaces it whole. Its
+ * `custom_system_instruction` never reaches the browser (customerSafe.ts
+ * sends only `has_custom_system_instruction`), so a page saving the other
+ * keys cannot send it back: a write that leaves it out keeps the stored one.
+ * A write that carries it replaces it ('' removes it).
+ */
+function keepStoredCustomSystemInstruction(next: unknown, stored: unknown): unknown {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) return next;
+  const incoming = next as Record<string, unknown>;
+  if (incoming.custom_system_instruction !== undefined) return next;
+  const kept = stored && typeof stored === 'object' && !Array.isArray(stored)
+    ? (stored as Record<string, unknown>).custom_system_instruction
+    : undefined;
+  if (typeof kept !== 'string' || kept === '') return next;
+  return { ...incoming, custom_system_instruction: kept };
+}
+
 export async function updateSettings(
   config: ServerConfig,
   workspaceId: string,
   patch: Partial<AgentSettings>,
 ): Promise<AgentSettings> {
-  await getOrCreateSettings(config, workspaceId);
+  const current = await getOrCreateSettings(config, workspaceId);
   const sb = getServiceClient(config);
 
   const update: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {
     if (ALLOWED_UPDATE_FIELDS.has(k)) update[k] = v;
+  }
+  if ('instructions' in update) {
+    update.instructions = keepStoredCustomSystemInstruction(update.instructions, current.instructions);
   }
   if (Object.keys(update).length === 0) {
     return getOrCreateSettings(config, workspaceId);

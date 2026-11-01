@@ -188,7 +188,11 @@ export function AppSidebar({
   // open, then restore the user's own preference on leaving. The Inbox keeps
   // the sidebar exactly as the user left it (its sub-inboxes live there).
   // The SEO suite has its own two-column nav, so the main rail collapses there too.
-  const onInbox = /\/(settings|seo)(\/|$)/.test(location.pathname);
+  // Anchored on the workspace's own segment (/:slug/settings, /:slug/seo):
+  // a section's inner settings page (/:slug/ai-agent/settings,
+  // /:slug/call-center/settings) is one tab among its siblings and must not
+  // fold the rail when the member moves between them.
+  const onInbox = /^\/[^/]+\/(settings|seo)(\/|$)/.test(location.pathname);
   useEffect(() => {
     if (onInbox) setCollapsedPref(true);
     else setCollapsedPref(localStorage.getItem('sidebar_collapsed') === '1');

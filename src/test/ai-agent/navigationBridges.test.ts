@@ -47,7 +47,7 @@ describe('LC1 — Overview "Review learning candidates" CTA target', () => {
 
 describe('LC2 — Train "Review learning candidates" CTA target', () => {
   it('navigates to /ai-agent/learning-candidates, not /ai-agent/qna', () => {
-    const line = lineContaining(trainSrc, 'Review learning candidates');
+    const line = lineContaining(trainSrc, 'aiAgent.train.action.reviewLearning');
     expect(line).toContain("wsPath('/ai-agent/learning-candidates')");
     expect(line).not.toContain("wsPath('/ai-agent/qna')");
   });
@@ -71,10 +71,15 @@ describe('OA1 — Operator Assist provides a discoverable link to full Analytics
   });
 });
 
-describe('boundary check — this follow-up must not touch sidebar/route-policy files', () => {
-  it('AiAgentLayout.tsx still declares exactly 6 top-level nav items', () => {
-    const layoutSrc = read('../../components/layout/AiAgentLayout.tsx');
-    const matches = layoutSrc.match(/key: '(overview|knowledge|behavior|operatorAssist|activity|settings)'/g) || [];
-    expect(matches.length).toBe(6);
+describe('boundary check — the Super Admin\'s six nav switches still gate the AI menu', () => {
+  // The menu became a few sections with tabs (aiAgentMenu.ts, 2026-11-01);
+  // each of capabilities.customer_nav's six switches still hides its entry.
+  // The full menu/route coverage lives in aiSectionMenu.test.ts.
+  it('aiAgentMenu.ts gates a tab on each of the six customer_nav keys', () => {
+    const menuSrc = read('../../components/layout/aiAgentMenu.ts');
+    const matches = menuSrc.match(/navFlag: '(overview|knowledge|behavior|operatorAssist|activity|settings)'/g) || [];
+    expect(new Set(matches.map((m) => m.slice("navFlag: '".length, -1)))).toEqual(
+      new Set(['overview', 'knowledge', 'behavior', 'operatorAssist', 'activity', 'settings']),
+    );
   });
 });

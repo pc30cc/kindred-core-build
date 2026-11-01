@@ -108,8 +108,15 @@ export interface AgentSettings {
     handoff_instructions?: string;
     pricing_instructions?: string;
     support_instructions?: string;
+    /**
+     * Write-only: the server never returns it (only
+     * `has_custom_system_instruction`) and keeps the saved one when a write
+     * leaves it out; '' removes it.
+     */
     custom_system_instruction?: string;
   };
+  /** Read-only, from the server: whether a custom system instruction is saved. */
+  has_custom_system_instruction?: boolean;
   ai_intro_enabled?: boolean;
   intro_message?: string | null;
   intro_message_localized?: Record<string, string>;

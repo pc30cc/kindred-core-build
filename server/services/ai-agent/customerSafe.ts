@@ -46,6 +46,17 @@ export interface CustomerSafeAgentSettings {
   pause_auto_reply_after_human_reply?: boolean;
   allow_suggestions_after_takeover?: boolean;
   keep_in_automated_until_handoff?: boolean;
+  // Answer strategy (Activation's "Answer behavior", Behavior's "When AI is unsure").
+  escalation_style: NonNullable<AgentSettings['escalation_style']>;
+  allow_clarifying_questions: boolean;
+  max_clarification_attempts: number;
+  allow_answer_with_caveat: boolean;
+  /**
+   * Whether instructions.custom_system_instruction is set. The text itself
+   * is never returned; a settings write that leaves it out keeps it
+   * (settings.ts updateSettings).
+   */
+  has_custom_system_instruction: boolean;
   // Customer-safe subset of instructions. Never returns custom_system_instruction
   // or anything resembling internal secrets.
   instructions: {
@@ -82,6 +93,8 @@ export function toCustomerSafeAiAgentSettings(
   derivedLogoUrl: string | null = null,
 ): CustomerSafeAgentSettings {
   const instr = (s.instructions || {}) as Record<string, never>;
+  const customSystemInstruction = (s.instructions as { custom_system_instruction?: unknown } | null)
+    ?.custom_system_instruction;
   return {
     id: s.id,
     workspace_id: s.workspace_id,
@@ -118,6 +131,13 @@ export function toCustomerSafeAiAgentSettings(
     pause_auto_reply_after_human_reply: s.pause_auto_reply_after_human_reply,
     allow_suggestions_after_takeover: s.allow_suggestions_after_takeover,
     keep_in_automated_until_handoff: s.keep_in_automated_until_handoff,
+    // The columns' defaults (migration 016a) when a row has none.
+    escalation_style: s.escalation_style || 'balanced',
+    allow_clarifying_questions: s.allow_clarifying_questions !== false,
+    max_clarification_attempts: typeof s.max_clarification_attempts === 'number' ? s.max_clarification_attempts : 1,
+    allow_answer_with_caveat: s.allow_answer_with_caveat !== false,
+    has_custom_system_instruction:
+      typeof customSystemInstruction === 'string' && customSystemInstruction.trim().length > 0,
     instructions: {
       tone: instr.tone,
       custom_instructions: instr.custom_instructions,

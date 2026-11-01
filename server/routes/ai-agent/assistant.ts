@@ -125,6 +125,12 @@ const updateSchema = z.object({
   pause_auto_reply_after_human_reply: z.boolean().optional(),
   allow_suggestions_after_takeover: z.boolean().optional(),
   keep_in_automated_until_handoff: z.boolean().optional(),
+  // Answer strategy (Activation's "Answer behavior", Behavior's "When AI is
+  // unsure"), in the ranges of the columns' CHECKs (migration 016a).
+  escalation_style: z.enum(['conservative','balanced','helpful_first']).optional(),
+  allow_clarifying_questions: z.boolean().optional(),
+  max_clarification_attempts: z.number().int().min(0).max(5).optional(),
+  allow_answer_with_caveat: z.boolean().optional(),
 }).strict();
 
 assistantRouter.put('/settings', async (req: Request, res: Response) => {
@@ -524,7 +530,15 @@ assistantRouter.get('/overview', async (req: Request, res: Response) => {
   if (!auth) return;
   try {
     const overview = await buildOverview(config, workspaceId);
-    return res.json(overview);
+    // Its settings go out customer-safe, as GET /settings sends them: never
+    // the metadata (storage keys) or the custom system instruction.
+    return res.json({
+      ...overview,
+      settings: toCustomerSafeAiAgentSettings(
+        overview.settings,
+        await resolveAgentLogoUrl(config, workspaceId, overview.settings),
+      ),
+    });
   } catch (err) {
     return res.status(500).json({ error: 'overview_failed', details: err?.message });
   }

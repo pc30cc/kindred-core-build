@@ -108,7 +108,8 @@ describe('all five modes', () => {
 
   // Every mode as a target: Off from an answering mode, each answering mode
   // from Off and from another answering mode.
-  const TRANSITIONS = MODES.flatMap((to) => (to.value === 'off'
+  type Transition = { from: string; to: (typeof MODES)[number] };
+  const TRANSITIONS = MODES.flatMap((to): Transition[] => (to.value === 'off'
     ? [{ from: 'auto_reply_always', to }]
     : [{ from: 'off', to }, { from: to.value === 'suggest_only' ? 'auto_reply_always' : 'suggest_only', to }]));
 

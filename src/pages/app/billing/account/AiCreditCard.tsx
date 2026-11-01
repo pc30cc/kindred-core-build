@@ -42,6 +42,7 @@ export default function AiCreditCard({
   workspaceId,
   view,
   version = 0,
+  locked = false,
   onChanged,
   onPayOnline,
 }: {
@@ -50,6 +51,8 @@ export default function AiCreditCard({
   view: Pick<AccountView, 'balance_minor' | 'can_manage' | 'currency'>;
   /** Changes when the page reloaded after a payment or a plan change: the card reads its section again. */
   version?: number;
+  /** Nothing can be bought meanwhile (the account currency is being changed). */
+  locked?: boolean;
   /** A pack was bought: the page reloads the balance and the history. */
   onChanged: () => void;
   onPayOnline: (request: PayOnlineRequest) => void;
@@ -203,8 +206,9 @@ export default function AiCreditCard({
                     key={p.id}
                     type="button"
                     data-testid={`ai-pack-${p.id}`}
+                    disabled={locked}
                     onClick={() => open(p)}
-                    className="flex flex-col items-start gap-1 rounded-lg border bg-card p-3 text-start transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex flex-col items-start gap-1 rounded-lg border bg-card p-3 text-start transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                   >
                     <span className="flex w-full items-center justify-between gap-2">
                       <span className="font-medium text-foreground">{nameOf(p)}</span>

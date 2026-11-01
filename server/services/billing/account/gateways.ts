@@ -9,7 +9,9 @@
 // provider's test mode (a Stripe test key, a sandbox switch) is shown, like
 // the test gateways, to platform admins only. Test gateways (ZarinPal test, the
 // internal simulator, …) are shown to platform admins only; the Paddle
-// sandbox too, unless its settings open it to customers.
+// sandbox too, unless its settings open it to customers. Apirone (USDT on
+// TRON) charges USD accounts in the Iranian edition only (the edition check
+// refuses it elsewhere; owner, 2026-11-01, temporary).
 
 import type { ServerConfig } from '../../../config.js';
 import { getProvider, resolveNamedBillingConfig } from '../index.js';
@@ -31,6 +33,7 @@ import { paytrSettingsProblem, paytrTestMode } from '../providers/paytr.js';
 import { sipaySettingsProblem } from '../providers/sipay.js';
 import { paratikaSettingsProblem } from '../providers/paratika.js';
 import { craftgateSettingsProblem, craftgateTestMode } from '../providers/craftgate.js';
+import { APIRONE_PROVIDER, apironeSettingsProblem } from '../providers/apirone.js';
 import { IRANIAN_PAYMENT_PROVIDERS, isCurrencyAllowedInEdition, isProviderAllowedInEdition, type Edition } from '../../../../shared/edition.js';
 import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../../../shared/testGateways.js';
 import type { GatewayListing, GatewayListingReason } from '../../../../shared/simpleBillingAdmin.js';
@@ -40,6 +43,13 @@ const IRANIAN = new Set<string>(IRANIAN_PAYMENT_PROVIDERS);
 
 /** Card gateways whose payment the server can look up (no webhook-only ones). */
 const CARD_ACCOUNT_PROVIDERS = new Set(['paddle', 'paddle_sandbox', 'stripe', 'paypal']);
+
+/**
+ * Crypto gateways whose invoice the server looks up, and the one currency
+ * each charges an account in: Apirone, USD (USDT on TRON). Listed only where
+ * the edition allows it (the Iranian edition).
+ */
+const CRYPTO_ACCOUNT_CURRENCY: Readonly<Record<string, string>> = { [APIRONE_PROVIDER]: 'USD' };
 
 export function isIranianGateway(providerName: string): boolean {
   return IRANIAN.has(providerName);
@@ -52,6 +62,7 @@ export function canChargeAccount(providerName: string, currency: string, config?
   const provider = getProvider(providerName);
   if (!provider?.verifyPayment) return false;
   if (IRANIAN.has(providerName)) return code === 'IRR';
+  if (Object.prototype.hasOwnProperty.call(CRYPTO_ACCOUNT_CURRENCY, providerName)) return code === CRYPTO_ACCOUNT_CURRENCY[providerName];
   if (!CARD_ACCOUNT_PROVIDERS.has(providerName)) return false;
   if (!provider.supportedCurrencies?.includes(code)) return false;
   if (config && provider.chargeableCurrencies) return provider.chargeableCurrencies(config).includes(code);
@@ -89,6 +100,7 @@ const SETTINGS_CHECKS: Record<string, (config: BillingProviderConfig) => string 
   sipay: sipaySettingsProblem,
   paratika: paratikaSettingsProblem,
   craftgate: craftgateSettingsProblem,
+  [APIRONE_PROVIDER]: apironeSettingsProblem,
 };
 
 /**
@@ -125,6 +137,7 @@ const GATEWAY_NOTES: Record<string, string> = {
   sipay: 'Sipay has no server-side payment lookup in this platform yet, so it is not offered for account payments; its checkout request was not verified against Sipay\'s current documents.',
   paratika: 'Paratika has no server-side payment lookup in this platform yet, so it is not offered for account payments; its adapter still calls Asseco\'s integration (test) host.',
   craftgate: 'Craftgate has no server-side payment lookup in this platform yet, so it is not offered for account payments.',
+  [APIRONE_PROVIDER]: 'Apirone takes USDT on TRON for accounts in US dollars only (a workspace whose dashboard is not in Persian; temporary). Set the forwarding of usdt@trx to your own TRON wallet in Apirone\'s dashboard first (docs/operations/APIRONE.md).',
 };
 
 export function gatewayNote(providerName: string): string | null {
@@ -181,7 +194,9 @@ export function gatewayListing(
   } else if (!canChargeAccount(name, code)) {
     // An Iranian gateway outside IRR, or a card gateway that does not take this
     // currency, is a currency problem; any other gateway cannot be confirmed here.
-    add(IRANIAN.has(name) || CARD_ACCOUNT_PROVIDERS.has(name) ? 'currency' : 'cannot_confirm');
+    add(IRANIAN.has(name) || CARD_ACCOUNT_PROVIDERS.has(name) || Object.prototype.hasOwnProperty.call(CRYPTO_ACCOUNT_CURRENCY, name)
+      ? 'currency'
+      : 'cannot_confirm');
   } else if (gatewayNeedsConfig(name) && config !== undefined) {
     if (config === null) {
       add('cannot_confirm');

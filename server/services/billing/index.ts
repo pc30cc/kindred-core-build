@@ -26,6 +26,7 @@ import { paytrProvider } from './providers/paytr.js';
 import { sipayProvider } from './providers/sipay.js';
 import { paratikaProvider } from './providers/paratika.js';
 import { craftgateProvider } from './providers/craftgate.js';
+import { apironeProvider } from './providers/apirone.js';
 import { getPlatformEdition, isProviderAllowedInEdition } from './edition.js';
 
 
@@ -55,6 +56,8 @@ const providers: Record<string, BillingProviderHandler> = {
   sipay: sipayProvider,
   paratika: paratikaProvider,
   craftgate: craftgateProvider,
+  // USDT on TRON in US dollars, Iranian edition only (shared/edition.ts IRAN_ONLY_PAYMENT_PROVIDERS).
+  apirone: apironeProvider,
 };
 
 export function getProvider(name: string): BillingProviderHandler | null {

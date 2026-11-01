@@ -760,6 +760,20 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
+    // Iranian edition only (shared/edition.ts): dollar accounts — a panel
+    // that is not in Persian — pay the plans' USD prices in USDT on TRON.
+    // Nothing to set up at Apirone but the forwarding to the owner's wallet;
+    // each invoice names its own callback (/api/billing/webhook/apirone).
+    name: 'apirone', label: 'Apirone (USDT · TRON)',
+    description: 'پرداخت رمزارزی با تتر (USDT) روی شبکهٔ ترون — برای حساب‌های دلاری (پنل غیرفارسی)؛ قیمت‌ها همان قیمت دلاری پلن‌ها است',
+    docsUrl: 'https://apirone.com/docs',
+    locales: ['fa'], currency: 'USD',
+    fields: [
+      { key: 'account', label: 'شناسهٔ حساب (Account ID)', type: 'text', required: true, placeholder: 'apr-…', hint: 'داشبورد Apirone ← شناسهٔ حساب: با apr- شروع می‌شود و ۳۲ نویسهٔ هگز دارد. کلید انتقال (transfer key) لازم نیست؛ آن را اینجا وارد نکنید. هدایت خودکار (forwarding) واریزی‌های usdt@trx به کیف پول ترون خودتان را در داشبورد Apirone تنظیم کنید' },
+      { key: 'fee_percent', label: 'کارمزد درگاه (درصد)', type: 'number', required: false, defaultValue: '1', placeholder: '1', hint: 'کارمزدی که مشتری روی قیمت می‌پردازد (درصد)؛ پیش‌فرض ۱. مبلغ فاکتور = قیمت دلاری × (۱ + کارمزد ÷ ۱۰۰)' },
+    ],
+  },
+  {
     name: 'sep_shaparak', label: 'سپ (سامان‌کیش)',
     description: 'درگاه مستقیم بانک سامان — شاپرک',
     locales: ['fa'], currency: 'IRR',

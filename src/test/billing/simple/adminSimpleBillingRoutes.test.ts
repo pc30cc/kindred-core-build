@@ -582,6 +582,26 @@ describe('GET /revenue', () => {
     expect(res.json.months).toHaveLength(6);
     expect(res.json.totals.IRR).toMatchObject({ payments: 2, net_minor: 2_000_000 });
   });
+
+  it('WebYar shows Toman only until USD money exists (an Apirone account, owner 2026-11-01)', async () => {
+    h.edition = 'iran';
+    h.rpc.billing_admin_liability = () => ({ data: [{ currency: 'IRR', accounts: 2, positive_accounts: 0, balance_minor: 0, prepaid_minor: 0 }] });
+    const irrOnly = await call('GET', '/revenue?months=1', 'admin-token');
+    expect(irrOnly.status).toBe(200);
+    expect(irrOnly.json.currencies).toEqual(['IRR']);
+    expect(Object.keys(irrOnly.json.totals)).toEqual(['IRR']);
+    // A USD account's balance (or a USD payment or ledger row) brings its section.
+    h.rpc.billing_admin_liability = () => ({
+      data: [
+        { currency: 'IRR', accounts: 2, positive_accounts: 0, balance_minor: 0, prepaid_minor: 0 },
+        { currency: 'USD', accounts: 1, positive_accounts: 1, balance_minor: 2050, prepaid_minor: 0 },
+      ],
+    });
+    expect((await call('GET', '/revenue?months=1', 'admin-token')).json.currencies).toEqual(['IRR', 'USD']);
+    // The accounts list still filters by USD (ACCOUNT_CURRENCIES).
+    h.rpc.billing_admin_accounts = () => ({ data: { total: 0, items: [] } });
+    expect((await call('GET', '/accounts', 'admin-token')).json.currencies).toEqual(['IRR', 'USD']);
+  });
 });
 
 describe('GET /gateways (readiness)', () => {
@@ -615,8 +635,10 @@ describe('GET /gateways (readiness)', () => {
     h.gatewayConfig.zarinpal = { merchant_id: '11111111-2222-3333-4444-555555555555' };
     const res = await call('GET', '/gateways', 'admin-token');
     const zarinpal = (res.json.gateways as Body[]).find((g) => g.provider_name === 'zarinpal')!;
-    expect(res.json.currencies).toEqual(['IRR']);
+    // USD too: a WebYar account paid with Apirone (owner, 2026-11-01, temporary).
+    expect(res.json.currencies).toEqual(['IRR', 'USD']);
     expect(zarinpal.listing.IRR).toEqual({ listed: true, reasons: [] });
+    expect(zarinpal.listing.USD.reasons).toContain('currency');
   });
 
   it('names what an active gateway\'s settings lack (ZarinPal merchant id, Paddle keys)', async () => {

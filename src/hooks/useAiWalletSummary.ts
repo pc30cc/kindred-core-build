@@ -9,6 +9,9 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { accountBillingApi } from '@/lib/accountBillingApi';
+import { formatAmountForEdition, formatToman } from '@/lib/money';
+import { isRialCurrency } from '../../shared/edition';
+import { AI_WALLET_UNIT } from '../../shared/planLimits';
 
 export interface AiCreditSnapshot {
   /** Remaining plan allowance for the running month (IRR). */
@@ -45,4 +48,18 @@ export function useAiWalletSummary(workspaceId: string | undefined, enabled = tr
       }
     },
   });
+}
+
+/**
+ * The AI credit as a dashboard tile shows it, as the billing page's AI card
+ * does: money in the account currency — in Iran Toman, without its label
+ * (the tile is narrow), unless the account is in dollars — and without a
+ * rate the wallet's own unit, named. Never a bare number of another unit.
+ */
+export function aiCreditTileText(wallet: AiCreditSnapshot, isIran: boolean, locale: string): string {
+  if (isIran && (wallet.availableMinor === null || !wallet.currency || isRialCurrency(wallet.currency))) {
+    return formatToman(wallet.availableMinor ?? wallet.totalRemainingIrr, locale, { withLabel: false });
+  }
+  if (wallet.availableMinor !== null && wallet.currency) return formatAmountForEdition(wallet.availableMinor, wallet.currency, locale);
+  return formatAmountForEdition(wallet.totalRemainingIrr, AI_WALLET_UNIT, locale);
 }

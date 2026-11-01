@@ -26,7 +26,7 @@ import { money } from '../shared';
 import { PADDLE_MIN_CHARGE_MINOR, TOPUP_LIMITS, chargeFor } from '../../../../../shared/simpleBilling';
 import GatewayPicker from './GatewayPicker';
 import { toast } from '@/lib/toast';
-import { accountErrorText, billingReturnOrigin, followCheckout } from './accountUi';
+import { accountErrorText, billingReturnOrigin, followCheckout, isCryptoGateway } from './accountUi';
 
 /** Refusals of an AI pack's checkout after which the page reloads (the pack, the mode or the balance changed). */
 const AI_PACK_STALE = ['QUOTE_CHANGED', 'AI_PACK_NOT_AVAILABLE', 'AI_PACKS_UNAVAILABLE', 'AI_CREDIT_UNAVAILABLE', 'BALANCE_SUFFICIENT'];
@@ -222,6 +222,9 @@ export default function PayOnlineDialog({
             </div>
           </dl>
           <GatewayPicker gateways={listed} value={chosen?.provider_name} onChange={setProvider} disabled={busy} />
+          {isCryptoGateway(chosen?.provider_name) && (
+            <p className="text-xs text-muted-foreground" data-crypto-fee-note="">{t('billing.account.topup.cryptoAtCheckout')}</p>
+          )}
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         </div>
         <DialogFooter>

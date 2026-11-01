@@ -61,6 +61,10 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   // Paddle.js returns to the success URL carrying `_ptxn=<transaction id>`.
   paddle:              { requiresPaymentReferenceBinding: true, callbackKeys: ['_ptxn'] },
   paddle_sandbox:      { requiresPaymentReferenceBinding: true, callbackKeys: ['_ptxn'] },
+  // Apirone create returns the `invoice` id; the linkback carries none (a
+  // return without one is looked up by the stored invoice), and its unsigned
+  // callback names the invoice, which must be the payment's stored one.
+  apirone:             { requiresPaymentReferenceBinding: true, callbackKeys: ['invoice'] },
   lemon_squeezy: {
     requiresPaymentReferenceBinding: false,
     callbackKeys: [],

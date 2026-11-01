@@ -19,10 +19,9 @@ import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { planAccessOf } from '@/lib/planAccess';
 import type { DisplayableContact, DisplayGeoInfo } from '@/lib/contact-display';
-import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
-import { formatAmountForEdition, formatToman } from '@/lib/money';
+import { aiCreditTileText, useAiWalletSummary } from '@/hooks/useAiWalletSummary';
 import { formatBytesAsMb, formatMb } from '@/lib/storageUnits';
-import { AI_WALLET_UNIT, BYTES_PER_MB } from '../../../shared/planLimits';
+import { BYTES_PER_MB } from '../../../shared/planLimits';
 import { useEdition } from '@/hooks/useEdition';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
@@ -526,16 +525,8 @@ export default function OverviewPage() {
                 { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
                 {
                   label: tr('dashboard.usageAiCredits'),
-                  // As the billing page's AI card shows it: money in the
-                  // account currency (Toman in Iran); without a rate, the
-                  // wallet's own unit, named — never a bare number.
-                  value: aiWallet
-                    ? edition.isIran
-                      ? formatToman(aiWallet.availableMinor ?? aiWallet.totalRemainingIrr, numberLocale, { withLabel: false })
-                      : aiWallet.availableMinor !== null && aiWallet.currency
-                        ? formatAmountForEdition(aiWallet.availableMinor, aiWallet.currency, numberLocale)
-                        : formatAmountForEdition(aiWallet.totalRemainingIrr, AI_WALLET_UNIT, numberLocale)
-                    : '—',
+                  // As the billing page's AI card shows it (useAiWalletSummary.ts).
+                  value: aiWallet ? aiCreditTileText(aiWallet, edition.isIran, numberLocale) : '—',
                 },
 
 

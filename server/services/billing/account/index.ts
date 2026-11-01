@@ -162,6 +162,25 @@ export interface LedgerRow {
 /** How long a gateway attempt may still be paid: an Iranian redirect is minutes, a card checkout up to 45. */
 export const ACCOUNT_PAYMENT_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * Gateways that end their own checkout, never our clock: an Apirone invoice
+ * may be paid at the end of its hour and confirmed after it; it ends when
+ * Apirone says so (its lookup answers `expired` when nothing arrived, and
+ * verifyAccountPayment fails the payment then; money that arrived is
+ * credited). So the return route never lapses one (isAccountPaymentLapsed),
+ * and the account keeps its currency while one may still be credited
+ * (GATEWAY_ENDED_PAYMENT_WINDOW_MS; migration 292).
+ */
+export const GATEWAY_ENDED_PROVIDERS: ReadonlySet<string> = new Set(['apirone']);
+
+/**
+ * How long after its creation a GATEWAY_ENDED_PROVIDERS payment that has not
+ * succeeded may still be credited, whatever its status: the invoice's hour,
+ * then an hour for the network's confirmation. Its account's currency does
+ * not change meanwhile (accountCurrencyOpen, billing_account_choose_currency).
+ */
+export const GATEWAY_ENDED_PAYMENT_WINDOW_MS = 2 * ACCOUNT_PAYMENT_TTL_MS;
+
 const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -513,7 +532,13 @@ export async function failAccountPayment(
   await patchAccountPayment(config, paymentId, { status, failure_reason: reason.slice(0, 500) }, 'pending');
 }
 
-export function isAccountPaymentLapsed(payment: Pick<AccountPaymentRow, 'created_at'>, now = Date.now()): boolean {
+/**
+ * An unpaid checkout past its window, which the return route ends. Never one
+ * of GATEWAY_ENDED_PROVIDERS (Apirone): its gateway ends it, so a payment made
+ * at the end of the invoice's hour is not reported failed and then credited.
+ */
+export function isAccountPaymentLapsed(payment: Pick<AccountPaymentRow, 'created_at' | 'provider'>, now = Date.now()): boolean {
+  if (GATEWAY_ENDED_PROVIDERS.has(payment.provider)) return false;
   const at = Date.parse(payment.created_at);
   return Number.isFinite(at) && now - at > ACCOUNT_PAYMENT_TTL_MS;
 }
@@ -570,6 +595,55 @@ export async function settleAccountPayment(config: ServerConfig, paymentId: stri
       .catch((e) => console.warn('[billing-account] after settlement:', e instanceof Error ? e.message : e));
   }
   return settled;
+}
+
+/**
+ * Gateways whose confirmed amount is what finally ARRIVED, which may differ
+ * from the invoice (crypto: the customer sent less or more): Apirone (owner,
+ * 2026-11-01). What arrived is credited to the balance; the payment's
+ * purpose (a plan, a renewal, an upgrade) is bought only when the balance
+ * covers it, so an underpayment stays in the balance and an overpayment buys
+ * the plan and keeps the rest.
+ */
+export const RECEIVED_AMOUNT_PROVIDERS: ReadonlySet<string> = new Set(['apirone']);
+
+/**
+ * Gateways whose callback is not signed (Apirone): it only says "look at this
+ * invoice". It credits nothing by itself: the invoice it names must be the
+ * payment's stored reference (anyone can make an invoice whose linkback
+ * carries one of our payment ids), and the payment is then looked up exactly
+ * as the customer's return does (verifyAccountPayment: the stored reference,
+ * the server's amount, the gateway's own answer). The webhook route accepts
+ * these besides its signed providers (routes/billing.ts).
+ */
+export const LOOKUP_WEBHOOK_PROVIDERS: ReadonlySet<string> = new Set(['apirone']);
+
+/**
+ * The amount the checkout was quoted for: for a RECEIVED_AMOUNT_PROVIDERS
+ * payment whose amount was already set to what arrived, the original one
+ * (purpose_detail.quoted_amount_minor), so the gateway's received amount is
+ * always mapped against the invoice it was made for.
+ */
+function quotedAmountOf(payment: AccountPaymentRow): number {
+  if (!RECEIVED_AMOUNT_PROVIDERS.has(payment.provider)) return payment.amount_minor;
+  const quoted = Number(payment.purpose_detail.quoted_amount_minor);
+  return Number.isSafeInteger(quoted) && quoted > 0 ? quoted : payment.amount_minor;
+}
+
+/**
+ * Sets a pending, not yet confirmed payment's amount (and net) to what the
+ * gateway finally received (migration 292, billing_account_set_received_amount;
+ * the quoted amount is kept in purpose_detail.quoted_amount_minor). Resolves
+ * the payment's amount now.
+ */
+async function setAccountPaymentReceivedAmount(config: ServerConfig, paymentId: string, amountMinor: number): Promise<number> {
+  const { data, error } = await getServiceClient(config).rpc('billing_account_set_received_amount', {
+    p_payment_id: paymentId,
+    p_amount_minor: amountMinor,
+  });
+  if (error) throw new Error(error.message || 'received amount update failed');
+  const row = asRecord(Array.isArray(data) ? data[0] : data);
+  return num(row.amount_minor);
 }
 
 /** Records the gateway's confirmation, then credits it. */
@@ -710,7 +784,7 @@ export async function verifyAccountPayment(
 
   const result = await provider.verifyPayment(
     input.providerConfig,
-    buildBoundVerifyParams(bindable, input.params, payment.amount_minor),
+    buildBoundVerifyParams(bindable, input.params, quotedAmountOf(payment)),
   );
 
   if (!result.verified) {
@@ -738,7 +812,27 @@ export async function verifyAccountPayment(
     console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway says already verified but reports no amount`);
     return { status: 'pending', reason: 'gateway_already_verified' };
   }
-  if (confirmed === null ||confirmed !== payment.amount_minor || currency !== payment.currency || !gatewayTxn) {
+  let expected = payment.amount_minor;
+  if (confirmed !== null && confirmed > 0 && confirmed !== expected && result.receivedFinal === true
+      && RECEIVED_AMOUNT_PROVIDERS.has(payment.provider) && currency === payment.currency && gatewayTxn) {
+    // What arrived is what is credited (RECEIVED_AMOUNT_PROVIDERS).
+    try {
+      expected = await setAccountPaymentReceivedAmount(config, payment.id, confirmed);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // Another check recorded the confirmation meanwhile: the next one
+      // settles it from that record.
+      if (message.includes('billing_payment_already_verified')) return { status: 'pending', reason: 'confirmation_recorded' };
+      // Anything else (a lock timeout, a lost connection, a refusal) is
+      // thrown: the return answers 500 and is asked again, the callback is
+      // not acknowledged and Apirone sends it again. Never left pending
+      // quietly: nothing else looks an Apirone payment up again.
+      console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} received ${confirmed} ${currency} of ${payment.amount_minor}; not recorded: ${message}`);
+      throw e;
+    }
+    console.warn(`[billing-account] payment=${payment.id} provider=${payment.provider} received ${confirmed} ${currency} for ${payment.amount_minor}: credited as received`);
+  }
+  if (confirmed === null || confirmed !== expected || currency !== payment.currency || !gatewayTxn) {
     console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway ${confirmed} ${currency} ref=${gatewayTxn || '-'} != ${payment.amount_minor} ${payment.currency}`);
     if (payment.status === 'pending') await failAccountPayment(config, payment.id, 'failed', 'gateway_amount_mismatch');
     return { status: 'failed', reason: 'PAYMENT_AMOUNT_MISMATCH' };
@@ -767,7 +861,14 @@ export async function verifyAccountPayment(
  */
 export async function handleAccountPaymentWebhook(
   config: ServerConfig,
-  input: { providerName: string; workspaceId: string; event: WebhookEvent; payment: AccountPaymentRow },
+  input: {
+    providerName: string;
+    workspaceId: string;
+    event: WebhookEvent;
+    payment: AccountPaymentRow;
+    /** The configuration the event was verified with (a LOOKUP_WEBHOOK_PROVIDERS payment is looked up with it). */
+    providerConfig?: BillingProviderConfig;
+  },
 ): Promise<'settled' | 'replayed' | 'refunded' | 'ignored' | 'mismatch'> {
   const { payment, event } = input;
   if (payment.workspace_id !== input.workspaceId || payment.provider !== input.providerName) {
@@ -813,6 +914,25 @@ export async function handleAccountPaymentWebhook(
   }
 
   if (event.type !== 'payment_succeeded') return 'ignored';
+  if (LOOKUP_WEBHOOK_PROVIDERS.has(payment.provider)) {
+    const named = (event.providerRef || '').trim();
+    if (!named || named !== (payment.provider_ref || '').trim()) {
+      console.error(`[billing-account] REVIEW webhook payment=${payment.id} provider=${payment.provider} names ${named || '-'}, not its checkout ${payment.provider_ref || '-'}`);
+      return 'mismatch';
+    }
+    if (!input.providerConfig) throw new Error(`${payment.provider}: the webhook's provider configuration is missing`);
+    const wasSettled = payment.status === 'succeeded';
+    // The event's own amount and status are never used: the stored reference is looked up.
+    const outcome = await verifyAccountPayment(config, { payment, providerConfig: input.providerConfig, params: {} });
+    if (outcome.status === 'succeeded') return wasSettled ? 'replayed' : 'settled';
+    if (outcome.status === 'failed') return 'mismatch';
+    // The callback's lookup found the invoice final, but the payment is not
+    // settled yet (this lookup does not show it final yet, or another check
+    // is recording it): thrown, so the route does not acknowledge it and
+    // Apirone sends it again (every 5 TRON blocks). Acknowledging it would
+    // leave the money uncredited: nothing else looks the invoice up again.
+    throw new Error(`${payment.provider}: invoice ${named} is final but payment ${payment.id} is still pending (${outcome.reason || 'not final in the lookup'})`);
+  }
   // A Paddle transaction is the checkout bound to this payment, or not this
   // payment at all: one a subscription made carries the checkout's intent_id
   // in its copied custom_data, and must never read as a replay of it (P5).

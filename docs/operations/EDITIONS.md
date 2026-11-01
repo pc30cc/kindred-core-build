@@ -31,7 +31,7 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 
 | Area | Iran | International | Where |
 | --- | --- | --- | --- |
-| Money | simple billing: a prepaid account in Toman (stored IRR), Iranian gateways, AI credit packs (billing v2's Rial wallet and AI top-up were retired in phase 7; their records are in `billing_v2_archive`) | simple billing in USD (TRY on a Turkish-only site), international gateways only; billing v2's cloned Rial records were never converted | phases 1–3, `shared/edition.ts`, `docs/billing/SIMPLE_BILLING.md` |
+| Money | simple billing: a prepaid account in Toman (stored IRR), Iranian gateways, AI credit packs; for now, a dashboard not in Persian pays in USD with Apirone (USDT on TRON; see below) (billing v2's Rial wallet and AI top-up were retired in phase 7; their records are in `billing_v2_archive`) | simple billing in USD (TRY on a Turkish-only site), international gateways only; billing v2's cloned Rial records were never converted | phases 1–3, `shared/edition.ts`, `docs/billing/SIMPLE_BILLING.md` |
 | Calendar / time zone | Jalali, Asia/Tehran | Gregorian (Persian digits kept), the viewer's zone or UTC | `src/lib/date.ts`, server formatters |
 | Phone / SMS / Bale | +98, Iranian SMS vendors, Bale | no national default, no SMS verification, no Bale | phase 3 |
 | Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's official kit (`public/brand/webyar`, `WEBYAR_BRAND`; see below) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/webyarBrand.ts`, `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate`, `server/routes/manifest.ts` |
@@ -58,7 +58,9 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 The language the dashboard is shown in never changes the brand or the
 edition: a WebYar panel in English or Turkish is still WebYar, with Toman,
 the Iranian gateways, +98 phones and WebYar's words ("Webyar" in Latin
-text). Only the Jalali calendar follows Persian text (`src/lib/date.ts`).
+text). Only the Jalali calendar follows Persian text (`src/lib/date.ts`),
+and, for now, the billing currency of an account that has not moved money
+(see "The billing currency in WebYar" below; temporary, 2026-11-01).
 
 Super Admin → Branding → Platform settings sets it, for both editions, in
 the columns that already existed (no migration):
@@ -163,6 +165,48 @@ languages those operators get their push and the operator API texts the
 native apps print in English until they pick Persian (Settings → Profile,
 or the top bar's language switcher, which writes the same field). Their
 panel in the browser follows the browser's own choice, not this field.
+
+### The billing currency in WebYar follows the dashboard's language (temporary; owner, 2026-11-01)
+
+For Apple's App Review ("the reviewer must see it; I will remove it later;
+keep it very simple"), a WebYar workspace whose dashboard is not in Persian
+pays in US dollars with crypto: Apirone, USDT on TRON only (`usdt@trx`,
+`server/services/billing/providers/apirone.ts`). A Persian dashboard pays in
+Toman through the Iranian gateways exactly as before. RESPOK does not
+change: Apirone is a gateway of the Iranian edition only
+(`IRAN_ONLY_PAYMENT_PROVIDERS` in `shared/edition.ts`; it is not an Iranian
+gateway, so it is not IRR-only and not pruned as a bank checkout).
+
+- **Which currency.** An account that has not moved money (no account yet,
+  zero balance, no ledger row, no payment that may still be credited (an
+  Apirone one for two hours from its creation, whatever its status), no
+  card-to-card request waiting) follows the viewer's dashboard language:
+  Persian → IRR, any other → USD, while a USD gateway is listed (Apirone
+  active and configured). The browser asks for it
+  (`PUT /api/billing/account/:ws/currency`, from `currency_choice` on the
+  account view; `server/services/billing/account/currencyChoice.ts`, SQL
+  `billing_account_choose_currency`, migration 292). Once money moved the
+  currency stays (264's lock in `billing_account_settle_payment`): an IRR
+  account keeps the Iranian gateways in any language and a USD account keeps
+  Apirone. A platform admin browsing a customer never switches it (403).
+- **Prices.** The plans' own USD prices (`billing_plans.prices.USD`); no
+  exchange rate. No VAT in USD (`VAT_CURRENCIES.iran` is IRR only) and no AI
+  credit packs (`AI_PACK_CURRENCIES.iran` is IRR only: a USD account sees
+  none). `ACCOUNT_CURRENCIES.iran` is IRR and USD (Super Admin's account
+  filter and gateway readiness); Finance's revenue report and liability
+  cards always show IRR (`REVENUE_CURRENCIES`), and USD once USD money
+  exists.
+- **The fee.** The customer pays Apirone's fee: the invoice is the USD
+  amount × (1 + fee percent ÷ 100), rounded up to a whole micro-USDT; the
+  fee percent is Apirone's setting in Providers (default 1).
+- **What arrives is credited.** The invoice is looked up (never the
+  unsigned callback's word); what arrived, mapped back to cents in the
+  proportion of the invoice, is credited to the balance. Underpaid: the plan
+  is not bought and the money stays in the balance. Overpaid: the plan is
+  bought and the rest stays (`billing_account_set_received_amount`,
+  migration 292; `RECEIVED_AMOUNT_PROVIDERS` in `account/index.ts`).
+
+Setup and the way back: `docs/operations/APIRONE.md`.
 
 ### The native apps' settings are kept per edition
 

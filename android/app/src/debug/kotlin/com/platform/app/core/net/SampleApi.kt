@@ -49,6 +49,7 @@ import com.platform.app.core.model.TeamCallAcceptance
 import com.platform.app.core.model.TeamCallOutcome
 import com.platform.app.core.model.TeamCallRole
 import com.platform.app.core.model.TeamCallState
+import com.platform.app.core.model.TeamChatCall
 import com.platform.app.core.model.CannedResponse
 import com.platform.app.core.model.ChannelInbox
 import com.platform.app.core.model.Colleague
@@ -370,7 +371,7 @@ class SampleApi : ServerApi {
     // MARK: - Team chat
 
     override suspend fun colleagues(workspaceId: String): ColleaguesResponse =
-        ColleaguesResponse(colleagues = COLLEAGUES, totalUnread = 2, me = OPERATOR.id)
+        ColleaguesResponse(colleagues = COLLEAGUES, totalUnread = 3, me = OPERATOR.id)
 
     override suspend fun teamThread(workspaceId: String, peerId: String): TeamThreadResponse =
         TeamThreadResponse(
@@ -798,7 +799,7 @@ class SampleApi : ServerApi {
         val expiry = call.expiresAt
         if (call.state == TeamCallState.RINGING && expiry != null && !Instant.now().isBefore(expiry)) {
             call.copy(state = TeamCallState.MISSED, outcome = TeamCallOutcome.MISSED, endedAt = Instant.now())
-                .also { teamCalls[callId] = it }
+                .also { teamCalls[callId] = it; recordCallLine(it) }
         } else {
             call
         }
@@ -816,7 +817,10 @@ class SampleApi : ServerApi {
         endTeamCall(callId, TeamCallOutcome.CANCELLED) ?: throw ApiError.Server(status = 404, serverMessage = "not_found")
 
     override suspend fun hangUpTeamCall(callId: String) {
-        endTeamCall(callId, TeamCallOutcome.COMPLETED)
+        // Before an answer the server turns a hang-up into a cancel, and
+        // nobody answers here.
+        val ringing = lock.withLock { teamCalls[callId]?.state == TeamCallState.RINGING }
+        endTeamCall(callId, if (ringing) TeamCallOutcome.CANCELLED else TeamCallOutcome.COMPLETED)
     }
 
     override suspend fun teamCallToken(callId: String): CallToken =
@@ -833,7 +837,44 @@ class SampleApi : ServerApi {
             state = if (outcome == TeamCallOutcome.CANCELLED) TeamCallState.CANCELLED else TeamCallState.ENDED,
             outcome = outcome,
             endedAt = Instant.now(),
-        ).also { teamCalls[callId] = it }
+        ).also { teamCalls[callId] = it; recordCallLine(it) }
+    }
+
+    /**
+     * The line an ended call leaves in the thread, as the server writes it
+     * (TEAM_CALLS.md, "The call in the chat"): once per call, from the caller
+     * — always this operator here — placed where the call rang, unread for
+     * the callee when it was missed or cancelled. Called under [lock].
+     */
+    private fun recordCallLine(call: TeamCall) {
+        val outcome = call.outcome ?: return
+        val thread = teamMessages.getOrPut(call.peer.userId) { mutableListOf() }
+        if (thread.any { it.call?.id == call.id }) return
+        val answered = call.answeredAt
+        val ended = call.endedAt
+        val duration = if (outcome == TeamCallOutcome.COMPLETED && answered != null && ended != null) {
+            java.time.Duration.between(answered, ended).seconds.coerceAtLeast(0)
+        } else {
+            null
+        }
+        val now = Instant.now()
+        thread.add(
+            TeamMessage(
+                id = "tm-${call.id}",
+                senderId = OPERATOR.id,
+                recipientId = call.peer.userId,
+                body = if (call.channel == CallChannel.VIDEO) "\uD83D\uDCF9" else "\uD83D\uDCDE",
+                readAt = if (outcome == TeamCallOutcome.MISSED || outcome == TeamCallOutcome.CANCELLED) null else now,
+                createdAt = call.createdAt ?: now,
+                call = TeamChatCall(
+                    id = call.id,
+                    channel = call.channel,
+                    outcome = outcome,
+                    durationSeconds = duration,
+                    callerId = OPERATOR.id,
+                ),
+            ),
+        )
     }
 
     // MARK: - Account
@@ -1257,8 +1298,21 @@ class SampleApi : ServerApi {
                     body = null, createdAt = ago(300), outgoing = true, attachmentKind = "image",
                 ),
             ),
+            // Ends on a voice call of his nobody answered: the list previews it
+            // by its icon and title (in the danger colour), not by its body.
+            Colleague(
+                userId = "u-4", role = "agent", fullName = "Daniel Carter",
+                email = "daniel@example.org", unread = 1,
+                lastMessage = Colleague.LastTeamMessage(
+                    body = "\uD83D\uDCDE", createdAt = agoToday(25), outgoing = false,
+                    call = TeamChatCall(
+                        id = "team-call-s3", channel = CallChannel.AUDIO, outcome = TeamCallOutcome.MISSED,
+                        durationSeconds = null, callerId = "u-4",
+                    ),
+                ),
+            ),
             // Name absent entirely: `displayName` has to fall through to the
-            // email, and the avatar has to draw initials from that.
+            // email, and the avatar has to draw the person silhouette.
             Colleague(userId = "u-9", role = "agent", email = "newcomer@example.org", unread = 0),
         )
 
@@ -1268,7 +1322,10 @@ class SampleApi : ServerApi {
          * Keyed by the peer, which is how `teamThread` reads them. Reza's
          * thread ends on his question, unanswered, so the badge of 2 on his
          * row has something behind it; Mehdi's ends on a photo we sent, which
-         * is the attachment-only preview case.
+         * is the attachment-only preview case. Colleague calls leave their
+         * lines (TEAM_CALLS.md, "The call in the chat"): one Mehdi declined,
+         * and Daniel's — a video call we placed, then his voice call we
+         * missed, unread.
          */
         val TEAM_THREADS: Map<String, List<TeamMessage>> = mapOf(
             "u-2" to listOf(
@@ -1294,6 +1351,14 @@ class SampleApi : ServerApi {
             ),
             "u-3" to listOf(
                 TeamMessage(
+                    id = "tm-c1", senderId = "u-1", recipientId = "u-3",
+                    body = "\uD83D\uDCDE", createdAt = ago(340), readAt = ago(340),
+                    call = TeamChatCall(
+                        id = "team-call-s1", channel = CallChannel.AUDIO, outcome = TeamCallOutcome.DECLINED,
+                        durationSeconds = null, callerId = "u-1",
+                    ),
+                ),
+                TeamMessage(
                     id = "tm-5", senderId = "u-3", recipientId = "u-1",
                     body = "این اسکرین‌شات رو برات می‌فرستم", createdAt = ago(320),
                 ),
@@ -1303,6 +1368,28 @@ class SampleApi : ServerApi {
                     attachment = MessageAttachment(
                         id = "ta-1", fileName = "screenshot.png",
                         mimeType = "image/png", sizeBytes = 184_320, kind = "image",
+                    ),
+                ),
+            ),
+            "u-4" to listOf(
+                TeamMessage(
+                    id = "tm-7", senderId = "u-4", recipientId = "u-1",
+                    body = "یه دقیقه وقت داری درباره‌ی اتصال تلگرام حرف بزنیم؟", createdAt = ago(60 * 27),
+                ),
+                TeamMessage(
+                    id = "tm-c2", senderId = "u-1", recipientId = "u-4",
+                    body = "\uD83D\uDCF9 12:34", createdAt = ago(60 * 26), readAt = ago(60 * 26),
+                    call = TeamChatCall(
+                        id = "team-call-s2", channel = CallChannel.VIDEO, outcome = TeamCallOutcome.COMPLETED,
+                        durationSeconds = 754, callerId = "u-1",
+                    ),
+                ),
+                TeamMessage(
+                    id = "tm-c3", senderId = "u-4", recipientId = "u-1",
+                    body = "\uD83D\uDCDE", createdAt = agoToday(25),
+                    call = TeamChatCall(
+                        id = "team-call-s3", channel = CallChannel.AUDIO, outcome = TeamCallOutcome.MISSED,
+                        durationSeconds = null, callerId = "u-4",
                     ),
                 ),
             ),

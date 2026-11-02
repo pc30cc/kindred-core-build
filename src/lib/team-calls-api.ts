@@ -38,6 +38,21 @@ export interface TeamCall {
   expires_at: string;
 }
 
+/**
+ * The call a team chat line records (TEAM_CALLS.md, "The call in the chat"):
+ * `call` on a message of GET /api/team-chat/thread and on a colleague's
+ * `last_message` (GET /api/team-chat/colleagues); null on every other line.
+ * The line's sender is the caller, its recipient the callee.
+ */
+export interface TeamChatCall {
+  id: string;
+  channel: TeamCallChannel;
+  outcome: TeamCallOutcome;
+  /** ended_at − connected_at, for a completed call only; null otherwise. */
+  duration_seconds: number | null;
+  caller_id: string;
+}
+
 /** A state past which the call never rings or talks again. */
 export function isTeamCallOver(state: TeamCallState): boolean {
   return state === 'ended' || state === 'missed' || state === 'cancelled';

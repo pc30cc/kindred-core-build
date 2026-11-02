@@ -15,9 +15,10 @@ import androidx.compose.ui.unit.LayoutDirection
  *
  * A `TextureViewRenderer` rather than a `SurfaceViewRenderer`, which is the
  * choice that matters here: a SurfaceView punches a hole through the window
- * and cannot be drawn over, rounded or animated. This screen puts the
- * operator's own picture in a rounded card ON TOP of the visitor's, so the
- * one that composites normally is the only one that works.
+ * and cannot be drawn over, rounded or animated. The call screens put one
+ * picture in a rounded card ON TOP of the other ([SelfView]), and swap which
+ * is which on a tap, so the one that composites normally — drawn in Compose's
+ * own order, the card's after the full screen's — is the only one that works.
  *
  * The renderer is initialised from the room — a renderer given a different
  * EGL context draws nothing and says nothing about why — and released when it
@@ -36,7 +37,9 @@ fun VideoView(
     // attached to the old one's. `factory` runs once per view; without the
     // key, a visitor switching camera — or a re-subscribe after a reconnect —
     // would leave the renderer bound to a track nobody is sending on any more,
-    // showing a frozen last frame.
+    // showing a frozen last frame. A swap is the same case at both places:
+    // each gets a fresh renderer on the other track, and each old one takes
+    // its sink off its track and lets its texture go (`onRelease`).
     key(track) {
         // Left to right whatever the app's direction, so a Persian screen
         // never adds a second flip to the one [mirror] asks for.

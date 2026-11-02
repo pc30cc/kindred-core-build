@@ -42,6 +42,33 @@ final class ColleagueChatTests: UITestCase {
         )
     }
 
+    /// A colleague call leaves a line in the thread (docs/operations/
+    /// TEAM_CALLS.md, "The call in the chat"): the sample thread carries a
+    /// missed video call from the colleague, a call back they declined and a
+    /// four-minute call, just above its last two messages. Each is a call
+    /// bubble that calls back (the sample plan has colleague calls) — and
+    /// none shows the body the server writes for apps that predate it.
+    func testACallLeavesALineInTheThread() {
+        app.launchArguments += ["-WebyarScreen", "colleagueThread"]
+        app.launch()
+
+        XCTAssertTrue(
+            app.textFields[A11yID.composerField].firstMatch.waitForExistence(timeout: 25),
+            "the colleague thread never opened"
+        )
+        let completed = app.buttons[A11yID.teamCallLog("sample-call-13")]
+        XCTAssertTrue(completed.waitForExistence(timeout: 10), "the completed call left no line")
+        XCTAssertTrue(app.buttons[A11yID.teamCallLog("sample-call-12")].exists, "the declined call left no line")
+        XCTAssertTrue(app.buttons[A11yID.teamCallLog("sample-call-11")].exists, "the missed call left no line")
+        XCTAssertFalse(completed.label.isEmpty, "the call line has nothing to say to the screen reader")
+        // The fallback body (📞 / 📹) drawn as a message would surface as a
+        // combined text row whose label carries it with the time ("📞 4:05,
+        // 10:32"), which an exact match never finds: so a narrow query on
+        // what the label contains, never `descendants(matching: .any)`.
+        let fallback = NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "\u{1F4DE}", "\u{1F4F9}")
+        XCTAssertEqual(app.staticTexts.matching(fallback).count, 0, "a call line drew its fallback body")
+    }
+
     /// And the keyboard behaves the same way here.
     ///
     /// This screen has its own composer wiring, so "the visitor chat is fine"

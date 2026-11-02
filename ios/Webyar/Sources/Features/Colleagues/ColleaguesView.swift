@@ -130,10 +130,20 @@ struct ColleagueRow: View {
                 }
 
                 HStack(spacing: Theme.Space.xs) {
-                    Text(preview)
-                        .font(Theme.Typo.rowSubtitle)
-                        .foregroundStyle(Theme.Palette.labelSecondary)
-                        .lineLimit(1)
+                    if let call = colleague.lastMessage?.call {
+                        // A call's line by its icon and title, never its
+                        // body (the older apps' 📞 / 📹).
+                        TeamCallLogPreview(
+                            call: call,
+                            viewerIsCaller: TeamCallLog.viewerIsCaller(call, peerID: colleague.userId),
+                            language: language
+                        )
+                    } else {
+                        Text(preview)
+                            .font(Theme.Typo.rowSubtitle)
+                            .foregroundStyle(Theme.Palette.labelSecondary)
+                            .lineLimit(1)
+                    }
 
                     Spacer(minLength: Theme.Space.xs)
 

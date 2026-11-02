@@ -18,7 +18,9 @@
  *  - the ringing card never takes the focus (a key meant for the composer
  *    must not answer), the caller's ringback is the colleague call's own
  *    (a visitor call never silences it, nor it a visitor's), and a channel
- *    join that failed on its way is tried again.
+ *    join that failed on its way is tried again;
+ *  - a `team_message` on the same channel (a message, or a call's line in
+ *    the team chat) makes the team chat read again at once.
  *
  * @vitest-environment jsdom
  */
@@ -502,5 +504,47 @@ describe('the device id', () => {
     expect(id).toMatch(/^web-/);
     expect(teamCallDeviceId()).toBe(id);
     spy.mockRestore();
+  });
+});
+
+describe('the team chat on the member\'s channel', () => {
+  // A call's line is written when the call ends (TEAM_CALLS.md, "The call in
+  // the chat") and announced as a `team_message`: the list and the open
+  // thread read again at once, not at their next poll.
+  it('reads the team chat again on a team_message of this workspace only', async () => {
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    render(
+      <QueryClientProvider client={qc}>
+        <I18nProvider initialLocale="en" initialTranslations={en}>
+          <TeamCallProvider workspaceId="ws-1" userId="me">
+            <Probe />
+          </TeamCallProvider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(h.channels.has(CHANNEL)).toBe(true));
+    act(() => {
+      h.channels.get(CHANNEL)!.onEvent?.({ kind: 'team_message', workspace_id: 'ws-2', message_id: 'm0', sender_id: 'peer-1', recipient_id: 'me' });
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+    act(() => {
+      h.channels.get(CHANNEL)!.onEvent?.({ kind: 'team_message', workspace_id: 'ws-1', message_id: 'm1', sender_id: 'peer-1', recipient_id: 'me' });
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['team-chat', 'colleagues', 'ws-1'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['team-chat', 'thread', 'ws-1'] });
+    // Nothing rings or is read from the calls API for it.
+    expect(h.requests).toHaveLength(0);
+    expect(sound.startRingtone).not.toHaveBeenCalled();
+  });
+
+  it('is harmless in a shell without a query client', async () => {
+    mount();
+    await waitFor(() => expect(h.channels.has(CHANNEL)).toBe(true));
+    expect(() => act(() => {
+      h.channels.get(CHANNEL)!.onEvent?.({ kind: 'team_message', workspace_id: 'ws-1', message_id: 'm1', sender_id: 'peer-1', recipient_id: 'me' });
+    })).not.toThrow();
+    expect(h.requests).toHaveLength(0);
   });
 });

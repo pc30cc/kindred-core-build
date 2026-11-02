@@ -126,8 +126,11 @@ describe('team call ticker', () => {
     expect(h.fcm).toEqual([expect.objectContaining({ token: 'fcm-1', data: { type: 'team_call_cancel', callId: 'expired', reason: 'missed' } })]);
     expect(h.voip).toHaveLength(0);
     expect(h.missed).toEqual([{ workspaceId: WS, callerId: CALLER, calleeId: CALLEE, callId: 'expired', channel: 'video' }]);
-    expect(h.published).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: 'expired', state: 'missed', outcome: 'missed' } }]);
+    expect(h.published.filter((p) => p.payload.kind === 'team_call')).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: 'expired', state: 'missed', outcome: 'missed' } }]);
     expect(h.closed).toEqual(['room-expired']);
+    // Its line in the team chat, unread for the callee (teamCallChat.test.ts has the rest).
+    expect(h.db.tables.team_messages).toEqual([expect.objectContaining({ call_session_id: 'expired', sender_id: CALLER, recipient_id: CALLEE, read_at: null })]);
+    expect(h.published.filter((p) => p.payload.kind === 'team_message')).toHaveLength(1);
   });
 
   it('never misses a call twice', async () => {
@@ -180,7 +183,8 @@ describe('team call room check', () => {
     // The one Android phone rung is the one that answered: no stop to send. No missed alert.
     expect(h.fcm).toEqual([]);
     expect(h.missed).toHaveLength(0);
-    expect(h.published.map((p) => p.payload.state)).toEqual(['ended', 'ended']);
+    expect(h.published.filter((p) => p.payload.kind === 'team_call').map((p) => p.payload.state)).toEqual(['ended', 'ended']);
+    expect((h.db.tables.team_messages ?? []).map((m) => m.call_session_id).sort()).toEqual(['alone', 'gone']);
   });
 
   it('does not look at an answer younger than the grace, nor at a call that is not answered or not a colleague call', async () => {

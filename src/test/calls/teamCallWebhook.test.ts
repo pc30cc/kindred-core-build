@@ -118,8 +118,10 @@ describe('LiveKit webhook — colleague calls', () => {
     // The rung phones but the one that answered are told once more; no VoIP.
     expect(h.fcm.map((m) => [m.token, m.data.reason])).toEqual([['fcm-2', 'ended']]);
     expect(h.voip).toHaveLength(0);
-    expect(h.published.at(-1)).toMatchObject({ state: 'ended', outcome: 'completed' });
+    expect(h.published.filter((p) => p.kind === 'team_call').at(-1)).toMatchObject({ state: 'ended', outcome: 'completed' });
     expect(h.missed).toHaveLength(0);
+    // The call's one line in the team chat.
+    expect(h.db.tables.team_messages).toEqual([expect.objectContaining({ call_session_id: CALL, sender_id: CALLER, recipient_id: CALLEE })]);
   });
 
   it('a connection replaced by the same member rejoining is not the member leaving', async () => {
@@ -166,7 +168,7 @@ describe('LiveKit webhook — colleague calls', () => {
     expect(raced).toBe(true);
     expect(row().state).toBe('ended');
     expect(outcome()).toBe('completed');
-    expect(h.published.at(-1)).toMatchObject({ state: 'ended', outcome: 'completed' });
+    expect(h.published.filter((p) => p.kind === 'team_call').at(-1)).toMatchObject({ state: 'ended', outcome: 'completed' });
   });
 
   it('participant_left before the answer changes nothing', async () => {

@@ -29,6 +29,9 @@ import com.platform.app.feature.settings.SecurityScreen
 import com.platform.app.feature.contacts.ContactDetailScreen
 import com.platform.app.feature.team.ColleaguesScreen
 import com.platform.app.feature.team.ColleaguesState
+import com.platform.app.feature.team.TeamThreadScreen
+import com.platform.app.feature.team.TeamThreadState
+import com.platform.app.core.model.CallChannel
 import com.platform.app.feature.email.EmailInboxScreen
 import com.platform.app.feature.email.EmailInboxState
 import com.platform.app.feature.analytics.AnalyticsRange
@@ -261,6 +264,26 @@ class ScreenshotTest {
             ColleaguesScreen(ColleaguesState.Loaded(team), Language.FA, onOpen = {})
         }
     }
+
+    /**
+     * A colleague's thread with colleague calls in it (TEAM_CALLS.md, "The
+     * call in the chat"): a message, a video call we placed, and their voice
+     * call we missed, in the danger colour.
+     */
+    private fun teamThreadWithCalls(name: String, language: Language, dark: Boolean) {
+        val thread = runBlocking { api.teamThread("ws-1", "u-4") }
+        shot(name, language, dark) {
+            TeamThreadScreen(
+                TeamThreadState.Loaded(thread.messages),
+                me = thread.me,
+                language = language,
+                callBackChannels = setOf(CallChannel.AUDIO, CallChannel.VIDEO),
+            )
+        }
+    }
+
+    @Test fun teamThreadCallsFaDark() = teamThreadWithCalls("team_thread_calls_fa_dark", Language.FA, dark = true)
+    @Test fun teamThreadCallsEnLight() = teamThreadWithCalls("team_thread_calls_en_light", Language.EN, dark = false)
 
     @Test
     fun emailInboxEnLight() {

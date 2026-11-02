@@ -2265,6 +2265,69 @@ extension Str {
     }
 }
 
+// MARK: - The small picture on a video call
+
+// `VideoStage`: the member's own camera small over the other side's video,
+// on a visitor's call and a colleague's. A tap swaps the two; the screen
+// reader gets the same as an action, and the corners one by one. Shared with
+// the Android app through scripts/android/strings-from-ios.mjs.
+
+extension Str {
+
+    /// The screen reader's name for the small picture while it shows the
+    /// member's own camera — and what fills the screen meanwhile.
+    static func callPictureYoursSmall(_ l: Language) -> String {
+        switch l {
+        case .en: "Your camera, small — the other person is full screen"
+        case .fa: "تصویر شما، کوچک — تصویر طرف مقابل تمام‌صفحه است"
+        case .tr: "Kameranız, küçük — karşı taraf tam ekranda"
+        case .ar: "كاميرتك، صغيرة — الطرف الآخر بملء الشاشة"
+        }
+    }
+
+    /// The same once the pictures are swapped: the other side small, the
+    /// member's own camera filling the screen.
+    static func callPictureTheirsSmall(_ l: Language) -> String {
+        switch l {
+        case .en: "The other person, small — your camera is full screen"
+        case .fa: "تصویر طرف مقابل، کوچک — تصویر شما تمام‌صفحه است"
+        case .tr: "Karşı taraf, küçük — kameranız tam ekranda"
+        case .ar: "الطرف الآخر، صغير — كاميرتك بملء الشاشة"
+        }
+    }
+
+    /// What a double-tap on the small picture does, read after its name.
+    static func callPictureSwapHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Swaps the two pictures"
+        case .fa: "جای دو تصویر را عوض می‌کند"
+        case .tr: "İki görüntünün yerini değiştirir"
+        case .ar: "يبدّل بين الصورتين"
+        }
+    }
+
+    /// The swap, as a named action on the small picture.
+    static func callPictureSwap(_ l: Language) -> String {
+        switch l {
+        case .en: "Swap pictures"
+        case .fa: "جابه‌جایی تصویرها"
+        case .tr: "Görüntüleri değiştir"
+        case .ar: "تبديل الصورتين"
+        }
+    }
+
+    /// Moves the small picture to the next corner round the screen — what a
+    /// drag does, for someone who cannot drag.
+    static func callPictureMove(_ l: Language) -> String {
+        switch l {
+        case .en: "Move to the next corner"
+        case .fa: "انتقال به گوشهٔ بعدی"
+        case .tr: "Sonraki köşeye taşı"
+        case .ar: "النقل إلى الزاوية التالية"
+        }
+    }
+}
+
 // MARK: - Colleague calls
 
 // Shared with the Android app, which calls the same names as
@@ -2546,6 +2609,126 @@ extension Str {
         case .fa: "تعویض دوربین"
         case .tr: "Kamerayı değiştir"
         case .ar: "تبديل الكاميرا"
+        }
+    }
+}
+
+// MARK: - The call in the chat
+
+// A colleague call's line in the team chat (docs/operations/TEAM_CALLS.md,
+// "The call in the chat"; the web's `teamCalls.log.*`). Shared with the
+// Android app through scripts/android/strings-from-ios.mjs.
+
+extension Str {
+
+    /// A completed voice call's line (with its duration beside it).
+    static func teamCallLogVoice(_ l: Language) -> String {
+        switch l {
+        case .en: "Voice call"
+        case .fa: "تماس صوتی"
+        case .tr: "Sesli arama"
+        case .ar: "مكالمة صوتية"
+        }
+    }
+
+    /// A completed video call's line (with its duration beside it).
+    static func teamCallLogVideo(_ l: Language) -> String {
+        switch l {
+        case .en: "Video call"
+        case .fa: "تماس تصویری"
+        case .tr: "Görüntülü arama"
+        case .ar: "مكالمة فيديو"
+        }
+    }
+
+    /// A voice call nobody answered (or the caller gave up on), as the
+    /// callee's line names it.
+    static func teamCallLogMissedVoice(_ l: Language) -> String {
+        switch l {
+        case .en: "Missed voice call"
+        case .fa: "تماس صوتی بی‌پاسخ"
+        case .tr: "Cevapsız sesli arama"
+        case .ar: "مكالمة صوتية فائتة"
+        }
+    }
+
+    /// The same for a video call.
+    static func teamCallLogMissedVideo(_ l: Language) -> String {
+        switch l {
+        case .en: "Missed video call"
+        case .fa: "تماس تصویری بی‌پاسخ"
+        case .tr: "Cevapsız görüntülü arama"
+        case .ar: "مكالمة فيديو فائتة"
+        }
+    }
+
+    /// A call the colleague did not answer, as the caller's line names it.
+    static func teamCallLogNoAnswer(_ l: Language) -> String {
+        switch l {
+        case .en: "No answer"
+        case .fa: "بی‌پاسخ"
+        case .tr: "Cevap yok"
+        case .ar: "لا رد"
+        }
+    }
+
+    /// A call the callee declined, on both sides' lines.
+    static func teamCallLogDeclined(_ l: Language) -> String {
+        switch l {
+        case .en: "Declined"
+        case .fa: "رد شد"
+        case .tr: "Reddedildi"
+        case .ar: "مرفوضة"
+        }
+    }
+
+    /// A call the caller cancelled before an answer, on the caller's line.
+    static func teamCallLogCancelled(_ l: Language) -> String {
+        switch l {
+        case .en: "Cancelled"
+        case .fa: "لغو شد"
+        case .tr: "İptal edildi"
+        case .ar: "ملغاة"
+        }
+    }
+
+    /// A call that could not be made, on both sides' lines.
+    static func teamCallLogFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Call failed"
+        case .fa: "تماس برقرار نشد"
+        case .tr: "Arama başarısız"
+        case .ar: "تعذّر الاتصال"
+        }
+    }
+
+    /// What a tap on a call line does: the screen reader's name for it.
+    static func teamCallLogCallBack(_ l: Language) -> String {
+        switch l {
+        case .en: "Call back"
+        case .fa: "تماس دوباره"
+        case .tr: "Geri ara"
+        case .ar: "معاودة الاتصال"
+        }
+    }
+
+    /// The direction of a call line the member placed, read out with it.
+    static func teamCallLogOutgoing(_ l: Language) -> String {
+        switch l {
+        case .en: "Outgoing"
+        case .fa: "خروجی"
+        case .tr: "Giden"
+        case .ar: "صادرة"
+        }
+    }
+
+    /// The direction of a call line the colleague placed, read out with it.
+    static func teamCallLogIncoming(_ l: Language) -> String {
+        switch l {
+        case .en: "Incoming"
+        case .fa: "ورودی"
+        case .tr: "Gelen"
+        case .ar: "واردة"
         }
     }
 }

@@ -899,6 +899,13 @@ fun TeamThreadRoute(
     onBack: () -> Unit,
     /** A voice or video call with this colleague, placed: the call screen opens on it. */
     onCall: (TeamCallKey) -> Unit,
+    /**
+     * Whether a call is on — any call screen on the stack, a visitor's or a
+     * colleague's: a call's line in the thread then calls nobody back. Read
+     * in composition as well as at the tap, so it reads snapshot state
+     * ([Navigator.holdsCall] does: the stacks are snapshot lists).
+     */
+    callOn: () -> Boolean = { false },
 ) {
     val thread: TeamThreadViewModel =
         viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { TeamThreadViewModel(api, l) } })
@@ -1082,6 +1089,15 @@ fun TeamThreadRoute(
                 attachments = attachmentSource,
                 peerAvatarUrl = colleague?.avatarUrl,
                 myAvatarUrl = myAvatar,
+                // A call's line calls back as the bar's buttons call: the
+                // same plan gate, the same notifications explanation — and
+                // nothing while another call is on. Then the line is no
+                // button at all, as on the iPhone, rather than a "Call back"
+                // TalkBack announces and that does nothing (read here, in
+                // composition, so it follows the stacks); the check at the
+                // tap stays for a tap that races a call's screen opening.
+                callBackChannels = if (callOn()) emptySet() else callChannels.toSet(),
+                onCallBack = { channel -> if (channel in callChannels && !callOn()) call(channel) },
             ) {
                 Composer(
                     language = language,

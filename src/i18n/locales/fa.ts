@@ -12878,6 +12878,25 @@ const fa: TranslationKeys = {
       generic: 'تماس برقرار نشد. دوباره امتحان کنید.',
     },
   },
+  // The call in the chat: a colleague call's line in the team chat
+  // (docs/operations/TEAM_CALLS.md, "The call in the chat"; the apps'
+  // teamCallLog* strings). outgoing/incoming: the line's direction, read
+  // out in its accessibility label.
+  teamCalls: {
+    log: {
+      voice: 'تماس صوتی',
+      video: 'تماس تصویری',
+      missedVoice: 'تماس صوتی بی‌پاسخ',
+      missedVideo: 'تماس تصویری بی‌پاسخ',
+      noAnswer: 'بی‌پاسخ',
+      declined: 'رد شد',
+      cancelled: 'لغو شد',
+      failed: 'تماس برقرار نشد',
+      callBack: 'تماس دوباره',
+      outgoing: 'خروجی',
+      incoming: 'ورودی',
+    },
+  },
 };
 
 export default fa;

@@ -234,6 +234,99 @@ uncounted time.
 - Busy: a member in a visitor call in the panel is busy (the existing
   `operator_call_availability` rule).
 
+## The call in the chat (owner, 2026-11-02)
+
+Owner: "why isn't it recorded in the chat when a call is made or ended, or a
+missed call?" Every colleague call leaves one line in the two members' team
+chat, as WhatsApp does, on every surface (iPhone, Android, web panel).
+
+### Server
+
+- Migration `294_team_call_chat_records.sql`: `team_messages.call_session_id
+  uuid NULL REFERENCES call_sessions(id) ON DELETE SET NULL`, with
+  `UNIQUE (call_session_id)` (NULLs stay many), so one call has at most one
+  line. It writes no data. No backfill: calls before it leave no line.
+- Written once, by the server, when the call reaches its end (state no longer
+  in `TEAM_CALL_LIVE_STATES`), from `announceTeamCall`
+  (`server/services/calls/teamCallLifecycle.ts`), whichever path ended it
+  (decline, cancel, hang-up, the ticker's missed, the webhook, a failure).
+  The insert is idempotent (the unique key: a second attempt does nothing),
+  best-effort, and never fails or delays the move. A missing column (the
+  migration not applied) only logs.
+- The row: `workspace_id` the call's, `sender_id` the caller,
+  `recipient_id` the callee, `created_at` the call's `created_at` (it sits
+  where the call rang, as WhatsApp places it), `attachment_id`/`reply_to_id`
+  null, `body` a language-neutral fallback for apps that predate it: `📞` (voice)
+  or `📹` (video), followed by ` m:ss` (or ` h:mm:ss`) for a completed call.
+  `read_at`: null (unread for the callee, counted in their badge) for
+  `missed` and `cancelled`; now for `completed`, `declined` and `failed`.
+- After the insert: realtime `team_message` to both (the same envelope as a
+  sent message: `{kind:'team_message', workspace_id, message_id, sender_id,
+  recipient_id}`), so open threads and lists refresh. No team-message push:
+  the missed call already has its own notification.
+- API: every message of `GET /api/team-chat/thread` carries `call`: null, or
+  `{ id, channel: 'audio'|'video', outcome:
+  'completed'|'missed'|'declined'|'cancelled'|'failed', duration_seconds:
+  number|null (ended_at − connected_at, completed only), caller_id }`;
+  `last_message` of `GET /api/team-chat/colleagues` carries the same `call`
+  (or null). Messages without a call are unchanged.
+- Server details (`server/services/calls/teamCallChat.ts`): `call` is shown
+  only for a call of that workspace, over, whose caller sent the line to its
+  callee (anything else, or a call row deleted since, reads `call: null` and
+  keeps its body); `call_session_id` itself never leaves the server. `POST
+  /api/team-chat/messages` cannot set it (only the server writes a call's
+  line), and the message it answers with carries `call: null`. Without
+  migration 294 both reads fall back to the columns they had (every `call`
+  null). The missed-call alert leaves after the line is written (not after its
+  realtime nudge), so its badge counts it.
+
+### The apps and the panel
+
+- In the thread the line is a call bubble on the caller's side (the caller's
+  own, outgoing; the callee's, incoming): the phone or video-camera icon, an
+  arrow (out ↗ for the caller, in ↙ for the callee), the title, and the time
+  with the duration for a completed call. Missed (and cancelled, for the
+  callee) is drawn in the danger colour. It cannot be replied to, quoted,
+  copied or forwarded. Its time is inside it, so it stands on its own: the
+  apps end a run of bubbles at it, and the message just before it keeps its
+  time underneath (the web panel times every bubble).
+- Titles, by who is looking:
+
+  | outcome | caller sees | callee sees |
+  |---|---|---|
+  | completed | `teamCallLogVoice`/`Video` + duration | the same |
+  | missed | `teamCallLogNoAnswer` | `teamCallLogMissedVoice`/`Video` |
+  | cancelled | `teamCallLogCancelled` | `teamCallLogMissedVoice`/`Video` |
+  | declined | `teamCallLogDeclined` | `teamCallLogDeclined` |
+  | failed | `teamCallLogFailed` | `teamCallLogFailed` |
+
+- Tapping the bubble calls back with the same channel when the plan allows
+  colleague calls (the same gate as the thread's call buttons, and not while
+  another call is on); otherwise it does nothing. Its accessibility label is
+  the title, the direction and the time, and its action `teamCallLogCallBack`.
+  The direction is read out as `teamCallLogOutgoing` (the caller) or
+  `teamCallLogIncoming` (the callee); the arrow is mirrored in a
+  right-to-left language.
+- The colleagues list previews a call line by its icon and title (from
+  `last_message.call`), not its body.
+- Strings (iOS `Strings.swift` fa/en/tr/ar and so Android's generated
+  `Strings.kt`; the web's `src/i18n/locales/{en,fa,tr}.ts` as
+  `teamCalls.log.*`):
+
+  | Name | fa | en | tr | ar |
+  |---|---|---|---|---|
+  | `teamCallLogVoice` | تماس صوتی | Voice call | Sesli arama | مكالمة صوتية |
+  | `teamCallLogVideo` | تماس تصویری | Video call | Görüntülü arama | مكالمة فيديو |
+  | `teamCallLogMissedVoice` | تماس صوتی بی‌پاسخ | Missed voice call | Cevapsız sesli arama | مكالمة صوتية فائتة |
+  | `teamCallLogMissedVideo` | تماس تصویری بی‌پاسخ | Missed video call | Cevapsız görüntülü arama | مكالمة فيديو فائتة |
+  | `teamCallLogNoAnswer` | بی‌پاسخ | No answer | Cevap yok | لا رد |
+  | `teamCallLogDeclined` | رد شد | Declined | Reddedildi | مرفوضة |
+  | `teamCallLogCancelled` | لغو شد | Cancelled | İptal edildi | ملغاة |
+  | `teamCallLogFailed` | تماس برقرار نشد | Call failed | Arama başarısız | تعذّر الاتصال |
+  | `teamCallLogCallBack` | تماس دوباره | Call back | Geri ara | معاودة الاتصال |
+  | `teamCallLogOutgoing` | خروجی | Outgoing | Giden | صادرة |
+  | `teamCallLogIncoming` | ورودی | Incoming | Gelen | واردة |
+
 ## Rollout
 
 1. Migration `293_team_calls.sql` by hand on WebYar before the merge (App
@@ -244,3 +337,7 @@ uncounted time.
 3. Super Admin → Plans: turn on "Colleague calls" in the plans that should
    have it.
 4. iOS 1.0.0 (3) to App Store Connect; Android with its next release.
+5. The call in the chat: migration `294_team_call_chat_records.sql` by hand
+   on WebYar before its merge (a dry run inside `BEGIN … ROLLBACK` first);
+   RESPOK by its migrator. Then the merge: the backends write the lines and
+   the panel draws them; the apps with their next builds.

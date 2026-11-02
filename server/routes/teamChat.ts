@@ -12,6 +12,15 @@
  *   POST /api/team-chat/messages   { workspace_id, recipient_id, body }
  *   POST /api/team-chat/read       { workspace_id, peer_id }
  *
+ * A colleague call leaves one line in the two members' thread, written by
+ * the server at the call's end (services/calls/teamCallChat.ts; never through
+ * POST /messages, which cannot set `call_session_id`). Every message the
+ * reads return carries `call`: null, or that call's id, channel, outcome,
+ * duration and caller (docs/operations/TEAM_CALLS.md, "The call in the
+ * chat"); `last_message` of /colleagues too. On a database without
+ * migration 294 the reads fall back to the columns they had, every `call`
+ * null.
+ *
  * Each write also tells the operators it concerns, on their own realtime
  * channel (`ws:<workspace>:user:<id>`), as ids only: a send reaches the
  * recipient and the sender's other devices, a read the reader's other
@@ -28,6 +37,8 @@ import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.j
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { publishTeamEvent } from '../services/realtime/publish.js';
 import { notifyTeamMessage } from '../services/push/index.js';
+import { readWithColumnFallback } from '../lib/missingColumn.js';
+import { teamCallChatViews } from '../services/calls/teamCallChat.js';
 
 export const teamChatRouter = Router();
 
@@ -58,9 +69,16 @@ type TeamMessageRow = {
   recipient_id: string;
   body: string | null;
   attachment_id: string | null;
+  reply_to_id?: string | null;
   read_at: string | null;
   created_at: string;
+  /** The colleague call the line stands for (migration 294); absent before it. */
+  call_session_id?: string | null;
 };
+
+/** The columns a message is read with, and the ones before migration 294 added `call_session_id`. */
+const MESSAGE_COLUMNS_BEFORE_294 = 'id, sender_id, recipient_id, body, attachment_id, reply_to_id, read_at, created_at';
+const MESSAGE_COLUMNS = `${MESSAGE_COLUMNS_BEFORE_294}, call_session_id`;
 
 /** The visitor-safe attachment shape the team-chat surface renders. */
 type AttachmentSummary = {
@@ -120,24 +138,30 @@ teamChatRouter.get('/colleagues', async (req, res) => {
     if (memErr) return res.status(500).json({ error: memErr.message });
 
     const ids = (members ?? []).map((m) => m.user_id).filter(Boolean);
-    const [{ data: profiles }, { data: msgs }] = await Promise.all([
+    const [{ data: profiles }, { data: msgRows }] = await Promise.all([
       ids.length
         ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', ids)
         : Promise.resolve({ data: [] }),
-      sb.from('team_messages')
-        .select('id, sender_id, recipient_id, body, attachment_id, reply_to_id, read_at, created_at')
-        .eq('workspace_id', workspaceId)
-        .or(`sender_id.eq.${auth.userId},recipient_id.eq.${auth.userId}`)
-        .order('created_at', { ascending: false })
-        .limit(500),
+      readWithColumnFallback(
+        (columns) => sb.from('team_messages')
+          .select(columns)
+          .eq('workspace_id', workspaceId)
+          .or(`sender_id.eq.${auth.userId},recipient_id.eq.${auth.userId}`)
+          .order('created_at', { ascending: false })
+          .limit(500),
+        MESSAGE_COLUMNS,
+        MESSAGE_COLUMNS_BEFORE_294,
+        ['call_session_id'],
+      ),
     ]);
+    const msgs = (msgRows ?? []) as TeamMessageRow[];
 
     await hydrateUserAvatars(config, (profiles ?? []));
     const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
 
     const lastByPeer = new Map<string, TeamMessageRow>();
     const unreadByPeer = new Map<string, number>();
-    for (const m of msgs ?? []) {
+    for (const m of msgs) {
       const peer = m.sender_id === auth.userId ? m.recipient_id : m.sender_id;
       if (!lastByPeer.has(peer)) lastByPeer.set(peer, m);
       if (m.recipient_id === auth.userId && !m.read_at) {
@@ -150,7 +174,11 @@ teamChatRouter.get('/colleagues', async (req, res) => {
     const previewAttIds = Array.from(lastByPeer.values())
       .map((m) => m.attachment_id)
       .filter(Boolean) as string[];
-    const previewAtts = await hydrateAttachments(sb, workspaceId, previewAttIds);
+    // A call's line is previewed by its icon and title, from `call`.
+    const [previewAtts, previewCalls] = await Promise.all([
+      hydrateAttachments(sb, workspaceId, previewAttIds),
+      teamCallChatViews(sb, workspaceId, Array.from(lastByPeer.values())),
+    ]);
     const attachmentKindById = new Map<string, string>(
       Array.from(previewAtts.entries()).map(([id, a]) => [id, a.kind]),
     );
@@ -175,6 +203,7 @@ teamChatRouter.get('/colleagues', async (req, res) => {
                 attachment_kind: last.attachment_id
                   ? (attachmentKindById.get(String(last.attachment_id)) ?? 'file')
                   : null,
+                call: previewCalls.get(last.id) ?? null,
               }
             : null,
         };
@@ -211,25 +240,33 @@ teamChatRouter.get('/thread', async (req, res) => {
 
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const sb = getServiceClient(config);
-    const { data, error } = await sb
-      .from('team_messages')
-      .select('id, sender_id, recipient_id, body, attachment_id, reply_to_id, read_at, created_at')
-      .eq('workspace_id', workspaceId)
-      .or(
-        `and(sender_id.eq.${auth.userId},recipient_id.eq.${peerId}),` +
-        `and(sender_id.eq.${peerId},recipient_id.eq.${auth.userId})`,
-      )
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    if (error) return res.status(500).json({ error: error.message });
-
-    const rows = (data ?? []).slice().reverse();
-    const atts = await hydrateAttachments(
-      sb, workspaceId, rows.map((m) => m.attachment_id).filter(Boolean),
+    const { data, error } = await readWithColumnFallback(
+      (columns) => sb
+        .from('team_messages')
+        .select(columns)
+        .eq('workspace_id', workspaceId)
+        .or(
+          `and(sender_id.eq.${auth.userId},recipient_id.eq.${peerId}),` +
+          `and(sender_id.eq.${peerId},recipient_id.eq.${auth.userId})`,
+        )
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      MESSAGE_COLUMNS,
+      MESSAGE_COLUMNS_BEFORE_294,
+      ['call_session_id'],
     );
-    const messages = rows.map((m) => ({
+    if (error) return res.status(500).json({ error: (error as { message?: string }).message || 'Internal error' });
+
+    const rows = ((data ?? []) as TeamMessageRow[]).slice().reverse();
+    const [atts, calls] = await Promise.all([
+      hydrateAttachments(sb, workspaceId, rows.map((m) => m.attachment_id).filter(Boolean)),
+      teamCallChatViews(sb, workspaceId, rows),
+    ]);
+    // `call_session_id` stays in the server: the line's call is `call`.
+    const messages = rows.map(({ call_session_id: _callSessionId, ...m }) => ({
       ...m,
       attachment: m.attachment_id ? atts.get(String(m.attachment_id)) ?? null : null,
+      call: calls.get(m.id) ?? null,
     }));
     return res.json({ ok: true, messages, me: auth.userId });
   } catch (err) {
@@ -315,6 +352,8 @@ teamChatRouter.post('/messages', async (req, res) => {
       replyTo = quoted.id;
     }
 
+    // Exactly these columns: a line of a call (`call_session_id`) is the
+    // server's to write, never a member's (the schema above drops any other key).
     const { data: inserted, error } = await sb
       .from('team_messages')
       .insert({ workspace_id, sender_id: auth.userId, recipient_id, body, attachment_id: attachmentId, reply_to_id: replyTo })
@@ -344,7 +383,7 @@ teamChatRouter.post('/messages', async (req, res) => {
       hasAttachment: !!attachmentId,
     });
 
-    return res.json({ ok: true, message: { ...inserted, attachment } });
+    return res.json({ ok: true, message: { ...inserted, attachment, call: null } });
   } catch (err) {
     console.error('[team-chat send] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

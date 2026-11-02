@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import com.platform.app.core.model.CallChannel
 import com.platform.app.core.model.TeamMessage
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.Str
@@ -46,7 +47,9 @@ import com.platform.app.ui.design.Size
  * each run ends with the photo of whoever wrote it, theirs on their side and
  * ours on ours. What it does not have is the visitor chat's apparatus: no
  * status, no priority, no transfer, no saved replies, no AI. Two people and
- * what they said.
+ * what they said — and the calls between them: each colleague call leaves
+ * one line, drawn as a call ([TeamCallLine]; TEAM_CALLS.md, "The call in the
+ * chat").
  */
 @Composable
 fun TeamThreadScreen(
@@ -63,6 +66,14 @@ fun TeamThreadScreen(
     peerAvatarUrl: String? = null,
     /** The operator's own, beside theirs. */
     myAvatarUrl: String? = null,
+    /**
+     * The kinds of call a call's line may call back with: the thread's own
+     * call buttons' (the plan's), none while another call is on — empty,
+     * and a line is no button: a tap on it does nothing.
+     */
+    callBackChannels: Set<CallChannel> = emptySet(),
+    /** A call's line tapped: call this colleague back, with that line's channel. */
+    onCallBack: (CallChannel) -> Unit = {},
     composer: @Composable () -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -96,6 +107,8 @@ fun TeamThreadScreen(
                     source = source,
                     peerAvatarUrl = peerAvatarUrl,
                     myAvatarUrl = myAvatarUrl,
+                    callBackChannels = callBackChannels,
+                    onCallBack = onCallBack,
                 )
             }
         }
@@ -114,6 +127,8 @@ private fun Transcript(
     source: AttachmentSource?,
     peerAvatarUrl: String?,
     myAvatarUrl: String?,
+    callBackChannels: Set<CallChannel>,
+    onCallBack: (CallChannel) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages, me) { layout(messages, me) }
@@ -128,30 +143,57 @@ private fun Transcript(
         items(rows.size, key = { rows[it].message.id }) { index ->
             val row = rows[index]
             row.dayHeader?.let { DayHeader(it, language) }
-            MessageBubble(
-                id = row.message.id,
-                outgoing = row.outgoing,
-                endsRun = row.endsRun,
-                startsRun = row.startsRun,
-                time = row.message.createdAt,
-                language = language,
-                // A face at the foot of each run, as in the visitor chat —
-                // the skeleton circle while a photo loads, never initials.
-                avatar = {
-                    OperatorAvatar(
-                        imageUrl = if (row.outgoing) myAvatarUrl else peerAvatarUrl,
-                        size = Size.avatarSmall,
-                    )
-                },
-                bare = row.message.body.isNullOrBlank() &&
-                    row.message.attachment?.resolvedKind == MessageAttachment.Kind.IMAGE,
-            ) {
-                row.message.attachment?.let { AttachmentView(attachment = it, language = language, source = source) }
-                row.message.body?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyLarge.bidiContent(),
-                    )
+            // A colleague call's line: on the caller's side, as a call, and
+            // never its body (the fallback for builds that predate it).
+            val call = row.message.call
+            if (call != null) {
+                TeamCallLine(
+                    messageId = row.message.id,
+                    call = call,
+                    viewerIsCaller = me != null && call.callerId == me,
+                    outgoing = row.outgoing,
+                    endsRun = row.endsRun,
+                    startsRun = row.startsRun,
+                    time = row.message.createdAt,
+                    language = language,
+                    avatar = {
+                        OperatorAvatar(
+                            imageUrl = if (row.outgoing) myAvatarUrl else peerAvatarUrl,
+                            size = Size.avatarSmall,
+                        )
+                    },
+                    onCallBack = if (call.channel in callBackChannels) {
+                        { onCallBack(call.channel) }
+                    } else {
+                        null
+                    },
+                )
+            } else {
+                MessageBubble(
+                    id = row.message.id,
+                    outgoing = row.outgoing,
+                    endsRun = row.endsRun,
+                    startsRun = row.startsRun,
+                    time = row.message.createdAt,
+                    language = language,
+                    // A face at the foot of each run, as in the visitor chat —
+                    // the skeleton circle while a photo loads, never initials.
+                    avatar = {
+                        OperatorAvatar(
+                            imageUrl = if (row.outgoing) myAvatarUrl else peerAvatarUrl,
+                            size = Size.avatarSmall,
+                        )
+                    },
+                    bare = row.message.body.isNullOrBlank() &&
+                        row.message.attachment?.resolvedKind == MessageAttachment.Kind.IMAGE,
+                ) {
+                    row.message.attachment?.let { AttachmentView(attachment = it, language = language, source = source) }
+                    row.message.body?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyLarge.bidiContent(),
+                        )
+                    }
                 }
             }
         }
@@ -193,13 +235,17 @@ private fun layout(messages: List<TeamMessage>, me: String?): List<ThreadRow> {
         // A day header breaks a run from both sides: the last message before
         // one keeps its face and its time, as the first after it starts anew.
         val sameDayAsNext = next?.createdAt?.atZone(zone)?.toLocalDate() == day
+        // A colleague call's line stands on its own, as on the iPhone: its
+        // time is inside it, so the words before it keep theirs underneath.
+        val standsAlone = message.call != null
 
         ThreadRow(
             message = message,
             outgoing = outgoing,
             dayHeader = if (sameDayAsPrevious) null else message.createdAt,
-            endsRun = next == null || (next.senderId == me) != outgoing || !sameDayAsNext,
-            startsRun = previous == null ||
+            endsRun = next == null || standsAlone || next.call != null ||
+                (next.senderId == me) != outgoing || !sameDayAsNext,
+            startsRun = previous == null || standsAlone || previous.call != null ||
                 (previous.senderId == me) != outgoing ||
                 !sameDayAsPrevious,
         )

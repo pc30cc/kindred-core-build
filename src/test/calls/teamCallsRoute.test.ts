@@ -598,7 +598,7 @@ describe('decline, cancel and hang-up', () => {
     expect(h.fcm.map((m) => m.data.reason)).toEqual(['declined', 'declined']);
     expect(h.missed).toHaveLength(0);
     expect(h.roomsClosed).toEqual([`room-${body.call.id}`]);
-    expect(h.published.at(-1)).toEqual({ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: body.call.id, state: 'ended', outcome: 'declined' } });
+    expect(h.published.filter((p) => p.payload.kind === 'team_call').at(-1)).toEqual({ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: body.call.id, state: 'ended', outcome: 'declined' } });
 
     const again = await request(app).post(`/api/team-calls/${body.call.id}/decline`).set(as(CALLEE));
     expect(again.status).toBe(200);

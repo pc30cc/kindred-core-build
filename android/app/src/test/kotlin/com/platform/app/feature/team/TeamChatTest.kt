@@ -61,7 +61,7 @@ class TeamChatTest {
         colleagues.bind("ws-1")
         testScheduler.advanceUntilIdle()
 
-        assertEquals(listOf("u-2", "u-3", "u-9"), ids(colleagues.state.value))
+        assertEquals(listOf("u-2", "u-3", "u-4", "u-9"), ids(colleagues.state.value))
     }
 
     @Test
@@ -93,7 +93,8 @@ class TeamChatTest {
         colleagues.markRead("u-2")
         assertEquals(0, colleagues.colleague("u-2")?.unread)
         // And nobody else was touched.
-        assertEquals(3, ids(colleagues.state.value).size)
+        assertEquals(4, ids(colleagues.state.value).size)
+        assertEquals(1, colleagues.colleague("u-4")?.unread)
     }
 
     /** A colleague who sent a photo has not sent you nothing. */

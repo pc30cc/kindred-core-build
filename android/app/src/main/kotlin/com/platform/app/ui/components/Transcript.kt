@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -97,6 +98,15 @@ fun MessageBubble(
     statusIsError: Boolean = false,
     /** What a tap on [status] offers: Retry, Delete. Empty makes it plain text. */
     statusActions: List<Pair<String, () -> Unit>> = emptyList(),
+    /**
+     * Whether the time goes under the run's last bubble. False for content
+     * that carries its own time inside — a colleague call's line.
+     */
+    showsTime: Boolean = true,
+    /** What a tap on the bubble does — a call's line calling back — or null for nothing. */
+    onClick: (() -> Unit)? = null,
+    /** How the screen reader names [onClick]'s action. */
+    onClickLabel: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = AppTheme.colors
@@ -117,7 +127,7 @@ fun MessageBubble(
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (!outgoing && avatar != null) AvatarColumn(endsRun, avatar)
+        if (!outgoing && avatar != null) AvatarColumn(endsRun, lineUnder = status != null || showsTime, avatar = avatar)
 
         Column(
             Modifier
@@ -130,10 +140,19 @@ fun MessageBubble(
                     Column(content = content)
                 }
             } else {
+                val shape = bubbleShape(outgoing = outgoing, startsRun = startsRun)
                 Surface(
                     color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
                     contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
-                    shape = bubbleShape(outgoing = outgoing, startsRun = startsRun),
+                    shape = shape,
+                    // Clipped first, so the ripple keeps the bubble's shape.
+                    modifier = if (onClick != null) {
+                        Modifier
+                            .clip(shape)
+                            .clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+                    } else {
+                        Modifier
+                    },
                 ) {
                     CompositionLocalProvider(LocalLayoutDirection provides textDirection) {
                         Column(
@@ -183,7 +202,7 @@ fun MessageBubble(
                     }
                 }
                 }
-            } else if (endsRun) {
+            } else if (endsRun && showsTime) {
                 Text(
                     Format.bubbleTime(time, language),
                     style = MaterialTheme.typography.labelSmall,
@@ -192,7 +211,7 @@ fun MessageBubble(
                 )
             }
         }
-        if (outgoing && avatar != null) AvatarColumn(endsRun, avatar)
+        if (outgoing && avatar != null) AvatarColumn(endsRun, lineUnder = status != null || showsTime, avatar = avatar)
     }
     }
 }
@@ -200,13 +219,15 @@ fun MessageBubble(
 /**
  * The column a run's face sits in: the face on the run's last bubble, and
  * the same width held open on the others. Aligned to the bubble rather than
- * to the time under it, so the face sits beside what was said.
+ * to the time under it, so the face sits beside what was said — or level with
+ * the bubble's foot when nothing is under it ([lineUnder] false: a call's
+ * line, whose time is inside).
  */
 @Composable
-private fun AvatarColumn(endsRun: Boolean, avatar: @Composable () -> Unit) {
+private fun AvatarColumn(endsRun: Boolean, lineUnder: Boolean, avatar: @Composable () -> Unit) {
     Box(
         Modifier
-            .padding(bottom = if (endsRun) Space.lg + Space.xxs else 0.dp)
+            .padding(bottom = if (endsRun && lineUnder) Space.lg + Space.xxs else 0.dp)
             .size(Size.avatarSmall),
     ) {
         if (endsRun) avatar()

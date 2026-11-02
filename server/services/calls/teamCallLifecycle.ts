@@ -28,7 +28,10 @@
  *   - both members, on their own realtime channels (`kind: 'team_call'`);
  *   - the callee's rung Android phones to stop (`team_call_cancel`), never
  *     the one that answered, and never an iPhone (teamCallRing.ts);
- *   - the callee that a call rang out or was hung up on (`team_call_missed`);
+ *   - the two members' team chat, once the call is over: its one line
+ *     (teamCallChat.ts), with the `team_message` nudge a sent message gives;
+ *   - the callee that a call rang out or was hung up on (`team_call_missed`),
+ *     after that line, so the alert's badge counts it;
  *   - the provider, which closes the room of a call that is over.
  * Those effects come back as a promise that never rejects: a route answers
  * without waiting for them, the ticker and the webhook wait.
@@ -45,6 +48,7 @@ import type { CallProviderId } from './providers/types.js';
 import { publishTeamEvent } from '../realtime/publish.js';
 import { cancelTeamCallRing } from '../push/teamCallRing.js';
 import { notifyTeamCallMissed } from '../push/dispatch.js';
+import { writeTeamCallLine } from './teamCallChat.js';
 import {
   TEAM_CALL_COLUMNS,
   TEAM_CALL_ENTRY_SOURCE,
@@ -176,14 +180,21 @@ export function announceTeamCall(config: ServerConfig, row: TeamCallRow, effects
       exceptDeviceId: effects.exceptDeviceId ?? null,
     }));
   }
+  // The call's line in the team chat, once it is over (every end is a
+  // compare-and-set from a live state, so this runs once per call; the line's
+  // unique key makes a second run do nothing). Never rejects. The missed-call
+  // alert waits for the write only, not for the line's realtime nudge.
+  const over = !(TEAM_CALL_LIVE_STATES as readonly string[]).includes(row.state);
+  const chatLine = over ? writeTeamCallLine(config, row) : Promise.resolve({ nudged: NOTHING });
+  tasks.push(chatLine.then((line) => line.nudged));
   if (effects.missedAlert) {
-    tasks.push(notifyTeamCallMissed(config, {
+    tasks.push(chatLine.then(() => notifyTeamCallMissed(config, {
       workspaceId: row.workspace_id,
       callerId: meta.caller_user_id,
       calleeId: meta.callee_user_id,
       callId: row.id,
       channel: meta.channel,
-    }));
+    })));
   }
   if (effects.closeRoom && row.provider_room_id) {
     const roomId = row.provider_room_id;

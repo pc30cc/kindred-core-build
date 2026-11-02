@@ -360,7 +360,8 @@ struct TeamThreadView: View {
                                         ),
                                         colleague: colleague,
                                         language: language,
-                                        locale: locale
+                                        locale: locale,
+                                        callBack: message.call.flatMap { callBack(for: $0.channel) }
                                     )
                                 }
                             } header: {
@@ -376,9 +377,12 @@ struct TeamThreadView: View {
         }
     }
 
-    /// A run ends when the next message is from the other person.
+    /// A run ends when the next message is from the other person — and at a
+    /// call's line, which stands on its own: its time is inside it, so the
+    /// words before it keep theirs underneath.
     private static func endsRun(_ messages: [TeamMessage], at index: Int, me: String) -> Bool {
         guard index + 1 < messages.count else { return true }
+        if messages[index].call != nil || messages[index + 1].call != nil { return true }
         return (messages[index + 1].senderId == me) != (messages[index].senderId == me)
     }
 
@@ -466,6 +470,16 @@ struct TeamThreadView: View {
         }
     }
 
+    /// A call's line calls back with its own channel — through the same
+    /// entry, and under the same gate, as the toolbar's buttons: only when
+    /// the plan has that kind of call, and not while a call is on.
+    private func callBack(for channel: CallChannel) -> TeamCallBack? {
+        guard appState.teamCallAllowed(channel) else { return nil }
+        return TeamCallBack(isDisabled: calls.call.map { !$0.phase.isOver } ?? false) {
+            Task { await call(channel) }
+        }
+    }
+
     /// Asked before the colleague's phone rings, as a visitor call asks
     /// before the visitor is invited: iOS records silence rather than failing
     /// when the microphone is refused, and its own question arriving after
@@ -501,6 +515,8 @@ private struct TeamMessageRow: View {
     let colleague: Colleague
     let language: Language
     let locale: Locale
+    /// Calling back from a call's line; nil where the plan has no such call.
+    var callBack: TeamCallBack? = nil
 
     @Environment(AppState.self) private var appState
 
@@ -530,6 +546,40 @@ private struct TeamMessageRow: View {
     }
 
     var body: some View {
+        if let call = message.call {
+            callLine(call)
+        } else {
+            messageLine
+        }
+    }
+
+    /// A colleague call's line: a call bubble on the caller's side, with its
+    /// time inside it, and nothing to select, copy or quote
+    /// (`TeamCallLogBubble`).
+    private func callLine(_ call: TeamChatCall) -> some View {
+        HStack(alignment: .bottom, spacing: Theme.Space.xs) {
+            if isOutgoing { Spacer(minLength: Theme.Space.xl) }
+            if !isOutgoing { avatarSlot.accessibilityHidden(true) }
+
+            TeamCallLogBubble(
+                call: call,
+                viewerIsCaller: TeamCallLog.viewerIsCaller(call, peerID: colleague.userId),
+                isOutgoing: isOutgoing,
+                time: Format.bubbleTime(message.createdAt, locale: locale),
+                language: language,
+                callBack: callBack
+            )
+
+            if isOutgoing { avatarSlot.accessibilityHidden(true) }
+            if !isOutgoing { Spacer(minLength: Theme.Space.xl) }
+        }
+        // Physical sides, as every other line.
+        .environment(\.layoutDirection, .leftToRight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.messageRow(message.id))
+    }
+
+    private var messageLine: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
             HStack(alignment: .bottom, spacing: Theme.Space.xs) {
                 if isOutgoing { Spacer(minLength: Theme.Space.xl) }

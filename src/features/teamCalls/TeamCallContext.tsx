@@ -13,7 +13,10 @@
  *    (no call can ring otherwise), whose `team_call` events are confirmed with
  *    GET /api/team-calls/:id before anything rings or stops; while a call
  *    rings it is also read every 2 s (as the iPhone does), and every 10 s
- *    while it is on, so a lost event never leaves a tab ringing;
+ *    while it is on, so a lost event never leaves a tab ringing; its
+ *    `team_message` events (a message, or the line a call leaves in the
+ *    team chat when it ends: TEAM_CALLS.md, "The call in the chat") make the
+ *    team chat's list and open thread read again at once, not at their poll;
  *  - the session: placing, ringing, answering, the call, its end;
  *  - the sounds (the ringtone and the caller's ringback, Web Audio, no
  *    files) and the system notification while the tab is hidden;
@@ -34,12 +37,14 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import { resolveClientRealtimeProvider } from '@/realtime';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import type { RealtimeSubscription } from '@/realtime';
@@ -121,6 +126,8 @@ export function TeamCallProvider({
   children: ReactNode;
 }) {
   const { t } = useTranslation();
+  // Read without useQueryClient: a shell without a query client still rings.
+  const queryClient = useContext(QueryClientContext);
   // Nothing can ring a member of a workspace whose plan has no colleague
   // calls, so its tabs do not listen (a call already on is followed by its
   // own reads, whatever the plan says now).
@@ -292,6 +299,14 @@ export function TeamCallProvider({
   }, [setSession, tellMissed]);
 
   const onEvent = useCallback((payload: TeamCallEvent) => {
+    if (payload?.kind === 'team_message') {
+      // The team chat changed for this member (a call's line included): its
+      // list and threads (useTeamChat.ts) read again now.
+      if (!workspaceId || payload.workspace_id !== workspaceId || !queryClient) return;
+      void queryClient.invalidateQueries({ queryKey: ['team-chat', 'colleagues', workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ['team-chat', 'thread', workspaceId] });
+      return;
+    }
     if (!payload || payload.kind !== 'team_call') return;
     const callId = typeof payload.call_id === 'string' ? payload.call_id : '';
     const state = typeof payload.state === 'string' ? payload.state : '';
@@ -304,7 +319,7 @@ export function TeamCallProvider({
     }
     if (doneRef.current.has(callId)) return;
     if (state === 'ringing' || state === 'missed' || state === 'cancelled') void consider(callId, state);
-  }, [workspaceId, refresh, consider]);
+  }, [workspaceId, refresh, consider, queryClient]);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 

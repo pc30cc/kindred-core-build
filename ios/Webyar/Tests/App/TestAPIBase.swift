@@ -66,6 +66,12 @@ extension TestAPIBase {
     func invitation(id: String) async throws -> CallInvitation { throw APIError.transport }
     func callToken(callSessionID: String, displayName: String?) async throws -> CallToken { throw APIError.transport }
     func hangUp(callSessionID: String) async throws { throw APIError.transport }
+    func startTeamCall(workspaceID: String, calleeID: String, channel: CallChannel) async throws -> TeamCall { throw APIError.transport }
+    func teamCall(id: String) async throws -> TeamCall { throw APIError.transport }
+    func acceptTeamCall(id: String, deviceID: String) async throws -> TeamCallAcceptance { throw APIError.transport }
+    func declineTeamCall(id: String) async throws { throw APIError.transport }
+    func hangUpTeamCall(id: String) async throws { throw APIError.transport }
+    func teamCallToken(id: String) async throws -> CallToken { throw APIError.transport }
     func entitlements(workspaceID: String) async throws -> Entitlements { throw APIError.transport }
     func account() async throws -> Account { throw APIError.transport }
     func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account { throw APIError.transport }
@@ -78,7 +84,7 @@ extension TestAPIBase {
     func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int { throw APIError.transport }
     func mobilePublicConfig() async -> MobilePublicConfig? { nil }
     func changePassword(current: String, new: String) async throws { throw APIError.transport }
-    func registerPushDevice(token: String, deviceID: String, deviceName: String, appVersion: String, permission: String, workspaceID: String?) async throws -> PushRegistration { throw APIError.transport }
+    func registerPushDevice(token: String?, voipToken: String?, deviceID: String, deviceName: String, appVersion: String, permission: String, workspaceID: String?) async throws -> PushRegistration { throw APIError.transport }
     func unregisterPushDevice(deviceID: String) async throws { throw APIError.transport }
     func deleteAccount(password: String) async throws -> AccountDeletion { throw APIError.transport }
     func notificationPrefs() async throws -> NotificationPrefs { throw APIError.transport }

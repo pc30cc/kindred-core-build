@@ -11,7 +11,7 @@ import Observation
 /// formats iOS records by default — CAF, AIFF — are on nobody's allowed list.
 @MainActor
 @Observable
-final class VoiceRecorder {
+final class VoiceRecorder: CallAudioYielding {
 
     enum Failure: Equatable {
         /// The operator said no to the microphone, or it is off in Settings.
@@ -45,6 +45,11 @@ final class VoiceRecorder {
             failure = .permissionDenied
             return
         }
+        // A colleague call holds the audio session: nothing records over it.
+        guard CallAudioFocus.shared.claim(self) else {
+            failure = .unavailable
+            return
+        }
 
         let session = AVAudioSession.sharedInstance()
         let destination = FileManager.default.temporaryDirectory
@@ -72,8 +77,17 @@ final class VoiceRecorder {
             startTicking()
         } catch {
             failure = .unavailable
+            CallAudioFocus.shared.release(self)
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
         }
+    }
+
+    /// A colleague call is starting. The recording stops where it is, and is
+    /// kept — Send and the bin stay on screen — exactly as when a phone call
+    /// or Siri takes the microphone (`startTicking`). The session is left to
+    /// the call: deactivating it now would be deactivating CallKit's.
+    func yieldToCall() {
+        recorder?.stop()
     }
 
     /// Stops and hands back what was recorded, or nil if there is nothing
@@ -101,6 +115,9 @@ final class VoiceRecorder {
         recorder = nil
         isRecording = false
         seconds = 0
+        CallAudioFocus.shared.release(self)
+        // Never while a colleague call holds the session: it is CallKit's.
+        guard !CallAudioFocus.shared.isHeldByCall else { return }
         try? AVAudioSession.sharedInstance()
             .setActive(false, options: .notifyOthersOnDeactivation)
     }

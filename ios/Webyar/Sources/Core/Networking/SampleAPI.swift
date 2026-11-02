@@ -272,6 +272,59 @@ actor SampleAPI: WebyarAPI {
 
     func hangUp(callSessionID: String) async throws {}
 
+    // MARK: - Colleague calls
+    //
+    // The sample colleague never picks up: a placed call rings until the
+    // ring runs out and ends as "No answer", so the call screen's calling,
+    // ringing and ended states can all be laid out without a second phone.
+    // Answering would need a real room, and a sample that pretended to
+    // connect would make the screen look finished when it had never carried
+    // a voice — the visitor call's sample stops short for the same reason.
+
+    private var sampleTeamCalls: [String: TeamCall] = [:]
+
+    func startTeamCall(workspaceID: String, calleeID: String, channel: CallChannel) async throws -> TeamCall {
+        let name = try await colleagues(workspaceID: workspaceID).colleagues.first { $0.userId == calleeID }?.fullName
+        let call = TeamCall(
+            id: UUID().uuidString.lowercased(),
+            workspaceID: workspaceID,
+            channel: channel,
+            state: .ringing,
+            role: .caller,
+            peer: TeamCall.Peer(userID: calleeID, name: name, avatarURL: nil),
+            createdAt: Date(),
+            expiresAt: Date().addingTimeInterval(TeamCallTiming.ringSeconds)
+        )
+        sampleTeamCalls[call.id] = call
+        return call
+    }
+
+    /// Ringing until it expires, then missed — what the server's ticker does.
+    func teamCall(id: String) async throws -> TeamCall {
+        guard let call = sampleTeamCalls[id] else { throw APIError.server(status: 404, message: "not_found") }
+        guard call.state == .ringing, let expiresAt = call.expiresAt, expiresAt < Date() else { return call }
+        let missed = TeamCall(
+            id: call.id, workspaceID: call.workspaceID, channel: call.channel, state: .missed,
+            outcome: .missed, role: call.role, peer: call.peer, createdAt: call.createdAt,
+            endedAt: Date(), expiresAt: call.expiresAt
+        )
+        sampleTeamCalls[id] = missed
+        return missed
+    }
+
+    /// Nothing rings a sample phone, so there is never a call to answer here.
+    func acceptTeamCall(id: String, deviceID: String) async throws -> TeamCallAcceptance {
+        .notRinging(sampleTeamCalls[id])
+    }
+
+    func declineTeamCall(id: String) async throws { sampleTeamCalls[id] = nil }
+    func hangUpTeamCall(id: String) async throws { sampleTeamCalls[id] = nil }
+
+    /// Never reached: the sample colleague does not answer.
+    func teamCallToken(id: String) async throws -> CallToken {
+        throw APIError.server(status: 409, message: "not_answered")
+    }
+
 
     /// Gives each sample thread a different device and country so the avatar's
     /// OS-mark and flag paths are actually exercised.
@@ -797,7 +850,8 @@ actor SampleAPI: WebyarAPI {
     // screen can be laid out and screenshotted with the switches working.
 
     func registerPushDevice(
-        token: String,
+        token: String?,
+        voipToken: String?,
         deviceID: String,
         deviceName: String,
         appVersion: String,

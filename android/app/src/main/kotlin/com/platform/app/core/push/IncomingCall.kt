@@ -49,11 +49,8 @@ data class IncomingCall(
      * its whole life from now.
      */
     fun onPhoneClock(nowEpochSeconds: Long, sentEpochSeconds: Long): IncomingCall {
-        if (sentEpochSeconds <= 0) return this
-        val life = expiresAt - sentEpochSeconds
-        if (life <= 0) return this
-        if (nowEpochSeconds - sentEpochSeconds in 0..life) return this
-        return copy(expiresAt = nowEpochSeconds + life)
+        val onPhone = expiryOnPhoneClock(expiresAt, nowEpochSeconds, sentEpochSeconds)
+        return if (onPhone == expiresAt) this else copy(expiresAt = onPhone)
     }
 
     companion object {
@@ -88,6 +85,21 @@ data class IncomingCall(
         private const val MAX_NAME = 120
         private const val MAX_CODE = 32
     }
+}
+
+/**
+ * A ring's expiry ([expiresAt], the server's epoch seconds) on this phone's
+ * clock, read against FCM's own stamp of when the ring left
+ * ([sentEpochSeconds], 0 when unknown): the reasoning is
+ * [IncomingCall.onPhoneClock]'s, and a colleague's ring
+ * ([TeamCallRing.onPhoneClock]) is read the same way.
+ */
+internal fun expiryOnPhoneClock(expiresAt: Long, nowEpochSeconds: Long, sentEpochSeconds: Long): Long {
+    if (sentEpochSeconds <= 0) return expiresAt
+    val life = expiresAt - sentEpochSeconds
+    if (life <= 0) return expiresAt
+    if (nowEpochSeconds - sentEpochSeconds in 0..life) return expiresAt
+    return nowEpochSeconds + life
 }
 
 /** The server stopped a ring: somebody answered, the caller hung up, or nobody came. */
@@ -136,6 +148,16 @@ data class IncomingCallLink(
     val caller: String,
     /** Answer was pressed: answer on arrival rather than show the ring. */
     val answer: Boolean,
+    /**
+     * The colleague calling, for a colleague call ([TeamCallRing]); null for
+     * a call-centre call. What tells the two apart on the way in.
+     */
+    val colleagueId: String? = null,
+    /** The colleague's photo, when their ring carried one. */
+    val callerAvatarUrl: String? = null,
 ) {
+    /** A colleague's call, not a visitor's. */
+    val isColleague: Boolean get() = colleagueId != null
+
     companion object
 }

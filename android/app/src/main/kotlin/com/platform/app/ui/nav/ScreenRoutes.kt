@@ -57,6 +57,7 @@ import com.platform.app.core.model.CallChannel
 import com.platform.app.core.model.CallChannels
 import com.platform.app.core.model.CannedText
 import com.platform.app.core.model.Entitlements
+import com.platform.app.core.model.allowsTeamCall
 import com.platform.app.core.model.InboxFilter
 import com.platform.app.feature.chat.CannedResponsePicker
 import com.platform.app.feature.chat.ChatSheet
@@ -896,6 +897,8 @@ fun TeamThreadRoute(
     colleagues: ColleaguesViewModel,
     language: Language,
     onBack: () -> Unit,
+    /** A voice or video call with this colleague, placed: the call screen opens on it. */
+    onCall: (TeamCallKey) -> Unit,
 ) {
     val thread: TeamThreadViewModel =
         viewModel(factory = liveLanguage(language).let { l -> viewModelFactory { TeamThreadViewModel(api, l) } })
@@ -974,6 +977,73 @@ fun TeamThreadRoute(
 
     val myAvatar by appState.avatarUrl.collectAsStateWithLifecycle()
 
+    // A voice call and a video call with this colleague — here and nowhere
+    // else in the app — each only when the plan has that kind
+    // (`allowsTeamCall`, the iOS app's rule), following the plan as it
+    // refreshes. The platform's and the workspace's own voice and video
+    // switches are the server's to apply when the call is placed.
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val callChannels = listOf(CallChannel.AUDIO, CallChannel.VIDEO).filter { plan.value?.allowsTeamCall(it) == true }
+    val place: (CallChannel) -> Unit = { channel ->
+        val ws = workspace?.id
+        if (ws != null) {
+            onCall(
+                TeamCallKey(
+                    workspaceId = ws,
+                    peerId = peerId,
+                    // The profile name only: never the address a nameless
+                    // colleague's thread is titled with, which the call's
+                    // notification would show on the lock screen.
+                    peerName = colleague?.fullName?.trim().orEmpty(),
+                    peerAvatarUrl = colleague?.avatarUrl,
+                    channel = channel.wire,
+                ),
+            )
+        }
+    }
+    // A colleague calling back rings this phone through a notification, and
+    // without notifications there is no ring: Android 13 and later deliver
+    // none the app has not been allowed, a person on any version can switch
+    // them off, and a phone that does not allow them is not even registered
+    // for pushes (`PushRegistrar`). Placing a call needs no notification, so
+    // the call still goes ahead — the explanation, with the way to the
+    // setting, comes first, once per visit to the thread.
+    var notificationsExplainedFor by remember { mutableStateOf<CallChannel?>(null) }
+    var notificationsExplained by rememberSaveable { mutableStateOf(false) }
+    val call: (CallChannel) -> Unit = { channel ->
+        if (!notificationsExplained && !com.platform.app.core.push.Notifications.canPost(context)) {
+            notificationsExplainedFor = channel
+        } else {
+            place(channel)
+        }
+    }
+    notificationsExplainedFor?.let { channel ->
+        AlertDialog(
+            onDismissRequest = { notificationsExplainedFor = null },
+            text = { Text(Str.teamCallNeedsNotifications(language)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        notificationsExplainedFor = null
+                        notificationsExplained = true
+                        place(channel)
+                    },
+                ) {
+                    Text(if (channel == CallChannel.VIDEO) Str.teamCallVideoAction(language) else Str.teamCallVoiceAction(language))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        notificationsExplainedFor = null
+                        notificationsExplained = true
+                        openAppNotificationSettings(context)
+                    },
+                ) { Text(Str.pushOpenSettings(language)) }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             // The colleague's face beside their name, as the visitor chat's
@@ -984,6 +1054,20 @@ fun TeamThreadRoute(
                 onBack = onBack,
                 leading = colleague?.let { peer ->
                     { OperatorAvatar(imageUrl = peer.avatarUrl, size = 40.dp) }
+                },
+                actions = {
+                    callChannels.forEach { channel ->
+                        val video = channel == CallChannel.VIDEO
+                        IconButton(
+                            onClick = { call(channel) },
+                            modifier = Modifier.testTag(if (video) A11y.TEAM_CALL_VIDEO else A11y.TEAM_CALL_VOICE),
+                        ) {
+                            Icon(
+                                if (video) Glyph.Videocam else Glyph.Call,
+                                contentDescription = if (video) Str.teamCallVideoAction(language) else Str.teamCallVoiceAction(language),
+                            )
+                        }
+                    }
                 },
             )
         },
@@ -1741,6 +1825,8 @@ fun IncomingCallRoute(
     key: IncomingCallKey,
     api: ServerApi,
     language: Language,
+    /** Whether the screen now in front is a call ringing, or answered, on this phone. */
+    ringInFront: () -> Boolean,
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1799,9 +1885,12 @@ fun IncomingCallRoute(
             if (cancel.callId == key.callId) session.noLongerRinging()
         }
     }
-    // Shown over the lock screen for the call, and only for the call.
+    // Shown over the lock screen for the call, and only for the call — unless
+    // the screen that took its place is a ring of its own (a colleague's,
+    // opened over this one), which the tap that opened it has just put there.
+    val inFront by rememberUpdatedState(ringInFront)
     DisposableEffect(Unit) {
-        onDispose { (context as? com.platform.app.MainActivity)?.showOverLockScreen(false) }
+        onDispose { if (!inFront()) (context as? com.platform.app.MainActivity)?.showOverLockScreen(false) }
     }
 
     CallScreen(

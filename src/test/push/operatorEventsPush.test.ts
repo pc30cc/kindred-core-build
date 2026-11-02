@@ -80,6 +80,7 @@ vi.mock('../../../server/supabase.js', () => ({
 interface Sent { token: string; title?: string; body?: string; data: Record<string, string>; ttlSeconds?: number }
 const sent = vi.hoisted(() => ({ fcm: [] as Sent[], data: [] as Sent[], voip: [] as Sent[] }));
 const policy = vi.hoisted(() => ({ overrides: {} as Record<string, unknown> }));
+const voip = vi.hoisted(() => ({ configured: false }));
 
 vi.mock('../../../server/services/push/fcm.js', () => ({
   isPushConfigured: () => true,
@@ -92,7 +93,7 @@ vi.mock('../../../server/services/push/apns.js', () => ({
   sendApnsAlert: async () => ({ ok: true }),
 }));
 vi.mock('../../../server/services/push/apnsVoip.js', () => ({
-  isVoipConfigured: () => false,
+  isVoipConfigured: () => voip.configured,
   sendVoipPush: async (msg: Sent) => { sent.voip.push(msg); return { ok: true }; },
 }));
 vi.mock('../../../server/services/storage/urlResolver.js', () => ({
@@ -160,6 +161,7 @@ beforeEach(() => {
   ];
   sent.fcm = []; sent.data = []; sent.voip = [];
   policy.overrides = {};
+  voip.configured = false;
 });
 
 describe('a conversation handed to an operator', () => {
@@ -338,6 +340,25 @@ describe('a call-centre call on an Android phone', () => {
   it('a decline stops only the phones of whoever declined', async () => {
     await cancelRing(CONFIG, { workspaceId: WS, callSessionId: 'call-1', reason: 'declined', onlyUserId: OTHER });
     expect(sent.data.map((m) => m.token)).toEqual([`token-${OTHER}`]);
+  });
+
+  it('never rings an iPhone, nor sends it a VoIP cancel, whatever VoIP token it registered', async () => {
+    // Owner, 2026-11-01: an iPhone's VoIP token is for colleague calls only
+    // (docs/operations/TEAM_CALLS.md). Every VoIP push must become a CallKit
+    // call, so a visitor's ring, and its cancel, would each ring it.
+    voip.configured = true;
+    db.mobile_push_devices = [
+      ...db.mobile_push_devices,
+      { id: 'ios-me', user_id: ME, platform: 'ios', push_token: 'apns-me', transport: 'apns', device_id: 'ios-me', voip_token: 'voip-me', enabled: true },
+      { id: 'ios-other', user_id: OTHER, platform: 'ios', push_token: 'apns-other', transport: 'apns', device_id: 'ios-other', voip_token: 'voip-other', enabled: true },
+    ];
+    await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: null, channel: 'video' });
+    await cancelRing(CONFIG, { workspaceId: WS, callSessionId: 'call-1', reason: 'answered', exceptUserId: ME });
+    await cancelRing(CONFIG, { workspaceId: WS, callSessionId: 'call-1', reason: 'declined', onlyUserId: OTHER });
+    expect(sent.voip).toHaveLength(0);
+    // Android is rung and stopped exactly as before.
+    expect(sent.data.filter((m) => m.data.type === 'call_incoming').map((m) => m.token).sort()).toEqual([`token-${ME}`, `token-${OTHER}`].sort());
+    expect(sent.data.filter((m) => m.data.type === 'call_cancel')).toHaveLength(4);
   });
 
   it('an iPhone-only setup is unchanged: no Android ring without Firebase', async () => {

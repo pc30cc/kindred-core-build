@@ -104,6 +104,11 @@ object A11y {
     const val CALL_ANSWER = "call.answer"
     const val CALL_DECLINE = "call.decline"
     const val CALL_SELF_VIEW = "call.selfView"
+    const val CALL_SWITCH_CAMERA = "call.switchCamera"
+
+    /** The phone and video buttons in a colleague's thread. */
+    const val TEAM_CALL_VOICE = "team.call.voice"
+    const val TEAM_CALL_VIDEO = "team.call.video"
 
     fun conversationRow(id: String) = "conversation.$id"
     fun priorityTag(wire: String) = "priority.$wire"

@@ -129,7 +129,9 @@ describe('what the binary declares about itself', () => {
       expect(target.entitlements?.properties, name).toEqual({ 'aps-environment': '$(APS_ENVIRONMENT)' });
       expect(target.settings.configs?.Debug?.APS_ENVIRONMENT, name).toBe('development');
       expect(target.settings.configs?.Release?.APS_ENVIRONMENT, name).toBe('production');
-      expect(target.info.properties.UIBackgroundModes, name).toEqual(['audio']);
+      // `audio` keeps a call alive with the screen locked; `voip` is the
+      // colleague call's ring (PushKit), which both apps have.
+      expect(target.info.properties.UIBackgroundModes, name).toEqual(['audio', 'voip']);
       expect(target.info.properties, name).not.toHaveProperty('NSUserTrackingUsageDescription');
     }
   });
@@ -141,13 +143,110 @@ describe('what the binary declares about itself', () => {
     expect(modes, 'UIBackgroundModes must still be declared').not.toBeNull();
     expect(modes![1]).toContain('- audio');
     expect(modes![1]).not.toContain('remote-notification');
-    expect(modes![1]).not.toContain('voip');
+    // `voip` is used: a PushKit registry asks for VoIP pushes and every one
+    // becomes a CallKit call (below). Without both, iOS ends the app.
+    expect(modes![1]).toContain('- voip');
+    expect(filesMatching(/PKPushRegistry\(/)).toEqual(['Core/Push/VoIPPushes.swift']);
+    expect(filesMatching(/reportNewIncomingCall\(/)).toEqual(['Features/Calls/TeamCalls/CallManager.swift']);
   });
 
   it('asks for no new usage description', () => {
     // Notifications need none. A usage string for something the app does not
     // do is its own rejection.
     expect(project).not.toContain('NSUserTrackingUsageDescription');
+  });
+});
+
+describe('a colleague call rings through PushKit and CallKit', () => {
+  const voip = () => files.find((f) => f.path === 'Core/Push/VoIPPushes.swift')!.text;
+  const manager = () => files.find((f) => f.path === 'Features/Calls/TeamCalls/CallManager.swift')!.text;
+
+  it('has its registry made before any scene, in didFinishLaunching', () => {
+    // A VoIP push that launches the app is delivered once a registry with a
+    // delegate asks for it; a scene's `.task` may never run on such a launch.
+    const delegate = files.find((f) => f.path === 'App/AppDelegate.swift')!.text;
+    const launch = delegate.slice(delegate.indexOf('didFinishLaunchingWithOptions'));
+    expect(launch.slice(0, launch.indexOf('return true'))).toContain('VoIPPushes.shared.start()');
+    expect(voip()).toMatch(/PKPushRegistry\(queue: \.main\)/);
+  });
+
+  it('reports every VoIP push to CallKit before the push is done with', () => {
+    // iOS 13+: a VoIP push not reported to CallKit ends the app, and after a
+    // few, PushKit stops delivering to it.
+    const handler = voip().slice(voip().indexOf('didReceiveIncomingPushWith'));
+    const reportAt = handler.indexOf('CallManager.shared.reportIncoming(');
+    const completionAt = handler.indexOf('completion()');
+    expect(reportAt).toBeGreaterThan(-1);
+    expect(reportAt).toBeLessThan(completionAt);
+    // Synchronously: no task between the push and the report.
+    expect(handler.slice(0, reportAt)).not.toMatch(/Task\s*\{|await /);
+    // And the report itself is the first CallKit call in `reportIncoming`,
+    // before anything decides whether the ring is worth keeping.
+    const report = manager().slice(manager().indexOf('func reportIncoming('));
+    expect(report.indexOf('report(uuid, update)')).toBeGreaterThan(-1);
+    expect(report.indexOf('report(uuid, update)')).toBeLessThan(report.indexOf('reportCall(with: uuid, endedAt: nil'));
+  });
+
+  it('never sends a call\'s handle or name as an identity', () => {
+    // The handle is the call id; recents are off (docs/operations/TEAM_CALLS.md).
+    expect(manager()).toContain('CXHandle(type: .generic, value: callID)');
+    expect(manager()).toContain('includesCallsInRecents = false');
+    expect(manager()).not.toMatch(/CXHandle\(type: \.(emailAddress|phoneNumber)/);
+  });
+
+  it('gives the VoIP address up with the session', () => {
+    const controller = files.find((f) => f.path === 'Core/Push/PushController.swift')!.text;
+    for (const name of ['func signOut()', 'func sessionEnded()']) {
+      const body = controller.slice(controller.indexOf(name), controller.indexOf('\n    }\n', controller.indexOf(name)));
+      expect(body, name).toContain('releaseVoIP()');
+    }
+    expect(controller).toMatch(/func releaseVoIP\(\)[\s\S]*?VoIPPushes\.shared\.listen\(false\)/);
+    // Asked for only once somebody is signed in, and never on the first
+    // frame's "nobody yet", which would drop the push that launched the app.
+    const changed = controller.slice(controller.indexOf('func sessionChanged('));
+    expect(changed.indexOf('guard signedIn else { return }')).toBeLessThan(changed.indexOf('VoIPPushes.shared.listen(true)'));
+  });
+
+  it('keeps the VoIP address through a Keychain it cannot read, and looks again on unlock', () => {
+    // Before the first unlock after a restart the Keychain refuses to say;
+    // that is not "signed out", and giving the address up then would stop
+    // every ring until the operator opened the app.
+    const follow = voip().slice(voip().indexOf('func followSession()'), voip().indexOf('func unlocked()'));
+    expect(follow).toContain('TokenStore.presence()');
+    const unreadable = follow.slice(follow.indexOf('case .unreadable:'));
+    expect(unreadable).not.toContain('listen(');
+    expect(unreadable).toContain('protectedDataDidBecomeAvailableNotification');
+    expect(voip()).not.toMatch(/listen\(TokenStore\.read\(\)/);
+  });
+
+  it('draws the call screen in a window above everything the app presents', () => {
+    // An overlay on the root sits under every sheet and full-screen cover,
+    // and CallKit shows no in-call screen for an app in the foreground.
+    const window = files.find((f) => f.path === 'Features/Calls/TeamCalls/TeamCallWindow.swift')!.text;
+    expect(window).toContain('UIWindow(windowScene: scene)');
+    expect(window).toContain('window.windowLevel = .alert + 1');
+    expect(filesMatching(/TeamCallScreen\(manager:/)).toEqual(['Features/Calls/TeamCalls/TeamCallWindow.swift']);
+    const root = files.find((f) => f.path === 'App/WebyarApp.swift')!.text;
+    expect(root).toContain('TeamCallWindowAnchor(active: calls.call != nil)');
+  });
+
+  it('ends a call on the server with time to finish, and never by a cancel the caller cannot be sure of', () => {
+    // CallKit's call is gone once its end action is fulfilled; a VoIP launch
+    // has nothing else keeping the app running while the request goes out.
+    const tell = manager().slice(manager().indexOf('private func tell('), manager().indexOf('private func stopTimers('));
+    expect(tell).toContain('BackgroundGrace.run(');
+    const teardown = manager().slice(manager().indexOf('private func teardown('));
+    expect(teardown.slice(0, teardown.indexOf('\n    }\n'))).toMatch(/BackgroundGrace\.run\([\s\S]*leaving\?\.disconnect\(\)/);
+    expect(manager()).toContain('beginBackgroundTask(withName:');
+    // Every request that ends a call goes through `tell`.
+    expect(filesMatching(/\.(hangUpTeamCall|declineTeamCall)\(id:/)).toEqual(['Features/Calls/TeamCalls/CallManager.swift']);
+    expect(manager().match(/\.(hangUpTeamCall|declineTeamCall)\(id:/g)!.length).toBe(
+      tell.match(/\.(hangUpTeamCall|declineTeamCall)\(id:/g)!.length,
+    );
+    // `POST /cancel` is a no-op on a call answered a moment ago; the caller's
+    // hang-up is a cancel or an end, as the server finds the call.
+    const client = files.find((f) => f.path === 'Core/Networking/APIClient.swift')!.text;
+    expect(client).not.toMatch(/team-calls\/[^"]*\/cancel"/);
   });
 });
 

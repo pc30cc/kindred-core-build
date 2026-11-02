@@ -247,14 +247,34 @@ describe('iOS app — permission purpose strings', () => {
     const en = readFileSync(join(APP, 'Resources/en.lproj/InfoPlist.strings'), 'utf8');
     expect(en).toMatch(/NSMicrophoneUsageDescription[^\n]*voice note/i);
   });
+
+  it('says colleagues in the microphone and camera strings, because colleagues call too', () => {
+    // A colleague call uses both, in both apps and every language.
+    for (const dir of Object.values(STRINGS_DIRS)) {
+      const en = readFileSync(join(APP, `${dir}/en.lproj/InfoPlist.strings`), 'utf8');
+      expect(en, dir).toMatch(/NSMicrophoneUsageDescription[^\n]*colleague/i);
+      expect(en, dir).toMatch(/NSCameraUsageDescription[^\n]*colleague/i);
+      const fa = readFileSync(join(APP, `${dir}/fa.lproj/InfoPlist.strings`), 'utf8');
+      expect(fa, dir).toMatch(/NSMicrophoneUsageDescription[^\n]*همکار/);
+      expect(fa, dir).toMatch(/NSCameraUsageDescription[^\n]*همکار/);
+    }
+    for (const [name, target] of appTargets) {
+      expect(String(target.info.properties.NSMicrophoneUsageDescription), name).toMatch(/colleague/);
+      expect(String(target.info.properties.NSCameraUsageDescription), name).toMatch(/colleague/);
+    }
+  });
 });
 
 describe('iOS app — background modes are earned', () => {
-  it('declares audio only, and the sources justify it', () => {
-    expect(project).toMatch(/UIBackgroundModes:\s*\n\s*-\s*audio\s*\n/);
+  it('declares audio and voip, and the sources justify both', () => {
+    expect(project).toMatch(/UIBackgroundModes:\s*\n\s*-\s*audio\s*\n\s*-\s*voip\s*\n/);
     // `audio` is reviewed closely. It is here because a call must survive the
     // screen locking, and LiveKit holds the session.
     expect(sources).toMatch(/LiveKit/);
+    // `voip` is a colleague call's ring: PushKit wakes the app, CallKit shows
+    // the call (docs/operations/TEAM_CALLS.md).
+    expect(sources).toMatch(/PKPushRegistry/);
+    expect(sources).toMatch(/CXProvider/);
   });
 
   it('does not claim voip without PushKit, which iOS would kill it for', () => {

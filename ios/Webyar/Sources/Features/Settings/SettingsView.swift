@@ -74,14 +74,17 @@ struct SettingsView: View {
         var links: [SettingsFooter.Link] = []
         // The site's address and name are Super Admin's (Mobile App → iOS →
         // In-app settings).
-        if let website = appState.websiteURL {
+        // In the language on screen, on WebYar's own site (`SiteLinks`).
+        if let website = appState.siteWebsiteURL {
             links.append(.init(kind: .website, title: appState.websiteLabel, url: website))
         }
-        // Super Admin → Mobile App → App Store record.
-        if let privacy = appState.legalLinks.privacyPolicy {
+        // Super Admin → Mobile App → App Store record; WebYar's follow the
+        // language on the site the website link names.
+        let legal = appState.siteLegalLinks
+        if let privacy = legal.privacyPolicy {
             links.append(.init(kind: .privacyPolicy, title: SettingsStr.privacyPolicy(language), url: privacy))
         }
-        if let terms = appState.legalLinks.terms {
+        if let terms = legal.terms {
             links.append(.init(kind: .terms, title: SettingsStr.termsOfUse(language), url: terms))
         }
         return links

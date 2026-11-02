@@ -41,7 +41,8 @@ final class PushController {
     /// and never tells us.
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
 
-    /// Whether the server has this device's current address.
+    /// Whether the server has this device's current alert address — the one
+    /// banners go to, which Settings → Notifications reports on.
     private(set) var isRegistered = false
 
     /// What the server said when it took the registration. `false` means the
@@ -54,6 +55,11 @@ final class PushController {
     private(set) var lastFailure: String?
 
     private var deviceToken: String?
+    /// PushKit's address for this phone, which rings colleague calls
+    /// (`VoIPPushes`). It needs no permission — a VoIP push is a call, which
+    /// CallKit shows, never a banner — so it can exist while `deviceToken`
+    /// does not, and it is registered on its own when it does.
+    private var voipToken: String?
     private var isSignedIn = false
     private var workspaceID: String?
     /// The permission the server was last told about, so a change made in
@@ -118,7 +124,9 @@ final class PushController {
         // heard: it says so on the device row, which is what the platform's
         // delivery status reads — a phone that silently stopped showing
         // banners is otherwise indistinguishable from one that gets them.
-        if isRegistered, reportedPermission != permissionString {
+        // `reportedPermission` is set by any registration that landed, the
+        // VoIP-only one included: the row exists either way.
+        if let reported = reportedPermission, reported != permissionString {
             await pushToServer()
         }
     }
@@ -168,6 +176,23 @@ final class PushController {
         lastFailure = error.localizedDescription
     }
 
+    /// Called by `VoIPPushes` with PushKit's address for this phone.
+    ///
+    /// Registered whenever it changes, with or without an alert address: a
+    /// colleague can ring an operator who never allowed banners.
+    func adopt(voipToken hex: String) async {
+        guard hex != voipToken else { return }
+        voipToken = hex
+        await pushToServer()
+    }
+
+    /// PushKit took the address back (`didInvalidatePushTokenFor`). The
+    /// server's copy is left alone: a send to it fails and is disabled there,
+    /// and the next address PushKit hands over replaces it.
+    func voipTokenInvalidated() {
+        voipToken = nil
+    }
+
     /// The operator has signed in, or changed workspace.
     ///
     /// The device row is owned by a user, so a token registered before
@@ -177,7 +202,13 @@ final class PushController {
     func sessionChanged(signedIn: Bool, workspaceID: String?) async {
         isSignedIn = signedIn
         self.workspaceID = workspaceID
+        // Signed out is NOT a reason to stop listening here: the first frame
+        // of every launch is "nobody yet" while the session is restored, and
+        // giving the VoIP address up then would drop the very push that
+        // launched the app. The address is given up where a session really
+        // ends — `signOut()` and `sessionEnded()`.
         guard signedIn else { return }
+        VoIPPushes.shared.listen(true)
         await refreshAuthorization()
         await pushToServer()
     }
@@ -185,19 +216,22 @@ final class PushController {
     private func pushToServer() async {
         // Not gated on permission: a token that exists was issued while it
         // was granted, and a revocation since is exactly what the row should
-        // now say.
-        guard isSignedIn, let deviceToken else { return }
+        // now say. Either address is enough for a row; each goes when it is
+        // known, and one that is not yet is left as the server has it.
+        guard isSignedIn, deviceToken != nil || voipToken != nil else { return }
         let permission = permissionString
+        let alertToken = deviceToken
         do {
             let result = try await api.registerPushDevice(
-                token: deviceToken,
+                token: alertToken,
+                voipToken: voipToken,
                 deviceID: deviceID,
                 deviceName: deviceName,
                 appVersion: appVersion,
                 permission: permission,
                 workspaceID: workspaceID
             )
-            isRegistered = true
+            isRegistered = alertToken != nil
             reportedPermission = permission
             platformCanSend = result.pushEnabled
             lastFailure = nil
@@ -223,6 +257,10 @@ final class PushController {
         // row's next send will fail with an unregistered token and be
         // disabled anyway.
         try? await api.unregisterPushDevice(deviceID: deviceID)
+        // Nobody signed in here is rung for: PushKit stops delivering, and a
+        // stale address on the server can only fail. The next sign-in asks
+        // for one again (`sessionChanged`).
+        releaseVoIP()
     }
 
     /// The session ended without a sign-out: it expired, was revoked, or
@@ -237,6 +275,13 @@ final class PushController {
         forgetSession()
         deviceToken = nil
         UIApplication.shared.unregisterForRemoteNotifications()
+        releaseVoIP()
+    }
+
+    /// Gives PushKit's address up with the session, as the alert one is.
+    private func releaseVoIP() {
+        voipToken = nil
+        VoIPPushes.shared.listen(false)
     }
 
     /// Everything that belonged to the account that just left: where it was

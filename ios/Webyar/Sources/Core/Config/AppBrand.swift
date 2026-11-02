@@ -40,6 +40,9 @@ enum AppBrand {
     /// edition Persian is only right-to-left text, so its dates are Gregorian in Persian digits
     /// (`fa_IR@calendar=gregorian`), as in RESPOK's desktop apps.
     static let jalaliDates = false
+    /// Whether the site links follow the app's language (`SiteLinks`): RESPOK keeps
+    /// the pages it is given.
+    static let localizedSitePaths = false
     #else
     static let id = "webyar"
     static let name = "Webyar"
@@ -52,6 +55,8 @@ enum AppBrand {
     static let tempPrefix = "webyar"
     static let realtimeName = "webyar-ios"
     static let jalaliDates = true
+    /// Persian at the site's root, every other language under its code (owner, 2026-11-01).
+    static let localizedSitePaths = true
     #endif
 
     /// The API a fresh install makes its first request to: this brand's own bootstrap,

@@ -5,6 +5,6 @@
    for everybody. The Respok target (project.yml) bundles these files in place
    of Resources/<lang>.lproj/InfoPlist.strings, the other brand's. */
 "CFBundleDisplayName" = "RESPOK";
-"NSMicrophoneUsageDescription" = "RESPOK uses the microphone when you call a visitor, and when you record a voice note to send into a conversation.";
-"NSCameraUsageDescription" = "RESPOK uses the camera when you start a video call with a visitor.";
+"NSMicrophoneUsageDescription" = "RESPOK uses the microphone when you call a visitor or a colleague, and when you record a voice note to send into a conversation.";
+"NSCameraUsageDescription" = "RESPOK uses the camera when you start or answer a video call with a visitor or a colleague.";
 "NSPhotoLibraryAddUsageDescription" = "RESPOK saves a photo or video to your library when you choose Save on a file opened from a conversation or an email.";

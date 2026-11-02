@@ -49,7 +49,7 @@ actor APIClient {
     private let encoder: JSONEncoder
 
     /// Set on login, cleared on a *confirmed* logout. Held in memory so the
-    /// Keychain is not read on every single request.
+    /// Keychain is not read on every single request (`currentToken()`).
     private var token: String?
 
     init(baseURL: URL = PlatformOrigin.current) {
@@ -131,6 +131,7 @@ actor APIClient {
     private func adopt(_ origins: PlatformOrigins) {
         PlatformOrigin.rememberSupport(origins.support)
         PlatformOrigin.rememberWebsite(origins.website)
+        PlatformOrigin.rememberSite(origins.site)
         guard let api = origins.api, api != baseURL else { return }
         PlatformOrigin.remember(api)
         baseURL = api
@@ -169,7 +170,24 @@ actor APIClient {
 
     // MARK: - Session lifecycle
 
-    var hasToken: Bool { token != nil }
+    var hasToken: Bool { currentToken() != nil }
+
+    /// The session's token: the one held, or — while none is — the
+    /// Keychain's, read again.
+    ///
+    /// Again, because the Keychain may have been locked when this client was
+    /// made. A VoIP push can launch the app after the phone restarts, before
+    /// its first unlock, when nothing kept "after first unlock" can be read
+    /// (`TokenStore.Presence.unreadable`); this client is made on that
+    /// launch, by the call that push rings, and lives on. Holding on to that
+    /// first nil would greet the operator with the sign-in screen once they
+    /// unlock and open the app, and refuse their colleague's next call, with
+    /// their session still in the Keychain. A confirmed sign-out deletes the
+    /// Keychain's copy too (`setToken(nil)`), so nothing is read back then.
+    private func currentToken() -> String? {
+        if token == nil { token = TokenStore.read() }
+        return token
+    }
 
     func setToken(_ value: String?) {
         token = value
@@ -193,7 +211,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token {
+        if let token = currentToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body {
@@ -296,7 +314,7 @@ actor APIClient {
 
     /// Confirms the stored token still names a live session.
     func currentUser() async throws -> User {
-        guard token != nil else { throw APIError.unauthorized }
+        guard currentToken() != nil else { throw APIError.unauthorized }
         let request = try makeRequest("GET", "/api/auth/session")
         let result = try await perform(request, as: SessionResponse.self)
         guard let user = result.user else { throw APIError.unauthorized }
@@ -782,6 +800,99 @@ actor APIClient {
     func hangUp(callSessionID: String) async throws {
         let request = try makeRequest("POST", "/api/calls/\(callSessionID)/hangup")
         try await performIgnoringBody(request)
+    }
+
+    // MARK: - Colleague calls
+    //
+    // `/api/team-calls` (docs/operations/TEAM_CALLS.md). Every route answers
+    // `{ call }` for the member asking; the generic `/api/calls/:id/*` routes
+    // above answer 404 for one of these, so none of them is reused here.
+
+    private struct TeamCallBody: Encodable, Sendable {
+        let workspace_id: String
+        let callee_id: String
+        let channel: String
+    }
+
+    private struct TeamCallAcceptBody: Encodable, Sendable {
+        let device_id: String
+    }
+
+    /// Rings a colleague. The refusals the call screen explains — busy, not
+    /// in the plan, a limit — arrive as `APIError.server` with the server's
+    /// code as the message (`TeamCallEnd.refusal`).
+    func startTeamCall(workspaceID: String, calleeID: String, channel: CallChannel) async throws -> TeamCall {
+        let request = try makeRequest(
+            "POST", "/api/team-calls",
+            body: TeamCallBody(workspace_id: workspaceID, callee_id: calleeID, channel: channel.rawValue)
+        )
+        return try await perform(request, as: TeamCallResponse.self).call
+    }
+
+    /// The call as it stands; 404 for anybody but its caller and its callee.
+    func teamCall(id: String) async throws -> TeamCall {
+        let request = try makeRequest("GET", "/api/team-calls/\(Self.escape(id))")
+        return try await perform(request, as: TeamCallResponse.self).call
+    }
+
+    /// Answers on this phone. First answer wins: a `409 not_ringing` is an
+    /// answer too — the call went to another phone, or ended — and carries
+    /// the call as it now is, so it is read here rather than thrown away.
+    func acceptTeamCall(id: String, deviceID: String) async throws -> TeamCallAcceptance {
+        let request = try makeRequest(
+            "POST", "/api/team-calls/\(Self.escape(id))/accept",
+            body: TeamCallAcceptBody(device_id: deviceID)
+        )
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.transport
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+        switch http.statusCode {
+        case 200..<300:
+            guard let answer = try? decoder.decode(TeamCallResponse.self, from: data) else { throw APIError.decoding }
+            return .accepted(answer.call)
+        case 401:
+            throw APIError.unauthorized
+        case 409:
+            return .notRinging(try? decoder.decode(TeamCallResponse.self, from: data).call)
+        default:
+            let message = try? decoder.decode(ErrorResponse.self, from: data).error
+            throw APIError.server(status: http.statusCode, message: message)
+        }
+    }
+
+    /// The callee's No, while this phone rings. Idempotent server-side, and
+    /// a no-op on a call no longer ringing — so it can never end a call the
+    /// member's other phone has just answered.
+    func declineTeamCall(id: String) async throws {
+        let request = try makeRequest("POST", "/api/team-calls/\(Self.escape(id))/decline")
+        try await performIgnoringBody(request)
+    }
+
+    /// Ending the call from this phone. The server reads it by the call's
+    /// state when it arrives, not by what this phone last saw: from the
+    /// caller, a cancel while the colleague's phones ring and the end of the
+    /// call once they have answered — so an answer this phone has not heard
+    /// of yet is never left talking to an empty room, which `POST /cancel`
+    /// (a no-op once answered) would do, and why this app never sends it.
+    /// Idempotent server-side, which matters as it does for a visitor call:
+    /// a hang-up that races the colleague's own is not an error anybody
+    /// should see.
+    func hangUpTeamCall(id: String) async throws {
+        let request = try makeRequest("POST", "/api/team-calls/\(Self.escape(id))/hangup")
+        try await performIgnoringBody(request)
+    }
+
+    /// This member's LiveKit token for the call's room, in the shape a
+    /// visitor call's token comes in. Nothing goes in the body: the identity
+    /// and the name are the session's, never the phone's to choose.
+    func teamCallToken(id: String) async throws -> CallToken {
+        let request = try makeRequest("POST", "/api/team-calls/\(Self.escape(id))/token")
+        return try await perform(request, as: CallToken.self)
     }
 
     // MARK: - Plan
@@ -1346,7 +1457,14 @@ actor APIClient {
         /// addresses Firebase or Apple, and it defaults to Firebase for every
         /// client that predates this app.
         let transport = "apns"
-        let push_token: String
+        /// Either address may be missing — they arrive from two different
+        /// system callbacks, the alert one only once notifications are
+        /// allowed, the VoIP one without asking — and a missing one is left
+        /// out of the body (synthesized `Encodable` skips a nil), which the
+        /// server reads as "leave it as it is" (`registerDevice` writes only
+        /// the address it is given).
+        let push_token: String?
+        let voip_token: String?
         let device_id: String
         let device_name: String
         let app_version: String
@@ -1359,7 +1477,8 @@ actor APIClient {
     }
 
     func registerPushDevice(
-        token: String,
+        token: String?,
+        voipToken: String?,
         deviceID: String,
         deviceName: String,
         appVersion: String,
@@ -1371,6 +1490,7 @@ actor APIClient {
             "/api/push/devices",
             body: DeviceBody(
                 push_token: token,
+                voip_token: voipToken,
                 device_id: deviceID,
                 device_name: deviceName,
                 app_version: appVersion,

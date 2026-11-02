@@ -14,6 +14,25 @@
  *   4. Apply effects to call_sessions / call_participants / call_recordings
  *      / call_events. All updates are idempotent.
  *
+ * A colleague call (`entry_source = 'team_call'`, docs/operations/
+ * TEAM_CALLS.md) has rules of its own, because its state is the apps' to
+ * read and only teamCallLifecycle.ts moves it: `room_started` changes
+ * nothing (its room is made while it rings); `participant_joined` makes an
+ * answered call `active` once both members are in; `participant_left` after
+ * the answer ends it (completed) — a member whose app died is ended here;
+ * `room_finished` completes an answered call and never rewrites an ended,
+ * missed or cancelled one. A room that starts again, or is joined, after its
+ * call is over is closed at once (a kept token must not buy uncounted time).
+ * The participants are recorded as for any call.
+ *
+ * A connection LiveKit drops because the same identity joined again
+ * (`disconnectReason: DUPLICATE_IDENTITY` — a client's full reconnect after a
+ * network change, or an app rejoining with a fresh token) is not that
+ * participant leaving: the identity is still in the room, on its new
+ * connection. Its `participant_left` is logged and changes nothing — no
+ * `left_at`, no released busy-lock, and no colleague call ended under the
+ * member who is still in it.
+ *
  * STRICT:
  *   - This is the ONLY route mounted without standard auth - LiveKit calls
  *     it directly. Membership check is impossible (no user). We rely
@@ -38,6 +57,13 @@ import { resolveStorageConfig } from '../services/storage/index.js';
 import { assertCallRecordingKey, StorageKeyError } from '../services/storage/keys.js';
 import { mustDb } from '../utils/mustDb.js';
 import { parseParticipantIdentity, resolveParticipantId } from '../services/calls/operatorIdentity.js';
+import { TEAM_CALL_ENTRY_SOURCE } from '../services/calls/teamCall.js';
+import {
+  closeRoomOfFinishedTeamCall,
+  onTeamCallParticipantJoined,
+  onTeamCallParticipantLeft,
+  onTeamCallRoomFinished,
+} from '../services/calls/teamCallLifecycle.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -63,6 +89,8 @@ export interface LiveKitWebhookEvent {
     state?: string;
     metadata?: string;
     joinedAt?: number;
+    /** Why LiveKit closed the connection (protojson: the enum's name; its number from older encoders). */
+    disconnectReason?: string | number;
   };
   egressInfo?: {
     egressId?: string;
@@ -72,6 +100,15 @@ export interface LiveKitWebhookEvent {
     fileResults?: Array<{ filename?: string; size?: number; duration?: number }>;
   };
   track?: { sid?: string; type?: string };
+}
+
+/** livekit.DisconnectReason DUPLICATE_IDENTITY, by name and by number. */
+const DUPLICATE_IDENTITY: ReadonlySet<string | number> = new Set(['DUPLICATE_IDENTITY', 2]);
+
+/** A `participant_left` for a connection the same identity's new one replaced. */
+function isReplacedConnection(ev: LiveKitWebhookEvent): boolean {
+  const reason = ev.participant?.disconnectReason;
+  return reason !== undefined && DUPLICATE_IDENTITY.has(reason);
 }
 
 function parseRoomMetadata(raw: string | undefined): {
@@ -123,7 +160,7 @@ function parseRoomMetadata(raw: string | undefined): {
 async function resolveCallSession(
   config: ServerConfig,
   ev: LiveKitWebhookEvent,
-): Promise<{ id: string; workspace_id: string; provider: string } | null> {
+): Promise<{ id: string; workspace_id: string; provider: string; entry_source: string | null } | null> {
   const sb = getServiceClient(config);
   // Prefer the metadata-embedded id (deterministic, set at createRoom).
   const meta = parseRoomMetadata(ev.room?.metadata);
@@ -131,7 +168,7 @@ async function resolveCallSession(
     const data = await mustDb(
       await sb
         .from('call_sessions')
-        .select('id, workspace_id, provider')
+        .select('id, workspace_id, provider, entry_source')
         .eq('id', meta.call_session_id)
         .maybeSingle(),
       'call_sessions.select:resolveCallSession.byId',
@@ -143,7 +180,7 @@ async function resolveCallSession(
     const data = await mustDb(
       await sb
         .from('call_sessions')
-        .select('id, workspace_id, provider')
+        .select('id, workspace_id, provider, entry_source')
         .eq('provider_room_id', ev.room.name)
         .maybeSingle(),
       'call_sessions.select:resolveCallSession.byRoomName',
@@ -179,8 +216,19 @@ export async function applyEvent(
     );
   };
 
+  const teamCall = session.entry_source === TEAM_CALL_ENTRY_SOURCE;
+
   switch (ev.event) {
     case 'room_started': {
+      // A colleague call's room is made while it rings: its start is the
+      // answer, which the API records, not the room.
+      if (teamCall) {
+        await recordEvent('room_started', { sid: ev.room?.sid });
+        // A room started again after its call ended is closed (see the
+        // lifecycle's closeRoomOfFinishedTeamCall); while it rings it stays.
+        await closeRoomOfFinishedTeamCall(config, session.id, ev.room?.name);
+        return { applied: true };
+      }
       // The room exists (the operator may be in it); the call itself starts
       // when the visitor joins — participant_joined below, or the visitor's
       // join token — so connected_at is not stamped here.
@@ -199,6 +247,12 @@ export async function applyEvent(
       return { applied: true };
     }
     case 'room_finished': {
+      if (teamCall) {
+        const move = await onTeamCallRoomFinished(config, session.id);
+        await move?.effects;
+        await recordEvent('room_finished', { sid: ev.room?.sid });
+        return { applied: true };
+      }
       const { data: cur } = await sb
         .from('call_sessions')
         .select('started_at')
@@ -278,10 +332,28 @@ export async function applyEvent(
       if (ptype === 'operator' && memberId) {
         void markInCall(config, session.workspace_id, memberId, session.id).catch(() => {});
       }
+      // A colleague call is active once both of its members are in; a
+      // member joining a call that is over is put out with its room.
+      if (teamCall) {
+        if (await closeRoomOfFinishedTeamCall(config, session.id, ev.room?.name)) {
+          return { applied: true };
+        }
+        const move = await onTeamCallParticipantJoined(config, session.id);
+        await move?.effects;
+      }
       return { applied: true };
     }
     case 'participant_left': {
       const identity = ev.participant?.identity || '';
+      // The identity rejoined: its new connection is in the room (see top).
+      if (isReplacedConnection(ev)) {
+        await recordEvent('participant_left', {
+          identity,
+          sid: ev.participant?.sid ?? null,
+          disconnect_reason: 'DUPLICATE_IDENTITY',
+        });
+        return { applied: true };
+      }
       const ptype = parseParticipantIdentity(identity).type;
       const memberId = ptype !== 'visitor'
         ? await resolveParticipantId(config, sb, { callSessionId: session.id, workspaceId: session.workspace_id, identity })
@@ -295,6 +367,11 @@ export async function applyEvent(
       // Phase 8D — operator left media → release busy lock.
       if (ptype === 'operator' && memberId) {
         void clearInCall(config, session.workspace_id, memberId).catch(() => {});
+      }
+      // A member leaving an answered colleague call ends it for both.
+      if (teamCall) {
+        const move = await onTeamCallParticipantLeft(config, session.id);
+        await move?.effects;
       }
       return { applied: true };
     }

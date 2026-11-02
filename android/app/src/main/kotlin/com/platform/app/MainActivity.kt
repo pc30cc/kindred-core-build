@@ -195,7 +195,11 @@ class MainActivity : ComponentActivity() {
             showOverLockScreen(true)
             if (call.answer) {
                 // Answered: the ring has done its job on this phone.
-                CallNotifications.stop(this, call.callId, missed = false, language = appState.language.value)
+                if (call.isColleague) {
+                    CallNotifications.stopTeam(this, call.callId, missed = false, language = appState.language.value)
+                } else {
+                    CallNotifications.stop(this, call.callId, missed = false, language = appState.language.value)
+                }
                 CallNotifications.forget(call.callId)
             }
             appState.openIncomingCall(call)

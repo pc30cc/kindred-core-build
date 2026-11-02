@@ -322,6 +322,35 @@ export const livekitProvider: CallProvider = {
     }
   },
 
+  async listRoomIdentities(config, providerRoomId): Promise<string[]> {
+    const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
+    type ParticipantItem = { identity?: string; state?: string | number };
+    let result: { participants?: ParticipantItem[] };
+    try {
+      result = await twirp<{ participants?: ParticipantItem[] }>({
+        baseUrl,
+        apiKey,
+        apiSecret,
+        service: 'livekit.RoomService',
+        method: 'ListParticipants',
+        body: { room: providerRoomId },
+        room: providerRoomId,
+        // Asked once a minute for every answered colleague call: a LiveKit
+        // that does not answer must not hold the room check up for long.
+        timeoutMs: 5_000,
+      });
+    } catch (err) {
+      // A room LiveKit no longer has is an empty room, not a failure to ask.
+      if (err instanceof LiveKitTwirpError && err.code === 'not_found') return [];
+      throw err;
+    }
+    // A participant on its way out (DISCONNECTED, 3) is no longer in the room.
+    return (result.participants ?? [])
+      .filter((p) => p.state !== 'DISCONNECTED' && p.state !== 3)
+      .map((p) => (typeof p.identity === 'string' ? p.identity : ''))
+      .filter((identity) => identity.length > 0);
+  },
+
   async createParticipantToken(
     config,
     input: ParticipantTokenInput,

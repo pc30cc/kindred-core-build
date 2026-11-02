@@ -230,41 +230,7 @@ private fun Identity(
         verticalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         if (!compact) {
-            // While it rings the avatar sits on a slowly turning, breathing
-            // scalloped shape — Expressive's way of saying "working" without
-            // a spinner — so the wait does not look like a frozen screen.
-            // Once answered the shape stops and settles into a quiet halo.
-            val ringing = phase == CallPhase.Ringing || phase == CallPhase.Waiting || phase == CallPhase.Connecting
-            val turn by rememberLoop(
-                label = "ring.turn",
-                from = 0f,
-                to = 360f,
-                spec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
-            )
-            val breath by rememberLoop(
-                label = "ring.breath",
-                from = 0.92f,
-                to = 1.06f,
-                spec = infiniteRepeatable(
-                    animation = tween(Motion.skeletonPulse * 2),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                rest = 1f,
-            )
-            val halo = remember { PolygonShape(ExpressiveShapes.cookie9) }
-            Box(Modifier.size(Size.avatarLarge + 56.dp), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            rotationZ = if (ringing) turn else 0f
-                            val scale = if (ringing) breath else 1f
-                            scaleX = scale
-                            scaleY = scale
-                        }
-                        .clip(halo)
-                        .background(Color.White.copy(alpha = if (ringing) 0.16f else 0.10f)),
-                )
+            CallHalo(ringing = phase == CallPhase.Ringing || phase == CallPhase.Waiting || phase == CallPhase.Connecting) {
                 Avatar(
                     name = contactName,
                     imageUrl = contactAvatarUrl,
@@ -284,6 +250,50 @@ private fun Identity(
         )
 
         Status(phase, connectedAt, language, video)
+    }
+}
+
+/**
+ * The face of whoever is on the other end, on its halo.
+ *
+ * While it rings the face sits on a slowly turning, breathing scalloped
+ * shape — Expressive's way of saying "working" without a spinner — so the
+ * wait does not look like a frozen screen. Once answered the shape stops and
+ * settles into a quiet halo. The same for a visitor's call and a colleague's.
+ */
+@Composable
+internal fun CallHalo(ringing: Boolean, face: @Composable () -> Unit) {
+    val turn by rememberLoop(
+        label = "ring.turn",
+        from = 0f,
+        to = 360f,
+        spec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
+    )
+    val breath by rememberLoop(
+        label = "ring.breath",
+        from = 0.92f,
+        to = 1.06f,
+        spec = infiniteRepeatable(
+            animation = tween(Motion.skeletonPulse * 2),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        rest = 1f,
+    )
+    val halo = remember { PolygonShape(ExpressiveShapes.cookie9) }
+    Box(Modifier.size(Size.avatarLarge + 56.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationZ = if (ringing) turn else 0f
+                    val scale = if (ringing) breath else 1f
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .clip(halo)
+                .background(Color.White.copy(alpha = if (ringing) 0.16f else 0.10f)),
+        )
+        face()
     }
 }
 
@@ -354,7 +364,7 @@ private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language, 
 
 /** Something the operator should know but does not have to act on. */
 @Composable
-private fun Notice(text: String) {
+internal fun Notice(text: String) {
     Surface(
         color = Color.White.copy(alpha = 0.12f),
         contentColor = Color.White,
@@ -482,7 +492,7 @@ private fun Controls(
  * moment a call connects.
  */
 @Composable
-private fun CallToggle(
+internal fun CallToggle(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     tag: String,
@@ -543,7 +553,7 @@ private fun CallToggle(
  * Not from the theme: a call is the one screen that looks the same in light
  * mode and dark, the way every phone's own dialler does.
  */
-private val CALL_BACKGROUND = Color(0xFF111418)
+internal val CALL_BACKGROUND = Color(0xFF111418)
 
 /**
  * The red under "end call", fixed for the same reason as the background.
@@ -551,7 +561,7 @@ private val CALL_BACKGROUND = Color(0xFF111418)
  * iOS uses `systemRed` here; this is its dark-mode value, which is the one
  * that belongs on a near-black screen.
  */
-private val CALL_END_RED = Color(0xFFFF453A)
+internal val CALL_END_RED = Color(0xFFFF453A)
 
 /** The green under "answer": iOS's `systemGreen`, dark-mode value, for the same reason. */
-private val CALL_ANSWER_GREEN = Color(0xFF30D158)
+internal val CALL_ANSWER_GREEN = Color(0xFF30D158)

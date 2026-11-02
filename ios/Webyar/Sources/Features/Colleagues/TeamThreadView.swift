@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import Observation
 
@@ -223,6 +224,10 @@ struct TeamThreadView: View {
     @Environment(\.locale) private var locale
     @State private var model = TeamThreadViewModel()
     @FocusState private var isWriting: Bool
+    /// Read so the call buttons step aside while a call is on.
+    @State private var calls = CallManager.shared
+    /// The microphone was refused, so no call was placed.
+    @State private var callNeedsMicrophone = false
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
@@ -237,6 +242,15 @@ struct TeamThreadView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .navigationTitle(colleague.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { callButtons }
+            .alert(Str.teamCallNeedsMicrophone(language), isPresented: $callNeedsMicrophone) {
+                Button(Str.pushOpenSettings(language)) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button(Str.cancel(language), role: .cancel) {}
+            }
             // No banner for the thread on screen, and none left behind for it
             // once it has been read.
             .onAppear {
@@ -432,6 +446,41 @@ struct TeamThreadView: View {
             onRemovePhoto: { model.photos.discard() },
             onRetryPhoto: { model.photos.retry() }
         )
+    }
+
+    /// A voice call and a video call with this colleague — here and nowhere
+    /// else in the app — each only when the plan has that kind
+    /// (`AppState.teamCallAllowed`), and neither while a call is on.
+    @ToolbarContentBuilder
+    private var callButtons: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            ForEach([CallChannel.audio, .video].filter { appState.teamCallAllowed($0) }) { channel in
+                Button {
+                    Task { await call(channel) }
+                } label: {
+                    Image(systemName: channel.icon)
+                }
+                .disabled(calls.call.map { !$0.phase.isOver } ?? false)
+                .accessibilityLabel(channel == .video ? Str.teamCallVideoAction(language) : Str.teamCallVoiceAction(language))
+            }
+        }
+    }
+
+    /// Asked before the colleague's phone rings, as a visitor call asks
+    /// before the visitor is invited: iOS records silence rather than failing
+    /// when the microphone is refused, and its own question arriving after
+    /// the answer lands in the middle of the call. The camera's answer is the
+    /// call's to handle — refused, a video call goes on as voice.
+    private func call(_ channel: CallChannel) async {
+        guard await AVAudioApplication.requestRecordPermission() else {
+            callNeedsMicrophone = true
+            return
+        }
+        if channel == .video {
+            _ = await AVCaptureDevice.requestAccess(for: .video)
+        }
+        guard let workspaceID else { return }
+        calls.place(to: colleague, channel: channel, workspaceID: workspaceID)
     }
 
     /// Every composer tool: an internal thread has no AI to hand over to, and

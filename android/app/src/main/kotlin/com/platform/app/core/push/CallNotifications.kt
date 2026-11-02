@@ -11,10 +11,13 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.RingtoneManager
+import android.graphics.Bitmap
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 import androidx.core.content.ContextCompat
 import com.platform.app.MainActivity
 import com.platform.app.R
@@ -39,11 +42,14 @@ fun IncomingCallLink.Companion.from(intent: Intent?): IncomingCallLink? {
         channel = CallChannel.from(intent.getStringExtra(CallNotifications.EXTRA_CHANNEL)),
         caller = intent.getStringExtra(CallNotifications.EXTRA_CALLER)?.take(120).orEmpty(),
         answer = answer,
+        colleagueId = intent.getStringExtra(CallNotifications.EXTRA_COLLEAGUE)?.takeIf { PushPayload.isId(it) },
+        callerAvatarUrl = TeamCallRing.avatarUrl(intent.getStringExtra(CallNotifications.EXTRA_AVATAR)),
     )
 }
 
 /**
- * A call-centre call ringing this phone, and what it leaves behind.
+ * A call ringing this phone — a visitor's to the call centre, or a
+ * colleague's — and what it leaves behind.
  *
  * Its own channel, [AppBrand.callsChannel], apart from messages: it rings with the
  * phone's ringtone rather than the notification sound, and an operator who
@@ -55,6 +61,12 @@ fun IncomingCallLink.Companion.from(intent: Intent?): IncomingCallLink? {
  * It rings until it is answered, declined, or the server says stop; and it
  * stops by itself at the ring's expiry, because a ring whose cancel never
  * arrived must not go on for ever.
+ *
+ * A colleague's ring differs in three things: their face rides with it (their
+ * photo, or the platform's silhouette, never a letter: [CallerFace]); Decline
+ * tells the server, which ends the call for the caller
+ * ([CallActionReceiver]); and a ring the colleague gave up on, or nobody
+ * answered, leaves a missed call that opens their thread.
  */
 object CallNotifications {
     const val CHANNEL_CALLS = AppBrand.callsChannel
@@ -63,11 +75,18 @@ object CallNotifications {
     const val ACTION_ANSWER = AppBrand.callActionPrefix + ".ANSWER"
     const val ACTION_SHOW = AppBrand.callActionPrefix + ".SHOW"
     const val ACTION_DECLINE = AppBrand.callActionPrefix + ".DECLINE"
+
+    /** Decline on a colleague's ring: told to the server, unlike the call centre's. */
+    const val ACTION_TEAM_DECLINE = AppBrand.callActionPrefix + ".TEAM_DECLINE"
     const val EXTRA_CALL = "callId"
     const val EXTRA_WORKSPACE = "workspaceId"
     const val EXTRA_CHANNEL = "channel"
     const val EXTRA_CALLER = "caller"
     const val EXTRA_EXPIRES = "expiresAt"
+
+    /** On a colleague's ring only: who is calling, and their photo. */
+    const val EXTRA_COLLEAGUE = "colleagueId"
+    const val EXTRA_AVATAR = "callerAvatarUrl"
 
     fun ensureChannel(context: Context, language: Language, rename: Boolean = true) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -94,36 +113,116 @@ object CallNotifications {
     }
 
     /** Rings: the caller, Answer and Decline, full screen where allowed. */
-    @SuppressLint("MissingPermission") // Notifications.canPost() is the check, and it runs first.
     fun showIncoming(context: Context, call: IncomingCall, language: Language, nowMillis: Long = System.currentTimeMillis()) {
-        if (!Notifications.canPost(context)) return
-        val remaining = call.expiresAt * 1000 - nowMillis
-        if (remaining <= 0) return
-        ensureChannel(context, language, rename = false)
-
         // The name the inbox list gives them, anonymous visitors included.
         val name = call.displayName(language)
-        val caller = Person.Builder().setName(name).setImportant(true).build()
         val video = call.channel == CallChannel.VIDEO
-        val answer = activityIntent(context, call, ACTION_ANSWER, name)
-        val show = activityIntent(context, call, ACTION_SHOW, name)
-        val decline = PendingIntent.getBroadcast(
-            context,
-            requestCode(call.callId, ACTION_DECLINE),
-            Intent(context, CallActionReceiver::class.java).apply {
-                action = ACTION_DECLINE
-                putExtra(EXTRA_CALL, call.callId)
-                putExtra(EXTRA_WORKSPACE, call.workspaceId)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        val posted = postRing(
+            context = context,
+            tag = TAG,
+            callId = call.callId,
+            expiresAt = call.expiresAt,
+            caller = Person.Builder().setName(name).setImportant(true).build(),
+            video = video,
+            text = StrAndroid.incomingCall(language, video),
+            workspaceName = call.workspaceName,
+            answer = activityIntent(context, call.callId, ACTION_ANSWER) { ringExtras(call.workspaceId, call.channel, name, call.expiresAt) },
+            show = activityIntent(context, call.callId, ACTION_SHOW) { ringExtras(call.workspaceId, call.channel, name, call.expiresAt) },
+            decline = declineIntent(context, call.callId, ACTION_DECLINE) { putExtra(EXTRA_WORKSPACE, call.workspaceId) },
+            declineLabel = StrAndroid.declineCall(language),
+            answerLabel = StrAndroid.answerCall(language),
+            extras = null,
+            language = language,
+            nowMillis = nowMillis,
         )
+        if (posted) unanswered[call.callId] = name
+    }
+
+    /**
+     * A colleague's ring: their name and face, "Incoming voice call" or
+     * "Incoming video call", Answer and Decline. [photo] is their picture,
+     * already fetched ([CallerFace.photo]); without one the face is the
+     * silhouette. What a missed call will need to open their thread rides in
+     * the notification's own extras, so it survives this process.
+     */
+    fun showTeamIncoming(
+        context: Context,
+        ring: TeamCallRing,
+        language: Language,
+        photo: Bitmap?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ) {
+        val name = ring.displayName(language)
+        val video = ring.channel == CallChannel.VIDEO
+        val caller = Person.Builder()
+            .setName(name)
+            .setIcon(IconCompat.createWithBitmap(CallerFace.face(photo)))
+            .setImportant(true)
+            .build()
+        val extras: Intent.() -> Unit = {
+            ringExtras(ring.workspaceId, ring.channel, name, ring.expiresAt)
+            putExtra(EXTRA_COLLEAGUE, ring.callerUserId)
+            ring.callerAvatarUrl?.let { putExtra(EXTRA_AVATAR, it) }
+        }
+        val posted = postRing(
+            context = context,
+            tag = TEAM_TAG,
+            callId = ring.callId,
+            expiresAt = ring.expiresAt,
+            caller = caller,
+            video = video,
+            text = if (video) Str.teamCallIncomingVideo(language) else Str.teamCallIncomingVoice(language),
+            workspaceName = ring.workspaceName,
+            answer = activityIntent(context, ring.callId, ACTION_ANSWER, extras),
+            show = activityIntent(context, ring.callId, ACTION_SHOW, extras),
+            decline = declineIntent(context, ring.callId, ACTION_TEAM_DECLINE) {},
+            declineLabel = Str.teamCallDecline(language),
+            answerLabel = Str.teamCallAnswer(language),
+            extras = Bundle().apply {
+                putString(EXTRA_WORKSPACE, ring.workspaceId)
+                putString(EXTRA_COLLEAGUE, ring.callerUserId)
+                putString(EXTRA_CHANNEL, ring.channel.wire)
+                putString(EXTRA_CALLER, name)
+            },
+            language = language,
+            nowMillis = nowMillis,
+        )
+        if (posted) {
+            unansweredColleagues[ring.callId] = MissedColleague(name, ring.workspaceId, ring.callerUserId, ring.channel)
+        }
+    }
+
+    /** Whether a ring was posted at all: not without permission, nor past its expiry. */
+    @SuppressLint("MissingPermission") // Notifications.canPost() is the check, and it runs first.
+    private fun postRing(
+        context: Context,
+        tag: String,
+        callId: String,
+        expiresAt: Long,
+        caller: Person,
+        video: Boolean,
+        text: String,
+        workspaceName: String?,
+        answer: PendingIntent,
+        show: PendingIntent,
+        decline: PendingIntent,
+        declineLabel: String,
+        answerLabel: String,
+        extras: Bundle?,
+        language: Language,
+        nowMillis: Long,
+    ): Boolean {
+        if (!Notifications.canPost(context)) return false
+        val remaining = expiresAt * 1000 - nowMillis
+        if (remaining <= 0) return false
+        ensureChannel(context, language, rename = false)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_stat_call)
             .setColor(ContextCompat.getColor(context, R.color.brand_deep))
-            .setContentTitle(name)
-            .setContentText(StrAndroid.incomingCall(language, video))
-            .setSubText(call.workspaceName)
+            .setContentTitle(caller.name)
+            .setContentText(text)
+            .setSubText(workspaceName)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -132,6 +231,7 @@ object CallNotifications {
             .setTimeoutAfter(remaining)
             .setContentIntent(show)
             .addPerson(caller)
+        extras?.let(builder::addExtras)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             // Android 7 has no channels, so the ringtone and the buzz that
             // the calls channel gives every later version are the notification's
@@ -150,8 +250,8 @@ object CallNotifications {
             // A call style needs a full-screen intent or a foreground service;
             // without either, the same two buttons as plain actions.
             builder
-                .addAction(0, StrAndroid.declineCall(language), decline)
-                .addAction(0, StrAndroid.answerCall(language), answer)
+                .addAction(0, declineLabel, decline)
+                .addAction(0, answerLabel, answer)
         }
         val notification = builder.build().apply {
             // Rings until something stops it, like a phone call; the expiry
@@ -163,8 +263,8 @@ object CallNotifications {
                 flags = flags or Notification.FLAG_INSISTENT
             }
         }
-        NotificationManagerCompat.from(context).notify(TAG, call.callId.hashCode(), notification)
-        unanswered[call.callId] = name
+        NotificationManagerCompat.from(context).notify(tag, callId.hashCode(), notification)
+        return true
     }
 
     /** Whether this call is still ringing here. */
@@ -173,6 +273,7 @@ object CallNotifications {
     /** Answered or declined on this phone: whatever happens to the call next, nobody missed it here. */
     fun forget(callId: String) {
         unanswered.remove(callId)
+        unansweredColleagues.remove(callId)
     }
 
     /**
@@ -214,11 +315,46 @@ object CallNotifications {
         NotificationManagerCompat.from(context).notify(MISSED_TAG, callId.hashCode(), notification)
     }
 
-    private fun ringing(context: Context, callId: String): Notification? {
+    /**
+     * Stops a colleague's ring. When they were [missed] — they gave up, or
+     * the ring ran out, and this phone neither answered nor declined — a
+     * missed call takes its place, "Missed voice call" or "Missed video
+     * call" with their name, and opens their thread. It is posted under the
+     * very key the server's own missed-call notification for the same call
+     * has (`team_call:<id>`, [Notifications.showMessage]), so the two are
+     * one notification whichever arrives last.
+     */
+    fun stopTeam(context: Context, callId: String, missed: Boolean, language: Language) {
+        val active = ringing(context, callId, TEAM_TAG)
+        val remembered = unansweredColleagues.remove(callId)
+        runCatching { NotificationManagerCompat.from(context).cancel(TEAM_TAG, callId.hashCode()) }
+        if (!missed) return
+        val extras = active?.extras
+        val workspaceId = extras?.getString(EXTRA_WORKSPACE) ?: remembered?.workspaceId ?: return
+        val peerId = extras?.getString(EXTRA_COLLEAGUE) ?: remembered?.peerId ?: return
+        val channel = extras?.getString(EXTRA_CHANNEL)?.let(CallChannel::from) ?: remembered?.channel ?: CallChannel.AUDIO
+        val name = extras?.getString(EXTRA_CALLER) ?: remembered?.name ?: Str.teamCallColleague(language)
+        Notifications.showMessage(
+            context,
+            PushPayload(
+                type = PushPayload.TYPE_TEAM_CALL_MISSED,
+                workspaceId = workspaceId,
+                conversationId = null,
+                messageId = null,
+                peerId = peerId,
+                callId = callId,
+            ),
+            title = if (channel == CallChannel.VIDEO) Str.teamCallMissedVideo(language) else Str.teamCallMissedVoice(language),
+            body = name,
+            language = language,
+        )
+    }
+
+    private fun ringing(context: Context, callId: String, tag: String = TAG): Notification? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null
         val manager = ContextCompat.getSystemService(context, NotificationManager::class.java) ?: return null
         return runCatching {
-            manager.activeNotifications.firstOrNull { it.tag == TAG && it.id == callId.hashCode() }?.notification
+            manager.activeNotifications.firstOrNull { it.tag == tag && it.id == callId.hashCode() }?.notification
         }.getOrNull()
     }
 
@@ -228,18 +364,35 @@ object CallNotifications {
         return runCatching { manager.canUseFullScreenIntent() }.getOrDefault(false)
     }
 
-    private fun activityIntent(context: Context, call: IncomingCall, action: String, caller: String): PendingIntent =
+    private fun Intent.ringExtras(workspaceId: String, channel: CallChannel, caller: String, expiresAt: Long) {
+        putExtra(EXTRA_WORKSPACE, workspaceId)
+        putExtra(EXTRA_CHANNEL, channel.wire)
+        putExtra(EXTRA_CALLER, caller)
+        putExtra(EXTRA_EXPIRES, expiresAt)
+    }
+
+    private fun activityIntent(context: Context, callId: String, action: String, extras: Intent.() -> Unit): PendingIntent =
         PendingIntent.getActivity(
             context,
-            requestCode(call.callId, action),
+            requestCode(callId, action),
             Intent(context, MainActivity::class.java).apply {
                 this.action = action
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(EXTRA_CALL, call.callId)
-                putExtra(EXTRA_WORKSPACE, call.workspaceId)
-                putExtra(EXTRA_CHANNEL, call.channel.wire)
-                putExtra(EXTRA_CALLER, caller)
-                putExtra(EXTRA_EXPIRES, call.expiresAt)
+                putExtra(EXTRA_CALL, callId)
+                extras()
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    /** A broadcast to [CallActionReceiver], so declining does not open the app. */
+    private fun declineIntent(context: Context, callId: String, action: String, extras: Intent.() -> Unit): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            requestCode(callId, action),
+            Intent(context, CallActionReceiver::class.java).apply {
+                this.action = action
+                putExtra(EXTRA_CALL, callId)
+                extras()
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -256,7 +409,20 @@ object CallNotifications {
      */
     private val unanswered = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    /** The same for colleagues' rings, with what their missed call opens. */
+    private val unansweredColleagues = java.util.concurrent.ConcurrentHashMap<String, MissedColleague>()
+
+    private data class MissedColleague(
+        val name: String,
+        val workspaceId: String,
+        val peerId: String,
+        val channel: CallChannel,
+    )
+
     private const val TAG = "call"
+
+    /** A colleague's ring: its own tag, so a call-centre call and a colleague's never stop each other. */
+    private const val TEAM_TAG = "team-call"
     private const val MISSED_TAG = "missed-call"
 
     /** A phone's ring: the channel's from Android 8, the notification's own before. */

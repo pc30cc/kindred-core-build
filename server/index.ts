@@ -98,6 +98,7 @@ import { callCenterRouter } from './routes/callCenter.js';
 import { callWidgetCors, callWidgetRouter } from './routes/callWidget.js';
 import { contactsRouter } from './routes/contacts.js';
 import { teamChatRouter } from './routes/teamChat.js';
+import { teamCallsRouter } from './routes/teamCalls.js';
 import { platformSupportRouter } from './routes/platformSupport.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
@@ -134,6 +135,7 @@ import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRen
 import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
 import { startChatRoutingTicker } from './services/chatRoutingTicker.js';
 import { startConversationIdleCloseTicker } from './services/conversationIdleCloseTicker.js';
+import { startTeamCallTicker } from './services/teamCallTicker.js';
 import { startAppReviewVisitorsTicker } from './services/appReview/visitorsTicker.js';
 import { startDatabaseBackupScheduler } from './services/backup/databaseBackup.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
@@ -672,6 +674,10 @@ app.use('/api/contacts', contactsRouter);
 
 // Team chat — internal operator-to-operator direct messages.
 app.use('/api/team-chat', teamChatRouter);
+// Colleague calls — voice and video calls between two members, from the team
+// chat, on the phones (docs/operations/TEAM_CALLS.md). Session auth and the
+// call's two members only, enforced inside the router.
+app.use('/api/team-calls', teamCallsRouter);
 app.use('/api/platform-support', platformSupportRouter);
 
 // AI Knowledge Base Builder — auth + workspace membership enforced inside.
@@ -1015,6 +1021,12 @@ const httpServer = app.listen(config.port, () => {
   // while the Super Admin's switch is off, a no-op before migration 284; the
   // widget only before 286). See server/services/conversationIdleCloseTicker.ts.
   startConversationIdleCloseTicker(config);
+
+  // Colleague calls — a call still ringing 45 s after it was placed is
+  // missed: the callee's Android phones stop, both members are told, and the
+  // callee gets the missed-call notification (every 5 s, leased). See
+  // server/services/teamCallTicker.ts.
+  startTeamCallTicker(config);
 
   // The App Review demo's visitors, kept on the Visitors tab while that
   // account may sign in (migration 248). See

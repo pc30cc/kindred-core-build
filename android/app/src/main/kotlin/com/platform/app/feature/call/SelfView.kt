@@ -137,6 +137,12 @@ fun SelfView(
     areaBottom: Float,
     language: Language,
     modifier: Modifier = Modifier,
+    /**
+     * Drawn as a mirror, the way a front camera's own preview is. The back
+     * camera's picture is not: what it shows is in front of the phone, and a
+     * mirror of it is the world the wrong way round.
+     */
+    mirror: Boolean = true,
 ) {
     val context = LocalContext.current
     val placement = remember(context) { SelfViewPlacement(context) }
@@ -202,7 +208,7 @@ fun SelfView(
                     )
                 },
         ) {
-            VideoView(track, room, Modifier.fillMaxSize(), mirror = true)
+            VideoView(track, room, Modifier.fillMaxSize(), mirror = mirror)
             // Over the video rather than on it: the renderer is an Android
             // view, and the touches are the card's, not the picture's.
             Box(

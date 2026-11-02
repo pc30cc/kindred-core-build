@@ -45,7 +45,9 @@ data class PushContext(
  *
  * A colleague's message in team chat is the same, about a thread instead of
  * a conversation: the screens that show team chat are told to read again,
- * and it is shown unless that colleague's thread is the one on screen.
+ * and it is shown unless that colleague's thread is the one on screen. A
+ * colleague's call that was missed is shown whatever is on screen, and its
+ * tap opens their thread.
  */
 class PushRouter(
     private val sync: SyncCoordinator,
@@ -75,6 +77,16 @@ class PushRouter(
                 if (now.workspaceIds.isEmpty()) "push dropped: workspaces not known yet"
                 else "push dropped: workspace ${Diag.id(workspace)} is not this operator's",
             )
+            return
+        }
+        if (payload.isTeamCallMissed) {
+            // A colleague's call that nobody here picked up. Nothing to read
+            // again — a call is not a message in the thread — and shown even
+            // with that colleague's thread open, which does not show calls.
+            // Under the same key as the missed call this phone may already
+            // have put up when the ring stopped, so it is one notification.
+            diag.info(AREA, "missed colleague call ${Diag.id(payload.callId)} shown")
+            show(payload, title, body, now.language)
             return
         }
         if (payload.isTeamMessage) {

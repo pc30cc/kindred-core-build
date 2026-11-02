@@ -131,7 +131,10 @@ for the runtime control plane in `server/services/calls/controlPlane.ts`.
 
 - Plan-level: `voice_video` (module), `voice` / `video` (channels),
   `call_center` (module), `call_recording` / `call_queue` /
-  `call_callbacks` (features).
+  `call_callbacks` / `team_calls` (features). `team_calls` (colleague
+  calls, plan-only: not a workspace override) is checked on create by
+  `POST /api/team-calls` on top of the composer below
+  (docs/operations/TEAM_CALLS.md).
 - Runtime-level (kept as-is): global gates
   (`*_enabled_global`), workspace overrides on
   `workspace_provider_settings(provider_type='call')`, and per-call

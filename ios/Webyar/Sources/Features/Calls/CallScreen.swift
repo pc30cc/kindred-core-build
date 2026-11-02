@@ -280,17 +280,25 @@ struct CallScreen: View {
     }
 }
 
-/// The visitor's video, with the operator's own camera inset into the corner.
+/// The other side's video, with the operator's own camera inset into the
+/// corner — a visitor's, or a colleague's (`TeamCallScreen`).
 ///
 /// Both tracks arrive as plain values from the session rather than being dug
 /// out of `Room` here: the room is not something SwiftUI watches, so a view
 /// that reads it directly shows whatever was true at its last redraw.
-private struct VideoStage: View {
+struct VideoStage: View {
     let remote: VideoTrack?
     let local: VideoTrack?
     let contactName: String
     let contactAvatarURL: String?
     var visitor: VisitorProfile?
+    /// A visitor's face, or a colleague's (`.member`) — which decides the
+    /// silhouette when there is no picture.
+    var subject: AvatarSkeleton.Subject = .person
+    /// The operator's own preview. A visitor call only ever uses the front
+    /// camera, so it is always mirrored; a colleague call can switch to the
+    /// back one, which `.auto` leaves the right way round.
+    var localMirror: VideoView.MirrorMode = .mirror
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -311,6 +319,7 @@ private struct VideoStage: View {
                         name: contactName,
                         imageURL: contactAvatarURL,
                         size: 140,
+                        subject: subject,
                         os: visitor?.device?.os,
                         device: visitor?.device?.device,
                         countryCode: visitor?.geo?.countryCode
@@ -325,7 +334,7 @@ private struct VideoStage: View {
                 // camera is: they are looking at themselves, not at a
                 // stranger. Inset from the safe area so it never sits under
                 // the clock or the notch.
-                SwiftUIVideoView(local, layoutMode: .fill, mirrorMode: .mirror)
+                SwiftUIVideoView(local, layoutMode: .fill, mirrorMode: localMirror)
                     .frame(width: 104, height: 144)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
                     .overlay(
@@ -343,7 +352,7 @@ private struct VideoStage: View {
 
 /// A slow ring while the invitation is out — the visual equivalent of a
 /// ringing tone, so the wait does not look like a frozen screen.
-private struct PulsingRing: View {
+struct PulsingRing: View {
     @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -365,7 +374,11 @@ private struct PulsingRing: View {
 }
 
 /// One round control with its label, sized for a thumb.
-private struct CallButton: View {
+///
+/// The label has a width of its own and may take two lines, so four of these
+/// in a row — a colleague's video call — still fit the narrowest iPhone in
+/// every language ("Kamerayı değiştir").
+struct CallButton: View {
     let icon: String
     let title: String
     var isOn: Bool = false
@@ -388,6 +401,9 @@ private struct CallButton: View {
             Text(title)
                 .font(Theme.Typo.meta)
                 .foregroundStyle(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(width: 76)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)

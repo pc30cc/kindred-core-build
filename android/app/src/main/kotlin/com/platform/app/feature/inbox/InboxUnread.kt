@@ -128,7 +128,7 @@ fun rememberTeamUnread(
             reader.nudges.receiveAsFlow().map { TeamSignal(workspaceId, NUDGE_KIND) },
         )
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            followTeam(wakes, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == workspaceId }) {
+            followTeam(wakes, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == workspaceId && !it.isCall }) {
                 runCatching { api.colleagues(workspaceId) }
                     // A failed read keeps the count in hand: a badge that
                     // blinks off because one request failed says something untrue.

@@ -84,6 +84,23 @@ enum PlatformOrigin {
         guard let url else { return }
         UserDefaults.standard.set(url.absoluteString, forKey: websiteKey)
     }
+
+    private static let siteKey = "platform.siteURL"
+
+    /// The brand's own site (`canonicalBaseUrl`), known before sign-in: the root of
+    /// the language-following links on the sign-in screen (`SiteLinks`).
+    static var siteURL: URL? {
+        guard let stored = UserDefaults.standard.string(forKey: siteKey),
+              let url = URL(string: stored), url.scheme?.lowercased() == "https",
+              AppBrand.accepts(url)
+        else { return nil }
+        return url
+    }
+
+    static func rememberSite(_ url: URL?) {
+        guard let url else { return }
+        UserDefaults.standard.set(url.absoluteString, forKey: siteKey)
+    }
 }
 
 /// What `GET /api/platform/origins` answers.
@@ -91,6 +108,9 @@ struct PlatformOrigins: Decodable, Sendable {
     let apiBaseUrl: String?
     let appBaseUrl: String?
     let publicBaseUrl: String?
+    /// The brand's own site (Branding → Domains → canonical), e.g. the landing
+    /// page rather than the panel's public address.
+    let canonicalBaseUrl: String?
     let helpCenterUrl: String?
     /// Already resolved server-side. Every client used to append its own path
     /// here and they disagreed — the build script said `/contact`, a route
@@ -110,6 +130,8 @@ struct PlatformOrigins: Decodable, Sendable {
     var api: URL? { Self.https(apiBaseUrl).flatMap { AppBrand.ownsOrigin($0) ? $0 : nil } }
     /// The platform's public site.
     var website: URL? { Self.https(publicBaseUrl) }
+    /// The brand's own site, the root `SiteLinks` builds its pages on.
+    var site: URL? { Self.https(canonicalBaseUrl) }
     /// Where "Contact support" goes. The server decides; the last two are only
     /// for a platform that has not deployed the resolved field yet.
     var support: URL? {

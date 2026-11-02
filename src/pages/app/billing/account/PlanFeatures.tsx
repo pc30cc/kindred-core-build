@@ -50,6 +50,7 @@ const FEATURE_KEYS = [
   'call_recording',
   'call_queue',
   'voice_video',
+  'team_calls',
   'visitor_tracking',
   'contacts',
   'widget_smart_engagement',

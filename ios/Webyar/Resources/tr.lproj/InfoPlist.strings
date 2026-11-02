@@ -3,6 +3,6 @@
    `Str` onlara erişemez — ya burada çevrilirler ya da herkes için İngilizce
    kalırlar. */
 "CFBundleDisplayName" = "Webyar";
-"NSMicrophoneUsageDescription" = "Webyar, bir ziyaretçiyi aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
-"NSCameraUsageDescription" = "Webyar, bir ziyaretçiyle görüntülü görüşme başlattığınızda kamerayı kullanır.";
+"NSMicrophoneUsageDescription" = "Webyar, bir ziyaretçiyi veya meslektaşınızı aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
+"NSCameraUsageDescription" = "Webyar, bir ziyaretçiyle veya meslektaşınızla görüntülü görüşme başlattığınızda ya da yanıtladığınızda kamerayı kullanır.";
 "NSPhotoLibraryAddUsageDescription" = "Bir konuşmadan veya e-postadan açtığınız dosyada Kaydet'i seçtiğinizde Webyar fotoğrafı veya videoyu arşivinize kaydeder.";

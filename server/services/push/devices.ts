@@ -176,6 +176,21 @@ export async function disableToken(
     .eq('push_token', pushToken);
 }
 
+/**
+ * Apple said a device's PushKit token is dead. The device keeps its
+ * notification address: only its VoIP address is cleared, until the app
+ * registers a new one. Best-effort.
+ */
+export async function forgetVoipToken(config: ServerConfig, rowId: string): Promise<void> {
+  try {
+    const sb = getServiceClient(config);
+    await sb
+      .from('mobile_push_devices')
+      .update({ voip_token: null, voip_token_updated_at: new Date().toISOString() })
+      .eq('id', rowId);
+  } catch { /* best-effort */ }
+}
+
 export async function listActiveDevices(
   config: ServerConfig,
   userIds: string[],

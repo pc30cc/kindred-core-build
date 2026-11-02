@@ -6,12 +6,20 @@ made of things that fail late.
 
 ## Before the next release: what is already out (read first)
 
-Published copies, as of 2026-10-15:
+Published copies, as of 2026-11-02:
 
 | App | Where | Version | Signed with |
 |-----|-------|---------|-------------|
-| WebYar `com.webyar.ai` | Cafe Bazaar (the owner uploaded it on 2026-10-15) and `app.webyar.ai/downloads/Webyar-Android.apk` | 1.6, `versionCode` 27 | `webyar-release.jks` (cert SHA-256 `f1ed448f…0160142`) |
-| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet) | 1.0.2, `versionCode` 3 | `respok-release.jks` (cert SHA-256 `c71c4665…b8ee500`) |
+| WebYar `com.webyar.ai` | `app.webyar.ai/downloads/Webyar-Android.apk` (since 2026-11-02) | 1.7, `versionCode` 28 | `webyar-release.jks` (cert SHA-256 `f1ed448f…b2160142`) |
+| WebYar `com.webyar.ai` | Cafe Bazaar (the owner uploaded it on 2026-10-15; the owner uploads 1.7, the same file, himself) | 1.6, `versionCode` 27 | the same key |
+| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet; since 2026-11-02) | 1.0.3, `versionCode` 4 | `respok-release.jks` (cert SHA-256 `c71c4665…8b8ee500`) |
+
+1.7 and 1.0.3 were built from `main` at `b6fee6e` on the owner's Mac
+(`~/Desktop/WebYar-RESPOK/scripts/kcb-brands-android-3.sh`, then
+`kcb-brands-apk-publish-3.sh`): colleague calls, the mobile app as a plan
+feature, the sign-in Website link, the call screen's movable and swappable
+small picture, and the call lines in the team chat. 1.7 is the first WebYar
+build from the brand-neutral sources; the next one must be above 28.
 
 **The next WebYar release is the first built from the brand-neutral sources**
 (#323: code namespace `com.platform.app`, shared class names). Nothing a

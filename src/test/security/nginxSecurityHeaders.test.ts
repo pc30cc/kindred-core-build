@@ -148,3 +148,20 @@ describe('nginx: HSTS on the panel host', () => {
     expect(ownHeaders(api as Block)).toEqual([]);
   });
 });
+
+describe('nginx: the downloads are saved, never drawn', () => {
+  // Owner, 2026-11-02: some browsers (in-app ones, and iPhones, which cannot
+  // install an APK) drew the APK's bytes as text.
+  const downloads = LOCATIONS.find((block) => block.head === 'location ^~ /downloads/');
+
+  it('sends every file under /downloads/ as an attachment, never sniffed', () => {
+    const own = ownHeaders(downloads as Block);
+    expect(values(own, 'Content-Disposition')).toEqual(['"attachment" always']);
+    expect(values(own, 'X-Content-Type-Options')).toEqual(['"nosniff" always']);
+  });
+
+  it('still names the APK an Android package', () => {
+    const types = downloads?.children.find((block) => block.head === 'types');
+    expect(types?.directives).toContain('application/vnd.android.package-archive apk');
+  });
+});

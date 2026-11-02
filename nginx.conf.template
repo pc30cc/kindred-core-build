@@ -331,6 +331,14 @@ server {
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        # A file to save, never a page to draw (owner, 2026-11-02): without
+        # these, some browsers — in-app ones above all (Telegram's), and any
+        # iPhone, which cannot install an APK — showed the APK's bytes as
+        # text. `attachment` makes every browser save it (under the URL's
+        # name), and nosniff stops one from guessing it is text. The plugins
+        # read their .json and .zip by URL, which this does not change.
+        add_header Content-Disposition "attachment" always;
+        add_header X-Content-Type-Options "nosniff" always;
         # Hard 404 — a store must never receive the SPA's index.html and try
         # to unzip it.
         try_files $uri =404;

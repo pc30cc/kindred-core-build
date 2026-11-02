@@ -474,6 +474,7 @@ const fa: TranslationKeys = {
         ai_operator_assist: 'کمک هوشمند به اپراتور',
         knowledge_base: 'پایگاه دانش', help_center: 'مرکز راهنما',
         call_center: 'مرکز تماس', call_recording: 'ضبط تماس', call_queue: 'صف تماس', voice_video: 'تماس صوتی و تصویری',
+        team_calls: 'تماس با همکاران در اپ‌های موبایل',
         visitor_tracking: 'ردیابی زندهٔ بازدیدکنندگان',
         contacts: 'مدیریت مخاطبین', automation: 'اتوماسیون', analytics: 'گزارش و تحلیل',
         audit_logs: 'گزارش حسابرسی',

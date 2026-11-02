@@ -4,6 +4,6 @@
    (project.yml) bu dosyaları Resources/<lang>.lproj/InfoPlist.strings yerine
    paketler. Ad, ek almadığı yerlerde geçer. */
 "CFBundleDisplayName" = "RESPOK";
-"NSMicrophoneUsageDescription" = "RESPOK, bir ziyaretçiyi aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
-"NSCameraUsageDescription" = "RESPOK, bir ziyaretçiyle görüntülü görüşme başlattığınızda kamerayı kullanır.";
+"NSMicrophoneUsageDescription" = "RESPOK, bir ziyaretçiyi veya meslektaşınızı aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
+"NSCameraUsageDescription" = "RESPOK, bir ziyaretçiyle veya meslektaşınızla görüntülü görüşme başlattığınızda ya da yanıtladığınızda kamerayı kullanır.";
 "NSPhotoLibraryAddUsageDescription" = "Bir konuşmadan veya e-postadan açtığınız dosyada Kaydet'i seçtiğinizde RESPOK fotoğrafı veya videoyu arşivinize kaydeder.";

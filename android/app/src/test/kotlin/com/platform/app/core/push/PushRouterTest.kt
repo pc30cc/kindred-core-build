@@ -211,6 +211,55 @@ class PushRouterTest {
         assertEquals(false, forged.opensSomething)
     }
 
+    /** `notifyTeamCallMissed`'s data: `{type, workspaceId, peerId, callId, channel}`. */
+    private val missedCall = PushPayload.from(
+        mapOf(
+            "type" to "team_call_missed",
+            "workspaceId" to "ws-1",
+            "peerId" to "user-sara",
+            "callId" to "9d6c1f0e-5a43-4c51-9b55-1a1b2c3d4e5f",
+            "channel" to "audio",
+        ),
+    )
+
+    @Test
+    fun `a missed colleague call opens their thread`() {
+        assertTrue(missedCall.isTeamCallMissed)
+        assertTrue(missedCall.opensTeamThread)
+        assertTrue(missedCall.opensSomething)
+        assertEquals("user-sara", missedCall.peerId)
+        assertEquals("9d6c1f0e-5a43-4c51-9b55-1a1b2c3d4e5f", missedCall.callId)
+    }
+
+    /**
+     * A call is not a message in the thread: nothing is read again, and the
+     * thread being on screen hides nothing — it does not show calls.
+     */
+    @Test
+    fun `a missed colleague call is shown even with their thread open, and reads nothing`() = runTest {
+        val (router, sync) = router()
+        val heard = mutableListOf<com.platform.app.core.sync.TeamSignal>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { sync.team.collect { heard += it } }
+        context = context!!.copy(openTeamPeerIds = setOf("user-sara"))
+
+        router.onMessage(missedCall, "Sara · همکار", "Missed voice call")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf(missedCall), shown)
+        assertTrue(heard.isEmpty())
+        assertTrue(api.idReads.isEmpty())
+    }
+
+    @Test
+    fun `a missed colleague call for another operator's workspace is dropped`() = runTest {
+        val (router, _) = router()
+
+        router.onMessage(missedCall.copy(workspaceId = "ws-somebody-else"), "Sara", "Missed voice call")
+
+        assertTrue(shown.isEmpty())
+    }
+
     @Test
     fun `a new email is shown, and reads no conversation`() = runTest {
         val (router, _) = router()

@@ -46,6 +46,27 @@ sealed interface Screen : NavKey {
 }
 
 /**
+ * A colleague call: one placed from their thread ([callId] null — the server
+ * has not named it yet), or one that rang this phone ([callId] set; [answer]
+ * when Answer was already pressed on the ring). What the thread or the ring
+ * knew of the colleague rides along, so the screen has their name and face
+ * before the server's first answer.
+ */
+@Serializable data class TeamCallKey(
+    val workspaceId: String,
+    val peerId: String,
+    val peerName: String,
+    val peerAvatarUrl: String? = null,
+    val channel: String,
+    val callId: String? = null,
+    val answer: Boolean = false,
+) : Screen {
+    override val tab get() = AppTab.INBOX
+
+    val incoming: Boolean get() = callId != null
+}
+
+/**
  * A colleague's thread. The colleagues' chats are an inbox in the Inbox tab
  * (the strip's Colleagues), not a screen of their own — which is where the
  * console keeps them, and what makes Back from a thread land on that list.

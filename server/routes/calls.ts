@@ -44,7 +44,6 @@ import {
   normalizeClientWsUrl,
 } from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError, type CallProviderId } from '../services/calls/providers/types.js';
-import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { publishConversationEvent } from '../services/realtime/publish.js';
 import { markInCall, clearInCall } from '../services/calls/availability.js';
@@ -52,7 +51,6 @@ import {
   CALL_ERROR_CODES,
   CALL_ERROR_HTTP_STATUS,
   callErrorBody,
-  callErrorFromUnknown,
 } from '../services/calls/errorCodes.js';
 import {
   getLiveKitReadinessState,
@@ -61,6 +59,8 @@ import {
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { loadLiveKitConfig, isMinimallyConfigured, providesOwnRelay } from '../services/calls/livekitConfig.js';
 import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
+import { buildTokenNetworkBundle, issueParticipantToken } from '../services/calls/participantToken.js';
+import { TEAM_CALL_ENTRY_SOURCE } from '../services/calls/teamCall.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { mustDb } from '../utils/mustDb.js';
 import { isMemberParticipantType, publicMemberName } from '../services/calls/operatorIdentity.js';
@@ -114,7 +114,12 @@ async function loadSessionWithMembership(
     .select('*')
     .eq('id', callId)
     .maybeSingle();
-  if (error || !session) {
+  // A colleague call is not a call these routes may touch: it is between
+  // its two members only, ends with an outcome of its own, and every one of
+  // its moves has its own route (/api/team-calls, docs/operations/
+  // TEAM_CALLS.md). Any other member of the workspace reaching it here could
+  // take a token for the room, or end it without the outcome the apps read.
+  if (error || !session || session.entry_source === TEAM_CALL_ENTRY_SOURCE) {
     res.status(404).json({ error: 'Call session not found' });
     return null;
   }
@@ -247,47 +252,6 @@ async function emitVisitorIncomingEnvelope(
       },
     },
   );
-}
-
-/**
- * Build the network bundle for a token response, including dynamically-minted
- * RFC 7635-style TURN credentials when a static_secret is present. Shared by
- * the /token endpoint and the /invite envelope so visitors and operators see
- * an identical TURN/ICE shape. URLs always come from the resolver — no
- * hardcoded hostnames.
- */
-async function buildTokenNetworkBundle(
-  config: ServerConfig,
-  callSessionId: string,
-  ttlSeconds: number,
-) {
-  const network = await getCallNetworkBundle(config);
-  const turn = { ...network.turn };
-  if (turn.static_secret_present && turn.urls.length > 0) {
-    try {
-      const sb = getServiceClient(config);
-      const { data: rtcRow } = await sb
-        .from('app_runtime_config')
-        .select('value')
-        .eq('key', 'call_rtc_endpoints')
-        .maybeSingle();
-      const rtcValue = rtcRow?.value as Record<string, unknown> | undefined;
-      const sharedSecret = (rtcValue?.turn as Record<string, unknown> | undefined)?.shared_secret;
-      if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
-        const minted = mintTurnCreds({
-          sharedSecret,
-          identity: 'call:' + callSessionId,
-          ttlSeconds: Math.min(ttlSeconds, 3600),
-        });
-        turn.username = minted.username;
-        turn.credential = minted.credential;
-        turn.credential_type = 'password';
-      }
-    } catch {
-      /* fall back to static creds */
-    }
-  }
-  return { network, turn };
 }
 
 // ─── POST /api/calls/create ───────────────────────────────────────────────
@@ -625,19 +589,9 @@ const tokenSchema = z.object({
 callsRouter.post('/:id/token', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
-  const t0 = Date.now();
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   try {
     const body = tokenSchema.parse(req.body ?? {});
-    if (!ctx.session.provider_room_id) {
-      return res.status(409).json(
-        callErrorBody(
-          CALL_ERROR_CODES.ROOM_CREATE_FAILED,
-          'Provider room is not ready for this call session.',
-          { provider: ctx.session.provider },
-        ),
-      );
-    }
-    const provider = resolveCallProvider(ctx.session.provider);
     const participantId = body.participant_id ?? ctx.userId;
     // The visitor may be in this room and sees every participant's identity
     // and name: a member joins under the opaque reference of their user on
@@ -648,102 +602,19 @@ callsRouter.post('/:id/token', async (req, res) => {
     // the caller).
     const displayName = isMemberParticipantType(body.participant_type)
       ? (participantId === ctx.userId
-        ? await publicMemberName((req as unknown as ReqWithConfig).serverConfig, participantId)
+        ? await publicMemberName(config, participantId)
         : '')
       : body.display_name;
-    let token;
-    try {
-      token = await provider.createParticipantToken((req as unknown as ReqWithConfig).serverConfig, {
-        callSessionId: ctx.session.id,
-        providerRoomId: ctx.session.provider_room_id,
-        participantId,
-        participantType: body.participant_type,
-        displayName,
-        canPublish: true,
-        canSubscribe: true,
-        canPublishData: true,
-        ttlSeconds: body.ttl_seconds,
-      });
-    } catch (mintErr) {
-      const mapped = callErrorFromUnknown(mintErr, {
-        code: CALL_ERROR_CODES.TOKEN_MINT_FAILED,
-        message: 'Failed to mint participant token.',
-        provider: ctx.session.provider,
-      });
-      try {
-        emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
-          metric: 'call.token.failure',
-          workspaceId: ctx.session.workspace_id,
-          provider: ctx.session.provider,
-          callId: ctx.session.id,
-          reason: mapped.body.error,
-        });
-      } catch { /* */ }
-      return res.status(mapped.status).json(mapped.body);
-    }
-    const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
-    const { network, turn } = await buildTokenNetworkBundle(
-      config,
-      ctx.session.id,
-      body.ttl_seconds ?? 600,
-    );
-    // A relay can come from either side. LiveKit's built-in TURN mints its
-    // own per-participant credentials and delivers them over signalling, so
-    // a deployment with it switched on has a relay even though this response
-    // carries no TURN of its own — and must not be told otherwise. It also
-    // must not be handed one here: an ICE server pointing at LiveKit's TURN
-    // without credentials is a broken route, not a spare one.
-    const relayMissing =
-      turn.urls.length === 0 &&
-      !(
-        ctx.session.provider === 'livekit' &&
-        providesOwnRelay(await loadLiveKitConfig(config))
-      );
-    if (relayMissing) {
-      emitCallMetric(config, {
-        metric: 'call.turn.missing',
-        workspaceId: ctx.session.workspace_id,
-        provider: ctx.session.provider,
-        callId: ctx.session.id,
-      });
-    }
-
-    emitCallMetric(config, {
-      metric: 'call.token.success',
-      workspaceId: ctx.session.workspace_id,
-      provider: ctx.session.provider,
-      callId: ctx.session.id,
+    const answer = await issueParticipantToken(config, ctx.session, {
+      participantType: body.participant_type,
+      participantId,
+      displayName,
+      ttlSeconds: body.ttl_seconds,
     });
-    emitCallMetric(config, {
-      metric: 'call.setup.latency',
-      workspaceId: ctx.session.workspace_id,
-      provider: ctx.session.provider,
-      callId: ctx.session.id,
-      value: Date.now() - t0,
-    });
-
-    res.json({
-      token: token.token,
-      expires_at: token.expiresAt,
-      provider: ctx.session.provider,
-      rtc_url: network.rtc_url,
-      ws_url: network.ws_url,
-      turn: {
-        urls: turn.urls,
-        username: turn.username,
-        credential: turn.credential,
-      },
-      ice_policy: network.ice_policy,
-      network,
-      // Pass 1 — surface non-fatal warnings the widget can show as a hint
-      // before the LiveKit SDK actually tries to connect.
-      warnings: [
-        ...(relayMissing ? [CALL_ERROR_CODES.TURN_MISSING] : []),
-      ],
-    });
+    res.status(answer.status).json(answer.body);
   } catch (err) {
     try {
-      emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
+      emitCallMetric(config, {
         metric: 'call.token.failure',
         workspaceId: ctx.session.workspace_id,
         provider: ctx.session.provider,

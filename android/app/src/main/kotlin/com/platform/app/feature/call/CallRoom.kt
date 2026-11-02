@@ -29,7 +29,11 @@ interface CallRoom {
     }
 
     sealed interface Event {
-        /** The visitor arrived in, or left, the room. */
+        /**
+         * The other side — the visitor, or the colleague on a colleague call
+         * — arrived in, or left, the room. Anybody in it but this phone is
+         * the other side.
+         */
         data class VisitorPresenceChanged(val present: Boolean) : Event
         /** We lost the room ourselves. */
         data object Disconnected : Event
@@ -52,8 +56,27 @@ interface CallRoom {
     suspend fun setMicrophone(enabled: Boolean): Boolean
     suspend fun setCamera(enabled: Boolean): Boolean
 
-    /** Earpiece or loudspeaker. Not suspending: the route changes at once. */
+    /**
+     * Earpiece or loudspeaker. Not suspending: the route changes at once.
+     * Said before [connect], it is where the call starts — a colleague's
+     * voice call on the earpiece, with no moment on the loudspeaker first.
+     */
     fun setSpeaker(on: Boolean)
+
+    /**
+     * The front camera or the back one, while the camera is on. Whether that
+     * lens is the one in use once the switch has settled: a phone with no
+     * camera on that side, a camera that is off, or one that would not move,
+     * says no.
+     */
+    suspend fun switchCamera(front: Boolean): Boolean
+
+    /**
+     * Whether anybody but this phone is in the room right now. A participant
+     * who was there before this phone joined is never announced by an event,
+     * so a call that joins second asks.
+     */
+    val hasRemoteParticipant: Boolean
 
     /** Leaves the room. Not suspending in practice, and safe to call twice. */
     suspend fun disconnect()

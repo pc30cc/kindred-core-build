@@ -43,6 +43,12 @@ import com.platform.app.core.model.AvailabilityUpdate
 import com.platform.app.core.model.CallChannel
 import com.platform.app.core.model.CallInvitation
 import com.platform.app.core.model.CallToken
+import com.platform.app.core.model.TEAM_CALL_RING_SECONDS
+import com.platform.app.core.model.TeamCall
+import com.platform.app.core.model.TeamCallAcceptance
+import com.platform.app.core.model.TeamCallOutcome
+import com.platform.app.core.model.TeamCallRole
+import com.platform.app.core.model.TeamCallState
 import com.platform.app.core.model.CannedResponse
 import com.platform.app.core.model.ChannelInbox
 import com.platform.app.core.model.Colleague
@@ -82,6 +88,7 @@ import com.platform.app.core.model.Workspace
 import com.platform.app.core.model.WorkspaceAccess
 import com.platform.app.core.model.WorkspaceMember
 import java.time.Instant
+import java.util.UUID
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -757,6 +764,78 @@ class SampleApi : ServerApi {
 
     override suspend fun endCall(callSessionId: String, reason: String) {}
 
+    // MARK: - Colleague calls
+
+    /**
+     * Calls placed from here, by id. Nobody is on the other end, so a call
+     * rings for its 45 seconds and is then missed — as a colleague who never
+     * picks up makes it — unless the operator ends it first. There is no
+     * media server either, so [teamCallToken] answers as [callToken] does.
+     */
+    private val teamCalls = mutableMapOf<String, TeamCall>()
+
+    override suspend fun createTeamCall(workspaceId: String, calleeId: String, channel: CallChannel): TeamCall {
+        val colleague = COLLEAGUES.firstOrNull { it.userId == calleeId }
+            ?: throw ApiError.Server(status = 403, serverMessage = "not_a_member")
+        val now = Instant.now()
+        val call = TeamCall(
+            id = "team-call-" + UUID.randomUUID(),
+            workspaceId = workspaceId,
+            channel = channel,
+            state = TeamCallState.RINGING,
+            role = TeamCallRole.CALLER,
+            // The profile name only, as the server sends it: never the e-mail.
+            peer = TeamCall.Peer(userId = colleague.userId, name = colleague.fullName, avatarUrl = colleague.avatarUrl),
+            createdAt = now,
+            expiresAt = now.plusSeconds(TEAM_CALL_RING_SECONDS),
+        )
+        lock.withLock { teamCalls[call.id] = call }
+        return call
+    }
+
+    override suspend fun teamCall(callId: String): TeamCall = lock.withLock {
+        val call = teamCalls[callId] ?: throw ApiError.Server(status = 404, serverMessage = "not_found")
+        val expiry = call.expiresAt
+        if (call.state == TeamCallState.RINGING && expiry != null && !Instant.now().isBefore(expiry)) {
+            call.copy(state = TeamCallState.MISSED, outcome = TeamCallOutcome.MISSED, endedAt = Instant.now())
+                .also { teamCalls[callId] = it }
+        } else {
+            call
+        }
+    }
+
+    /** Nothing rings this phone in the sample, so there is nothing here to answer. */
+    override suspend fun acceptTeamCall(callId: String, deviceId: String?): TeamCallAcceptance =
+        TeamCallAcceptance.NotRinging(lock.withLock { teamCalls[callId] })
+
+    override suspend fun declineTeamCall(callId: String) {
+        endTeamCall(callId, TeamCallOutcome.DECLINED)
+    }
+
+    override suspend fun cancelTeamCall(callId: String): TeamCall =
+        endTeamCall(callId, TeamCallOutcome.CANCELLED) ?: throw ApiError.Server(status = 404, serverMessage = "not_found")
+
+    override suspend fun hangUpTeamCall(callId: String) {
+        endTeamCall(callId, TeamCallOutcome.COMPLETED)
+    }
+
+    override suspend fun teamCallToken(callId: String): CallToken =
+        throw ApiError.Server(status = 501, serverMessage = "sample backend has no media server")
+
+    /**
+     * Idempotent, as the server's moves are: an ended call stays as it
+     * ended. The call as it now stands, or null for one that never was.
+     */
+    private suspend fun endTeamCall(callId: String, outcome: TeamCallOutcome): TeamCall? = lock.withLock {
+        val call = teamCalls[callId] ?: return@withLock null
+        if (call.state.isOver) return@withLock call
+        call.copy(
+            state = if (outcome == TeamCallOutcome.CANCELLED) TeamCallState.CANCELLED else TeamCallState.ENDED,
+            outcome = outcome,
+            endedAt = Instant.now(),
+        ).also { teamCalls[callId] = it }
+    }
+
     // MARK: - Account
 
     override suspend fun updateProfile(
@@ -1061,6 +1140,8 @@ class SampleApi : ServerApi {
             "inbox_needs_human", "inbox_ai_queue",
             // The Colleagues row.
             "inbox_team_chat",
+            // The phone and video buttons in a colleague's thread.
+            "team_calls",
         )
 
         val CHANNELS = listOf("chat_widget", "voice", "video", "telegram", "bale", "whatsapp")

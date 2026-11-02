@@ -6,7 +6,8 @@
  * calls FCM directly: they all reach this module through
  * `notifyInboundMessage`, which is channel-agnostic. A colleague's message in
  * team chat, which is about no conversation, comes in through
- * `notifyTeamMessage` and leaves by the same road.
+ * `notifyTeamMessage` and leaves by the same road; so does a colleague's call
+ * nobody answered (`notifyTeamCallMissed`).
  *
  * Load-bearing properties:
  *  • Best effort, never transactional. `notifyInboundMessage` never throws and
@@ -97,6 +98,9 @@ const COPY = {
     colleague: 'Colleague',
     teamPrivacyBody: 'New message from a colleague',
     teamMessage: (name: string) => `${name} · colleague`,
+    missedVoiceCall: 'Missed voice call',
+    missedVideoCall: 'Missed video call',
+    missedCallPrivacyBody: 'Missed call from a colleague',
     support: 'Support',
     supportPrivacyBody: 'New reply from support',
     supportReply: (name: string) => `${name} · Support`,
@@ -123,6 +127,9 @@ const COPY = {
     colleague: 'همکار',
     teamPrivacyBody: 'پیام جدید از همکار',
     teamMessage: (name: string) => `${name} · همکار`,
+    missedVoiceCall: 'تماس صوتی بی‌پاسخ',
+    missedVideoCall: 'تماس تصویری بی‌پاسخ',
+    missedCallPrivacyBody: 'تماس بی‌پاسخ از همکار',
     support: 'پشتیبانی',
     supportPrivacyBody: 'پاسخ جدید از پشتیبانی',
     supportReply: (name: string) => `${name} · پشتیبانی`,
@@ -149,6 +156,9 @@ const COPY = {
     colleague: 'İş arkadaşı',
     teamPrivacyBody: 'Bir iş arkadaşından yeni mesaj',
     teamMessage: (name: string) => `${name} · iş arkadaşı`,
+    missedVoiceCall: 'Cevapsız sesli arama',
+    missedVideoCall: 'Cevapsız görüntülü arama',
+    missedCallPrivacyBody: 'Bir iş arkadaşından cevapsız arama',
     support: 'Destek',
     supportPrivacyBody: 'Destekten yeni yanıt',
     supportReply: (name: string) => `${name} · Destek`,
@@ -551,6 +561,134 @@ export function renderTeamContent(
   const text = (input.text || '').trim();
   const fallback = input.hasAttachment ? copy.attachment : copy.newMessage;
   return mark({ title: name ? copy.teamMessage(name) : copy.colleague, body: truncate(text || fallback) });
+}
+
+export interface TeamCallMissedPushInput {
+  workspaceId: string;
+  /** The colleague who called; the thread a tap opens. */
+  callerId: string;
+  /** The one member it rang. */
+  calleeId: string;
+  /** The `team_call` row, ended (missed or cancelled) before this is called. */
+  callId: string;
+  channel: 'audio' | 'video';
+}
+
+/**
+ * A colleague's call that rang out, or that they hung up before it was
+ * answered, as a notification on the phones of the member it rang
+ * (docs/operations/TEAM_CALLS.md, "Missed"). The ring itself is not a
+ * notification (teamCallRing.ts), so without this a call the phone missed —
+ * in a pocket, on silent — would leave nothing behind.
+ *
+ * It is the team chat's in every respect but the words: addressed to one
+ * member, under the same preferences as a colleague's message — "disable
+ * all", scope 'none', presence, quiet hours as for a direct message, the
+ * colleague-chat switch (`push_team_chat`) and previews — claimed once per
+ * call, and tapped open on that colleague's thread (`peerId`).
+ */
+export async function notifyTeamCallMissed(config: ServerConfig, input: TeamCallMissedPushInput): Promise<void> {
+  try {
+    if (!isPushConfigured() && !isApnsConfigured()) return;
+    if (input.calleeId === input.callerId) return;
+    const policy = await loadDispatchPolicy(config);
+    if (!policy.push_enabled) return;
+    const eventType: PushEventType = 'team_call_missed';
+
+    const [recipient] = await resolveRecipients(config, {
+      workspaceId: input.workspaceId,
+      assignedTo: null,
+      eventType,
+      actorId: input.callerId,
+      mentionedUserIds: [input.calleeId],
+      userIds: [input.calleeId],
+      policy,
+    });
+    if (!recipient) return;
+    const devices = await listActiveDevices(config, [recipient.userId]);
+    if (!devices.length) return;
+
+    const sb = getServiceClient(config);
+    const dedupeKey = `${eventType}:${input.callId}`;
+    const { error: claimError } = await sb.from('push_dispatch_log').insert({
+      workspace_id: input.workspaceId,
+      user_id: recipient.userId,
+      conversation_id: null,
+      message_id: null,
+      notification_type: eventType,
+      dedupe_key: dedupeKey,
+      status: 'attempted',
+    });
+    if (claimError) return; // duplicate (or logging outage) → stay silent
+
+    const { data: caller } = await sb
+      .from('profiles')
+      .select('full_name')
+      .eq('id', input.callerId)
+      .maybeSingle();
+    const { title, body } = renderTeamCallMissedContent(
+      { callerName: (caller as { full_name: string | null } | null)?.full_name ?? null, channel: input.channel },
+      recipient.preview,
+      recipient.locale,
+    );
+    const badge = policy.badge_enabled
+      ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+      : undefined;
+    const { accepted, failed } = await deliver(config, recipient, devices, {
+      title,
+      body,
+      data: {
+        type: eventType,
+        workspaceId: input.workspaceId,
+        peerId: input.callerId,
+        callId: input.callId,
+        channel: input.channel,
+      },
+      badge,
+      // Grouped with that colleague's messages, never replacing them: each
+      // missed call stays until it is seen.
+      apns: apnsDeliveryFor(policy, eventType, { workspaceId: input.workspaceId, conversationId: `team-${input.callerId}` }),
+      androidChannelId: policy.android_channel_id,
+    });
+
+    await finish(
+      config,
+      input.workspaceId,
+      recipient.userId,
+      dedupeKey,
+      devices.length,
+      accepted,
+      failed,
+      accepted > 0 ? 'sent' : 'failed',
+    );
+  } catch (err) {
+    // The call is already over; nothing to undo.
+    console.error('[push] team call missed dispatch error', { message: String((err as Error)?.message ?? err) });
+  }
+}
+
+/**
+ * A missed colleague call's copy, in the recipient's language: the
+ * colleague's name marked as a colleague's, and which kind of call it was.
+ * With previews off the name stays on the server, as for a team message.
+ */
+export function renderTeamCallMissedContent(
+  input: { callerName?: string | null; channel: 'audio' | 'video' },
+  preview: boolean,
+  locale = 'en',
+): { title: string; body: string } {
+  const lang = copyLocale(locale);
+  const copy = copyFor(lang);
+  const mark = (result: { title: string; body: string }) => ({
+    title: directed(lang, result.title),
+    body: directed(lang, result.body),
+  });
+  if (!preview) return mark({ title: copy.privacyTitle, body: copy.missedCallPrivacyBody });
+  const name = (input.callerName || '').trim();
+  return mark({
+    title: name ? copy.teamMessage(name) : copy.colleague,
+    body: input.channel === 'video' ? copy.missedVideoCall : copy.missedVoiceCall,
+  });
 }
 
 export interface SupportReplyPushInput {

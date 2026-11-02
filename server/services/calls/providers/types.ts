@@ -119,6 +119,16 @@ export interface CallProvider {
   /** Tear down a media room. Idempotent. */
   closeRoom(config: ServerConfig, providerRoomId: string): Promise<void>;
 
+  /**
+   * The identities connected to a room now; empty when the room is gone. For
+   * reconciling a call whose end the provider's webhook never delivered
+   * (teamCallTicker.ts). Throws when the provider cannot be asked, so a
+   * caller never mistakes "could not ask" for "nobody there". Optional: a
+   * provider without it leaves such calls to its webhook and the caller's
+   * own time limits.
+   */
+  listRoomIdentities?(config: ServerConfig, providerRoomId: string): Promise<string[]>;
+
   /** Mint a participant join token. */
   createParticipantToken(
     config: ServerConfig,

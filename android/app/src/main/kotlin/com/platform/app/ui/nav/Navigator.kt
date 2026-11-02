@@ -3,6 +3,7 @@ package com.platform.app.ui.nav
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
@@ -57,6 +58,25 @@ class Navigator internal constructor(
     }
 
     /**
+     * Brings [screen], already on its tab's stack, to the front: the same
+     * entry — its view model, and the call running in it — rather than a new
+     * one opened over it. Moved in one snapshot, so composition never sees
+     * the entry leave the stack, which would clear its view model. Nothing
+     * happens for a screen that is not on the stack.
+     */
+    fun raise(screen: Screen) {
+        val stack = stack(screen.tab)
+        val at = stack.indexOf(screen)
+        if (at < 0) return
+        if (screen.tab != tab) selectTab(screen.tab)
+        if (at == stack.lastIndex) return
+        Snapshot.withMutableSnapshot {
+            stack.removeAt(at)
+            stack.add(screen)
+        }
+    }
+
+    /**
      * A tab in the bar was tapped. Tapping the tab already in front goes back
      * to its root — the platform's convention, and the quickest way out of a
      * deep thread.
@@ -101,7 +121,7 @@ class Navigator internal constructor(
  */
 private val callsThisProcess = mutableSetOf<Screen>()
 
-private fun Screen.isCall(): Boolean = this is CallKey || this is IncomingCallKey
+private fun Screen.isCall(): Boolean = this is CallKey || this is IncomingCallKey || this is TeamCallKey
 
 @Composable
 fun rememberNavigator(currentTab: () -> AppTab, selectTab: (AppTab) -> Unit): Navigator {
@@ -110,7 +130,8 @@ fun rememberNavigator(currentTab: () -> AppTab, selectTab: (AppTab) -> Unit): Na
     // ring are gone with it. Brought back by the saved stack after the system
     // killed the app in the background, a call screen would dial the visitor
     // again (CallRoute starts a call; IncomingCallKey(answer = true) answers
-    // a ring long over). One opened in this process is still live — the stack
+    // a ring long over; TeamCallKey rings a colleague again). One opened in
+    // this process is still live — the stack
     // came back from a configuration change and its call with it — and stays.
     // Before anything composes the stack, so no call screen starts first.
     remember(inbox) { inbox.removeAll { (it as? Screen)?.isCall() == true && it !in callsThisProcess } }

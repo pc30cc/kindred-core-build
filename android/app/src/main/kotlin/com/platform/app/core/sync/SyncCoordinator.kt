@@ -428,7 +428,7 @@ class SyncCoordinator(
         // Team chat is not about any conversation, and not about the queue
         // on screen: it goes to whoever shows it, focus or no focus.
         if (kindHeard != null && kindHeard.startsWith(TEAM_KIND_PREFIX)) {
-            _team.tryEmit(TeamSignal(workspaceId, kindHeard, event.senderId, event.recipientId, event.peerId))
+            _team.tryEmit(TeamSignal(workspaceId, kindHeard, event.senderId, event.recipientId, event.peerId, event.callId))
             return
         }
         // Platform support lives in the platform team's workspace, not in
@@ -779,7 +779,7 @@ class SyncCoordinator(
 
     private companion object {
         const val AREA = "Sync"
-        /** `team_message`, `team_read`: the operator's own channel (`publishTeamEvent`). */
+        /** `team_message`, `team_read`, `team_call`: the operator's own channel (`publishTeamEvent`). */
         const val TEAM_KIND_PREFIX = "team_"
 
         /** The realtime event a sent team message is announced with. */
@@ -809,8 +809,9 @@ data class EmailSignal(
 /**
  * Something moved in one of this operator's team threads, as the server
  * announced it on their own channel: a message sent or received
- * (`team_message`, with [senderId] and [recipientId]) or a thread read on
- * another of their devices (`team_read`, with [peerId]).
+ * (`team_message`, with [senderId] and [recipientId]), a thread read on
+ * another of their devices (`team_read`, with [peerId]), or a colleague call
+ * of theirs changing state (`team_call`, with [callId]).
  */
 data class TeamSignal(
     val workspaceId: String,
@@ -818,9 +819,21 @@ data class TeamSignal(
     val senderId: String? = null,
     val recipientId: String? = null,
     val peerId: String? = null,
+    val callId: String? = null,
 ) {
     /** Whether this is about the thread with [peer]. */
     fun involves(peer: String): Boolean = peer == senderId || peer == recipientId || peer == peerId
+
+    /**
+     * A colleague call, not a message: for the call on screen, and nothing
+     * the colleagues' list or its unread count need to read again for.
+     */
+    val isCall: Boolean get() = kind == CALL_KIND
+
+    companion object {
+        /** `team_call` (`announceTeamCall`, server/services/calls/teamCallLifecycle.ts). */
+        const val CALL_KIND = "team_call"
+    }
 }
 
 /**

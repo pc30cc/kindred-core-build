@@ -474,6 +474,7 @@ const tr: TranslationKeys = {
         ai_operator_assist: 'YZ operatör desteği',
         knowledge_base: 'Bilgi bankası', help_center: 'Yardım merkezi',
         call_center: 'Çağrı merkezi', call_recording: 'Çağrı kaydı', call_queue: 'Çağrı kuyruğu', voice_video: 'Sesli ve görüntülü arama',
+        team_calls: 'Mobil uygulamalarda iş arkadaşlarıyla arama',
         visitor_tracking: 'Canlı ziyaretçi takibi',
         contacts: 'Kişi yönetimi', automation: 'Otomasyon', analytics: 'Analitik',
         audit_logs: 'Denetim kayıtları',

@@ -82,7 +82,7 @@ class ColleaguesViewModel(
      * re-read leaves the list as it was.
      */
     suspend fun followWhileVisible(workspaceId: String, signals: Flow<TeamSignal>? = null) {
-        followTeam(signals, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == workspaceId }) {
+        followTeam(signals, TEAM_LIST_POLL_MS, wanted = { it.workspaceId == workspaceId && !it.isCall }) {
             if (this.workspaceId != workspaceId) return@followTeam
             runCatching { api.colleagues(workspaceId).colleagues }
                 .onSuccess { if (this.workspaceId == workspaceId) { loaded = it; publish() } }

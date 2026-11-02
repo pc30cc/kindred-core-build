@@ -9,7 +9,10 @@ with the runtime/global/workspace call control plane.
   - module: `voice_video`
   - channels: `voice`, `video`
   - module: `call_center`
-  - features: `call_recording`, `call_queue`, `call_callbacks`
+  - features: `call_recording`, `call_queue`, `call_callbacks`,
+    `team_calls` (colleague calls: read by `POST /api/team-calls` beside
+    the composer, `team_calls ∧ voice_enabled|video_enabled`, on create
+    only; docs/operations/TEAM_CALLS.md)
 - **Runtime layer** (`server/services/calls/controlPlane.ts`)
   - global gates on `app_runtime_config.call_control_plane`
   - workspace overrides on `workspace_provider_settings(provider_type='call')`
@@ -94,7 +97,9 @@ the moment a brand-new action is requested.
 | `GET / PATCH /api/callbacks/:workspaceId(/...)` | DO NOT GATE | List + status patch (includes 'cancelled' / 'completed') — cleanup. |
 | `POST /api/call-center/callbacks/:id/{assign,complete,cancel}` | DO NOT GATE | All three operate on existing callback rows — cleanup / finalize. |
 | `POST /api/calls/create` | **GATED** (Phase: Operator Call Route Split + Selective Gating) | Pure new-action boundary. Mixed by `call_type`; split branch-by-branch via the canonical composer — `audio` → `eff.voice_enabled` (`capability: voice_video.voice`), `video` → `eff.video_enabled` (`capability: voice_video.video`). Composer runs before `resolveEffectiveCallProvider` and the `call_sessions` insert, so no half-created sessions are stranded. Stable denial: `{ error: "plan_forbidden", capability, upgrade_required: true }` (403). |
-| `POST /api/calls/:id/{accept,reject,hangup,end,token}` and `GET /api/calls/:id/state` | DO NOT GATE | Cleanup / lifecycle / read — must always remain reachable so in-flight calls can be drained after a plan downgrade. |
+| `POST /api/calls/:id/{accept,reject,hangup,end,token}` and `GET /api/calls/:id/state` | DO NOT GATE | Cleanup / lifecycle / read — must always remain reachable so in-flight calls can be drained after a plan downgrade. (A colleague call's row answers 404 on every `/api/calls/:id/*` route: it has its own.) |
+| `POST /api/team-calls` | **GATED** (2026-11-01, colleague calls) | Pure new-action boundary: `team_calls` (feature) ∧ the composer's `voice_enabled` (audio) / `video_enabled` (video), then `max_concurrent_calls` and `max_call_minutes_per_month` read as `POST /api/calls/create` reads them, all before the provider and the `call_sessions` insert. Denials: `{ error: "upgrade_required", feature: "team_calls" }` (403, with `capability: voice_video.voice\|voice_video.video` and `reason: plan\|runtime` when the composer said no), `{ error: "limit_reached", limit }` (422). docs/operations/TEAM_CALLS.md. |
+| `GET /api/team-calls/:id`, `POST /api/team-calls/:id/{accept,decline,cancel,hangup,token}` | DO NOT GATE | Continuity: an answered or ringing colleague call is never cut by a plan change. |
 | `POST /api/calls/:id/invite` | DEFERRED — audited (Participant / Continuity Pass) | Single undifferentiated handler: inserts a `call_participants` row, flips `call_sessions.state` to `ringing`, and (for visitor participants on a conversation context) emits the `call:incoming` envelope. The same code path serves both **brand-new optional participant adds** and **re-ring / recovery / rejoin** of an in-flight participant — there is no schema, body field, or branch in the route that distinguishes the two. Per the deny-on-create / allow-on-continuity policy, gating the whole route would strand active-call continuity (re-ring after a transport hiccup, mid-call additional invitee). No safe sub-branch can be isolated without a route-level participant-class signal (e.g. an explicit `reason: 'new' \| 'reissue'` or an idempotency contract on `call_participants`). Honest defer; no rollout. Mapping that *would* apply if a safe new-participant branch is later separated: audio session → `eff.voice_enabled`, video session → `eff.video_enabled`. |
 | `POST /api/call-center/calls/:id/{accept,reject,end}` | DO NOT GATE | Cleanup / control surfaces. |
 | `POST /api/call-center/calls/:id/{assign,transfer}` | DEFERRED | Operates on already-active calls; routing-level decision, not a new entitlement boundary. |

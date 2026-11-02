@@ -64,8 +64,8 @@ struct LoginView: View {
                         .buttonStyle(.plain)
                         .padding(.top, Theme.Space.xs)
 
-                        if !appState.legalLinks.isEmpty {
-                            LegalLinksFooter(links: appState.legalLinks, language: language)
+                        if !appState.siteLegalLinks.isEmpty {
+                            LegalLinksFooter(links: appState.siteLegalLinks, language: language)
                                 .padding(.top, Theme.Space.sm)
                         }
 

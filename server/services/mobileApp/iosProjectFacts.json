@@ -20,7 +20,8 @@
     ],
     "pushEntitlement": true,
     "backgroundModes": [
-      "audio"
+      "audio",
+      "voip"
     ]
   },
   "respok": {
@@ -44,7 +45,8 @@
     ],
     "pushEntitlement": true,
     "backgroundModes": [
-      "audio"
+      "audio",
+      "voip"
     ]
   }
 }

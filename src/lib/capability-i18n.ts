@@ -98,6 +98,7 @@ const EN_LABELS: Record<string, string> = {
   call_recording: 'Call Recording',
   call_queue: 'Call Queue',
   call_callbacks: 'Call Callbacks',
+  team_calls: 'Colleague Calls',
   contact_import: 'Contact Import',
   contact_create: 'Contact Create',
   contact_edit: 'Contact Edit',
@@ -361,6 +362,10 @@ const FA: Record<string, CapabilityText> = {
   call_callbacks: {
     label: 'درخواست تماس مجدد',
     description: 'اگر زمان پاسخ‌گویی از حد مجاز بگذرد، بازدیدکننده می‌تواند درخواست تماس مجدد بدهد. در چارچوب تنظیم سراسری پیشنهاد تماس مجدد در پلتفرم.',
+  },
+  team_calls: {
+    label: 'تماس با همکاران',
+    description: 'تماس صوتی و تصویری بین دو عضو فضای کاری، از گفتگوی همکاران، که مثل یک تماس تلفنی روی گوشی‌هایشان (اپ‌های iOS و اندروید) زنگ می‌خورد. در چارچوب ماژول «صوت و تصویر»، کانال صوتی یا تصویری و کلیدهای تماس پلتفرم و فضای کاری؛ دقیقه‌ها و تماس‌های هم‌زمانش در سقف‌های تماس پلن حساب می‌شوند.',
   },
   contact_import: {
     label: 'ورود مخاطبین',
@@ -802,6 +807,10 @@ const TR: Record<string, CapabilityText> = {
   call_callbacks: {
     label: 'Geri Arama',
     description: 'Yanıt süresi (SLA) aşıldığında ziyaretçilerin geri arama talep etmesine izin verir. Platformun genel geri arama teklifi ayarıyla sınırlıdır.',
+  },
+  team_calls: {
+    label: 'İş Arkadaşı Aramaları',
+    description: 'Bir çalışma alanının iki üyesi arasında, ekip sohbetinden başlatılan ve telefonlarında (iOS ve Android uygulamaları) bir telefon araması gibi çalan sesli ve görüntülü aramalar. "Sesli ve Görüntülü" modülü, sesli veya görüntülü kanal ve platformun ve çalışma alanının arama anahtarlarıyla sınırlıdır; dakikaları ve eşzamanlı aramaları planın arama sınırlarına sayılır.',
   },
   contact_import: {
     label: 'Kişi İçe Aktarma',

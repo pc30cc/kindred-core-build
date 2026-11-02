@@ -46,6 +46,7 @@ import { storageUploadAllowed } from '../services/billing/planStops.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
+import { TEAM_CALL_ENTRY_SOURCE } from '../services/calls/teamCall.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
@@ -742,7 +743,11 @@ callCenterRouter.get('/calls/:id', async (req, res) => {
   const ctx = await requireMember(req, res, wid);
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
-  const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+  // Any call of the workspace but a colleague call, which is its two
+  // members' alone (docs/operations/TEAM_CALLS.md): its row names them and
+  // their phones.
+  const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid)
+    .neq('entry_source', TEAM_CALL_ENTRY_SOURCE).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
   const { data: events } = await sb.from('call_events').select('*').eq('call_session_id', req.params.id).order('created_at', { ascending: true });
   // Visitor rating + comment (optional — there may be no rating yet)

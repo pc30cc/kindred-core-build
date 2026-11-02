@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         // launched the app as soon as the delegate exists, and a centre with
         // no delegate at that moment drops it.
         UNUserNotificationCenter.current().delegate = self
+        // PushKit, for the same reason and a sharper one: a colleague's call
+        // can launch the app in the background with no scene at all, and its
+        // VoIP push is delivered only once a registry with a delegate asks
+        // for it — then it must be a CallKit call before it is done with.
+        VoIPPushes.shared.start()
         return true
     }
 

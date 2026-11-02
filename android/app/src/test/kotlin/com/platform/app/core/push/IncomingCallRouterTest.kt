@@ -22,6 +22,8 @@ class IncomingCallRouterTest {
         language = { Language.FA },
         ring = { call, _ -> rung += call },
         stop = { cancel, _ -> stopped += cancel },
+        ringColleague = { _, _ -> error("a call-centre ring is not a colleague's") },
+        stopColleague = { _, _ -> error("a call-centre cancel is not a colleague's") },
         nowEpochSeconds = { now },
         diag = Diag.Silent,
     )

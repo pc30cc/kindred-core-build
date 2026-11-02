@@ -48,6 +48,9 @@ import com.platform.app.core.model.MobileAppConfig
 import com.platform.app.core.model.Promotions
 import com.platform.app.core.model.SayNowVoice
 import com.platform.app.core.model.SessionResponse
+import com.platform.app.core.model.TeamCall
+import com.platform.app.core.model.TeamCallAcceptance
+import com.platform.app.core.model.TeamCallResponse
 import com.platform.app.core.model.TeamThreadResponse
 import com.platform.app.core.model.User
 import com.platform.app.core.model.VisitorIntelResponse
@@ -1413,6 +1416,73 @@ class ApiClient(
             query = listOf("workspaceId" to workspaceId),
         ).orThrow()
     }
+
+    // MARK: - Colleague calls
+
+    @Serializable
+    private data class TeamCallBody(
+        val workspace_id: String,
+        val callee_id: String,
+        val channel: String,
+    )
+
+    /**
+     * `device_id` is optional on the route and must be absent rather than
+     * null when there is none: `explicitNulls = false` leaves it out, and the
+     * route's schema (`z.string().optional()`) refuses a null.
+     */
+    @Serializable
+    private data class TeamCallAcceptBody(val device_id: String?)
+
+    override suspend fun createTeamCall(workspaceId: String, calleeId: String, channel: CallChannel): TeamCall =
+        build(
+            HttpMethod.Post,
+            "/api/team-calls",
+            body = TeamCallBody(workspace_id = workspaceId, callee_id = calleeId, channel = channel.wire),
+        ).decode<TeamCallResponse>().call
+
+    override suspend fun teamCall(callId: String): TeamCall =
+        build(HttpMethod.Get, "/api/team-calls/${callId.urlPath()}").decode<TeamCallResponse>().call
+
+    override suspend fun acceptTeamCall(callId: String, deviceId: String?): TeamCallAcceptance {
+        val response = build(
+            HttpMethod.Post,
+            "/api/team-calls/${callId.urlPath()}/accept",
+            body = TeamCallAcceptBody(deviceId),
+        )
+        // `409 not_ringing` is an answer, not a failure: the call went to
+        // another phone, or ended, while this one was answering — and the
+        // body says which, as `{error, call}`. A body that cannot be read
+        // still says the call is no longer this phone's to take.
+        if (response.status.value == 409) {
+            val call = try {
+                json.decodeFromString<TeamCallResponse>(response.bodyAsText()).call
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                null
+            }
+            return TeamCallAcceptance.NotRinging(call)
+        }
+        return TeamCallAcceptance.Accepted(response.decode<TeamCallResponse>().call)
+    }
+
+    override suspend fun declineTeamCall(callId: String) {
+        build(HttpMethod.Post, "/api/team-calls/${callId.urlPath()}/decline").orThrow()
+    }
+
+    override suspend fun cancelTeamCall(callId: String): TeamCall =
+        build(HttpMethod.Post, "/api/team-calls/${callId.urlPath()}/cancel").decode<TeamCallResponse>().call
+
+    override suspend fun hangUpTeamCall(callId: String) {
+        build(HttpMethod.Post, "/api/team-calls/${callId.urlPath()}/hangup").orThrow()
+    }
+
+    // No body: the route takes the identity and the name from the session,
+    // never from the request. Kept out of the debug log by `/token`
+    // ([UNLOGGED_PATHS]), like every other call token.
+    override suspend fun teamCallToken(callId: String): CallToken =
+        build(HttpMethod.Post, "/api/team-calls/${callId.urlPath()}/token").decode()
 
     @Serializable
     private data class EndCallBody(val reason: String)

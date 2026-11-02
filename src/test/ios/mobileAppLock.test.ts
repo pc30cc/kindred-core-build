@@ -160,7 +160,7 @@ describe('the lock fails open', () => {
     // Whose snapshot it is, observed like the snapshot itself: a view that
     // read the lock while it still named another workspace must be told when
     // it moves on, or the card never shows (seen on the simulator).
-    expect(state).toMatch(/\n    private var planWorkspaceID: String\? = nil/);
+    expect(state).toMatch(/\n {4}private var planWorkspaceID: String\? = nil/);
     expect(state).not.toMatch(/@ObservationIgnored private var planWorkspaceID/);
     // Applied whenever the snapshot, the session or the workspace changes.
     expect(state).toMatch(/private\(set\) var entitlements: EntitlementsState = \.loading \{\s*didSet \{ lockChanged\(\) \}/);

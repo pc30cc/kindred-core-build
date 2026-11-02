@@ -436,11 +436,39 @@ object StrAndroid {
         Language.TR -> "sa"
     }
 
-    /** The operator's own camera, floating over a video call. */
-    fun callSelfView(l: Language): String = when (l) {
-        Language.EN -> "Your camera — drag to a corner, pinch to resize"
-        Language.FA -> "تصویر شما — برای جابه‌جایی بکشید، برای تغییر اندازه دو انگشتی بزرگ یا کوچک کنید"
-        Language.TR -> "Kameranız — köşeye sürükleyin, boyut için iki parmakla sıkıştırın"
+    /** The small picture over a video call, read out while it shows the member's own camera. */
+    fun callSelfViewYours(l: Language): String = when (l) {
+        Language.EN -> "Your picture"
+        Language.FA -> "تصویر شما"
+        Language.TR -> "Görüntünüz"
+    }
+
+    /** The small picture, swapped: it shows the other side, their video or their face. */
+    fun callSelfViewTheirs(l: Language): String = when (l) {
+        Language.EN -> "The other person's picture"
+        Language.FA -> "تصویر طرف مقابل"
+        Language.TR -> "Karşı tarafın görüntüsü"
+    }
+
+    /** Read after the small picture: what fills the screen while it shows the member. */
+    fun callSelfViewTheyLarge(l: Language): String = when (l) {
+        Language.EN -> "The other person is shown large"
+        Language.FA -> "طرف مقابل در تصویر بزرگ است"
+        Language.TR -> "Karşı taraf büyük görüntüde"
+    }
+
+    /** Read after the small picture: what fills the screen once swapped. */
+    fun callSelfViewYouLarge(l: Language): String = when (l) {
+        Language.EN -> "You are shown large"
+        Language.FA -> "شما در تصویر بزرگ هستید"
+        Language.TR -> "Siz büyük görüntüdesiniz"
+    }
+
+    /** The small picture's tap, and its accessibility action: the two pictures change places. */
+    fun callSelfViewSwap(l: Language): String = when (l) {
+        Language.EN -> "Swap pictures"
+        Language.FA -> "جابه‌جایی تصویرها"
+        Language.TR -> "Görüntüleri değiştir"
     }
 
     fun callSelfViewMove(l: Language): String = when (l) {

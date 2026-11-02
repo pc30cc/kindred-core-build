@@ -40,6 +40,9 @@ enum A11y {
     static let attachButton = "composer.attach"
     /// One message in a transcript, visitor or internal.
     static func messageRow(_ id: String) -> String { "message.\(id)" }
+    /// A colleague call's line in a team thread (the call's id): the bubble
+    /// that calls back.
+    static func teamCallLog(_ id: String) -> String { "teamCallLog.\(id)" }
     /// One conversation in the inbox — the row that opens the chat.
     static func conversationRow(_ id: String) -> String { "conversation.\(id)" }
     /// The row at the foot of Security that opens account deletion.

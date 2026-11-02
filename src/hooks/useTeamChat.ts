@@ -4,6 +4,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import type { TeamChatCall } from '@/lib/team-calls-api';
 
 const API_BASE = RESOLVED_API_BASE || '';
 
@@ -11,10 +12,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     ...init,
-    headers: { 'Content-Type': 'application/json', ...((init?.headers as any) || {}) },
+    headers: { 'Content-Type': 'application/json', ...((init?.headers as Record<string, string> | undefined) || {}) },
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
+  const body: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body as { error?: string } | null)?.error || `Request failed: ${res.status}`);
   return body as T;
 }
 
@@ -38,6 +39,8 @@ export interface Colleague {
     created_at: string;
     outgoing: boolean;
     attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null;
+    /** A colleague call's line: previewed by its icon and title, never its body (TEAM_CALLS.md). */
+    call?: TeamChatCall | null;
   } | null;
 }
 
@@ -48,6 +51,11 @@ export interface TeamMessage {
   body: string;
   attachment_id?: string | null;
   attachment?: TeamAttachment | null;
+  /**
+   * A colleague call's line (TEAM_CALLS.md, "The call in the chat"): drawn as
+   * a call bubble; its `body` is only the older apps' fallback.
+   */
+  call?: TeamChatCall | null;
   read_at: string | null;
   created_at: string;
 }

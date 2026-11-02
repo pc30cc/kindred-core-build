@@ -136,13 +136,26 @@ fun CallScreen(
         var screenTop by remember { mutableFloatStateOf(0f) }
         var headerBottom by remember { mutableFloatStateOf(0f) }
         var controlsTop by remember { mutableFloatStateOf(Float.MAX_VALUE) }
+        // The operator's own picture while their camera gives one. A tap on
+        // the small picture swaps it with the visitor's; the swap ends with it.
+        val own = localVideo?.takeIf { room != null && cameraOn }
+        var swapped by rememberStageSwap(own)
+        val stage = CallStage.of(
+            remote = remoteVideo?.takeIf { room != null },
+            // Flipped once, as the console (src/index.css, "Call video
+            // orientation") and the Mac app flip every call video: the
+            // visitor's camera arrives mirrored, and unflipped they are shown
+            // to the operator the wrong way round. In the card too.
+            remoteMirror = true,
+            own = own,
+            // The front camera, the only one this call uses: its own preview
+            // is a mirror, full screen or small.
+            ownMirror = true,
+            swapped = swapped,
+        )
         Box(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
-            if (remoteVideo != null && room != null) {
-                // Flipped once, as the console (src/index.css, "Call video
-                // orientation") and the Mac app flip every call video: the
-                // visitor's camera arrives mirrored, and unflipped they are
-                // shown to the operator the wrong way round.
-                VideoView(remoteVideo, room, Modifier.fillMaxSize(), mirror = true)
+            if (room != null) {
+                stage.big?.let { VideoView(it.track, room, Modifier.fillMaxSize(), mirror = it.mirror) }
             }
 
             Column(
@@ -164,10 +177,10 @@ fun CallScreen(
                         visitor = visitor,
                         connectedAt = connectedAt,
                         language = language,
-                        // The face is redundant once their picture is on screen,
+                        // The face is redundant once a picture fills the screen,
                         // and a circle over a video window is just something in
                         // the way.
-                        compact = remoteVideo != null,
+                        compact = stage.big != null,
                         video = channel == CallChannel.VIDEO,
                     )
 
@@ -198,16 +211,30 @@ fun CallScreen(
 
             // Only once the name and the buttons have been measured, so it
             // appears in its corner rather than sliding there from the top.
-            if (localVideo != null && room != null && cameraOn && controlsTop != Float.MAX_VALUE) {
-                // Over everything but where the buttons are: drag it to any
-                // corner, pinch or double-tap to size it.
+            if (room != null && stage.hasCard && controlsTop != Float.MAX_VALUE) {
+                // Over everything but where the buttons are: tap it to swap
+                // the pictures, drag it to any corner, pinch or double-tap to
+                // size it.
                 SelfView(
-                    track = localVideo,
-                    room = room,
                     areaTop = headerBottom - screenTop,
                     areaBottom = controlsTop - screenTop,
                     language = language,
-                )
+                    swapped = stage.swapped,
+                    onSwap = { swapped = !swapped },
+                ) {
+                    // Swapped with their camera off: the visitor's face as the
+                    // header draws it — their photo or their device's mark.
+                    StageCardContent(stage.small, room) { size ->
+                        Avatar(
+                            name = contactName,
+                            imageUrl = contactAvatarUrl,
+                            size = size,
+                            os = visitor?.device?.os,
+                            device = visitor?.device?.device,
+                            countryCode = visitor?.geo?.countryCode,
+                        )
+                    }
+                }
             }
         }
     }

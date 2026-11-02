@@ -5,10 +5,15 @@
  * rows a test can inspect afterwards.
  *
  * Filters (`eq`, `neq`, `in`, `is`, `not … is null`, `gt`, `gte`, `lt`,
- * `lte`) read JSON paths too (`metadata->team_call->>callee_user_id`), as
- * PostgREST does; an update returns the rows it changed, so a
- * compare-and-set that matched nothing resolves to no row; and the unique
- * index push dispatch claims under refuses a second claim (23505).
+ * `lte`, and `or` of `eq`s and `and(…)`s as the team chat reads) read JSON
+ * paths too (`metadata->team_call->>callee_user_id`), as PostgREST does; an
+ * update returns the rows it changed, so a compare-and-set that matched
+ * nothing resolves to no row; and the unique keys the code relies on refuse
+ * a second row (23505) — the one push dispatch claims under, and a call's
+ * one line in the team chat (294, NULLs distinct), which an upsert with
+ * `ignoreDuplicates` skips instead, answering only the rows it wrote.
+ *
+ * `rpc('is_workspace_member')` reads `tables.workspace_members`.
  *
  * `rpc('team_call_place')` is migration 293's function as these suites need
  * it: the same busy rule over the rows here, then the insert. JavaScript runs
@@ -25,8 +30,11 @@ export interface FakeDb {
   tables: Record<string, Row[]>;
   rpc: (name: string, args?: Record<string, unknown>) => Promise<Result>;
   from: (table: string) => unknown;
-  /** Make the next query of [table] fail (`rpc:<name>`: the next call of that function). */
-  failNext(table: string): void;
+  /**
+   * Make the next query of [table] fail (`rpc:<name>`: the next call of that
+   * function), with [error] (by default one without a code).
+   */
+  failNext(table: string, error?: { code?: string; message: string }): void;
 }
 
 /** Defaults a `call_sessions` insert gets from the table, as far as these tests read them. */
@@ -47,12 +55,47 @@ const DEFAULTS: Record<string, () => Row> = {
     metadata: {},
     created_at: new Date().toISOString(),
   }),
+  team_messages: () => ({
+    id: randomUUID(),
+    body: '',
+    attachment_id: null,
+    reply_to_id: null,
+    read_at: null,
+    call_session_id: null,
+    created_at: new Date().toISOString(),
+  }),
 };
 
 /** Unique indexes the code relies on to stay idempotent. */
 const UNIQUE: Record<string, string[]> = {
   push_dispatch_log: ['workspace_id', 'user_id', 'dedupe_key'],
+  team_messages: ['call_session_id'],
 };
+
+/** A row that a unique key already holds (a NULL in the key never collides, as in PostgreSQL). */
+function collides(existing: Row[], key: string[], v: Row): boolean {
+  return key.every((c) => v[c] !== null && v[c] !== undefined)
+    && existing.some((r) => key.every((c) => r[c] === v[c]));
+}
+
+/** Top-level comma split of a PostgREST `or=(…)` list. */
+function splitTop(expr: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of expr) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
 
 function valueAt(row: Row, column: string): unknown {
   if (!column.includes('->')) return row[column];
@@ -64,9 +107,21 @@ function valueAt(row: Row, column: string): unknown {
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+/** One condition of an `or` list: `column.eq.value`, or `and(…)` of them. */
+function orCondition(part: string): (r: Row) => boolean {
+  const and = /^and\((.*)\)$/.exec(part);
+  if (and) {
+    const all = splitTop(and[1]).map(orCondition);
+    return (r) => all.every((f) => f(r));
+  }
+  const eq = /^([^.]+)\.eq\.(.*)$/.exec(part);
+  if (!eq) throw new Error(`fake db: or() condition not supported: ${part}`);
+  return (r) => String(valueAt(r, eq[1]) ?? '') === eq[2];
+}
+
 export function createFakeDb(): FakeDb {
   const tables: Record<string, Row[]> = {};
-  const failing = new Set<string>();
+  const failing = new Map<string, { code?: string; message: string } | null>();
 
   function from(table: string) {
     const rows = () => (tables[table] ||= []);
@@ -76,18 +131,21 @@ export function createFakeDb(): FakeDb {
     let order: { column: string; ascending: boolean } | null = null;
     let limit: number | null = null;
     let head = false;
+    let ignoreDuplicates = false;
     const fail = failing.has(table);
+    const failure = failing.get(table) ?? null;
     if (fail) failing.delete(table);
 
     const run = (): Result => {
-      if (fail) return { data: null, error: { message: `${table} unavailable` } };
+      if (fail) return { data: null, error: failure ?? { message: `${table} unavailable` } };
       if (op === 'insert' || op === 'upsert') {
         const list = (Array.isArray(values) ? values : [values]) as Row[];
         const key = UNIQUE[table];
-        if (key && list.some((v) => rows().some((r) => key.every((c) => r[c] === v[c])))) {
+        const fresh = key && ignoreDuplicates ? list.filter((v) => !collides(rows(), key, v)) : list;
+        if (key && fresh.some((v) => collides(rows(), key, v))) {
           return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } };
         }
-        const out = list.map((v) => ({ ...(DEFAULTS[table]?.() ?? {}), ...clone(v) }));
+        const out = fresh.map((v) => ({ ...(DEFAULTS[table]?.() ?? {}), ...clone(v) }));
         rows().push(...out);
         return { data: clone(out), error: null };
       }
@@ -112,7 +170,9 @@ export function createFakeDb(): FakeDb {
     const builder: Record<string, unknown> = {
       select(_columns?: string, opts?: { head?: boolean }) { head = !!opts?.head; return builder; },
       insert(v: Row | Row[]) { op = 'insert'; values = v; return builder; },
-      upsert(v: Row | Row[]) { op = 'upsert'; values = v; return builder; },
+      upsert(v: Row | Row[], opts?: { ignoreDuplicates?: boolean }) {
+        op = 'upsert'; values = v; ignoreDuplicates = !!opts?.ignoreDuplicates; return builder;
+      },
       update(v: Row) { op = 'update'; values = v; return builder; },
       delete() { op = 'delete'; return builder; },
       eq(c: string, v: unknown) { filters.push((r) => valueAt(r, c) === v); return builder; },
@@ -127,6 +187,11 @@ export function createFakeDb(): FakeDb {
       gte(c: string, v: string) { filters.push((r) => String(valueAt(r, c)) >= v); return builder; },
       lt(c: string, v: string) { filters.push((r) => String(valueAt(r, c)) < v); return builder; },
       lte(c: string, v: string) { filters.push((r) => String(valueAt(r, c)) <= v); return builder; },
+      or(expr: string) {
+        const any = splitTop(expr).map(orCondition);
+        filters.push((r) => any.some((f) => f(r)));
+        return builder;
+      },
       order(column: string, opts?: { ascending?: boolean }) { order = { column, ascending: opts?.ascending !== false }; return builder; },
       limit(n: number) { limit = n; return builder; },
       maybeSingle: async () => {
@@ -192,8 +257,13 @@ export function createFakeDb(): FakeDb {
     rpc: async (name: string, args: Record<string, unknown> = {}) => {
       if (name === 'observability_try_acquire_ticker_lease') return { data: true, error: null };
       if (name === 'team_call_place') return placeTeamCall(args);
+      if (name === 'is_workspace_member') {
+        const member = (tables.workspace_members ||= [])
+          .some((m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id);
+        return { data: member, error: null };
+      }
       return { data: null, error: null };
     },
-    failNext(table: string) { failing.add(table); },
+    failNext(table: string, error?: { code?: string; message: string }) { failing.set(table, error ?? null); },
   };
 }

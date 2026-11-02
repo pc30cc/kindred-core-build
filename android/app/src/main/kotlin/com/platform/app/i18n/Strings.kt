@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 445 of 465 strings are generated.
+// 461 of 481 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1477,6 +1477,50 @@ object Str {
     }
 
     /**
+     * The screen reader's name for the small picture while it shows the
+     * member's own camera — and what fills the screen meanwhile.
+     */
+    fun callPictureYoursSmall(l: Language): String = when (l) {
+        Language.EN -> "Your camera, small — the other person is full screen"
+        Language.FA -> "تصویر شما، کوچک — تصویر طرف مقابل تمام‌صفحه است"
+        Language.TR -> "Kameranız, küçük — karşı taraf tam ekranda"
+    }
+
+    /**
+     * The same once the pictures are swapped: the other side small, the
+     * member's own camera filling the screen.
+     */
+    fun callPictureTheirsSmall(l: Language): String = when (l) {
+        Language.EN -> "The other person, small — your camera is full screen"
+        Language.FA -> "تصویر طرف مقابل، کوچک — تصویر شما تمام‌صفحه است"
+        Language.TR -> "Karşı taraf, küçük — kameranız tam ekranda"
+    }
+
+    /** What a double-tap on the small picture does, read after its name. */
+    fun callPictureSwapHint(l: Language): String = when (l) {
+        Language.EN -> "Swaps the two pictures"
+        Language.FA -> "جای دو تصویر را عوض می‌کند"
+        Language.TR -> "İki görüntünün yerini değiştirir"
+    }
+
+    /** The swap, as a named action on the small picture. */
+    fun callPictureSwap(l: Language): String = when (l) {
+        Language.EN -> "Swap pictures"
+        Language.FA -> "جابه‌جایی تصویرها"
+        Language.TR -> "Görüntüleri değiştir"
+    }
+
+    /**
+     * Moves the small picture to the next corner round the screen — what a
+     * drag does, for someone who cannot drag.
+     */
+    fun callPictureMove(l: Language): String = when (l) {
+        Language.EN -> "Move to the next corner"
+        Language.FA -> "انتقال به گوشهٔ بعدی"
+        Language.TR -> "Sonraki köşeye taşı"
+    }
+
+    /**
      * A colleague who set no profile name, wherever a call names them
      * (`TeamCallName`): the word the server's missed-call notification uses.
      */
@@ -1666,6 +1710,86 @@ object Str {
         Language.EN -> "Switch camera"
         Language.FA -> "تعویض دوربین"
         Language.TR -> "Kamerayı değiştir"
+    }
+
+    /** A completed voice call's line (with its duration beside it). */
+    fun teamCallLogVoice(l: Language): String = when (l) {
+        Language.EN -> "Voice call"
+        Language.FA -> "تماس صوتی"
+        Language.TR -> "Sesli arama"
+    }
+
+    /** A completed video call's line (with its duration beside it). */
+    fun teamCallLogVideo(l: Language): String = when (l) {
+        Language.EN -> "Video call"
+        Language.FA -> "تماس تصویری"
+        Language.TR -> "Görüntülü arama"
+    }
+
+    /**
+     * A voice call nobody answered (or the caller gave up on), as the
+     * callee's line names it.
+     */
+    fun teamCallLogMissedVoice(l: Language): String = when (l) {
+        Language.EN -> "Missed voice call"
+        Language.FA -> "تماس صوتی بی‌پاسخ"
+        Language.TR -> "Cevapsız sesli arama"
+    }
+
+    /** The same for a video call. */
+    fun teamCallLogMissedVideo(l: Language): String = when (l) {
+        Language.EN -> "Missed video call"
+        Language.FA -> "تماس تصویری بی‌پاسخ"
+        Language.TR -> "Cevapsız görüntülü arama"
+    }
+
+    /** A call the colleague did not answer, as the caller's line names it. */
+    fun teamCallLogNoAnswer(l: Language): String = when (l) {
+        Language.EN -> "No answer"
+        Language.FA -> "بی‌پاسخ"
+        Language.TR -> "Cevap yok"
+    }
+
+    /** A call the callee declined, on both sides' lines. */
+    fun teamCallLogDeclined(l: Language): String = when (l) {
+        Language.EN -> "Declined"
+        Language.FA -> "رد شد"
+        Language.TR -> "Reddedildi"
+    }
+
+    /** A call the caller cancelled before an answer, on the caller's line. */
+    fun teamCallLogCancelled(l: Language): String = when (l) {
+        Language.EN -> "Cancelled"
+        Language.FA -> "لغو شد"
+        Language.TR -> "İptal edildi"
+    }
+
+    /** A call that could not be made, on both sides' lines. */
+    fun teamCallLogFailed(l: Language): String = when (l) {
+        Language.EN -> "Call failed"
+        Language.FA -> "تماس برقرار نشد"
+        Language.TR -> "Arama başarısız"
+    }
+
+    /** What a tap on a call line does: the screen reader's name for it. */
+    fun teamCallLogCallBack(l: Language): String = when (l) {
+        Language.EN -> "Call back"
+        Language.FA -> "تماس دوباره"
+        Language.TR -> "Geri ara"
+    }
+
+    /** The direction of a call line the member placed, read out with it. */
+    fun teamCallLogOutgoing(l: Language): String = when (l) {
+        Language.EN -> "Outgoing"
+        Language.FA -> "خروجی"
+        Language.TR -> "Giden"
+    }
+
+    /** The direction of a call line the colleague placed, read out with it. */
+    fun teamCallLogIncoming(l: Language): String = when (l) {
+        Language.EN -> "Incoming"
+        Language.FA -> "ورودی"
+        Language.TR -> "Gelen"
     }
 
     fun callNoMicrophone(l: Language): String = when (l) {

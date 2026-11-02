@@ -17,10 +17,20 @@ struct CallScreen: View {
     /// way of a full-screen picture and come back on a tap.
     @State private var chromeVisible = true
     @State private var hideTask: Task<Void, Never>?
+    /// Where the header, the controls and the safe area are over the
+    /// picture, for the small picture to settle clear of them.
+    @State private var frames = CallScreenFrames()
 
     var body: some View {
         ZStack {
             if isFullScreenVideo {
+                // The safe area, measured: what the small picture keeps
+                // inside while the controls are away.
+                Color.clear
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .callScreenFrame { frames.safeArea = $0 }
+
                 // Their video *is* the screen, edge to edge and under the
                 // status bar — the way a video call has looked since anyone
                 // started making them on a phone. Everything else floats on
@@ -30,9 +40,12 @@ struct CallScreen: View {
                     local: session.localVideoTrack,
                     contactName: session.contactName,
                     contactAvatarURL: session.contactAvatarURL,
-                    visitor: session.visitor
+                    language: language,
+                    visitor: session.visitor,
+                    freeArea: frames.free(chromeVisible: chromeVisible)
                 )
                 .ignoresSafeArea()
+                .callScreenFrame { frames.stage = $0 }
                 .onTapGesture { revealChrome() }
             } else {
                 backdrop
@@ -46,6 +59,7 @@ struct CallScreen: View {
                     .allowsHitTesting(chromeVisible)
             }
         }
+        .coordinateSpace(.named(CallScreenFrames.space))
         .preferredColorScheme(.dark)
         .statusBarHidden(isFullScreenVideo && !chromeVisible)
         .task { session.start() }
@@ -118,6 +132,9 @@ struct CallScreen: View {
                     )
                     .ignoresSafeArea(edges: .top)
                 )
+                // The small picture settles below this, shading included:
+                // the gradient takes touches, and darkens what is under it.
+                .callScreenFrame { frames.header = $0 }
 
             Spacer()
 
@@ -133,6 +150,8 @@ struct CallScreen: View {
                     )
                     .ignoresSafeArea(edges: .bottom)
                 )
+                // …and above this.
+                .callScreenFrame { frames.controls = $0 }
         }
     }
 
@@ -280,8 +299,19 @@ struct CallScreen: View {
     }
 }
 
-/// The other side's video, with the operator's own camera inset into the
-/// corner — a visitor's, or a colleague's (`TeamCallScreen`).
+/// The other side's video, with the member's own camera in a small picture
+/// over it — a visitor's call, or a colleague's (`TeamCallScreen`).
+///
+/// The small picture (CallPicture.swift, Android's `SelfView`):
+/// - **Drag** it anywhere; let go and it settles into the nearest corner of
+///   `freeArea` — below the header, above the controls, inside the safe area
+///   — with a spring (none under Reduce Motion). A flick carries it towards
+///   the corner it was thrown at. The corner is the glass's, not the
+///   language's, and the phone remembers it for the next call.
+/// - **Tap** it and the two swap: the member's own camera large, the other
+///   side small (their face, when their camera is off). Tap again to swap
+///   back. A drag is never a tap: one gesture decides which it was.
+/// - Its own camera going off puts everything back as the call opened.
 ///
 /// Both tracks arrive as plain values from the session rather than being dug
 /// out of `Room` here: the room is not something SwiftUI watches, so a view
@@ -291,62 +321,242 @@ struct VideoStage: View {
     let local: VideoTrack?
     let contactName: String
     let contactAvatarURL: String?
+    /// The language the small picture's VoiceOver label and actions speak.
+    let language: Language
     var visitor: VisitorProfile?
     /// A visitor's face, or a colleague's (`.member`) — which decides the
     /// silhouette when there is no picture.
     var subject: AvatarSkeleton.Subject = .person
-    /// The operator's own preview. A visitor call only ever uses the front
+    /// The member's own camera. A visitor call only ever uses the front
     /// camera, so it is always mirrored; a colleague call can switch to the
-    /// back one, which `.auto` leaves the right way round.
+    /// back one, which `.auto` leaves the right way round. Wherever it is
+    /// drawn, large or small, it keeps this; the other side's never mirrors.
     var localMirror: VideoView.MirrorMode = .mirror
+    /// The part of the stage the small picture may settle in, in the stage's
+    /// own coordinates (`CallScreenFrames.free`): what the call screen's
+    /// header and controls leave, when they are showing. Nil: the stage's own
+    /// safe area.
+    var freeArea: CGRect? = nil
+
+    /// The coordinate space the small picture is laid out and dragged in.
+    private static let pictureSpace = "call.picture"
+    /// The settle: a little give, no wobble — Android's spring, near enough.
+    private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.8)
+
+    @State private var corner = CallPicturePlacement.corner()
+    @State private var pictures = CallPictureSwap()
+    @State private var touch = CallPictureTouch()
+    /// Where the small picture's centre is while a finger has it; nil once
+    /// it has settled into its corner.
+    @State private var dragCenter: CGPoint? = nil
+    /// `freeArea` as the small picture follows it (`follow(_:_:)`); nil
+    /// until it first changes, when `freeArea` itself is used.
+    @State private var shownArea: CGRect? = nil
+    /// True while a finger is on the small picture; back to false however the
+    /// touch ends, including when the system takes it away.
+    @GestureState private var touching = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            ZStack {
-                // Black behind everything, so letterboxing and the moment
-                // before the first frame both read as "a call", not as a
-                // broken layout.
-                Color.black
+        ZStack {
+            // Black behind everything, so letterboxing and the moment
+            // before the first frame both read as "a call", not as a
+            // broken layout.
+            Color.black
 
-                if let remote {
-                    SwiftUIVideoView(remote, layoutMode: .fill)
-                } else {
-                    // Connected, with nothing coming from their camera —
-                    // switched off, or never there. Their face says the call
-                    // is fine and the picture is not; a spinner that never
-                    // resolves would say the opposite.
-                    Avatar(
-                        name: contactName,
-                        imageURL: contactAvatarURL,
-                        size: 140,
-                        subject: subject,
-                        os: visitor?.device?.os,
-                        device: visitor?.device?.device,
-                        countryCode: visitor?.geo?.countryCode
-                    )
-                        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if let local {
-                // The operator's own preview, mirrored the way every selfie
-                // camera is: they are looking at themselves, not at a
-                // stranger. Inset from the safe area so it never sits under
-                // the clock or the notch.
-                SwiftUIVideoView(local, layoutMode: .fill, mirrorMode: localMirror)
-                    .frame(width: 104, height: 144)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                            .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
-                    .padding(Theme.Space.lg)
-                    .padding(.top, Theme.Space.huge)
+            if let track = largeTrack {
+                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: largeMirror)
+            } else {
+                // Connected, with nothing coming from their camera —
+                // switched off, or never there. Their face says the call
+                // is fine and the picture is not; a spinner that never
+                // resolves would say the opposite.
+                face(size: 140)
+                    .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay { pictureLayer }
+        .onChange(of: freeArea) { old, new in follow(old, new) }
+        .onChange(of: localID) { _, id in
+            // Their camera off, or another track: theirs is large again,
+            // and stays so when it comes back.
+            pictures.localChanged(to: id)
+            if id == nil {
+                touch = CallPictureTouch()
+                dragCenter = nil
+            }
+        }
+    }
+
+    // MARK: - Which picture is where
+
+    /// The own track on screen, by identity: a camera that goes off and on
+    /// again, or a replaced track, is a fresh start for the swap.
+    private var localID: ObjectIdentifier? {
+        local.map { ObjectIdentifier($0) }
+    }
+
+    private var swapped: Bool { pictures.isSwapped(local: localID) }
+
+    private var largeTrack: VideoTrack? { swapped ? local : remote }
+    private var largeMirror: VideoView.MirrorMode { swapped ? localMirror : .auto }
+    private var smallTrack: VideoTrack? { swapped ? remote : local }
+    private var smallMirror: VideoView.MirrorMode { swapped ? .auto : localMirror }
+
+    /// Their photo or their silhouette — never their initials.
+    private func face(size: CGFloat) -> some View {
+        Avatar(
+            name: contactName,
+            imageURL: contactAvatarURL,
+            size: size,
+            subject: subject,
+            os: visitor?.device?.os,
+            device: visitor?.device?.device,
+            countryCode: visitor?.geo?.countryCode
+        )
+    }
+
+    private var motion: Animation? { reduceMotion ? nil : Self.settleSpring }
+
+    // MARK: - The small picture
+
+    /// Only while the member's own camera is on: without it there is nothing
+    /// to show small, and nothing to swap.
+    ///
+    /// Laid out left to right whatever the app's language, so a corner is the
+    /// glass's corner — a Persian or Arabic screen does not move it across —
+    /// and the finger and the picture agree on which way is right. What is
+    /// inside the picture keeps the app's direction.
+    @ViewBuilder
+    private var pictureLayer: some View {
+        if local != nil {
+            GeometryReader { proxy in
+                let bounds = CGRect(origin: .zero, size: proxy.size)
+                let insets = proxy.safeAreaInsets
+                let fallback = CGRect(
+                    x: insets.leading,
+                    y: insets.top,
+                    width: max(0, proxy.size.width - insets.leading - insets.trailing),
+                    height: max(0, proxy.size.height - insets.top - insets.bottom)
+                )
+                let room = CallPictureLayout.room(free: shownArea ?? freeArea, fallback: fallback)
+                let size = CallPictureLayout.fittedSize(in: room)
+                let settled = CallPictureLayout.center(at: corner, size: size, in: room)
+
+                smallPicture(size: size)
+                    .gesture(drag(settled: settled, size: size, bounds: bounds, room: room))
+                    .onChange(of: touching) { _, isTouching in
+                        // The system took the touch away mid-drag — a call
+                        // coming in, Control Centre: no end, and no tap. The
+                        // picture settles where it was.
+                        guard !isTouching, let center = dragCenter else { return }
+                        settle(in: .nearest(to: center, in: room))
+                    }
+                    .position(dragCenter ?? settled)
+            }
+            .coordinateSpace(.named(Self.pictureSpace))
+            .environment(\.layoutDirection, .leftToRight)
+        }
+    }
+
+    private func smallPicture(size: CGSize) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+        return ZStack {
+            if let track = smallTrack {
+                // Its own touches are the picture's: the renderer is a UIKit
+                // view, and the drag and the tap belong to the card.
+                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: smallMirror)
+                    .allowsHitTesting(false)
+            } else {
+                // Swapped, and their camera is off: their face on a dark
+                // tile, as the large picture would show it.
+                Color(white: 0.14)
+                face(size: min(56, size.width * 0.6))
+            }
+        }
+        .environment(\.layoutDirection, layoutDirection)
+        .frame(width: size.width, height: size.height)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+        .contentShape(shape)
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+        // One element for VoiceOver: what is small, what is large, a
+        // double-tap that swaps, and the corners one by one.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(swapped ? Str.callPictureTheirsSmall(language) : Str.callPictureYoursSmall(language))
+        .accessibilityHint(Str.callPictureSwapHint(language))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { swapPictures() }
+        .accessibilityAction(named: Text(Str.callPictureSwap(language))) { swapPictures() }
+        .accessibilityAction(named: Text(Str.callPictureMove(language))) { settle(in: corner.next) }
+    }
+
+    /// Tap and drag in one gesture, so they can never both happen: the touch
+    /// is a tap until the finger has travelled past the slop
+    /// (`CallPictureTouch`), and only a touch that never did swaps the
+    /// pictures when it lifts. `minimumDistance: 0` takes the touch from the
+    /// first moment, so the stage's own tap (the controls) never sees it.
+    private func drag(settled: CGPoint, size: CGSize, bounds: CGRect, room: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.pictureSpace))
+            .updating($touching) { _, state, _ in state = true }
+            .onChanged { value in
+                touch.track(start: value.startLocation, translation: value.translation, origin: dragCenter ?? settled)
+                guard touch.isDrag else { return }
+                dragCenter = CallPictureLayout.clamped(touch.center(translation: value.translation), size: size, in: bounds)
+            }
+            .onEnded { value in
+                var ended = touch
+                ended.track(start: value.startLocation, translation: value.translation, origin: dragCenter ?? settled)
+                touch = CallPictureTouch()
+                guard ended.isDrag else {
+                    swapPictures()
+                    return
+                }
+                let released = CallPictureLayout.clamped(ended.center(translation: value.translation), size: size, in: bounds)
+                settle(in: CallPictureLayout.corner(releasedAt: released, velocity: value.velocity, in: room))
+            }
+    }
+
+    /// The room changed under the picture — the controls fading in or out,
+    /// the header growing a line, the status bar going — and the picture
+    /// follows, springing from its corner to the same corner of the new room.
+    /// Not from before the screen was first measured, though: that is no
+    /// place it was ever seen, and a call should not open with it flying in.
+    private func follow(_ old: CGRect?, _ new: CGRect?) {
+        guard old != nil, new != nil else {
+            shownArea = new
+            return
+        }
+        withAnimation(motion) { shownArea = new }
+    }
+
+    private func swapPictures() {
+        pictures.toggle(local: localID)
+    }
+
+    /// Into `next` corner, springing there from wherever it is, and
+    /// remembered for the next call.
+    private func settle(in next: CallPictureCorner) {
+        withAnimation(motion) {
+            corner = next
+            dragCenter = nil
+        }
+        CallPicturePlacement.remember(next)
+    }
+}
+
+extension View {
+    /// Reports this view's frame in the call screen's coordinate space
+    /// (`CallScreenFrames.space`) whenever it changes, for the small picture
+    /// to keep out of the way of what the screen draws over the stage.
+    func callScreenFrame(_ report: @escaping (CGRect) -> Void) -> some View {
+        onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(CallScreenFrames.space))
+        } action: { frame in
+            report(frame)
+        }
     }
 }
 

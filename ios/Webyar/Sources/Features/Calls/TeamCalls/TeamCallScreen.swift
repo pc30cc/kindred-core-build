@@ -19,21 +19,40 @@ struct TeamCallScreen: View {
 
     @State private var chromeVisible = true
     @State private var hideTask: Task<Void, Never>?
+    /// Where the header, the controls and the safe area are over the
+    /// picture, for the small picture to settle clear of them (`VideoStage`).
+    @State private var frames = CallScreenFrames()
 
     var body: some View {
         ZStack {
             if isFullScreenVideo {
+                // The safe area, measured: what the small picture keeps
+                // inside while the controls are away.
+                Color.clear
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .callScreenFrame { frames.safeArea = $0 }
+
+                // A tap on the picture brings the controls back; one on the
+                // small picture swaps the two instead, and a drag moves it —
+                // its own gesture, which this one never sees.
                 VideoStage(
                     remote: manager.remoteVideo,
                     local: manager.localVideo,
                     contactName: call.peerName(language),
                     contactAvatarURL: call.peerAvatarURL,
+                    language: language,
                     subject: .member,
-                    localMirror: .auto
+                    localMirror: .auto,
+                    freeArea: frames.free(chromeVisible: chromeVisible)
                 )
                 .ignoresSafeArea()
+                .callScreenFrame { frames.stage = $0 }
                 .onTapGesture { revealChrome() }
 
+                // Above the picture, but only its header and controls take
+                // touches: the middle is empty, so the small picture there
+                // is dragged and tapped with the controls showing too.
                 chrome
                     .opacity(chromeVisible ? 1 : 0)
                     .animation(Theme.Motion.standard, value: chromeVisible)
@@ -43,6 +62,7 @@ struct TeamCallScreen: View {
                 portrait
             }
         }
+        .coordinateSpace(.named(CallScreenFrames.space))
         .statusBarHidden(isFullScreenVideo && !chromeVisible)
         // A video call is watched, not touched: left to Auto-Lock the screen
         // locks and iOS stops the camera. A voice call has the proximity
@@ -84,6 +104,9 @@ struct TeamCallScreen: View {
                     LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
                         .ignoresSafeArea(edges: .top)
                 )
+                // The small picture settles below this, shading included:
+                // the gradient takes touches, and darkens what is under it.
+                .callScreenFrame { frames.header = $0 }
 
             Spacer()
 
@@ -95,6 +118,8 @@ struct TeamCallScreen: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
                         .ignoresSafeArea(edges: .bottom)
                 )
+                // …and above this.
+                .callScreenFrame { frames.controls = $0 }
         }
     }
 

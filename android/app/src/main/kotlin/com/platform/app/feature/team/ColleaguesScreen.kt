@@ -243,7 +243,20 @@ private fun ColleagueRow(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (last != null) {
+                    val lastCall = last?.call
+                    if (lastCall != null) {
+                        // A colleague call's line: its icon and title, never
+                        // its body. The title already says whose side it is
+                        // ("No answer" is the caller's), so no "You:".
+                        TeamCallPreview(
+                            call = lastCall,
+                            viewerIsCaller = last?.outgoing == true,
+                            language = language,
+                            color = if (unread > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (unread > 0) FontWeight.Medium else null,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else if (last != null) {
                         Text(
                             buildAnnotatedString {
                                 // What the operator sent themselves is said so,
@@ -311,10 +324,13 @@ private fun Face(imageUrl: String?, ringed: Boolean) {
  *
  * An attachment-only message has no body, so it is named by what it is — the
  * same rule the conversation rows follow, and the reason a colleague who sent
- * you a photo does not appear to have sent you nothing.
+ * you a photo does not appear to have sent you nothing. A colleague call's
+ * line is named by its title (and a completed call's length), not by its
+ * body (the row draws it with its icon, [TeamCallPreview]).
  */
 internal fun Colleague.preview(language: Language): String {
     val last = lastMessage ?: return ""
+    last.call?.let { return it.logHeadline(viewerIsCaller = last.outgoing == true, language = language) }
     last.body?.takeIf { it.isNotBlank() }?.let { return Format.preview(it) }
     return when (last.attachmentKind) {
         "image" -> Str.photo(language)

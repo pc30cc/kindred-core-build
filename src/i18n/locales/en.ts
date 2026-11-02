@@ -12899,6 +12899,25 @@ const en = {
       generic: "The call couldn't be placed. Try again.",
     },
   },
+  // The call in the chat: a colleague call's line in the team chat
+  // (docs/operations/TEAM_CALLS.md, "The call in the chat"; the apps'
+  // teamCallLog* strings). outgoing/incoming: the line's direction, read
+  // out in its accessibility label.
+  teamCalls: {
+    log: {
+      voice: 'Voice call',
+      video: 'Video call',
+      missedVoice: 'Missed voice call',
+      missedVideo: 'Missed video call',
+      noAnswer: 'No answer',
+      declined: 'Declined',
+      cancelled: 'Cancelled',
+      failed: 'Call failed',
+      callBack: 'Call back',
+      outgoing: 'Outgoing',
+      incoming: 'Incoming',
+    },
+  },
 };
 
 export type TranslationKeys = typeof en;

@@ -12880,6 +12880,25 @@ const tr: TranslationKeys = {
       generic: 'Arama başlatılamadı. Tekrar deneyin.',
     },
   },
+  // The call in the chat: a colleague call's line in the team chat
+  // (docs/operations/TEAM_CALLS.md, "The call in the chat"; the apps'
+  // teamCallLog* strings). outgoing/incoming: the line's direction, read
+  // out in its accessibility label.
+  teamCalls: {
+    log: {
+      voice: 'Sesli arama',
+      video: 'Görüntülü arama',
+      missedVoice: 'Cevapsız sesli arama',
+      missedVideo: 'Cevapsız görüntülü arama',
+      noAnswer: 'Cevap yok',
+      declined: 'Reddedildi',
+      cancelled: 'İptal edildi',
+      failed: 'Arama başarısız',
+      callBack: 'Geri ara',
+      outgoing: 'Giden',
+      incoming: 'Gelen',
+    },
+  },
 };
 
 export default tr;

@@ -5,16 +5,19 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -26,34 +29,41 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.StrAndroid
 import com.platform.app.ui.A11y
-import io.livekit.android.room.track.VideoTrack
+import com.platform.app.ui.design.LocalReducedMotion
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Which corner the operator's own picture sits in. Absolute — left and right
- * as the screen has them, not start and end — because it is a place on the
- * glass the operator put it, and a Persian layout must not move it across.
+ * Which corner the small picture sits in. Absolute — left and right as the
+ * screen has them, not start and end — because it is a place on the glass
+ * the member put it, and a Persian layout must not move it across.
  */
 data class SelfViewCorner(val left: Boolean, val top: Boolean) {
     /** The next corner round the screen, for the accessibility action. */
@@ -74,7 +84,7 @@ data class SelfViewCorner(val left: Boolean, val top: Boolean) {
     }
 }
 
-/** How wide the operator's own picture is, in dp; it is always 3:4. */
+/** How wide the small picture is, in dp; it is always 3:4. */
 object SelfViewSize {
     const val MIN = 64f
     const val DEFAULT = 108f
@@ -90,7 +100,7 @@ object SelfViewSize {
 
 /**
  * Where the picture was left, so the next call opens it there. Kept on the
- * phone only — it is how this operator likes their screen, not an account
+ * phone only — it is how this member likes their screen, not an account
  * setting, and nothing in it is private.
  */
 internal class SelfViewPlacement(context: Context) {
@@ -116,114 +126,155 @@ internal class SelfViewPlacement(context: Context) {
 }
 
 /**
- * The operator's own camera, floating over the call — the picture-in-picture
- * every video call app has.
+ * The small picture floating over a video call — the picture-in-picture
+ * every video call app has. Normally the member's own camera; swapped, the
+ * other side's (see [CallStage]). [content] is what it shows.
  *
+ * - **Tap** it to swap the two pictures, and again to swap them back. A tap
+ *   is read once nothing else can be made of it: a finger that went past the
+ *   touch slop is a drag, a second finger a pinch, and a second tap close
+ *   behind the first a double-tap — so the swap waits out the double-tap
+ *   timeout, as every tap beside a double-tap on Android does.
  * - **Drag** it anywhere; let go and it settles into the nearest corner (a
  *   flick carries it towards the corner it was thrown at).
  * - **Pinch** to make it smaller or larger, down to a thumbnail.
  * - **Double-tap** steps it small → normal → large.
  *
- * It keeps between [areaTop] and [areaBottom] (pixels from the top of the
- * call screen): below the name and the timer, above the buttons, so it never
- * sits on either. Mirrored, because a front camera that is not reads as
- * somebody else's face doing the wrong thing.
+ * The corner and the size are the card's, not the picture's: a swap keeps
+ * both. It keeps between [areaTop] and [areaBottom] (pixels from the top of
+ * the call screen) — below the name and the timer, above the buttons — and
+ * clear of a cutout or a navigation bar at either side; in a band lower than
+ * the card (a phone on its side) it is drawn smaller, and at its smallest it
+ * gives way upwards over the name, never down over the buttons.
  */
 @Composable
 fun SelfView(
-    track: VideoTrack,
-    room: LiveKitRoom,
     areaTop: Float,
     areaBottom: Float,
     language: Language,
+    /** Whether the member's own picture is the big one, so the card shows the other side. */
+    swapped: Boolean,
+    onSwap: () -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * Drawn as a mirror, the way a front camera's own preview is. The back
-     * camera's picture is not: what it shows is in front of the phone, and a
-     * mirror of it is the world the wrong way round.
-     */
-    mirror: Boolean = true,
+    content: @Composable BoxScope.() -> Unit,
 ) {
     val context = LocalContext.current
     val placement = remember(context) { SelfViewPlacement(context) }
     var corner by remember { mutableStateOf(placement.corner) }
     var widthDp by remember { mutableFloatStateOf(placement.width) }
     val scope = rememberCoroutineScope()
+    val still = LocalReducedMotion.current
+    // Read by the gesture and the accessibility action, which outlive any one
+    // composition: a swap asked for after the screen has recomposed must reach
+    // the swap that is on screen now.
+    val swap by rememberUpdatedState(onSwap)
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val margin = with(density) { 12.dp.toPx() }
         val areaWidth = constraints.maxWidth.toFloat()
-        val w = with(density) { widthDp.dp.toPx() }
-        val h = w * 4f / 3f
+        // Left and right as the glass has them, whatever the language.
+        val safe = WindowInsets.safeDrawing
+        val left = safe.getLeft(density, LayoutDirection.Ltr) + margin
+        val right = maxOf(left, areaWidth - safe.getRight(density, LayoutDirection.Ltr) - margin)
         val top = areaTop + margin
-        // Room for the picture even when the buttons leave little: it may
-        // then overlap the name rather than vanish.
-        val bottom = maxOf(areaBottom - margin, top + h)
-
-        fun target(c: SelfViewCorner): Offset = Offset(
-            x = if (c.left) margin else areaWidth - w - margin,
-            y = if (c.top) top else bottom - h,
+        val bottom = maxOf(top, areaBottom - margin)
+        val geometry = SelfViewGeometry(
+            areaWidth = areaWidth,
+            areaHeight = constraints.maxHeight.toFloat(),
+            left = left,
+            right = right,
+            top = top,
+            bottom = bottom,
+            density = density.density,
         )
+        val shownDp = geometry.shownWidth(widthDp)
+        val goal = geometry.target(corner, widthDp)
 
-        val position = remember { Animatable(target(corner), Offset.VectorConverter) }
+        val position = remember { Animatable(goal, Offset.VectorConverter) }
         var dragging by remember { mutableStateOf(false) }
         // Settles into the corner whenever it changes, or the room it has does
-        // (the name's line wraps, the call connects and the face goes).
-        LaunchedEffect(corner, w, top, bottom, areaWidth, dragging) {
-            if (!dragging) position.animateTo(target(corner), spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow))
+        // (the name's line wraps, the call connects and the face goes, the
+        // phone turns). Straight there when the system says no animations.
+        LaunchedEffect(goal, dragging, still) {
+            if (dragging) return@LaunchedEffect
+            if (still) {
+                position.snapTo(goal)
+            } else {
+                position.animateTo(goal, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow))
+            }
         }
-        // Read by the gesture, which outlives any one size of the card.
-        val geometry by rememberUpdatedState(SelfViewGeometry(areaWidth, constraints.maxHeight.toFloat(), top, bottom, w, h))
+        // Read by the gesture, which outlives any one size of the screen.
+        val measures by rememberUpdatedState(geometry)
 
         val shape = RoundedCornerShape(16.dp)
-        val label = StrAndroid.callSelfView(language)
+        val label = if (swapped) StrAndroid.callSelfViewTheirs(language) else StrAndroid.callSelfViewYours(language)
+        val state = if (swapped) StrAndroid.callSelfViewYouLarge(language) else StrAndroid.callSelfViewTheyLarge(language)
+        val swapLabel = StrAndroid.callSelfViewSwap(language)
         val smaller = StrAndroid.callSelfViewSmaller(language)
         val larger = StrAndroid.callSelfViewLarger(language)
         val move = StrAndroid.callSelfViewMove(language)
 
         Box(
             Modifier
-                .offset { IntOffset(position.value.x.roundToInt(), position.value.y.roundToInt()) }
-                .size(widthDp.dp, (widthDp * 4f / 3f).dp)
+                // Absolute, not start-relative: in Persian a start-relative
+                // offset would put "left" on the right and move the card
+                // against the finger.
+                .align(AbsoluteAlignment.TopLeft)
+                .absoluteOffset { IntOffset(position.value.x.roundToInt(), position.value.y.roundToInt()) }
+                .size(shownDp.dp, (shownDp * 4f / 3f).dp)
                 .shadow(10.dp, shape)
                 .clip(shape)
+                // Dark until a picture's first frame: a renderer made fresh
+                // by a swap is see-through for a moment, and the big picture
+                // must not show through it.
+                .background(CALL_TILE)
                 .border(1.5.dp, Color.White.copy(alpha = 0.35f), shape)
-                .testTag(A11y.CALL_SELF_VIEW)
-                .semantics {
+                // One element: what it shows, what fills the screen, and a
+                // click that swaps them. The picture or face inside adds nothing.
+                .clearAndSetSemantics {
+                    testTag = A11y.CALL_SELF_VIEW
                     contentDescription = label
+                    stateDescription = state
+                    onClick(label = swapLabel) {
+                        swap()
+                        true
+                    }
                     customActions = listOf(
                         CustomAccessibilityAction(move) {
                             corner = corner.next().also { placement.corner = it }
                             true
                         },
                         CustomAccessibilityAction(smaller) {
-                            widthDp = SelfViewSize.clamp(widthDp - 28f).also { placement.width = it }
+                            widthDp = SelfViewSize.clamp(shownDp - 28f).also { placement.width = it }
                             true
                         },
                         CustomAccessibilityAction(larger) {
-                            widthDp = SelfViewSize.clamp(widthDp + 28f).also { placement.width = it }
+                            widthDp = SelfViewSize.clamp(shownDp + 28f).also { placement.width = it }
                             true
                         },
                     )
                 },
         ) {
-            VideoView(track, room, Modifier.fillMaxSize(), mirror = mirror)
-            // Over the video rather than on it: the renderer is an Android
+            content()
+            // Over the picture rather than on it: the renderer is an Android
             // view, and the touches are the card's, not the picture's.
             Box(
                 Modifier
                     .matchParentSize()
                     .pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                widthDp = SelfViewSize.next(widthDp).also { placement.width = it }
-                            },
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
+                        /**
+                         * One touch, from its finger coming down to every
+                         * finger lifting: a drag or a pinch moves and sizes
+                         * the card as it goes. Returns when the fingers lift:
+                         * the time they did when nothing moved and nothing
+                         * cancelled it — a tap — else null. [onMoveStart] is
+                         * told the moment it becomes a drag or a pinch.
+                         */
+                        suspend fun AwaitPointerEventScope.track(
+                            down: PointerInputChange,
+                            onMoveStart: () -> Unit,
+                        ): Long? {
                             // In the call screen's own coordinates: the card
                             // moves under the finger, so its local ones stand still.
                             var at = position.value
@@ -231,12 +282,19 @@ fun SelfView(
                             val velocity = VelocityTracker()
                             velocity.addPosition(down.uptimeMillis, travelled)
                             var moved = false
+                            var liftedAt: Long? = null
                             // A tap that wobbles is still a tap: nothing moves
                             // until the finger has gone past the touch slop, or
                             // a second finger has come down to pinch.
                             var pending = Offset.Zero
                             do {
                                 val event = awaitPointerEvent()
+                                // Lifted, not cancelled (a cancel's lift comes consumed).
+                                liftedAt = if (event.changes.all { it.changedToUp() }) {
+                                    event.changes.firstOrNull()?.uptimeMillis
+                                } else {
+                                    null
+                                }
                                 val zoom = event.calculateZoom()
                                 var pan = event.calculatePan()
                                 if (!moved) {
@@ -245,18 +303,22 @@ fun SelfView(
                                     if (!pinching && pending.getDistance() < viewConfiguration.touchSlop) continue
                                     moved = true
                                     dragging = true
+                                    onMoveStart()
                                     pan = pending
                                 }
                                 if (zoom != 1f || pan != Offset.Zero) {
                                     if (zoom != 1f) {
-                                        val before = widthDp
-                                        widthDp = SelfViewSize.clamp(widthDp * zoom)
+                                        val g = measures
+                                        val before = g.shownWidth(widthDp)
+                                        // From the size on screen, so a card held
+                                        // small by a low band answers at once.
+                                        widthDp = SelfViewSize.clamp(before * zoom)
                                         // Grows and shrinks about its middle, not its corner.
-                                        val grown = (widthDp - before) * density.density
+                                        val grown = (g.shownWidth(widthDp) - before) * g.density
                                         at -= Offset(grown / 2f, grown * 2f / 3f)
                                     }
                                     travelled += pan
-                                    at = geometry.clamp(at + pan)
+                                    at = measures.clamp(at + pan, widthDp)
                                     val next = at
                                     scope.launch { position.snapTo(next) }
                                     event.changes.forEach { if (it.positionChanged()) it.consume() }
@@ -264,16 +326,41 @@ fun SelfView(
                                 event.changes.firstOrNull()?.let { velocity.addPosition(it.uptimeMillis, travelled) }
                             } while (event.changes.any { it.pressed })
 
-                            if (moved) {
-                                // A flick counts: where it was heading, a fifth of a second on.
-                                val v = velocity.calculateVelocity()
-                                val g = geometry
-                                val aimed = at + Offset(g.w / 2f, g.h / 2f) + Offset(v.x, v.y) * 0.2f
-                                val next = SelfViewCorner.nearest(aimed.x, aimed.y, g.areaWidth, g.top, g.bottom)
-                                placement.corner = next
-                                placement.width = widthDp
-                                corner = next
-                                dragging = false
+                            if (!moved) return liftedAt
+                            // A flick counts: where it was heading, a fifth of a second on.
+                            val v = velocity.calculateVelocity()
+                            val g = measures
+                            val w = g.shownWidth(widthDp) * g.density
+                            val aimed = at + Offset(w / 2f, w * 2f / 3f) + Offset(v.x, v.y) * 0.2f
+                            val next = SelfViewCorner.nearest(aimed.x, aimed.y, g.areaWidth, g.top, g.bottom)
+                            placement.corner = next
+                            placement.width = widthDp
+                            corner = next
+                            dragging = false
+                            return null
+                        }
+
+                        awaitEachGesture {
+                            val firstUp = track(awaitFirstDown(requireUnconsumed = false)) {}
+                                ?: return@awaitEachGesture
+                            // A tap: unless a second follows close behind it,
+                            // which makes the two a double-tap.
+                            val second = withTimeoutOrNull(viewConfiguration.doubleTapTimeoutMillis) {
+                                var next: PointerInputChange
+                                do {
+                                    next = awaitFirstDown(requireUnconsumed = false)
+                                } while (next.uptimeMillis < firstUp + viewConfiguration.doubleTapMinTimeMillis)
+                                next
+                            }
+                            if (second == null) {
+                                swap()
+                                return@awaitEachGesture
+                            }
+                            // A second touch that drags or pinches leaves the
+                            // first a tap of its own, swapped the moment that is clear.
+                            val secondUp = track(second) { swap() }
+                            if (secondUp != null) {
+                                widthDp = measures.nextStep(widthDp).also { placement.width = it }
                             }
                         }
                     },
@@ -282,18 +369,62 @@ fun SelfView(
     }
 }
 
-/** The call screen's measures, as the gesture reads them mid-drag. */
-private data class SelfViewGeometry(
+/**
+ * The call screen's measures, in pixels from its top left: the band the card
+ * keeps to between [top] and [bottom], [left] and [right], and the whole
+ * screen it may be dragged across.
+ */
+internal data class SelfViewGeometry(
     val areaWidth: Float,
     val areaHeight: Float,
+    val left: Float,
+    val right: Float,
     val top: Float,
     val bottom: Float,
-    val w: Float,
-    val h: Float,
+    /** Pixels per dp. */
+    val density: Float,
 ) {
+    /**
+     * The width the card is drawn at, in dp: the one asked for, or less when
+     * the band is lower than that card would be — never under [SelfViewSize.MIN].
+     */
+    fun shownWidth(widthDp: Float): Float {
+        val fits = (bottom - top) * 3f / 4f / density
+        return minOf(widthDp, maxOf(SelfViewSize.MIN, fits))
+    }
+
+    /**
+     * The width a double-tap steps to: the next step up from the card as it
+     * is drawn — or, when the band draws that step no larger (a phone on its
+     * side), round to the smallest, so a double-tap always does something
+     * while there is a smaller step to take.
+     */
+    fun nextStep(widthDp: Float): Float {
+        val shown = shownWidth(widthDp)
+        val next = SelfViewSize.next(shown)
+        return if (shownWidth(next) > shown + 1f) next else SelfViewSize.next(SelfViewSize.MAX)
+    }
+
+    /**
+     * Where the card's top left goes in [corner]. Taller than the band even
+     * at its smallest, it gives way upwards — over the name, never down over
+     * the buttons.
+     */
+    fun target(corner: SelfViewCorner, widthDp: Float): Offset {
+        val w = shownWidth(widthDp) * density
+        val h = w * 4f / 3f
+        val x = if (corner.left) left else right - w
+        val y = if (corner.top) minOf(top, bottom - h) else bottom - h
+        return Offset(x.coerceAtLeast(0f), y.coerceAtLeast(0f))
+    }
+
     /** Kept on the screen while it is dragged; the corners are for letting go. */
-    fun clamp(p: Offset): Offset = Offset(
-        x = p.x.coerceIn(0f, maxOf(0f, areaWidth - w)),
-        y = p.y.coerceIn(0f, maxOf(0f, areaHeight - h)),
-    )
+    fun clamp(p: Offset, widthDp: Float): Offset {
+        val w = shownWidth(widthDp) * density
+        val h = w * 4f / 3f
+        return Offset(
+            x = p.x.coerceIn(0f, maxOf(0f, areaWidth - w)),
+            y = p.y.coerceIn(0f, maxOf(0f, areaHeight - h)),
+        )
+    }
 }

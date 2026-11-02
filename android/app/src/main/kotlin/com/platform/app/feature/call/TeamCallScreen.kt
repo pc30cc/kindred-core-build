@@ -108,12 +108,25 @@ fun TeamCallScreen(
         var screenTop by remember { mutableFloatStateOf(0f) }
         var headerBottom by remember { mutableFloatStateOf(0f) }
         var controlsTop by remember { mutableFloatStateOf(Float.MAX_VALUE) }
+        // The member's own picture while their camera gives one. A tap on the
+        // small picture swaps it with the colleague's; the swap ends with it.
+        val own = localVideo?.takeIf { room != null && cameraOn }
+        var swapped by rememberStageSwap(own)
+        val stage = CallStage.of(
+            remote = remoteVideo?.takeIf { room != null },
+            // Not mirrored: a colleague's phone sends its camera's picture as
+            // the camera saw it. (A visitor's browser does not, which is why
+            // [CallScreen] flips theirs.)
+            remoteMirror = false,
+            own = own,
+            // A front camera's own preview is a mirror; the back camera's is
+            // what is in front of the phone, the right way round.
+            ownMirror = frontCamera,
+            swapped = swapped,
+        )
         Box(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
-            if (remoteVideo != null && room != null) {
-                // Not mirrored: a colleague's phone sends its camera's
-                // picture as the camera saw it. (A visitor's browser does not,
-                // which is why [CallScreen] flips theirs.)
-                VideoView(remoteVideo, room, Modifier.fillMaxSize(), mirror = false)
+            if (room != null) {
+                stage.big?.let { VideoView(it.track, room, Modifier.fillMaxSize(), mirror = it.mirror) }
             }
 
             Column(
@@ -131,9 +144,9 @@ fun TeamCallScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(Space.md),
                 ) {
-                    // Their face is redundant once their picture is on
+                    // Their face is redundant once a picture fills the
                     // screen, and a circle over a video is in the way.
-                    if (remoteVideo == null) {
+                    if (stage.big == null) {
                         CallHalo(ringing = !phase.isOver && phase !is TeamCallPhase.Live) {
                             OperatorAvatar(imageUrl = peerAvatarUrl, size = Size.avatarLarge + 8.dp)
                         }
@@ -171,15 +184,18 @@ fun TeamCallScreen(
                 }
             }
 
-            if (localVideo != null && room != null && cameraOn && controlsTop != Float.MAX_VALUE) {
+            if (room != null && stage.hasCard && controlsTop != Float.MAX_VALUE) {
                 SelfView(
-                    track = localVideo,
-                    room = room,
                     areaTop = headerBottom - screenTop,
                     areaBottom = controlsTop - screenTop,
                     language = language,
-                    mirror = frontCamera,
-                )
+                    swapped = stage.swapped,
+                    onSwap = { swapped = !swapped },
+                ) {
+                    // Swapped with their camera off: their photo or the
+                    // silhouette, as above — never a letter.
+                    StageCardContent(stage.small, room) { size -> OperatorAvatar(imageUrl = peerAvatarUrl, size = size) }
+                }
             }
         }
     }

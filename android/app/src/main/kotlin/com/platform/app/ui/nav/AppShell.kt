@@ -436,6 +436,7 @@ fun AppShell(
                 language = language,
                 onBack = { navigator.back() },
                 onCall = { call -> navigator.open(call) },
+                callOn = { navigator.holdsCall },
             )
         }
         entry<EmailKey>(

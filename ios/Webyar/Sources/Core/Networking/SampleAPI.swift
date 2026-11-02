@@ -575,12 +575,19 @@ actor SampleAPI: WebyarAPI {
                         outgoing: false, attachmentKind: nil
                     )
                 ),
+                // The last line a call's: a video call from Deniz nobody
+                // answered, which the list previews by its icon and title,
+                // in the danger colour (`TeamCallLogPreview`).
                 Colleague(
                     userId: "u-3", role: "admin", fullName: "Deniz Yılmaz",
                     email: "deniz@webyar.example", avatarURL: nil, unread: 0,
                     lastMessage: .init(
-                        body: "Thanks — picked it up.", createdAt: Date().addingTimeInterval(-7_200),
-                        outgoing: true, attachmentKind: nil
+                        body: "\u{1F4F9}", createdAt: Date().addingTimeInterval(-7_200),
+                        outgoing: false, attachmentKind: nil,
+                        call: TeamChatCall(
+                            id: "5b0c6a3e-8f1d-4e2a-9c7b-3d4e5f6a7b80", channel: .video,
+                            outcome: .missed, callerID: "u-3"
+                        )
                     )
                 ),
             ],
@@ -596,6 +603,13 @@ actor SampleAPI: WebyarAPI {
     /// keyboard opens had the same answer — it did not move, because it never
     /// had to. A thread that overflows is the ordinary case and the only one
     /// worth laying out against.
+    ///
+    /// Three of its lines are colleague calls, as the server writes them
+    /// (docs/operations/TEAM_CALLS.md, "The call in the chat"): a video call
+    /// from the colleague nobody answered, a call back they declined, and one
+    /// that went through for four minutes — so the call bubble's missed,
+    /// declined and completed looks, on both sides, are on screen. They sit
+    /// just before the last two words, which stay the newest line.
     func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse {
         let script: [(String, Bool)] = [
             ("سلام، وقتت آزاد است؟", false),
@@ -608,19 +622,38 @@ actor SampleAPI: WebyarAPI {
             ("ممنون، فعلاً لازم نیست.", true),
             ("راستی فاکتورش را هم بررسی کن.", false),
             ("چشم، همان را هم نگاه می‌کنم.", true),
+            // Calls' lines: the bodies are the server's fallback for apps
+            // that predate `call` (below), which this one never draws.
+            ("\u{1F4F9}", false),
+            ("\u{1F4DE}", true),
+            ("\u{1F4DE} 4:05", true),
             ("مرسی.", false),
             ("خواهش می‌کنم.", true),
         ]
+        /// The calls those three lines stand for, by their place in the
+        /// script; the caller is whoever the line is from.
+        let calls: [Int: (channel: CallChannel, outcome: TeamCallOutcome, seconds: Int?)] = [
+            10: (channel: .video, outcome: .missed, seconds: nil),
+            11: (channel: .audio, outcome: .declined, seconds: nil),
+            12: (channel: .audio, outcome: .completed, seconds: 245),
+        ]
         let messages = script.enumerated().map { index, line -> TeamMessage in
             let (body, outgoing) = line
+            let caller = outgoing ? Self.user.id : peerID
             return TeamMessage(
                 id: "tm-\(index + 1)",
-                senderId: outgoing ? Self.user.id : peerID,
+                senderId: caller,
                 recipientId: outgoing ? peerID : Self.user.id,
                 body: body,
                 attachment: nil,
                 readAt: outgoing ? Date() : nil,
-                createdAt: Date().addingTimeInterval(Double(index - script.count) * 300)
+                createdAt: Date().addingTimeInterval(Double(index - script.count) * 300),
+                call: calls[index].map { call in
+                    TeamChatCall(
+                        id: "sample-call-\(index + 1)", channel: call.channel, outcome: call.outcome,
+                        durationSeconds: call.seconds, callerID: caller
+                    )
+                }
             )
         }
         return TeamThreadResponse(messages: messages, me: Self.user.id)
@@ -730,6 +763,9 @@ actor SampleAPI: WebyarAPI {
                 "widget_voice_notes": on,
                 "widget_emoji": on,
                 "inbox_team_chat": on,
+                // Colleague calls: the thread's call buttons, and a call's
+                // line that calls back.
+                "team_calls": on,
                 // Sample mode is where the promotion surfaces get laid out,
                 // so it carries them even though no real plan does yet.
                 "mobile_promo_banner": on,

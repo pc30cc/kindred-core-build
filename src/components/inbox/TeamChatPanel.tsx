@@ -5,6 +5,10 @@
  * colleague call buttons (voice, video) when the plan allows that kind of
  * call (planAccess.ts `teamCallAllowed`, TEAM_CALLS.md "Web panel"), never
  * for oneself. The call itself is the app shell's (TeamCallProvider).
+ * Every colleague call leaves one line in the thread, written by the server
+ * when it ends (TEAM_CALLS.md, "The call in the chat"): a call bubble
+ * (TeamCallLogBubble) that calls back through the same gate, and the list
+ * previews it by its icon and title.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -39,6 +43,8 @@ import { formatTime, formatRelative, formatLongDate } from '@/lib/date';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import { teamCallAllowed, type TeamCallKind } from '@/lib/planAccess';
 import { useTeamCall } from '@/features/teamCalls/teamCallState';
+import { teamChatCallOf } from '@/features/teamCalls/teamCallLog';
+import { TeamCallLogBubble, TeamCallLogPreview } from '@/components/inbox/TeamCallLogBubble';
 
 const ALLOWED_TEAM_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
@@ -104,6 +110,17 @@ export default function TeamChatPanel() {
   const callKinds: TeamCallKind[] = teamCall && workspace?.id && user?.id && peer && peer.user_id !== user.id
     ? (['audio', 'video'] as TeamCallKind[]).filter((kind) => teamCallAllowed(plan, kind))
     : [];
+  // A call already on (placing, ringing, in it): no other is placed meanwhile.
+  const callBusy = !!teamCall?.session && teamCall.session.phase !== 'ended';
+  /** Rings this colleague: the header's buttons and a call line's call back (only for a kind in callKinds). */
+  const placeTeamCall = (kind: TeamCallKind) => {
+    if (!teamCall || !workspace?.id || !peer || callBusy || !callKinds.includes(kind)) return;
+    void teamCall.placeCall({
+      workspaceId: workspace.id,
+      peer: { user_id: peer.user_id, name: peer.full_name, avatar_url: peer.avatar_url },
+      channel: kind,
+    });
+  };
   const messages = threadData?.messages ?? [];
 
   const filtered = useMemo(() => {
@@ -273,6 +290,7 @@ export default function TeamChatPanel() {
             filtered.map(c => {
               const active = c.user_id === peerId;
               const pState = stateOf(c.user_id);
+              const lastCall = teamChatCallOf(c.last_message?.call);
               return (
                 <button
                   key={c.user_id}
@@ -306,17 +324,25 @@ export default function TeamChatPanel() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11.5px] text-muted-foreground truncate">
-                        {c.last_message
-                          ? (c.last_message.outgoing ? `${t('inbox.you') || 'You'}: ` : '')
-                            + (c.last_message.body
-                              || (c.last_message.attachment_kind === 'image' ? (t('inbox.previewImage') || 'Photo')
-                                : c.last_message.attachment_kind === 'audio' ? (t('inbox.previewAudio') || 'Voice message')
-                                : c.last_message.attachment_kind === 'video' ? (t('inbox.previewVideo') || 'Video')
-                                : c.last_message.attachment_kind ? (t('inbox.previewFile') || 'File')
-                                : ''))
-                          : c.role}
-                      </span>
+                      {lastCall ? (
+                        // A call's line: its icon and title, never its body.
+                        <TeamCallLogPreview
+                          call={lastCall}
+                          viewerIsCaller={user?.id ? lastCall.caller_id === user.id : !!c.last_message?.outgoing}
+                        />
+                      ) : (
+                        <span className="text-[11.5px] text-muted-foreground truncate">
+                          {c.last_message
+                            ? (c.last_message.outgoing ? `${t('inbox.you') || 'You'}: ` : '')
+                              + (c.last_message.body
+                                || (c.last_message.attachment_kind === 'image' ? (t('inbox.previewImage') || 'Photo')
+                                  : c.last_message.attachment_kind === 'audio' ? (t('inbox.previewAudio') || 'Voice message')
+                                  : c.last_message.attachment_kind === 'video' ? (t('inbox.previewVideo') || 'Video')
+                                  : c.last_message.attachment_kind ? (t('inbox.previewFile') || 'File')
+                                  : ''))
+                            : c.role}
+                        </span>
+                      )}
                       {c.unread > 0 && (
                         <span className="ms-auto text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold bg-primary text-primary-foreground tabular-nums">
                           {c.unread > 99 ? '99+' : c.unread}
@@ -370,7 +396,6 @@ export default function TeamChatPanel() {
                 </p>
               </div>
               {teamCall && workspace?.id && callKinds.length > 0 && (() => {
-                const busy = !!teamCall.session && teamCall.session.phase !== 'ended';
                 const name = peer.full_name || t('teamCall.colleague');
                 return (
                   <div className="ms-auto flex items-center gap-1" data-team-call-buttons>
@@ -382,15 +407,9 @@ export default function TeamChatPanel() {
                           type="button"
                           aria-label={label}
                           title={label}
-                          disabled={busy}
+                          disabled={callBusy}
                           data-team-call-button={kind}
-                          onClick={() => {
-                            void teamCall.placeCall({
-                              workspaceId: workspace.id,
-                              peer: { user_id: peer.user_id, name: peer.full_name, avatar_url: peer.avatar_url },
-                              channel: kind,
-                            });
-                          }}
+                          onClick={() => placeTeamCall(kind)}
                           className="p-2 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40 disabled:pointer-events-none"
                         >
                           {kind === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
@@ -423,6 +442,10 @@ export default function TeamChatPanel() {
                     const grouped = prev && prev.sender_id === m.sender_id
                       && Date.parse(m.created_at) - Date.parse(prev.created_at) < 5 * 60_000;
                     const dayChanged = !prev || formatLongDate(prev.created_at) !== formatLongDate(m.created_at);
+                    // A colleague call's line: on the caller's side, titled for
+                    // this member; it calls back through the header's gate.
+                    const call = teamChatCallOf(m.call);
+                    const callerIsMe = call ? call.caller_id === user?.id : false;
                     return (
                       <div key={m.id}>
                         {dayChanged && (
@@ -432,29 +455,42 @@ export default function TeamChatPanel() {
                             <div className="h-px flex-1 bg-border/60" />
                           </div>
                         )}
-                        <div className={cn('flex', mine ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-3')}>
-                          <div data-inbox="bubble" data-from={mine ? 'agent' : 'contact'} className={cn(
-                            'max-w-[75%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
-                            mine
-                              ? 'bg-primary text-primary-foreground rounded-ee-md'
-                              : 'bg-card border border-border text-foreground rounded-es-md',
-                          )}>
-                            {/* Same media bubbles the Inbox renders — image
-                                lightbox, voice player, file card — on both
-                                sides of the thread. */}
-                            {m.attachment && (
-                              <div className={cn(m.body ? 'mb-1.5' : '')}>
-                                <MessageAttachmentView att={m.attachment} t={t} isAgent={mine} />
+                        {call ? (
+                          <div className={cn('flex', callerIsMe ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-3')}>
+                            <TeamCallLogBubble
+                              call={call}
+                              createdAt={m.created_at}
+                              viewerIsCaller={callerIsMe}
+                              callBack={callKinds.includes(call.channel)
+                                ? { disabled: callBusy, onCallBack: () => placeTeamCall(call.channel) }
+                                : null}
+                            />
+                          </div>
+                        ) : (
+                          <div className={cn('flex', mine ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-3')}>
+                            <div data-inbox="bubble" data-from={mine ? 'agent' : 'contact'} className={cn(
+                              'max-w-[75%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
+                              mine
+                                ? 'bg-primary text-primary-foreground rounded-ee-md'
+                                : 'bg-card border border-border text-foreground rounded-es-md',
+                            )}>
+                              {/* Same media bubbles the Inbox renders — image
+                                  lightbox, voice player, file card — on both
+                                  sides of the thread. */}
+                              {m.attachment && (
+                                <div className={cn(m.body ? 'mb-1.5' : '')}>
+                                  <MessageAttachmentView att={m.attachment} t={t} isAgent={mine} />
+                                </div>
+                              )}
+                              {!!m.body && (
+                                <p className="whitespace-pre-wrap break-words" dir="auto" data-latin-digits="">{m.body}</p>
+                              )}
+                              <div className={cn('mt-1 text-[10px] tabular-nums', mine ? 'text-primary-foreground/70 text-end' : 'text-muted-foreground')}>
+                                {formatTime(m.created_at)}
                               </div>
-                            )}
-                            {!!m.body && (
-                              <p className="whitespace-pre-wrap break-words" dir="auto" data-latin-digits="">{m.body}</p>
-                            )}
-                            <div className={cn('mt-1 text-[10px] tabular-nums', mine ? 'text-primary-foreground/70 text-end' : 'text-muted-foreground')}>
-                              {formatTime(m.created_at)}
                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })

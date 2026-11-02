@@ -275,7 +275,7 @@ private fun WorkspaceChoice(
                             // in Persian too.
                             workspace.websiteDomain?.takeIf { it.isNotBlank() }?.let { domain ->
                                 Text(
-                                    "⁦$domain⁩",
+                                    "\u2066$domain\u2069",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,

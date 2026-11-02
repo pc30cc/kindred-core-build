@@ -187,7 +187,10 @@ module and its `voice`/`video` channel; its minutes and concurrency count in
 the plan's call limits. The iPhone rings for colleague calls only: call-centre
 (visitor) calls never send a VoIP push (`server/services/push/callRing.ts`),
 because iOS turns every VoIP push into a CallKit call. A call is placed only
-through `team_call_place()` (migration 293). The contract between the server
+through `team_call_place()` (migration 293). Every call that ends leaves one
+line in the two members' team chat (`team_messages.call_session_id`,
+migration 294; written once from `announceTeamCall`), drawn as a call bubble
+that calls back. The contract between the server
 and both apps (API, payloads, states, ring and stop, webhook and ticker
 rules, rollout) is `docs/operations/TEAM_CALLS.md`: change it with the code.
 
@@ -535,6 +538,13 @@ over unchanged. A full disk stops Postgres too.
     `BEGIN … ROLLBACK` at 00:57 that changed only the App Review plan (a
     dump of `billing_plans`, a schema dump, the dry run's and the run's logs:
     `/root/webyar-migrate-293/`); RESPOK by its migrator on push.
+    Then `294_team_call_chat_records.sql` (the call in the chat:
+    `team_messages.call_session_id`, unique, FK to `call_sessions`; it
+    writes no data), applied by hand before its merge, 2026-11-02 11:17 UTC,
+    after a dry run inside `BEGIN … ROLLBACK` the same minute (the 33 team
+    messages unchanged, a re-run a no-op; a dump of `team_messages`, a
+    schema dump, the dry run's and the run's logs: `/root/webyar-migrate-294/`);
+    RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

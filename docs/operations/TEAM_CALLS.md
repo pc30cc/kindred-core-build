@@ -97,7 +97,7 @@ together with the code.
 
 | Method and path | Who | Does |
 |---|---|---|
-| `POST /` `{workspace_id, callee_id, channel}` | a member | Checks membership, plan, limits, busy; creates the row and the room; rings the callee; `201 {call}`. Errors: `400 invalid_params`, `403 upgrade_required` (`feature: 'team_calls'`), `403 not_a_member`, `409 callee_busy`, `409 caller_busy`, `429 too_many_calls`, `422 limit_reached` (`limit: 'max_concurrent_calls' | 'max_call_minutes_per_month'`). Rate limit: a caller rings at most 10 times a minute, a callee is rung at most 6 times a minute. |
+| `POST /` `{workspace_id, callee_id, channel}` | a member | Checks membership, plan, limits, busy; creates the row and the room; rings the callee; `201 {call}`. Errors: `400 invalid_params`, `403 upgrade_required` (`feature: 'team_calls'`), `403 not_a_member`, `409 callee_busy`, `409 caller_busy`, `429 too_many_calls`, `422 limit_reached` (`limit: 'max_concurrent_calls' | 'max_call_minutes_per_month'`). Rate limit: a caller rings at most 10 times a minute, a callee is rung at most 6 times a minute (by everyone together; an attempt that does not ring — busy, a failure — gives its ring back). The concurrency ceiling is read before the placement, as `/api/calls/create` reads it, so calls placed in the same instant may pass it together. |
 | `GET /:id` | caller or callee | `{call}`; `404` for anyone else. |
 | `POST /:id/accept` `{device_id?}` | callee | `ringing` → `connecting` with a compare-and-set (first answer wins); stamps `connected_at`, `answered_at`, `answered_device_id`; stops the callee's other phones; `{call}`. `409 not_ringing` with `{call}` when it is no longer ringing. |
 | `POST /:id/decline` | callee | `ringing` → ended, outcome `declined`. Idempotent. |
@@ -153,7 +153,10 @@ LiveKit webhook (`server/routes/livekitWebhook.ts`) for `team_call` rows:
 once both members are in; `participant_left` after the answer ends the call
 (outcome `completed`); `room_finished` never rewrites an ended row. A
 `participant_left` whose `disconnectReason` is `DUPLICATE_IDENTITY` (the same
-member reconnected) changes nothing, for every call type.
+member reconnected) changes nothing, for every call type. A room that starts
+again, or is joined, after its call is over (LiveKit makes a room on a join
+with a token that has not expired) is closed at once, so a kept token buys no
+uncounted time.
 
 ## iOS
 

@@ -48,6 +48,7 @@ import { notifyTeamCallMissed } from '../push/dispatch.js';
 import {
   TEAM_CALL_COLUMNS,
   TEAM_CALL_ENTRY_SOURCE,
+  TEAM_CALL_LIVE_STATES,
   isTeamCallRow,
   readTeamCallMeta,
   teamCallRingCutoff,
@@ -392,6 +393,35 @@ export async function failTeamCall(config: ServerConfig, row: TeamCallRow): Prom
 }
 
 // ── The provider's word (LiveKit webhook) ─────────────────────────────────
+
+/**
+ * A room of a call that is over came back: LiveKit makes a room again when
+ * someone joins it with a token that has not expired yet (`auto_create`), so
+ * a member keeping a call's token could otherwise meet again in its room
+ * after the end, with nothing counted (minutes, concurrency, busy) and past a
+ * plan change. Its room is closed at once, which disconnects whoever is in
+ * it; the shipped apps never rejoin an ended call. A call that is still live
+ * (ringing, connecting, active) keeps its room. Best-effort: a close that
+ * fails is logged, and the next join's webhook tries again. True when it
+ * closed one.
+ */
+export async function closeRoomOfFinishedTeamCall(
+  config: ServerConfig,
+  callId: string,
+  roomName: string | null | undefined,
+): Promise<boolean> {
+  const row = await loadTeamCall(config, callId);
+  if (!row || !row.provider_room_id) return false;
+  if ((TEAM_CALL_LIVE_STATES as readonly string[]).includes(row.state)) return false;
+  if (roomName && roomName !== row.provider_room_id) return false;
+  try {
+    await resolveCallProvider(row.provider as CallProviderId).closeRoom(config, row.provider_room_id);
+    return true;
+  } catch (err) {
+    console.warn('[team-call] closing the room of a finished call failed:', err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
 
 /**
  * A member joined the room: an answered call becomes active once both of its

@@ -116,8 +116,11 @@ teamCallsRouter.use((req: Request, res: Response, next: NextFunction) => {
 // attempt counts, per user, whichever device it comes from); a callee is
 // rung at most CALLEE_RINGS_PER_MINUTE times a minute, by everyone together,
 // so a colleague cannot be rung over and over by several callers. The
-// second is per process, counted only for calls that would ring: one replica
-// is the common case, and the caller's limit holds whatever the count.
+// second is per process, counted only for calls that ring: a ring taken
+// before the placement is given back when the placement does not place the
+// call (busy, a failure), so attempts that never rang — a burst of them
+// racing the busy check included — cannot use up a colleague's share. One
+// replica is the common case, and the caller's limit holds whatever the count.
 const CALLER_RINGS_PER_MINUTE = 10;
 const CALLEE_RINGS_PER_MINUTE = 6;
 const WINDOW_MS = 60_000;
@@ -135,13 +138,19 @@ const callerLimiter = rateLimit({
 
 const calleeRings = new Map<string, number[]>();
 
-/** Takes one of the callee's rings for this minute; false when they have had their share. */
-function takeCalleeRing(calleeId: string, now: number = Date.now()): boolean {
+/** A ring taken from a callee's share, to keep or give back. */
+interface CalleeRing {
+  calleeId: string;
+  at: number;
+}
+
+/** Takes one of the callee's rings for this minute; null when they have had their share. */
+function takeCalleeRing(calleeId: string, now: number = Date.now()): CalleeRing | null {
   const since = now - WINDOW_MS;
   const recent = (calleeRings.get(calleeId) ?? []).filter((t) => t > since);
   if (recent.length >= CALLEE_RINGS_PER_MINUTE) {
     calleeRings.set(calleeId, recent);
-    return false;
+    return null;
   }
   recent.push(now);
   calleeRings.set(calleeId, recent);
@@ -151,7 +160,16 @@ function takeCalleeRing(calleeId: string, now: number = Date.now()): boolean {
       if (!times.some((t) => t > since)) calleeRings.delete(id);
     }
   }
-  return true;
+  return { calleeId, at: now };
+}
+
+/** Gives back a ring the placement did not use: the callee was never rung. */
+function giveBackCalleeRing(ring: CalleeRing): void {
+  const times = calleeRings.get(ring.calleeId);
+  if (!times) return;
+  const i = times.indexOf(ring.at);
+  if (i >= 0) times.splice(i, 1);
+  if (!times.length) calleeRings.delete(ring.calleeId);
 }
 
 /** Tests: forget every callee's rings, and these callers' attempts. */
@@ -226,6 +244,9 @@ const createSchema = z.object({
 teamCallsRouter.post('/', callerLimiter, async (req, res) => {
   const config = serverConfigOf(req);
   const callerId = userOf(req);
+  // The callee's ring, held from just before the placement until it places
+  // the call; any other way out of this handler gives it back (finally).
+  let heldRing: CalleeRing | null = null;
   try {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success || parsed.data.callee_id === callerId) {
@@ -295,7 +316,8 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
     const busy = await busyMembers(config, [callerId, calleeId]);
     if (busy.has(callerId)) return res.status(409).json({ error: 'caller_busy' });
     if (busy.has(calleeId)) return res.status(409).json({ error: 'callee_busy' });
-    if (!takeCalleeRing(calleeId)) return res.status(429).json({ error: 'too_many_calls' });
+    heldRing = takeCalleeRing(calleeId);
+    if (!heldRing) return res.status(429).json({ error: 'too_many_calls' });
 
     const { id: providerId, provider } = await resolveEffectiveCallProvider(config, workspaceId);
 
@@ -334,6 +356,8 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
       return res.status(500).json({ error: 'internal_error' });
     }
     let row: TeamCallRow = verdict.call;
+    // Placed: the callee is being rung, so the ring counts from here on.
+    heldRing = null;
 
     // The room, with no one named in it: its metadata is the workspace and
     // the call id (livekitProvider), never a user. Room for a rejoin, which
@@ -397,6 +421,8 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
     return res.status(201).json({ call: teamCallView(row, callerId, callee) });
   } catch (err) {
     return failure(res, 'create', err);
+  } finally {
+    if (heldRing) giveBackCalleeRing(heldRing);
   }
 });
 

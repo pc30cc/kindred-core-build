@@ -21,7 +21,9 @@
  * answered call `active` once both members are in; `participant_left` after
  * the answer ends it (completed) — a member whose app died is ended here;
  * `room_finished` completes an answered call and never rewrites an ended,
- * missed or cancelled one. The participants are recorded as for any call.
+ * missed or cancelled one. A room that starts again, or is joined, after its
+ * call is over is closed at once (a kept token must not buy uncounted time).
+ * The participants are recorded as for any call.
  *
  * A connection LiveKit drops because the same identity joined again
  * (`disconnectReason: DUPLICATE_IDENTITY` — a client's full reconnect after a
@@ -57,6 +59,7 @@ import { mustDb } from '../utils/mustDb.js';
 import { parseParticipantIdentity, resolveParticipantId } from '../services/calls/operatorIdentity.js';
 import { TEAM_CALL_ENTRY_SOURCE } from '../services/calls/teamCall.js';
 import {
+  closeRoomOfFinishedTeamCall,
   onTeamCallParticipantJoined,
   onTeamCallParticipantLeft,
   onTeamCallRoomFinished,
@@ -221,6 +224,9 @@ export async function applyEvent(
       // answer, which the API records, not the room.
       if (teamCall) {
         await recordEvent('room_started', { sid: ev.room?.sid });
+        // A room started again after its call ended is closed (see the
+        // lifecycle's closeRoomOfFinishedTeamCall); while it rings it stays.
+        await closeRoomOfFinishedTeamCall(config, session.id, ev.room?.name);
         return { applied: true };
       }
       // The room exists (the operator may be in it); the call itself starts
@@ -326,8 +332,12 @@ export async function applyEvent(
       if (ptype === 'operator' && memberId) {
         void markInCall(config, session.workspace_id, memberId, session.id).catch(() => {});
       }
-      // A colleague call is active once both of its members are in.
+      // A colleague call is active once both of its members are in; a
+      // member joining a call that is over is put out with its room.
       if (teamCall) {
+        if (await closeRoomOfFinishedTeamCall(config, session.id, ev.room?.name)) {
+          return { applied: true };
+        }
         const move = await onTeamCallParticipantJoined(config, session.id);
         await move?.effects;
       }

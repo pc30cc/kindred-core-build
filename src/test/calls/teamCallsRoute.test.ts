@@ -455,6 +455,34 @@ describe('POST /api/team-calls — placing a call', () => {
     expect(res.body.error).toBe('too_many_calls');
   });
 
+  it('an attempt that never rang gives the callee’s ring back: a burst racing the busy check cannot use up their share', async () => {
+    // Six calls from one caller at once all pass the early busy read; the
+    // placement rings one and answers caller_busy to the rest.
+    const rpc = h.db.rpc;
+    placeTogether(6);
+    const burst = await Promise.all(Array.from({ length: 6 }, () => place({}, CALLER)));
+    h.db.rpc = rpc;
+    expect(burst.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409, 409]);
+    const placed = burst.find((r) => r.status === 201)!;
+    expect((await request(app).post(`/api/team-calls/${placed.body.call.id}/cancel`).set(as(CALLER))).status).toBe(200);
+    // Only that one ring counted: five more callers' rings still reach the callee.
+    for (let i = 0; i < 5; i++) {
+      const caller = i % 2 ? OTHER : THIRD;
+      const next = await place({}, caller);
+      expect(next.status).toBe(201);
+      expect((await request(app).post(`/api/team-calls/${next.body.call.id}/cancel`).set(as(caller))).status).toBe(200);
+    }
+    expect((await place({}, OTHER)).body.error).toBe('too_many_calls');
+  });
+
+  it('a placement that fails gives the callee’s ring back', async () => {
+    for (let i = 0; i < 6; i++) {
+      h.db.failNext('rpc:team_call_place');
+      expect((await place({}, i % 2 ? OTHER : CALLER)).status).toBe(500);
+    }
+    expect((await place({}, THIRD)).status).toBe(201);
+  });
+
   it('a room that cannot be made closes the row as failed', async () => {
     const { resolveCallProvider } = await import('../../../server/services/calls/providerResolver.js');
     const provider = resolveCallProvider('livekit');

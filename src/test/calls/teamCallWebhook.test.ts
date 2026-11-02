@@ -194,6 +194,29 @@ describe('LiveKit webhook — colleague calls', () => {
     expect(row().state).toBe('ringing');
   });
 
+  it('a room that comes back after its call is over is closed at once, and counts nothing', async () => {
+    // A member kept a token and joined again: LiveKit made the room anew.
+    for (const state of ['ended', 'missed', 'cancelled']) {
+      teamCall(state, { ended_at: '2026-11-01T10:00:00.000Z' });
+      h.closed.length = 0;
+      await applyEvent(config, event('room_started'));
+      expect(h.closed).toEqual([ROOM]);
+      h.closed.length = 0;
+      await applyEvent(config, event('participant_joined', CALLER));
+      expect(h.closed).toEqual([ROOM]);
+      expect(row().state).toBe(state);
+      expect(row().ended_at).toBe('2026-11-01T10:00:00.000Z');
+    }
+    // A live call keeps its room.
+    for (const state of ['ringing', 'connecting', 'active']) {
+      teamCall(state);
+      h.closed.length = 0;
+      await applyEvent(config, event('room_started'));
+      await applyEvent(config, event('participant_joined', CALLER));
+      expect(h.closed).toEqual([]);
+    }
+  });
+
   it('any other call keeps the generic rules', async () => {
     teamCall('ringing', { entry_source: 'chat' });
     await applyEvent(config, event('room_started'));

@@ -407,7 +407,7 @@ struct MainTabView: View {
             else { return }
             inboxPath.append(first)
 
-        case .inbox, .login, .none:
+        case .inbox, .login, .appLocked, .none:
             break
         }
         #endif

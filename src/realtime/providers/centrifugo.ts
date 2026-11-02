@@ -275,16 +275,40 @@ async function operatorPresenceSubscribe(workspaceId: string): Promise<Subscribe
 }
 
 /**
+ * The member's own channel `ws:<wsId>:user:<userId>` (colleague calls,
+ * team chat). The server mints its token for the session's user only, so
+ * the user id in the name is never sent: asking for another member's
+ * channel gets this member's, under a name the client never subscribes.
+ */
+async function operatorUserSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-user-subscribe`, {
+      credentials: 'include',
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as SubscribeResponse;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parse a workspace channel and decide which subscription endpoint to use.
  *  - ws:<wsId>:conv:<convId> → per-conversation token endpoint
  *  - ws:<wsId>:inbox         → operator inbox token endpoint
  *  - ws:<wsId>:visitors      → operator visitors token endpoint
+ *  - ws:<wsId>:operators     → operator presence token endpoint
+ *  - ws:<wsId>:user:<uid>    → the member's own channel (operator-user-subscribe)
  */
 type ParsedChannel =
   | { kind: 'conversation'; workspaceId: string; conversationId: string }
   | { kind: 'inbox'; workspaceId: string }
   | { kind: 'visitors'; workspaceId: string }
-  | { kind: 'operators'; workspaceId: string };
+  | { kind: 'operators'; workspaceId: string }
+  | { kind: 'user'; workspaceId: string; userId: string };
 
 function parseChannel(channel: string): ParsedChannel | null {
   let m = /^ws:([^:]+):conv:(.+)$/.exec(channel);
@@ -295,6 +319,8 @@ function parseChannel(channel: string): ParsedChannel | null {
   if (m) return { kind: 'visitors', workspaceId: m[1] };
   m = /^ws:([^:]+):operators$/.exec(channel);
   if (m) return { kind: 'operators', workspaceId: m[1] };
+  m = /^ws:([^:]+):user:([^:]+)$/.exec(channel);
+  if (m) return { kind: 'user', workspaceId: m[1], userId: m[2] };
   return null;
 }
 
@@ -1014,6 +1040,7 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       if (parsed.kind === 'conversation') return operatorSubscribe(parsed.workspaceId, parsed.conversationId);
       if (parsed.kind === 'inbox') return operatorInboxSubscribe(parsed.workspaceId);
       if (parsed.kind === 'operators') return operatorPresenceSubscribe(parsed.workspaceId);
+      if (parsed.kind === 'user') return operatorUserSubscribe(parsed.workspaceId);
       return operatorVisitorsSubscribe(parsed.workspaceId);
     };
 
@@ -1028,7 +1055,9 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
           ? `ws:${parsed.workspaceId}:inbox`
           : parsed.kind === 'operators'
             ? `ws:${parsed.workspaceId}:operators`
-            : `ws:${parsed.workspaceId}:visitors`;
+            : parsed.kind === 'user'
+              ? `ws:${parsed.workspaceId}:user:${parsed.userId}`
+              : `ws:${parsed.workspaceId}:visitors`;
 
     handlers.onStatus?.('connecting');
 

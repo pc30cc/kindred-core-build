@@ -14,6 +14,10 @@
  *    `max_agents`, only while billing locks are on).
  *  • The actor who caused the event is never notified about their own action.
  *  • Preferences are enforced HERE, before dispatch — never in the client UI.
+ *  • A workspace whose plan has the mobile app off (`mobile_app` false;
+ *    docs/operations/MOBILE_APP_PLAN.md) has nobody to tell: its members'
+ *    apps show it locked, so no event of it buzzes their phones. Read
+ *    through mobileApp/planGate.ts, cached and failing open.
  */
 import type { ServerConfig } from '../../config.js';
 import type { PushPlatformSettings } from './platformSettings.js';
@@ -23,6 +27,7 @@ import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { operatorLocales } from '../operatorLocale.js';
 import { canUseInbox } from '../../../shared/chatRoles.js';
+import { mobileAppAllowed } from '../mobileApp/planGate.js';
 
 /**
  * `team_message` is a colleague's direct message in team chat: addressed to
@@ -213,6 +218,11 @@ export async function resolveRecipients(
   config: ServerConfig,
   ctx: RecipientContext,
 ): Promise<Recipient[]> {
+  // The plan has the mobile app off: every alert push of this workspace
+  // (messages, assignments, team chat, missed calls, support replies) stops
+  // here, before anyone's preferences are read.
+  if (!(await mobileAppAllowed(config, ctx.workspaceId))) return [];
+
   const sb = getServiceClient(config);
 
   let memberQuery = sb

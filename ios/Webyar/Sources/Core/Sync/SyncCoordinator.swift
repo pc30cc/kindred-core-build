@@ -62,6 +62,11 @@ final class SyncCoordinator {
     /// Bumped on every change of account or workspace, so an answer that
     /// belongs to the previous one can be recognised and dropped.
     private(set) var scopeGeneration = 0
+    /// The workspace open here has the mobile app off in its plan, and the
+    /// app stands faded under the lock card (docs/operations/MOBILE_APP_PLAN.md):
+    /// no realtime and no upkeep for it until the plan says otherwise. The
+    /// screens that poll are not on screen then, so they do not either.
+    private(set) var isSuspended = false
 
     @ObservationIgnored private(set) var scope: LocalStore.Scope?
     @ObservationIgnored private var stores: [LocalStore.Scope: LocalStore] = [:]
@@ -274,6 +279,28 @@ final class SyncCoordinator {
         await AttachmentDiskCache.shared.removeUser(userID)
     }
 
+    // MARK: - The mobile app off in the plan
+
+    /// Set by `AppState` as the plan's mobile app switch locks or unlocks the
+    /// app. Locking stops this workspace's realtime and upkeep at once;
+    /// unlocking starts them again, with the catch-up read a return to the
+    /// app gets. The session, the saved copy and the push device stay as they
+    /// are, so unlocking is instant and needs no new permission.
+    func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+        if suspended {
+            stopRealtime()
+            upkeep?.cancel()
+            return
+        }
+        guard scope != nil, isForeground else { return }
+        startRealtime()
+        lists?.invalidate()
+        emit(.resync)
+        scheduleUpkeep()
+    }
+
     // MARK: - Lifecycle
 
     func appBecameActive() {
@@ -345,7 +372,7 @@ final class SyncCoordinator {
     // MARK: - Realtime
 
     private func startRealtime() {
-        guard startsRealtime, realtime == nil, let scope else { return }
+        guard startsRealtime, !isSuspended, realtime == nil, let scope else { return }
         let connection = InboxRealtime(api: api, workspaceID: scope.workspaceID)
         connection.onEvent = { [weak self] event in self?.handle(event, from: scope.workspaceID) }
         connection.onConnectionChanged = { [weak self] up in
@@ -418,7 +445,7 @@ final class SyncCoordinator {
     /// utility priority, a few seconds after the screen is up — never on the
     /// way to the first frame. Compaction waits for a phone not saving power.
     private func scheduleUpkeep() {
-        guard persistent, let scope else { return }
+        guard persistent, !isSuspended, let scope else { return }
         upkeep?.cancel()
         let store = store(for: scope.workspaceID)
         upkeep = Task.detached(priority: .utility) {

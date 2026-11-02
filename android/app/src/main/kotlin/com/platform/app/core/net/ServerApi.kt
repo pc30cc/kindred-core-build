@@ -111,6 +111,20 @@ interface ServerApi {
     /** Asks the platform where it lives, before anything else talks to it. */
     suspend fun refreshOrigin()
 
+    /**
+     * The web panel's origin (`appBaseUrl` of `/api/platform/origins`), as
+     * the platform last named it — https and this brand's only; null until
+     * it has. Defaulted, so a fake without an opinion knows none.
+     */
+    suspend fun panelOrigin(): String? = null
+
+    /**
+     * The brand's own site (`canonicalBaseUrl`), as the platform last named
+     * it, under the same rules as [panelOrigin]: the sign-in screen's website
+     * link is built on it before anyone has signed in.
+     */
+    suspend fun siteOrigin(): String? = null
+
     suspend fun workspaces(): List<Workspace>
     suspend fun conversations(workspaceId: String, filter: InboxFilter): List<Conversation>
     suspend fun messages(conversationId: String): List<Message>

@@ -10,7 +10,7 @@
  *   - per-element diagnostic events (timeupdate / stalled / waiting)
  *   - central real-world orientation correction on every camera video
  */
-import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type { LocalVideoTrack, RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
 import { Loader2, WifiOff } from 'lucide-react';
 import type { useLiveKitCall } from '@/hooks/useLiveKitCall';
@@ -113,7 +113,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
         const el = videoRefs.current[r.participantSid];
         const tr = r.videoTrack;
         if (!el || !tr) continue;
-        const ms = (tr as any).mediaStreamTrack as MediaStreamTrack | undefined;
+        const ms = (tr as unknown as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack;
         if (!ms || ms.readyState !== 'live') continue;
         const now = Date.now();
         const prev = lastTimes[r.participantSid];
@@ -255,10 +255,13 @@ export function LocalVideoPiP({
   track,
   cameraEnabled,
   className,
+  offLabel = 'Camera off',
 }: {
   track: LocalVideoTrack | null | undefined;
   cameraEnabled: boolean;
   className?: string;
+  /** The words shown while the camera is off (the visitor call keeps its own). */
+  offLabel?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const attachedRef = useRef<LocalVideoTrack | null>(null);
@@ -315,15 +318,19 @@ export function LocalVideoPiP({
       <OrientationDebugOverlay role="operator-local" videoRef={videoRef} />
       {(!track || !cameraEnabled) && (
         <div className="absolute inset-0 flex items-center justify-center bg-call-stage text-call-stage-foreground/70 text-[11px] font-medium">
-          Camera off
+          {offLabel}
         </div>
       )}
     </div>
   );
 }
 
-/** Simple audio-only stage — stable orb + dedicated <audio> per remote. */
-export function AudioCallStage({ remote }: { remote: Remote }) {
+/**
+ * Simple audio-only stage — stable orb + dedicated <audio> per remote.
+ * `face` replaces the orb's dot (a colleague call shows the colleague's
+ * photo or the person silhouette there).
+ */
+export function AudioCallStage({ remote, face }: { remote: Remote; face?: ReactNode }) {
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
   const boundRef = useRef<Record<string, string>>({});
   useLayoutEffect(() => {
@@ -332,7 +339,7 @@ export function AudioCallStage({ remote }: { remote: Remote }) {
       if (!el) continue;
       const prevSid = boundRef.current[r.participantSid] || '';
       if (r.audioTrack) {
-        const sid = (r.audioTrack as any).sid || r.audio?.id || '';
+        const sid = (r.audioTrack as unknown as { sid?: string }).sid || r.audio?.id || '';
         if (prevSid !== sid) {
           try { r.audioTrack.attach(el); } catch { /* ignore */ }
           boundRef.current[r.participantSid] = sid;
@@ -351,9 +358,11 @@ export function AudioCallStage({ remote }: { remote: Remote }) {
     <div className="relative h-full w-full overflow-hidden bg-gradient-to-br from-call-stage via-call-stage to-primary/20 flex flex-col items-center justify-center gap-6 px-6">
       <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-primary/15 ring-1 ring-primary/30">
         <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" aria-hidden="true" />
-        <div className="relative h-20 w-20 rounded-full bg-gradient-to-br from-primary/70 to-primary flex items-center justify-center text-2xl font-bold text-primary-foreground shadow-elevated">
-          ●
-        </div>
+        {face ?? (
+          <div className="relative h-20 w-20 rounded-full bg-gradient-to-br from-primary/70 to-primary flex items-center justify-center text-2xl font-bold text-primary-foreground shadow-elevated">
+            ●
+          </div>
+        )}
       </div>
       <div className="flex items-end gap-1 h-8" aria-hidden="true">
         {[0, 1, 2, 3, 4, 5, 6].map((i) => (

@@ -26,6 +26,20 @@ interface SessionHooks {
      */
     fun appConfigChanged(config: MobileAppConfig) {}
 
+    /**
+     * The workspace on screen has the mobile app off in its plan — or no
+     * longer (docs/operations/MOBILE_APP_PLAN.md). While it is, the app's own
+     * background work for it (realtime, polling, sync) stops; the push device
+     * stays registered.
+     */
+    fun appLockChanged(locked: Boolean) {}
+
+    /**
+     * The workspaces whose plans were last read with the mobile app off, for
+     * what arrives without the screens: a ring, a push in the foreground.
+     */
+    fun mobileAppLocksChanged(workspaceIds: Set<String>) {}
+
     /** While the session is still valid: the last moment anything can be told to the server. */
     suspend fun beforeSignOut(user: User) {}
 

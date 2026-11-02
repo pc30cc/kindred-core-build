@@ -3,6 +3,8 @@ package com.platform.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.platform.app.core.model.EntitlementsState
+import com.platform.app.core.model.mobileAppLocked
+import com.platform.app.core.model.withMobileAppLock
 import com.platform.app.core.model.MaintenanceNotice
 import com.platform.app.core.model.MobileAppConfig
 import com.platform.app.core.model.WorkspaceAccess
@@ -142,6 +144,78 @@ class AppState(
     val entitlements: StateFlow<EntitlementsState> = _entitlements.asStateFlow()
 
     /**
+     * The workspace on screen has the mobile app switched off in its plan
+     * (docs/operations/MOBILE_APP_PLAN.md): the app is drawn faded under one
+     * card and nothing in it works.
+     *
+     * Fail-open, unlike every other gate: only a snapshot of this
+     * workspace's plan in hand that says exactly `false` locks
+     * ([mobileAppLocked]). While it loads, when it cannot be read, and when
+     * it does not carry the key, the app works — a network blip must not
+     * lock a whole team out. Read again at sign-in, on a workspace switch, on
+     * coming back to the foreground ([onForeground]) and on every refresh of
+     * the plan. Set only by [setEntitlements], with the workspace and the
+     * session as they are at that moment, so no frame pairs one workspace
+     * with another's plan.
+     */
+    private val _mobileAppLocked = MutableStateFlow(false)
+    val mobileAppLocked: StateFlow<Boolean> = _mobileAppLocked.asStateFlow()
+
+    /**
+     * The workspaces of this account whose plans were last read with the
+     * mobile app off, for what arrives for a workspace other than the one on
+     * screen — a notification's tap — and, through the session hooks and
+     * [Preferences.mobileAppLocked], for a ring. Written only from a snapshot
+     * that was read: a failed read changes nothing.
+     */
+    private var lockedWorkspaces: Set<String> = emptySet()
+
+    private fun setEntitlements(state: EntitlementsState) {
+        _entitlements.value = state
+        val locked = _session.value is Session.SignedIn && _selectedWorkspace.value != null && state.mobileAppLocked
+        if (locked == _mobileAppLocked.value) return
+        _mobileAppLocked.value = locked
+        // Locked: no tap is kept for later, nor a ring's tap for this
+        // workspace. One for another workspace, which this phone let ring,
+        // is answered there — by the plan's read, once it has set all it
+        // sets ([loadEntitlements]): switching from in here would not wait.
+        if (locked) {
+            _pendingLink.value = null
+            if (_pendingCall.value?.workspaceId == _selectedWorkspace.value?.id) _pendingCall.value = null
+        }
+        hooks.appLockChanged(locked)
+    }
+
+    /** What a snapshot of [workspaceId]'s plan said about the mobile app. */
+    private fun recordLock(workspaceId: String, locked: Boolean) {
+        val next = lockedWorkspaces.withMobileAppLock(workspaceId, locked)
+        if (next == lockedWorkspaces) return
+        lockedWorkspaces = next
+        hooks.mobileAppLocksChanged(next)
+        val account = (_session.value as? Session.SignedIn)?.user?.id ?: return
+        viewModelScope.launch { runCatching { prefs.setMobileAppLocked(account, next) } }
+    }
+
+    /**
+     * The web panel's origin (`appBaseUrl`), as the platform last named it:
+     * the lock card opens its billing page. Null until it has.
+     */
+    private val _panelOrigin = MutableStateFlow<String?>(null)
+    val panelOrigin: StateFlow<String?> = _panelOrigin.asStateFlow()
+
+    /** The brand's own site (`canonicalBaseUrl`), as the platform last named it. */
+    private val _siteOrigin = MutableStateFlow<String?>(null)
+
+    /**
+     * The sign-in screen's website link (docs/operations/MOBILE_APP_PLAN.md,
+     * "The sign-in screen's site address"): see [signInWebsiteLink]. Null
+     * while no site is known.
+     */
+    val signInWebsite: StateFlow<WebsiteLink?> = combine(_appConfig, _siteOrigin, _language) { config, site, language ->
+        signInWebsiteLink(config, site, language)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
      * The operator's role and the AI / call-center switches, read with the
      * plan. Unknown (null) hides whatever depends on it.
      */
@@ -185,8 +259,45 @@ class AppState(
     private val _pendingCall = MutableStateFlow<IncomingCallLink?>(null)
     val pendingCall: StateFlow<IncomingCallLink?> = _pendingCall.asStateFlow()
 
-    fun openIncomingCall(link: IncomingCallLink) {
+    /**
+     * A ring's tap, kept until the shell opens its call. False when it is
+     * dropped at once — the app stands locked over the workspace it rang for
+     * (docs/operations/MOBILE_APP_PLAN.md), where a tap does nothing — so
+     * nothing is left over the phone's lock screen for it.
+     */
+    fun openIncomingCall(link: IncomingCallLink): Boolean {
+        if (_mobileAppLocked.value && link.workspaceId == _selectedWorkspace.value?.id) return false
         _pendingCall.value = link
+        bringUpRingWorkspace(link)
+        return true
+    }
+
+    /**
+     * A ring's tap — Answer, or the ring itself — for another workspace than
+     * the one the app stands locked over: a ring this phone let through, so
+     * it is answered there. That workspace comes to the front, which lifts
+     * the lock until its own plan speaks, and the call's screen opens; the
+     * screens under the lock card stand still and would never open it. One
+     * this phone remembers locked too is asked again first, and a plan that
+     * still says `false` drops the tap.
+     */
+    private fun bringUpRingWorkspace(call: IncomingCallLink) {
+        if (!_mobileAppLocked.value || call.workspaceId == _selectedWorkspace.value?.id) return
+        val target = _workspaces.value.firstOrNull { it.id == call.workspaceId } ?: return
+        if (target.id !in lockedWorkspaces) {
+            selectWorkspace(target)
+            return
+        }
+        val epoch = sessionEpoch
+        viewModelScope.launch {
+            val still = recheckLock(target.id)
+            if (epoch != sessionEpoch || _pendingCall.value != call) return@launch
+            if (still == true) {
+                _pendingCall.value = null
+                return@launch
+            }
+            if (_mobileAppLocked.value && _selectedWorkspace.value?.id != target.id) selectWorkspace(target)
+        }
     }
 
     /**
@@ -202,12 +313,118 @@ class AppState(
         val target = list.firstOrNull { it.id == link.workspaceId }
         _pendingCall.value = null
         if (target == null) return null
+        // Locked (docs/operations/MOBILE_APP_PLAN.md): the ring's own
+        // workspace decides — a ring this phone let through for another one
+        // is answered there, whichever the app stands locked over. A tap that
+        // launched the app before any plan was in is checked here too. Never
+        // a call already on: that one has its screen.
+        if (!mayOpen(target.id, link) { _pendingCall.value = link }) return null
         if (target.id != _selectedWorkspace.value?.id) selectWorkspace(target)
         return link
     }
 
     fun openFromNotification(link: PushPayload) {
-        if (link.opensSomething) _pendingLink.value = link
+        if (!link.opensSomething) return
+        // Locked: the tap does nothing — the iOS app's rule, whichever
+        // workspace it names. A workspace only remembered locked is asked
+        // about once the workspaces are known ([resolvePendingLink]).
+        if (_mobileAppLocked.value) return
+        _pendingLink.value = link
+    }
+
+    /**
+     * Whether what a notification asked for — a tap, a ring's tap — may open
+     * in [workspaceId] (docs/operations/MOBILE_APP_PLAN.md). Never while that
+     * workspace is the one on screen and the app stands locked over it. One
+     * this phone only remembers with the mobile app off is asked again first,
+     * as the iOS app's `tapMayAct` does — a memory goes stale when the plan
+     * is switched back on while the member looks elsewhere: [retry] hands the
+     * request back once the plan no longer says `false`, or cannot be read
+     * (a memory is no reason to stand in a tap's way when the plan cannot
+     * say), and it is then let through without asking again. A plan that
+     * still says `false` drops it.
+     */
+    private fun mayOpen(workspaceId: String, request: Any, retry: () -> Unit): Boolean {
+        if (_mobileAppLocked.value && workspaceId == _selectedWorkspace.value?.id) return false
+        if (workspaceId !in lockedWorkspaces) return true
+        if (request == recheckedRequest) {
+            recheckedRequest = null
+            return true
+        }
+        val epoch = sessionEpoch
+        tapChecks++
+        _checkingTap.value = true
+        viewModelScope.launch {
+            try {
+                val still = recheckLock(workspaceId)
+                if (still == true || epoch != sessionEpoch) return@launch
+                if (still == null) recheckedRequest = request
+                retry()
+            } finally {
+                tapChecks--
+                _checkingTap.value = tapChecks > 0
+            }
+        }
+        return false
+    }
+
+    /** A request [mayOpen] let through after its plan could not be read: followed once without asking again. */
+    private var recheckedRequest: Any? = null
+
+    private var tapChecks = 0
+    private val _checkingTap = MutableStateFlow(false)
+
+    /**
+     * A tap's workspace is being asked about ([mayOpen]): a ring's tap may
+     * still open its call, so the app stays over the phone's lock screen for
+     * it until the answer is in — and leaves it if the tap is dropped.
+     */
+    val checkingTap: StateFlow<Boolean> = _checkingTap.asStateFlow()
+
+    /**
+     * [workspaceId]'s plan asked again, for a workspace this phone remembers
+     * with the mobile app off (the iOS app's `MobileAppLock.recheck`): true
+     * while it still says `false`; false once it no longer does — the
+     * workspace is then forgotten; null when it cannot be read, which changes
+     * nothing. Only ever takes a workspace off the list, and only for the
+     * session that asked: a lock is learned from the plan of the workspace on
+     * screen ([loadEntitlements]).
+     */
+    private suspend fun recheckLock(workspaceId: String): Boolean? {
+        val epoch = sessionEpoch
+        val userId = (_session.value as? Session.SignedIn)?.user?.id ?: return null
+        val plan = try {
+            api.entitlements(workspaceId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        }
+        if (!isStill(epoch, userId)) return null
+        // The app stands locked over it now: its own read is the one that counts.
+        if (_mobileAppLocked.value && workspaceId == _selectedWorkspace.value?.id) return true
+        if (plan.mobileAppLocked) return true
+        recordLock(workspaceId, locked = false)
+        return false
+    }
+
+    /** When [recheckRememberedLocks] last asked ([System.nanoTime]); null until it has, in this session. */
+    private var lockRecheckAt: Long? = null
+
+    /**
+     * The other workspaces this phone remembers with the mobile app off,
+     * asked again — read nowhere else until one is opened, a plan switched
+     * back on there would otherwise go on keeping its rings and taps off here
+     * (the iOS app does the same). Not more often than [PLAN_FOREGROUND_NS].
+     */
+    private fun recheckRememberedLocks() {
+        val selected = _selectedWorkspace.value?.id
+        val others = lockedWorkspaces.filter { it != selected }
+        if (others.isEmpty()) return
+        val now = System.nanoTime()
+        lockRecheckAt?.let { if (now - it < PLAN_FOREGROUND_NS) return }
+        lockRecheckAt = now
+        others.forEach { workspaceId -> viewModelScope.launch { recheckLock(workspaceId) } }
     }
 
     /**
@@ -223,6 +440,10 @@ class AppState(
         val target = list.firstOrNull { it.id == link.workspaceId }
         _pendingLink.value = null
         if (target == null) return null
+        // Locked: the tap does nothing, whichever workspace it names; and one
+        // for a workspace only remembered locked asks its plan first.
+        if (_mobileAppLocked.value) return null
+        if (!mayOpen(target.id, link) { _pendingLink.value = link }) return null
         if (target.id != _selectedWorkspace.value?.id) selectWorkspace(target)
         return link
     }
@@ -258,6 +479,9 @@ class AppState(
             val storedDynamic = prefs.dynamicColor()
             if (!dynamicColorChosen) _dynamicColor.value = storedDynamic
             if (!appConfigFromServer) _appConfig.value = storedConfig
+            // Where the links point, as the platform last named it: the
+            // sign-in screen's website link needs no request of its own.
+            readPlatformLinks()
             // Alongside the session, not before it: the sign-in screen needs
             // to know whether the platform is down, and the language it
             // starts in; neither is worth holding the launch for.
@@ -354,7 +578,7 @@ class AppState(
         }
         // A token and nobody remembered (a cache cleared under it): nothing
         // to show until the server says who this is.
-        runCatching { api.refreshOrigin() }
+        refreshOrigin()
         try {
             val user = api.currentUser()
             cache.save(user)
@@ -393,7 +617,19 @@ class AppState(
     private var originJob: Job? = null
 
     private fun refreshOriginInBackground() {
-        originJob = viewModelScope.launch { runCatching { api.refreshOrigin() } }
+        originJob = viewModelScope.launch { refreshOrigin() }
+    }
+
+    /** Asks the platform where it lives, then takes the links its answer named. */
+    private suspend fun refreshOrigin() {
+        runCatching { api.refreshOrigin() }
+        readPlatformLinks()
+    }
+
+    /** The panel and the site as stored; a read that fails keeps what is in hand. */
+    private suspend fun readPlatformLinks() {
+        runCatching { api.panelOrigin() }.getOrNull()?.let { _panelOrigin.value = it }
+        runCatching { api.siteOrigin() }.getOrNull()?.let { _siteOrigin.value = it }
     }
 
     private fun isStill(epoch: Int, userId: String): Boolean =
@@ -409,7 +645,7 @@ class AppState(
      * way is not touched by it.
      */
     private suspend fun confirmSession(cached: User, epoch: Int) {
-        runCatching { api.refreshOrigin() }
+        refreshOrigin()
         val user = try {
             api.currentUser()
         } catch (e: CancellationException) {
@@ -577,9 +813,15 @@ class AppState(
         _workspaces.value = emptyList()
         _selectedWorkspace.value = null
         entitlementsRetry?.cancel()
-        _entitlements.value = EntitlementsState.Loading
+        setEntitlements(EntitlementsState.Loading)
         _access.value = WorkspaceAccess.UNKNOWN
         planLoadedAt = null
+        // The next session learns its plans afresh.
+        lockedWorkspaces = emptySet()
+        lockRecheckAt = null
+        recheckedRequest = null
+        hooks.mobileAppLocksChanged(emptySet())
+        runCatching { prefs.setMobileAppLocked(null, emptySet()) }
         avatarJob?.cancel()
         _avatarUrl.value = null
         _signOutFailed.value = false
@@ -723,6 +965,11 @@ class AppState(
 
     private suspend fun recallWorkspace(userId: String) {
         rememberedWorkspace = runCatching { prefs.workspace(userId) }.getOrNull()
+        // And which of their workspaces' plans were last read with the
+        // mobile app off: a tap that launched the app for one of them does
+        // nothing, before the plan is read again.
+        lockedWorkspaces = runCatching { prefs.mobileAppLocked(userId) }.getOrDefault(emptySet())
+        hooks.mobileAppLocksChanged(lockedWorkspaces)
     }
 
     /**
@@ -812,8 +1059,9 @@ class AppState(
         announceWorkspace()
         // A different workspace is a different plan, so the old answer is
         // wrong rather than merely stale. Back to Loading, which is what keeps
-        // a gated tab from lingering across the switch.
-        _entitlements.value = EntitlementsState.Loading
+        // a gated tab from lingering across the switch — and lifts a lock
+        // until the new workspace's plan says otherwise.
+        setEntitlements(EntitlementsState.Loading)
         _access.value = WorkspaceAccess.UNKNOWN
         planLoadedAt = null
         loadEntitlements()
@@ -845,6 +1093,29 @@ class AppState(
         if (entitlementsRetry?.isActive == true) return
         val loadedAt = planLoadedAt
         if (loadedAt != null && System.nanoTime() - loadedAt < PLAN_REFRESH_NS) return
+        loadEntitlements()
+    }
+
+    /**
+     * The app came back to the foreground. Super Admin's switches, and the
+     * plan unless it was read in the last [PLAN_FOREGROUND_NS]: the mobile
+     * app can have been switched on or off in it meanwhile
+     * (docs/operations/MOBILE_APP_PLAN.md), and a lock must lift — or come —
+     * on the next look at the phone, not three minutes later. A failed read
+     * keeps the snapshot in hand, and a load already on its way is left to
+     * finish. The other workspaces remembered locked are asked again too
+     * ([recheckRememberedLocks]).
+     */
+    fun onForeground() {
+        loadAppConfig()
+        recheckRememberedLocks()
+        if (_selectedWorkspace.value == null) {
+            if (_session.value is Session.SignedIn) loadWorkspaces()
+            return
+        }
+        if (entitlementsRetry?.isActive == true) return
+        val loadedAt = planLoadedAt
+        if (loadedAt != null && System.nanoTime() - loadedAt < PLAN_FOREGROUND_NS) return
         loadEntitlements()
     }
 
@@ -885,18 +1156,24 @@ class AppState(
                 ensureActive()
                 if (_selectedWorkspace.value?.id != workspaceId) return@launch
                 if (next is EntitlementsState.Loaded) {
-                    _entitlements.value = next
+                    // What this read said about the mobile app, for the ring
+                    // and the tap that arrive without the screens.
+                    recordLock(workspaceId, next.entitlements.mobileAppLocked)
+                    setEntitlements(next)
                     // Same workspace (a switch resets it to unknown), so a
                     // side answer that did not come keeps the last one.
                     _access.value = nextAccess.filledFrom(_access.value)
                     planLoadedAt = System.nanoTime()
+                    // A ring's tap for another workspace, still waiting as the
+                    // lock came, is answered there ([bringUpRingWorkspace]).
+                    _pendingCall.value?.let(::bringUpRingWorkspace)
                     return@launch
                 }
                 // A refresh that fails keeps the snapshot already in hand for this
                 // workspace, with the role and switches read with it, as the web's
                 // query does; the next foreground asks again.
                 if (_entitlements.value is EntitlementsState.Loaded) return@launch
-                _entitlements.value = next
+                setEntitlements(next)
                 _access.value = nextAccess.filledFrom(_access.value)
                 // Nothing gated shows while the plan cannot be read (the web's
                 // rule), so ask again soon rather than at the next workspace switch.
@@ -909,6 +1186,9 @@ class AppState(
     private companion object {
         const val PLAN_RETRY_MS = 20_000L
         const val PLAN_REFRESH_NS = 3 * 60 * 1_000_000_000L
+
+        /** A plan read this recently is not read again for a return to the foreground. */
+        const val PLAN_FOREGROUND_NS = 30 * 1_000_000_000L
 
         /**
          * How long a sign-in waits for the launch's question of where the
@@ -959,3 +1239,4 @@ internal fun appTabsFor(plan: EntitlementsState, access: WorkspaceAccess, config
     }
     return others.toMutableList().apply { add(others.size / 2, AppTab.INBOX) }
 }
+

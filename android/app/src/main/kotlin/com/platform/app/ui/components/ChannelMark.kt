@@ -223,10 +223,11 @@ fun ChannelIcon(key: String, size: Dp, modifier: Modifier = Modifier) {
 
 /**
  * The marks `material-icons-core` does not carry, on the 24-unit grid.
+ * Internal: the globe is also the sign-in screen's website link.
  *
  * Even-odd filled, so a ring is a ring whichever way its sub-paths wind.
  */
-private object ChannelGlyph {
+internal object ChannelGlyph {
 
     /** The website: a globe. */
     val Globe: ImageVector by lazy {

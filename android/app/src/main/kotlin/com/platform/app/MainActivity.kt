@@ -41,7 +41,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.platform.app.feature.auth.AppLockOverlay
 import com.platform.app.feature.auth.MaintenanceOverlay
+import com.platform.app.feature.auth.rememberCappedLifecycleOwner
+import androidx.lifecycle.compose.LifecycleStartEffect
 import kotlinx.coroutines.delay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -202,7 +205,10 @@ class MainActivity : ComponentActivity() {
                 }
                 CallNotifications.forget(call.callId)
             }
-            appState.openIncomingCall(call)
+            // Dropped at once — the app stands locked over that workspace
+            // (docs/operations/MOBILE_APP_PLAN.md): no call screen will open,
+            // so the lock card must not stay over the phone's lock screen.
+            if (!appState.openIncomingCall(call)) showOverLockScreen(false)
             return
         }
         // This activity is exported; extras another app put there are not
@@ -276,6 +282,9 @@ private fun RootScreen(appState: AppState, api: ServerApi, language: Language) {
     // included, since nobody signs in while it is on.
     val maintenance by appState.maintenance.collectAsState()
     val checkingPlatform by appState.checkingPlatform.collectAsState()
+    // The sign-in screen's website link: the brand's site by its name, in
+    // the app's language (docs/operations/MOBILE_APP_PLAN.md).
+    val signInWebsite by appState.signInWebsite.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(appState, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -307,6 +316,7 @@ private fun RootScreen(appState: AppState, api: ServerApi, language: Language) {
                     // "Forgot password?" and the screen that asks for a reset link.
                     onRequestReset = { email -> requestReset(api, email, language) },
                     covered = maintenance != null,
+                    website = signInWebsite,
                 )
 
                 is Session.SignedIn -> {
@@ -401,16 +411,67 @@ private fun SignedInScreen(appState: AppState, api: ServerApi, language: Languag
 
     AskForNotificationsOnce(appState)
 
-    AppShell(
-        appState = appState,
-        api = api,
-        conversations = conversations,
-        contacts = contacts,
-        colleagues = colleagues,
-        email = email,
-        promotions = promotions,
-        language = language,
-    )
+    // The plan with the mobile app off (docs/operations/MOBILE_APP_PLAN.md):
+    // the app stays where it is, faded — blurred on Android 12 and later,
+    // under a dim scrim — out of TalkBack's reach, held at CREATED so every
+    // screen's own polling and flows stop, and under one card that takes
+    // every tap. Never over a call already on: the card waits for its screen
+    // to go.
+    val locked by appState.mobileAppLocked.collectAsState()
+    var callOnStack by remember { mutableStateOf(false) }
+    val lockShown = locked && !callOnStack
+    // Over the phone's lock screen only for a call: a ring's tap that the
+    // lock dropped (or that waited and was dropped) leaves no call screen to
+    // take the app back off it, and the shell, standing still under the
+    // card, would not either. The card is not a call screen.
+    val pendingCall by appState.pendingCall.collectAsState()
+    val activity = LocalActivity.current as? MainActivity
+    LaunchedEffect(lockShown, pendingCall) {
+        if (lockShown && pendingCall == null) activity?.showOverLockScreen(false)
+    }
+    // Back in front: the plan read again, from out here — the shell stands
+    // still while the card is up, and the card has to lift the moment the
+    // plan has the app again.
+    LifecycleStartEffect(appState) {
+        appState.onForeground()
+        onStopOrDispose { }
+    }
+    val shellLifecycle = rememberCappedLifecycleOwner(capped = lockShown)
+
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(if (lockShown) Modifier.blur(16.dp).clearAndSetSemantics {} else Modifier),
+        ) {
+            CompositionLocalProvider(LocalLifecycleOwner provides shellLifecycle) {
+                AppShell(
+                    appState = appState,
+                    api = api,
+                    conversations = conversations,
+                    contacts = contacts,
+                    colleagues = colleagues,
+                    email = email,
+                    promotions = promotions,
+                    language = language,
+                    onCallOnStack = { callOnStack = it },
+                )
+            }
+        }
+        if (lockShown) {
+            val workspaces by appState.workspaces.collectAsState()
+            val selected by appState.selectedWorkspace.collectAsState()
+            val panelOrigin by appState.panelOrigin.collectAsState()
+            AppLockOverlay(
+                language = language,
+                workspaces = workspaces,
+                selectedWorkspace = selected,
+                panelOrigin = panelOrigin,
+                onSelectWorkspace = appState::selectWorkspace,
+                onSignOut = appState::logOut,
+            )
+        }
+    }
 }
 
 /**

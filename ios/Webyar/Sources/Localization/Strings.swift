@@ -1261,6 +1261,52 @@ enum Str {
         }
     }
 
+    // MARK: - The mobile app off in the plan (docs/operations/MOBILE_APP_PLAN.md)
+    //
+    // The one card over the faded app when the workspace's plan has the
+    // mobile app switched off. Shared with the Android app (generated into
+    // Strings.kt): neither line names a website, a price or a purchase.
+
+    /// The lock card's title.
+    static func appLockedTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "The mobile app isn't in this workspace's plan"
+        case .fa: "اپ موبایل در پلن این فضای کاری نیست"
+        case .tr: "Mobil uygulama bu çalışma alanının planında yok"
+        case .ar: "تطبيق الجوال غير مشمول في خطة مساحة العمل هذه"
+        }
+    }
+
+    /// Under the title: why nothing in the app answers.
+    static func appLockedBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Until this workspace's plan includes the mobile app, the app's sections aren't available."
+        case .fa: "تا وقتی پلن این فضای کاری شامل اپ موبایل نباشد، بخش‌های اپ در دسترس نیستند."
+        case .tr: "Bu çalışma alanının planı mobil uygulamayı içerene kadar uygulamanın bölümleri kullanılamaz."
+        case .ar: "لن تتوفر أقسام التطبيق حتى تشمل خطة مساحة العمل هذه تطبيق الجوال."
+        }
+    }
+
+    /// For a member who is not the workspace's owner.
+    static func appLockedAskOwner(_ l: Language) -> String {
+        switch l {
+        case .en: "For more, contact the workspace owner."
+        case .fa: "برای اطلاعات بیشتر با مالک فضای کاری تماس بگیرید."
+        case .tr: "Ayrıntılar için çalışma alanı sahibiyle iletişime geçin."
+        case .ar: "لمزيد من المعلومات، تواصل مع مالك مساحة العمل."
+        }
+    }
+
+    /// Opens the workspace picker, for a member of more than one workspace.
+    static func appLockedSwitchWorkspace(_ l: Language) -> String {
+        switch l {
+        case .en: "Switch workspace"
+        case .fa: "تغییر فضای کاری"
+        case .tr: "Çalışma alanını değiştir"
+        case .ar: "تبديل مساحة العمل"
+        }
+    }
+
 
     // MARK: - Inbox (plan-gated queues)
 

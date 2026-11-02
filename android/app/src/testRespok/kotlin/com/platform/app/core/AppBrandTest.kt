@@ -12,6 +12,7 @@ import com.platform.app.core.storage.SecureStore
 import com.platform.app.i18n.BrandStr
 import com.platform.app.i18n.Format
 import com.platform.app.i18n.Language
+import com.platform.app.i18n.SiteLinks
 import com.platform.app.i18n.BrandCopy
 import com.platform.app.core.push.CallNotifications
 import com.platform.app.core.push.Notifications
@@ -93,6 +94,14 @@ class AppBrandTest {
         val day = Format.fullDate(Instant.parse("2026-10-09T12:00:00Z"), Language.FA)
         assertTrue(day, "۲۰۲۶" in day)
         assertFalse(day, "۱۴۰۵" in day)
+    }
+
+    /** Its site is laid out its own way: links open as configured. */
+    @Test
+    fun `its site links open as configured`() {
+        assertFalse(AppBrand.localizedSitePaths)
+        assertFalse(SiteLinks.followsLanguage)
+        assertEquals("https://respok.app", SiteLinks.website("https://respok.app", Language.TR))
     }
 
     @Test

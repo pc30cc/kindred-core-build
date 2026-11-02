@@ -34,7 +34,7 @@ settings:
     # CURRENT_PROJECT_VERSION=7`; every upload needs a build number above the
     # last one.
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "4"
 
 packages:
   # The one external dependency in this app, and it earns its place: a call

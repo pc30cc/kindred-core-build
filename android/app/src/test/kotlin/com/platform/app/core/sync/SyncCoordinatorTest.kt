@@ -395,6 +395,42 @@ class SyncCoordinatorTest {
         assertEquals(before, api.listReads.size)
     }
 
+    /**
+     * The workspace's plan has the mobile app off (docs/operations/MOBILE_APP_PLAN.md):
+     * in the foreground or not, nothing is read for it — no poll, no catch-up
+     * on a return to the front, no push-triggered read — until the plan has
+     * the app again, when the catch-up read comes at once.
+     */
+    @Test
+    fun `while the mobile app is off in the plan nothing runs, and it catches up after`() = runTest {
+        val sync = coordinator()
+        api.put(InboxFilter.OPEN, api.row("c-1"))
+        sync.focusInbox(scope, InboxFilter.OPEN)
+        sync.setRealtime(RealtimeHealth.DEGRADED)
+        sync.setForeground(true)
+        runCurrent()
+        sync.setSuspended(true)
+        runCurrent()
+        val before = api.listReads.size
+        val idsBefore = api.idReads.size
+
+        advanceTimeBy(60 * 60 * 1000L)
+        sync.setForeground(false)
+        sync.setForeground(true)
+        sync.onPush("ws-1", "c-1")
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(before, api.listReads.size)
+        assertEquals(idsBefore, api.idReads.size)
+
+        sync.setSuspended(false)
+        runCurrent()
+        assertEquals(before + 1, api.listReads.size)
+        // And the poll is back.
+        advanceTimeBy(30_001)
+        assertEquals(before + 2, api.listReads.size)
+    }
+
     @Test
     fun `with realtime connected only the ten-minute safety check runs`() = runTest {
         val sync = coordinator()

@@ -148,6 +148,24 @@ export function teamChatPageVisible(ctx: Pick<SectionContext, 'plan' | 'inboxAll
   return ctx.roleKnown && !ctx.inboxAllowed && colleaguesQueueVisible(ctx.plan);
 }
 
+/** A colleague call's kind (docs/operations/TEAM_CALLS.md). */
+export type TeamCallKind = 'audio' | 'video';
+
+/**
+ * Whether the plan offers a colleague call of this kind: `team_calls` on, the
+ * Voice & Video module on, and the call's own channel on (`voice` for a voice
+ * call, `video` for a video one), each exactly `true`. The one rule the web
+ * panel's call buttons and both phone apps read (TEAM_CALLS.md, "Plan").
+ * Deny on create, allow on continuity: it only decides whether a call is
+ * offered; a call already on is never cut by a plan read afterwards, and the
+ * platform's and workspace's own call switches are the server's to apply.
+ */
+export function teamCallAllowed(plan: PlanAccess, kind: TeamCallKind): boolean {
+  return plan.feature('team_calls')
+    && plan.module('voice_video')
+    && plan.channel(kind === 'video' ? 'video' : 'voice');
+}
+
 /** Channel keys the plan itself governs (the rest are decided by the plugin's own plan check). */
 const PLAN_CHANNELS: ReadonlySet<string> = new Set([
   'chat_widget', 'email', 'whatsapp', 'sms', 'instagram', 'telegram', 'bale', 'gmail', 'yahoomail', 'voice', 'video',

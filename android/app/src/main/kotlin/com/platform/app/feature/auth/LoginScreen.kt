@@ -81,6 +81,10 @@ import com.platform.app.i18n.StrAndroid
 import com.platform.app.i18n.StrManual
 import com.platform.app.i18n.displayText
 import com.platform.app.ui.A11y
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalContext
+import com.platform.app.ui.WebsiteLink
+import com.platform.app.ui.components.ChannelGlyph
 import com.platform.app.ui.components.BrandFooterClearance
 import com.platform.app.ui.components.BrandFooterOverlay
 import com.platform.app.ui.components.PrimaryButton
@@ -140,6 +144,13 @@ fun LoginScreen(
      * takes focus then, as it would on arrival.
      */
     covered: Boolean = false,
+    /**
+     * The brand's site, shown under the form by its name — the word, never
+     * the address (owner, 2026-11-02; `AppState.signInWebsite`) — and opened
+     * in the browser, in the app's language. Null leaves it off: no site is
+     * known yet.
+     */
+    website: WebsiteLink? = null,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -308,9 +319,37 @@ fun LoginScreen(
                             modifier = Modifier.align(Alignment.CenterHorizontally),
                         ) { Text(Str.forgotPassword(language)) }
                     }
+                    if (website != null) {
+                        WebsiteLinkButton(
+                            website = website,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * The brand's site, small, under the form (docs/operations/MOBILE_APP_PLAN.md,
+ * "The sign-in screen's site address"): its name with a globe, never its
+ * address, opening the site in the browser.
+ */
+@Composable
+private fun WebsiteLinkButton(website: WebsiteLink, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    TextButton(
+        onClick = { openInBrowser(context, website.url) },
+        modifier = modifier.testTag(A11y.LOGIN_WEBSITE),
+    ) {
+        Icon(
+            ChannelGlyph.Globe,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(Space.xs))
+        Text(website.title, style = MaterialTheme.typography.labelLarge)
     }
 }
 

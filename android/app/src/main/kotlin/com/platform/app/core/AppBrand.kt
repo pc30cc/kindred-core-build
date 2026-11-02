@@ -70,6 +70,15 @@ object AppBrand {
     const val wordmark: String = BuildConfig.WORDMARK
     val wordmarkSuffix: String? get() = BuildConfig.WORDMARK_SUFFIX.ifEmpty { null }
 
+    /**
+     * Whether the brand's site keeps Persian at its root and every other
+     * language under its code (`/en`, `/tr`, `/ar`), so that its links follow
+     * the app's language ([com.platform.app.i18n.SiteLinks]): the Iranian
+     * edition's does; RESPOK's is laid out its own way and its links open as
+     * configured. The iOS app's `AppBrand.localizedSitePaths`.
+     */
+    const val localizedSitePaths: Boolean = BuildConfig.LOCALIZED_SITE_PATHS
+
     // What the app keeps on the phone, by name. Each flavor sets its own
     // (app/build.gradle.kts); an installed app finds its data under these, so
     // a flavor's values never change once it has shipped.

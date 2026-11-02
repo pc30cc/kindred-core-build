@@ -276,10 +276,20 @@ class ApiClient(
         val apiBaseUrl: String? = null,
         val appBaseUrl: String? = null,
         val publicBaseUrl: String? = null,
+        /** The brand's own site (Branding → Domains → canonical), the landing page rather than the panel. */
+        val canonicalBaseUrl: String? = null,
         val helpCenterUrl: String? = null,
     ) {
         private fun https(raw: String?) = raw?.takeIf { it.startsWith("https://") }
         val api: String? get() = https(apiBaseUrl)
+        /** The web panel's origin. */
+        val panel: String? get() = https(appBaseUrl)
+        /**
+         * The brand's site. Never the public address in its place: before
+         * sign-in that can be the panel's own host, whose pages need an
+         * account (the iOS app's `PlatformOrigins.site`).
+         */
+        val site: String? get() = https(canonicalBaseUrl)
     }
 
     /**
@@ -306,7 +316,15 @@ class ApiClient(
         adopt(found)
     }
 
+    override suspend fun panelOrigin(): String? = runCatching { origins.panel() }.getOrNull()
+
+    override suspend fun siteOrigin(): String? = runCatching { origins.site() }.getOrNull()
+
     private suspend fun adopt(found: PlatformOrigins) {
+        // Where the links point, kept whatever happens to the API below:
+        // the panel (the lock card's billing page) and the brand's site (the
+        // sign-in screen's website link). Each only if this build may use it.
+        runCatching { origins.rememberLinks(panel = found.panel, site = found.site) }
         val api = found.api ?: return
         // RESPOK moves only within respok.app, whatever its platform says;
         // anything else, it keeps the origin it has (PlatformOrigin.adoptable).

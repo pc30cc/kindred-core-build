@@ -24,6 +24,7 @@ import { LockedDataBanner } from '@/components/layout/LockedDataBanner';
 import { SeatLockGate } from '@/components/members/SeatLocked';
 import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
+import { TeamCallProvider } from '@/features/teamCalls/TeamCallContext';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
 import { useOperatorInboxAlerts } from '@/features/notifications/useOperatorInboxAlerts';
@@ -364,6 +365,8 @@ export function AppLayout() {
     return (
       <div dir={dir} data-shell="app" className="app-scope flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground">
         <OperatorCallProvider>
+          {/* Colleague calls: the ring on every page, the call window above it (TEAM_CALLS.md). */}
+          <TeamCallProvider workspaceId={workspace?.id} userId={user?.id}>
           <CommandPalette />
           <ArtShell
             layout={panelTheme.options.layout}
@@ -389,6 +392,7 @@ export function AppLayout() {
           {panelTheme.preview && (
             <PanelThemePreviewBar preview={panelTheme.preview} onEnd={panelTheme.endPreview} />
           )}
+          </TeamCallProvider>
         </OperatorCallProvider>
       </div>
     );
@@ -397,6 +401,8 @@ export function AppLayout() {
   return (
     <div dir={dir} data-shell="app" className="app-scope app-aurora flex h-screen h-dvh overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
+        {/* Colleague calls: the ring on every page, the call window above it (TEAM_CALLS.md). */}
+        <TeamCallProvider workspaceId={workspace?.id} userId={user?.id}>
         <CommandPalette />
         {isMobile ? (
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -448,6 +454,7 @@ export function AppLayout() {
         {panelTheme.preview && (
           <PanelThemePreviewBar preview={panelTheme.preview} onEnd={panelTheme.endPreview} />
         )}
+        </TeamCallProvider>
       </OperatorCallProvider>
     </div>
   );

@@ -22,6 +22,8 @@ import com.platform.app.core.media.ImageLoading
 import com.platform.app.core.media.NetworkPolicy
 import com.platform.app.core.media.ScopedAttachmentSource
 import com.platform.app.core.model.User
+import com.platform.app.core.model.mobileAppLocked
+import com.platform.app.core.runCatchingUnlessCancelled
 import com.platform.app.core.model.Workspace
 import com.platform.app.core.net.Backend
 import com.platform.app.core.net.ServerApi
@@ -132,6 +134,16 @@ class AppGraph(private val app: Application) {
         @Volatile var workspaceIds: Set<String> = emptySet()
         @Volatile var language: Language = Language.DEFAULT
         @Volatile var foreground: Boolean = false
+        /** The workspace on screen, for the socket to come back to when a lock lifts. */
+        @Volatile var workspaceId: String? = null
+        /** The workspace on screen has the mobile app off in its plan: no socket, no sync for it. */
+        @Volatile var appLocked: Boolean = false
+        /**
+         * The workspaces whose plans were last read with the mobile app off,
+         * as the signed-in session knows them; null until it has said, and
+         * then a ring reads what the last session stored.
+         */
+        @Volatile var lockedWorkspaces: Set<String>? = null
     }
 
     private val session = Session()
@@ -182,6 +194,7 @@ class AppGraph(private val app: Application) {
                     openTeamPeerIds = sync.openTeamPeerIds(),
                     openEmailThreadIds = sync.openEmailThreadIds(),
                     supportChatOpen = sync.supportChatOpen(),
+                    lockedWorkspaceId = session.workspaceId.takeIf { session.appLocked },
                 )
             }
         },
@@ -239,8 +252,26 @@ class AppGraph(private val app: Application) {
             CallNotifications.stopTeam(app, cancel.callId, cancel.reason.missed, language)
             _teamCallNudges.tryEmit(TeamCallNudge.RingStopped(cancel.callId, cancel.reason))
         },
+        // A ring for a workspace whose plan has the mobile app off is not
+        // shown (docs/operations/MOBILE_APP_PLAN.md): as the running session
+        // knows it, else — a cold start — as the last one stored it.
+        workspaceLocked = { workspaceId -> workspaceId in lockedWorkspaces() },
+        // A memory that says locked is checked with the plan itself before a
+        // ring is kept off: one switched back on must not go on dropping
+        // this member's calls. Briefly — FCM's handler waits for it.
+        planStillLocked = { workspaceId ->
+            withTimeoutOrNull(RING_PLAN_CHECK_MS) {
+                runCatchingUnlessCancelled { api.entitlements(workspaceId) }.getOrNull()?.mobileAppLocked
+            }
+        },
         diag = diag,
     )
+
+    private suspend fun lockedWorkspaces(): Set<String> {
+        session.lockedWorkspaces?.let { return it }
+        val account = session.user?.id ?: pushState.session()?.accountId ?: return emptySet()
+        return runCatching { preferences.mobileAppLocked(account) }.getOrDefault(emptySet())
+    }
 
 
     val hooks: SessionHooks = object : SessionHooks {
@@ -251,8 +282,25 @@ class AppGraph(private val app: Application) {
         override fun workspaceSelected(user: User, workspace: Workspace, all: List<Workspace>) {
             session.user = user
             session.workspaceIds = all.map { it.id }.toSet()
-            realtime.setWorkspace(workspace.id)
+            session.workspaceId = workspace.id
+            realtime.setWorkspace(workspace.id.takeUnless { session.appLocked })
             appScope.launch { push.bind(PushSession(user.id, workspace.id), reason = "workspace") }
+        }
+
+        override fun appLockChanged(locked: Boolean) {
+            // The plan has the mobile app off for the workspace on screen:
+            // its socket closes and its sync stands still until the plan says
+            // otherwise. The push registration is left alone — the server
+            // decides what a locked workspace's phones are sent, and unlocking
+            // needs nothing asked again.
+            session.appLocked = locked
+            realtime.setWorkspace(session.workspaceId.takeUnless { locked })
+            sync.setSuspended(locked)
+            diag.info("Session", if (locked) "locked: the mobile app is off in this workspace's plan" else "unlocked")
+        }
+
+        override fun mobileAppLocksChanged(workspaceIds: Set<String>) {
+            session.lockedWorkspaces = workspaceIds
         }
 
         override fun languageChanged(language: Language) {
@@ -279,6 +327,9 @@ class AppGraph(private val app: Application) {
         }
 
         override suspend fun signedOut(accountId: String?) {
+            session.workspaceId = null
+            session.appLocked = false
+            session.lockedWorkspaces = null
             realtime.setWorkspace(null)
             // Stopped AND waited for, before the purge below: cancelled is
             // not finished, and a read whose answer is being written as the
@@ -289,6 +340,10 @@ class AppGraph(private val app: Application) {
             if (withTimeoutOrNull(SIGN_OUT_SYNC_WAIT_MS) { sync.clearAndJoin() } == null) {
                 diag.warn("Session", "sync still finishing at sign-out; purging anyway")
             }
+            // A lock lifted only once the sync has nothing left to read: lifted
+            // first, it would start the outgoing session's catch-up read (a
+            // sign-out from the lock card, with the app in front).
+            sync.setSuspended(false)
             session.user = null
             session.avatarUrl = null
             session.workspaceIds = emptySet()
@@ -401,6 +456,13 @@ class AppGraph(private val app: Application) {
 
 /** How long a sign-out waits for the sync's last writes before purging (see [AppGraph.hooks]). */
 private const val SIGN_OUT_SYNC_WAIT_MS = 2_000L
+
+/**
+ * How long a ring for a workspace remembered with the mobile app off waits
+ * for that workspace's plan to be read again (docs/operations/MOBILE_APP_PLAN.md).
+ * FCM gives its handler seconds, and a colleague's photo takes up to two.
+ */
+private const val RING_PLAN_CHECK_MS = 3_000L
 
 /** What the Storage section shows. */
 data class StorageUsage(

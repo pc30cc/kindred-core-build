@@ -119,6 +119,15 @@ export interface UseLiveKitCallOptions {
   publishMic?: boolean;
   /** Whether to publish local camera on connect. Default false (audio-first). */
   publishCamera?: boolean;
+  /**
+   * The call goes on without the camera when it cannot be opened (none on
+   * this computer, in use by another app, refused): only the microphone may
+   * fail the connect. A failed connect leaves the room, which ends a
+   * colleague call for both (the webhook), so a video call from a computer
+   * without a camera must still connect. Default false (the visitor call's
+   * behaviour is unchanged).
+   */
+  cameraOptional?: boolean;
   /** Optional owner lifecycle diagnostics; does not affect media attach. */
   onRemoteParticipantSeen?: (info: { identity: string; source: 'participant_connected' | 'track_subscribed' | 'snapshot' }) => void;
   onRemoteParticipantDisconnected?: (info: { identity: string }) => void;
@@ -157,10 +166,16 @@ export interface UseLiveKitCallApi {
   /** Replace the published camera track with a new preset. Best-effort. */
   setVideoQuality(q: CallVideoQuality): Promise<void>;
   videoQuality: CallVideoQuality;
+  /**
+   * Play the call through this audio output (a `deviceId` from
+   * enumerateDevices). Only where the browser can choose one (setSinkId);
+   * resolves false otherwise or when the switch failed. Best-effort.
+   */
+  setAudioOutput(deviceId: string): Promise<boolean>;
 }
 
 export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCallApi {
-  const { publishMic = true, publishCamera = false, onRemoteParticipantSeen, onRemoteParticipantDisconnected, onRemoteTrackSubscribed } = opts;
+  const { publishMic = true, publishCamera = false, cameraOptional = false, onRemoteParticipantSeen, onRemoteParticipantDisconnected, onRemoteTrackSubscribed } = opts;
   const roomRef = useRef<Room | null>(null);
   // Re-entrancy guard. While a connect attempt is in flight OR a room is
   // already active, a second connect() call must NOT spin up a second Room
@@ -191,7 +206,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     let next: LocalVideoTrack | null = null;
     room.localParticipant.videoTrackPublications.forEach((pub: LocalTrackPublication) => {
       const t = pub.track;
-      if (t && (t as any).mediaStreamTrack?.readyState === 'live') next = t as LocalVideoTrack;
+      if (t && (t as unknown as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack?.readyState === 'live') next = t as LocalVideoTrack;
     });
     setLocalVideoTrack(next);
   }, []);
@@ -393,13 +408,20 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
           : Promise.resolve(),
         publishCamera
           ? (async () => {
-              const pub = await publishPrecaptured(room, precaptured, 'video', Track.Source.Camera);
-              if (!pub) {
-                const preset = presetForQuality(videoQualityRef.current);
-                await room.localParticipant.setCameraEnabled(true, { resolution: preset.resolution });
+              try {
+                const pub = await publishPrecaptured(room, precaptured, 'video', Track.Source.Camera);
+                if (!pub) {
+                  const preset = presetForQuality(videoQualityRef.current);
+                  await room.localParticipant.setCameraEnabled(true, { resolution: preset.resolution });
+                }
+                setCameraEnabled(true);
+                refreshLocalVideo();
+              } catch (camErr) {
+                if (!cameraOptional) throw camErr;
+                console.warn('[livekit] camera unavailable; the call goes on without it', camErr);
+                setCameraEnabled(false);
+                refreshLocalVideo();
               }
-              setCameraEnabled(true);
-              refreshLocalVideo();
             })()
           : Promise.resolve(),
       ]);
@@ -412,9 +434,9 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       }
       setState('connected');
       refreshRemotes();
-    } catch (e: any) {
+    } catch (e: unknown) {
       precaptured.dispose();
-      setError(e?.message || 'Failed to connect');
+      setError((e as { message?: string } | null)?.message || 'Failed to connect');
       setState('failed');
       try { await room.disconnect(); } catch { /* ignore */ }
       // Only clear the ref if we still own it. If disconnect() already
@@ -424,7 +446,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     } finally {
       connectingRef.current = false;
     }
-  }, [publishMic, publishCamera, wireRoom, refreshRemotes, refreshLocalVideo]);
+  }, [publishMic, publishCamera, cameraOptional, wireRoom, refreshRemotes, refreshLocalVideo]);
 
   const disconnect = useCallback(async (reason: LiveKitDisconnectReason, context: LiveKitDisconnectContext = {}) => {
     const room = roomRef.current;
@@ -589,9 +611,9 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       const pubs = Array.from(room.localParticipant.videoTrackPublications.values());
       for (const pub of pubs) {
         if (pub.source !== Track.Source.Camera) continue;
-        const existing = pub.track as LocalVideoTrack | undefined;
-        if (existing && typeof (existing as any).replaceTrack === 'function') {
-          await (existing as any).replaceTrack(newTrack.mediaStreamTrack);
+        const existing = pub.track as (LocalVideoTrack & { replaceTrack?: (track: MediaStreamTrack) => Promise<unknown> }) | undefined;
+        if (existing && typeof existing.replaceTrack === 'function') {
+          await existing.replaceTrack(newTrack.mediaStreamTrack);
           replaced = true;
           break;
         }
@@ -609,6 +631,19 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       refreshLocalVideo();
     }
   }, [refreshLocalVideo]);
+
+  const setAudioOutput = useCallback(async (deviceId: string): Promise<boolean> => {
+    const room = roomRef.current;
+    if (!room) return false;
+    if (typeof HTMLMediaElement === 'undefined' || !('setSinkId' in HTMLMediaElement.prototype)) return false;
+    try {
+      return await room.switchActiveDevice('audiooutput', deviceId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] setAudioOutput failed', err);
+      return false;
+    }
+  }, []);
 
   // Cleanup on unmount. Do not blindly disconnect an active room here: the
   // operator call surface can temporarily unmount during inbox/sidebar data
@@ -642,5 +677,6 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     state, error, remote, localVideoTrack, micEnabled, cameraEnabled,
     connect, disconnect, toggleMic, toggleCamera, switchCamera,
     canSwitchCamera, switchingCamera, setVideoQuality, videoQuality,
+    setAudioOutput,
   };
 }

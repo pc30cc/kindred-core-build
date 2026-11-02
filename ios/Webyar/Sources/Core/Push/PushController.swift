@@ -66,6 +66,26 @@ final class PushController {
     /// iOS Settings is reported once rather than on every return to the app.
     private var reportedPermission: String?
 
+    /// The workspace on screen has the mobile app off in its plan, and the
+    /// app is drawn faded under the lock card (`AppState.isAppLocked`,
+    /// docs/operations/MOBILE_APP_PLAN.md). While it is, a tapped
+    /// notification and its buttons do nothing, and nothing a notification
+    /// asked to open is kept for later. The device stays registered: the
+    /// server decides what it sends, and unlocking needs no new permission.
+    ///
+    /// The icon's number goes too: while the app is open it is the Inbox's
+    /// count (`MainTabView`), and with the Inbox gone — and the server sending
+    /// a locked workspace nothing that would change it — the last count would
+    /// stay on the icon, promising work the app will not open. Unlocked, the
+    /// Inbox puts it back.
+    var appLocked = false {
+        didSet {
+            guard appLocked else { return }
+            pendingOpen = nil
+            if !oldValue { applyBadge(0) }
+        }
+    }
+
     private let api: any WebyarAPI
 
     init(api: any WebyarAPI = Backend.current) {
@@ -336,7 +356,21 @@ final class PushController {
         // Nobody signed in: whatever this is belongs to an account that is
         // not here, and the sign-in screen is no place to show it.
         guard isSignedIn else { return [] }
-        noteArrival(arrival)
+        // The app is locked: it reads nothing for anyone in the meantime, and
+        // the open workspace's own news — what slips through in the minute
+        // the server takes to notice the lock — is not shown over a card
+        // that cannot open it.
+        if appLocked {
+            if let target = arrival.target, !target.isSupport, target.workspaceID == workspaceID { return [] }
+        } else {
+            noteArrival(arrival)
+        }
+        // Otherwise shown whatever this phone remembers of its workspace's plan
+        // (`MobileAppLock`): the server sends a locked workspace's phones
+        // nothing (docs/operations/MOBILE_APP_PLAN.md), so one that arrives
+        // is more likely a plan switched back on than a lock, and a memory
+        // gone stale must not swallow it. A tap on it asks the plan first
+        // (`tapMayAct`).
         return isOnScreen(arrival.target) ? [] : [.banner, .sound, .list]
     }
 
@@ -376,6 +410,9 @@ final class PushController {
     /// A tap, or one of the buttons on the banner.
     func handle(_ response: PushResponse) async {
         guard let target = response.arrival.target else { return }
+        // Locked (docs/operations/MOBILE_APP_PLAN.md): a tap and the banner's
+        // buttons do nothing.
+        guard await tapMayAct(on: target) else { return }
         noteArrival(response.arrival)
 
         // The two buttons act on the server as whoever holds the token. With
@@ -454,6 +491,24 @@ final class PushController {
             // thread is the right answer to all of them.
             pendingOpen = target
         }
+    }
+
+    /// Whether a tap on a notification — or one of its buttons — may act
+    /// (docs/operations/MOBILE_APP_PLAN.md).
+    ///
+    /// Never while the app on screen is locked. For a workspace this phone
+    /// last read with the mobile app off — a tap that launches the app before
+    /// its plan is in, or one for another workspace — the plan is asked again
+    /// first, since it may have been switched back on meanwhile: only an
+    /// explicit `false` stops the tap, and a read that fails lets it through,
+    /// as loading and a failed read never lock. Support is the platform's one
+    /// chat, from every workspace, whichever one the server filed it under.
+    func tapMayAct(on target: PushTarget) async -> Bool {
+        guard !appLocked else { return false }
+        guard !target.isSupport, MobileAppLock.isLocked(workspaceID: target.workspaceID) else { return true }
+        let stillLocked = await MobileAppLock.recheck(workspaceID: target.workspaceID, api: api)
+        // The plan on screen may have locked the app while that was asked.
+        return stillLocked != true && !appLocked
     }
 
     /// The idempotency key of a reply typed on a banner: the same reply to

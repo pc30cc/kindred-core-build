@@ -19,6 +19,15 @@ data class PushContext(
     val openEmailThreadIds: Set<String> = emptySet(),
     /** The support chat is on screen right now; it is one chat, whatever conversation a reply is in. */
     val supportChatOpen: Boolean = false,
+    /**
+     * The workspace on screen while its plan has the mobile app off and the
+     * app stands locked over it (docs/operations/MOBILE_APP_PLAN.md): nothing
+     * of its is read or shown. Only that one — the iOS app's rule: what this
+     * phone remembers of other workspaces' plans can be stale (switched back
+     * on meanwhile), and the server sends a locked workspace's phones nothing,
+     * so a push for one of them is shown, and its tap asks the plan first.
+     */
+    val lockedWorkspaceId: String? = null,
 )
 
 /**
@@ -42,6 +51,10 @@ data class PushContext(
  * that arrives before the workspaces are known, or names none: there is then
  * nothing to check it against, and "not yet known" must not read as "fine".
  * With the app in front, the inbox shows the message anyway.
+ *
+ * So is one for the workspace the app stands locked over, its plan with the
+ * mobile app off: the server sends none, and the app, locked there, opens
+ * nothing.
  *
  * A colleague's message in team chat is the same, about a thread instead of
  * a conversation: the screens that show team chat are told to read again,
@@ -77,6 +90,14 @@ class PushRouter(
                 if (now.workspaceIds.isEmpty()) "push dropped: workspaces not known yet"
                 else "push dropped: workspace ${Diag.id(workspace)} is not this operator's",
             )
+            return
+        }
+        // The app stands locked over this workspace, its plan with the mobile
+        // app off: the server sends nothing for it, so this is a late one.
+        // Nothing in the app can open it, and nothing is read for a
+        // workspace the app stands still in.
+        if (workspace == now.lockedWorkspaceId) {
+            diag.info(AREA, "push dropped: the mobile app is off in ${Diag.id(workspace)}'s plan")
             return
         }
         if (payload.isTeamCallMissed) {

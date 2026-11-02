@@ -31,6 +31,11 @@
  *    visitor hanging up — because a full-screen ring that nothing ends keeps
  *    ringing until it times out, which is the single worst bug this feature
  *    can have.
+ *  • A workspace whose plan has the mobile app off (`mobile_app` false;
+ *    docs/operations/MOBILE_APP_PLAN.md) rings no phone; the console rings
+ *    as before. Its stops go only while a ring sent just before the plan
+ *    changed may still be ringing (mobileAppRingMayBeLive): a stop for a
+ *    ring nobody got would wake every operator's locked app on every call.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -41,6 +46,7 @@ import { createStorageUrlResolver, resolveContactAvatarUrl } from '../storage/ur
 import { disableToken, forgetVoipToken } from './devices.js';
 import { teamCallVoipPayload } from './teamCallRing.js';
 import { contactOwnName } from './contactName.js';
+import { mobileAppAllowed, mobileAppRingMayBeLive } from '../mobileApp/planGate.js';
 
 /** How long a ring is worth delivering. Past this it is a missed call. */
 const RING_TTL_SECONDS = 45;
@@ -123,6 +129,8 @@ export async function ringOperators(
   // Android only: an iPhone is never rung for a visitor's call (see the top
   // of this file), whatever VoIP token it has registered.
   if (!isPushConfigured()) return { sent: 0, devices: 0 };
+  // The plan has the mobile app off: no phone of this workspace rings.
+  if (!(await mobileAppAllowed(config, input.workspaceId))) return { sent: 0, devices: 0 };
   try {
     const userIds = await resolveRingRecipients(config, input);
     if (!userIds.length) return { sent: 0, devices: 0 };
@@ -186,6 +194,9 @@ export async function cancelRing(
   },
 ): Promise<void> {
   if (!isPushConfigured()) return;
+  // The plan has the mobile app off: no phone of this workspace was rung,
+  // unless just before the plan changed — that ring is still stopped.
+  if (!(await mobileAppRingMayBeLive(config, input.workspaceId, RING_TTL_SECONDS))) return;
   try {
     const userIds = input.onlyUserId
       ? [input.onlyUserId]

@@ -56,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -136,6 +137,12 @@ fun AppShell(
     promotions: PromotionCenter,
     language: Language,
     modifier: Modifier = Modifier,
+    /**
+     * Told whether a call's screen is on a stack ([Navigator.holdsCall]):
+     * the lock card waits for it to go, so a call already on is never cut
+     * or covered by a lock.
+     */
+    onCallOnStack: (Boolean) -> Unit = {},
     // The language read when it is needed rather than captured: these outlive
     // a language change, which rebuilds the shell around them.
     visitors: VisitorsViewModel = viewModel { VisitorsViewModel(api) { appState.language.value } },
@@ -158,6 +165,10 @@ fun AppShell(
         appState.refreshPlanIfStale()
         onStopOrDispose { }
     }
+
+    val holdsCall = navigator.holdsCall
+    val reportCall by rememberUpdatedState(onCallOnStack)
+    LaunchedEffect(holdsCall) { reportCall(holdsCall) }
 
     // A plan change can take away the tab that is open — switching workspace
     // is the ordinary way that happens.
@@ -273,7 +284,8 @@ fun AppShell(
     // Whether the screen in front is a call ringing — or answered — on this
     // phone: what keeps the app over the lock screen as a call screen goes.
     val ringInFront = { navigator.top.let { it is IncomingCallKey || (it is TeamCallKey && it.incoming) } }
-    LaunchedEffect(pendingCall, workspaces) {
+    val checkingTap by appState.checkingTap.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingCall, workspaces, checkingTap) {
         val call = appState.resolvePendingCall()
         if (call == null) {
             // Dropped rather than still waiting — rung for a workspace this
@@ -282,7 +294,8 @@ fun AppShell(
             // the lock screen, which the ring's tap put it over. Left there,
             // whatever is open — an inbox, a customer's chat — shows to
             // whoever holds the locked phone.
-            val waiting = appState.pendingCall.value != null
+            // Or its workspace, remembered locked, being asked about first.
+            val waiting = appState.pendingCall.value != null || appState.checkingTap.value
             val ringing = navigator.stack(AppTab.INBOX).any { it is IncomingCallKey || (it is TeamCallKey && it.incoming) }
             if (!waiting && !ringing) activity?.showOverLockScreen(false)
             return@LaunchedEffect

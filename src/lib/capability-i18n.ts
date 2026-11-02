@@ -92,6 +92,7 @@ const EN_LABELS: Record<string, string> = {
   inbox_ai_queue: 'Inbox AI Queue Tab',
   inbox_needs_human: 'Inbox "Needs Human" Tab',
   inbox_team_chat: 'Inbox Colleagues Chat',
+  mobile_app: 'Mobile App',
   mobile_promo_banner: 'Mobile Promo Banner',
   mobile_promo_fullscreen: 'Mobile Full-screen Promo',
   mobile_promo_interval_minutes: 'Minutes Between Full-screen Promos',
@@ -338,6 +339,10 @@ const FA: Record<string, CapabilityText> = {
   inbox_team_chat: {
     label: 'گفتگوی همکاران در صندوق ورودی',
     description: 'تب گفتگوی داخلی اپراتورها با یکدیگر، داخل صندوق ورودی.',
+  },
+  mobile_app: {
+    label: 'اپ موبایل (آیفون و اندروید)',
+    description: 'اپ‌های آیفون و اندروید برای اعضای این فضای کاری. اگر خاموش باشد، اپ‌ها فضای کاری را قفل‌شده نشان می‌دهند و گوشی اعضا هیچ اعلان و زنگ تماسی از آن دریافت نمی‌کند. پنل وب و اپ‌های دسکتاپ تغییری نمی‌کنند.',
   },
   mobile_promo_banner: {
     label: 'بنر تبلیغاتی موبایل',
@@ -783,6 +788,10 @@ const TR: Record<string, CapabilityText> = {
   inbox_team_chat: {
     label: 'Gelen Kutusu Ekip Sohbeti',
     description: 'Gelen kutusu içinde operatörler arası iç sohbet sekmesi.',
+  },
+  mobile_app: {
+    label: 'Mobil uygulamalar (iPhone ve Android)',
+    description: 'Bu çalışma alanının üyeleri için iPhone ve Android uygulamaları. Kapalıyken uygulamalar çalışma alanını kilitli gösterir ve üyelerin telefonlarına bu alandan bildirim ya da arama zili gelmez. Web paneli ve masaüstü uygulamaları etkilenmez.',
   },
   mobile_promo_banner: {
     label: 'Mobil Tanıtım Afişi',

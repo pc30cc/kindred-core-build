@@ -124,6 +124,33 @@ class PushRouterTest {
         assertTrue(api.idReads.isEmpty())
     }
 
+    /**
+     * The app stands locked over the workspace, its plan with the mobile app
+     * off (docs/operations/MOBILE_APP_PLAN.md): the server sends nothing for
+     * it, so this is a late one — read and shown by nothing, a team message
+     * and a missed colleague call included. Another workspace's push is
+     * shown: what this phone remembers of other plans can be stale, and a
+     * tap on it asks the plan first (the iOS app's rule).
+     */
+    @Test
+    fun `a push for the workspace the app stands locked over is dropped`() = runTest {
+        val (router, _) = router()
+        context = context!!.copy(lockedWorkspaceId = "ws-1")
+        router.onMessage(push, "x", "y")
+        router.onMessage(push.copy(type = PushPayload.TYPE_TEAM_MESSAGE, peerId = "user-b"), "x", "y")
+        router.onMessage(push.copy(type = PushPayload.TYPE_TEAM_CALL_MISSED, peerId = "user-b", callId = "call-1"), "x", "y")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(shown.isEmpty())
+        assertTrue(api.idReads.isEmpty())
+
+        // Another workspace of the same member is not touched by it.
+        context = context!!.copy(workspaceIds = setOf("ws-1", "ws-2"))
+        router.onMessage(push.copy(workspaceId = "ws-2", type = PushPayload.TYPE_CALLBACK), "x", "y")
+        assertEquals(1, shown.size)
+    }
+
     @Test
     fun `a push naming no workspace is dropped`() = runTest {
         val (router, _) = router()

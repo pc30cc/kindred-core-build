@@ -21,6 +21,9 @@ class TeamCallRingTest {
     private val rung = mutableListOf<TeamCallRing>()
     private val stopped = mutableListOf<TeamCallCancel>()
     private var account: String? = "user-a"
+    private var locked: Set<String> = emptySet()
+    /** What the plan says when asked again: null cannot be read. */
+    private var planNow: Boolean? = null
 
     private fun router(now: Long = 1_000) = IncomingCallRouter(
         signedInAccount = { account },
@@ -29,6 +32,8 @@ class TeamCallRingTest {
         stop = { _, _ -> error("a colleague's cancel is not the call centre's") },
         ringColleague = { ring, _ -> rung += ring },
         stopColleague = { cancel, _ -> stopped += cancel },
+        workspaceLocked = { it in locked },
+        planStillLocked = { planNow },
         nowEpochSeconds = { now },
         diag = Diag.Silent,
     )
@@ -120,6 +125,42 @@ class TeamCallRingTest {
         assertFalse(TeamCallCancel.Reason.ANSWERED_ELSEWHERE.missed)
         assertFalse(TeamCallCancel.Reason.DECLINED.missed)
         assertFalse(TeamCallCancel.Reason.ENDED.missed)
+    }
+
+    /**
+     * A colleague's ring for a workspace whose plan has the mobile app off
+     * is not shown on Android (docs/operations/MOBILE_APP_PLAN.md, "The
+     * apps"); its stop still stops whatever rings, and a ring for another
+     * workspace of the member's still rings.
+     */
+    @Test
+    fun `a colleague ring for a locked workspace is not shown, its stop still stops`() = runTest {
+        locked = setOf("ws-1")
+        assertTrue(router().onMessage(ring))
+        assertTrue(rung.isEmpty())
+
+        assertTrue(router().onMessage(mapOf("type" to "team_call_cancel", "callId" to ring.getValue("callId"), "reason" to "cancelled")))
+        assertEquals(ring.getValue("callId"), stopped.single().callId)
+
+        assertTrue(router().onMessage(ring + ("workspaceId" to "ws-2")))
+        assertEquals("ws-2", rung.single().workspaceId)
+    }
+
+    /**
+     * A plan switched back on while this phone remembered it off: the
+     * colleague's ring rings once the plan, asked again, no longer says
+     * `false` — a stale memory must not go on dropping their calls.
+     */
+    @Test
+    fun `a colleague ring for a workspace remembered locked rings once its plan has the app again`() = runTest {
+        locked = setOf("ws-1")
+        planNow = true
+        assertTrue(router().onMessage(ring))
+        assertTrue(rung.isEmpty())
+
+        planNow = false
+        assertTrue(router().onMessage(ring))
+        assertEquals("ws-1", rung.single().workspaceId)
     }
 
     @Test

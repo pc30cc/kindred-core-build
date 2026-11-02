@@ -180,6 +180,10 @@ android {
             // The signature at the foot of the launch and sign-in screens.
             buildConfigField("String", "WORDMARK", literal("WEBYAR"))
             buildConfigField("String", "WORDMARK_SUFFIX", literal("AI"))
+            // Its site keeps Persian at the root and every other language
+            // under its code (/en, /tr, /ar): the sign-in screen's website
+            // link follows the app's language (i18n/SiteLinks.kt).
+            buildConfigField("boolean", "LOCALIZED_SITE_PATHS", "true")
             firebase("webyar", "WEBYAR")
 
             // What every installed WebYar already has on the phone, exactly as
@@ -223,6 +227,8 @@ android {
             // Its name alone, with nothing after it.
             buildConfigField("String", "WORDMARK", literal("RESPOK"))
             buildConfigField("String", "WORDMARK_SUFFIX", literal(""))
+            // Its site is laid out its own way: links open as configured.
+            buildConfigField("boolean", "LOCALIZED_SITE_PATHS", "false")
             firebase("respok", "RESPOK")
 
             // Brand-neutral names for what the app keeps on the phone. RESPOK

@@ -21,6 +21,18 @@ object A11y {
     const val RESET_BACK = "reset.back"
     const val MAINTENANCE = "maintenance"
     const val MAINTENANCE_RETRY = "maintenance.retry"
+    /** Under the sign-in form: the brand's site, by its name. */
+    const val LOGIN_WEBSITE = "login.website"
+
+    /**
+     * The card over the faded app when the plan has the mobile app off, and
+     * its ways on (docs/operations/MOBILE_APP_PLAN.md). The website button is
+     * Android's alone.
+     */
+    const val APP_LOCK_CARD = "appLock.card"
+    const val APP_LOCK_OPEN_WEBSITE = "appLock.openWebsite"
+    const val APP_LOCK_SWITCH_WORKSPACE = "appLock.switchWorkspace"
+    const val APP_LOCK_SIGN_OUT = "appLock.signOut"
 
     const val INBOX_LIST = "inbox.list"
     const val INBOX_EMPTY = "inbox.empty"

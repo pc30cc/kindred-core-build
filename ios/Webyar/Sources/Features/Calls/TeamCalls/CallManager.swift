@@ -252,8 +252,9 @@ final class CallManager {
     ///
     /// Every one is reported to CallKit — iOS's condition for delivering VoIP
     /// pushes at all. One that is not a well-formed, unexpired colleague
-    /// ring, that arrives with nobody signed in here, or while another call
-    /// holds this phone, is reported and ended at once. One that is is left
+    /// ring, that arrives with nobody signed in here, while another call
+    /// holds this phone, or for a workspace whose plan has the mobile app off
+    /// (`TeamCallRing.mayRing`), is reported and ended at once. One that is is left
     /// ringing, and the server decides the rest: it is read at once and then
     /// every two seconds (`watch`), which is where a ring for somebody else
     /// (404), or one already answered elsewhere, ends.
@@ -280,13 +281,31 @@ final class CallManager {
             return
         }
 
+        // Synchronous reads only, so the report below is never delayed: the
+        // Keychain's token, and the plan's mobile app switch as this phone
+        // last read it for the ring's workspace (`MobileAppLock`) — a locked
+        // workspace's ring is reported and ended at once
+        // (docs/operations/MOBILE_APP_PLAN.md).
         let accepted: TeamCallRing? = ring.flatMap { ring in
-            guard !ring.isExpired(now: now), !holdsAudio, TokenStore.read() != nil else { return nil }
+            guard ring.mayRing(
+                now: now,
+                holdsAudio: holdsAudio,
+                signedIn: TokenStore.read() != nil,
+                workspaceLocked: MobileAppLock.isLocked(workspaceID: ring.workspaceID)
+            ) else { return nil }
             return ring
         }
         report(uuid, update)
         guard let ring = accepted else {
             callKit.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
+            // Ended for what this phone last read of that workspace's plan,
+            // which goes stale when the plan is switched back on while
+            // another workspace is open here: ask it again, so the next ring
+            // rings unless it still says the mobile app is off.
+            if let ring, MobileAppLock.isLocked(workspaceID: ring.workspaceID) {
+                let api = self.api, workspaceID = ring.workspaceID
+                Task { _ = await MobileAppLock.recheck(workspaceID: workspaceID, api: api) }
+            }
             return
         }
 

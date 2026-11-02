@@ -323,7 +323,9 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
 
     // The phones are chosen before the row exists and recorded in it: the
     // cancel goes to exactly these, and nothing writes the row while it rings.
-    const targets = await teamCallRingTargets(config, calleeId);
+    // None when the plan has the mobile app off: the call is placed all the
+    // same, and rings the callee's web panel from its realtime event.
+    const targets = await teamCallRingTargets(config, calleeId, workspaceId);
     const meta: TeamCallMeta = {
       caller_user_id: callerId,
       callee_user_id: calleeId,

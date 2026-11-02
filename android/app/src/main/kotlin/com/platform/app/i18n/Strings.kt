@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 441 of 461 strings are generated.
+// 445 of 465 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -827,6 +827,34 @@ object Str {
         Language.EN -> "Sign out failed. You are still signed in."
         Language.FA -> "خروج انجام نشد. هنوز وارد حساب هستید."
         Language.TR -> "Çıkış yapılamadı. Hâlâ oturumunuz açık."
+    }
+
+    /** The lock card's title. */
+    fun appLockedTitle(l: Language): String = when (l) {
+        Language.EN -> "The mobile app isn't in this workspace's plan"
+        Language.FA -> "اپ موبایل در پلن این فضای کاری نیست"
+        Language.TR -> "Mobil uygulama bu çalışma alanının planında yok"
+    }
+
+    /** Under the title: why nothing in the app answers. */
+    fun appLockedBody(l: Language): String = when (l) {
+        Language.EN -> "Until this workspace's plan includes the mobile app, the app's sections aren't available."
+        Language.FA -> "تا وقتی پلن این فضای کاری شامل اپ موبایل نباشد، بخش‌های اپ در دسترس نیستند."
+        Language.TR -> "Bu çalışma alanının planı mobil uygulamayı içerene kadar uygulamanın bölümleri kullanılamaz."
+    }
+
+    /** For a member who is not the workspace's owner. */
+    fun appLockedAskOwner(l: Language): String = when (l) {
+        Language.EN -> "For more, contact the workspace owner."
+        Language.FA -> "برای اطلاعات بیشتر با مالک فضای کاری تماس بگیرید."
+        Language.TR -> "Ayrıntılar için çalışma alanı sahibiyle iletişime geçin."
+    }
+
+    /** Opens the workspace picker, for a member of more than one workspace. */
+    fun appLockedSwitchWorkspace(l: Language): String = when (l) {
+        Language.EN -> "Switch workspace"
+        Language.FA -> "تغییر فضای کاری"
+        Language.TR -> "Çalışma alanını değiştir"
     }
 
     /**

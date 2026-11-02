@@ -85,6 +85,32 @@ class PlatformOrigin(private val store: SecureStore) {
 
     suspend fun forget() = store.remove(originKey)
 
+    private val panelKey = stringPreferencesKey("platform.panelOrigin")
+    private val siteKey = stringPreferencesKey("platform.siteOrigin")
+
+    /**
+     * The web panel (`appBaseUrl`), as the platform last named it: where the
+     * lock card's Open the website goes (`<panel>/app/billing`,
+     * docs/operations/MOBILE_APP_PLAN.md). Null until the platform has said.
+     */
+    suspend fun panel(): String? = store.read(panelKey)?.takeIf { adoptable(it) }
+
+    /**
+     * The brand's own site (`canonicalBaseUrl`), known before sign-in: the
+     * root of the sign-in screen's website link
+     * ([com.platform.app.i18n.SiteLinks]). Null until the platform has said.
+     */
+    suspend fun site(): String? = store.read(siteKey)?.takeIf { adoptable(it) }
+
+    /**
+     * Keeps what the platform's answer named. A value it left out, or one
+     * this build may not use, keeps the one in hand.
+     */
+    suspend fun rememberLinks(panel: String?, site: String?) {
+        panel?.takeIf { adoptable(it) }?.let { store.write(panelKey, it) }
+        site?.takeIf { adoptable(it) }?.let { store.write(siteKey, it) }
+    }
+
     companion object {
         /** An origin this build may move to: https, and a host of its own brand. */
         fun adoptable(url: String): Boolean = url.startsWith("https://") && AppBrand.accepts(url)

@@ -193,6 +193,15 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // platform master switch there can turn the whole thing off whatever the
   // plans say. First-party content only: no ad network, no SDK, no device
   // identifier, which is what keeps this clear of App Tracking Transparency.
+  //
+  // The apps themselves are a plan feature too (owner, 2026-11-02;
+  // docs/operations/MOBILE_APP_PLAN.md). On by default, so every plan without
+  // the key, and a workspace without a plan, keeps its apps: only a plan the
+  // Super Admin turns it off in locks them. Off: both apps show the workspace
+  // locked, and its members' phones get no alert push and no ring
+  // (server/services/mobileApp/planGate.ts). The web panel and the desktop
+  // apps never read it. Plan-only, like team_calls.
+  { key: 'mobile_app',              type: 'feature', label: 'Mobile App',               group: 'mobile', description: 'The iPhone and Android apps for this workspace\'s members. Off: the apps show the workspace locked, and its members\' phones get no notifications and no call rings. The web panel and the desktop apps are not affected.', defaultValue: true, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 5 },
   { key: 'mobile_promo_banner',     type: 'feature', label: 'Mobile Promo Banner',      group: 'mobile', description: 'Show a first-party promotional banner at the top of the iOS inbox for workspaces on this plan.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: false, sortOrder: 10 },
   { key: 'mobile_promo_fullscreen', type: 'feature', label: 'Mobile Full-screen Promo', group: 'mobile', description: 'Show an occasional full-screen promotion in the iOS app for workspaces on this plan. Paced by the limits below and always dismissible.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: false, sortOrder: 20 },
   { key: 'mobile_promo_interval_minutes', type: 'limit', label: 'Minutes Between Full-screen Promos', group: 'mobile', description: 'Floor on how often the iOS app may show a full-screen promotion. The platform setting applies when it is stricter.', defaultValue: 360, planConfigurable: true, workspaceOverridable: true, userVisible: false, sortOrder: 30 },

@@ -415,6 +415,16 @@ enum A11yID {
     static let settingsTerms = "settings.terms"
     static let loginPrivacyPolicy = "login.privacyPolicy"
     static let loginTerms = "login.terms"
+    /// Under the sign-in form: the brand's site, by its name.
+    static let loginWebsite = "login.website"
+    /// The sign-in screen's language picker.
+    static let loginLanguage = "login.language"
+
+    /// The card over the faded app when the plan has the mobile app off,
+    /// and its two ways on.
+    static let appLockCard = "appLock.card"
+    static let appLockSwitchWorkspace = "appLock.switchWorkspace"
+    static let appLockSignOut = "appLock.signOut"
 
     // The inbox's strip, beside its queues.
     /// The strip's envelope, which opens the mailbox.

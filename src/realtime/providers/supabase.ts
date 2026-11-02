@@ -36,7 +36,8 @@ const API_BASE = (RESOLVED_API_BASE as string | undefined) || '';
 
 type ParsedChannel =
   | { kind: 'conversation'; workspaceId: string; conversationId: string }
-  | { kind: 'inbox' | 'visitors' | 'operators'; workspaceId: string };
+  | { kind: 'inbox' | 'visitors' | 'operators'; workspaceId: string }
+  | { kind: 'user'; workspaceId: string; userId: string };
 
 /** Map a canonical channel name onto the endpoint that authorizes it. */
 export function parseSupabaseChannel(channel: string): ParsedChannel | null {
@@ -44,6 +45,10 @@ export function parseSupabaseChannel(channel: string): ParsedChannel | null {
   if (m) return { kind: 'conversation', workspaceId: m[1], conversationId: m[2] };
   m = /^ws:([^:]+):(inbox|visitors|operators)$/.exec(channel);
   if (m) return { kind: m[2] as 'inbox' | 'visitors' | 'operators', workspaceId: m[1] };
+  // The member's own channel: the server answers for the session's user only,
+  // and the topic check below refuses one minted for another name.
+  m = /^ws:([^:]+):user:([^:]+)$/.exec(channel);
+  if (m) return { kind: 'user', workspaceId: m[1], userId: m[2] };
   return null;
 }
 
@@ -52,6 +57,7 @@ const ENDPOINT_BY_KIND: Record<ParsedChannel['kind'], string> = {
   inbox: '/api/realtime/operator-inbox-subscribe',
   visitors: '/api/realtime/operator-visitors-subscribe',
   operators: '/api/realtime/operator-presence-subscribe',
+  user: '/api/realtime/operator-user-subscribe',
 };
 
 /**

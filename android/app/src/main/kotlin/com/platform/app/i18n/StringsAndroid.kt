@@ -43,6 +43,38 @@ object StrAndroid {
         Language.TR -> "Tahmini dönüş: $time"
     }
 
+    // The lock card, when the workspace's plan has the mobile app off
+    // (docs/operations/MOBILE_APP_PLAN.md, "Strings"). Its title, body and the
+    // workspace switch are shared with iOS (`Str.appLocked*`); these two are
+    // Android's alone: the iPhone's card names no website and no purchase.
+    // The contract's Arabic lines have no place here — this app has no
+    // Arabic (`Language`).
+
+    /** Under the lock card's body: how the plan gets the app. */
+    fun appLockedVisitWebsite(l: Language): String = when (l) {
+        Language.EN -> "To turn it on, visit the website."
+        Language.FA -> "برای فعال‌سازی، از طریق وب‌سایت اقدام کنید."
+        Language.TR -> "Etkinleştirmek için web sitesini ziyaret edin."
+    }
+
+    /** The lock card's button: the web panel's billing page, in the browser. */
+    fun appLockedOpenWebsite(l: Language): String = when (l) {
+        Language.EN -> "Open the website"
+        Language.FA -> "باز کردن وب‌سایت"
+        Language.TR -> "Web sitesini aç"
+    }
+
+    /**
+     * The sign-in screen's website link, unless Super Admin named it
+     * otherwise (`MobileAppConfig.websiteName`): the word, never the address
+     * (owner, 2026-11-02). The iOS app's `SettingsStr.website`.
+     */
+    fun website(l: Language): String = when (l) {
+        Language.EN -> "Website"
+        Language.FA -> "وب‌سایت"
+        Language.TR -> "Web sitesi"
+    }
+
     /** The back arrow's spoken label. Drawn as a glyph, never as text. */
     fun back(l: Language): String = when (l) {
         Language.EN -> "Back"

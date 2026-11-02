@@ -10,8 +10,9 @@ chat, on the phones. Owner, 2026-11-01:
 - it is a plan feature the Super Admin turns on or off per plan;
 - its minutes and its concurrency count in the plan, like every other call
   ("both in the plan");
-- this release: the iOS and Android apps only. The web panel and the desktop
-  apps neither ring nor call;
+- the iOS and Android apps, and the web panel (owner, 2026-11-02: "the web
+  too, on and off by the plan the same way"); the desktop apps neither ring
+  nor call yet;
 - the iPhone rings for colleague calls only. Call-centre (visitor) calls do
   not ring an iPhone yet.
 
@@ -198,6 +199,40 @@ uncounted time.
 - Without the notification permission (Android 13+) a ring cannot show:
   the thread's call button explains it and opens the setting.
 - The missed-call notification opens the thread.
+
+## Web panel (owner, 2026-11-02)
+
+- Same gate as the apps (`team_calls` + `voice_video` + the call's channel,
+  `src/lib/planAccess.ts`'s one rule) and the same API; nothing new on the
+  server for it but what is listed here.
+- Entry: phone and video buttons in the colleague thread's header on the
+  team chat page (`src/pages/app/TeamChatPage.tsx`), shown when the plan
+  allows that kind of call, never for oneself.
+- Ringing: every open panel tab of the callee rings, wherever the member is
+  in the panel, from the realtime `team_call` event (`state: ringing`, the
+  callee's own user channel), confirmed with `GET /api/team-calls/:id`. A
+  ringing card above everything (the colleague's photo or the person
+  silhouette, never a letter; their name; voice or video; Answer, Decline),
+  a ringtone made in the page (Web Audio, no file), and a system
+  notification through the Notification API when the tab is hidden and the
+  member has allowed notifications (asked once, from the call button, never
+  on page load). No web push: a closed panel does not ring; the phones do.
+- Every tab has its own device id (`web-<random>`, kept in sessionStorage),
+  sent as `device_id` on accept. The first answer wins on every surface:
+  a tab, an iPhone or an Android phone; the others stop on the next
+  realtime change (`state` past `ringing`, `answered_device_id` not theirs).
+- The call: `POST /:id/token`, then LiveKit through the panel's existing
+  call stack (`src/hooks/useLiveKitCall.ts`, `src/features/calls/CallStage.tsx`),
+  microphone (and camera for video, answerable with it off), mute, camera,
+  speaker selection where the browser has it, hang up. Ringback for the
+  caller until the answer. A tab's call screen stays above the panel as the
+  member moves around in it; closing the tab ends the call through the
+  webhook.
+- Ending follows the apps' rule: the caller hangs up (`/hangup`); the callee
+  declines while it rings and hangs up once its answer went through.
+- Missed: a toast in the open tabs (the push is the phones').
+- Busy: a member in a visitor call in the panel is busy (the existing
+  `operator_call_availability` rule).
 
 ## Rollout
 

@@ -734,6 +734,10 @@ actor SampleAPI: WebyarAPI {
                 // so it carries them even though no real plan does yet.
                 "mobile_promo_banner": on,
                 "mobile_promo_fullscreen": on,
+                // Off only for the lock card's own screenshot run.
+                "mobile_app": SampleRoute.current == .appLocked
+                    ? EffectiveState<Bool>(value: false, source: "plan", note: nil)
+                    : on,
             ],
             modules: [
                 "chat": on,

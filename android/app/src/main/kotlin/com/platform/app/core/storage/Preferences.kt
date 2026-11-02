@@ -23,6 +23,7 @@ class Preferences(private val store: SecureStore) {
     private val appConfigKey = stringPreferencesKey("prefs.appConfig")
     private val workspaceKey = stringPreferencesKey("prefs.workspace")
     private val pendingSignOutKey = stringPreferencesKey("session.pendingSignOut")
+    private val mobileAppLockedKey = stringPreferencesKey("session.mobileAppLocked")
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
@@ -94,6 +95,29 @@ class Preferences(private val store: SecureStore) {
 
     suspend fun setPendingSignOut(accountId: String?) {
         if (accountId == null) store.remove(pendingSignOutKey) else store.write(pendingSignOutKey, accountId)
+    }
+
+    /**
+     * The workspaces of [accountId] whose plans this phone last read with the
+     * mobile app off (docs/operations/MOBILE_APP_PLAN.md) — for what arrives
+     * without the screens: a ring, a notification's tap that launches the
+     * app. Empty for anyone else, and when nothing is stored: nothing is
+     * locked until a plan has said so.
+     */
+    suspend fun mobileAppLocked(accountId: String): Set<String> {
+        val raw = store.read(mobileAppLockedKey) ?: return emptySet()
+        val (account, list) = raw.split('|', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } ?: return emptySet()
+        if (account != accountId) return emptySet()
+        return list.split(',').filter { it.isNotBlank() }.toSet()
+    }
+
+    /** What [mobileAppLocked] answers from now on; empty (or a null account) forgets it. */
+    suspend fun setMobileAppLocked(accountId: String?, workspaceIds: Set<String>) {
+        if (accountId == null || workspaceIds.isEmpty()) {
+            store.remove(mobileAppLockedKey)
+        } else {
+            store.write(mobileAppLockedKey, "$accountId|${workspaceIds.sorted().joinToString(",")}")
+        }
     }
 }
 

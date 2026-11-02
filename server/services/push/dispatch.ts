@@ -20,6 +20,9 @@
  *  • Multi-device fanout with independent failures: a dead token on one phone
  *    is disabled and never blocks the others.
  *  • Payloads carry identifiers only — routing hints, never authorization.
+ *  • A workspace whose plan has the mobile app off sends nothing: every
+ *    notify* below takes its recipients from resolveRecipients, which has
+ *    none for it (docs/operations/MOBILE_APP_PLAN.md, "Server").
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';

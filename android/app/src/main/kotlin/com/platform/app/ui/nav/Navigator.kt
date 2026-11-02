@@ -38,6 +38,14 @@ class Navigator internal constructor(
     val top: Screen? get() = current.lastOrNull() as? Screen
 
     /**
+     * Whether a call's screen — ringing, or on — is on any stack, whichever
+     * tab is in front: what keeps the lock card (the plan with the mobile app
+     * off) from covering a call that was already there. A lock never cuts a
+     * call (docs/operations/MOBILE_APP_PLAN.md).
+     */
+    val holdsCall: Boolean get() = stacks.values.any { stack -> stack.any { (it as? Screen)?.isCall() == true } }
+
+    /**
      * Opens a screen, in its own tab.
      *
      * A screen of the kind already on top replaces it instead of stacking a

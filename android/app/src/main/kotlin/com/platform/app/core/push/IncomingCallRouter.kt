@@ -20,6 +20,14 @@ import com.platform.app.i18n.Language
  *  - A ring that arrives after its expiry is not a call any more.
  *  - A cancel always stops the ring, signed in or not: stopping a ring can
  *    only ever be right.
+ *  - A ring for a workspace whose plan has the mobile app off is not shown
+ *    (docs/operations/MOBILE_APP_PLAN.md). What this phone remembers of that
+ *    plan can be stale — switched back on while the member looked at another
+ *    workspace — and the server sends a locked workspace's phones no ring,
+ *    so one that arrives is as likely a plan switched back on as a late one:
+ *    the plan is asked again first, and only a plan that still says `false`
+ *    (or cannot be read) keeps the ring off. A cancel still stops whatever
+ *    rings, and a call already on is never touched by this.
  *
  * A colleague's ring keeps the same three rules. It is told apart by its
  * type (`team_call_incoming`, `team_call_cancel`) and handed on separately,
@@ -38,6 +46,19 @@ class IncomingCallRouter(
      */
     private val ringColleague: suspend (TeamCallRing, Language) -> Unit,
     private val stopColleague: (TeamCallCancel, Language) -> Unit,
+    /**
+     * Whether the plan of the workspace a ring is for was last read, on this
+     * phone, with the mobile app off ([com.platform.app.core.model.mobileAppLocked]).
+     * Local reads only, as the other two: it can run before any screen.
+     */
+    private val workspaceLocked: suspend (String) -> Boolean = { false },
+    /**
+     * That workspace's plan read again, for a ring [workspaceLocked] would
+     * keep off: true while it still says the mobile app is off, false once
+     * it no longer does, null when it cannot be read (in time). Bounded by
+     * the caller: FCM's handler waits for it.
+     */
+    private val planStillLocked: suspend (String) -> Boolean? = { null },
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
     private val diag: Diag = Diag.Android,
 ) {
@@ -77,6 +98,10 @@ class IncomingCallRouter(
             diag.warn(AREA, "ring dropped: nobody signed in")
             return true
         }
+        if (locked(call.workspaceId)) {
+            diag.info(AREA, "ring dropped: the mobile app is off in ${Diag.id(call.workspaceId)}'s plan")
+            return true
+        }
         diag.info(AREA, "ringing for ${Diag.id(call.callId)}")
         ring(call, language())
         return true
@@ -106,8 +131,24 @@ class IncomingCallRouter(
             diag.warn(AREA, "colleague ring dropped: nobody signed in")
             return
         }
+        if (locked(ring.workspaceId)) {
+            diag.info(AREA, "colleague ring dropped: the mobile app is off in ${Diag.id(ring.workspaceId)}'s plan")
+            return
+        }
         diag.info(AREA, "colleague ringing for ${Diag.id(ring.callId)}")
         ringColleague(ring, language())
+    }
+
+    /**
+     * Whether a ring for [workspaceId] stays off: remembered with the mobile
+     * app off, and still so when its plan is asked again. A plan that cannot
+     * be read leaves the memory standing — it was an explicit `false`.
+     */
+    private suspend fun locked(workspaceId: String): Boolean {
+        if (!workspaceLocked(workspaceId)) return false
+        val still = planStillLocked(workspaceId)
+        if (still == false) diag.info(AREA, "the mobile app is on again in ${Diag.id(workspaceId)}'s plan: ringing")
+        return still != false
     }
 
     private companion object {

@@ -299,7 +299,7 @@ struct SettingsView: View {
 ///
 /// A single workspace is not a choice, so it reads as a plain labelled row
 /// rather than something that looks tappable and does nothing.
-private struct WorkspaceRow: View {
+struct WorkspaceRow: View {
     let workspace: Workspace
     let isCurrent: Bool
     let isOnly: Bool

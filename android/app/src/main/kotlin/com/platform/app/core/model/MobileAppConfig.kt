@@ -69,7 +69,34 @@ data class MobileAppConfig(
      * help centre ([com.platform.app.core.storage.PlatformOrigin.supportUrl]).
      */
     val supportUrl: String? = null,
+    /**
+     * The site the website link opens, when Super Admin set one for the app
+     * (the iOS app's `websiteUrl`). Read as [websiteLink]: https, with a host,
+     * and for RESPOK only one of its own. Null leaves the platform's
+     * canonical site ([com.platform.app.core.storage.PlatformOrigin.site]).
+     */
+    val websiteUrl: String? = null,
+    /**
+     * What the website link is called, by language code (`fa`, `en`, `tr`);
+     * a language left out uses the app's own word
+     * ([com.platform.app.i18n.StrAndroid.website]).
+     */
+    val websiteLabel: Map<String, String> = emptyMap(),
 ) {
+    /** [websiteUrl], when it is an address fit to open: https with a host, and this brand's. */
+    val websiteLink: String?
+        get() {
+            val raw = websiteUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val uri = runCatching { java.net.URI(raw) }.getOrNull() ?: return null
+            if (uri.scheme?.lowercase() != "https" || uri.host.isNullOrEmpty()) return null
+            // RESPOK links to no other brand's site, whatever its Super Admin says.
+            return raw.takeIf { AppBrand.accepts(it) }
+        }
+
+    /** The website link's name in [language], when Super Admin gave it one. */
+    fun websiteName(language: Language): String? =
+        websiteLabel[language.code]?.trim()?.takeIf { it.isNotEmpty() }
+
     companion object {
         val DEFAULT = MobileAppConfig()
     }

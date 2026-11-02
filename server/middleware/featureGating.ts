@@ -558,8 +558,18 @@ export async function getWorkspacePlanInfo(
   serviceRoleKey: string,
   workspaceId: string
 ): Promise<WorkspacePlanInfo> {
-  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
+  return workspacePlanInfoFrom(serviceClientFor(supabaseUrl, serviceRoleKey), workspaceId);
+}
 
+/**
+ * {@link getWorkspacePlanInfo} over a client the caller already holds (the
+ * same service client: `getServiceClient(config)` is `serviceClientFor` of
+ * the config's own url and key). Throws when any of it cannot be read.
+ */
+export async function workspacePlanInfoFrom(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<WorkspacePlanInfo> {
   const [{ data: subRow, error: subError }, { data: overrideRows, error: overrideError }] = await Promise.all([
     supabase.from('workspace_subscriptions').select('*').eq('workspace_id', workspaceId).maybeSingle(),
     supabase.from('workspace_limit_overrides').select('limit_key, limit_value, admin_notes').eq('workspace_id', workspaceId),

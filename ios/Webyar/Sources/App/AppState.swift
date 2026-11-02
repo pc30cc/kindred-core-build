@@ -40,7 +40,9 @@ final class AppState {
 
     /// What the current workspace's plan grants. Every plan-gated tab and
     /// queue reads this rather than assuming.
-    private(set) var entitlements: EntitlementsState = .loading
+    private(set) var entitlements: EntitlementsState = .loading {
+        didSet { lockChanged() }
+    }
 
     /// The operator's role and the AI / call-center switches, read with the
     /// plan. Unknown (nil) hides whatever depends on it.
@@ -421,6 +423,8 @@ final class AppState {
         workspacesFromSnapshot = false
         savedSessionUnconfirmed = false
         entitlements = .loading
+        // The next session learns its plans afresh.
+        MobileAppLock.clear()
         profile = nil
         // Whoever signs in next must not be greeted by the last person's
         // name while the server is being asked who they are.
@@ -435,6 +439,7 @@ final class AppState {
     /// changes — before the next frame is drawn for the new one.
     private func scopeChanged() {
         SyncCoordinator.shared.sessionChanged(userID: session.user?.id, workspaceID: selectedWorkspace?.id)
+        lockChanged()
     }
 
     /// The workspaces saved for this account, if nothing better is known yet.
@@ -460,8 +465,22 @@ final class AppState {
         // Not gated on staleness: Super Admin can switch a section off at any
         // time, and coming back to the app is the natural moment to notice.
         Task { await loadAppConfig() }
-        if workspacesFromSnapshot || workspaces.isEmpty { await loadWorkspaces() }
-        if case .failed = entitlements, selectedWorkspace != nil { await loadPlan() }
+        if workspacesFromSnapshot || workspaces.isEmpty {
+            // Reads the plan too, once the list is in.
+            await loadWorkspaces()
+        } else if selectedWorkspace != nil {
+            // The plan again, whether or not the last read failed: the mobile
+            // app can have been switched on or off in it meanwhile
+            // (docs/operations/MOBILE_APP_PLAN.md). A failed read keeps the
+            // snapshot in hand.
+            await loadPlan(readsAppConfig: false)
+        }
+        // And the other workspaces this phone remembers as locked, which are
+        // read nowhere else until one is opened: a plan switched back on
+        // there must not go on ending its colleagues' rings here.
+        for workspaceID in MobileAppLock.lockedWorkspaceIDs() where workspaceID != selectedWorkspace?.id {
+            Task { [api] in _ = await MobileAppLock.recheck(workspaceID: workspaceID, api: api) }
+        }
     }
 
     func clearSessionEndedMessage() {
@@ -557,11 +576,11 @@ final class AppState {
     /// The operator's role and the AI and call-center switches are read
     /// alongside it; one of those that cannot be read is simply off, and never
     /// fails the plan.
-    func loadPlan() async {
+    func loadPlan(readsAppConfig: Bool = true) async {
         // Alongside, never in front: the plan decides most of what shows,
         // and waiting on a second request to resolve it would only delay the
         // tab bar.
-        Task { await loadAppConfig() }
+        if readsAppConfig { Task { await loadAppConfig() } }
         guard let workspaceID = selectedWorkspace?.id else {
             entitlements = .failed
             return
@@ -571,9 +590,14 @@ final class AppState {
             let snapshot = try await api.entitlements(workspaceID: workspaceID)
             let fresh = await sideAccess
             guard selectedWorkspace?.id == workspaceID else { return }
-            entitlements = .loaded(snapshot)
+            // Before the snapshot is adopted, so the lock it may bring finds
+            // the role read with it (who is the owner) already in place.
             access = fresh
             planWorkspaceID = workspaceID
+            // What this read said about the mobile app, for the ring and the
+            // notification that arrive without this object (`MobileAppLock`).
+            MobileAppLock.record(workspaceID: workspaceID, locked: snapshot.mobileAppLocked)
+            entitlements = .loaded(snapshot)
         } catch {
             let fresh = await sideAccess
             guard selectedWorkspace?.id == workspaceID else { return }
@@ -600,7 +624,11 @@ final class AppState {
     }
 
     /// Which workspace the snapshot in `entitlements` belongs to.
-    @ObservationIgnored private var planWorkspaceID: String? = nil
+    ///
+    /// Observed, like `entitlements`: the lock (`isAppLocked`) reads both,
+    /// and a view that last read it while this still named another
+    /// workspace must hear when it moves on, or the lock never shows.
+    private var planWorkspaceID: String? = nil
     @ObservationIgnored private var planRefresh: Task<Void, Never>? = nil
 
     private func schedulePlanRefresh(_ workspaceID: String) {
@@ -612,6 +640,51 @@ final class AppState {
             await self.loadPlan()
         }
     }
+
+    // MARK: - The mobile app off in the plan
+
+    /// The workspace on screen has the mobile app switched off in its plan
+    /// (docs/operations/MOBILE_APP_PLAN.md): the app is drawn faded under one
+    /// card and nothing in it works (`SignedInRoot`).
+    ///
+    /// Fail-open, unlike every gate below: only a snapshot of this
+    /// workspace's plan in hand that says exactly `false` locks. While it
+    /// loads, when it cannot be read, and when it does not carry the key, the
+    /// app works — a network blip must not lock a whole team out. Read again
+    /// at sign-in, on a workspace switch, on coming back to the foreground
+    /// and on every refresh of the plan.
+    var isAppLocked: Bool {
+        guard session.user != nil, let workspaceID = selectedWorkspace?.id else { return false }
+        // This workspace's own snapshot: the one in hand can still be the
+        // last workspace's for a moment after the selection moved on (the
+        // list lost the workspace that was open), and that one's lock is not
+        // this one's.
+        // Both read every time, never one short-circuited behind the other:
+        // SwiftUI follows only what was read, and a lock whose plan was
+        // skipped would never be redrawn when the plan arrives.
+        let planLocked = entitlements.mobileAppLocked
+        let planIsThisWorkspace = planWorkspaceID == workspaceID
+        return planIsThisWorkspace && planLocked
+    }
+
+    /// The lock last handed to the sync layer and the notifications.
+    @ObservationIgnored private var appliedLock = false
+
+    /// While locked the app stops its own work for the workspace — realtime
+    /// and upkeep here; the screens that poll are not on screen — and a
+    /// tapped notification does nothing. The push device stays registered:
+    /// the server decides what to send to a locked workspace's phones.
+    private func lockChanged() {
+        let locked = isAppLocked
+        guard locked != appliedLock else { return }
+        appliedLock = locked
+        SyncCoordinator.shared.setSuspended(locked)
+        PushController.shared.appLocked = locked
+    }
+
+    /// The member is the workspace's owner, as read with the plan: the lock
+    /// card asks everybody else to contact them.
+    var isWorkspaceOwner: Bool { access.role == "owner" }
 
     // MARK: - Gates
     //
@@ -731,8 +804,22 @@ final class AppState {
     /// site the website link names (WebYar); RESPOK's as configured.
     var siteLegalLinks: LegalLinks { SiteLinks.legal(legalLinks, website: siteRoot, language: language) }
 
+    /// The sign-in screen's website link (docs/operations/MOBILE_APP_PLAN.md,
+    /// "The sign-in screen's site address"): the Settings website row's name
+    /// — the word, never the address — opening the brand's site in the
+    /// language on screen. None when no site is known.
+    var signInWebsiteLink: WebsiteLink? {
+        siteWebsiteURL.map { WebsiteLink(title: websiteLabel, url: $0) }
+    }
+
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
     /// that opens onto a 403 is worse than no entry.
     var emailInboxVisible: Bool { access.isAdmin && moduleInPlan("email_inbox") }
+}
+
+/// A link shown by its name (`AppState.signInWebsiteLink`).
+struct WebsiteLink: Equatable, Sendable {
+    let title: String
+    let url: URL
 }

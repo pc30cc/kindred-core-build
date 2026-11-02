@@ -10,6 +10,7 @@ import com.platform.app.core.storage.PlatformOrigin
 import com.platform.app.i18n.BrandStr
 import com.platform.app.i18n.Format
 import com.platform.app.i18n.Language
+import com.platform.app.i18n.SiteLinks
 import com.platform.app.i18n.StrBrand
 import com.platform.app.core.push.CallNotifications
 import com.platform.app.core.push.Notifications
@@ -69,6 +70,15 @@ class AppBrandTest {
         // 9 October 2026 is 17 Mehr 1405.
         val day = Format.fullDate(Instant.parse("2026-10-09T12:00:00Z"), Language.FA)
         assertTrue(day, "۱۴۰۵" in day)
+    }
+
+    /** Its site keeps Persian at the root and the rest under their codes (owner, 2026-11-01). */
+    @Test
+    fun `its site links follow the app's language`() {
+        assertTrue(AppBrand.localizedSitePaths)
+        assertTrue(SiteLinks.followsLanguage)
+        assertEquals("https://webyar.ai/en", SiteLinks.website("https://webyar.ai", Language.EN))
+        assertEquals("https://webyar.ai", SiteLinks.website("https://webyar.ai", Language.FA))
     }
 
     @Test

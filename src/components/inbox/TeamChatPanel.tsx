@@ -1,12 +1,15 @@
 /**
  * Colleagues — internal operator-to-operator chat inside the inbox.
  * Left: workspace operator directory (presence, unread, last message).
- * Right: 1:1 thread with the selected colleague.
+ * Right: 1:1 thread with the selected colleague; its header carries the
+ * colleague call buttons (voice, video) when the plan allows that kind of
+ * call (planAccess.ts `teamCallAllowed`, TEAM_CALLS.md "Web panel"), never
+ * for oneself. The call itself is the app shell's (TeamCallProvider).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Send, Users, MessageSquare, Loader2, ArrowLeft,
-  Paperclip, Mic, Square, Trash2, FileText, ImageIcon, X,
+  Paperclip, Mic, Square, Trash2, FileText, ImageIcon, X, Phone, Video,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -33,6 +36,9 @@ import {
   type Colleague,
 } from '@/hooks/useTeamChat';
 import { formatTime, formatRelative, formatLongDate } from '@/lib/date';
+import { usePlanAccess } from '@/hooks/useEntitlements';
+import { teamCallAllowed, type TeamCallKind } from '@/lib/planAccess';
+import { useTeamCall } from '@/features/teamCalls/teamCallState';
 
 const ALLOWED_TEAM_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
@@ -65,6 +71,10 @@ export default function TeamChatPanel() {
   const send = useSendTeamMessage(workspace?.id);
   const markRead = useMarkTeamThreadRead(workspace?.id);
   const recorder = useVoiceRecorder();
+  // Colleague calls: offered by the plan's one rule, from the app shell's
+  // call controls (absent outside it, e.g. the phone app's own shell).
+  const teamCall = useTeamCall();
+  const plan = usePlanAccess(workspace?.id);
 
   // ─── Pending attachment (single per draft, mirrors the Inbox composer) ───
   const [att, setAtt] = useState<{
@@ -90,6 +100,10 @@ export default function TeamChatPanel() {
 
   const colleagues = dirData?.colleagues ?? [];
   const peer: Colleague | undefined = colleagues.find(c => c.user_id === peerId);
+  // The kinds of colleague call the plan offers with this colleague (never oneself).
+  const callKinds: TeamCallKind[] = teamCall && workspace?.id && user?.id && peer && peer.user_id !== user.id
+    ? (['audio', 'video'] as TeamCallKind[]).filter((kind) => teamCallAllowed(plan, kind))
+    : [];
   const messages = threadData?.messages ?? [];
 
   const filtered = useMemo(() => {
@@ -355,7 +369,41 @@ export default function TeamChatPanel() {
                   {t(presenceLabelKey(presenceLabelOf(pMap.get(peer.user_id))) as TranslationKey) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
                 </p>
               </div>
-              <span className="ms-auto text-[10.5px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium">
+              {teamCall && workspace?.id && callKinds.length > 0 && (() => {
+                const busy = !!teamCall.session && teamCall.session.phase !== 'ended';
+                const name = peer.full_name || t('teamCall.colleague');
+                return (
+                  <div className="ms-auto flex items-center gap-1" data-team-call-buttons>
+                    {callKinds.map((kind) => {
+                      const label = t(kind === 'video' ? 'teamCall.callVideoWith' : 'teamCall.callVoiceWith', { name });
+                      return (
+                        <button
+                          key={kind}
+                          type="button"
+                          aria-label={label}
+                          title={label}
+                          disabled={busy}
+                          data-team-call-button={kind}
+                          onClick={() => {
+                            void teamCall.placeCall({
+                              workspaceId: workspace.id,
+                              peer: { user_id: peer.user_id, name: peer.full_name, avatar_url: peer.avatar_url },
+                              channel: kind,
+                            });
+                          }}
+                          className="p-2 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          {kind === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              <span className={cn(
+                'text-[10.5px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium',
+                callKinds.length === 0 && 'ms-auto',
+              )}>
                 {t('inbox.internalOnly') || 'Internal only'}
               </span>
             </div>

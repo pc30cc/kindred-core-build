@@ -136,6 +136,14 @@ class SyncCoordinator(
     private val openTeamThreads = MutableStateFlow<Set<String>>(emptySet())
     private val openEmailThreads = MutableStateFlow<Set<String>>(emptySet())
     private val foreground = MutableStateFlow(false)
+
+    /**
+     * The workspace on screen has the mobile app off in its plan, and the
+     * app stands faded under the lock card (docs/operations/MOBILE_APP_PLAN.md):
+     * no poll, no safety net and no catch-up read for it until the plan says
+     * otherwise. See [setSuspended].
+     */
+    private val suspended = MutableStateFlow(false)
     private val _realtime = MutableStateFlow(RealtimeHealth.IDLE)
     val realtime: StateFlow<RealtimeHealth> = _realtime.asStateFlow()
 
@@ -200,7 +208,7 @@ class SyncCoordinator(
      */
     private fun startLoop(job: Job) {
         CoroutineScope(appScope.coroutineContext + job).launch {
-            combine(foreground, _realtime, focus) { fg, rt, f -> Triple(fg, rt, f) }
+            combine(foreground, suspended, _realtime, focus) { fg, off, rt, f -> Triple(fg && !off, rt, f) }
                 .distinctUntilChanged()
                 .collectLatest { (fg, rt, f) ->
                     if (!fg || f == null) return@collectLatest
@@ -359,6 +367,21 @@ class SyncCoordinator(
         if (value) launchWork { onForeground() }
     }
 
+    /**
+     * Set as the plan's mobile app switch locks or unlocks the app (through
+     * the session hooks). Locking stops the poll and the safety net at once
+     * and lets no catch-up read start; unlocking starts them again, with the
+     * catch-up read a return to the foreground gets. The cache, the outbox and
+     * the push device stay as they are, so unlocking is instant. Realtime is
+     * the realtime coordinator's to stop.
+     */
+    fun setSuspended(value: Boolean) {
+        if (suspended.value == value) return
+        suspended.value = value
+        diag.info(AREA, if (value) "suspended: the mobile app is off in this workspace's plan" else "resumed: the mobile app is on again")
+        if (!value && foreground.value) launchWork { onForeground() }
+    }
+
     fun setRealtime(health: RealtimeHealth) {
         if (_realtime.value == health) return
         _realtime.value = health
@@ -485,7 +508,7 @@ class SyncCoordinator(
      * carries the app, and the return to the front reconciles anyway.
      */
     fun onNetworkAvailable() {
-        if (!dirty || !foreground.value || focus.value == null) return
+        if (!dirty || !foreground.value || suspended.value || focus.value == null) return
         launchWork { reconcile("network") }
     }
 
@@ -515,6 +538,7 @@ class SyncCoordinator(
     }
 
     fun onPush(workspaceId: String, conversationId: String?) {
+        if (suspended.value) return
         val f = focus.value ?: return
         if (f.scope.workspaceId != workspaceId || conversationId.isNullOrBlank()) return
         queueConversation(f.scope, conversationId, "push")
@@ -694,6 +718,7 @@ class SyncCoordinator(
     // MARK: - Reconciling
 
     private suspend fun onForeground() {
+        if (suspended.value) return
         focus.value ?: return
         reconcile("foreground")
         // Every scope visited since sign-in, not only the one on screen: a

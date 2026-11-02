@@ -103,21 +103,21 @@ describe('payloads', () => {
 
 describe('which phones ring', () => {
   it('every enabled iPhone with a VoIP token and every enabled Android phone of the callee', async () => {
-    const targets = await ring.teamCallRingTargets(config, CALLEE);
+    const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
     expect(targets.ios).toEqual([{ rowId: 'r-ios', deviceId: 'ios-1', voipToken: 'voip-1' }]);
     expect(targets.android.map((d) => d.deviceId)).toEqual(['and-1', 'and-2']);
   });
 
   it('a transport that is not configured rings none of its phones', async () => {
     h.voipOn = false;
-    expect((await ring.teamCallRingTargets(config, CALLEE)).ios).toEqual([]);
+    expect((await ring.teamCallRingTargets(config, CALLEE, 'ws-1')).ios).toEqual([]);
     h.voipOn = true;
     h.fcmOn = false;
-    expect((await ring.teamCallRingTargets(config, CALLEE)).android).toEqual([]);
+    expect((await ring.teamCallRingTargets(config, CALLEE, 'ws-1')).android).toEqual([]);
   });
 
   it('rings them: VoIP with a 45 s expiry, FCM high-priority data with a 45 s ttl, collapsed on the call', async () => {
-    const targets = await ring.teamCallRingTargets(config, CALLEE);
+    const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
     expect(await ring.ringTeamCall(config, input, targets)).toEqual({ sent: 3, devices: 3 });
     expect(h.voip).toEqual([{ token: 'voip-1', payload: ring.teamCallVoipPayload(input), collapseId: 'call-1', expirationSeconds: 45 }]);
     expect(h.fcm.map((m) => m.token)).toEqual(['fcm-1', 'fcm-2']);
@@ -128,7 +128,7 @@ describe('which phones ring', () => {
 
   it('a dead PushKit token is forgotten, the phone keeps its notifications', async () => {
     h.voipOutcome = { ok: false, unregistered: true, status: 410 };
-    await ring.ringTeamCall(config, input, await ring.teamCallRingTargets(config, CALLEE));
+    await ring.ringTeamCall(config, input, await ring.teamCallRingTargets(config, CALLEE, 'ws-1'));
     const row = h.db.tables.mobile_push_devices.find((r) => r.id === 'r-ios')!;
     expect(row.voip_token).toBeNull();
     expect(row.enabled).toBe(true);
@@ -136,12 +136,12 @@ describe('which phones ring', () => {
 
   it('a dead FCM token disables its phone', async () => {
     h.fcmOutcome = { ok: false, unregistered: true, status: 404 };
-    await ring.ringTeamCall(config, input, await ring.teamCallRingTargets(config, CALLEE));
+    await ring.ringTeamCall(config, input, await ring.teamCallRingTargets(config, CALLEE, 'ws-1'));
     expect(h.db.tables.mobile_push_devices.find((r) => r.id === 'r-and-1')!.enabled).toBe(false);
   });
 
   it('a call that stopped ringing before its ring went out is not rung', async () => {
-    const targets = await ring.teamCallRingTargets(config, CALLEE);
+    const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
     for (const state of ['cancelled', 'ended', 'missed']) {
       h.db.tables.call_sessions = [{ id: 'call-1', state }];
       expect(await ring.ringTeamCall(config, input, targets), state).toEqual({ sent: 0, devices: 3 });
@@ -152,7 +152,7 @@ describe('which phones ring', () => {
 
   it('a call whose state cannot be read is rung all the same', async () => {
     h.db.failNext('call_sessions');
-    expect((await ring.ringTeamCall(config, input, await ring.teamCallRingTargets(config, CALLEE))).sent).toBe(3);
+    expect((await ring.ringTeamCall(config, input, await ring.teamCallRingTargets(config, CALLEE, 'ws-1'))).sent).toBe(3);
   });
 });
 
@@ -176,7 +176,7 @@ describe('the stop', () => {
   });
 
   it('waits for the ring still on its way: a quick cancel never reaches a phone before the ring', async () => {
-    const targets = await ring.teamCallRingTargets(config, CALLEE);
+    const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
     let open!: () => void;
     h.fcmGate = new Promise<void>((resolve) => { open = resolve; });
     const ringing = ring.ringTeamCall(config, input, targets);

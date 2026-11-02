@@ -454,7 +454,33 @@ struct CallHost: View {
         )
     }
 
+    /// This screen in `VisitorCallScreens`, for as long as it is up.
+    @State private var presence = UUID()
+
     var body: some View {
         CallScreen(session: session, language: language, onClose: onClose)
+            .onAppear { VisitorCallScreens.shared.opened(presence) }
+            .onDisappear { VisitorCallScreens.shared.closed(presence) }
     }
+}
+
+/// The visitor calls whose screen is up (`CallHost`), for the one thing
+/// outside a call that has to know: the lock over the app when its plan has
+/// the mobile app off (`SignedInRoot`, docs/operations/MOBILE_APP_PLAN.md).
+/// A visitor call's screen is presented from the conversation it was placed
+/// in, so taking the app off screen would take the call with it — and a call
+/// already on is never cut by a lock. The lock waits for the call to close.
+/// (A colleague call has a window of its own, `TeamCallWindow`, and never
+/// needs this.)
+@MainActor
+@Observable
+final class VisitorCallScreens {
+    static let shared = VisitorCallScreens()
+
+    private(set) var open: Set<UUID> = []
+
+    var isOn: Bool { !open.isEmpty }
+
+    func opened(_ screen: UUID) { _ = open.insert(screen) }
+    func closed(_ screen: UUID) { _ = open.remove(screen) }
 }

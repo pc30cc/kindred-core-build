@@ -24,6 +24,12 @@
  * reached never fails the call. Payloads carry ids and display strings only,
  * never an e-mail; the CallKit handle the app shows is the call id.
  *
+ * A workspace whose plan has the mobile app off (`mobile_app` false;
+ * docs/operations/MOBILE_APP_PLAN.md) rings no phone: its targets are none,
+ * so nothing is rung and nothing is recorded to cancel. The call itself is
+ * still placed, and the callee's open web panel rings from its realtime
+ * event as for anyone else.
+ *
  * A stop never overtakes its ring. FCM keeps no order between two messages
  * sent a few milliseconds apart, so a caller who cancels at once could have
  * the `team_call_cancel` delivered before the `team_call_incoming`, and the
@@ -39,6 +45,7 @@ import { getServiceClient } from '../../supabase.js';
 import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
 import { sendFcmData, isPushConfigured } from './fcm.js';
 import { disableToken, forgetVoipToken } from './devices.js';
+import { mobileAppAllowed } from '../mobileApp/planGate.js';
 import {
   TEAM_CALL_RING_SECONDS,
   type TeamCallCancelReason,
@@ -146,13 +153,20 @@ interface DeviceRow {
  * The callee's phones that a ring can reach: every enabled iOS registration
  * with a VoIP token (when APNs is configured), every enabled Android one
  * addressed over FCM (when Firebase is). The caller has checked the callee is
- * an active member; a suspended or seat-locked one is never rung. Never
- * throws: an unreadable device list rings nobody.
+ * an active member; a suspended or seat-locked one is never rung. None at
+ * all when [workspaceId]'s plan has the mobile app off (a plan that cannot
+ * be read rings as before). Never throws: an unreadable device list rings
+ * nobody.
  */
-export async function teamCallRingTargets(config: ServerConfig, calleeId: string): Promise<TeamCallRingTargets> {
+export async function teamCallRingTargets(
+  config: ServerConfig,
+  calleeId: string,
+  workspaceId: string,
+): Promise<TeamCallRingTargets> {
   const voip = isVoipConfigured();
   const fcm = isPushConfigured();
   if (!voip && !fcm) return { ios: [], android: [] };
+  if (!(await mobileAppAllowed(config, workspaceId))) return { ios: [], android: [] };
   try {
     const sb = getServiceClient(config);
     const [iosRead, androidRead] = await Promise.all([

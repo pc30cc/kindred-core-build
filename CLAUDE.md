@@ -177,8 +177,9 @@ How it works, DNS, rollout and the way back to Resend:
 ## Colleague calls (owner, 2026-11-01)
 
 Voice and video calls between two members of a workspace, from the team chat,
-on the iPhone and Android apps only (not the web panel or the desktop apps).
-They ring like a phone call with the screen off: iOS through PushKit and
+on the iPhone and Android apps and, since 2026-11-02 (owner), the web panel
+(every open tab rings from realtime; not the desktop apps). The phones ring
+like a phone call with the screen off: iOS through PushKit and
 CallKit, Android through a high-priority data FCM and a full-screen
 CallStyle notification. A plan feature (`team_calls`, off by default, the
 Super Admin turns it on per plan), allowed only with the plan's `voice_video`
@@ -189,6 +190,21 @@ because iOS turns every VoIP push into a CallKit call. A call is placed only
 through `team_call_place()` (migration 293). The contract between the server
 and both apps (API, payloads, states, ring and stop, webhook and ticker
 rules, rollout) is `docs/operations/TEAM_CALLS.md`: change it with the code.
+
+## The mobile apps as a plan feature (owner, 2026-11-02)
+
+The Super Admin turns the iPhone and Android apps on or off per plan (plan
+key `mobile_app`, on by default, no migration). A workspace whose plan has it
+off shows the whole app faded behind one card on both apps and both brands;
+nothing in it works. The iPhone's card never mentions the website or buying
+(App Review); Android's says to visit the website and opens the panel's
+billing page. The apps lock only on an explicit `false` (never while loading
+or on a failed read), and the server sends no alert push or ring to that
+workspace's phones (fails open). The web panel and the desktop apps never
+read the key. Both apps' sign-in screens carry a small "Website" link (the
+word, never the address) to the site in the app's language. Contract:
+`docs/operations/MOBILE_APP_PLAN.md`; cross-area guard
+`src/test/mobileApp/crossAreaContract.test.ts`.
 
 ## The iOS app in Xcode on the Mac
 

@@ -42,7 +42,12 @@ struct AuthBackdrop: View {
 /// The lift is what separates it from the backdrop. A flat card on a flat
 /// background is two rectangles; the shadow is what makes it a card sitting on
 /// a screen. Kept shallow — at this radius anything deeper reads as a popup.
+///
+/// While one of its fields has the caret (`isFocused`), its edge takes the
+/// brand's link colour: where you are typing is shown by the card itself, the
+/// way a focused field shows it, without a second box inside the first.
 struct AuthCard<Content: View>: View {
+    var isFocused: Bool = false
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -53,9 +58,13 @@ struct AuthCard<Content: View>: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                    .strokeBorder(Theme.Palette.separator.opacity(0.55), lineWidth: 0.5)
+                    .strokeBorder(
+                        isFocused ? AnyShapeStyle(AuthPalette.link.opacity(0.65)) : AnyShapeStyle(Theme.Palette.separator.opacity(0.55)),
+                        lineWidth: isFocused ? 1 : 0.5
+                    )
             )
-            .shadow(color: .black.opacity(0.07), radius: 18, x: 0, y: 8)
+            .shadow(color: .black.opacity(isFocused ? 0.09 : 0.07), radius: 18, x: 0, y: 8)
+            .animation(Theme.Motion.standard, value: isFocused)
     }
 }
 
@@ -85,8 +94,12 @@ enum AuthField {
 /// field whose text starts on the left reads as belonging to nothing. The
 /// card that holds the rows is turned the same way (`AuthFieldGroup`), so the
 /// dividers between them start after the icons too.
+///
+/// The row whose field has the caret (`isActive`) draws its icon in the
+/// brand's link colour, so the eye finds it at once.
 struct AuthFieldRow<Content: View, Trailing: View>: View {
     let icon: String
+    var isActive: Bool = false
     @ViewBuilder var content: Content
     @ViewBuilder var trailing: Trailing
 
@@ -94,8 +107,10 @@ struct AuthFieldRow<Content: View, Trailing: View>: View {
         HStack(spacing: 0) {
             Image(systemName: icon)
                 .font(.system(size: 17))
-                .foregroundStyle(Theme.Palette.labelSecondary)
+                .foregroundStyle(isActive ? AuthPalette.link : Theme.Palette.labelSecondary)
                 .frame(width: AuthField.gutter)
+                .animation(Theme.Motion.standard, value: isActive)
+                .accessibilityHidden(true)
 
             content
                 .font(.app(.body))
@@ -129,8 +144,8 @@ extension AuthFieldRow where Trailing == EmptyView {
     /// The filler is `EmptyView` rather than a sized `Color`: a `Color` is
     /// greedy on both axes, and constraining only its width leaves the height
     /// free, which lets it stretch the row to whatever the screen offers.
-    init(icon: String, @ViewBuilder content: () -> Content) {
-        self.init(icon: icon, content: content, trailing: { EmptyView() })
+    init(icon: String, isActive: Bool = false, @ViewBuilder content: () -> Content) {
+        self.init(icon: icon, isActive: isActive, content: content, trailing: { EmptyView() })
     }
 }
 

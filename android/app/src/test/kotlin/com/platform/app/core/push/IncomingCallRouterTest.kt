@@ -16,6 +16,10 @@ class IncomingCallRouterTest {
     private val rung = mutableListOf<IncomingCall>()
     private val stopped = mutableListOf<CallCancel>()
     private var account: String? = "user-a"
+    private var locked: Set<String> = emptySet()
+    /** What the plan says when asked again: null cannot be read. */
+    private var planNow: Boolean? = null
+    private val asked = mutableListOf<String>()
 
     private fun router(now: Long = 1_000) = IncomingCallRouter(
         signedInAccount = { account },
@@ -24,6 +28,8 @@ class IncomingCallRouterTest {
         stop = { cancel, _ -> stopped += cancel },
         ringColleague = { _, _ -> error("a call-centre ring is not a colleague's") },
         stopColleague = { _, _ -> error("a call-centre cancel is not a colleague's") },
+        workspaceLocked = { it in locked },
+        planStillLocked = { asked += it; planNow },
         nowEpochSeconds = { now },
         diag = Diag.Silent,
     )
@@ -91,6 +97,60 @@ class IncomingCallRouterTest {
         account = null
         assertTrue(router().onMessage(ring))
         assertTrue(rung.isEmpty())
+    }
+
+    /**
+     * The workspace's plan has the mobile app off (docs/operations/MOBILE_APP_PLAN.md):
+     * its ring is not shown — handled, so nothing else reads it — and a ring
+     * for another workspace of the same member still rings.
+     */
+    @Test
+    fun `a ring for a workspace whose plan has the mobile app off is not shown`() = runTest {
+        locked = setOf("ws-1")
+        assertTrue(router().onMessage(ring))
+        assertTrue(rung.isEmpty())
+
+        assertTrue(router().onMessage(ring + ("workspaceId" to "ws-2")))
+        assertEquals("ws-2", rung.single().workspaceId)
+    }
+
+    /**
+     * What this phone remembers of a plan can be stale — switched back on
+     * while the member looked at another workspace — and the server rings no
+     * locked workspace's phones: the plan is asked again before a ring is
+     * kept off, and only one that still says `false`, or cannot be read,
+     * keeps it off. A workspace not remembered locked is never asked about.
+     */
+    @Test
+    fun `a remembered lock is checked with the plan before a ring is kept off`() = runTest {
+        locked = setOf("ws-1")
+        planNow = false
+        assertTrue(router().onMessage(ring))
+        assertEquals("the plan has the app again", "ws-1", rung.single().workspaceId)
+
+        rung.clear()
+        planNow = true
+        assertTrue(router().onMessage(ring))
+        assertTrue("still off in the plan", rung.isEmpty())
+
+        planNow = null
+        assertTrue(router().onMessage(ring))
+        assertTrue("a plan that cannot be read leaves the memory standing", rung.isEmpty())
+
+        asked.clear()
+        assertTrue(router().onMessage(ring + ("workspaceId" to "ws-2")))
+        assertTrue(asked.isEmpty())
+    }
+
+    /** A lock never keeps a ring going: its cancel stops it, as always. */
+    @Test
+    fun `a cancel stops the ring of a locked workspace too`() = runTest {
+        locked = setOf("ws-1")
+        val cancel = mapOf("type" to "call_cancel", "callId" to "call-1", "workspaceId" to "ws-1", "reason" to "cancelled")
+
+        assertTrue(router().onMessage(cancel))
+
+        assertEquals("call-1", stopped.single().callId)
     }
 
     @Test

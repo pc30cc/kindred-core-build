@@ -338,6 +338,9 @@ enum SampleRoute: String {
     /// The same, with the team away (the banner and its hours) and nothing
     /// open — the fresh page a first message starts from.
     case supportOffline
+    /// The inbox under the lock card: the sample plan has the mobile app
+    /// switched off (docs/operations/MOBILE_APP_PLAN.md).
+    case appLocked
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

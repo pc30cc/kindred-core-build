@@ -77,7 +77,9 @@ struct RootView: View {
                     .transition(.opacity)
 
             case .signedIn:
-                MainTabView(initial: appState.selectedTab)
+                // The app, or — when the workspace's plan has the mobile app
+                // off — the app faded under the lock card (`SignedInRoot`).
+                SignedInRoot()
                     // Moving in from the leading edge reads as "forward",
                     // and SwiftUI mirrors it automatically under RTL.
                     .transition(.asymmetric(
@@ -322,17 +324,18 @@ private struct LaunchLoader: View {
     }
 }
 
-/// A square mark for the places that need one: the icon-shaped fallback
-/// behind a promotion with no artwork of its own.
+/// A square mark for the places that need one: the hero of the sign-in
+/// screen, the card over the app when its plan has the mobile app off
+/// (`AppLockView`), and the icon-shaped fallback behind a promotion with no
+/// artwork of its own.
 ///
 /// The brand kit's symbol on the app icon's own ground, drawn from vector:
 /// the asset catalog's `BrandMark` (WebYar's white speech bubble, whose dots
 /// show the turquoise through; RESPOK's Thread pills, white and Ink) over
-/// `BrandPalette.tile`, at the size the icon gives it — so the fallback is
-/// the icon the operator tapped, not a letter in a box.
+/// `BrandPalette.tile`, at the size the icon gives it — so the mark is the
+/// icon the operator tapped, not a letter in a box.
 ///
-/// Not the launch screen and not the login screen any more — both show the
-/// name itself, which says more than a mark.
+/// Not the launch screen, which stays a loader and the name at its foot.
 struct BrandMark: View {
     var size: CGFloat = 64
 

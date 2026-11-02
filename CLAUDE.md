@@ -174,6 +174,22 @@ mailed. A container that sends mail must be on the coolify network.
 How it works, DNS, rollout and the way back to Resend:
 `docs/operations/EMAIL.md`.
 
+## Colleague calls (owner, 2026-11-01)
+
+Voice and video calls between two members of a workspace, from the team chat,
+on the iPhone and Android apps only (not the web panel or the desktop apps).
+They ring like a phone call with the screen off: iOS through PushKit and
+CallKit, Android through a high-priority data FCM and a full-screen
+CallStyle notification. A plan feature (`team_calls`, off by default, the
+Super Admin turns it on per plan), allowed only with the plan's `voice_video`
+module and its `voice`/`video` channel; its minutes and concurrency count in
+the plan's call limits. The iPhone rings for colleague calls only: call-centre
+(visitor) calls never send a VoIP push (`server/services/push/callRing.ts`),
+because iOS turns every VoIP push into a CallKit call. A call is placed only
+through `team_call_place()` (migration 293). The contract between the server
+and both apps (API, payloads, states, ring and stop, webhook and ticker
+rules, rollout) is `docs/operations/TEAM_CALLS.md`: change it with the code.
+
 ## The iOS app in Xcode on the Mac
 
 `~/dev/kcb-ios-preview` is the copy of the iOS app (`ios/Webyar`)

@@ -84,7 +84,8 @@ vi.mock('@/hooks/useLiveKitCall', () => ({
   }),
 }));
 
-const { TeamCallProvider, useTeamCall } = await import('@/features/teamCalls/TeamCallContext');
+const { TeamCallProvider } = await import('@/features/teamCalls/TeamCallContext');
+const { useTeamCall } = await import('@/features/teamCalls/teamCallState');
 const { teamCallDeviceId, __resetTeamCallDeviceIdForTests } = await import('@/features/teamCalls/deviceId');
 const { teamCallErrorKey } = await import('@/features/teamCalls/teamCallErrors');
 const { TeamCallApiError } = await import('@/lib/team-calls-api');

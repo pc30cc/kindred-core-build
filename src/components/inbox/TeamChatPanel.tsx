@@ -38,7 +38,7 @@ import {
 import { formatTime, formatRelative, formatLongDate } from '@/lib/date';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import { teamCallAllowed, type TeamCallKind } from '@/lib/planAccess';
-import { useTeamCall } from '@/features/teamCalls/TeamCallContext';
+import { useTeamCall } from '@/features/teamCalls/teamCallState';
 
 const ALLOWED_TEAM_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',

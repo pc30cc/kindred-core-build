@@ -44,7 +44,7 @@ vi.mock('@/hooks/useTeamChat', () => ({
 vi.mock('@/hooks/useEntitlements', () => ({
   usePlanAccess: () => planAccessOf(h.snapshot as WorkspaceEffectiveEntitlements | null, false),
 }));
-vi.mock('@/features/teamCalls/TeamCallContext', () => ({ useTeamCall: () => h.teamCall }));
+vi.mock('@/features/teamCalls/teamCallState', () => ({ useTeamCall: () => h.teamCall }));
 
 const { default: TeamChatPanel } = await import('@/components/inbox/TeamChatPanel');
 const { I18nProvider } = await import('@/i18n');

@@ -639,7 +639,6 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     try {
       return await room.switchActiveDevice('audiooutput', deviceId);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[livekit] setAudioOutput failed', err);
       return false;
     }

@@ -31,11 +31,9 @@
  */
 import {
   Component,
-  createContext,
   lazy,
   Suspense,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -46,7 +44,7 @@ import { resolveClientRealtimeProvider } from '@/realtime';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import type { RealtimeSubscription } from '@/realtime';
 import { toast } from '@/lib/toast';
-import { useTranslation, type TranslationKey } from '@/i18n';
+import { useTranslation } from '@/i18n';
 import {
   teamCallsApi,
   TeamCallApiError,
@@ -58,6 +56,12 @@ import {
 // stops it, and this call never stops the visitor's (callSound.ts).
 import { startRingtone, startTeamRingback, stopRingtone, stopTeamRingback } from '@/features/calls/callSound';
 import { teamCallDeviceId } from './deviceId';
+import {
+  peerDisplayName,
+  TeamCallContext,
+  type TeamCallContextValue,
+  type TeamCallSession,
+} from './teamCallState';
 import { teamCallErrorKey } from './teamCallErrors';
 import { askNotificationPermissionOnce, watchRingNotification } from './teamCallNotify';
 
@@ -70,65 +74,7 @@ const TEAM_CALL_CONFIRM_RETRY_MS = 1_500;
 /** How long the "call ended" line stays before the window closes. */
 const ENDED_LINGER_MS = 2_500;
 
-export type TeamCallPhase =
-  /** The caller's POST is in flight. */
-  | 'placing'
-  /** Ringing the colleague (ringback). */
-  | 'outgoing'
-  /** Ringing in this tab. */
-  | 'incoming'
-  /** This tab's accept is in flight. */
-  | 'answering'
-  /** Answered: joining the room. */
-  | 'connecting'
-  /** In the room. */
-  | 'active'
-  /** Over: the window shows why for a moment, then closes. */
-  | 'ended';
-
-export interface TeamCallSession {
-  /** This tab's own handle of the session (a call id is known only once placed). */
-  key: string;
-  /** The call as the server last answered it; null while it is being placed. */
-  call: TeamCall | null;
-  role: 'caller' | 'callee';
-  channel: TeamCallChannel;
-  peer: TeamCallPeer;
-  workspaceId: string;
-  phase: TeamCallPhase;
-  /** Publish the camera when joining (a video call, unless answered without it). */
-  withCamera: boolean;
-  /** The line the ended window shows. */
-  notice: { key: TranslationKey; params?: Record<string, string> } | null;
-}
-
-export interface TeamCallContextValue {
-  session: TeamCallSession | null;
-  /** From the call button (a click): asks for notifications once, then rings the colleague. */
-  placeCall(input: { workspaceId: string; peer: TeamCallPeer; channel: TeamCallChannel }): Promise<void>;
-  answer(withCamera: boolean): Promise<void>;
-  decline(): Promise<void>;
-  hangUp(): Promise<void>;
-  /** The call window: the room is joined. */
-  markJoined(): void;
-  /** The call window: the room could not be joined; ends the call. */
-  failJoin(err: unknown): Promise<void>;
-  /** Closes an ended window now. */
-  dismiss(): void;
-}
-
-const TeamCallContext = createContext<TeamCallContextValue | null>(null);
-
-/** The colleague-call controls, or null outside the app shell (the phone shell has none). */
-export function useTeamCall(): TeamCallContextValue | null {
-  return useContext(TeamCallContext);
-}
-
-/** The colleague's name as the call shows it. */
-export function peerDisplayName(peer: TeamCallPeer | null | undefined, fallback: string): string {
-  const name = peer?.name?.trim();
-  return name || fallback;
-}
+export type { TeamCallContextValue, TeamCallPhase, TeamCallSession } from './teamCallState';
 
 // The call screens, downloaded the first time a call rings or is placed.
 // A failed download is tried again once; React.lazy remembers a rejection,

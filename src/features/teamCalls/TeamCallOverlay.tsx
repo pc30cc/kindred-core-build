@@ -35,7 +35,7 @@ import { useTranslation } from '@/i18n';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 import { AudioCallStage, LocalVideoPiP, VideoCallStage } from '@/features/calls/CallStage';
 import { teamCallsApi } from '@/lib/team-calls-api';
-import { peerDisplayName, useTeamCall, type TeamCallContextValue, type TeamCallSession } from './TeamCallContext';
+import { peerDisplayName, useTeamCall, type TeamCallContextValue, type TeamCallSession } from './teamCallState';
 
 function PeerAvatar({ session, className, iconClassName }: { session: TeamCallSession; className?: string; iconClassName?: string }) {
   return (

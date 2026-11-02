@@ -11,7 +11,7 @@
  */
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
 import fixture from './fixtures/iranBrandLines.json';
@@ -380,7 +380,14 @@ describe('index.html and the boot script', () => {
 
 describe('start.sh rewrites are obsolete (docs/operations/EDITIONS.md)', () => {
   it('no hard-coded Persian toast remains in the AI agent settings or the update prompt', () => {
-    for (const file of ['src/lib/pwa.ts', 'src/pages/app/ai-agent/SettingsPage.tsx']) {
+    // The AI agent's settings live on the Personality & behavior page since
+    // 2026-11-01 (BehaviorPage.tsx and persona/), not the old SettingsPage.
+    const personaDir = 'src/pages/app/ai-agent/persona';
+    const personaFiles = readdirSync(resolve(process.cwd(), personaDir))
+      .filter((f) => /\.tsx?$/.test(f))
+      .map((f) => `${personaDir}/${f}`);
+    expect(personaFiles.length).toBeGreaterThan(0);
+    for (const file of ['src/lib/pwa.ts', 'src/pages/app/ai-agent/BehaviorPage.tsx', ...personaFiles]) {
       const src = read(file);
       for (const s of ['نسخه جدید در دسترس است', 'تازه‌سازی', 'ارسال پیام معرفی فعال شد', 'ارسال پیام معرفی غیرفعال شد', 'پیام معرفی ذخیره شد', 'ذخیره‌سازی ناموفق بود']) {
         expect(src, `${file}: ${s}`).not.toContain(s);

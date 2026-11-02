@@ -10,6 +10,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import { formatDate } from '@/lib/date';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
+import { kbTabPath } from '@/components/app/knowledge/knowledgeBaseTabs';
 
 /** One row of the customer summary (older servers sent `kind`/`last_reason`). */
 interface KnowledgeItem {
@@ -58,7 +59,13 @@ const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'l
   { key: 'learning_candidate', types: ['learned_qna'], icon: GraduationCap, tone: 'bg-rose-500/10 text-rose-600 ring-rose-500/20' },
 ];
 
-export default function KnowledgePage() {
+/**
+ * Each knowledge source's readiness for the assistant, by type. `embedded`:
+ * inside the Knowledge Base's status tab (KnowledgeStatusTab.tsx), below the
+ * sync status, under a heading of its own instead of a page header, and
+ * without the links to the Knowledge Base's tabs, which are right above it.
+ */
+export default function KnowledgePage({ embedded = false }: { embedded?: boolean }) {
   const wsPath = useWorkspacePath();
   const { workspace } = useActiveWorkspace();
   const wsId = workspace?.id;
@@ -78,29 +85,35 @@ export default function KnowledgePage() {
   const items: KnowledgeItem[] = health.data?.items || [];
 
   return (
-    <div className="space-y-8" dir={dir}>
-      <AiPageHeader icon={BookOpen} accent="cyan" title={tr('title', 'Knowledge')} subtitle={tr('subtitle', 'Sources your AI Agent uses to answer visitors.')} />
+    <div className={embedded ? 'space-y-4' : 'space-y-8'} dir={dir}>
+      {embedded ? (
+        <div>
+          <h2 className="text-base font-semibold text-foreground">{tr('title', 'Knowledge')}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{tr('subtitle', 'Sources your AI Agent uses to answer visitors.')}</p>
+        </div>
+      ) : (
+        <>
+          <AiPageHeader icon={BookOpen} accent="cyan" title={tr('title', 'Knowledge')} subtitle={tr('subtitle', 'Sources your AI Agent uses to answer visitors.')} />
 
-      {/* Articles, Q&A and files are all authored in the unified Knowledge
-          Base page (Articles / Q&A / Files tabs, including the AI
-          website-scan builder) — this page only reports RAG indexing
-          status for every source type. Website crawl sources are managed
-          on their own dedicated page (linked from here) since crawling
-          isn't authored content. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button asChild variant="default" className="shadow-sm">
-          <Link to={wsPath('/knowledge-base')}>
-            <BookText className="h-4 w-4 me-2" />
-            {tr('actions.manageArticles', 'Manage articles & Q&A')}
-          </Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to={`${wsPath('/knowledge-base')}?tab=files`}>
-            <FileText className="h-4 w-4 me-2" />
-            {tr('actions.manageFiles', 'Manage files')}
-          </Link>
-        </Button>
-      </div>
+          {/* Articles, Q&A, files, web pages and learned answers are all
+              managed in the Knowledge Base (its tabs) — this page only
+              reports RAG indexing status for every source type. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="default" className="shadow-sm">
+              <Link to={wsPath(kbTabPath('articles'))}>
+                <BookText className="h-4 w-4 me-2" />
+                {tr('actions.manageArticles', 'Manage articles & Q&A')}
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to={wsPath(kbTabPath('files'))}>
+                <FileText className="h-4 w-4 me-2" />
+                {tr('actions.manageFiles', 'Manage files')}
+              </Link>
+            </Button>
+          </div>
+        </>
+      )}
 
       {health.isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

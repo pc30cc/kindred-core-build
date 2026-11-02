@@ -35,7 +35,13 @@ function useLabels() {
   return { tr, enumLabel };
 }
 
-export default function LearningCandidatesPage() {
+/**
+ * What the assistant can learn from operators' answers: candidates to
+ * review, edit, approve (as a learned answer, Q&A or an article) or reject.
+ * `embedded`: inside the Knowledge Base's learning tab, whose hero and tab
+ * name the page, so only its one-line description stays.
+ */
+export default function LearningCandidatesPage({ embedded = false }: { embedded?: boolean }) {
   const { dir } = useTranslation();
   const { tr, enumLabel } = useLabels();
   const workspace = useCurrentWorkspace();
@@ -90,13 +96,17 @@ export default function LearningCandidatesPage() {
   const emptyKey = tab === 'pending' ? 'emptyPending' : tab === 'approved' ? 'emptyApproved' : tab === 'converted' ? 'emptyConverted' : 'emptyRejected';
 
   return (
-    <div dir={dir} className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <GraduationCap className="h-6 w-6" /> {tr('title')}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">{tr('subtitle')}</p>
-      </div>
+    <div dir={dir} className={embedded ? 'space-y-6' : 'p-6 space-y-6'}>
+      {embedded ? (
+        <p className="max-w-2xl text-sm text-muted-foreground">{tr('subtitle')}</p>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <GraduationCap className="h-6 w-6" /> {tr('title')}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">{tr('subtitle')}</p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {stats && (
           <div className="flex flex-wrap gap-2 text-xs">

@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useCallback, useEffect, useState } from 'react';
 import { aiAgentApi, type GuidanceRule, type GuidanceRuleType } from '@/lib/ai-agent-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +16,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { Compass, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
+import { cn } from '@/lib/utils';
 
 // `value` is what the server stores; label and hint are shown in the dashboard's language.
 const RULE_TYPES: { value: GuidanceRuleType; label: TranslationKey; hint: TranslationKey }[] = [
@@ -66,28 +65,45 @@ function errorMessage(e: unknown): string | undefined {
   return (e as { message?: string } | null | undefined)?.message;
 }
 
-export default function GuidancePage() {
+export interface GuidanceRulesListProps {
+  workspaceId: string;
+  /**
+   * 'page': the Guidance page's list of cards. 'embedded': a compact block
+   * inside another page (Personality & behavior). Every rule saves through
+   * its own dialog or switch, at once, in both.
+   */
+  variant?: 'page' | 'embedded';
+}
+
+/**
+ * The workspace's answer rules: list, add, edit, turn on or off, delete, and
+ * the five starter rules in the dashboard's language. Each change is saved
+ * right away (POST/PATCH/DELETE /api/ai-agent/guidance), never with a page's
+ * own Save.
+ */
+export function GuidanceRulesList({ workspaceId, variant = 'page' }: GuidanceRulesListProps) {
   const { t } = useTranslation();
-  const wsId = useCurrentWorkspace()?.id;
+  const embedded = variant === 'embedded';
   const [items, setItems] = useState<GuidanceRule[]>([]);
   const [loading, setLoading] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<GuidanceRule | null>(null);
 
-  async function refresh() {
-    if (!wsId) return;
+  const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await aiAgentApi.listGuidance(wsId);
+      const r = await aiAgentApi.listGuidance(workspaceId);
       setItems(r.items || []);
     } catch (e) {
       toast({ title: t('aiAgent.guidance.loadFailed'), description: errorMessage(e), variant: 'destructive' });
     } finally { setLoading(false); }
-  }
+  }, [workspaceId, t]);
+
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per workspace
-  }, [wsId]);
+  }, [workspaceId]);
 
   async function toggleEnabled(r: GuidanceRule) {
     try {
@@ -109,11 +125,11 @@ export default function GuidancePage() {
   }
 
   async function seedDefaults() {
-    if (!wsId) return;
+    setSeeding(true);
     try {
       for (const ex of DEFAULT_EXAMPLES) {
         await aiAgentApi.createGuidance({
-          workspaceId: wsId,
+          workspaceId,
           title: t(ex.title),
           description: t(ex.description),
           rule_type: ex.rule_type,
@@ -124,7 +140,7 @@ export default function GuidancePage() {
       refresh();
     } catch (e) {
       toast({ title: t('aiAgent.guidance.seedFailed'), description: errorMessage(e), variant: 'destructive' });
-    }
+    } finally { setSeeding(false); }
   }
 
   const typeLabel = (value: GuidanceRuleType): string => {
@@ -132,89 +148,94 @@ export default function GuidancePage() {
     return type ? t(type.label) : value;
   };
 
-  if (!wsId) return null;
+  const openNew = () => { setEditing(null); setDialogOpen(true); };
 
   return (
-    <div className="space-y-6">
-      <AiPageHeader
-        icon={Compass}
-        accent="violet"
-        title={t('aiAgent.guidance.title')}
-        subtitle={t('aiAgent.guidance.subtitle')}
-        actions={
-          <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
+    <div data-guidance-rules={variant} className={embedded ? 'space-y-3' : 'space-y-4'}>
+      {items.length > 0 && (
+        <div className="flex justify-end">
+          <Button size={embedded ? 'sm' : 'default'} variant={embedded ? 'outline' : 'default'} onClick={openNew}>
             <Plus className="h-4 w-4 me-1.5" /> {t('aiAgent.guidance.addRule')}
           </Button>
-        }
-      />
-
-      {loading ? (
-        <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-      ) : items.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center space-y-4">
-            <div className="mx-auto h-14 w-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-              <Compass className="h-7 w-7" />
-            </div>
-            <div>
-              <h2 className="text-lg font-medium">{t('aiAgent.guidance.emptyTitle')}</h2>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto mt-1">
-                {t('aiAgent.guidance.emptyBody')}
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-2 pt-2">
-              <Button variant="outline" onClick={seedDefaults}>{t('aiAgent.guidance.addDefaults')}</Button>
-              <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
-                <Plus className="h-4 w-4 me-1.5" /> {t('aiAgent.guidance.addFirst')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {items.map((r) => (
-            <Card key={r.id} className={r.enabled ? '' : 'opacity-60'}>
-              <CardContent className="p-4 flex items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm" dir="auto">{r.title}</span>
-                    <Badge variant="outline" className={`text-[10px] ${ruleTypeColor(r.rule_type)}`}>
-                      {typeLabel(r.rule_type)}
-                    </Badge>
-                    <span className="text-[11px] text-muted-foreground">{t('aiAgent.guidance.priority', { priority: r.priority })}</span>
-                  </div>
-                  {r.description && <p className="text-xs text-muted-foreground mt-1" dir="auto">{r.description}</p>}
-                  {r.instruction && (
-                    <p className="text-sm mt-2 text-foreground/80 whitespace-pre-wrap" dir="auto">{r.instruction}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Switch checked={r.enabled} onCheckedChange={() => toggleEnabled(r)} aria-label={t('aiAgent.guidance.dialog.enabled')} />
-                  <Button variant="ghost" size="icon" onClick={() => { setEditing(r); setDialogOpen(true); }} aria-label={t('aiAgent.guidance.editRule')}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => remove(r)} aria-label={t('aiAgent.guidance.deleteRule')}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
         </div>
+      )}
+
+      {loading && items.length === 0 ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : items.length === 0 ? (
+        <div className={cn(
+          'text-center space-y-3',
+          embedded ? 'rounded-lg border border-dashed border-border/70 p-5' : 'rounded-lg border bg-card p-8 shadow-sm',
+        )}>
+          <div className={cn(
+            'mx-auto rounded-full bg-primary/10 text-primary flex items-center justify-center',
+            embedded ? 'h-10 w-10' : 'h-14 w-14',
+          )}>
+            <Compass className={embedded ? 'h-5 w-5' : 'h-7 w-7'} />
+          </div>
+          <div>
+            <p className={embedded ? 'text-sm font-medium' : 'text-lg font-medium'}>{t('aiAgent.guidance.emptyTitle')}</p>
+            <p className={cn('text-muted-foreground max-w-md mx-auto mt-1', embedded ? 'text-xs' : 'text-sm')}>
+              {t('aiAgent.guidance.emptyBody')}
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 pt-1">
+            <Button variant="outline" size={embedded ? 'sm' : 'default'} onClick={seedDefaults} disabled={seeding}>
+              {seeding && <Loader2 className="h-4 w-4 me-1.5 animate-spin" />}
+              {t('aiAgent.guidance.addDefaults')}
+            </Button>
+            <Button size={embedded ? 'sm' : 'default'} onClick={openNew}>
+              <Plus className="h-4 w-4 me-1.5" /> {t('aiAgent.guidance.addFirst')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((r) => (
+            <li key={r.id}>
+              <Card className={cn(embedded && 'shadow-none border-border/60', !r.enabled && 'opacity-60')}>
+                <CardContent className={cn('flex items-start gap-4', embedded ? 'p-3' : 'p-4')}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm" dir="auto">{r.title}</span>
+                      <Badge variant="outline" className={`text-[10px] ${ruleTypeColor(r.rule_type)}`}>
+                        {typeLabel(r.rule_type)}
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground">{t('aiAgent.guidance.priority', { priority: r.priority })}</span>
+                    </div>
+                    {r.description && <p className="text-xs text-muted-foreground mt-1" dir="auto">{r.description}</p>}
+                    {r.instruction && (
+                      <p className={cn('text-foreground/80 whitespace-pre-wrap', embedded ? 'text-xs mt-1.5' : 'text-sm mt-2')} dir="auto">{r.instruction}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Switch checked={r.enabled} onCheckedChange={() => toggleEnabled(r)} aria-label={t('aiAgent.guidance.dialog.enabled')} />
+                    <Button variant="ghost" size="icon" onClick={() => { setEditing(r); setDialogOpen(true); }} aria-label={t('aiAgent.guidance.editRule')}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => remove(r)} aria-label={t('aiAgent.guidance.deleteRule')}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
+          ))}
+        </ul>
       )}
 
       <GuidanceDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editing={editing}
-        workspaceId={wsId}
+        workspaceId={workspaceId}
         onSaved={() => { setDialogOpen(false); refresh(); }}
       />
     </div>
   );
 }
 
-function GuidanceDialog({
+export function GuidanceDialog({
   open, onOpenChange, editing, workspaceId, onSaved,
 }: {
   open: boolean; onOpenChange: (b: boolean) => void; editing: GuidanceRule | null;
@@ -322,3 +343,5 @@ function GuidanceDialog({
     </Dialog>
   );
 }
+
+export default GuidanceRulesList;

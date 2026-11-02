@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { aiAgentApi } from '@/lib/ai-agent-api';
+import { useAiAgentDiagnostics } from '@/hooks/useAiAgent';
+import { aiAgentApi, operatorAvailabilityStatus } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,10 +13,13 @@ import {
   LayoutDashboard, AlertTriangle, CheckCircle2, AlertCircle, Loader2,
   RefreshCw, Plus, Globe, GraduationCap, Tags, Workflow,
   Sparkles, Database, MessageSquare, BookOpen, Wrench, ArrowUpRight,
-  Activity as ActivityIcon, Bot, Zap, Languages, UserCog, ListChecks,
+  Activity as ActivityIcon, Bot, Zap, Languages, UserCog, SlidersHorizontal,
+  Headset, Radio,
 } from 'lucide-react';
 import TestAiPanel from './TestAiPanel';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
+import { kbTabPath } from '@/components/app/knowledge/knowledgeBaseTabs';
+import { useKnowledgeAiTabs } from '@/components/app/knowledge/useKnowledgeAiTabs';
 
 const SEVERITY_STYLES: Record<string, string> = {
   info: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
@@ -111,9 +115,15 @@ export default function OverviewPage() {
     enabled: !!wsId,
     staleTime: 15_000,
   });
+  // Who holds the conversations and who is online, as the Activation page
+  // showed them before it became part of the behavior page.
+  const { data: diag } = useAiAgentDiagnostics(wsId);
+  // Knowledge is managed in the Knowledge Base: its tiles open its tabs.
+  const kbTabs = useKnowledgeAiTabs();
 
-  // Enabling/disabling the agent lives ONLY on the Activation page so the
-  // owner has a single, unambiguous place to control the agent.
+  // Enabling/disabling the agent lives ONLY on the behavior page
+  // («شخصیت و رفتار») so the owner has a single, unambiguous place to
+  // control the agent.
   const rebuild = useMutation({
     mutationFn: () => aiAgentApi.rebuildKnowledgeIndex(wsId!),
     onSuccess: () => { toast({ title: tr('toast.rebuilt', 'Knowledge index rebuilt') }); qc.invalidateQueries({ queryKey: ['ai-overview', wsId] }); },
@@ -140,6 +150,14 @@ export default function OverviewPage() {
       ? tr('statusSuggestHint', 'The assistant suggests replies to your operators and sends nothing to visitors.')
       : tr('statusNotReadyHint', 'Add knowledge or enable the agent to go live.');
   const go = (path: string) => () => navigate(wsPath(path));
+  const inbox = diag?.automated_inbox;
+  const availability = diag?.operator_availability;
+  const availabilityStatus = operatorAvailabilityStatus(availability);
+  // Only when the operators are known to be offline and the agent is on in
+  // that mode: an unknown state is not "the assistant answers now".
+  const aiAnswersNow = diag?.checks.settings_enabled === true
+    && diag.checks.mode === 'auto_reply_when_offline'
+    && availabilityStatus === 'offline';
 
   return (
     <div className="space-y-8" dir={dir}>
@@ -167,10 +185,10 @@ export default function OverviewPage() {
             <Button
               size="sm"
               className="bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:opacity-90 shadow-md shadow-violet-500/20"
-              onClick={() => navigate(wsPath('/ai-agent/activation'))}
+              onClick={() => navigate(wsPath('/ai-agent/behavior'))}
             >
-              <ListChecks className="h-3.5 w-3.5 me-1.5" />
-              {tr('setupAction', 'Setup & readiness')}
+              <SlidersHorizontal className="h-3.5 w-3.5 me-1.5" />
+              {t('aiAgent.menu.behavior')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => overview.refetch()} disabled={overview.isFetching}>
               <RefreshCw className={cn('h-3.5 w-3.5 me-1.5', overview.isFetching && 'animate-spin')} />
@@ -196,13 +214,44 @@ export default function OverviewPage() {
         </Card>
       )}
 
+      {/* Right now: who holds the conversations, and whether the assistant
+          answers while the operators are away. */}
+      {(inbox || availability) && (
+        <Section title={t('aiAgent.overview.sectionNow')} icon={Radio}>
+          <div data-ai-overview-now className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {inbox && (
+              <>
+                <StatCard tone="violet" icon={Bot} label={t('aiAgent.overview.inboxAiManaged')} value={String(inbox.ai_managed)} />
+                <StatCard tone="amber" icon={UserCog} label={t('aiAgent.overview.inboxNeedsHuman')} value={String(inbox.needs_human)} />
+                <StatCard tone="emerald" icon={MessageSquare} label={t('aiAgent.overview.inboxHumanActive')} value={String(inbox.human_active)} />
+              </>
+            )}
+            {availability && (
+              <AvailabilityCard
+                status={availabilityStatus}
+                label={t('aiAgent.overview.operators')}
+                value={
+                  availabilityStatus === 'online' ? t('aiAgent.overview.operatorsOnline')
+                    : availabilityStatus === 'offline' ? t('aiAgent.overview.operatorsOffline')
+                      : t('aiAgent.overview.operatorsUnknown')
+                }
+                hint={typeof availability.online_count === 'number' && typeof availability.total_count === 'number'
+                  ? t('aiAgent.overview.operatorsCount', { online: String(availability.online_count), total: String(availability.total_count) })
+                  : undefined}
+                badge={aiAnswersNow ? t('aiAgent.overview.aiAnswersNow') : undefined}
+              />
+            )}
+          </div>
+        </Section>
+      )}
+
       {/* Last 24h */}
       <Section title={tr('sectionActivity', 'Last 24 hours')} icon={ActivityIcon}>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard tone="primary" icon={Sparkles} label={tr('stat.runs24h', 'AI runs')} value={String(c.aiRuns24h)} onClick={go('/ai-agent/activity')} openLabel={tr('openPage', 'Open')} />
           <StatCard tone="emerald" icon={MessageSquare} label={tr('stat.replies24h', 'Replies')} value={String(c.replies24h)} onClick={go('/ai-agent/activity')} openLabel={tr('openPage', 'Open')} />
           <StatCard tone="amber" icon={UserCog} label={tr('stat.handoffs24h', 'Handoffs')} value={String(c.handoffs24h)} onClick={go('/ai-agent/activity')} openLabel={tr('openPage', 'Open')} />
-          <StatCard tone="rose" icon={AlertCircle} label={tr('stat.noAnswer24h', 'No answer')} value={String(c.noAnswer24h)} onClick={go('/ai-agent/learning-candidates')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="rose" icon={AlertCircle} label={tr('stat.noAnswer24h', 'No answer')} value={String(c.noAnswer24h)} onClick={kbTabs.learning ? go(kbTabPath('learning')) : undefined} openLabel={tr('openPage', 'Open')} />
           <StatCard tone="sky" icon={Languages} label={tr('stat.langRepairs24h', 'Language repairs')} value={String(c.outputLanguageRepairs24h)} />
         </div>
       </Section>
@@ -210,9 +259,9 @@ export default function OverviewPage() {
       {/* Status & configuration: each tile opens the page that manages it. */}
       <Section title={tr('sectionStatus', 'Status & configuration')}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <StatCard tone="violet" icon={Sparkles} label={tr('stat.mode', 'Mode')} value={trEnum('mode', data.settings.mode)} onClick={go('/ai-agent/activation')} openLabel={tr('openPage', 'Open')} />
-          <StatCard tone="sky" icon={Database} label={tr('stat.chunks', 'Knowledge chunks')} value={`${c.embeddedChunks}/${c.activeChunks}`} hint={tr('embedded', 'embedded / active')} onClick={go('/ai-agent/knowledge')} openLabel={tr('openPage', 'Open')} />
-          <StatCard tone="amber" icon={MessageSquare} label={tr('stat.qna', 'Q&A pairs')} value={String(c.qna)} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="violet" icon={Sparkles} label={tr('stat.mode', 'Mode')} value={trEnum('mode', data.settings.mode)} onClick={go('/ai-agent/behavior')} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="sky" icon={Database} label={tr('stat.chunks', 'Knowledge chunks')} value={`${c.embeddedChunks}/${c.activeChunks}`} hint={tr('embedded', 'embedded / active')} onClick={kbTabs.status ? go(kbTabPath('status')) : undefined} openLabel={tr('openPage', 'Open')} />
+          <StatCard tone="amber" icon={MessageSquare} label={tr('stat.qna', 'Q&A pairs')} value={String(c.qna)} onClick={go(kbTabPath('qna'))} openLabel={tr('openPage', 'Open')} />
         </div>
       </Section>
 
@@ -233,9 +282,10 @@ export default function OverviewPage() {
           <CardDescription>{tr('sectionQuickDesc', 'Most common next steps for your AI Agent.')}</CardDescription>
         </CardHeader>
         <CardContent className="grid sm:grid-cols-2 gap-2.5 pt-5">
-          <QuickAction tone="emerald" icon={Plus} label={tr('action.addQna', 'Add Q&A')} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} isRtl={isRtl} />
-          <QuickAction tone="sky" icon={Globe} label={tr('action.addWeb', 'Add web page source')} onClick={go('/ai-agent/web-pages')} isRtl={isRtl} />
-          <QuickAction tone="amber" icon={GraduationCap} label={tr('action.review', 'Review learning candidates')} onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))} isRtl={isRtl} />
+          {/* Knowledge is managed in the Knowledge Base: these open its tabs. */}
+          <QuickAction tone="emerald" icon={Plus} label={tr('action.addQna', 'Add Q&A')} onClick={go(kbTabPath('qna'))} isRtl={isRtl} />
+          {kbTabs.web && <QuickAction tone="sky" icon={Globe} label={tr('action.addWeb', 'Add web page source')} onClick={go(kbTabPath('web'))} isRtl={isRtl} />}
+          {kbTabs.learning && <QuickAction tone="amber" icon={GraduationCap} label={tr('action.review', 'Review learning candidates')} onClick={go(kbTabPath('learning'))} isRtl={isRtl} />}
           <QuickAction tone="primary" icon={RefreshCw} label={tr('action.rebuild', 'Rebuild knowledge index')} onClick={() => rebuild.mutate()} loading={rebuild.isPending} isRtl={isRtl} />
         </CardContent>
       </Card>
@@ -335,6 +385,35 @@ function StatCard({ label, value, icon: Icon, hint, tone = 'primary', onClick, o
         </div>
         <p className="text-2xl font-bold mt-2 tabular-nums">{value}</p>
         {hint && <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The operators' availability, with the assistant's part in it right now. */
+function AvailabilityCard({ status, label, value, hint, badge }: {
+  status: 'online' | 'offline' | 'unknown';
+  label: string;
+  value: string;
+  hint?: string;
+  badge?: string;
+}) {
+  const tone = TONE_STYLES[status === 'online' ? 'emerald' : 'slate'];
+  return (
+    <Card data-availability-status={status} className="border-border/60">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <div className={cn('h-7 w-7 rounded-lg flex items-center justify-center ring-1', tone.bg, tone.ring)}>
+            <Headset className={cn('h-3.5 w-3.5', tone.icon)} />
+          </div>
+        </div>
+        <p className="mt-2 flex items-center gap-2 text-2xl font-bold">
+          <span aria-hidden className={cn('h-2.5 w-2.5 shrink-0 rounded-full', status === 'online' ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
+          {value}
+        </p>
+        {hint && <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>}
+        {badge && <Badge data-ai-answers-now variant="secondary" className="mt-2 whitespace-normal text-start">{badge}</Badge>}
       </CardContent>
     </Card>
   );

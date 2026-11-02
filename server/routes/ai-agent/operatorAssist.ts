@@ -31,6 +31,8 @@ import { detectInputLanguage, languageDisplayName } from '../../services/ai-agen
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { getPlatformAllowedLocales } from '../../services/platformRegion.js';
+import { workspaceDefaultReplyLocale } from '../../services/ai-agent/replyLanguage.js';
+import { resolveClarificationPolicy } from '../../services/ai-agent/clarification.js';
 import { logRun } from '../../services/ai-agent/logs.js';
 
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
@@ -264,6 +266,8 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
 
   const settings = await getOrCreateSettings(config, workspaceId);
   // Response language policy:
+  //  - instructions.reply_language 'workspace_default' → the workspace's
+  //    default language, when it is allowed.
   //  - Workspace restricted to a single locale (e.g. only fa or only tr) →
   //    that locale wins, even when the caller asks for something else.
   //  - Otherwise the requested (operator UI) locale wins when it is allowed.
@@ -286,8 +290,14 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   const allowed = inPlatform.length ? inPlatform : platformAllowed;
   const requested = normalizeLocale(locale);
   const detected = detectInputLanguage(inputMessage);
+  // instructions.reply_language 'workspace_default': the draft is in the
+  // language the AI itself answers in, the workspace's default when it is an
+  // allowed one (services/ai-agent/replyLanguage.ts); else the rule below.
+  const pinnedLocale = await workspaceDefaultReplyLocale(config, workspaceId, settings, allowed);
   let responseLocale: string;
-  if (allowed.length === 1) {
+  if (pinnedLocale) {
+    responseLocale = pinnedLocale;
+  } else if (allowed.length === 1) {
     responseLocale = allowed[0];
   } else if (requested && (allowed.length === 0 || allowed.includes(requested))) {
     responseLocale = requested;
@@ -468,6 +478,10 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     decisionType: strategy.decisionType,
     clarificationHint: strategy.clarificationHint,
     safeGuidanceTopic: strategy.safeGuidanceTopic,
+  }, {
+    // The draft follows the owner's clarifying-question switch, as the
+    // system prompt above does (clarification.ts).
+    clarifyingQuestionAllowed: resolveClarificationPolicy(settings, 0).canAskNow,
   });
   const userPrompt = `${baseUser}\n\nRecent conversation (for context, do not quote verbatim):\n${tailContext}`;
 

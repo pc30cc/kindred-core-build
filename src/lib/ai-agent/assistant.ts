@@ -90,9 +90,33 @@ export interface AgentSettings {
   show_sources_to_operator: boolean;
   show_sources_to_visitor: boolean;
   handoff_on_low_confidence: boolean;
+  /**
+   * Whether a visitor's explicit request for a person is acted on at all.
+   * false: the AI keeps answering, whatever handoff_policy says ("never hand
+   * over on request"). Saving a handoff_policy without this key turns it on.
+   */
   handoff_on_human_request: boolean;
   handoff_when_no_kb_match: boolean;
+  /**
+   * How an explicit request for a person is handled while
+   * handoff_on_human_request is on (server handoffPolicy.ts): 'immediate'
+   * hands over at once; 'assist_first' makes one short attempt first;
+   * 'adaptive' does too, unless the visitor rejects the AI or an earlier
+   * solution failed. A second request always hands over. null is the legacy
+   * rule: at once (or, with handoff_on_human_request false, never).
+   */
+  handoff_policy?: 'immediate' | 'assist_first' | 'adaptive' | null;
+  /**
+   * 0..3, for 'assist_first' / 'adaptive': 0 hands over at once, and any
+   * value from 1 means one attempt (the second request always hands over).
+   */
+  max_assist_attempts?: number;
   confidence_threshold: number;
+  /**
+   * A save merges into the stored object key by key: send only the keys
+   * that changed; '' clears a text and [] a list. A key left out keeps its
+   * saved value (undefined counts as left out, so it never clears).
+   */
   instructions: {
     tone?: string;
     custom_instructions?: string;
@@ -114,6 +138,15 @@ export interface AgentSettings {
      * leaves it out; '' removes it.
      */
     custom_system_instruction?: string;
+    /**
+     * The reply language: 'visitor' (default, also when unset) answers in the
+     * visitor's language among the allowed ones; 'workspace_default' always
+     * answers in the workspace's default language when it is allowed.
+     * Independent of allowed_locales, which only lists the allowed languages.
+     * The server always returns it ('visitor' when unset) and applies it to
+     * the AI's replies, its greeting, operator drafts and "Say now".
+     */
+    reply_language?: 'visitor' | 'workspace_default';
   };
   /** Read-only, from the server: whether a custom system instruction is saved. */
   has_custom_system_instruction?: boolean;

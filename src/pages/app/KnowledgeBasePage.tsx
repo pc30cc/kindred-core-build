@@ -4,6 +4,7 @@ import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useKBArticles, useDeleteKBArticle, useKBLockedText, isKBArticleLocked } from '@/hooks/useKnowledgeBase';
+import { lazyPage } from '@/lib/perf/lazyPage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -11,22 +12,41 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import KnowledgeQnaTab from '@/components/app/knowledge/KnowledgeQnaTab';
 import KnowledgeFilesTab from '@/components/app/knowledge/KnowledgeFilesTab';
+import { useKnowledgeAiTabs } from '@/components/app/knowledge/useKnowledgeAiTabs';
+import { isKbAiTab, kbTabFromParam, type KbTab } from '@/components/app/knowledge/knowledgeBaseTabs';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, BookMarked, MessageCircleQuestion, Sparkles, Lock,
+  GraduationCap, Gauge, Loader2,
 } from 'lucide-react';
 
+// The assistant's tabs are the AI section's knowledge pages as they are
+// (embedded), each downloaded the first time it is opened: the Knowledge
+// Base itself loads no more than before, and nothing of them for a member
+// who never sees them.
+const WebPagesTab = lazyPage(() => import('@/pages/app/ai-agent/WebPagesPage'));
+const LearningTab = lazyPage(() => import('@/pages/app/ai-agent/LearningCandidatesPage'));
+const StatusTab = lazyPage(() => import('@/components/app/knowledge/KnowledgeStatusTab'));
+
+const TAB_TRIGGER = 'flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md';
+
 /**
- * Knowledge Base — the ONE place operators author content. Articles and Q&A
- * live here as tabs; every consumer (AI retrieval, the chat widget, the
- * Telegram plugin's FAQ/help-article menu) reads the SAME rows — there is no
- * per-surface copy of this content anywhere else.
+ * Knowledge Base — the ONE place knowledge is managed. Articles, Q&A and
+ * files live here as tabs; every consumer (AI retrieval, the chat widget,
+ * the Telegram plugin's FAQ/help-article menu) reads the SAME rows — there
+ * is no per-surface copy of this content anywhere else.
  *
  * Creating/editing an article and the AI-powered "scan my website" builder
- * are each their own dedicated page (ArticleEditorPage, AiBuilderPage) —
- * this page is only the two tabbed lists. The AI builder is gated by its
- * own plan entitlement (`ai_kb_builder`); everything on THIS page (articles,
- * Q&A) has no AI dependency and stays fully usable on any plan.
+ * are each their own dedicated page (ArticleEditorPage, AiBuilderPage). The
+ * AI builder is gated by its own plan entitlement (`ai_kb_builder`);
+ * articles, Q&A and files have no AI dependency and stay fully usable on
+ * any plan, for every member.
+ *
+ * The assistant's own tabs (owner, 2026-11-01: the site's pages it crawls,
+ * learning from operators, its knowledge status; knowledgeBaseTabs.ts) were
+ * the AI section's knowledge pages. They show only to those who may manage
+ * the assistant, by the AI section's own rule (useKnowledgeAiTabs.ts), and
+ * never change what the rest of this page offers.
  */
 export default function KnowledgeBasePage() {
   const { t, dir } = useTranslation();
@@ -34,13 +54,13 @@ export default function KnowledgeBasePage() {
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
   const [params, setParams] = useSearchParams();
-  const tabParam = params.get('tab');
-  const activeTab = tabParam === 'qna' || tabParam === 'files' ? tabParam : 'articles';
-  const setActiveTab = (value: string) => {
-    const next = new URLSearchParams(params);
-    if (value === 'qna' || value === 'files') next.set('tab', value); else next.delete('tab');
-    setParams(next, { replace: true });
-  };
+  const aiTabs = useKnowledgeAiTabs();
+  const requested = kbTabFromParam(params.get('tab'));
+  // A link to one of the assistant's tabs waits for the member's role, the
+  // plan and the AI switches; a member who may not see it gets Articles.
+  const waitingForAiTab = isKbAiTab(requested) && !aiTabs.known;
+  const activeTab: KbTab =
+    requested && (!isKbAiTab(requested) || waitingForAiTab || aiTabs[requested]) ? requested : 'articles';
   // The platform's active region/language mode decides which article
   // languages exist here — a single-language platform must not offer a
   // language picker or let articles be authored in a language visitors on
@@ -57,7 +77,17 @@ export default function KnowledgeBasePage() {
   // article on a now-Persian-only platform still exists and still needs to
   // be visible/editable/deletable.
   const listLocale = canSwitchLanguage ? locale : undefined;
-  const { data: articles, isLoading } = useKBArticles(workspace?.id, listLocale, statusFilter);
+  const { data: articles, isLoading, refetch: refetchArticles } = useKBArticles(workspace?.id, listLocale, statusFilter);
+
+  const setActiveTab = (value: string) => {
+    const next = new URLSearchParams(params);
+    const tab = kbTabFromParam(value);
+    if (tab && tab !== 'articles') next.set('tab', tab); else next.delete('tab');
+    setParams(next, { replace: true });
+    // Back on Articles: one may have been made meanwhile (a learned answer
+    // published as an article, on the learning tab).
+    if (tab === 'articles' && activeTab !== 'articles') void refetchArticles();
+  };
   const deleteArticle = useDeleteKBArticle(workspace?.id);
   const lockedText = useKBLockedText();
 
@@ -116,25 +146,31 @@ export default function KnowledgeBasePage() {
           content types with different consumers; this must never read as
           a minor filter toggle. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList data-kb-tabs className="h-auto w-full sm:w-auto gap-2 rounded-2xl bg-muted/60 p-2">
-          <TabsTrigger
-            value="articles"
-            className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
-          >
+        <TabsList data-kb-tabs className="h-auto w-full flex-wrap sm:w-auto gap-2 rounded-2xl bg-muted/60 p-2">
+          <TabsTrigger value="articles" data-kb-tab="articles" className={TAB_TRIGGER}>
             <BookOpen className="w-5 h-5" /> {t('knowledgeBase.tabs.articles')}
           </TabsTrigger>
-          <TabsTrigger
-            value="qna"
-            className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
-          >
+          <TabsTrigger value="qna" data-kb-tab="qna" className={TAB_TRIGGER}>
             <MessageCircleQuestion className="w-5 h-5" /> {t('knowledgeBase.tabs.qna')}
           </TabsTrigger>
-          <TabsTrigger
-            value="files"
-            className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
-          >
+          <TabsTrigger value="files" data-kb-tab="files" className={TAB_TRIGGER}>
             <FileText className="w-5 h-5" /> {t('knowledgeBase.tabs.files')}
           </TabsTrigger>
+          {aiTabs.web && (
+            <TabsTrigger value="web" data-kb-tab="web" className={TAB_TRIGGER}>
+              <Globe className="w-5 h-5" /> {t('aiAgent.kbTabs.web')}
+            </TabsTrigger>
+          )}
+          {aiTabs.learning && (
+            <TabsTrigger value="learning" data-kb-tab="learning" className={TAB_TRIGGER}>
+              <GraduationCap className="w-5 h-5" /> {t('aiAgent.kbTabs.learning')}
+            </TabsTrigger>
+          )}
+          {aiTabs.status && (
+            <TabsTrigger value="status" data-kb-tab="status" className={TAB_TRIGGER}>
+              <Gauge className="w-5 h-5" /> {t('aiAgent.kbTabs.status')}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="articles" className="space-y-6 mt-0">
@@ -269,6 +305,29 @@ export default function KnowledgeBasePage() {
         <TabsContent value="files" className="mt-0">
           <KnowledgeFilesTab />
         </TabsContent>
+
+        {aiTabs.web && (
+          <TabsContent value="web" className="mt-0">
+            <WebPagesTab embedded />
+          </TabsContent>
+        )}
+        {aiTabs.learning && (
+          <TabsContent value="learning" className="mt-0">
+            <LearningTab embedded />
+          </TabsContent>
+        )}
+        {aiTabs.status && (
+          <TabsContent value="status" className="mt-0">
+            <StatusTab />
+          </TabsContent>
+        )}
+        {waitingForAiTab && (
+          <TabsContent value={activeTab} className="mt-0">
+            <div data-kb-tab-waiting className="flex justify-center py-20">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

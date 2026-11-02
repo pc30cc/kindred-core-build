@@ -36,6 +36,7 @@ import {
   getPlatformAllowedLocales,
   textMatchesLocale,
 } from '../platformRegion.js';
+import { visitorAllowList, workspaceDefaultReplyLocale } from './replyLanguage.js';
 
 export interface IntroInput {
   workspaceId: string;
@@ -237,10 +238,16 @@ export async function resolveIntroGreeting(
   // always wins over a stale per-locale fallback.
   const clampedLocale = await clampLocaleToPlatformRegion(config, locale || undefined);
   const allowedLocales = await getPlatformAllowedLocales(config);
+  // instructions.reply_language 'workspace_default': the greeting is in the
+  // language the answers will be in (engine/contextStage.ts), the
+  // workspace's default when it is an allowed one (replyLanguage.ts).
+  const pinnedLocale = await workspaceDefaultReplyLocale(
+    config, workspaceId, settings, visitorAllowList(settings.allowed_locales, allowedLocales),
+  );
   const display = deriveAgentDisplay(settings);
   return {
     ok: true,
-    body: buildIntroBody(settings, clampedLocale, allowedLocales),
+    body: buildIntroBody(settings, pinnedLocale || clampedLocale, allowedLocales),
     settings,
     agentName: display.agentName,
     agentLogoUrl: display.agentLogoUrl,

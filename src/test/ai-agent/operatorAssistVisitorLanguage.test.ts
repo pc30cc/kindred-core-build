@@ -7,7 +7,10 @@
  * (engine/contextStage.ts). The panel sends its UI language, which is the
  * dashboard's: on WebYar the Super Admin may open it to English while the
  * visitors stay Persian, and the draft must stay Persian. RESPOK (multi, en
- * and tr) drafts in the operator's language, as before.
+ * and tr) drafts in the operator's language, as before. A workspace that
+ * answers in its default language (instructions.reply_language
+ * 'workspace_default', services/ai-agent/replyLanguage.ts) drafts in it too,
+ * inside the same languages.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
@@ -20,6 +23,8 @@ const CONVERSATION_ID = '22222222-2222-4222-8222-222222222222';
 const h = vi.hoisted(() => ({
   platform: null as Record<string, unknown> | null,
   workspaceLocales: [] as string[],
+  instructions: {} as Record<string, unknown>,
+  workspaceRow: null as Record<string, unknown> | null,
   visitorText: 'سلام، سفارشم کجاست؟',
   prompts: [] as string[],
 }));
@@ -41,7 +46,9 @@ vi.mock('../../../server/supabase.js', () => ({
             ? { data: { id: CONVERSATION_ID, workspace_id: WORKSPACE_ID }, error: null }
             : table === 'platform_settings'
               ? { data: h.platform, error: null }
-              : { data: null, error: null }
+              : table === 'workspaces'
+                ? { data: h.workspaceRow, error: null }
+                : { data: null, error: null }
         ),
         single: async () => ({ data: null, error: null }),
         then: (resolve: any) => resolve(
@@ -63,7 +70,7 @@ vi.mock('../../../server/middleware/featureGating.js', () => ({
   checkEntitlementFromDB: async () => ({ allowed: true, plan: 'pro' }),
 }));
 vi.mock('../../../server/services/ai-agent/settings.js', () => ({
-  getOrCreateSettings: async () => makeSettings({ allowed_locales: h.workspaceLocales }),
+  getOrCreateSettings: async () => makeSettings({ allowed_locales: h.workspaceLocales, instructions: h.instructions }),
 }));
 vi.mock('../../../server/services/ai-agent/retrievalHybrid.js', () => ({
   retrieveHybridSources: async () => makeHybridResult({ sources: [makeHybridSource()] }),
@@ -119,6 +126,8 @@ const RESPOK = { region_mode: 'multi', active_locales: ['en', 'tr'], default_loc
 
 beforeEach(() => {
   h.workspaceLocales = [];
+  h.instructions = {};
+  h.workspaceRow = null;
   h.visitorText = 'سلام، سفارشم کجاست؟';
   platform(WEBYAR_EN_PANEL);
 });
@@ -146,5 +155,32 @@ describe('the operator-assist draft is in a visitor language', () => {
     expect(await draftLanguage('tr')).toBe('tr');
     h.workspaceLocales = ['tr'];
     expect(await draftLanguage('en')).toBe('tr');
+  });
+});
+
+describe("the draft follows the workspace's reply language", () => {
+  it("'workspace_default': the workspace's default language, whatever the panel reads", async () => {
+    platform(RESPOK);
+    h.visitorText = 'Merhaba, fiyat nedir?';
+    h.instructions = { reply_language: 'workspace_default' };
+    h.workspaceRow = { default_locale: 'tr' };
+    expect(await draftLanguage('en')).toBe('tr');
+    h.workspaceRow = { default_locale: 'en' };
+    expect(await draftLanguage('tr')).toBe('en');
+  });
+
+  it("'workspace_default' never leaves the visitors' languages: WebYar's English default still drafts Persian", async () => {
+    h.instructions = { reply_language: 'workspace_default' };
+    h.workspaceRow = { default_locale: 'en' };
+    expect(await draftLanguage('en')).toBe('fa');
+  });
+
+  it("'workspace_default' with a default outside allowed_locales: the rule above, as before", async () => {
+    platform(RESPOK);
+    h.visitorText = 'Merhaba, fiyat nedir?';
+    h.instructions = { reply_language: 'workspace_default' };
+    h.workspaceLocales = ['en', 'tr'];
+    h.workspaceRow = { default_locale: 'fa' };
+    expect(await draftLanguage('en')).toBe('en');
   });
 });

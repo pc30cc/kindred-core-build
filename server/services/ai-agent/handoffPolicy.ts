@@ -18,30 +18,47 @@
  *                 is needed: repeated request, a failed AI solution, the
  *                 visitor rejecting AI, or mandatory routing.
  *
+ * THE SWITCH AND THE POLICY: `handoff_on_human_request` says whether an
+ * explicit request for a person is acted on at all, and every consumer
+ * checks it first (runtimePolicy.decideRuntime, engine/contextStage.ts,
+ * engine/runtimeDecisionStage.ts, answerStrategy.decideStrategy,
+ * policy.decide). The policy only says HOW while it is on: decideHandoff()
+ * runs for a request the runtime decision stage saw, and an assist attempt
+ * it grants is not handed off again by decideStrategy (engine/answerStage.ts).
+ * A settings write that picks a policy turns the switch on unless the same
+ * write sets it (settings.ts syncHumanRequestSwitch), so the handoff control
+ * always takes effect; the switch set to false is "never hand over on
+ * request", and the stored policy waits for it.
+ *
  * BACKWARD COMPATIBILITY (§53): `ai_agent_settings.handoff_policy` is
- * nullable. NULL is resolved at read time from the legacy flag:
- *
- *   handoff_on_human_request = true   → 'immediate'   (unchanged behaviour)
- *   handoff_on_human_request = false  → 'adaptive'    (AI never had a
- *                                        keyword handoff to lose here)
- *
- * Nothing changes for an existing workspace until an owner explicitly picks
- * a policy.
+ * nullable, and NULL is the legacy rule: with the switch on, hand over at
+ * once ('immediate'); with it off, the AI keeps answering, as it always did
+ * (the switch closes every path before a policy is read). Nothing changes
+ * for an existing workspace until an owner explicitly picks a policy.
  */
 import type { AgentSettings } from './settings.js';
 import type { WorkingMemory } from './workingMemory.js';
 
 export type HandoffPolicy = 'immediate' | 'assist_first' | 'adaptive';
 
+/**
+ * How a request for a person is handled while handoff_on_human_request is on
+ * (the only time it is read). NULL is the legacy rule, at once — see the
+ * header note.
+ */
 export function resolveHandoffPolicy(settings: Partial<AgentSettings>): HandoffPolicy {
-  const raw = (settings as any)?.handoff_policy;
+  const raw = settings?.handoff_policy;
   if (raw === 'immediate' || raw === 'assist_first' || raw === 'adaptive') return raw;
-  // Legacy mapping — see the header note.
-  return (settings as any)?.handoff_on_human_request === false ? 'adaptive' : 'immediate';
+  return 'immediate';
 }
 
+/**
+ * 0..3; 1 when unset. The second explicit request always hands over (§19,
+ * decideHandoff), so 0 means at once and any value from 1 means one attempt.
+ */
 export function resolveMaxAssistAttempts(settings: Partial<AgentSettings>): number {
-  const raw = Number((settings as any)?.max_assist_attempts);
+  const stored = settings?.max_assist_attempts;
+  const raw = stored === null || stored === undefined ? NaN : Number(stored);
   if (!Number.isFinite(raw) || raw < 0) return 1;
   return Math.min(Math.floor(raw), 3);
 }

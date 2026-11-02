@@ -46,9 +46,10 @@ enum PushTarget: Equatable, Hashable, Sendable {
     }
 
     /// The shapes `server/services/push/dispatch.ts` sends — the same ones the
-    /// Android app reads: a colleague's message names the colleague
-    /// (`peerId`), an email or a support reply names its thread
-    /// (`threadId`), everything else names a conversation. A diagnostic from Super Admin (`type: test`)
+    /// Android app reads: a colleague's message, and a colleague's call this
+    /// operator missed (`team_call_missed`), name the colleague (`peerId`)
+    /// and open the thread with them; an email or a support reply names its
+    /// thread (`threadId`), everything else names a conversation. A diagnostic from Super Admin (`type: test`)
     /// goes nowhere, and neither does a payload this build cannot place — a
     /// callback request, which has no screen on this phone.
     init?(userInfo info: [AnyHashable: Any]) {
@@ -58,7 +59,7 @@ enum PushTarget: Equatable, Hashable, Sendable {
         }
         let type = value("type")
         guard type != "test", let workspaceID = value("workspaceId") else { return nil }
-        if type == "team_message" {
+        if type == "team_message" || type == "team_call_missed" {
             guard let peer = value("peerId") else { return nil }
             self = .colleague(workspaceID: workspaceID, peerID: peer)
         } else if type == "email_message" {

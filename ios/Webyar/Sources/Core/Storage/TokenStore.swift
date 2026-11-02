@@ -50,7 +50,32 @@ enum TokenStore {
         }
     }
 
+    /// What the Keychain says about the session, for a caller to whom "no
+    /// token" is not enough: there being none, and the Keychain refusing to
+    /// say, call for opposite things.
+    enum Presence: Equatable {
+        /// A session is stored here.
+        case present
+        /// None is: nobody is signed in on this phone.
+        case absent
+        /// The Keychain could not be read — most often
+        /// `errSecInteractionNotAllowed`, a phone restarted and not yet
+        /// unlocked, when iOS may already launch the app in the background
+        /// (a VoIP push does). Whether anybody is signed in is not known.
+        case unreadable
+    }
+
+    static func presence() -> Presence {
+        lookup().presence
+    }
+
+    /// The session token, or nil — for no session and for a Keychain that
+    /// cannot be read alike (`presence()` tells the two apart).
     static func read() -> String? {
+        lookup().token
+    }
+
+    private static func lookup() -> (presence: Presence, token: String?) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -60,17 +85,21 @@ enum TokenStore {
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        // `errSecItemNotFound` is the ordinary "nobody is signed in" answer
-        // and is not worth a line in the log; anything else is.
-        if status != errSecSuccess, status != errSecItemNotFound {
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data,
+                  let token = String(data: data, encoding: .utf8),
+                  !token.isEmpty
+            else { return (.absent, nil) }
+            return (.present, token)
+        case errSecItemNotFound:
+            // The ordinary "nobody is signed in" answer, and not worth a
+            // line in the log; anything else is.
+            return (.absent, nil)
+        default:
             log.error("Could not read the session token (OSStatus \(status)).")
+            return (.unreadable, nil)
         }
-        guard status == errSecSuccess,
-              let data = item as? Data,
-              let token = String(data: data, encoding: .utf8),
-              !token.isEmpty
-        else { return nil }
-        return token
     }
 
     static func delete() {

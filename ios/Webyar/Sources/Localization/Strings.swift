@@ -2219,6 +2219,291 @@ extension Str {
     }
 }
 
+// MARK: - Colleague calls
+
+// Shared with the Android app, which calls the same names as
+// `Str.<name>(language)` once scripts/android/strings-from-ios.mjs has run.
+
+extension Str {
+
+    /// A colleague who set no profile name, wherever a call names them
+    /// (`TeamCallName`): the word the server's missed-call notification uses.
+    static func teamCallColleague(_ l: Language) -> String {
+        switch l {
+        case .en: "Colleague"
+        case .fa: "همکار"
+        case .tr: "İş arkadaşı"
+        case .ar: "زميل"
+        }
+    }
+
+    /// An outgoing colleague call, while the request to ring is on its way.
+    static func teamCallCalling(_ l: Language) -> String {
+        switch l {
+        case .en: "Calling…"
+        case .fa: "در حال تماس…"
+        case .tr: "Aranıyor…"
+        case .ar: "جارٍ الاتصال…"
+        }
+    }
+
+    /// An outgoing colleague call: the colleague's phones are ringing.
+    static func teamCallRinging(_ l: Language) -> String {
+        switch l {
+        case .en: "Ringing…"
+        case .fa: "در حال زنگ خوردن…"
+        case .tr: "Çalıyor…"
+        case .ar: "يرنّ…"
+        }
+    }
+
+    /// Answered: joining the call's room.
+    static func teamCallConnecting(_ l: Language) -> String {
+        switch l {
+        case .en: "Connecting…"
+        case .fa: "در حال اتصال…"
+        case .tr: "Bağlanıyor…"
+        case .ar: "جارٍ التوصيل…"
+        }
+    }
+
+    static func teamCallIncomingVoice(_ l: Language) -> String {
+        switch l {
+        case .en: "Incoming voice call"
+        case .fa: "تماس صوتی ورودی"
+        case .tr: "Gelen sesli arama"
+        case .ar: "مكالمة صوتية واردة"
+        }
+    }
+
+    static func teamCallIncomingVideo(_ l: Language) -> String {
+        switch l {
+        case .en: "Incoming video call"
+        case .fa: "تماس تصویری ورودی"
+        case .tr: "Gelen görüntülü arama"
+        case .ar: "مكالمة فيديو واردة"
+        }
+    }
+
+    /// The colleague said no, or another phone of yours did.
+    static func teamCallDeclined(_ l: Language) -> String {
+        switch l {
+        case .en: "Call declined"
+        case .fa: "تماس رد شد"
+        case .tr: "Arama reddedildi"
+        case .ar: "رُفضت المكالمة"
+        }
+    }
+
+    /// Nobody answered before the ring ran out (the caller's side).
+    static func teamCallNoAnswer(_ l: Language) -> String {
+        switch l {
+        case .en: "No answer"
+        case .fa: "پاسخی داده نشد"
+        case .tr: "Yanıt yok"
+        case .ar: "لا يوجد رد"
+        }
+    }
+
+    /// Either side is already in a call.
+    static func teamCallBusy(_ l: Language) -> String {
+        switch l {
+        case .en: "On another call"
+        case .fa: "مشغول تماس دیگری"
+        case .tr: "Başka bir aramada"
+        case .ar: "مشغول بمكالمة أخرى"
+        }
+    }
+
+    static func teamCallEnded(_ l: Language) -> String {
+        switch l {
+        case .en: "Call ended"
+        case .fa: "تماس پایان یافت"
+        case .tr: "Arama sona erdi"
+        case .ar: "انتهت المكالمة"
+        }
+    }
+
+    static func teamCallFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Call failed"
+        case .fa: "تماس برقرار نشد"
+        case .tr: "Arama başarısız oldu"
+        case .ar: "تعذّرت المكالمة"
+        }
+    }
+
+    /// The caller gave up before an answer.
+    static func teamCallCancelled(_ l: Language) -> String {
+        switch l {
+        case .en: "Call cancelled"
+        case .fa: "تماس لغو شد"
+        case .tr: "Arama iptal edildi"
+        case .ar: "أُلغيت المكالمة"
+        }
+    }
+
+    /// Another phone of the same member answered first.
+    static func teamCallAnsweredElsewhere(_ l: Language) -> String {
+        switch l {
+        case .en: "Answered on another device"
+        case .fa: "روی دستگاه دیگری پاسخ داده شد"
+        case .tr: "Başka bir cihazda yanıtlandı"
+        case .ar: "تم الرد على جهاز آخر"
+        }
+    }
+
+    static func teamCallMissedVoice(_ l: Language) -> String {
+        switch l {
+        case .en: "Missed voice call"
+        case .fa: "تماس صوتی بی‌پاسخ"
+        case .tr: "Cevapsız sesli arama"
+        case .ar: "مكالمة صوتية فائتة"
+        }
+    }
+
+    static func teamCallMissedVideo(_ l: Language) -> String {
+        switch l {
+        case .en: "Missed video call"
+        case .fa: "تماس تصویری بی‌پاسخ"
+        case .tr: "Cevapsız görüntülü arama"
+        case .ar: "مكالمة فيديو فائتة"
+        }
+    }
+
+    static func teamCallNotInPlan(_ l: Language) -> String {
+        switch l {
+        case .en: "Colleague calls are not in your plan"
+        case .fa: "تماس با همکاران در پلن شما نیست"
+        case .tr: "Meslektaş aramaları planınızda yok"
+        case .ar: "مكالمات الزملاء غير مشمولة في باقتك"
+        }
+    }
+
+    /// The plan's concurrent calls or monthly call minutes are used up.
+    static func teamCallLimitReached(_ l: Language) -> String {
+        switch l {
+        case .en: "Your plan's call limit has been reached"
+        case .fa: "سقف تماس‌های پلن شما پر شده است"
+        case .tr: "Planınızın arama sınırına ulaşıldı"
+        case .ar: "تم بلوغ حد المكالمات في باقتك"
+        }
+    }
+
+    /// A ring is a notification on Android: without the permission it cannot show.
+    static func teamCallNeedsNotifications(_ l: Language) -> String {
+        switch l {
+        case .en: "Allow notifications so colleague calls can ring"
+        case .fa: "برای اینکه تماس همکاران زنگ بخورد، اجازهٔ اعلان‌ها را بدهید"
+        case .tr: "Meslektaş aramalarının çalabilmesi için bildirimlere izin verin"
+        case .ar: "اسمح بالإشعارات حتى ترنّ مكالمات الزملاء"
+        }
+    }
+
+    /// A colleague call is not placed while the microphone is refused.
+    static func teamCallNeedsMicrophone(_ l: Language) -> String {
+        switch l {
+        case .en: "Allow microphone access in Settings to call a colleague."
+        case .fa: "برای تماس با همکار، دسترسی به میکروفون را در تنظیمات اجازه دهید."
+        case .tr: "Bir meslektaşınızı aramak için Ayarlar'dan mikrofon erişimine izin verin."
+        case .ar: "اسمح بالوصول إلى الميكروفون من الإعدادات للاتصال بزميل."
+        }
+    }
+
+    /// The colleague thread's phone button.
+    static func teamCallVoiceAction(_ l: Language) -> String {
+        switch l {
+        case .en: "Voice call"
+        case .fa: "تماس صوتی"
+        case .tr: "Sesli arama"
+        case .ar: "مكالمة صوتية"
+        }
+    }
+
+    /// The colleague thread's video button.
+    static func teamCallVideoAction(_ l: Language) -> String {
+        switch l {
+        case .en: "Video call"
+        case .fa: "تماس تصویری"
+        case .tr: "Görüntülü arama"
+        case .ar: "مكالمة فيديو"
+        }
+    }
+
+    static func teamCallAnswer(_ l: Language) -> String {
+        switch l {
+        case .en: "Answer"
+        case .fa: "پاسخ"
+        case .tr: "Yanıtla"
+        case .ar: "رد"
+        }
+    }
+
+    static func teamCallDecline(_ l: Language) -> String {
+        switch l {
+        case .en: "Decline"
+        case .fa: "رد تماس"
+        case .tr: "Reddet"
+        case .ar: "رفض"
+        }
+    }
+
+    static func teamCallHangUp(_ l: Language) -> String {
+        switch l {
+        case .en: "End call"
+        case .fa: "پایان تماس"
+        case .tr: "Aramayı bitir"
+        case .ar: "إنهاء المكالمة"
+        }
+    }
+
+    static func teamCallMute(_ l: Language) -> String {
+        switch l {
+        case .en: "Mute"
+        case .fa: "بی‌صدا"
+        case .tr: "Sessize al"
+        case .ar: "كتم الصوت"
+        }
+    }
+
+    static func teamCallUnmute(_ l: Language) -> String {
+        switch l {
+        case .en: "Unmute"
+        case .fa: "لغو بی‌صدا"
+        case .tr: "Sesi aç"
+        case .ar: "إلغاء الكتم"
+        }
+    }
+
+    static func teamCallSpeaker(_ l: Language) -> String {
+        switch l {
+        case .en: "Speaker"
+        case .fa: "بلندگو"
+        case .tr: "Hoparlör"
+        case .ar: "مكبر الصوت"
+        }
+    }
+
+    static func teamCallCamera(_ l: Language) -> String {
+        switch l {
+        case .en: "Camera"
+        case .fa: "دوربین"
+        case .tr: "Kamera"
+        case .ar: "الكاميرا"
+        }
+    }
+
+    /// Front camera to back and back again.
+    static func teamCallSwitchCamera(_ l: Language) -> String {
+        switch l {
+        case .en: "Switch camera"
+        case .fa: "تعویض دوربین"
+        case .tr: "Kamerayı değiştir"
+        case .ar: "تبديل الكاميرا"
+        }
+    }
+}
+
 extension Str {
 
     static func callNoMicrophone(_ l: Language) -> String {

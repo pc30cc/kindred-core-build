@@ -88,4 +88,10 @@ data class RealtimeEventPayload(
     @SerialName("history_id") val historyId: String? = null,
     /** Platform support (`support_message`, `support_read`): which of the operator's threads. */
     @SerialName("thread_id") val threadId: String? = null,
+    /**
+     * A colleague call changed (`team_call`): which one. Its new state rides
+     * along too, and is not read — the call is read again, as the member
+     * themself, from `GET /api/team-calls/:id`.
+     */
+    @SerialName("call_id") val callId: String? = null,
 )

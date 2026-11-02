@@ -27,6 +27,8 @@ data class PushPayload(
      * can have more than one. Absent from a server that did not say.
      */
     val provider: String? = null,
+    /** The colleague call a missed-call notification is about (`team_call_missed`). */
+    val callId: String? = null,
 ) {
     /** Enough to open a conversation. */
     val opensConversation: Boolean get() = !workspaceId.isNullOrBlank() && !conversationId.isNullOrBlank()
@@ -34,8 +36,15 @@ data class PushPayload(
     /** A colleague's message in team chat. */
     val isTeamMessage: Boolean get() = type == TYPE_TEAM_MESSAGE
 
-    /** Enough to open the thread with a colleague. */
-    val opensTeamThread: Boolean get() = isTeamMessage && !workspaceId.isNullOrBlank() && !peerId.isNullOrBlank()
+    /**
+     * A colleague's call this operator missed: it rang out, or the colleague
+     * hung up before an answer (docs/operations/TEAM_CALLS.md, "Missed").
+     */
+    val isTeamCallMissed: Boolean get() = type == TYPE_TEAM_CALL_MISSED
+
+    /** Enough to open the thread with a colleague: a message from them, or their call that was missed. */
+    val opensTeamThread: Boolean
+        get() = (isTeamMessage || isTeamCallMissed) && !workspaceId.isNullOrBlank() && !peerId.isNullOrBlank()
 
     /** A new email in the workspace's email inbox. */
     val isEmail: Boolean get() = type == TYPE_EMAIL
@@ -71,6 +80,7 @@ data class PushPayload(
         const val KEY_THREAD = "threadId"
         const val KEY_CALLBACK = "callbackId"
         const val KEY_PROVIDER = "provider"
+        const val KEY_CALL = "callId"
 
         /** The mailboxes a push may name; anything else is not one of ours. */
         private val PROVIDERS = setOf("gmail", "yahoo")
@@ -92,6 +102,9 @@ data class PushPayload(
         /** `notifySupportReply` (server/services/push/dispatch.ts): names the support conversation as `threadId`. */
         const val TYPE_SUPPORT = "support_reply"
 
+        /** `notifyTeamCallMissed`: names the colleague as `peerId` and the call as `callId`. */
+        const val TYPE_TEAM_CALL_MISSED = "team_call_missed"
+
         fun from(data: Map<String, String>): PushPayload = PushPayload(
             type = data[KEY_TYPE],
             workspaceId = data[KEY_WORKSPACE]?.takeIf { isId(it) },
@@ -101,6 +114,7 @@ data class PushPayload(
             threadId = data[KEY_THREAD]?.takeIf { isId(it) },
             callbackId = data[KEY_CALLBACK]?.takeIf { isId(it) },
             provider = data[KEY_PROVIDER]?.takeIf { isProvider(it) },
+            callId = data[KEY_CALL]?.takeIf { isId(it) },
         )
 
         /** Ids are what the server makes them; anything else in a payload is not one of ours. */

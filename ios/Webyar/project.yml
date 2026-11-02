@@ -34,7 +34,7 @@ settings:
     # CURRENT_PROJECT_VERSION=7`; every upload needs a build number above the
     # last one.
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "2"
+    CURRENT_PROJECT_VERSION: "3"
 
 packages:
   # The one external dependency in this app, and it earns its place: a call
@@ -42,9 +42,14 @@ packages:
   # LiveKit — the operator console uses `livekit-client`, so the phone joining
   # the same rooms with the same tokens is the only arrangement that cannot
   # drift from what the web does.
+  #
+  # From 2.17.0: a colleague call is a CallKit call, and it needs the SDK to
+  # leave the audio session alone (`audioSession.isAutomaticConfigurationEnabled`)
+  # and to hold its engine until CallKit activates the session
+  # (`setEngineAvailability`) — `TeamCallAudio`, read against 2.17.0.
   LiveKit:
     url: https://github.com/livekit/client-sdk-swift
-    from: 2.0.0
+    from: 2.17.0
 
 targets:
   Webyar:
@@ -107,17 +112,21 @@ targets:
         # question. ATS's defaults already require HTTPS, and `PlatformOrigin`
         # refuses to adopt an origin that is not https no matter what the
         # platform answers, so there is no exception to ask for.
-        # A call has to survive the operator locking the screen or switching
-        # apps mid-sentence, which is exactly what this background mode is
-        # for. No `voip` here: nothing rings, the operator always starts the
-        # call from inside the app.
+        # `audio`: a call has to survive the operator locking the screen or
+        # switching apps mid-sentence. `voip`: a colleague's call rings this
+        # phone like a phone call, locked or not — a PushKit push that wakes
+        # the app and becomes a CallKit call (`VoIPPushes`, `CallManager`).
+        # Visitor calls do not ring an iPhone; the operator starts those from
+        # inside the app. Still no `remote-notification`: no silent pushes.
         UIBackgroundModes:
           - audio
+          - voip
         NSMicrophoneUsageDescription: >-
-          Webyar uses the microphone when you call a visitor, and when you
-          record a voice note to send into a conversation.
+          Webyar uses the microphone when you call a visitor or a colleague,
+          and when you record a voice note to send into a conversation.
         NSCameraUsageDescription: >-
-          Webyar uses the camera when you start a video call with a visitor.
+          Webyar uses the camera when you start or answer a video call with a
+          visitor or a colleague.
         # Add-only, and only ever asked by iOS itself: a photo or video opened
         # from a conversation or an email is shown by Quick Look, whose share
         # button offers "Save Image". Without this key that one tap ends the
@@ -199,11 +208,13 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
           - audio
+          - voip
         NSMicrophoneUsageDescription: >-
-          RESPOK uses the microphone when you call a visitor, and when you
-          record a voice note to send into a conversation.
+          RESPOK uses the microphone when you call a visitor or a colleague,
+          and when you record a voice note to send into a conversation.
         NSCameraUsageDescription: >-
-          RESPOK uses the camera when you start a video call with a visitor.
+          RESPOK uses the camera when you start or answer a video call with a
+          visitor or a colleague.
         NSPhotoLibraryAddUsageDescription: >-
           RESPOK saves a photo or video to your library when you choose Save
           on a file opened from a conversation or an email.

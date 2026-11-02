@@ -507,7 +507,7 @@ private struct VoiceNoteView: View {
 /// Owns one `AVAudioPlayer` and the tick that moves the progress bar.
 @MainActor
 @Observable
-final class AudioNotePlayer {
+final class AudioNotePlayer: CallAudioYielding {
     private let player: AVAudioPlayer
     private var ticker: Task<Void, Never>?
 
@@ -540,6 +540,8 @@ final class AudioNotePlayer {
             releaseSession()
             return
         }
+        // A colleague call holds the audio session: nothing plays over it.
+        guard CallAudioFocus.shared.claim(self) else { return }
         // Playback shares the session with calls, so ask for it rather than
         // reconfiguring: a voice note must never leave the category in a
         // state that breaks the next call.
@@ -567,9 +569,22 @@ final class AudioNotePlayer {
         releaseSession()
     }
 
+    /// A colleague call is starting: the note pauses where it is, and the
+    /// session is left to the call — deactivating it now would be
+    /// deactivating CallKit's.
+    func yieldToCall() {
+        player.pause()
+        isPlaying = false
+        ticker?.cancel()
+        ticker = nil
+    }
+
     /// Hands the audio back, so music ducked under the note comes back up
-    /// when it pauses or ends, not only when the chat closes.
+    /// when it pauses or ends, not only when the chat closes — but never
+    /// while a colleague call holds the session, which is CallKit's.
     private func releaseSession() {
+        CallAudioFocus.shared.release(self)
+        guard !CallAudioFocus.shared.isHeldByCall else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

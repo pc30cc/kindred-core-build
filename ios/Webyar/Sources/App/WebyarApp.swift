@@ -59,6 +59,11 @@ struct WebyarApp: App {
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.scenePhase) private var scenePhase
+    /// The colleague call, if there is one: its screen is drawn over
+    /// everything, the sign-in screen, the launch screen and whatever is
+    /// presented included — a call answered on the lock screen opens the app
+    /// on it (`TeamCallWindow`).
+    @State private var calls = CallManager.shared
 
     var body: some View {
         ZStack {
@@ -82,6 +87,9 @@ struct RootView: View {
             }
         }
         .animation(Theme.Motion.standard, value: appState.session)
+        .background {
+            TeamCallWindowAnchor(active: calls.call != nil)
+        }
         .task {
             // First thing, while the launch view — a centred mark on a plain
             // background — is the only thing on screen and has no side to be

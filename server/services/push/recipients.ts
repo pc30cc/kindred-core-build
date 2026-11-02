@@ -48,7 +48,13 @@ export type PushEventType =
    * The platform's support team answered one of this operator's support
    * threads. Addressed to that one operator, like a colleague's message.
    */
-  | 'support_reply';
+  | 'support_reply'
+  /**
+   * A colleague's call to this member that nobody answered (missed, or
+   * hung up by the caller while it rang). A colleague's message in every
+   * respect but the words: addressed to one member, under `push_team_chat`.
+   */
+  | 'team_call_missed';
 
 export interface RecipientContext {
   workspaceId: string;
@@ -291,7 +297,7 @@ export async function resolveRecipients(
     // only") is about customers' conversations, and a direct message is
     // theirs whatever it is set to — only 'none' and "disable all", above,
     // silence it.
-    if (ctx.eventType === 'team_message' && !isMentioned) continue;
+    if ((ctx.eventType === 'team_message' || ctx.eventType === 'team_call_missed') && !isMentioned) continue;
     if (ctx.eventType === 'support_reply' && !isMentioned) continue;
     if (ctx.eventType === 'internal_note') {
       if (!p.push_internal_notes && !isMentioned) continue;
@@ -306,7 +312,10 @@ export async function resolveRecipients(
     // follow everything.
     if ((ctx.eventType === 'email_message' || ctx.eventType === 'callback_request') && p.push_scope !== 'all') continue;
     // Each kind of event beyond a customer's message has its own switch.
-    if (ctx.eventType === 'team_message' && p.push_team_chat === false) continue;
+    // A colleague's missed call is under the colleague-chat switch: both are
+    // the team, not a customer, and an operator who silenced one expects the
+    // other quiet too.
+    if ((ctx.eventType === 'team_message' || ctx.eventType === 'team_call_missed') && p.push_team_chat === false) continue;
     if ((ctx.eventType === 'assignment' || ctx.eventType === 'handoff') && p.push_assignments === false) continue;
     if (ctx.eventType === 'email_message' && p.push_email === false) continue;
     if (ctx.eventType === 'handoff') {

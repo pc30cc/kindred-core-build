@@ -40,6 +40,22 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!--
+      A colleague call in progress runs under a foreground service
+      (`TeamCallService`), or Android hands the app silence for a microphone
+      and no camera the moment the screen goes off — which a voice call at the
+      ear does on purpose. Android 14 makes a service name what it uses, and
+      the app hold the matching permission: the microphone always, the camera
+      on a video call. Granted at install; the runtime permissions they stand
+      on (RECORD_AUDIO, CAMERA above) are still asked for when a call starts.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- The proximity sensor turning the screen off at the ear on a voice
+         call, so a cheek cannot mute it or hang it up. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!--
       LiveKit's screen sharing, which this app never does. The SDK's manifest
       brings a mediaProjection foreground service and its permission with it,
       and a type-specific foreground-service permission in the manifest is
@@ -136,12 +152,22 @@
         </provider>
 
         <!--
-          Decline on a ringing call. Not exported: only this app's own
-          notification can send it.
+          Decline on a ringing call, and End on a colleague call in progress.
+          Not exported: only this app's own notifications can send it.
         -->
         <receiver
             android:name=".core.push.CallActionReceiver"
             android:exported="false" />
+
+        <!--
+          A colleague call in progress: started from the call screen while
+          the app is in front, stopped when the call ends. Not exported:
+          nothing outside the app starts a call's service.
+        -->
+        <service
+            android:name=".feature.call.TeamCallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|camera" />
 
         <!-- LiveKit's screen-share service: see the permission above. -->
         <service

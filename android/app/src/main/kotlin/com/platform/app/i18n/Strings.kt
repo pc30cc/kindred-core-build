@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 412 of 432 strings are generated.
+// 441 of 461 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1446,6 +1446,198 @@ object Str {
         Language.EN -> "No relay server configured — this call may fail on some networks"
         Language.FA -> "سرور رله تنظیم نشده — ممکن است روی بعضی شبکه‌ها برقرار نشود"
         Language.TR -> "Röle sunucusu tanımlı değil — bazı ağlarda bağlanmayabilir"
+    }
+
+    /**
+     * A colleague who set no profile name, wherever a call names them
+     * (`TeamCallName`): the word the server's missed-call notification uses.
+     */
+    fun teamCallColleague(l: Language): String = when (l) {
+        Language.EN -> "Colleague"
+        Language.FA -> "همکار"
+        Language.TR -> "İş arkadaşı"
+    }
+
+    /** An outgoing colleague call, while the request to ring is on its way. */
+    fun teamCallCalling(l: Language): String = when (l) {
+        Language.EN -> "Calling…"
+        Language.FA -> "در حال تماس…"
+        Language.TR -> "Aranıyor…"
+    }
+
+    /** An outgoing colleague call: the colleague's phones are ringing. */
+    fun teamCallRinging(l: Language): String = when (l) {
+        Language.EN -> "Ringing…"
+        Language.FA -> "در حال زنگ خوردن…"
+        Language.TR -> "Çalıyor…"
+    }
+
+    /** Answered: joining the call's room. */
+    fun teamCallConnecting(l: Language): String = when (l) {
+        Language.EN -> "Connecting…"
+        Language.FA -> "در حال اتصال…"
+        Language.TR -> "Bağlanıyor…"
+    }
+
+    fun teamCallIncomingVoice(l: Language): String = when (l) {
+        Language.EN -> "Incoming voice call"
+        Language.FA -> "تماس صوتی ورودی"
+        Language.TR -> "Gelen sesli arama"
+    }
+
+    fun teamCallIncomingVideo(l: Language): String = when (l) {
+        Language.EN -> "Incoming video call"
+        Language.FA -> "تماس تصویری ورودی"
+        Language.TR -> "Gelen görüntülü arama"
+    }
+
+    /** The colleague said no, or another phone of yours did. */
+    fun teamCallDeclined(l: Language): String = when (l) {
+        Language.EN -> "Call declined"
+        Language.FA -> "تماس رد شد"
+        Language.TR -> "Arama reddedildi"
+    }
+
+    /** Nobody answered before the ring ran out (the caller's side). */
+    fun teamCallNoAnswer(l: Language): String = when (l) {
+        Language.EN -> "No answer"
+        Language.FA -> "پاسخی داده نشد"
+        Language.TR -> "Yanıt yok"
+    }
+
+    /** Either side is already in a call. */
+    fun teamCallBusy(l: Language): String = when (l) {
+        Language.EN -> "On another call"
+        Language.FA -> "مشغول تماس دیگری"
+        Language.TR -> "Başka bir aramada"
+    }
+
+    fun teamCallEnded(l: Language): String = when (l) {
+        Language.EN -> "Call ended"
+        Language.FA -> "تماس پایان یافت"
+        Language.TR -> "Arama sona erdi"
+    }
+
+    fun teamCallFailed(l: Language): String = when (l) {
+        Language.EN -> "Call failed"
+        Language.FA -> "تماس برقرار نشد"
+        Language.TR -> "Arama başarısız oldu"
+    }
+
+    /** The caller gave up before an answer. */
+    fun teamCallCancelled(l: Language): String = when (l) {
+        Language.EN -> "Call cancelled"
+        Language.FA -> "تماس لغو شد"
+        Language.TR -> "Arama iptal edildi"
+    }
+
+    /** Another phone of the same member answered first. */
+    fun teamCallAnsweredElsewhere(l: Language): String = when (l) {
+        Language.EN -> "Answered on another device"
+        Language.FA -> "روی دستگاه دیگری پاسخ داده شد"
+        Language.TR -> "Başka bir cihazda yanıtlandı"
+    }
+
+    fun teamCallMissedVoice(l: Language): String = when (l) {
+        Language.EN -> "Missed voice call"
+        Language.FA -> "تماس صوتی بی‌پاسخ"
+        Language.TR -> "Cevapsız sesli arama"
+    }
+
+    fun teamCallMissedVideo(l: Language): String = when (l) {
+        Language.EN -> "Missed video call"
+        Language.FA -> "تماس تصویری بی‌پاسخ"
+        Language.TR -> "Cevapsız görüntülü arama"
+    }
+
+    fun teamCallNotInPlan(l: Language): String = when (l) {
+        Language.EN -> "Colleague calls are not in your plan"
+        Language.FA -> "تماس با همکاران در پلن شما نیست"
+        Language.TR -> "Meslektaş aramaları planınızda yok"
+    }
+
+    /** The plan's concurrent calls or monthly call minutes are used up. */
+    fun teamCallLimitReached(l: Language): String = when (l) {
+        Language.EN -> "Your plan's call limit has been reached"
+        Language.FA -> "سقف تماس‌های پلن شما پر شده است"
+        Language.TR -> "Planınızın arama sınırına ulaşıldı"
+    }
+
+    /** A ring is a notification on Android: without the permission it cannot show. */
+    fun teamCallNeedsNotifications(l: Language): String = when (l) {
+        Language.EN -> "Allow notifications so colleague calls can ring"
+        Language.FA -> "برای اینکه تماس همکاران زنگ بخورد، اجازهٔ اعلان‌ها را بدهید"
+        Language.TR -> "Meslektaş aramalarının çalabilmesi için bildirimlere izin verin"
+    }
+
+    /** A colleague call is not placed while the microphone is refused. */
+    fun teamCallNeedsMicrophone(l: Language): String = when (l) {
+        Language.EN -> "Allow microphone access in Settings to call a colleague."
+        Language.FA -> "برای تماس با همکار، دسترسی به میکروفون را در تنظیمات اجازه دهید."
+        Language.TR -> "Bir meslektaşınızı aramak için Ayarlar'dan mikrofon erişimine izin verin."
+    }
+
+    /** The colleague thread's phone button. */
+    fun teamCallVoiceAction(l: Language): String = when (l) {
+        Language.EN -> "Voice call"
+        Language.FA -> "تماس صوتی"
+        Language.TR -> "Sesli arama"
+    }
+
+    /** The colleague thread's video button. */
+    fun teamCallVideoAction(l: Language): String = when (l) {
+        Language.EN -> "Video call"
+        Language.FA -> "تماس تصویری"
+        Language.TR -> "Görüntülü arama"
+    }
+
+    fun teamCallAnswer(l: Language): String = when (l) {
+        Language.EN -> "Answer"
+        Language.FA -> "پاسخ"
+        Language.TR -> "Yanıtla"
+    }
+
+    fun teamCallDecline(l: Language): String = when (l) {
+        Language.EN -> "Decline"
+        Language.FA -> "رد تماس"
+        Language.TR -> "Reddet"
+    }
+
+    fun teamCallHangUp(l: Language): String = when (l) {
+        Language.EN -> "End call"
+        Language.FA -> "پایان تماس"
+        Language.TR -> "Aramayı bitir"
+    }
+
+    fun teamCallMute(l: Language): String = when (l) {
+        Language.EN -> "Mute"
+        Language.FA -> "بی‌صدا"
+        Language.TR -> "Sessize al"
+    }
+
+    fun teamCallUnmute(l: Language): String = when (l) {
+        Language.EN -> "Unmute"
+        Language.FA -> "لغو بی‌صدا"
+        Language.TR -> "Sesi aç"
+    }
+
+    fun teamCallSpeaker(l: Language): String = when (l) {
+        Language.EN -> "Speaker"
+        Language.FA -> "بلندگو"
+        Language.TR -> "Hoparlör"
+    }
+
+    fun teamCallCamera(l: Language): String = when (l) {
+        Language.EN -> "Camera"
+        Language.FA -> "دوربین"
+        Language.TR -> "Kamera"
+    }
+
+    /** Front camera to back and back again. */
+    fun teamCallSwitchCamera(l: Language): String = when (l) {
+        Language.EN -> "Switch camera"
+        Language.FA -> "تعویض دوربین"
+        Language.TR -> "Kamerayı değiştir"
     }
 
     fun callNoMicrophone(l: Language): String = when (l) {

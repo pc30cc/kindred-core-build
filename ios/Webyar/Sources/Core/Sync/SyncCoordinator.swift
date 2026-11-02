@@ -70,6 +70,7 @@ final class SyncCoordinator {
     @ObservationIgnored private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
     @ObservationIgnored private var supportContinuations: [UUID: AsyncStream<SupportSignal>.Continuation] = [:]
     @ObservationIgnored private var emailContinuations: [UUID: AsyncStream<EmailSignal>.Continuation] = [:]
+    @ObservationIgnored private var teamCallContinuations: [UUID: AsyncStream<TeamCallSignal>.Continuation] = [:]
     @ObservationIgnored private let api: any WebyarAPI
     /// False for the sample backend: nothing of a screenshot run is kept.
     @ObservationIgnored private let persistent: Bool
@@ -155,6 +156,24 @@ final class SyncCoordinator {
     /// An email arrived by push while the app is open, or was tapped.
     func emailPushArrived(workspaceID: String, provider: String?) {
         emitEmail(EmailSignal(workspaceID: workspaceID, provider: provider))
+    }
+
+    /// A colleague call of this operator's changed, heard on their own
+    /// channel — for `CallManager`, which reads the call again at once
+    /// instead of at its next poll. Not an inbox event: nothing in any list
+    /// moved.
+    func teamCallSignals() -> AsyncStream<TeamCallSignal> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: TeamCallSignal.self, bufferingPolicy: .bufferingNewest(8))
+        teamCallContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.teamCallContinuations[id] = nil }
+        }
+        return stream
+    }
+
+    func emitTeamCall(_ signal: TeamCallSignal) {
+        for continuation in teamCallContinuations.values { continuation.yield(signal) }
     }
 
     // MARK: - Scope
@@ -347,6 +366,10 @@ final class SyncCoordinator {
             guard let self, self.scope == scope else { return }
             self.emitSupport(signal)
         }
+        connection.onTeamCallEvent = { [weak self] signal in
+            guard let self, self.scope == scope else { return }
+            self.emitTeamCall(signal)
+        }
         connection.onTeamConnectionChanged = { [weak self] up in
             guard let self, self.scope == scope else { return }
             self.teamRealtimeConnected = up
@@ -366,6 +389,7 @@ final class SyncCoordinator {
         realtime?.onConnectionChanged = nil
         realtime?.onTeamEvent = nil
         realtime?.onSupportEvent = nil
+        realtime?.onTeamCallEvent = nil
         realtime?.onTeamConnectionChanged = nil
         realtime?.stop()
         realtime = nil

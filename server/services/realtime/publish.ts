@@ -405,14 +405,19 @@ export async function publishOperatorEvent(
 // Team-chat event envelopes
 //   Channel: ws:<workspace_id>:user:<user_id>  (that operator only)
 //   Envelope: { type: 'event', payload: { kind, workspace_id, ... } }
-//   kinds: 'team_message' | 'team_read'
+//   kinds: 'team_message' | 'team_read' | 'team_call'
 //
 // Ids only, never the text: a client that hears one re-reads the thread or
 // the colleague list over REST, where membership is checked again. Polling
 // (the console's 10–20 s) remains the fallback when realtime is off.
+//
+// `team_call` is a colleague call changing state (docs/operations/
+// TEAM_CALLS.md): sent to its caller and its callee on every move, with the
+// new state and outcome, so an app in the foreground stops ringing or
+// connects without waiting for its next poll of GET /api/team-calls/:id.
 // ─────────────────────────────────────────────────────────────────────
 
-export type TeamEventKind = 'team_message' | 'team_read';
+export type TeamEventKind = 'team_message' | 'team_read' | 'team_call';
 
 export interface TeamEventPayload {
   kind: TeamEventKind;
@@ -423,6 +428,10 @@ export interface TeamEventPayload {
   recipient_id?: string;
   /** `team_read`: whose messages the reader has just read. */
   peer_id?: string;
+  /** `team_call`: the call, the state it is now in, and its outcome once over. */
+  call_id?: string;
+  state?: string;
+  outcome?: string | null;
 }
 
 /**

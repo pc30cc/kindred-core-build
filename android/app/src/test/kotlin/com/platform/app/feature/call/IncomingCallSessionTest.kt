@@ -45,6 +45,8 @@ class IncomingCallSessionTest {
         override suspend fun setMicrophone(enabled: Boolean) = true
         override suspend fun setCamera(enabled: Boolean) = true
         override fun setSpeaker(on: Boolean) {}
+        override suspend fun switchCamera(front: Boolean) = true
+        override val hasRemoteParticipant = false
         override suspend fun disconnect() {}
         override fun release() {}
     }

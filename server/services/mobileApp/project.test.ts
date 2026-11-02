@@ -67,7 +67,8 @@ describe('native iOS project facts', () => {
         appIcon1024: true,
         privacyManifestFile: true,
         pushEntitlement: true,
-        backgroundModes: ['audio'],
+        // `voip`: a colleague call rings both apps (PushKit + CallKit).
+        backgroundModes: ['audio', 'voip'],
       });
     }
   });

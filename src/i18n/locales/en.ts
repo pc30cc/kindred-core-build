@@ -472,6 +472,7 @@ const en = {
         ai_operator_assist: 'AI operator assist',
         knowledge_base: 'Knowledge base', help_center: 'Help center',
         call_center: 'Call center', call_recording: 'Call recording', call_queue: 'Call queue', voice_video: 'Voice & video calls',
+        team_calls: 'Calls with colleagues on the phone apps',
         visitor_tracking: 'Live visitor tracking',
         contacts: 'Contact management', automation: 'Automation', analytics: 'Analytics',
         audit_logs: 'Audit logs',

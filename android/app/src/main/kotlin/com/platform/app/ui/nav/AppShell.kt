@@ -267,6 +267,12 @@ fun AppShell(
     val pendingCall by appState.pendingCall.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? MainActivity
+    // Answer pressed on a colleague's ring whose screen is already open: the
+    // call it is for, until that screen has answered it.
+    var answerHere by rememberSaveable { mutableStateOf<String?>(null) }
+    // Whether the screen in front is a call ringing — or answered — on this
+    // phone: what keeps the app over the lock screen as a call screen goes.
+    val ringInFront = { navigator.top.let { it is IncomingCallKey || (it is TeamCallKey && it.incoming) } }
     LaunchedEffect(pendingCall, workspaces) {
         val call = appState.resolvePendingCall()
         if (call == null) {
@@ -277,19 +283,43 @@ fun AppShell(
             // whatever is open — an inbox, a customer's chat — shows to
             // whoever holds the locked phone.
             val waiting = appState.pendingCall.value != null
-            val ringing = navigator.stack(AppTab.INBOX).any { it is IncomingCallKey }
+            val ringing = navigator.stack(AppTab.INBOX).any { it is IncomingCallKey || (it is TeamCallKey && it.incoming) }
             if (!waiting && !ringing) activity?.showOverLockScreen(false)
             return@LaunchedEffect
         }
         enterWorkspace(appState.selectedWorkspace.value?.id)
+        // This call's screen is already open — its ring tapped, then Answer
+        // pressed on the notification: that screen is brought up and, for an
+        // Answer, answers. A second screen for the same call would replace
+        // it, the same kind of screen on top, and the one replaced would
+        // decline the call as it went.
+        val open = navigator.stack(AppTab.INBOX).filterIsInstance<TeamCallKey>().firstOrNull { it.callId == call.callId }
+        if (open != null) {
+            navigator.raise(open)
+            if (call.answer) answerHere = call.callId
+            return@LaunchedEffect
+        }
+        val colleague = call.colleagueId
         navigator.open(
-            IncomingCallKey(
-                callId = call.callId,
-                workspaceId = call.workspaceId,
-                channel = call.channel.wire,
-                caller = call.caller,
-                answer = call.answer,
-            )
+            if (colleague != null) {
+                TeamCallKey(
+                    workspaceId = call.workspaceId,
+                    peerId = colleague,
+                    peerName = call.caller,
+                    peerAvatarUrl = call.callerAvatarUrl,
+                    channel = call.channel.wire,
+                    callId = call.callId,
+                    answer = call.answer,
+                )
+            } else {
+                IncomingCallKey(
+                    callId = call.callId,
+                    workspaceId = call.workspaceId,
+                    channel = call.channel.wire,
+                    caller = call.caller,
+                    answer = call.answer,
+                )
+            }
         )
     }
 
@@ -358,6 +388,7 @@ fun AppShell(
                 key = key,
                 api = api,
                 language = language,
+                ringInFront = ringInFront,
                 onDone = { navigator.back() },
             )
         }
@@ -372,6 +403,17 @@ fun AppShell(
                 onDone = { navigator.back() },
             )
         }
+        entry<TeamCallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+            TeamCallRoute(
+                key = key,
+                api = api,
+                language = language,
+                answerRequested = key.callId != null && key.callId == answerHere,
+                onAnswerTaken = { answerHere = null },
+                ringInFront = ringInFront,
+                onDone = { navigator.back() },
+            )
+        }
         entry<TeamThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
             TeamThreadRoute(
                 peerId = key.peerId,
@@ -380,6 +422,7 @@ fun AppShell(
                 colleagues = colleagues,
                 language = language,
                 onBack = { navigator.back() },
+                onCall = { call -> navigator.open(call) },
             )
         }
         entry<EmailKey>(

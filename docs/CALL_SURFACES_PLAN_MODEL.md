@@ -15,6 +15,7 @@ two layers compose.
 | `call_recording` | feature | calls | Plan-level recording allowance. Added. |
 | `call_queue` | feature | calls | Plan-level queue surface allowance. Added. |
 | `call_callbacks` | feature | calls | Plan-level visitor callback allowance. Added. |
+| `team_calls` | feature | calls | Colleague calls: two members of a workspace, from the team chat, ringing on the phones (`POST /api/team-calls`, docs/operations/TEAM_CALLS.md). Plan-only (not workspace-overridable), default off; ANDed with `voice_video` + `voice`/`video` and the runtime switches on create. Added 2026-11-01. |
 
 No new numeric limits were introduced in this phase. The runtime
 control plane already owns the per-call defaults (max participants,

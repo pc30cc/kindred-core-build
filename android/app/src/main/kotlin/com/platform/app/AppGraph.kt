@@ -27,6 +27,7 @@ import com.platform.app.core.net.Backend
 import com.platform.app.core.net.ServerApi
 import com.platform.app.core.push.CallCancel
 import com.platform.app.core.push.CallNotifications
+import com.platform.app.core.push.CallerFace
 import com.platform.app.core.push.FirebasePushTokens
 import com.platform.app.core.push.IncomingCallRouter
 import com.platform.app.core.push.Notifications
@@ -57,7 +58,11 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import com.platform.app.feature.call.TeamCallNudge
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
@@ -189,10 +194,35 @@ class AppGraph(private val app: Application) {
     /** Rings the server stopped, for a ringing call on screen to stop with them. */
     val callCancels: SharedFlow<CallCancel> = _callCancels.asSharedFlow()
 
+    private val _teamCallNudges = MutableSharedFlow<TeamCallNudge>(extraBufferCapacity = 16)
+
     /**
-     * Call-centre rings, which arrive whatever state the app is in: the
-     * signed-in check and the language come from storage, not from a
-     * session a cold start has not restored yet.
+     * What a colleague call on screen needs to hear from outside it: its
+     * ring stopped by the server, a button pressed on one of its
+     * notifications, and — from the member's own realtime channel — word
+     * that the call moved, which it then reads again.
+     */
+    val teamCallNudges: Flow<TeamCallNudge> = merge(
+        _teamCallNudges,
+        sync.team.mapNotNull { signal -> signal.callId?.takeIf { signal.isCall }?.let { TeamCallNudge.Changed(it) } },
+    )
+
+    /** Decline was pressed on a colleague's ring, and the server told: a ring screen for it closes. */
+    fun teamCallDeclinedFromNotification(callId: String) {
+        _teamCallNudges.tryEmit(TeamCallNudge.DeclinedHere(callId))
+    }
+
+    /**
+     * End was pressed on a colleague call's ongoing notification: the call
+     * on screen hangs up. False when there is no call screen to do it.
+     */
+    fun hangUpTeamCallFromNotification(callId: String): Boolean =
+        _teamCallNudges.subscriptionCount.value > 0 && _teamCallNudges.tryEmit(TeamCallNudge.HangUp(callId))
+
+    /**
+     * Call-centre rings, and colleagues', which arrive whatever state the
+     * app is in: the signed-in check and the language come from storage,
+     * not from a session a cold start has not restored yet.
      */
     val incomingCalls = IncomingCallRouter(
         signedInAccount = { session.user?.id ?: pushState.session()?.accountId },
@@ -201,6 +231,13 @@ class AppGraph(private val app: Application) {
         stop = { cancel, language ->
             CallNotifications.stop(app, cancel.callId, cancel.reason.missed, language)
             _callCancels.tryEmit(cancel)
+        },
+        ringColleague = { ring, language ->
+            CallNotifications.showTeamIncoming(app, ring, language, CallerFace.photo(app, ring.callerAvatarUrl))
+        },
+        stopColleague = { cancel, language ->
+            CallNotifications.stopTeam(app, cancel.callId, cancel.reason.missed, language)
+            _teamCallNudges.tryEmit(TeamCallNudge.RingStopped(cancel.callId, cancel.reason))
         },
         diag = diag,
     )

@@ -32,13 +32,25 @@ the operator APIs' system messages follow too):
 | New email (Gmail / Yahoo, received in the last 15 minutes) | `notifyEmailMessage` | `email_message` + `threadId` | everyone following everything |
 | Callback request | `notifyCallbackRequest` | `callback_request` + `callbackId` | everyone following everything |
 | Call-centre call | `ringOperators` / `cancelRing` | `call_incoming` / `call_cancel` (Android, data-only) | the agent routed to, or every available agent |
+| Colleague call | `ringTeamCall` / `cancelTeamCallRing` (`teamCallRing.ts`) | VoIP `{kind: team_call, event: incoming}` (iOS); `team_call_incoming` / `team_call_cancel` (Android, data-only) | every phone of the colleague called |
+| Missed colleague call | `notifyTeamCallMissed` | `team_call_missed` + `peerId`, `callId`, `channel` | the colleague it rang, under the colleague-chat switch (`push_team_chat`) |
 
-A call rings iPhones over PushKit and Android phones with a data-only,
-high-priority FCM message: the app draws a full-screen incoming call with
-Answer and Decline. Answer takes the call through
-`POST /api/call-center/calls/:id/accept`; Decline only silences that phone —
-the call centre's own reject would hang up on the caller for everyone. A ring
-that stops with nobody having answered it leaves a missed-call notification.
+A call-centre call rings Android phones with a data-only, high-priority FCM
+message: the app draws a full-screen incoming call with Answer and Decline.
+Answer takes the call through `POST /api/call-center/calls/:id/accept`;
+Decline only silences that phone — the call centre's own reject would hang up
+on the caller for everyone. A ring that stops with nobody having answered it
+leaves a missed-call notification.
+
+iPhones are not rung for call-centre calls (owner, 2026-11-01): neither the
+ring nor its cancel goes to PushKit. An iPhone's VoIP token is there for
+colleague calls only, and iOS turns every VoIP push into a CallKit call, so a
+visitor's ring — and its "cancel" — would each ring it. A colleague call
+rings an iPhone with exactly one VoIP push and never sends it another: the
+ringing app stops from the API (it polls `GET /api/team-calls/:id`), its
+realtime channel and `expires_at`. Its Android phones get
+`team_call_incoming`, and `team_call_cancel` only to the ones rung, never to
+the one that answered. The contract is `docs/operations/TEAM_CALLS.md`.
 
 Delivery is best-effort and idempotent (`push_dispatch_log.dedupe_key`); a push
 failure can never fail or roll back message ingestion.

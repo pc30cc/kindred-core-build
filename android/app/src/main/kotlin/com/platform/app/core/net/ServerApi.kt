@@ -32,6 +32,8 @@ import com.platform.app.core.model.Message
 import com.platform.app.core.model.MobileAppConfig
 import com.platform.app.core.model.Promotions
 import com.platform.app.core.model.SayNowVoice
+import com.platform.app.core.model.TeamCall
+import com.platform.app.core.model.TeamCallAcceptance
 import com.platform.app.core.model.TeamThreadResponse
 import com.platform.app.core.model.User
 import com.platform.app.core.model.VisitorProfile
@@ -592,6 +594,50 @@ interface ServerApi {
      */
     suspend fun endCenterCall(workspaceId: String, callSessionId: String): Unit =
         throw UnsupportedOperationException("endCenterCall")
+
+    // MARK: - Colleague calls
+    //
+    // `/api/team-calls`, docs/operations/TEAM_CALLS.md. Every answer is the
+    // call as the signed-in member sees it; a refusal is an [ApiError.Server]
+    // carrying the doc's code (`callee_busy`, `upgrade_required`, …) as its
+    // message.
+
+    /**
+     * Rings [calleeId]'s phones: `POST /api/team-calls`, `201 {call}` in
+     * `ringing`. Workspace first, as everywhere in this interface.
+     */
+    suspend fun createTeamCall(workspaceId: String, calleeId: String, channel: CallChannel): TeamCall
+
+    /** `GET /api/team-calls/:id`: where the call is now. */
+    suspend fun teamCall(callId: String): TeamCall
+
+    /**
+     * Answers a call ringing this phone, as [deviceId] — the id this app
+     * registers its push device with, which is how the server tells the
+     * callee's other phones that the call went elsewhere. The first answer
+     * wins; a later one is [TeamCallAcceptance.NotRinging].
+     */
+    suspend fun acceptTeamCall(callId: String, deviceId: String?): TeamCallAcceptance
+
+    /** The callee says no: the caller's call ends at once. Idempotent. */
+    suspend fun declineTeamCall(callId: String)
+
+    /**
+     * The caller gives up before an answer. Idempotent. The call as it now
+     * stands: a cancel that crossed the colleague's answer finds it answered,
+     * and that call is then the caller's to hang up.
+     */
+    suspend fun cancelTeamCall(callId: String): TeamCall
+
+    /** Either side ends an answered call. Idempotent. */
+    suspend fun hangUpTeamCall(callId: String)
+
+    /**
+     * This member's own LiveKit token for the call's room, once it is
+     * answered — the same answer as [callToken]'s, minted from the session
+     * alone: nothing in the request names who is joining.
+     */
+    suspend fun teamCallToken(callId: String): CallToken
 
     // MARK: - Account
 

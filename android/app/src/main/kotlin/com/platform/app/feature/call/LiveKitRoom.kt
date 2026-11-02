@@ -15,6 +15,7 @@ import io.livekit.android.events.collect
 import io.livekit.android.renderer.TextureViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.CameraPosition
+import io.livekit.android.room.track.LocalVideoTrack
 import io.livekit.android.room.track.LocalVideoTrackOptions
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.TrackPublication
@@ -26,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -35,6 +37,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import livekit.org.webrtc.Camera1Enumerator
+import livekit.org.webrtc.Camera2Enumerator
+import livekit.org.webrtc.CameraEnumerator
 import livekit.org.webrtc.PeerConnection
 
 /**
@@ -67,6 +73,13 @@ class LiveKitRoom(private val context: Context) : CallRoom {
 
     private var room: Room? = null
     private var listening: Job? = null
+
+    /**
+     * Where the sound goes, as last asked ([setSpeaker]) — before the room
+     * exists too, so a call can start on the earpiece. The loudspeaker until
+     * told otherwise: a visitor's call is a desk call.
+     */
+    private var speaker = true
 
     /**
      * On the main thread, like every other caller of [refreshTracks].
@@ -107,7 +120,7 @@ class LiveKitRoom(private val context: Context) : CallRoom {
             overrides = LiveKitOverrides(audioOptions = AudioOptions(audioHandler = audio)),
         )
         this.room = room
-        audio.preferredDeviceList = SPEAKER_FIRST
+        audio.preferredDeviceList = if (speaker) SPEAKER_FIRST else EARPIECE_FIRST
         listening = scope.launch { listen(room) }
 
         try {
@@ -275,8 +288,49 @@ class LiveKitRoom(private val context: Context) : CallRoom {
      * has plugged one in has said where they want the sound.
      */
     override fun setSpeaker(on: Boolean) {
+        speaker = on
         audio.preferredDeviceList = if (on) SPEAKER_FIRST else EARPIECE_FIRST
     }
+
+    /**
+     * Through the camera track itself, which restarts its capturer on the
+     * other lens; the publication and the picture the other side sees stay
+     * the same track.
+     *
+     * The SDK's switch says nothing back: asked for a side the phone has no
+     * camera on, it does not move there, and a capturer that refuses to move
+     * tells only a callback of the SDK's own. So the lens is looked for
+     * first, and the switch is read back from the track's options, which the
+     * SDK moves to the new lens once its first picture has arrived: true only
+     * when the lens asked for is the one in use, so a mirror drawn from the
+     * answer matches the picture.
+     */
+    override suspend fun switchCamera(front: Boolean): Boolean {
+        val room = room ?: return false
+        val track = room.localParticipant.getTrackPublication(Track.Source.CAMERA)?.track as? LocalVideoTrack
+            ?: return false
+        val target = if (front) CameraPosition.FRONT else CameraPosition.BACK
+        if (track.options.position == target) return true
+        if (!hasCamera(front)) return false
+        runCatchingUnlessCancelled { track.switchCamera(position = target) }.getOrElse { return false }
+        return withTimeoutOrNull(CAMERA_SWITCH_MS) {
+            while (track.options.position != target) delay(CAMERA_SWITCH_POLL_MS)
+            true
+        } ?: false
+    }
+
+    /**
+     * Whether this phone has a camera facing that way, by the same Camera2
+     * (or, before it, Camera1) list the SDK's own capturer picks from.
+     */
+    private fun hasCamera(front: Boolean): Boolean = runCatching {
+        val cameras: CameraEnumerator =
+            if (Camera2Enumerator.isSupported(context)) Camera2Enumerator(context) else Camera1Enumerator(true)
+        cameras.deviceNames.any { if (front) cameras.isFrontFacing(it) else cameras.isBackFacing(it) }
+    }.getOrDefault(false)
+
+    override val hasRemoteParticipant: Boolean
+        get() = room?.remoteParticipants?.isNotEmpty() == true
 
     override suspend fun disconnect() {
         room?.disconnect()
@@ -293,6 +347,10 @@ class LiveKitRoom(private val context: Context) : CallRoom {
     }
 
     private companion object {
+        /** Long enough for a capturer to restart on the other lens and send its first picture. */
+        const val CAMERA_SWITCH_MS = 3_000L
+        const val CAMERA_SWITCH_POLL_MS = 50L
+
         val SPEAKER_FIRST = listOf(
             AudioDevice.BluetoothHeadset::class.java,
             AudioDevice.WiredHeadset::class.java,

@@ -6,16 +6,20 @@
  * went out on the realtime channel and nowhere else. A phone in a pocket
  * learned about a waiting caller when its owner next looked at it.
  *
- * What this adds is the missing half: a VoIP push per eligible operator, which
- * iOS hands to PushKit and the app turns into a real CallKit ring — the phone
- * rings on the lock screen, with the caller's name, whether the app is open,
- * backgrounded or not running at all.
+ * What this adds is the missing half for Android: a data-only, high-priority
+ * FCM message per eligible operator's phone (`type: call_incoming`), which the
+ * app turns into a full-screen incoming-call notification with Answer and
+ * Decline; the cancel that follows (`type: call_cancel`) stops it, and one
+ * that says nobody answered leaves a missed-call notification behind.
  *
- * Android has no PushKit. Its phones are rung with a data-only, high-priority
- * FCM message instead (`type: call_incoming`), which the app turns into a
- * full-screen incoming-call notification with Answer and Decline; the cancel
- * that follows (`type: call_cancel`) stops it, and one that says nobody
- * answered leaves a missed-call notification behind.
+ * iPhones are not rung for call-centre calls (owner, 2026-11-01; docs/
+ * operations/TEAM_CALLS.md). An iPhone's VoIP token is there for colleague
+ * calls (teamCallRing.ts), and iOS requires every VoIP push to become a
+ * CallKit call: a visitor's ring would ring it, and the cancel that follows
+ * would ring it again. So neither a ring nor a cancel of a visitor call ever
+ * goes to PushKit. ringTestDevice, Super Admin's diagnostic, still rings an
+ * iPhone, with the colleague ring's own payload (teamCallRing.ts), the only
+ * VoIP push the app takes for a ring.
  *
  * Rules that keep it honest:
  *  • Ringing follows the SAME routing decision the console follows. An
@@ -24,8 +28,8 @@
  *  • Every send is best-effort and swallowed. A phone that cannot be reached
  *    must never fail the call for the visitor or for anyone else.
  *  • A ring is always followed by a cancel — on accept, reject, end or the
- *    visitor hanging up — because a CallKit call that nothing ends keeps
- *    ringing until iOS gives up, which is the single worst bug this feature
+ *    visitor hanging up — because a full-screen ring that nothing ends keeps
+ *    ringing until it times out, which is the single worst bug this feature
  *    can have.
  */
 import type { ServerConfig } from '../../config.js';
@@ -34,7 +38,8 @@ import { randomUUID } from 'node:crypto';
 import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
 import { sendFcmData, isPushConfigured } from './fcm.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../storage/urlResolver.js';
-import { disableToken } from './devices.js';
+import { disableToken, forgetVoipToken } from './devices.js';
+import { teamCallVoipPayload } from './teamCallRing.js';
 import { contactOwnName } from './contactName.js';
 
 /** How long a ring is worth delivering. Past this it is a missed call. */
@@ -115,45 +120,21 @@ export async function ringOperators(
   config: ServerConfig,
   input: RingInput,
 ): Promise<{ sent: number; devices: number }> {
-  const voip = isVoipConfigured();
-  const fcm = isPushConfigured();
-  if (!voip && !fcm) return { sent: 0, devices: 0 };
+  // Android only: an iPhone is never rung for a visitor's call (see the top
+  // of this file), whatever VoIP token it has registered.
+  if (!isPushConfigured()) return { sent: 0, devices: 0 };
   try {
     const userIds = await resolveRingRecipients(config, input);
     if (!userIds.length) return { sent: 0, devices: 0 };
 
-    const [devices, androids] = await Promise.all([
-      voip ? voipDevicesFor(config, userIds) : Promise.resolve([] as RingDevice[]),
-      fcm ? androidDevicesFor(config, userIds) : Promise.resolve([] as AndroidRingDevice[]),
-    ]);
-    if (!devices.length && !androids.length) return { sent: 0, devices: 0 };
+    const androids = await androidDevicesFor(config, userIds);
+    if (!androids.length) return { sent: 0, devices: 0 };
 
     const caller = await describeCaller(config, input.workspaceId, input.callSessionId);
     const expiresAt = Math.floor(Date.now() / 1000) + RING_TTL_SECONDS;
-    const payload = {
-      event: 'incoming',
-      call_id: input.callSessionId,
-      workspace_id: input.workspaceId,
-      workspace_name: caller.workspaceName,
-      channel: input.channel,
-      caller: caller.name,
-      caller_id: caller.id,
-      avatar_url: caller.avatarUrl,
-      expires_at: expiresAt,
-    };
 
-    const outcomes = await Promise.all([
-      ...devices.map(async (device) => {
-        const outcome = await sendVoipPush({
-          token: device.voipToken,
-          payload,
-          collapseId: input.callSessionId,
-          expirationSeconds: RING_TTL_SECONDS,
-        });
-        if (outcome.unregistered) await forgetVoipToken(config, device.id);
-        return outcome.ok;
-      }),
-      ...ringAndroids(config, androids, androidRingData({
+    const outcomes = await Promise.all(
+      ringAndroids(config, androids, androidRingData({
         callSessionId: input.callSessionId,
         workspaceId: input.workspaceId,
         workspaceName: caller.workspaceName,
@@ -166,8 +147,8 @@ export async function ringOperators(
         avatarUrl: caller.avatarUrl,
         expiresAt,
       })),
-    ]);
-    return { sent: outcomes.filter(Boolean).length, devices: devices.length + androids.length };
+    );
+    return { sent: outcomes.filter(Boolean).length, devices: androids.length };
   } catch (err) {
     console.warn('[call-ring] ring failed:', err instanceof Error ? err.message : err);
     return { sent: 0, devices: 0 };
@@ -175,12 +156,15 @@ export async function ringOperators(
 }
 
 /**
- * Stops every phone that might be ringing for this call.
+ * Stops every Android phone that might be ringing for this call.
  *
  * Sent to all devices that could have been rung rather than only the ones we
  * know we reached: a ring delivered to a phone we then forgot about would
  * otherwise keep ringing with nothing to stop it. Duplicated cancels are
  * harmless — the app ends a call it has already ended without complaint.
+ *
+ * Never a VoIP push: iPhones were not rung (ringOperators), and a VoIP
+ * "cancel" is itself a push iOS turns into a ringing CallKit call.
  */
 export async function cancelRing(
   config: ServerConfig,
@@ -189,7 +173,10 @@ export async function cancelRing(
     callSessionId: string;
     /** Why it stopped, so the phone can say "answered elsewhere". */
     reason: 'answered' | 'declined' | 'ended' | 'cancelled' | 'timeout';
-    /** The operator who took it, so their own phone is left alone. */
+    /**
+     * An operator whose phones are left alone — except on 'answered', where
+     * the one who took the call is told as well (below).
+     */
     exceptUserId?: string | null;
     /**
      * Silences only this operator's phones. A rejection is personal: the
@@ -198,55 +185,31 @@ export async function cancelRing(
     onlyUserId?: string | null;
   },
 ): Promise<void> {
-  const voip = isVoipConfigured();
-  const fcm = isPushConfigured();
-  if (!voip && !fcm) return;
+  if (!isPushConfigured()) return;
   try {
     const userIds = input.onlyUserId
       ? [input.onlyUserId]
       : await everyAgentInWorkspace(config, input.workspaceId);
-    const targets = input.exceptUserId
-      ? userIds.filter((id) => id !== input.exceptUserId)
-      : userIds;
     // An Android phone is told even when it belongs to the operator who took
-    // the call. There is no CallKit call on it to keep alive — answering on
-    // the phone already stopped its ring, and a call answered at the desk
-    // would otherwise go on ringing in their pocket, and then read as missed.
-    const androidTargets = input.reason === 'answered' ? userIds : targets;
-    if (!targets.length && !androidTargets.length) return;
+    // the call. There is nothing on it to keep alive — answering on the phone
+    // already stopped its ring, and a call answered at the desk would
+    // otherwise go on ringing in their pocket, and then read as missed.
+    const targets = input.reason === 'answered' || !input.exceptUserId
+      ? userIds
+      : userIds.filter((id) => id !== input.exceptUserId);
+    if (!targets.length) return;
 
-    const [devices, androids] = await Promise.all([
-      voip && targets.length ? voipDevicesFor(config, targets) : Promise.resolve([] as RingDevice[]),
-      fcm ? androidDevicesFor(config, androidTargets) : Promise.resolve([] as AndroidRingDevice[]),
-    ]);
-    if (!devices.length && !androids.length) return;
+    const androids = await androidDevicesFor(config, targets);
+    if (!androids.length) return;
 
-    const payload = {
-      event: 'cancel',
-      call_id: input.callSessionId,
-      workspace_id: input.workspaceId,
-      reason: input.reason,
-    };
-    await Promise.all([
-      ...ringAndroids(config, androids, {
+    await Promise.all(
+      ringAndroids(config, androids, {
         type: 'call_cancel',
         callId: input.callSessionId,
         workspaceId: input.workspaceId,
         reason: input.reason,
       }),
-      ...devices.map(async (device) => {
-        const outcome = await sendVoipPush({
-          token: device.voipToken,
-          payload,
-          collapseId: input.callSessionId,
-          // A cancel that arrives late is worse than useless, so it expires
-          // with the ring it is cancelling.
-          expirationSeconds: RING_TTL_SECONDS,
-        });
-        if (outcome.unregistered) await forgetVoipToken(config, device.id);
-        return outcome.ok;
-      }),
-    ]);
+    );
   } catch (err) {
     console.warn('[call-ring] cancel failed:', err instanceof Error ? err.message : err);
   }
@@ -398,17 +361,6 @@ async function androidDevicesFor(
     .map((row) => ({ id: String(row.id), userId: String(row.user_id), token: row.push_token }));
 }
 
-async function forgetVoipToken(config: ServerConfig, deviceId: string): Promise<void> {
-  try {
-    const sb = getServiceClient(config);
-    // The device keeps its notification token: only its VoIP address is dead.
-    await sb
-      .from('mobile_push_devices')
-      .update({ voip_token: null, voip_token_updated_at: new Date().toISOString() })
-      .eq('id', deviceId);
-  } catch { /* best-effort */ }
-}
-
 // ── Who is calling ──────────────────────────────────────────────────────
 
 interface CallerDescription {
@@ -536,9 +488,18 @@ function firstNonEmpty(values: Array<string | null | undefined>): string | null 
  * demand the only test is to have somebody load the website and call, then
  * guess which link broke. This makes the chain testable in one tap.
  *
- * It rings a real CallKit call on the tester's device, with a call id that
- * belongs to no call session, so answering it finds nothing to answer and the
- * app ends it. That is the honest behaviour: the point is the ring.
+ * Each phone gets the ring it would get for a real call, with a call id that
+ * belongs to no call session:
+ *  • an Android phone, the call-centre ring (`call_incoming`): its full-screen
+ *    ring stays up until it is answered, declined or runs out, and answering
+ *    it finds nothing to answer;
+ *  • an iPhone, the colleague ring (teamCallVoipPayload — the only VoIP push
+ *    the app takes for a ring; anything else it reports to CallKit and ends
+ *    at once, by iOS's rule that every VoIP push becomes a call). CallKit
+ *    shows the incoming call under [callerName] — the proof that key, topic,
+ *    token, PushKit and the app's parser all hold — and the app ends it as
+ *    soon as its first read of the call answers 404, which is the honest
+ *    behaviour for a call that does not exist: the point is the ring.
  */
 export async function ringTestDevice(
   config: ServerConfig,
@@ -552,14 +513,17 @@ export async function ringTestDevice(
   if (!devices.length && !androids.length) return { devices: 0, sent: 0, failures: ['no_devices'] };
 
   const callId = randomUUID();
-  const payload = {
-    event: 'incoming',
-    call_id: callId,
-    workspace_id: TEST_WORKSPACE_ID,
+  const expiresAt = Math.floor(Date.now() / 1000) + RING_TTL_SECONDS;
+  const payload = teamCallVoipPayload({
+    callId,
+    workspaceId: TEST_WORKSPACE_ID,
+    workspaceName: null,
     channel: input.channel,
-    caller: input.callerName,
-    expires_at: Math.floor(Date.now() / 1000) + RING_TTL_SECONDS,
-  };
+    callerUserId: callId,
+    callerName: input.callerName,
+    callerAvatarUrl: null,
+    expiresAt,
+  });
 
   const failures: string[] = [];
   let sent = 0;
@@ -571,7 +535,7 @@ export async function ringTestDevice(
     caller: input.callerName,
     callerId: callId,
     avatarUrl: null,
-    expiresAt: payload.expires_at,
+    expiresAt,
   });
   for (const ok of await Promise.all(ringAndroids(config, androids, androidData))) {
     if (ok) sent += 1;

@@ -76,6 +76,8 @@ class CallSessionTest {
         override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return true }
         override suspend fun setCamera(enabled: Boolean): Boolean { cameraEnabled = enabled; return true }
         override fun setSpeaker(on: Boolean) { speaker = on }
+        override suspend fun switchCamera(front: Boolean) = true
+        override val hasRemoteParticipant = false
         override suspend fun disconnect() { disconnected = true }
         override fun release() { released = true }
     }

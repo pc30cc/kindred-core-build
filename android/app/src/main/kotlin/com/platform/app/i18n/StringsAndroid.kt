@@ -203,9 +203,26 @@ object StrAndroid {
     }
 
     fun channelCallsDescription(l: Language): String = when (l) {
-        Language.EN -> "Visitors calling the call centre"
-        Language.FA -> "تماس بازدیدکنندگان با مرکز تماس"
-        Language.TR -> "Çağrı merkezini arayan ziyaretçiler"
+        Language.EN -> "Visitors calling the call centre, and colleagues calling you"
+        Language.FA -> "تماس بازدیدکنندگان با مرکز تماس و تماس همکاران با شما"
+        Language.TR -> "Çağrı merkezini arayan ziyaretçiler ve sizi arayan iş arkadaşları"
+    }
+
+    /**
+     * The quiet channel a colleague call in progress sits in, apart from the
+     * ringing one: an ongoing call must not ring, and silencing it must not
+     * silence the next ring.
+     */
+    fun channelOngoingCalls(l: Language): String = when (l) {
+        Language.EN -> "Ongoing calls"
+        Language.FA -> "تماس‌های در جریان"
+        Language.TR -> "Devam eden aramalar"
+    }
+
+    fun channelOngoingCallsDescription(l: Language): String = when (l) {
+        Language.EN -> "A call with a colleague while it is on"
+        Language.FA -> "تماس با همکار تا زمانی که برقرار است"
+        Language.TR -> "Sürdüğü sürece bir iş arkadaşıyla yapılan arama"
     }
 
     /** Under the caller's name while a call rings. */

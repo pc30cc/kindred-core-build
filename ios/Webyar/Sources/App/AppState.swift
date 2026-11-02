@@ -150,16 +150,7 @@ final class AppState {
 
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
-        let chosen = LanguageChoice.starting(
-            stored: UserDefaults.standard.string(forKey: Self.languageKey),
-            platformDefault: UserDefaults.standard.string(forKey: Self.platformLanguageKey),
-            compiled: AppBrand.defaultLanguage
-        )
-        #if DEBUG
-        self.language = LanguageOverride.current ?? chosen
-        #else
-        self.language = chosen
-        #endif
+        self.language = Self.storedLanguage()
 
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
@@ -171,6 +162,25 @@ final class AppState {
     }
 
     // MARK: - Language
+
+    /// The language as this phone has it stored: the operator's choice, else
+    /// the platform's default as last read, else the build's. What `language`
+    /// starts as — and, since every change of it is stored at once, what it
+    /// is now, for the one part of the app that runs without a scene and so
+    /// without this object: a colleague's ring, which can launch the app on
+    /// the lock screen and has to name the caller there (`CallManager`).
+    static func storedLanguage() -> Language {
+        let chosen = LanguageChoice.starting(
+            stored: UserDefaults.standard.string(forKey: languageKey),
+            platformDefault: UserDefaults.standard.string(forKey: platformLanguageKey),
+            compiled: AppBrand.defaultLanguage
+        )
+        #if DEBUG
+        return LanguageOverride.current ?? chosen
+        #else
+        return chosen
+        #endif
+    }
 
     /// What the platform says before sign-in: the privacy policy and terms,
     /// and the language Super Admin chose for the iOS app — switched to when
@@ -415,6 +425,8 @@ final class AppState {
         // Whoever signs in next must not be greeted by the last person's
         // name while the server is being asked who they are.
         SessionCache.clear()
+        // A colleague call cannot outlive the session it was made in.
+        CallManager.shared.sessionEnded()
         // In-memory copies of this account go at once, whatever else happens.
         await SyncCoordinator.shared.endSession(userID: leaving, purge: purgeCache)
     }
@@ -674,6 +686,15 @@ final class AppState {
     /// Whether the internal operator-to-operator inbox belongs here: the key
     /// the console gates its Colleagues tab on, under the Super Admin switch.
     var colleaguesVisible: Bool { appConfig.showColleagues && featureEnabled("inbox_team_chat") }
+
+    /// Whether a colleague's thread offers this kind of call
+    /// (`Entitlements.allowsTeamCall`). Follows the plan as it refreshes, so
+    /// a plan switched on or off in Super Admin shows or hides the buttons
+    /// by itself; the platform's and the workspace's own voice and video
+    /// switches are the server's to apply when the call is placed.
+    func teamCallAllowed(_ channel: CallChannel) -> Bool {
+        entitlements.value?.allowsTeamCall(channel) == true
+    }
 
     /// Whether Settings shows Storage. Super Admin's switch alone: it is not
     /// a plan feature, and hiding it leaves the cache working as before.

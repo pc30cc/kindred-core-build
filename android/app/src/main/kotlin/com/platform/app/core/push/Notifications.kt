@@ -30,6 +30,7 @@ fun PushPayload.Companion.from(intent: Intent?): PushPayload? {
         threadId = extras.getString(KEY_THREAD)?.takeIf { isId(it) },
         callbackId = extras.getString(KEY_CALLBACK)?.takeIf { isId(it) },
         provider = extras.getString(KEY_PROVIDER)?.takeIf { isProvider(it) },
+        callId = extras.getString(KEY_CALL)?.takeIf { isId(it) },
     )
     return payload.takeIf { it.opensSomething }
 }
@@ -40,9 +41,9 @@ fun PushPayload.Companion.from(intent: Intent?): PushPayload? {
  * One channel, [AppBrand.messagesChannel] — the id the server names in every FCM
  * message it sends (`android.notification.channel_id`), so the system files
  * a background notification under the same channel the app's own settings
- * describe. No second channel for calls: this platform receives no call
- * pushes (the server rings calls over APNs VoIP only), and a channel with
- * nothing in it is one more switch that does nothing.
+ * describe. A ringing call is not a message and has its own channels
+ * ([CallNotifications]); what a call leaves behind — a missed call — is
+ * filed here, beside the messages it is read with.
  */
 object Notifications {
     const val CHANNEL_MESSAGES = AppBrand.messagesChannel
@@ -107,13 +108,17 @@ object Notifications {
             openIntent(context, payload),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // A missed colleague call wears the call's icon and is filed as a
+        // missed call — the server's (drawn by the system in the
+        // background) and the app's own (`CallNotifications.stopTeam`) alike.
+        val missedCall = payload.isTeamCallMissed
         val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-            .setSmallIcon(R.drawable.ic_stat_brand)
+            .setSmallIcon(if (missedCall) R.drawable.ic_stat_call else R.drawable.ic_stat_brand)
             .setColor(ContextCompat.getColor(context, R.color.brand_deep))
             .setContentTitle(title?.takeIf { it.isNotBlank() } ?: StrAndroid.newMessage(language))
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setCategory(if (missedCall) NotificationCompat.CATEGORY_MISSED_CALL else NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(tap)
@@ -176,11 +181,13 @@ object Notifications {
             payload.threadId?.let { putExtra(PushPayload.KEY_THREAD, it) }
             payload.callbackId?.let { putExtra(PushPayload.KEY_CALLBACK, it) }
             payload.provider?.let { putExtra(PushPayload.KEY_PROVIDER, it) }
+            payload.callId?.let { putExtra(PushPayload.KEY_CALL, it) }
         }
 
     /** What one notification stands for: a conversation, or a colleague's thread. */
     private fun keyOf(payload: PushPayload): String? = when {
         payload.isTeamMessage -> payload.peerId?.let(::teamKey)
+        payload.isTeamCallMissed -> payload.callId?.let(::teamCallKey)
         payload.isEmail -> payload.threadId?.let(::emailKey)
         payload.isCallback -> payload.callbackId?.let { "callback:$it" }
         payload.isSupport -> payload.threadId?.let(::supportKey)
@@ -190,6 +197,13 @@ object Notifications {
     // A conversation's key is its bare id; a colleague's is marked so that
     // the two can never share a notification.
     private fun teamKey(peerId: String) = "team:$peerId"
+
+    /**
+     * The server's tag for a missed colleague call (`androidNotificationTag`,
+     * `fcm.ts`): one per call, so it never replaces that colleague's messages
+     * nor an earlier missed call.
+     */
+    private fun teamCallKey(callId: String) = "team_call:$callId"
 
     /** The server's tag for new mail in a thread (`androidNotificationTag`, `fcm.ts`). */
     private fun emailKey(threadId: String) = "email:$threadId"

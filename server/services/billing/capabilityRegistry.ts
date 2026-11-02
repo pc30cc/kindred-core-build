@@ -201,6 +201,13 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'call_recording',        type: 'feature', label: 'Call Recording',         group: 'calls',    description: 'Allow operators to record voice/video calls. Bounded by global call_recording_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
   { key: 'call_queue',            type: 'feature', label: 'Call Queue',             group: 'calls',    description: 'Plan-level access to the call queue / routing surface. Bounded by global call_queue_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'call_callbacks',        type: 'feature', label: 'Call Callbacks',         group: 'calls',    description: 'Allow visitors to request a callback when SLA is breached. Bounded by global callback_offer_after_timeout runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
+  // Colleague calls (owner, 2026-11-01; docs/operations/TEAM_CALLS.md): a
+  // member calls a colleague from the team chat and their phones ring like a
+  // phone call. Checked on create by POST /api/team-calls together with the
+  // call composer (voice_video, the voice/video channel, the runtime
+  // switches) and the call limits; never on continuity. Plan-only: the Super
+  // Admin turns it on per plan, not per workspace.
+  { key: 'team_calls',            type: 'feature', label: 'Colleague Calls',        group: 'calls',    description: 'Voice and video calls between two members of a workspace, placed from the team chat and ringing on their phones (iOS and Android apps). Bounded by the voice_video module, the voice/video channel and the platform and workspace call switches; their minutes and concurrency count in max_call_minutes_per_month and max_concurrent_calls.', defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true,  sortOrder: 40 },
 
   // ─── Contacts surface features (bounded by the `contacts` module) ───
   { key: 'contact_import',        type: 'feature', label: 'Contact Import',         group: 'contacts', description: 'CSV import wizard for bulk-creating contact records. Bounded by the Contacts module.',                                  defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },

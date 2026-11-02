@@ -200,6 +200,10 @@ export function androidNotificationTag(data: Record<string, string>): string | u
   switch (data.type) {
     case 'team_message':
       return data.peerId ? `team:${data.peerId}` : undefined;
+    // One per call: a missed call never replaces that colleague's messages,
+    // nor an earlier missed call.
+    case 'team_call_missed':
+      return data.callId ? `team_call:${data.callId}` : undefined;
     case 'email_message':
       return data.threadId ? `email:${data.threadId}` : undefined;
     case 'callback_request':

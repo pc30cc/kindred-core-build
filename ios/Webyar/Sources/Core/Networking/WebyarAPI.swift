@@ -109,6 +109,23 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
     func callToken(callSessionID: String, displayName: String?) async throws -> CallToken
     func hangUp(callSessionID: String) async throws
 
+    // MARK: Colleague calls (`/api/team-calls`, docs/operations/TEAM_CALLS.md)
+
+    /// Rings a colleague; a refusal is `APIError.server` carrying the
+    /// server's code (`TeamCallEnd.refusal`).
+    func startTeamCall(workspaceID: String, calleeID: String, channel: CallChannel) async throws -> TeamCall
+    func teamCall(id: String) async throws -> TeamCall
+    /// `deviceID` is the id this phone registers for push with: the one the
+    /// callee's other phones compare `answered_device_id` against.
+    func acceptTeamCall(id: String, deviceID: String) async throws -> TeamCallAcceptance
+    /// The callee's phone while it rings; a no-op on an answered call.
+    func declineTeamCall(id: String) async throws
+    /// Everything else: the server makes it a cancel while the call rings
+    /// and a hang-up once it is answered. The caller never sends `POST
+    /// /cancel`: its phone cannot know the call has not been answered yet.
+    func hangUpTeamCall(id: String) async throws
+    func teamCallToken(id: String) async throws -> CallToken
+
     func entitlements(workspaceID: String) async throws -> Entitlements
     /// The operator's role and the AI and call-center switches, read side by
     /// side. Never fails: whatever cannot be read stays nil (and so off).
@@ -134,14 +151,18 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
 
     // MARK: - Notifications
 
-    /// Hands this phone's address to the server so it can be reached.
+    /// Hands this phone's addresses to the server so it can be reached.
     ///
     /// `token` is the raw APNs device token, hex-encoded — not a Firebase
     /// registration token. This app has no Firebase in it; the server
     /// sends to Apple directly, which it already does for a ringing call.
     /// `transport: "apns"` on the wire is what tells it which.
+    ///
+    /// `voipToken` is PushKit's address, which rings a colleague call. Either
+    /// may be nil — not both — and a nil one is left as the server has it.
     func registerPushDevice(
-        token: String,
+        token: String?,
+        voipToken: String?,
         deviceID: String,
         deviceName: String,
         appVersion: String,

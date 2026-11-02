@@ -227,9 +227,11 @@ enum CentrifugoProtocol {
 /// keep to their polling.
 ///
 /// Also joined, when the server offers it: the operator's own channel
-/// `ws:<workspace>:user:<id>`, which carries team chat. It rides the same
-/// socket as a second subscription and is optional — a server without it, or
-/// a refusal, leaves the inbox connected and team chat on its polling.
+/// `ws:<workspace>:user:<id>`, which carries team chat, platform support's
+/// news and colleague calls (`team_call`). It rides the same socket as a
+/// second subscription and is optional — a server without it, or a refusal,
+/// leaves the inbox connected, and team chat and a ringing call on their
+/// polling.
 ///
 /// Deliberately not joined: `ws:<workspace>:operators`. Membership there is
 /// what marks an operator "connected" for routing and for who gets pushed;
@@ -268,6 +270,8 @@ final class InboxRealtime {
     /// the operator is not a member of the workspace that answers, so the
     /// server tells them on their own channel of every workspace they are in.
     var onSupportEvent: ((SupportSignal) -> Void)?
+    /// A colleague call of this operator's changed state (`TeamCallSignal`).
+    var onTeamCallEvent: ((TeamCallSignal) -> Void)?
     var onTeamConnectionChanged: ((Bool) -> Void)?
 
     /// The command id of the team channel's subscribe.
@@ -442,6 +446,8 @@ final class InboxRealtime {
                     if let fromChannel, fromChannel == team?.channel {
                         if let event = TeamEvent.parse(data) {
                             onTeamEvent?(event)
+                        } else if let call = TeamCallSignal.parse(data) {
+                            onTeamCallEvent?(call)
                         } else if let signal = SupportSignal.parse(data) {
                             onSupportEvent?(signal)
                         }

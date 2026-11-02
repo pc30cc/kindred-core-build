@@ -112,7 +112,7 @@ class SelfViewSwapTest {
     // MARK: - What a screen reader is told
 
     @Test
-    fun `the card is one element: what it shows, what is large, and a click that swaps`() {
+    fun `the card is one element - what it shows, what is large, and a click that swaps`() {
         var swapped by mutableStateOf(false)
         var swaps = 0
         compose.setContent {

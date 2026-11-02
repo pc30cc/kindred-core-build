@@ -624,7 +624,11 @@ final class AppState {
     }
 
     /// Which workspace the snapshot in `entitlements` belongs to.
-    @ObservationIgnored private var planWorkspaceID: String? = nil
+    ///
+    /// Observed, like `entitlements`: the lock (`isAppLocked`) reads both,
+    /// and a view that last read it while this still named another
+    /// workspace must hear when it moves on, or the lock never shows.
+    private var planWorkspaceID: String? = nil
     @ObservationIgnored private var planRefresh: Task<Void, Never>? = nil
 
     private func schedulePlanRefresh(_ workspaceID: String) {
@@ -655,7 +659,12 @@ final class AppState {
         // last workspace's for a moment after the selection moved on (the
         // list lost the workspace that was open), and that one's lock is not
         // this one's.
-        return planWorkspaceID == workspaceID && entitlements.mobileAppLocked
+        // Both read every time, never one short-circuited behind the other:
+        // SwiftUI follows only what was read, and a lock whose plan was
+        // skipped would never be redrawn when the plan arrives.
+        let planLocked = entitlements.mobileAppLocked
+        let planIsThisWorkspace = planWorkspaceID == workspaceID
+        return planIsThisWorkspace && planLocked
     }
 
     /// The lock last handed to the sync layer and the notifications.

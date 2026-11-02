@@ -154,7 +154,14 @@ describe('the lock fails open', () => {
     expect(locked).toContain('entitlements.mobileAppLocked');
     expect(locked).toContain('let workspaceID = selectedWorkspace?.id');
     // That workspace's own snapshot, never the last workspace's still in hand.
-    expect(locked).toContain('planWorkspaceID == workspaceID && entitlements.mobileAppLocked');
+    expect(locked).toContain('let planLocked = entitlements.mobileAppLocked');
+    expect(locked).toContain('let planIsThisWorkspace = planWorkspaceID == workspaceID');
+    expect(locked).toContain('return planIsThisWorkspace && planLocked');
+    // Whose snapshot it is, observed like the snapshot itself: a view that
+    // read the lock while it still named another workspace must be told when
+    // it moves on, or the card never shows (seen on the simulator).
+    expect(state).toMatch(/\n    private var planWorkspaceID: String\? = nil/);
+    expect(state).not.toMatch(/@ObservationIgnored private var planWorkspaceID/);
     // Applied whenever the snapshot, the session or the workspace changes.
     expect(state).toMatch(/private\(set\) var entitlements: EntitlementsState = \.loading \{\s*didSet \{ lockChanged\(\) \}/);
     expect(body(state, 'private func scopeChanged()')).toContain('lockChanged()');

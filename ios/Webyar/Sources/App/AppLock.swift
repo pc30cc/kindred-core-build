@@ -5,8 +5,9 @@ import UIKit
 /// switched off — the app as it stood, faded, under one card
 /// (docs/operations/MOBILE_APP_PLAN.md, "The apps").
 ///
-/// Locked, the live shell is taken off screen and a picture of it, taken at
-/// that instant, is drawn blurred and dimmed in its place. That is what
+/// Locked, the shell first stops taking taps, and a moment later
+/// (`SignedInRoot.pictureDelay`) is taken off screen; a picture of it, taken
+/// then, is drawn blurred and dimmed in its place. That is what
 /// makes "nothing in it works" true all at once: every tab, button, pull to
 /// refresh and pushed screen is gone with the shell, and with them every
 /// screen's own polling — their tasks end when their views do — while
@@ -29,6 +30,16 @@ struct SignedInRoot: View {
     /// it, so the picture is taken while the shell is still there.
     @State private var locked = false
     @State private var picture: UIImage?
+    /// The lock is coming: the shell already takes no tap, and is
+    /// photographed a moment later (`pictureDelay`).
+    @State private var freezing = false
+    @State private var freeze: Task<Void, Never>?
+
+    /// How long the shell stays, untouchable, before it is photographed: a
+    /// launch straight into a locked workspace learns its plan before the
+    /// inbox has drawn its rows, and a picture of an empty screen is a grey
+    /// wall, not the app faded.
+    static let pictureDelay: Duration = .milliseconds(700)
 
     /// Whether the card takes the app's place now: the plan locks it, and no
     /// visitor call is on screen to be cut by it.
@@ -47,14 +58,29 @@ struct SignedInRoot: View {
                     .transition(.opacity)
             } else {
                 MainTabView(initial: appState.selectedTab)
+                    .allowsHitTesting(!freezing)
                     .transition(.opacity)
             }
         }
         .animation(Theme.Motion.standard, value: locked)
         .onChange(of: wantsLock, initial: true) { _, isLocked in
-            guard isLocked != locked else { return }
-            picture = isLocked ? AppScreenshot.capture() : nil
-            locked = isLocked
+            freeze?.cancel()
+            freeze = nil
+            guard isLocked else {
+                freezing = false
+                picture = nil
+                locked = false
+                return
+            }
+            guard !locked else { return }
+            freezing = true
+            freeze = Task { @MainActor in
+                try? await Task.sleep(for: Self.pictureDelay)
+                guard !Task.isCancelled else { return }
+                picture = AppScreenshot.capture()
+                locked = true
+                freezing = false
+            }
         }
     }
 }
@@ -228,8 +254,8 @@ private struct AppLockBackdrop: View {
     /// Deeper in dark mode, where a light veil would read as fog.
     private static let scrim = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(white: 0, alpha: 0.50)
-            : UIColor(white: 0, alpha: 0.24)
+            ? UIColor(white: 0, alpha: 0.42)
+            : UIColor(white: 0, alpha: 0.16)
     })
 
     var body: some View {
@@ -240,7 +266,9 @@ private struct AppLockBackdrop: View {
                 Image(uiImage: picture)
                     .resizable()
                     .scaledToFill()
-                    .blur(radius: 22, opaque: true)
+                    // Enough to read as the app, faded — its bars, rows and
+                    // tabs — and too much to read a word of it.
+                    .blur(radius: 9, opaque: true)
             }
 
             Self.scrim

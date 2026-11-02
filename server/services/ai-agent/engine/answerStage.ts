@@ -57,6 +57,8 @@ export interface AnswerStageResult {
   sources: RetrievalStageResult['sources'];
   /** Merged pre-strategy + post-strategy routing metadata (Follow-up 9E.2). */
   routingMeta: ReturnType<typeof buildRoutingMetadata>;
+  /** Clarifying questions the conversation already has (the prompt's limit, clarification.ts). */
+  clarificationAttemptCount: number;
 }
 
 const EMPTY_ROUTING_RESULT: RoutingEvaluationResult = {
@@ -180,8 +182,17 @@ export async function runAnswerStage(
   }
 
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
+  // The runtime decision stage already decided this visitor's request for a
+  // person: under assist_first / adaptive it made the first one ONE assist
+  // attempt (assistFirstActive). decideStrategy() repeats the explicit-request
+  // check, and with the switch on it handed off the very request the policy
+  // had just chosen to assist, so assist_first never assisted. For this turn
+  // the rule has been applied; the strategy only grades the evidence.
+  const strategySettings = decisionStage.assistFirstActive
+    ? { ...settings, handoff_on_human_request: false }
+    : settings;
   const strategy = decideStrategy({
-    settings,
+    settings: strategySettings,
     question,
     sources,
     clarificationAttemptCount,
@@ -525,6 +536,6 @@ export async function runAnswerStage(
 
   return {
     strategy, strategyMeta, pageExact, pagePath, triggerMeta, workflowMeta, toolMeta,
-    pageContextMetaRef, sources, routingMeta: currentRoutingMeta,
+    pageContextMetaRef, sources, routingMeta: currentRoutingMeta, clarificationAttemptCount,
   };
 }

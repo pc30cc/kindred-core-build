@@ -82,22 +82,15 @@ const WidgetPage = lazyPage(() => import("@/pages/app/WidgetPage"));
 const PluginsPage = lazyPage(() => import("@/pages/app/PluginsPage"));
 const PluginDetailPage = lazyPage(() => import("@/pages/app/PluginDetailPage"));
 // AI Agent (Phase 1 foundation)
-const AiAgentSettingsPage = lazyPage(() => import("@/pages/app/ai-agent/SettingsPage"));
-const AiAgentActivationPage = lazyPage(() => import("@/pages/app/ai-agent/ActivationPage"));
 const AiAgentPlaygroundPage = lazyPage(() => import("@/pages/app/ai-agent/PlaygroundPage"));
 const AiAgentAnalyticsPage = lazyPage(() => import("@/pages/app/ai-agent/AnalyticsPage"));
 const AiAgentBillingPage = lazyPage(() => import("@/pages/app/ai-agent/BillingPage"));
 const AiAgentRoutingPage = lazyPage(() => import("@/pages/app/ai-agent/RoutingPage"));
-const AiAgentInstructionsPage = lazyPage(() => import("@/pages/app/ai-agent/InstructionsPage"));
-const AiAgentLearningCandidatesPage = lazyPage(() => import("@/pages/app/ai-agent/LearningCandidatesPage"));
-const AiAgentWebPagesPage = lazyPage(() => import("@/pages/app/ai-agent/WebPagesPage"));
 const AiAgentTopicsPage = lazyPage(() => import("@/pages/app/ai-agent/TopicsPage"));
 const AiAgentWorkflowPage = lazyPage(() => import("@/pages/app/ai-agent/WorkflowPage"));
 const AiAgentTriggersPage = lazyPage(() => import("@/pages/app/ai-agent/TriggersPage"));
 const AiAgentIntegrationsPage = lazyPage(() => import("@/pages/app/ai-agent/IntegrationsPage"));
-const AiAgentGuidancePage = lazyPage(() => import("@/pages/app/ai-agent/GuidancePage"));
 const AiAgentOverviewPage = lazyPage(() => import("@/pages/app/ai-agent/OverviewPage"));
-const AiAgentTrainPage = lazyPage(() => import("@/pages/app/ai-agent/TrainPage"));
 const AiAgentRunInspectorPage = lazyPage(() => import("@/pages/app/ai-agent/RunInspectorPage"));
 const AiAgentRetrievalDebuggerPage = lazyPage(() => import("@/pages/app/ai-agent/RetrievalDebuggerPage"));
 const AiAgentSourceHealthPage = lazyPage(() => import("@/pages/app/ai-agent/SourceHealthPage"));
@@ -106,7 +99,6 @@ const AiAgentTestRunDetailPage = lazyPage(() => import("@/pages/app/ai-agent/Tes
 const AiAgentOperatorAssistAnalyticsPage = lazyPage(() => import("@/pages/app/ai-agent/OperatorAssistAnalyticsPage"));
 const AiAgentSuggestedTestsPage = lazyPage(() => import("@/pages/app/ai-agent/SuggestedTestsPage"));
 const AiAgentRegressionRunsPage = lazyPage(() => import("@/pages/app/ai-agent/RegressionRunsPage"));
-const AiAgentKnowledgePage = lazyPage(() => import("@/pages/app/ai-agent/KnowledgePage"));
 const AiAgentBehaviorPage = lazyPage(() => import("@/pages/app/ai-agent/BehaviorPage"));
 const AiAgentOperatorAssistPage = lazyPage(() => import("@/pages/app/ai-agent/OperatorAssistPage"));
 const AiAgentActivityPage = lazyPage(() => import("@/pages/app/ai-agent/ActivityPage"));
@@ -276,23 +268,17 @@ const SETTINGS_PAGES: Record<string, Preloadable> = {
   "privacy-requests": PrivacyRequestsPage,
 };
 
+// Only the pages the section routes to: its old knowledge and settings URLs
+// are redirects (below), to the Knowledge Base and to `behavior`.
 const AI_AGENT_PAGES: Record<string, Preloadable> = {
   overview: AiAgentOverviewPage,
-  knowledge: AiAgentKnowledgePage,
   behavior: AiAgentBehaviorPage,
   "operator-assist": AiAgentOperatorAssistPage,
   activity: AiAgentActivityPage,
-  settings: AiAgentSettingsPage,
-  guidance: AiAgentGuidancePage,
   playground: AiAgentPlaygroundPage,
   analytics: AiAgentAnalyticsPage,
-  activation: AiAgentActivationPage,
   billing: AiAgentBillingPage,
   routing: AiAgentRoutingPage,
-  instructions: AiAgentInstructionsPage,
-  "learning-candidates": AiAgentLearningCandidatesPage,
-  train: AiAgentTrainPage,
-  "web-pages": AiAgentWebPagesPage,
   topics: AiAgentTopicsPage,
   workflow: AiAgentWorkflowPage,
   triggers: AiAgentTriggersPage,
@@ -673,29 +659,36 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="ai-agent" element={<RequireWorkspaceAdmin><AiAgentLayout /></RequireWorkspaceAdmin>}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AiAgentOverviewPage />} />
-                  <Route path="knowledge" element={<AiAgentKnowledgePage />} />
+                  {/* «شخصیت و رفتار»: the section's settings on one page. */}
                   <Route path="behavior" element={<AiAgentBehaviorPage />} />
                   <Route path="operator-assist" element={<AiAgentOperatorAssistPage />} />
                   <Route path="activity" element={<AiAgentActivityPage />} />
-                  <Route path="settings" element={<AiAgentSettingsPage />} />
                   {/* Customer configuration / member-level AI Agent surfaces.
                       Backend already scopes these to workspace membership,
                       and owner/admin where required (authorizeMember +
                       isOwnerOrAdmin) — see the individual domain routers.
                       No global-admin gate belongs here. */}
-                  <Route path="guidance" element={<AiAgentGuidancePage />} />
                   <Route path="playground" element={<AiAgentPlaygroundPage />} />
                   <Route path="analytics" element={<AiAgentAnalyticsPage />} />
-                  <Route path="activation" element={<AiAgentActivationPage />} />
                   <Route path="billing" element={<AdvancedAiAgentGuard><AiAgentBillingPage /></AdvancedAiAgentGuard>} />
                   <Route path="routing" element={<AiAgentRoutingPage />} />
-                  <Route path="instructions" element={<AiAgentInstructionsPage />} />
+                  {/* The four settings pages became `behavior` (2026-11-01):
+                      their URLs open it. */}
+                  <Route path="activation" element={<Navigate to="../behavior" replace />} />
+                  <Route path="instructions" element={<Navigate to="../behavior" replace />} />
+                  <Route path="guidance" element={<Navigate to="../behavior" replace />} />
+                  <Route path="settings" element={<Navigate to="../behavior" replace />} />
+                  {/* Knowledge is managed in the Knowledge Base only (owner,
+                      2026-11-01): the section's knowledge pages are its
+                      tabs now (src/components/app/knowledge/knowledgeBaseTabs.ts)
+                      and their URLs open them. */}
+                  <Route path="knowledge" element={<Navigate to="../../knowledge-base?tab=status" replace />} />
+                  <Route path="train" element={<Navigate to="../../knowledge-base?tab=status" replace />} />
+                  <Route path="web-pages" element={<Navigate to="../../knowledge-base?tab=web" replace />} />
+                  <Route path="learning-candidates" element={<Navigate to="../../knowledge-base?tab=learning" replace />} />
                   {/* Q&A authoring moved to the unified Knowledge Base page
                       (Articles / Q&A tabs) — this legacy URL redirects there. */}
                   <Route path="qna" element={<WorkspaceQnaRedirect />} />
-                  <Route path="learning-candidates" element={<AiAgentLearningCandidatesPage />} />
-                  <Route path="train" element={<AiAgentTrainPage />} />
-                  <Route path="web-pages" element={<AiAgentWebPagesPage />} />
                   {/* File authoring moved to the unified Knowledge Base page
                       (Articles / Q&A / Files tabs) — this legacy URL
                       redirects there. */}

@@ -18,7 +18,8 @@ import { executeAICompletion, executeAICompletionWithConfig, resolveAIConfig } f
 import { buildSystemPrompt, buildUserPrompt } from '../prompt.js';
 import { toModelMessages, type ContextTurn } from '../conversationContext.js';
 import { postValidateAnswer, type PostValidateContext } from '../policy.js';
-import type { InternalToolRecord } from '../runtimeConfig.js';
+import type { ExtendedInstructions, InternalToolRecord } from '../runtimeConfig.js';
+import { resolveClarificationPolicy, classifyClarifyingReply } from '../clarification.js';
 import { logRun } from '../logs.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
@@ -296,6 +297,10 @@ export async function runGenerationStage(
     && availability.state !== 'offline'
     && !(state?.humanTakeoverAt || state?.hasHumanAgentReplied);
 
+  // Clarifying questions: the owner's switch and limit against what this
+  // conversation already has (clarification.ts); the prompts say whether one
+  // may be asked now.
+  const clarificationPolicy = resolveClarificationPolicy(settings, answer.clarificationAttemptCount);
   const systemPrompt = buildSystemPrompt(settings, locale, {
     responseLanguage: locale,
     inputLanguage,
@@ -307,7 +312,10 @@ export async function runGenerationStage(
       help: wsContext.helpUrl,
       domain: wsContext.domain,
     } : undefined,
-    extendedInstructions: runtimeCfg?.instructions,
+    // The instructions as just read (preflight), not the runtime config's
+    // copy, which is cached for 30 s: a saved tone or list applies at once.
+    extendedInstructions: (settings.instructions as ExtendedInstructions | undefined) || runtimeCfg?.instructions,
+    clarificationsAsked: clarificationPolicy.asked,
     guidanceRules: runtimeCfg?.guidanceRules,
     topicSlug: topTopicSlug,
     enabledActions: enabledActionNames,
@@ -340,6 +348,7 @@ export async function runGenerationStage(
       conflictDetected: strategy.conflictDetected,
       toolResults: toolBlock,
       nudgeContext: nudgeContext || null,
+      clarifyingQuestionAllowed: clarificationPolicy.canAskNow,
     }) + (hoursFromSettings ? `\n\n${BUSINESS_HOURS_DIRECTIVE}` : '')
       + (directive ? `\n\n${directive}` : '') + (decisionStage.assistFirstActive
       ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
@@ -649,6 +658,26 @@ export async function runGenerationStage(
     }
   } else if (readOnlyToolResults.length) {
     actionsMeta = { enabled: enabledActionNames, read_only_results: readOnlyToolResults };
+  }
+
+  // ─── Was the reply a clarifying question? (clarification.ts) ──────────
+  // The model's own word in its status block decides; without it, the
+  // reply's shape. Recorded as the turn's decision type, which the run log
+  // and the message metadata carry (delivery stage), so the next turn counts
+  // it against max_clarification_attempts (countClarificationAttempts) and
+  // the query builder treats the visitor's answer as its follow-up. The
+  // assist-first attempt ends by offering the transfer as a question by its
+  // own directive, so its shape alone does not count; a turn that handed the
+  // conversation over is no clarification at all.
+  const clarifyingVerdict = classifyClarifyingReply(aiResult.text || '', aiControl.clarifyingQuestion, {
+    shapeFallback: !decisionStage.assistFirstActive,
+  });
+  if (clarifyingVerdict.clarifying && !actionHandoffExecuted) {
+    strategyMeta.strategy_decision_type = strategy.decisionType;
+    strategyMeta.clarifying_question_source = clarifyingVerdict.source;
+    strategy.decisionType = 'ask_clarifying_question';
+    strategyMeta.decision_type = 'ask_clarifying_question';
+    decisionTimeline.push(`clarifying_question_${clarifyingVerdict.source}`);
   }
 
   // Clarifying questions can legitimately be short / "I'm not sure".

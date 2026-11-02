@@ -98,7 +98,15 @@ const updateSchema = z.object({
   handoff_on_low_confidence: z.boolean().optional(),
   handoff_on_human_request: z.boolean().optional(),
   handoff_when_no_kb_match: z.boolean().optional(),
+  // The main handoff control (handoffPolicy.ts). null returns to the legacy
+  // rule; picking a policy also turns handoff_on_human_request on unless the
+  // same write sets it (settings.ts syncHumanRequestSwitch).
+  handoff_policy: z.enum(['immediate','assist_first','adaptive']).nullable().optional(),
+  // No CHECK on the column; the runtime reads 0..3 (resolveMaxAssistAttempts).
+  max_assist_attempts: z.number().int().min(0).max(3).optional(),
   confidence_threshold: z.number().min(0).max(1).optional(),
+  // `instructions` merges into the stored JSON key by key (settings.ts
+  // mergeInstructions): send only the keys that changed; '' or [] clears one.
   instructions: z.object({
     tone: z.string().max(200).optional(),
     custom_instructions: z.string().max(2000).optional(),
@@ -114,6 +122,8 @@ const updateSchema = z.object({
     pricing_instructions: z.string().max(1000).optional(),
     support_instructions: z.string().max(1000).optional(),
     custom_system_instruction: z.string().max(4000).optional(),
+    // The visitor-facing reply language (replyLanguage.ts); unset = 'visitor'.
+    reply_language: z.enum(['visitor','workspace_default']).optional(),
   }).optional(),
   ai_intro_enabled: z.boolean().optional(),
   intro_message: z.string().max(1000).nullable().optional(),
@@ -131,6 +141,9 @@ const updateSchema = z.object({
   allow_clarifying_questions: z.boolean().optional(),
   max_clarification_attempts: z.number().int().min(0).max(5).optional(),
   allow_answer_with_caveat: z.boolean().optional(),
+  // Learning from operator replies (learning/candidates.ts).
+  learning_enabled: z.boolean().optional(),
+  auto_create_learning_candidates: z.boolean().optional(),
 }).strict();
 
 assistantRouter.put('/settings', async (req: Request, res: Response) => {

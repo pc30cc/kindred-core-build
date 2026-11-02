@@ -24,6 +24,8 @@ import { getOrCreateSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { markAiManaged } from './handoffState.js';
 import { detectInputLanguage, languageDisplayName } from './language.js';
+import { baseLocale, visitorAllowList, workspaceDefaultReplyLocale } from './replyLanguage.js';
+import { getPlatformAllowedLocales } from '../platformRegion.js';
 import { resolveAIConfig, executeAICompletion } from '../ai/index.js';
 import {
   beginAiRunGuarded,
@@ -110,7 +112,7 @@ export async function operatorSayNow(
     return { ok: false, reason: 'context_read_failed', detail: convError.message, httpStatus: 500 };
   }
   if (!conv) return { ok: false, reason: 'conversation_not_found', httpStatus: 404 };
-  if (String((conv as any).status || '') === 'closed') {
+  if (String((conv as { status?: unknown }).status || '') === 'closed') {
     return { ok: false, reason: 'conversation_closed', httpStatus: 409 };
   }
 
@@ -127,9 +129,10 @@ export async function operatorSayNow(
   if (msgsError) {
     return { ok: false, reason: 'context_read_failed', detail: msgsError.message, httpStatus: 500 };
   }
-  const ordered = (msgs || []).slice().reverse();
+  type MessageRow = { id?: string | null; sender_type?: unknown; body?: unknown };
+  const ordered = ((msgs || []) as MessageRow[]).slice().reverse();
   const transcript = ordered
-    .map((m: any) => {
+    .map((m) => {
       const who = VISITOR_SENDER_TYPES.includes(String(m.sender_type || '').toLowerCase())
         ? 'Visitor'
         : 'Assistant';
@@ -138,15 +141,23 @@ export async function operatorSayNow(
     .join('\n');
   const lastVisitor = [...ordered]
     .reverse()
-    .find((m: any) => VISITOR_SENDER_TYPES.includes(String(m.sender_type || '').toLowerCase()));
+    .find((m) => VISITOR_SENDER_TYPES.includes(String(m.sender_type || '').toLowerCase()));
 
   const settings = await getOrCreateSettings(config, input.workspaceId);
-  const normalize = (v?: string | null) => (v || '').trim().toLowerCase().split(/[-_]/)[0];
-  const allowed = (settings.allowed_locales || []).map((l: string) => normalize(l)).filter(Boolean);
-  const detected = detectInputLanguage(String((lastVisitor as any)?.body || dictation));
-  const requested = normalize(input.locale);
+  // The message goes to the VISITOR, so its language stays inside the
+  // visitors' languages, as the agent's own replies do
+  // (engine/contextStage.ts): allowed_locales ∩ the platform's region lock
+  // (Iran: Persian only), else the platform's (replyLanguage.ts).
+  const platformAllowed = await getPlatformAllowedLocales(config).catch(() => [] as string[]);
+  const allowed = visitorAllowList(settings.allowed_locales, platformAllowed);
+  const detected = detectInputLanguage(String(lastVisitor?.body || dictation));
+  const requested = baseLocale(input.locale);
+  // instructions.reply_language 'workspace_default': the workspace's default
+  // language when it is allowed; otherwise the visitor's rule below.
+  const pinnedLocale = await workspaceDefaultReplyLocale(config, input.workspaceId, settings, allowed);
   let responseLocale: string;
-  if (allowed.length === 1) responseLocale = allowed[0];
+  if (pinnedLocale) responseLocale = pinnedLocale;
+  else if (allowed.length === 1) responseLocale = allowed[0];
   else if (detected !== 'unknown' && (allowed.length === 0 || allowed.includes(detected))) responseLocale = detected;
   else if (requested && (allowed.length === 0 || allowed.includes(requested))) responseLocale = requested;
   else if (allowed.length > 0) responseLocale = allowed[0];
@@ -203,11 +214,11 @@ export async function operatorSayNow(
         model: aiCfg.model,
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     if (err instanceof AiBillingError) {
       return { ok: false, reason: 'llm_failed', detail: err.code, httpStatus: err.httpStatus };
     }
-    console.warn('[ai-agent.say-now] billing run not opened:', err?.message);
+    console.warn('[ai-agent.say-now] billing run not opened:', (err as Error | null)?.message);
   }
 
   let closed = false;
@@ -218,8 +229,8 @@ export async function operatorSayNow(
       if (failure) await failAiRun(config, runCtx, failure);
       else if (runCtx.stepSeq > 0) await settleAiRun(config, runCtx);
       else await failAiRun(config, runCtx, 'no_billable_usage');
-    } catch (e: any) {
-      console.error('[ai-billing] say-now run not closed:', runCtx?.runId, e?.message || e);
+    } catch (e) {
+      console.error('[ai-billing] say-now run not closed:', runCtx?.runId, (e as Error | null)?.message || e);
     }
   };
 
@@ -237,7 +248,8 @@ export async function operatorSayNow(
     text = String(result.text || '').trim();
     provider = result.provider ?? null;
     model = result.model ?? null;
-  } catch (err: any) {
+  } catch (caught) {
+    const err = caught as Error | null;
     await closeRun(err?.message || 'llm_failed');
     await logRun(config, {
       workspaceId: input.workspaceId,
@@ -264,7 +276,7 @@ export async function operatorSayNow(
   const runId = await logRun(config, {
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
-    visitorMessageId: (lastVisitor as any)?.id || null,
+    visitorMessageId: lastVisitor?.id || null,
     runType: 'auto_reply',
     mode: 'operator_say_now',
     status: 'replied',

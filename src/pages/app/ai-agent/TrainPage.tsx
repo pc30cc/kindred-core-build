@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
+import { kbTabPath } from '@/components/app/knowledge/knowledgeBaseTabs';
 import {
   Database, AlertTriangle, RefreshCw, LayoutDashboard, Globe, FileText,
   MessageCircleQuestion, GraduationCap, Loader2, ShieldCheck, ShieldX,
@@ -144,7 +145,13 @@ function warningText(t: TFn, w: TrainWarning): { text: string; detail?: string }
   return { text: msg };
 }
 
-export default function TrainPage() {
+/**
+ * The assistant's sync status: counts, warnings, quick actions, sync logs,
+ * the retrieval rules and the index. `embedded`: inside the Knowledge Base's
+ * status tab (KnowledgeStatusTab.tsx), whose hero and tab name the page, so
+ * it has no header of its own.
+ */
+export default function TrainPage({ embedded = false }: { embedded?: boolean }) {
   const { workspace, isLoading: workspaceLoading } = useActiveWorkspace();
   const wsId = workspace?.id;
   const wsPath = useWorkspacePath();
@@ -205,20 +212,28 @@ export default function TrainPage() {
   if (!data) return <p className="text-sm text-muted-foreground">{t('aiAgent.train.noData')}</p>;
   const c = data.counts;
   const ki = data.knowledgeIndex;
+  const refreshButton = (
+    <Button variant="outline" size="sm" className="shrink-0" onClick={() => overview.refetch()} disabled={overview.isFetching}>
+      <RefreshCw className={`h-3.5 w-3.5 me-1.5 ${overview.isFetching ? 'animate-spin' : ''}`} />{t('aiAgent.train.refresh')}
+    </Button>
+  );
 
   return (
     <div className="space-y-6">
-      <AiPageHeader
-        icon={Database}
-        accent="cyan"
-        title={t('aiAgent.train.title')}
-        subtitle={t('aiAgent.train.subtitle')}
-        actions={
-          <Button variant="outline" size="sm" onClick={() => overview.refetch()} disabled={overview.isFetching}>
-            <RefreshCw className={`h-3.5 w-3.5 me-1.5 ${overview.isFetching ? 'animate-spin' : ''}`} />{t('aiAgent.train.refresh')}
-          </Button>
-        }
-      />
+      {embedded ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="max-w-2xl text-sm text-muted-foreground">{t('aiAgent.train.subtitle')}</p>
+          {refreshButton}
+        </div>
+      ) : (
+        <AiPageHeader
+          icon={Database}
+          accent="cyan"
+          title={t('aiAgent.train.title')}
+          subtitle={t('aiAgent.train.subtitle')}
+          actions={refreshButton}
+        />
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label={t('aiAgent.train.stats.totalSources')} value={String(c.totalSources)} hint={t('aiAgent.train.stats.activeHint', { count: c.activeSources })} />
@@ -256,10 +271,11 @@ export default function TrainPage() {
           <CardDescription>{t('aiAgent.train.quickActionsDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          <Action icon={MessageCircleQuestion} label={t('aiAgent.train.action.addQna')} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} />
-          <Action icon={Globe} label={t('aiAgent.train.action.addWebPage')} onClick={() => navigate(wsPath('/ai-agent/web-pages'))} />
-          <Action icon={FileText} label={t('aiAgent.train.action.uploadFile')} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=files`)} />
-          <Action icon={GraduationCap} label={t('aiAgent.train.action.reviewLearning')} onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))} />
+          {/* Each is a tab of the Knowledge Base, where knowledge is managed. */}
+          <Action icon={MessageCircleQuestion} label={t('aiAgent.train.action.addQna')} onClick={() => navigate(wsPath(kbTabPath('qna')))} />
+          <Action icon={Globe} label={t('aiAgent.train.action.addWebPage')} onClick={() => navigate(wsPath(kbTabPath('web')))} />
+          <Action icon={FileText} label={t('aiAgent.train.action.uploadFile')} onClick={() => navigate(wsPath(kbTabPath('files')))} />
+          <Action icon={GraduationCap} label={t('aiAgent.train.action.reviewLearning')} onClick={() => navigate(wsPath(kbTabPath('learning')))} />
           <Action icon={RefreshCw} label={t('aiAgent.train.action.rebuildIndex')} onClick={() => rebuild.mutate()} loading={rebuild.isPending} />
           <Action icon={LayoutDashboard} label={t('aiAgent.train.action.openOverview')} onClick={() => navigate(wsPath('/ai-agent/overview'))} />
         </CardContent>

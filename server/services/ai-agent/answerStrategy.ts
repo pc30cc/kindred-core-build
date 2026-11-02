@@ -16,7 +16,7 @@
  *   response. Hallucination protection lives in the prompt layer, which
  *   forbids stating unverified business facts.
  */
-import type { AgentSettings } from './settings.js';
+import type { AgentSettings, EscalationStyle } from './settings.js';
 import type { RetrievedSource } from './retrieval.js';
 import type { ServiceClient } from '../../supabase.js';
 import { isHumanRequest } from './runtimePolicy.js';
@@ -50,7 +50,10 @@ export type StrategyDecisionType =
 // values kept in the union so historical ai_agent_runs metadata and the
 // learning/harness consumers still typecheck. decideStrategy() never
 // produces them any more — the model asks its own clarifying questions and
-// greets in its own words.
+// greets in its own words. 'ask_clarifying_question' is still RECORDED: the
+// generation stage marks a reply that is a clarifying question with it
+// (clarification.ts), which is what countClarificationAttempts() and the
+// query builder's clarification follow-up read back.
 
 export interface StrategyInput {
   settings: AgentSettings;
@@ -241,8 +244,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
 
   // ── Evidence discipline. The model may always speak; what it is allowed
   //    to ASSERT depends on the grounding available for this turn.
-  const style: EscalationStyle = (settings.escalation_style as EscalationStyle) || 'balanced';
-  const { answerMin, caveatMin } = thresholdsForStyle(style);
+  const { answerMin, caveatMin } = thresholdsForStyle(settings.escalation_style);
   const allowCaveat = settings.allow_answer_with_caveat !== false;
 
   // 2. Conflicting sources must never yield a confidently stated value.
@@ -272,11 +274,18 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     };
   }
 
-  // 4. Medium grounding → caveated answer when allowed.
-  if (strength === 'medium' && topScore >= caveatMin && allowCaveat) {
+  // 4. Medium grounding → caveated answer when allowed. The style's caveat
+  //    floor applies to the score whatever its band: "helpful first"
+  //    (caveatMin 0.35) also hedges on weak evidence of 0.35 and more
+  //    rather than calling it unverified or escalating it under
+  //    handoff_on_low_confidence. Conservative (0.6) and balanced (0.45)
+  //    never reach the weak band (below 0.45), so they are unchanged. The
+  //    weak case keeps its reason, so an owner's low_confidence routing rule
+  //    (runtime/routingRuntime.ts) still sees it.
+  if ((strength === 'medium' || strength === 'weak') && topScore >= caveatMin && allowCaveat) {
     return {
       decisionType: 'answer_with_caveat',
-      reason: 'medium_kb_match',
+      reason: strength === 'medium' ? 'medium_kb_match' : 'weak_evidence_only',
       handoffRequired: false,
       handoffReason: null,
       requiresBusinessKnowledge: true,
@@ -370,11 +379,22 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   };
 }
 
-export type EscalationStyle = 'conservative' | 'balanced' | 'proactive';
-
-function thresholdsForStyle(style: EscalationStyle): { answerMin: number; caveatMin: number } {
+/**
+ * Score floors per escalation style (settings.ts EscalationStyle, the
+ * column's values). 'helpful_first' — the value the pages save — gets the
+ * proactive floors; before, only the never-stored 'proactive' did, so
+ * "helpful first" silently answered as balanced. A legacy 'proactive' reads
+ * the same; anything else (unset included) is balanced.
+ *
+ * answerMin applies to strong evidence and caveatMin to medium or weak
+ * evidence (decideStrategy steps 3 and 4). Strong evidence starts at 0.7
+ * (0.72 hybrid), so answerMin only changes anything for 'conservative'.
+ */
+export function thresholdsForStyle(
+  style: EscalationStyle | 'proactive' | string | null | undefined,
+): { answerMin: number; caveatMin: number } {
   if (style === 'conservative') return { answerMin: 0.75, caveatMin: 0.6 };
-  if (style === 'proactive') return { answerMin: 0.6, caveatMin: 0.35 };
+  if (style === 'helpful_first' || style === 'proactive') return { answerMin: 0.6, caveatMin: 0.35 };
   return { answerMin: 0.68, caveatMin: 0.45 };
 }
 
@@ -406,9 +426,13 @@ export function isStrictKbNoGrounding(
 }
 
 /**
- * Counts AI runs in the current conversation that asked a clarifying
- * question already (engine logs `metadata.answer_strategy.decision_type`).
- * Cheap to call inline before the next decision.
+ * Counts the clarifying questions the AI already asked the visitor in this
+ * conversation: its delivered replies (run status 'replied') whose
+ * `metadata.answer_strategy.decision_type` is 'ask_clarifying_question',
+ * which the generation stage records when the reply it wrote is one
+ * (clarification.ts classifyClarifyingReply). A suggestion the operator may
+ * never have sent, or a reply that never reached the visitor, does not
+ * count. Cheap to call inline before the next decision.
  */
 export async function countClarificationAttempts(
   sb: ServiceClient,
@@ -417,12 +441,14 @@ export async function countClarificationAttempts(
   try {
     const { data } = await sb
       .from('ai_agent_runs')
-      .select('metadata')
+      .select('status, metadata')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
       .limit(20);
     return (data || []).filter(
-      (r: { metadata?: { answer_strategy?: { decision_type?: string } } | null }) => r?.metadata?.answer_strategy?.decision_type === 'ask_clarifying_question',
+      (r: { status?: string | null; metadata?: { answer_strategy?: { decision_type?: string } } | null }) =>
+        r?.status === 'replied'
+        && r?.metadata?.answer_strategy?.decision_type === 'ask_clarifying_question',
     ).length;
   } catch {
     return 0;

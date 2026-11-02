@@ -509,6 +509,16 @@ over unchanged. A full disk stops Postgres too.
     six seeded `offline_message_received` templates (both editions, all still
     as seeded) their plain subject and added `offline_messages_summary`; the
     rest writes no data. RESPOK by its migrator on push.
+    Then `290_platform_brand_assets.sql` (2026-10-30 19:23 UTC),
+    `291_email_templates_redesign.sql` (20:19) and
+    `292_billing_crypto_usd_accounts.sql` (2026-11-01 07:40), each by hand
+    before its merge. Then `293_team_calls.sql` (colleague calls: the App
+    Review plan and its seed get `team_calls`, and `team_call_place()`, which
+    every colleague call is placed through), applied by hand before the
+    merge of colleague calls, 2026-11-02 01:37 UTC, after a dry run inside
+    `BEGIN … ROLLBACK` at 00:57 that changed only the App Review plan (a
+    dump of `billing_plans`, a schema dump, the dry run's and the run's logs:
+    `/root/webyar-migrate-293/`); RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { Bot, Loader2 } from 'lucide-react';
 import { PlanAccessGate } from '@/components/plan/PlanAccessGate';
 import { AI_ACCENT } from '@/components/ai-agent/AiPageHeader';
-import { canAccessAiAgentAdvancedTools } from '@/features/ai-agent/AdvancedAiAgentGuard';
+import { useAiAdvancedToolsAccess } from '@/features/ai-agent/useAiAdvancedToolsAccess';
 import { aiSectionForPath, aiSubPath, aiTabMatches, visibleAiMenu } from './aiAgentMenu';
 
 type AgentState = 'on' | 'suggest' | 'off';
@@ -43,6 +43,9 @@ export function AiAgentLayout() {
   const { data: capabilities, isLoading, isError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: isAdmin } = useIsGlobalAdmin();
   const agentState = useAgentState(workspace?.id);
+  // The Advanced tools' rule (AdvancedAiAgentGuard's): the Super Admin, or a
+  // plan with ai_advanced_tools and an owner or admin. Not while loading.
+  const advancedAccess = useAiAdvancedToolsAccess();
   const frameRef = useRef<HTMLDivElement>(null);
 
   // On a phone the sections and the tabs are rows that scroll sideways:
@@ -81,10 +84,7 @@ export function AiAgentLayout() {
   }
 
   const navFlags = capabilities.customer_nav;
-  const advancedAllowed = canAccessAiAgentAdvancedTools({
-    isGlobalAdmin: isAdmin === true,
-    devOverride: import.meta.env.VITE_ENABLE_AI_ADVANCED_TOOLS === 'true',
-  });
+  const advancedAllowed = advancedAccess === 'allowed';
   // max_customer_visible_nav_items counts sections; super admins ignore it.
   const cap = capabilities.max_customer_visible_nav_items;
   const sections = visibleAiMenu({

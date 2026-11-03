@@ -1,9 +1,11 @@
 /**
  * Follow-up 7B — regression coverage for the AI Agent advanced-route access
  * policy, per the frontend/backend gating audit's finding: 16 real
- * customer-facing pages were wrapped in <AdvancedAiAgentGuard> (global-admin
- * / dev-override only) despite their backend routes permitting ordinary
- * workspace owner/admin (or, for a few, any workspace member).
+ * customer-facing pages were wrapped in <AdvancedAiAgentGuard> (then
+ * global-admin / dev-override only) despite their backend routes permitting
+ * ordinary workspace owner/admin (or, for a few, any workspace member).
+ * Since 2026-11-03 the guard's own rule is the plan feature
+ * `ai_advanced_tools` (docs/operations/AI_ADVANCED_TOOLS.md).
  *
  * Same convention as src/test/billing/aiAgentRouteGating.test.ts: reads the
  * real source file and asserts on the actual <Route> registration text,
@@ -95,15 +97,17 @@ describe('unguarded pre-existing customer pages remain unguarded (no regression)
 });
 
 // ─────────────────────────────────────────────────────────────
-// canAccessAiAgentAdvancedTools() — pure guard predicate. Confirms the
-// guard ITSELF has not been weakened by this follow-up; only the set of
-// routes it wraps changed (in App.tsx), not its own allow logic.
+// canAccessAiAgentAdvancedTools() — pure guard predicate. Since 2026-11-03
+// (owner) the Advanced tools are a plan feature: the Super Admin always,
+// otherwise the plan's `ai_advanced_tools` AND the workspace's owner or an
+// admin (shared/aiAdvancedTools.ts, the rule the server applies too).
 // ─────────────────────────────────────────────────────────────
 import { canAccessAiAgentAdvancedTools } from '../../features/ai-agent/AdvancedAiAgentGuard';
 
 describe('canAccessAiAgentAdvancedTools', () => {
-  it('global admin -> true', () => {
+  it('global admin -> true, whatever the plan and role', () => {
     expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: true })).toBe(true);
+    expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: true, planHasAdvancedTools: false, role: null })).toBe(true);
   });
   it('dev override -> true', () => {
     expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, devOverride: true })).toBe(true);
@@ -111,11 +115,24 @@ describe('canAccessAiAgentAdvancedTools', () => {
   it('global admin AND dev override -> true', () => {
     expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: true, devOverride: true })).toBe(true);
   });
-  it('ordinary customer (neither) -> false', () => {
+  it('ordinary customer (neither, no plan key) -> false', () => {
     expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, devOverride: false })).toBe(false);
   });
   it('ordinary customer with devOverride omitted -> false', () => {
     expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false })).toBe(false);
+  });
+  it('the owner or an admin of a workspace whose plan has ai_advanced_tools -> true', () => {
+    expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, planHasAdvancedTools: true, role: 'owner' })).toBe(true);
+    expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, planHasAdvancedTools: true, role: 'admin' })).toBe(true);
+  });
+  it('any other role with the plan key -> false', () => {
+    for (const role of ['agent', 'team_lead', 'viewer', 'developer', 'billing', null]) {
+      expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, planHasAdvancedTools: true, role }), String(role)).toBe(false);
+    }
+  });
+  it('the owner without the plan key -> false', () => {
+    expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, planHasAdvancedTools: false, role: 'owner' })).toBe(false);
+    expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false, role: 'owner' })).toBe(false);
   });
 });
 

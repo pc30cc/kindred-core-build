@@ -44,6 +44,7 @@ const FEATURE_KEYS = [
   'ai_assistant',
   'ai_kb_builder',
   'ai_operator_assist',
+  'ai_advanced_tools',
   'knowledge_base',
   'help_center',
   'call_center',

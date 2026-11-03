@@ -66,7 +66,7 @@ describe('ADVANCED_PATH_PATTERNS extraction sanity', () => {
   });
 });
 
-describe('ADVANCED_PATH_PATTERNS — classified as advanced (global-admin gated)', () => {
+describe('ADVANCED_PATH_PATTERNS — classified as advanced (Super Admin, or the plan\'s ai_advanced_tools; /platform/ Super Admin only)', () => {
   const advancedPaths = [
     '/runs/abc-123/inspect',
     '/debug/retrieval',

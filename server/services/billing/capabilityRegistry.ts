@@ -118,13 +118,23 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
 
   // ─── Boolean feature flags ───
   // RESERVED: no server route or app surface reads this flag. The AI Agent
-  // is gated by the `ai_assistant` module; its advanced QA/debug tools are
-  // platform-admin only (customerSafe.ts), never plan-gated. Kept because
-  // production plans may carry the key (design rule 1: never remove), but
-  // neither offered on a plan nor listed on a plan card.
+  // is gated by the `ai_assistant` module; its advanced QA/debug tools by
+  // `ai_advanced_tools` below, never by this key. Kept because production
+  // plans may carry the key (design rule 1: never remove), but neither
+  // offered on a plan nor listed on a plan card.
   { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       description: 'Reserved: no feature reads this flag yet, so enabling it grants nothing today. Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 10 },
   { key: 'ai_operator_assist',    type: 'feature', label: 'AI Operator Assist',     group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'ai_kb_builder',         type: 'feature', label: 'AI KB Builder',          group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
+  // The AI section's Advanced tools (owner, 2026-11-03;
+  // docs/operations/AI_ADVANCED_TOOLS.md): test cases and runs, suggested
+  // tests, regression runs, source health, the knowledge-search debugger and
+  // the answer inspector. Off by default, so off on every plan until the
+  // Super Admin turns it on in one (no migration: no plan carries the key).
+  // With it on, the workspace's owner and admins get the section
+  // (shared/aiAdvancedTools.ts; the Super Admin always has it). Plan-only,
+  // like team_calls. It replaced the platform's advanced_tools_enabled /
+  // *_visible_to_customers switches for customer visibility.
+  { key: 'ai_advanced_tools',     type: 'feature', label: 'AI Advanced Tools',      group: 'ai',       description: 'The AI section\'s Advanced tools for the workspace\'s owner and admins: test cases and test runs, suggested tests, regression runs, source health and knowledge-search debugging of the AI assistant. Bounded by the AI Assistant module.', defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 40 },
   { key: 'priority_support',      type: 'feature', label: 'Priority Support',       group: 'support',  defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
   // RESERVED: there is no single sign-on; nothing reads the key.
   { key: 'sso',                   type: 'feature', label: 'SSO / SAML',             group: 'security', description: 'Reserved: there is no single sign-on yet, so this grants nothing. Kept because existing plans may set it.', defaultValue: false, planConfigurable: false, workspaceOverridable: false, userVisible: false, sortOrder: 10 },

@@ -15,7 +15,7 @@ import { resolveCurrentUserId } from './shared.js';
 import { getServiceClient } from '../../supabase.js';
 import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { getMonitoringCollector } from '../../services/observability/collector/index.js';
-import { canAccessAiAgentAdvancedToolsServer } from '../../services/ai-agent/customerSafe.js';
+import { canAccessAiAgentPlatformPagesServer } from '../../services/ai-agent/customerSafe.js';
 
 export const platformRouter: Router = express.Router();
 
@@ -31,9 +31,11 @@ function errorMessageOf(e: unknown): string | undefined {
  * Defense in depth: these handlers must stay admin-only even if the
  * path-matching ADVANCED_PATH_PATTERNS guard in ./index.ts is ever skipped
  * (e.g. a re-spelled URL) or the router is mounted elsewhere. Uses the same
- * decision (`has_role(uid,'admin')`, via canAccessAiAgentAdvancedToolsServer)
+ * decision (`has_role(uid,'admin')`, via canAccessAiAgentPlatformPagesServer)
  * and the same response shapes as that guard, so legitimate admin traffic
- * is unaffected. Writes the response and returns null when denied.
+ * is unaffected. Platform pages are never a plan's: a workspace whose plan
+ * has `ai_advanced_tools` still gets 403 here. Writes the response and
+ * returns null when denied.
  */
 async function requireAiAgentPlatformAdmin(req: Request, res: Response): Promise<string | null> {
   const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
@@ -42,7 +44,7 @@ async function requireAiAgentPlatformAdmin(req: Request, res: Response): Promise
     res.status(401).json({ error: 'unauthenticated' });
     return null;
   }
-  const ok = await canAccessAiAgentAdvancedToolsServer(config, userId, '').catch(() => false);
+  const ok = await canAccessAiAgentPlatformPagesServer(config, userId).catch(() => false);
   if (!ok) {
     res.status(403).json({ error: 'advanced_ai_tools_not_available' });
     return null;

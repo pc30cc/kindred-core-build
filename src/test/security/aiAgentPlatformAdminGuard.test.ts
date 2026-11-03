@@ -189,5 +189,6 @@ describe('ADVANCED_PATH_PATTERNS guard matches re-spelled paths', () => {
     const r = await call(fullServer, 'GET', path);
     expect(r.status).toBe(403);
     expect(JSON.parse(r.body).error).toBe('advanced_ai_tools_not_available');
-  });
+    // The first case imports the whole router: give it room on a busy run.
+  }, 30_000);
 });

@@ -248,7 +248,9 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   like the apps below: queue it (and RESPOK's 39) by hand when a change to
   the commerce sync (`server/services/commerce`, `worker/commerce-sync`)
   needs it.
-- 15 Centrifugo, 16 LiveKit, 17 Intelligence Worker, 18 Source Sync
+- 16 LiveKit: auto-deploy on every push to `main` since 2026-11-03 (owner),
+  so a merge restarts it and drops the calls in progress at that moment.
+- 15 Centrifugo, 17 Intelligence Worker, 18 Source Sync
   Worker, 19 Plugins Channels (`channels.webyar.ai`), 20 Channels-Worker,
   21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
   auto-deploy off, so a push does not update them; queue them by hand when a
@@ -266,6 +268,13 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   kernel's ephemeral range (`/etc/sysctl.d/60-livekit-reserved-ports.conf`):
   without it a restart can fail with "address already in use" when an
   outgoing DNS query holds one of them.
+- WebYar's call signalling goes through Cloudflare (since 2026-11-03): apps
+  get `ws_url` `wss://rt.webyar.ai`, routed to LiveKit by the hand-written
+  `/data/coolify/proxy/dynamic/livekit-signal-cf.yaml`. The backend keeps
+  `rtc_url` `wss://livekit.webyar.ai`. A direct WebSocket from an Iranian
+  mobile network dies after its first few KB, so calls failed there. Media
+  still goes direct. Do not point `ws_url` back at `livekit.webyar.ai`
+  (`deploy/livekit/README.md` §4.1).
 - Coolify builds two apps at a time, so after a merge the whole set (with
   RESPOK's) takes about 15 minutes. A deploy that has not appeared yet is
   usually still queued: look at `application_deployment_queues` in the

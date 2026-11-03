@@ -6,20 +6,25 @@ made of things that fail late.
 
 ## Before the next release: what is already out (read first)
 
-Published copies, as of 2026-11-02:
+Published copies, as of 2026-11-03:
 
 | App | Where | Version | Signed with |
 |-----|-------|---------|-------------|
-| WebYar `com.webyar.ai` | `app.webyar.ai/downloads/Webyar-Android.apk` (since 2026-11-02) | 1.7, `versionCode` 28 | `webyar-release.jks` (cert SHA-256 `f1ed448f…b2160142`) |
-| WebYar `com.webyar.ai` | Cafe Bazaar (the owner uploaded it on 2026-10-15; the owner uploads 1.7, the same file, himself) | 1.6, `versionCode` 27 | the same key |
-| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet; since 2026-11-02) | 1.0.3, `versionCode` 4 | `respok-release.jks` (cert SHA-256 `c71c4665…8b8ee500`) |
+| WebYar `com.webyar.ai` | `app.webyar.ai/downloads/Webyar-Android.apk` (since the merge of #387, 2026-11-03) | 1.8, `versionCode` 29 | `webyar-release.jks` (cert SHA-256 `f1ed448f…b2160142`) |
+| WebYar `com.webyar.ai` | Cafe Bazaar (the owner uploaded it on 2026-10-15; the owner uploads the current file himself) | 1.6, `versionCode` 27 | the same key |
+| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet; since the merge of #387) | 1.0.4, `versionCode` 5 | `respok-release.jks` (cert SHA-256 `c71c4665…8b8ee500`) |
 
-1.7 and 1.0.3 were built from `main` at `b6fee6e` on the owner's Mac
-(`~/Desktop/WebYar-RESPOK/scripts/kcb-brands-android-3.sh`, then
-`kcb-brands-apk-publish-3.sh`): colleague calls, the mobile app as a plan
-feature, the sign-in Website link, the call screen's movable and swappable
-small picture, and the call lines in the team chat. 1.7 is the first WebYar
-build from the brand-neutral sources; the next one must be above 28.
+1.8 and 1.0.4 were built on the owner's Mac from the PR branch at `2cd96b1`,
+the tree #387 merges (`~/Desktop/WebYar-RESPOK/scripts/kcb-brands-android-4.sh`,
+then `kcb-brands-apk-publish-4.sh`): the call media budget (video capped at
+1 Mbps for 720p, with 400 and 120 kbps simulcast layers) and LiveKit Android
+2.29.2, so calls hold on Iranian mobile data (`docs/operations/TEAM_CALLS.md`,
+"Media budget"). 1.8 was installed over 1.7 on the emulator (still signed in)
+and placed a colleague video call that connected and went active. The 1.7
+and 1.0.3 before them (built from `main` at `b6fee6e`) brought colleague
+calls, the mobile app as a plan feature, the sign-in Website link, the movable
+small picture and the call lines in the team chat. The next WebYar build must
+be above 29.
 
 **The next WebYar release is the first built from the brand-neutral sources**
 (#323: code namespace `com.platform.app`, shared class names). Nothing a

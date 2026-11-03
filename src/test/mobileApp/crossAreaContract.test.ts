@@ -371,12 +371,16 @@ describe('the sign-in screen\'s website link, the same rule in Swift and in Kotl
 // ═══ Build 4 ════════════════════════════════════════════════════════
 
 describe('the iPhone build', () => {
-  it('is 1.0.0 (4), as the rollout names it, for both apps of the project', () => {
+  it('is at least 1.0.0 (4), the build the rollout names, for both apps of the project', () => {
     const rollout = PLAN_DOC.match(/iOS (\d+\.\d+\.\d+) \((\d+)\) to App Store Connect/);
     expect(rollout).toBeTruthy();
     expect(IOS_PROJECT).toContain(`MARKETING_VERSION: "${rollout![1]}"`);
-    expect(IOS_PROJECT).toContain(`CURRENT_PROJECT_VERSION: "${rollout![2]}"`);
     expect(rollout![2]).toBe('4');
+    // Later builds carry this feature too (build 5: the call media budget,
+    // pinned by src/test/native/callMediaBudget.ios.test.ts).
+    const build = IOS_PROJECT.match(/CURRENT_PROJECT_VERSION: "(\d+)"/);
+    expect(build).toBeTruthy();
+    expect(Number(build![1])).toBeGreaterThanOrEqual(Number(rollout![2]));
     // One base setting: no target sets a build number of its own.
     expect(IOS_PROJECT.match(/CURRENT_PROJECT_VERSION:/g)).toHaveLength(1);
   });

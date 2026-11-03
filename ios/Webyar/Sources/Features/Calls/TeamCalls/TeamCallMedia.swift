@@ -4,8 +4,10 @@ import LiveKit
 
 // The LiveKit side of a colleague call, kept apart from CallKit's and the
 // server's (`CallManager`): every SDK call the colleague call makes is in
-// this file, so a change in the SDK is a change here and nowhere else. Read
-// against client-sdk-swift 2.17.0 (`Docs/audio.md`, `AudioManager`).
+// this file, so a change in the SDK is a change here and nowhere else, but
+// for the camera's caps, which it shares with visitor calls
+// (`CallMediaBudget`). Read against client-sdk-swift 2.17.0 (`Docs/audio.md`,
+// `AudioManager`).
 
 /// Who configures the audio session, and when the engine may run.
 ///
@@ -126,8 +128,10 @@ final class TeamCallRoom {
                 iceServers: Self.iceServers(from: credentials),
                 iceTransportPolicy: credentials.relayOnly ? .relay : .all
             ),
+            // The camera's caps, the same as a visitor call's (`CallMediaBudget`).
             roomOptions: RoomOptions(
-                defaultCameraCaptureOptions: CameraCaptureOptions(position: .front, dimensions: .h720_169),
+                defaultCameraCaptureOptions: CallMediaBudget.cameraCapture,
+                defaultVideoPublishOptions: CallMediaBudget.videoPublish,
                 adaptiveStream: true,
                 dynacast: true
             )

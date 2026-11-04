@@ -187,8 +187,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
 
     const currentPeriod = new Date().toISOString().slice(0, 7);
     const [modulesRead, channelsRead, usageRead, renewal, locks] = await Promise.all([
-      supabase.from('workspace_module_overrides').select('module_key, enabled, admin_notes').eq('workspace_id', workspaceId),
-      supabase.from('workspace_channel_overrides').select('channel_key, enabled, admin_notes').eq('workspace_id', workspaceId),
+      // No admin_notes: the Super Admin's notes never reach workspace members.
+      supabase.from('workspace_module_overrides').select('module_key, enabled').eq('workspace_id', workspaceId),
+      supabase.from('workspace_channel_overrides').select('channel_key, enabled').eq('workspace_id', workspaceId),
       supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
       // The panel's "plan ends in N days" banner; never fails the snapshot.
       renewalDueNotice(serverConfigOf(req), workspaceId).catch(() => null),

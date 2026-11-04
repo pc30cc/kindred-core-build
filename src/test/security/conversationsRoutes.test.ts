@@ -56,6 +56,7 @@ interface QueryBuilder {
 interface UpdateBuilder {
   eq(col: string, val: unknown): UpdateBuilder;
   is(col: string, val: unknown): UpdateBuilder;
+  in(col: string, vals: unknown[]): UpdateBuilder;
   select(cols?: string): { then(resolve: Resolve): unknown };
   then(resolve: Resolve): unknown;
 }
@@ -134,6 +135,7 @@ function fakeClient() {
           const updateBuilder: UpdateBuilder = {
             eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
             is(col: string, val: unknown) { scoped.push((r: Row) => (val === null ? r[col] == null : r[col] === val)); return updateBuilder; },
+            in(col: string, vals: unknown[]) { scoped.push((r: Row) => vals.includes(r[col])); return updateBuilder; },
             select(cols?: string) {
               const matched = rows.filter((r) => scoped.every((f) => f(r)));
               for (const r of matched) Object.assign(r, patch);
@@ -772,11 +774,17 @@ describe('DELETE /api/conversations — delete-all is destructive, so it require
   });
 
   it('owner can delete all conversations in their workspace, and it never touches another workspace', async () => {
+    db.channel_jobs = [
+      { id: 'reply-mine', workspace_id: WS, status: 'pending', job_type: 'telegram_outbound_message' },
+      { id: 'reply-other', workspace_id: 'other-ws', status: 'pending', job_type: 'telegram_outbound_message' },
+    ];
     const res = await call('DELETE', '/api/conversations', { token: 'member-token', body: { workspace_id: WS } });
     expect(res.status).toBe(200);
     expect(res.json.deleted).toBe(5);
     expect(db.conversations.filter((c) => c.workspace_id === WS)).toHaveLength(0);
     expect(db.conversations.find((c) => c.id === convForeign)).toBeDefined();
+    // Its queued channel replies are cancelled with it; another workspace's are not.
+    expect(db.channel_jobs.map((j) => [j.id, j.status])).toEqual([['reply-mine', 'cancelled'], ['reply-other', 'pending']]);
   });
 });
 

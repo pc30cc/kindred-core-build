@@ -60,7 +60,10 @@ together with the code.
 - Limits: `max_concurrent_calls` (rows in pending/ringing/connecting/active
   count, colleague calls included) and `max_call_minutes_per_month` (the
   billing trigger counts from `connected_at`, which a colleague call sets at
-  the answer). Checked on create, like `/api/calls/create`.
+  the answer). Checked on create, like `/api/calls/create`, and the
+  concurrency counted again inside the placement under a lock per workspace
+  (`team_call_place()` with `p_max_concurrent`, migration 298), so two pairs
+  placing at limit − 1 never both get through.
 - The App Review plan carries `team_calls: true` (migration 293).
 
 ## Data
@@ -98,7 +101,7 @@ together with the code.
 
 | Method and path | Who | Does |
 |---|---|---|
-| `POST /` `{workspace_id, callee_id, channel}` | a member | Checks membership, plan, limits, busy; creates the row and the room; rings the callee; `201 {call}`. Errors: `400 invalid_params`, `403 upgrade_required` (`feature: 'team_calls'`), `403 not_a_member` (also when a pair hides the two from each other: `server/services/teamVisibility.ts`, migration 295), `409 callee_busy`, `409 caller_busy`, `429 too_many_calls`, `422 limit_reached` (`limit: 'max_concurrent_calls' | 'max_call_minutes_per_month'`). Rate limit: a caller rings at most 10 times a minute, a callee is rung at most 6 times a minute (by everyone together; an attempt that does not ring — busy, a failure — gives its ring back). The concurrency ceiling is read before the placement, as `/api/calls/create` reads it, so calls placed in the same instant may pass it together. |
+| `POST /` `{workspace_id, callee_id, channel}` | a member | Checks membership, plan, limits, busy; creates the row and the room; rings the callee; `201 {call}`. Errors: `400 invalid_params`, `403 upgrade_required` (`feature: 'team_calls'`), `403 not_a_member` (also when a pair hides the two from each other: `server/services/teamVisibility.ts`, migration 295), `409 callee_busy`, `409 caller_busy`, `429 too_many_calls`, `422 limit_reached` (`limit: 'max_concurrent_calls' | 'max_call_minutes_per_month'`). Rate limit: a caller rings at most 10 times a minute, a callee is rung at most 6 times a minute (by everyone together; an attempt that does not ring — busy, a failure — gives its ring back). The concurrency ceiling is read before the placement, as `/api/calls/create` reads it, and again inside it under the workspace's lock (migration 298): a placement that finds the limit met answers the same `422 limit_reached` (`limit: 'max_concurrent_calls'`, `reason: 'plan_limit_reached'`, `max`, `used`) with nothing written. |
 | `GET /:id` | caller or callee | `{call}`; `404` for anyone else. |
 | `POST /:id/accept` `{device_id?}` | callee | `ringing` → `connecting` with a compare-and-set (first answer wins); stamps `connected_at`, `answered_at`, `answered_device_id`; stops the callee's other phones; `{call}`. `409 not_ringing` with `{call}` when it is no longer ringing. |
 | `POST /:id/decline` | callee | `ringing` → ended, outcome `declined`. Idempotent. |
@@ -437,3 +440,10 @@ list no relay. Server, firewall, probe and changes:
 7. The Iran relay: nothing in the apps. After the merge's backend (25) is
    live, the relay countries `IR` in Super Admin and a save (the steps are
    `deploy/iran-relay/README.md`, "Rollout").
+8. The call state guards (audit 2026-11-04): migration
+   `298_call_state_guards.sql` by hand on WebYar before the merge (its index
+   built `CONCURRENTLY` first, as its header says; a dry run inside
+   `BEGIN … ROLLBACK`); RESPOK by its migrator. It adds the nine-argument
+   `team_call_place()` the API now calls (293's stays for the backend that
+   runs until the merge) and the trigger that keeps an over call over. No app
+   change: the answers are the ones this table lists.

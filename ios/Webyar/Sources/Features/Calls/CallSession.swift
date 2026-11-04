@@ -365,17 +365,24 @@ final class CallSession {
         pollTask?.cancel()
         pollTask = nil
 
-        if let callSessionID {
-            // Idempotent server-side, which is what makes it safe to send
-            // even when the visitor hung up first and the call is already
-            // over as far as the server is concerned.
-            try? await api.hangUp(callSessionID: callSessionID)
-        } else {
-            // Never answered: there is no session to end, only an offer to
-            // withdraw.
-            try? await api.cancelInvitation(id: invitationID)
+        // The server is told alongside the teardown, not before it: on a slow
+        // or dead link the request can take a minute, and the microphone and
+        // camera must not stay on the visitor's screen that long after the
+        // operator hung up (CallManager does the same for colleague calls).
+        let tell = Task { [api, callSessionID, invitationID] in
+            if let callSessionID {
+                // Idempotent server-side, which is what makes it safe to send
+                // even when the visitor hung up first and the call is already
+                // over as far as the server is concerned.
+                try? await api.hangUp(callSessionID: callSessionID)
+            } else {
+                // Never answered: there is no session to end, only an offer to
+                // withdraw.
+                try? await api.cancelInvitation(id: invitationID)
+            }
         }
         await teardown()
+        await tell.value
     }
 
     fileprivate func refreshVisitorPresence() {

@@ -10,8 +10,9 @@
  *   1. Compute final duration from connected_at → started_at → created_at
  *      (whichever is the earliest known "the call existed" anchor).
  *   2. Persist ended_at, ended_by, ended_by_user_id, end_reason,
- *      duration_seconds, state='ended' — only if the row hasn't already
- *      been ended (idempotent: re-runs return the existing summary).
+ *      duration_seconds, state='ended' — only from a live state (a call
+ *      that is over, ended or missed or cancelled or failed, keeps its end;
+ *      re-runs return the existing summary).
  *   3. Best-effort close the provider room. Failures here NEVER throw.
  *   4. Best-effort emit a `call:ended` operator event on the per-conversation
  *      channel + workspace inbox channel. Failures NEVER throw.
@@ -28,9 +29,11 @@ import {
   publishOperatorEvent,
   publishConversationEvent,
   buildMessageEnvelope,
+  type OperatorEventPayload,
 } from '../realtime/publish.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { clearInCall } from './availability.js';
+import { LIVE_CALL_STATES, isTerminalCallState, syncAgentActiveCallCount } from './callStateGuards.js';
 
 export type EndCallReason =
   | 'operator_ended'
@@ -69,7 +72,14 @@ export interface EndCallNotFound {
 
 export type EndCallResult = EndCallSummary | EndCallNotFound;
 
-function pickAnchorMs(row: any): number {
+/** The timestamps of a call_sessions row the duration is measured from. */
+interface CallTimingRow {
+  connected_at?: unknown;
+  started_at?: unknown;
+  created_at?: unknown;
+}
+
+function pickAnchorMs(row: CallTimingRow | null | undefined): number {
   const candidates = [row?.connected_at, row?.started_at, row?.created_at];
   for (const c of candidates) {
     if (typeof c === 'string') {
@@ -80,7 +90,7 @@ function pickAnchorMs(row: any): number {
   return Date.now();
 }
 
-function computeDuration(row: any, endedAtMs: number): number {
+function computeDuration(row: CallTimingRow | null | undefined, endedAtMs: number): number {
   const anchor = pickAnchorMs(row);
   return Math.max(0, Math.round((endedAtMs - anchor) / 1000));
 }
@@ -115,8 +125,10 @@ export async function endCallSession(
     .maybeSingle();
   if (!row) return { ok: false, reason: 'not_found' };
 
-  // Idempotent path — already ended.
-  if (row.state === 'ended' && row.ended_at) {
+  // Idempotent path — already over (ended, or missed/cancelled/failed: a
+  // call that is over is never ended a second time, which would bill its
+  // minutes again; callStateGuards.ts).
+  if (isTerminalCallState(row.state)) {
     try {
       // eslint-disable-next-line no-console
       console.info('[call:end] idempotent already ended', {
@@ -131,13 +143,13 @@ export async function endCallSession(
       conversation_id: row.context_id ?? null,
       workspace_id: row.workspace_id,
       state: 'ended',
-      ended_at: row.ended_at,
+      ended_at: row.ended_at ?? row.updated_at ?? new Date().toISOString(),
       ended_by: (row.ended_by as EndCallActor) || input.endedBy,
       end_reason: (row.end_reason as EndCallReason) || input.reason,
       duration_seconds:
         typeof row.duration_seconds === 'number'
           ? row.duration_seconds
-          : computeDuration(row, new Date(row.ended_at).getTime()),
+          : (row.ended_at ? computeDuration(row, new Date(row.ended_at).getTime()) : 0),
       was_active: false,
     };
   }
@@ -160,7 +172,7 @@ export async function endCallSession(
       end_reason: input.reason,
     })
     .eq('id', input.callId)
-    .neq('state', 'ended')
+    .in('state', LIVE_CALL_STATES as unknown as string[])
     .select('*')
     .maybeSingle();
 
@@ -201,6 +213,10 @@ export async function endCallSession(
   if (input.endedBy === 'operator' && input.endedByUserId) {
     void clearInCall(config, finalRow.workspace_id, input.endedByUserId)
       .catch(() => { /* never block */ });
+  }
+  // ...and the call-centre operator who held it, whoever ended it (calls-6).
+  if (updated && finalRow.assigned_agent_id) {
+    void syncAgentActiveCallCount(config, finalRow.workspace_id, finalRow.assigned_agent_id);
   }
 
   // 4b. Pass A — Persist a `call_ended` system summary message into the
@@ -245,7 +261,7 @@ export async function endCallSession(
       if (msgErr) {
         // 23505 = unique_violation → another worker already wrote the
         // summary; that's the desired idempotent outcome.
-        if ((msgErr as any).code !== '23505') {
+        if ((msgErr as { code?: string }).code !== '23505') {
           // eslint-disable-next-line no-console
           console.warn('[call:end] system message insert failed:', msgErr.message);
         }
@@ -264,14 +280,15 @@ export async function endCallSession(
             metadata:
               ((msgRow.metadata as Record<string, unknown>) ??
                 (msgMeta as unknown as Record<string, unknown>)),
-            seen_at: (msgRow as any).seen_at ?? null,
+            seen_at: (msgRow as { seen_at?: string | null }).seen_at ?? null,
           }),
         );
       }
-    } catch (err: any) {
-      if (err?.code !== '23505') {
+    } catch (err: unknown) {
+      const thrown = err as { code?: string; message?: string } | null | undefined;
+      if (thrown?.code !== '23505') {
         // eslint-disable-next-line no-console
-        console.warn('[call:end] system message threw:', err?.message || err);
+        console.warn('[call:end] system message threw:', thrown?.message || err);
       }
     }
 
@@ -313,7 +330,7 @@ export async function endCallSession(
       reason: input.reason,
       duration_seconds: finalRow.duration_seconds ?? duration,
       ended_at: finalRow.ended_at,
-    } as any).catch(() => { /* publish never throws */ });
+    } as unknown as OperatorEventPayload).catch(() => { /* publish never throws */ });
   }
 
   return {

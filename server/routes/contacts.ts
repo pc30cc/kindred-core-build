@@ -20,6 +20,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -34,6 +35,8 @@ import {
   resolveContactNetworkProfile,
 } from '../services/visitors/networkProfile.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { INBOX_NOT_ALLOWED, mayUseInbox } from '../lib/inboxAccess.js';
+import { readRows } from '../lib/pagedRows.js';
 import { hydrateContactAvatars, hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { operatorLocale } from '../services/operatorLocale.js';
 import { withOperatorSystemBody } from '../services/operatorSystemText.js';
@@ -128,7 +131,7 @@ const createSchema = contactSchema.extend({
 
 const bulkSchema = z.object({
   workspace_id: z.string().uuid(),
-  contacts: z.array(contactSchema).min(1).max(5_000),
+  contacts: boundedArray(contactSchema, 5_000, 1),
 });
 
 async function authorizeWorkspaceMember(
@@ -283,12 +286,16 @@ contactsRouter.get('/', async (req, res) => {
     if (!(await contactsPlanAllows(req, res, config, workspaceId))) return;
 
     const sb = getServiceClient(config);
+    // Every contact, paged: one read stops at DATABASE_MAX_ROWS (1000)
+    // without a word, and the page's total ("N contacts") is this list's length.
     const [{ data, error }, locks] = await Promise.all([
-      sb
+      readRows<ContactRow>((from, to) => sb
         .from('contacts')
         .select('*')
         .eq('workspace_id', workspaceId)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, to)),
       resolveContactChatLocks(config, workspaceId),
     ]);
     if (error) return res.status(500).json({ error: error.message });
@@ -314,7 +321,7 @@ async function loadAndAuthorizeContact(
   sb: ReturnType<typeof getServiceClient>,
   contactId: string,
   opts: { manage?: boolean } = {},
-): Promise<{ contact: ContactRow; userId: string | null } | null> {
+): Promise<{ contact: ContactRow; userId: string | null; inbox: boolean } | null> {
   const { data: contact } = await sb.from('contacts').select('*').eq('id', contactId).maybeSingle();
   if (!contact) {
     res.status(404).json({ error: 'not_found' });
@@ -322,9 +329,9 @@ async function loadAndAuthorizeContact(
   }
   const auth = opts.manage
     ? await authorizeWorkspaceAccess(req, res, contact.workspace_id, { manage: true })
-    : await authorizeWorkspaceMember(req, res, config, contact.workspace_id);
+    : await authorizeWorkspaceAccess(req, res, contact.workspace_id);
   if (!auth) return null;
-  return { contact, userId: auth.userId ?? null };
+  return { contact, userId: auth.userId ?? null, inbox: mayUseInbox(auth) };
 }
 
 /**
@@ -361,6 +368,10 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
+    // A contact's conversations and their last messages are the Inbox's:
+    // staff without one (shared/chatRoles.ts) are refused here as on every
+    // /api/conversations route.
+    if (!loaded.inbox) return res.status(403).json(INBOX_NOT_ALLOWED);
     if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id))) return;
     if (await refuseLockedContact(res, config, loaded.contact)) return;
     const locks = await resolveContactChatLocks(config, loaded.contact.workspace_id);
@@ -368,6 +379,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     const { data: convData, error: convErr } = await sb
       .from('conversations')
       .select('*')
+      .eq('workspace_id', loaded.contact.workspace_id)
       .eq('contact_id', req.params.id)
       .order('updated_at', { ascending: false });
     if (convErr) return res.status(500).json({ error: convErr.message });
@@ -377,15 +389,33 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     // A chat older than the plan's retention is listed without its content.
     const lockedConv = new Set(convs.filter((c) => isConversationLocked(locks, c)).map((c) => c.id));
     const ids = convs.map((c) => c.id).filter((id) => !lockedConv.has(id));
-    const [{ data: msgs }, readerLocale] = await Promise.all([
-      ids.length === 0 ? { data: [] } : sb
+    // Every message's sender, page by page: one read stops at
+    // DATABASE_MAX_ROWS (1000) without a word, which gave a long history's
+    // oldest message as its "last", the wrong operator and a capped count.
+    // The bodies are read below for the last message of each only.
+    type ThreadRow = { id: string; conversation_id: string; sender_type: string; sender_id: string | null; created_at: string };
+    const [senders, readerLocale] = await Promise.all([
+      ids.length === 0 ? { data: [] as ThreadRow[], error: null } : readRows<ThreadRow>((from, to) => sb
         .from('conversation_messages')
-        .select('conversation_id, sender_type, sender_id, body, created_at, metadata')
+        .select('id, conversation_id, sender_type, sender_id, created_at')
         .in('conversation_id', ids)
-        .order('created_at', { ascending: true }),
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)),
       // A system preview's body is written in this operator's language.
       operatorLocale(config, loaded.userId),
     ]);
+    if (senders.error) return res.status(500).json({ error: senders.error.message || 'read_failed' });
+    const lastIdOf = new Map<string, string>();
+    for (const m of senders.data) lastIdOf.set(m.conversation_id, m.id);
+    const lastIds = [...lastIdOf.values()];
+    const { data: lastRows, error: lastErr } = lastIds.length === 0 ? { data: [], error: null } : await sb
+      .from('conversation_messages')
+      .select('id, conversation_id, sender_type, sender_id, body, created_at, metadata')
+      .in('id', lastIds);
+    if (lastErr) return res.status(500).json({ error: lastErr.message });
+    const lastById = new Map((lastRows ?? []).map((m) => [m.id as string, m]));
+    const msgs = senders.data;
 
     const operatorIds = new Set<string>();
     for (const c of convs) if (c.assigned_to) operatorIds.add(c.assigned_to);
@@ -425,7 +455,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
       const lastAgentId = agentMsgs.length ? agentMsgs[agentMsgs.length - 1].sender_id : null;
       const operatorId = lastAgentId || c.assigned_to || null;
       const operator = operatorId ? profiles[operatorId] ?? null : null;
-      const last = mine.length ? mine[mine.length - 1] : null;
+      const last = mine.length ? lastById.get(mine[mine.length - 1].id) ?? null : null;
       // Stored in English: written in the reader's language for a client
       // that prints the body, the stand-in names nulled in the metadata.
       const lastMessage = last ? withOperatorSystemBody(last, readerLocale) : null;

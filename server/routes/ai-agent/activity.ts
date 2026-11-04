@@ -14,6 +14,7 @@ import { routeParam } from '../../lib/routeParams.js';
 import { listRuns, listRunsPaged, summarize } from '../../services/ai-agent/logs.js';
 import { takeOverConversation } from '../../services/conversationAssignment.js';
 import { authorizeInboxAccess } from '../../lib/inboxAccess.js';
+import { conversationLockedBody, conversationLockedNow } from '../../services/contactChatLocks.js';
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace, redactDeep } from './shared.js';
 
 export const activityRouter: Router = express.Router();
@@ -253,7 +254,8 @@ async function authorizeSuggestion(
     res.status(404).json({ error: 'suggestion_not_found' });
     return null;
   }
-  const auth = await authorizeMember(req, res, config, row.workspace_id);
+  // The AI's drafts for a visitor are the Inbox's (audit ai-2).
+  const auth = await authorizeInboxAccess(req, res, row.workspace_id);
   if (!auth) return null;
   return { workspaceId: row.workspace_id, userId: auth.userId, isAdmin: auth.isAdmin, row };
 }
@@ -264,12 +266,16 @@ activityRouter.get('/conversations/:conversationId/suggestions', async (req: Req
   const sb = getServiceClient(config);
   const { data: conv } = await sb
     .from('conversations')
-    .select('workspace_id')
+    .select('workspace_id, created_at, updated_at')
     .eq('id', conversationId)
     .maybeSingle();
   if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
-  const auth = await authorizeMember(req, res, config, conv.workspace_id);
+  // The AI's drafts for a visitor are the Inbox's: its roles only, and not
+  // in a conversation the plan locked (as conversations.ts reads it; audit ai-2).
+  const auth = await authorizeInboxAccess(req, res, conv.workspace_id);
   if (!auth) return;
+  const lock = await conversationLockedNow(config, conv.workspace_id, conv);
+  if (lock.locked) return res.status(403).json(conversationLockedBody(lock.state));
 
   const status = String(req.query.status || 'pending');
   let q = sb

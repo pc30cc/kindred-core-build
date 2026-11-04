@@ -83,7 +83,9 @@ export function useTeamThread(workspaceId: string | undefined, peerId: string | 
     enabled: !!workspaceId && !!peerId,
     staleTime: 5_000,
     refetchInterval: 10_000,
-    placeholderData: (prev) => prev,
+    // No placeholderData: the key is the colleague, so a previous result is
+    // always another colleague's thread (its call lines would call back the
+    // one now open). A new colleague shows the loader until theirs arrives.
   });
 }
 

@@ -33,10 +33,17 @@ export function deriveChannelWebhookSecret(
     .digest('base64url');
 }
 
-/** Constant-time comparison that tolerates length mismatch and null input. */
+/**
+ * Constant-time comparison that tolerates length mismatch, null input and
+ * any bytes. Lengths are compared on the UTF-8 bytes, not the JS string: a
+ * header with a non-ASCII character of the same character length used to
+ * reach timingSafeEqual with buffers of different lengths, which throws.
+ */
 export function safeSecretEqual(actual: string | null | undefined, expected: string): boolean {
-  if (typeof actual !== 'string' || actual.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(actual, 'utf8'), Buffer.from(expected, 'utf8'));
+  if (typeof actual !== 'string' || typeof expected !== 'string') return false;
+  const a = Buffer.from(actual, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /**

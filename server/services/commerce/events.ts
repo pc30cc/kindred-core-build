@@ -37,10 +37,16 @@ export async function ingestCommerceEvent(
     .maybeSingle();
 
   if (reserveError) {
-    if ((reserveError as any).code === '23505') return { status: 'duplicate' };
-    throw new Error(`event receipt reserve failed: ${reserveError.message}`);
+    if ((reserveError as { code?: string }).code !== '23505') throw new Error(`event receipt reserve failed: ${reserveError.message}`);
+    // A delivery whose change failed to apply left its receipt at 'error'.
+    // The plugin's retry of the same event takes that receipt back and
+    // applies it; it used to be acknowledged as a duplicate, so a transient
+    // error dropped the change for good (a product.deleted, and the AI kept
+    // recommending the product). Compare-and-set: one retry wins.
+    if (!(await reclaimFailedReceipt(sb, event))) return { status: 'duplicate' };
+  } else if (!reserved) {
+    return { status: 'duplicate' };
   }
-  if (!reserved) return { status: 'duplicate' };
 
   try {
     await applyEvent(config, workspaceId, connectionId, event);
@@ -50,6 +56,18 @@ export async function ingestCommerceEvent(
     await sb.from('commerce_event_receipts').update({ status: 'error' }).eq('installation_id', event.installation_id).eq('event_id', event.event_id);
     throw err;
   }
+}
+
+async function reclaimFailedReceipt(sb: ReturnType<typeof getServiceClient>, event: CommerceEvent): Promise<boolean> {
+  const { data, error } = await sb
+    .from('commerce_event_receipts')
+    .update({ status: 'processed', received_at: new Date().toISOString() })
+    .eq('installation_id', event.installation_id)
+    .eq('event_id', event.event_id)
+    .eq('status', 'error')
+    .select('id');
+  if (error) throw new Error(`event receipt reclaim failed: ${error.message}`);
+  return (data ?? []).length > 0;
 }
 
 async function applyEvent(config: ServerConfig, workspaceId: string, connectionId: string, event: CommerceEvent): Promise<void> {
@@ -66,7 +84,7 @@ async function applyEvent(config: ServerConfig, workspaceId: string, connectionI
     }
     case 'variation.created':
     case 'variation.updated': {
-      const parentExternalId = String((event.payload as any)?.parentExternalId ?? '');
+      const parentExternalId = String(payloadField(event.payload, 'parentExternalId') ?? '');
       if (!parentExternalId) return;
       const [parent] = await getIndexedProductsByIds(config, connectionId, [parentExternalId]);
       if (!parent) return; // parent not indexed yet — the next full/incremental sync will pick this up
@@ -79,9 +97,9 @@ async function applyEvent(config: ServerConfig, workspaceId: string, connectionI
       return;
     }
     case 'stock.changed': {
-      const variantExternalId = (event.payload as any)?.variantExternalId;
+      const variantExternalId = payloadField(event.payload, 'variantExternalId');
       if (variantExternalId) {
-        const parentExternalId = String((event.payload as any)?.parentExternalId ?? '');
+        const parentExternalId = String(payloadField(event.payload, 'parentExternalId') ?? '');
         const [parent] = parentExternalId ? await getIndexedProductsByIds(config, connectionId, [parentExternalId]) : [];
         if (parent) {
           const variant = normalizeVariantPayload(event.payload);
@@ -106,7 +124,12 @@ async function applyEvent(config: ServerConfig, workspaceId: string, connectionI
   }
 }
 
+/** One field of an event's (untrusted) payload. */
+function payloadField(payload: unknown, key: string): unknown {
+  return payload && typeof payload === 'object' ? (payload as Record<string, unknown>)[key] : undefined;
+}
+
 function normalizeVariantPayload(payload: unknown) {
-  const product = normalizeWooCommerceProduct({ ...(payload as any), title: (payload as any)?.title ?? 'variant', externalId: (payload as any)?.parentExternalId, variants: [payload] });
+  const product = normalizeWooCommerceProduct({ ...(payload as Record<string, unknown>), title: payloadField(payload, 'title') ?? 'variant', externalId: payloadField(payload, 'parentExternalId'), variants: [payload] });
   return product?.variants[0] ?? null;
 }

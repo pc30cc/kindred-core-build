@@ -14,6 +14,7 @@
  */
 import { Router, raw, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { enforceModule } from '../middleware/featureGating.js';
 import {
@@ -299,28 +300,28 @@ emailInboxRouter.post('/:workspaceId/attachments', raw({ type: '*/*', limit: '25
 const sendSchema = z.object({
   // Gmail thread ids are provider ids (hex), Yahoo's are our UUIDs.
   thread_id: z.string().min(1).max(200).regex(/^[A-Za-z0-9-]+$/).nullable().optional(),
-  to: z.array(z.string().email()).min(1),
-  cc: z.array(z.string().email()).optional(),
-  bcc: z.array(z.string().email()).optional(),
+  to: boundedArray(z.string().email(), 100, 1),
+  cc: boundedArray(z.string().email(), 100).optional(),
+  bcc: boundedArray(z.string().email(), 100).optional(),
   subject: z.string().min(1).max(500),
   text_body: z.string().min(1).max(200_000),
   html_body: z.string().max(500_000).nullable().optional(),
-  attachments: z.array(z.object({
+  attachments: boundedArray(z.object({
     storageKey: z.string(),
     filename: z.string(),
     contentType: z.string(),
     sizeBytes: z.number(),
-  })).optional(),
+  }), 50).optional(),
   // A retry with the same id does not send twice: a live (Gmail) inbox
   // replays the first result, a queued (Yahoo) one returns the reply it
   // already queued.
   client_request_id: z.string().min(8).max(100).regex(/^[A-Za-z0-9-]+$/).optional(),
   // Live (Gmail) inbox only: bytes sent with the reply, never stored.
-  inline_attachments: z.array(z.object({
+  inline_attachments: boundedArray(z.object({
     filename: z.string().min(1).max(200),
     content_type: z.string().min(1).max(200),
     data_base64: z.string().min(1),
-  })).max(10).optional(),
+  }), 10).optional(),
 });
 
 emailInboxRouter.post('/:workspaceId/send', async (req, res) => {

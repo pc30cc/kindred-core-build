@@ -51,6 +51,35 @@ const MAX_PAGE_BYTES = parseInt(process.env.AI_KB_MAX_PAGE_BYTES || String(2 * 1
 const USER_AGENT = process.env.AI_KB_USER_AGENT || 'AiAgentDataHubBot/1.0 (+self-hosted)';
 const MIN_TEXT_LEN = 200;
 
+/**
+ * Bounds on one crawl's work (audit ai-5): only fetched pages count toward
+ * maxPages, so failed, skipped, robots-blocked and wrong-type URLs were
+ * attempted without limit, every page queued all its links, and one site
+ * could hold the shared, sequential source-sync worker for hours.
+ *   - attempts: every URL taken from the queue, whatever its outcome;
+ *   - queue: URLs waiting; links past it are dropped;
+ *   - wall clock: the whole crawl.
+ * A crawl stopped by one of these is truncated and prunes nothing.
+ */
+const ATTEMPTS_PER_PAGE = 3;
+const ATTEMPTS_HEADROOM = 50;
+const QUEUE_PER_PAGE = 10;
+const QUEUE_MIN = 500;
+const CRAWL_MAX_MS = parseInt(process.env.AI_KB_CRAWL_MAX_MS || String(60 * 60 * 1000), 10);
+
+export function crawlAttemptCap(maxPages: number): number {
+  return Math.max(1, maxPages) * ATTEMPTS_PER_PAGE + ATTEMPTS_HEADROOM;
+}
+
+export function crawlQueueCap(maxPages: number): number {
+  return Math.max(QUEUE_MIN, Math.max(1, maxPages) * QUEUE_PER_PAGE);
+}
+
+/** A page whose fetch says it is gone: its old knowledge goes with it. */
+function pageIsGone(status: number | null | undefined): boolean {
+  return status === 404 || status === 410;
+}
+
 export async function crawlWebsiteSource(
   config: ServerConfig,
   opts: CrawlOptions,
@@ -78,7 +107,17 @@ export async function crawlWebsiteSource(
   const seenSourceIds: string[] = [];
   const embedder = await getEmbedderForWorkspace(config, opts.workspaceId).catch(() => null);
 
+  const attemptCap = crawlAttemptCap(opts.maxPages);
+  const queueCap = crawlQueueCap(opts.maxPages);
+  const deadline = Date.now() + CRAWL_MAX_MS;
+  // Why the crawl did not see the whole site, when that was not the plan's
+  // page cap: then what it did not see is unknown, not gone.
+  let incomplete: string | null = null;
+  let billingDenied = false;
+
   while (queue.length && summary.pages_fetched < opts.maxPages) {
+    if (summary.pages_seen >= attemptCap) { incomplete = 'crawl_attempt_limit'; break; }
+    if (Date.now() >= deadline) { incomplete = 'crawl_time_limit'; break; }
     const { url, depth } = queue.shift()!;
     summary.pages_seen += 1;
 
@@ -108,6 +147,10 @@ export async function crawlWebsiteSource(
     // Fetch
     const fetched = await fetchPage(url, opts.rootHost);
     if (!fetched.ok || !fetched.html) {
+      // A page that failed to load this time (5xx, timeout, a bot
+      // challenge) keeps its knowledge until a run reads it again or it
+      // answers 404/410 (audit ai-4).
+      if (!pageIsGone(fetched.status)) seenSourceIds.push(`${opts.sourceId}:${urlHash(url)}`);
       summary.pages_failed += 1;
       summary.errors.push(`${fetched.error || 'fetch_failed'}: ${url}`);
       await recordPage(sb, opts, url, {
@@ -129,7 +172,6 @@ export async function crawlWebsiteSource(
     seenSourceIds.push(pageSourceId);
 
     let pageChunks = 0; let pageEmbeds = 0;
-    let billingDenied = false;
     if (!lowText && ex.text.length > 0) {
       const chunks = chunkText(ex.text);
       try {
@@ -151,14 +193,14 @@ export async function crawlWebsiteSource(
         pageEmbeds = r.embeddingsGenerated;
         summary.chunks_created += r.chunksCreated;
         summary.embeddings_generated += r.embeddingsGenerated;
-      } catch (err: any) {
+      } catch (err: unknown) {
         // ENFORCED billing denial (exhausted wallet, missing rate card) —
         // every remaining page would fail identically, so stop crawling
         // instead of burning through the queue on repeat failures. Distinct
         // from a page fetch/parse error: the page itself was fine, indexing
         // it is what's blocked.
         billingDenied = true;
-        summary.errors.push(`ai_billing_denied: ${err?.message || err}`);
+        summary.errors.push(`ai_billing_denied: ${err instanceof Error ? err.message : String(err)}`);
         await recordPage(sb, opts, url, {
           status: 'failed',
           http_status: fetched.status,
@@ -189,19 +231,29 @@ export async function crawlWebsiteSource(
         if (!c.ok || !c.url) continue;
         if (!isSameDomain(c.url, rootHost)) continue;
         if (seen.has(c.url)) continue;
+        if (queue.length >= queueCap) { incomplete = incomplete || 'crawl_queue_limit'; break; }
         seen.add(c.url);
         queue.push({ url: c.url, depth: depth + 1 });
       }
     }
   }
 
-  if (queue.length > 0) {
+  if (queue.length > 0 || incomplete) {
     summary.truncated = true;
-    summary.warnings.push('plan_limit_truncated');
+    summary.warnings.push(incomplete || 'plan_limit_truncated');
   }
 
-  // Mark previously-known pages that we no longer saw as removed (deactivate their chunks).
-  await pruneUnseenPages(sb, config, opts, seenSourceIds);
+  // Mark previously-known pages that we no longer saw as removed (deactivate
+  // their chunks), only when this run read the site as far as the plan's
+  // page cap: never after a run that fetched nothing (the site down, a bot
+  // challenge), a billing denial, or a stop on the bounds above, which would
+  // drop knowledge the run simply did not reach (audit ai-4).
+  const pruneSkipped = shouldSkipPrune(summary, { billingDenied, incomplete });
+  if (pruneSkipped) {
+    summary.warnings.push(`prune_skipped_${pruneSkipped}`);
+  } else {
+    await pruneUnseenPages(sb, config, opts, seenSourceIds);
+  }
 
   // Count embedded chunks for this source (active only).
   const { count: embedded } = await sb
@@ -250,6 +302,17 @@ async function recordPage(
   }, { onConflict: 'source_id,url_hash' });
 }
 
+/** Why this run must not prune, or null when it may. */
+export function shouldSkipPrune(
+  summary: Pick<CrawlSummary, 'pages_fetched'>,
+  run: { billingDenied: boolean; incomplete: string | null },
+): string | null {
+  if (run.billingDenied) return 'billing_denied';
+  if (summary.pages_fetched === 0) return 'nothing_fetched';
+  if (run.incomplete) return 'incomplete';
+  return null;
+}
+
 async function pruneUnseenPages(
   sb: ReturnType<typeof getServiceClient>,
   config: ServerConfig,
@@ -278,7 +341,9 @@ async function pruneUnseenPages(
     .like('source_id', `${opts.sourceId}:%`)
     .neq('status', 'deleted');
   const seenSet = new Set(seenSourceIds);
-  const stale = (rows || []).filter((r: any) => !seenSet.has(r.source_id)).map((r: any) => r.id);
+  const stale = ((rows || []) as Array<{ id: string; source_id: string }>)
+    .filter((r) => !seenSet.has(r.source_id))
+    .map((r) => r.id);
   if (stale.length) {
     await sb.from('ai_knowledge_chunks').update({ status: 'deleted' }).in('id', stale);
   }

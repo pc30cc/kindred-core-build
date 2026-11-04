@@ -250,6 +250,18 @@ export function startYahooOAuth(workspaceId: string) {
   });
 }
 
+/**
+ * Finishes a mailbox connect after the provider's consent: the server's
+ * callback hands the code and state to the panel, and the connect completes
+ * with the signed-in member's session, for the member who started it only.
+ */
+export function completeMailOAuth(provider: 'gmail' | 'yahoo', state: string, code: string) {
+  return api<{ ok: true; workspace_id: string }>(`/api/plugins/${provider}/oauth/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ state, code }),
+  });
+}
+
 export function disconnectYahoo(workspaceId: string) {
   return api<{ ok: true }>('/api/plugins/yahoo/disconnect', {
     method: 'POST',

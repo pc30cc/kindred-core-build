@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { inAppRedirect } from '@/lib/inAppRedirect';
 import { API_BASE } from '@/lib/apiBase';
 import { toast } from '@/lib/toast';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -307,7 +308,7 @@ export default function InvitePage() {
       return;
     }
     tokenRef.current = null;
-    navigate(String(data?.loginPath || '/auth/login?invited=1'));
+    navigate(inAppRedirect(data?.loginPath ? String(data.loginPath) : null, '/auth/login?invited=1'));
   };
 
   const acceptNew = async () => {

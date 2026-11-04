@@ -38,6 +38,11 @@ describe('inAppRedirect', () => {
       '\\\\evil.example',
       'javascript:alert(1)',
       'evil.example',
+      // The legacy /app/w/:slug/* redirect (src/App.tsx) with decoded params:
+      // `/app/w/%5Cevil.example` and `/app/w/x/..%2F..%2F%5Cevil.example`.
+      '/\\evil.example',
+      '/x/../../\\evil.example',
+      '/x/..//evil.example',
     ]) {
       expect(inAppRedirect(raw, '/app', WEB), JSON.stringify(raw)).toBe('/app');
     }

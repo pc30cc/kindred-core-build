@@ -26,8 +26,16 @@ final class TeamThreadViewModel {
     private(set) var sentCount = 0
     var draft = ""
 
+    /// The file whose send just failed — a voice note exists nowhere else once
+    /// recorded — kept for "Try again", with its id once uploaded.
+    private(set) var failedAttachment: (pending: PendingAttachment, workspaceID: String, peerID: String)?
+
     private let api: any WebyarAPI
     @ObservationIgnored private weak var appState: AppState?
+    /// Counts the thread's reads: only the newest one sent may write the
+    /// thread, so a timer poll that left before a send cannot land after the
+    /// send's reload and take the message just sent off the screen.
+    @ObservationIgnored private var readSeq = 0
 
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
@@ -80,8 +88,11 @@ final class TeamThreadViewModel {
 
     /// Quietly, without blanking the thread — this runs on a timer.
     func poll(workspaceID: String?, peerID: String) async {
-        guard let workspaceID, !isSending,
-              let response = try? await api.teamThread(workspaceID: workspaceID, peerID: peerID)
+        guard let workspaceID, !isSending else { return }
+        readSeq += 1
+        let mine = readSeq
+        guard let response = try? await api.teamThread(workspaceID: workspaceID, peerID: peerID),
+              mine == readSeq, !isSending
         else { return }
         me = response.me
         state = .loaded(response.messages)
@@ -169,18 +180,39 @@ final class TeamThreadViewModel {
         peerID: String,
         appState: AppState
     ) async {
-        guard !isSending, let workspaceID else { return }
+        guard let workspaceID else { return }
+        let pending = PendingAttachment(data: data, fileName: fileName, mimeType: mimeType, caption: "", clientID: UUID().uuidString)
+        await send(pending, workspaceID: workspaceID, peerID: peerID, appState: appState)
+    }
+
+    /// "Try again" on the failed send's alert.
+    func retryFailedAttachment(appState: AppState) {
+        guard let failed = failedAttachment else { return }
+        failedAttachment = nil
+        Task { await send(failed.pending, workspaceID: failed.workspaceID, peerID: failed.peerID, appState: appState) }
+    }
+
+    private func send(_ pending: PendingAttachment, workspaceID: String, peerID: String, appState: AppState) async {
+        guard !isSending else { return }
+        var pending = pending
         isSending = true
         sendFailed = false
+        failedAttachment = nil
         defer { isSending = false }
         do {
-            let attachmentID = try await api.uploadAttachment(
-                conversationID: nil,
-                workspaceID: workspaceID,
-                fileName: fileName,
-                mimeType: mimeType,
-                data: data
-            )
+            let attachmentID: String
+            if let uploaded = pending.attachmentID {
+                attachmentID = uploaded
+            } else {
+                attachmentID = try await api.uploadAttachment(
+                    conversationID: nil,
+                    workspaceID: workspaceID,
+                    fileName: pending.fileName,
+                    mimeType: pending.mimeType,
+                    data: pending.data
+                )
+                pending.attachmentID = attachmentID
+            }
             try await api.sendTeamMessage(
                 workspaceID: workspaceID, recipientID: peerID, body: "", attachmentID: attachmentID
             )
@@ -189,6 +221,7 @@ final class TeamThreadViewModel {
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
+            failedAttachment = (pending, workspaceID, peerID)
             sendFailed = true
         }
     }
@@ -198,8 +231,11 @@ final class TeamThreadViewModel {
     /// `load` sets `.loading`, which after a send would throw the transcript
     /// away and put a spinner where the operator's own message just appeared.
     private func reload(workspaceID: String, peerID: String, appState: AppState) async {
+        readSeq += 1
+        let mine = readSeq
         do {
             let response = try await api.teamThread(workspaceID: workspaceID, peerID: peerID)
+            guard mine == readSeq else { return }
             me = response.me
             state = .loaded(response.messages)
             await markReadIfNeeded(response, workspaceID: workspaceID, peerID: peerID)
@@ -211,7 +247,10 @@ final class TeamThreadViewModel {
         }
     }
 
-    func dismissSendError() { sendFailed = false }
+    func dismissSendError() {
+        sendFailed = false
+        failedAttachment = nil
+    }
 }
 
 /// One colleague's thread. The same transcript rules as the visitor chat —
@@ -304,6 +343,9 @@ struct TeamThreadView: View {
                     set: { if !$0 { model.dismissSendError() } }
                 )
             ) {
+                if model.failedAttachment != nil {
+                    Button(Str.retry(language)) { model.retryFailedAttachment(appState: appState) }
+                }
                 Button(Str.cancel(language), role: .cancel) { model.dismissSendError() }
             } message: {
                 Text(Str.offlineBody(language))

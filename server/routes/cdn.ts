@@ -11,19 +11,22 @@ import {
   testCDNConnection,
   resolveCDNConfig,
   getCDNAssetUrl,
+  CDNPathError,
   type CDNConfig,
 } from '../services/cdn/index.js';
-import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 
 export const cdnRouter = Router();
 
 /**
  * POST /api/cdn/purge
- * Purge CDN cache for specific paths or all.
+ * Purge a workspace's CDN cache. On the workspace's own CDN: the paths given,
+ * or everything. On the platform's CDN (no override): only paths under
+ * /workspace/<id>/, at least one (purgePathsError in services/cdn).
  */
 cdnRouter.post('/purge', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { workspaceId, paths } = req.body;
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId is required' });
@@ -32,10 +35,11 @@ cdnRouter.post('/purge', async (req, res) => {
     // publishable key may trigger.
     if (!(await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true }))) return;
 
-    const result = await purgeCDN(config, workspaceId, paths || []);
-    return res.status(result.success ? 200 : 500).json(result);
-  } catch (err: any) {
-    console.error('[cdn] Purge error:', err.message);
+    const result = await purgeCDN(config, workspaceId, paths ?? []);
+    const { invalidRequest, ...body } = result;
+    return res.status(result.success ? 200 : invalidRequest ? 400 : 500).json(body);
+  } catch (err: unknown) {
+    console.error('[cdn] Purge error:', (err instanceof Error ? err.message : String(err)));
     return res.status(500).json({ success: false, error: 'Purge failed' });
   }
 });
@@ -90,8 +94,8 @@ cdnRouter.post('/test', async (req, res) => {
 
     const result = await testCDNConnection(cdnConfig);
     return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, latencyMs: 0, provider: 'unknown', error: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ success: false, latencyMs: 0, provider: 'unknown', error: (err instanceof Error ? err.message : String(err)) });
   }
 });
 
@@ -101,7 +105,7 @@ cdnRouter.post('/test', async (req, res) => {
  */
 cdnRouter.get('/config/:workspaceId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
 
     const cdnConfig = await resolveCDNConfig(config, req.params.workspaceId);
@@ -115,8 +119,8 @@ cdnRouter.get('/config/:workspaceId', async (req, res) => {
       domain: cdnConfig.domain || cdnConfig.hostname,
       // Never expose secrets
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err instanceof Error ? err.message : String(err)) });
   }
 });
 
@@ -126,7 +130,7 @@ cdnRouter.get('/config/:workspaceId', async (req, res) => {
  */
 cdnRouter.post('/asset-url', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { workspaceId, path } = req.body;
     if (!workspaceId || !path) {
       return res.status(400).json({ error: 'workspaceId and path required' });
@@ -140,7 +144,8 @@ cdnRouter.post('/asset-url', async (req, res) => {
 
     const url = getCDNAssetUrl(cdnConfig, path);
     return res.json({ url });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    if (err instanceof CDNPathError) return res.status(400).json({ error: 'Invalid path' });
+    return res.status(500).json({ error: (err instanceof Error ? err.message : String(err)) });
   }
 });

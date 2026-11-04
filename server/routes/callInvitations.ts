@@ -9,10 +9,9 @@
  * Auth: first-party session cookie + workspace membership. All writes go
  * through the service-role-backed invitations service.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
 import {
   createInvitation,
   cancelInvitation,
@@ -23,13 +22,15 @@ import {
   INVITE_TTL_MAX_SECONDS,
 } from '../services/calls/invitations.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const callInvitationsRouter = Router();
 
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
 async function requireAuth(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   _config: ServerConfig,
 ): Promise<{ userId: string } | null> {
   const userId = await requireSessionUser(req, res);
@@ -37,17 +38,17 @@ async function requireAuth(
   return { userId };
 }
 
+/**
+ * Membership the way every workspace route checks it (audit 2026-11-04,
+ * calls-11): a suspended member, or one past the plan's seats, is refused,
+ * which `is_workspace_member` alone did not do. Writes the refusal itself.
+ */
 async function assertWorkspaceMember(
-  config: ServerConfig,
+  req: Request,
+  res: Response,
   workspaceId: string,
-  userId: string,
 ): Promise<boolean> {
-  const sb = getServiceClient(config);
-  const { data } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: userId,
-  });
-  return !!data;
+  return !!(await authorizeWorkspaceAccess(req, res, workspaceId));
 }
 
 const createSchema = z.object({
@@ -64,7 +65,7 @@ const createSchema = z.object({
 });
 
 callInvitationsRouter.post('/', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const parsed = createSchema.safeParse(req.body);
@@ -72,9 +73,7 @@ callInvitationsRouter.post('/', async (req, res) => {
     return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
   }
   const { workspace_id, conversation_id, channel, ttl_seconds } = parsed.data;
-  if (!(await assertWorkspaceMember(config, workspace_id, auth.userId))) {
-    return res.status(403).json({ error: 'not_a_workspace_member' });
-  }
+  if (!(await assertWorkspaceMember(req, res, workspace_id))) return;
   // Phase: Call Route Enforcement Rollout — strict deny-on-create only.
   // Composes plan (voice_video + voice/video channel) AND runtime
   // (loadEffectiveCallChannels) via the canonical composer. Cancel/get/list
@@ -106,41 +105,35 @@ callInvitationsRouter.post('/', async (req, res) => {
 });
 
 callInvitationsRouter.post('/:id/cancel', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const inv = await getInvitationById(config, req.params.id);
   if (!inv) return res.status(404).json({ error: 'not_found' });
-  if (!(await assertWorkspaceMember(config, inv.workspace_id, auth.userId))) {
-    return res.status(403).json({ error: 'not_a_workspace_member' });
-  }
+  if (!(await assertWorkspaceMember(req, res, inv.workspace_id))) return;
   const result = await cancelInvitation(config, inv.id, auth.userId);
   if (!result.ok) return res.status(409).json({ error: result.reason });
   return res.json({ invitation: result.invitation });
 });
 
 callInvitationsRouter.get('/:id', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const inv = await getInvitationById(config, req.params.id);
   if (!inv) return res.status(404).json({ error: 'not_found' });
-  if (!(await assertWorkspaceMember(config, inv.workspace_id, auth.userId))) {
-    return res.status(403).json({ error: 'not_a_workspace_member' });
-  }
+  if (!(await assertWorkspaceMember(req, res, inv.workspace_id))) return;
   return res.json({ invitation: inv });
 });
 
 callInvitationsRouter.get('/', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const conversationId = (req.query.conversation_id as string) || '';
   if (!conversationId) return res.status(400).json({ error: 'conversation_id required' });
   const items = await listInvitationsForConversation(config, conversationId);
   if (items.length === 0) return res.json({ invitations: [] });
-  if (!(await assertWorkspaceMember(config, items[0].workspace_id, auth.userId))) {
-    return res.status(403).json({ error: 'not_a_workspace_member' });
-  }
+  if (!(await assertWorkspaceMember(req, res, items[0].workspace_id))) return;
   return res.json({ invitations: items });
 });

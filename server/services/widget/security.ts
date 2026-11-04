@@ -612,23 +612,25 @@ export function resolveWorkspaceId(req: Request, res: Response, candidateWorkspa
 
 // ─── Strict conversation ownership ───
 //
-// Identity sources (most → least authoritative):
-//   1. HttpOnly `dvsid` visitor cookie (cannot be forged by client JS) — pass
-//      `req` so the cookie is read here. Survives page refresh, cross-tab.
-//   2. Caller-supplied `visitorId` (from request body) — best-effort fallback
-//      for legacy callers that don't have access to the request object.
-//   3. Caller-supplied `visitorSessionId` (from request body) — used to
-//      match conv.visitor_session_id directly.
+// The one identity that proves a conversation is the visitor's: the SIGNED
+// visitor of `req` (the HttpOnly `dvsid` cookie, or the visitor credential
+// header a browser without that cookie carries; readVisitorCookie), bound to
+// `workspaceId`. It owns a conversation whose metadata.visitor_id is theirs,
+// whose contact is theirs, or whose visitor session is theirs.
 //
-// A match on ANY of these is sufficient. This is critical for visitor
-// heartbeat/typing after a page refresh, where the runtime's in-memory
-// `visitorId` may not yet be re-hydrated but the HttpOnly cookie is.
+// `visitorId` and `visitorSessionId` are kept in the signature for older
+// callers and prove NOTHING (audit widgetapi-4, 2026-11-04): a visitor id or
+// a session id in a body or a query names somebody, it does not show that
+// the caller is them. A caller with a victim's conversation and session ids
+// used to read their call state, mint a LiveKit token into their call,
+// download their files, write into their thread. Pass (null, null, req).
+// Without `req` nothing is owned.
 export async function verifyConversationOwnership(
   config: ServerConfig,
   conversationId: string,
   workspaceId: string,
-  visitorId?: string | null,
-  visitorSessionId?: string | null,
+  _visitorId?: string | null,
+  _visitorSessionId?: string | null,
   req?: Request,
 ): Promise<{ valid: boolean; conversation: OwnedConversation | null }> {
   if (!conversationId) return { valid: false, conversation: null };
@@ -645,9 +647,7 @@ export async function verifyConversationOwnership(
   if (!conv) return { valid: false, conversation: null };
   if (conv.workspace_id !== workspaceId) return { valid: false, conversation: null };
 
-  // Promote the HttpOnly visitor cookie to be tried alongside the body-supplied
-  // visitorId. The cookie is set by the server on bootstrap and cannot be
-  // forged by client JS, so it's the authoritative identity proof.
+  // The signed visitor only (see above): never a caller-supplied id.
   let cookieVisitorId: string | null = null;
   if (req) {
     try {
@@ -656,13 +656,8 @@ export async function verifyConversationOwnership(
     } catch { /* cookie parsing must never throw the request */ }
   }
   const candidateVisitorIds = new Set<string>();
-  if (visitorId) candidateVisitorIds.add(visitorId);
   if (cookieVisitorId) candidateVisitorIds.add(cookieVisitorId);
-
-  // Match by visitor_session_id
-  if (visitorSessionId && conv.visitor_session_id === visitorSessionId) {
-    return { valid: true, conversation: conv };
-  }
+  if (candidateVisitorIds.size === 0) return { valid: false, conversation: null };
 
   // Match by conversation metadata.visitor_id. Conversations created by the
   // AI intro before a visitor session exists carry no session id and no

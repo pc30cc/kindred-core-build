@@ -213,7 +213,10 @@ function resourceIdOfSegment(segment: string): string | null | undefined {
 
 // NOTE: file uploads live in ai_data_sources with source_type='file'.
 // There is no separate ai_agent_files table in this schema.
-const FLAT_RESOURCE_TABLES: Record<string, string | { table: string; filter?: { col: string; eq: string } }> = {
+const FLAT_RESOURCE_TABLES: Record<
+  string,
+  string | { table: string; filter?: { col: string; eq: string }; alternate?: string }
+> = {
   'files': { table: 'ai_data_sources', filter: { col: 'source_type', eq: 'file' } },
   'data-sources': { table: 'ai_data_sources' },
   'qna': 'ai_agent_qna',
@@ -226,7 +229,10 @@ const FLAT_RESOURCE_TABLES: Record<string, string | { table: string; filter?: { 
   'operator-assist': 'ai_operator_assist_runs',
   'conversations': 'conversations',
   'suggestions': 'ai_agent_suggestions',
-  'guidance': 'ai_agent_guidance_rules',
+  // `/guidance/:id` is an automation rule (automation.ts) or, when no rule
+  // has that id, an operator's guidance for one conversation (humanGuidance.ts).
+  'guidance': { table: 'ai_agent_guidance_rules', alternate: 'ai_agent_guidance' },
+  'guidance-requests': 'ai_agent_guidance_requests',
   'routing': 'ai_agent_routing_rules',
   'topics': 'ai_agent_topics',
   'workflows': 'ai_agent_workflows',
@@ -260,6 +266,7 @@ export async function lookupAiAgentResourceWorkspace(
   while (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
   let table: string | null = null;
   let filter: { col: string; eq: string } | null = null;
+  let alternate: string | null = null;
   let id: string | null = null;
   for (const route of NESTED_RESOURCE_ROUTES) {
     const m = path.match(route.rx);
@@ -281,8 +288,20 @@ export async function lookupAiAgentResourceWorkspace(
     if (flatId === null) return { kind: 'none' };
     table = typeof entry === 'string' ? entry : entry.table;
     filter = typeof entry === 'string' ? null : entry.filter || null;
+    alternate = typeof entry === 'string' ? null : entry.alternate || null;
     id = flatId;
   }
+  const found = await readResourceWorkspace(config, table, id as string, filter);
+  if (found.kind === 'missing' && alternate) return readResourceWorkspace(config, alternate, id as string, null);
+  return found;
+}
+
+async function readResourceWorkspace(
+  config: ServerConfig,
+  table: string,
+  id: string,
+  filter: { col: string; eq: string } | null,
+): Promise<AiAgentResourceWorkspace> {
   try {
     const sb = getServiceClient(config);
     let q = sb
@@ -299,15 +318,6 @@ export async function lookupAiAgentResourceWorkspace(
   } catch {
     return { kind: 'error' };
   }
-}
-
-/** Best-effort workspace_id resolver from common `:id` route params. */
-async function resolveWorkspaceFromIdParam(
-  config: ServerConfig,
-  reqPath: string,
-): Promise<string | null> {
-  const r = await lookupAiAgentResourceWorkspace(config, reqPath);
-  return r.kind === 'found' ? r.workspaceId : null;
 }
 
 /** The workspace ids a request names (query and body), all of them, as written. */
@@ -366,6 +376,33 @@ export async function resolveAiAgentRequestWorkspace(
 }
 
 /**
+ * The workspace aiAgentPlatformGuard judges. As resolveAiAgentRequestWorkspace,
+ * with two differences kept from before: no workspace at all is '' (the
+ * guard then decides, as some paths need none), and an id the resource map
+ * cannot find falls back to the named workspace, since a few paths name rows
+ * of another table than the map's (their handlers authorize those rows).
+ */
+async function resolveAiAgentGuardWorkspace(
+  config: ServerConfig,
+  req: Request,
+): Promise<{ ok: true; workspaceId: string } | { ok: false; status: number; error: string }> {
+  const named = namedWorkspaceIds(req);
+  if (!named.ok) return { ok: false, status: 400, error: 'invalid_workspace_id' };
+  const distinct = new Set(named.ids.map((id) => id.toLowerCase()));
+  if (distinct.size > 1) return { ok: false, status: 400, error: 'workspace_id_mismatch' };
+  const explicit = named.ids[0] ?? '';
+  const resource = await lookupAiAgentResourceWorkspace(config, req.path);
+  if (resource.kind === 'error') return { ok: false, status: 503, error: PLATFORM_STATUS_UNAVAILABLE };
+  if (resource.kind === 'found') {
+    if (explicit && explicit.toLowerCase() !== resource.workspaceId.toLowerCase()) {
+      return { ok: false, status: 403, error: 'workspace_id_mismatch' };
+    }
+    return { ok: true, workspaceId: resource.workspaceId };
+  }
+  return { ok: true, workspaceId: explicit };
+}
+
+/**
  * Canonical form of an AI Agent sub-path for guard matching.
  *
  * Express routers are case-insensitive and non-strict by default, so
@@ -410,18 +447,16 @@ export function aiAgentPlatformGuard() {
 
     const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 
-    // Resolve workspaceId: prefer query/body, else look up by :id.
-    let workspaceId =
-      String(
-        req.query.workspaceId ||
-          req.query.workspace_id ||
-          (req.body && req.body.workspaceId) ||
-          '',
-      ) || '';
-    if (!workspaceId) {
-      const fromId = await resolveWorkspaceFromIdParam(config, req.path);
-      if (fromId) workspaceId = fromId;
-    }
+    // The workspace judged is the one the handler acts on (audit ai-1,
+    // 2026-11-04): every workspace id the request names (query
+    // `workspaceId`/`workspace_id`, body `workspaceId`/`workspace_id`) must be
+    // the same one, and a resource named by id decides over them (a named
+    // workspace must be its). Before, the query's id won, so naming a
+    // workspace whose plan has `ai_assistant` opened a handler that acts on
+    // the resource's (or the body's) workspace.
+    const target = await resolveAiAgentGuardWorkspace(config, req);
+    if (target.ok === false) return res.status(target.status).json({ error: target.error });
+    const workspaceId = target.workspaceId;
 
     // Phase 1 — strict resolution. Workspace-scoped routes that cannot
     // resolve a workspaceId must NEVER fall through silently; treat as

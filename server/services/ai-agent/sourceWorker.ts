@@ -17,7 +17,7 @@ import { getServiceClient } from '../../supabase.js';
 import { recordSourceSyncLog } from './sourceSyncLog.js';
 import {
   claimNextSourceSyncJob, completeSourceSyncJob, failSourceSyncJob,
-  cancelSourceSyncJob, type SourceSyncJob,
+  cancelSourceSyncJob, renewSourceSyncJobLease, type SourceSyncJob,
 } from './sourceJobs.js';
 import { resolveAiAgentDataLimits } from './limits.js';
 import { crawlWebsiteSource } from './crawler/crawlWebsiteSource.js';
@@ -74,8 +74,8 @@ export function startInProcessSourceWorker(config: ServerConfig): void {
   });
   const tick = async () => {
     if (stopping) return;
-    try { await processOne(config, { jobTypes }); } catch (e: any) {
-      console.warn('[ai-kb worker] tick error:', e?.message);
+    try { await processOne(config, { jobTypes }); } catch (e: unknown) {
+      console.warn('[ai-kb worker] tick error:', e instanceof Error ? e.message : String(e));
     } finally {
       setTimeout(tick, POLL_INTERVAL_MS).unref?.();
     }
@@ -95,20 +95,50 @@ export async function processOne(
   });
   if (!job) return { processed: false };
   console.log('[ai-kb worker] source job claimed', { workerId: WORKER_ID, jobId: job.id, workspaceId: job.workspace_id, sourceId: job.source_id });
+  const stopHeartbeat = startLeaseHeartbeat(config, job.id);
   try {
     await runJob(config, job);
     return { processed: true };
-  } catch (e: any) {
-    const msg = e?.message || 'worker_error';
+  } catch (e: unknown) {
+    const msg = (e instanceof Error && e.message) || 'worker_error';
     console.warn('[ai-kb worker] source job failed', { jobId: job.id, error: msg });
-    const r = await failSourceSyncJob(config, { jobId: job.id, error: msg, retryable: true });
+    const r = await failSourceSyncJob(config, { jobId: job.id, error: msg, retryable: true, workerId: WORKER_ID });
     if (!r.updated) {
       console.warn('[ai-kb worker] failSourceSyncJob skipped (terminal state)', {
         jobId: job.id, finalStatus: r.finalStatus,
       });
     }
     return { processed: true };
+  } finally {
+    stopHeartbeat();
   }
+}
+
+/**
+ * Renews the job's lease every third of its TTL while it runs (audit ai-6),
+ * so a long crawl is never re-claimed by another poller. Returns the stop.
+ */
+export function startLeaseHeartbeat(
+  config: ServerConfig,
+  jobId: string,
+  opts: { workerId?: string; lockTtlSeconds?: number } = {},
+): () => void {
+  const workerId = opts.workerId || WORKER_ID;
+  const lockTtlSeconds = opts.lockTtlSeconds || LOCK_TTL_SECONDS;
+  let lost = false;
+  const timer = setInterval(() => {
+    if (lost) return;
+    renewSourceSyncJobLease(config, { jobId, workerId, lockTtlSeconds })
+      .then((held) => {
+        if (!held) {
+          lost = true;
+          console.warn('[ai-kb worker] source job lease lost', { jobId, workerId });
+        }
+      })
+      .catch(() => { /* transient: the next beat retries */ });
+  }, Math.max(1000, Math.floor((lockTtlSeconds * 1000) / 3)));
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
@@ -204,6 +234,7 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
 
   const compRes = await completeSourceSyncJob(config, {
     jobId: job.id,
+    workerId: WORKER_ID,
     summary: {
       pages_seen: summary.pages_seen,
       pages_fetched: summary.pages_fetched,
@@ -237,7 +268,7 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
     const sb = getServiceClient(config);
     const { data: jobRow } = await sb
       .from('ai_source_sync_jobs').select('status').eq('id', job.id).maybeSingle();
-    const jobStatus = (jobRow as any)?.status;
+    const jobStatus = (jobRow as { status?: string } | null)?.status;
     if (jobStatus !== 'running') {
       await logFileEvent(config, {
         workspaceId: job.workspace_id, sourceId: job.source_id,
@@ -252,7 +283,7 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
     }
     const { data: srcRow } = await sb
       .from('ai_data_sources').select('status').eq('id', job.source_id).maybeSingle();
-    const srcStatus = (srcRow as any)?.status;
+    const srcStatus = (srcRow as { status?: string } | null)?.status;
     if (srcStatus !== 'active') {
       const evt = srcStatus === 'deleted' ? 'file_ingest_completion_skipped_source_deleted'
                : srcStatus === 'paused'  ? 'file_ingest_completion_skipped_source_paused'
@@ -274,6 +305,7 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
     }
     const compRes = await completeSourceSyncJob(config, {
       jobId: job.id,
+      workerId: WORKER_ID,
       summary: {
         chunks_created: result.chunks_created,
         embedded_chunks: result.embedded_chunks,
@@ -298,8 +330,8 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
       workerId: WORKER_ID, jobId: job.id, sourceId: job.source_id,
       chunks_created: result.chunks_created,
     });
-  } catch (e: any) {
-    const code = e instanceof IngestError ? e.code : (e?.message || 'file_ingest_failed');
+  } catch (e: unknown) {
+    const code = e instanceof IngestError ? e.code : ((e instanceof Error && e.message) || 'file_ingest_failed');
     // Cancellation codes — pause/delete/race. NOT a worker failure.
     const cancelled = new Set(['source_paused', 'source_deleted', 'source_cancelled', 'job_cancelled']);
     // Transient errors that may succeed on retry.
@@ -317,7 +349,7 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
       return;
     }
     const retryable = transient.has(code);
-    const failRes = await failSourceSyncJob(config, { jobId: job.id, error: code, retryable });
+    const failRes = await failSourceSyncJob(config, { jobId: job.id, error: code, retryable, workerId: WORKER_ID });
     if (!failRes.updated) {
       await logFileEvent(config, {
         workspaceId: job.workspace_id, sourceId: job.source_id,

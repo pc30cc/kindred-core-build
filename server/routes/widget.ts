@@ -26,6 +26,7 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
@@ -106,7 +107,6 @@ import {
   getRequestOrigin,
   takeNewVisitorSession,
 } from '../services/widget/security.js';
-import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import {
   availableOperatorIds,
   enrichMessagesWithSender,
@@ -130,10 +130,11 @@ import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/vi
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
 import { isContactIdentityConflict, placeUnverifiedIdentifiers } from '../services/widget/claimedIdentity.js';
 import { toAsciiDigits } from '../services/phoneVerification/phone.js';
-import { insertContactWithVisitorCode, backfillVisitorCode } from '../services/widget/visitorCode.js';
 import {
   pinContactOnVisitorSessions,
   issueContinuityCookieForContact,
+  ensureVisitorSessionRow,
+  resolveSessionNetworkContext,
 } from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages, visitorReplyPreview, type ReplyToPreview } from './widgetAttachments.js';
@@ -735,7 +736,7 @@ const nudgeEvaluateSchema = z.object({
   locale: z.string().max(10).default('en'),
   device: z.enum(['desktop', 'mobile', 'tablet']).default('desktop'),
   current: nudgePageSchema,
-  recent_pages: z.array(nudgePageSchema.extend({ ts: z.number() })).max(AI_JOURNEY_MAX_PAGES).default([]),
+  recent_pages: boundedArray(nudgePageSchema.extend({ ts: z.number() }), AI_JOURNEY_MAX_PAGES).default([]),
   session_page_count: z.number().int().min(0).max(100000).default(1),
   returning: z.boolean().default(false),
   previous_nudge: z.object({ topic: z.string().max(60), dismissed: z.boolean(), engaged: z.boolean() }).optional().nullable(),
@@ -921,21 +922,17 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       reply_to_message_id: m.reply_to_message_id || null,
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-    const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+    const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages, { conversationId: activeConversationId as string });
     const withReplies = await enrichMessagesWithReplyTo(config, activeConversationId as string, enriched);
     const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
-    let operatorInfo = null;
+    // The name a visitor may read (I-10, as /history and every bubble): an
+    // operator whose profile name is their email address has none, and the
+    // widget writes its own word for an operator (audit widgetapi-8).
+    let operatorInfo: { name: string | null; avatar: string | null } | null = null;
     if (conv.assigned_to) {
-      const { data: profile } = await supabase
-        .from('profiles').select('id, full_name, avatar_storage_key')
-        .eq('id', conv.assigned_to).maybeSingle();
-      if (profile) {
-        operatorInfo = {
-          name: profile.full_name,
-          avatar: await createStorageUrlResolver(config).user(conv.assigned_to, profile.avatar_storage_key),
-        };
-      }
+      const who = (await resolveOperatorIdentities(config, supabase, [conv.assigned_to])).get(conv.assigned_to);
+      if (who) operatorInfo = { name: who.name, avatar: who.avatar };
     }
 
     // Phase 8B — surface a `ringing` call session on this conversation as
@@ -1025,7 +1022,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     reply_to_message_id: m.reply_to_message_id || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-  const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages, { conversationId });
   const withReplies = await enrichMessagesWithReplyTo(config, conversationId, enriched);
   const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
@@ -1074,11 +1071,9 @@ widgetRouter.get('/queue', widgetRateLimit('poll'), async (req: Request, res: Re
     return res.status(400).json({ error: 'conversation_id and workspace_id required' });
   }
   if (!CONVERSATION_ID_RE.test(conversationId)) return res.status(400).json({ error: 'invalid conversation id' });
-  const visitorId = req.query.visitor_id as string || null;
-  const sessionId = req.query.session_id as string || null;
-
   try {
-    const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
+    // The signed visitor alone (as /history): a query id names nobody.
+    const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
     if (!ownership.valid || !ownership.conversation) {
       return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
     }
@@ -1303,14 +1298,18 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     if (previewAttachmentIds.length) {
       const { data: atts } = await supabase
         .from('conversation_attachments')
-        .select('id, mime_type')
+        .select('id, mime_type, conversation_id')
+        .eq('workspace_id', workspaceId)
         .in('id', previewAttachmentIds);
-      const mimeById = new Map<string, string>(
-        ((atts || [])).map((a) => [String(a.id), String(a.mime_type || '')]),
+      // A file is described in the conversation that holds it only (as
+      // enrichMessagesWithAttachments): a message may name any id.
+      const attById = new Map<string, { mime: string; conversationId: string | null }>(
+        ((atts || [])).map((a) => [String(a.id), { mime: String(a.mime_type || ''), conversationId: (a.conversation_id as string | null) ?? null }]),
       );
-      for (const last of Object.values(lastByConv)) {
+      for (const [convKey, last] of Object.entries(lastByConv)) {
         if (!last.attachment_id || String(last.body || '').trim()) continue;
-        last.attachment_kind = attachmentPreviewKind(mimeById.get(last.attachment_id));
+        const att = attById.get(last.attachment_id);
+        last.attachment_kind = attachmentPreviewKind(att && att.conversationId === convKey ? att.mime : undefined);
       }
     }
 
@@ -1608,7 +1607,7 @@ async function reactionThread(
   req: Request,
   res: Response,
   candidateWorkspaceId: string | undefined,
-  ids: { visitorId: string | null; sessionId: string | null },
+  _ids: { visitorId: string | null; sessionId: string | null },
 ): Promise<{ workspaceId: string; conversationId: string } | null> {
   const workspaceId = resolveWorkspaceId(req, res, candidateWorkspaceId);
   if (res.headersSent) return null;
@@ -1621,7 +1620,8 @@ async function reactionThread(
     res.status(400).json({ error: 'invalid conversation id' });
     return null;
   }
-  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, ids.visitorId, ids.sessionId, req);
+  // The signed visitor alone; the ids a query or body names prove nothing.
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
   if (!ownership.valid) {
     res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
     return null;
@@ -2127,6 +2127,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         if (!raw) return null;
         try {
           const u = new URL(raw);
+          // A page is an http(s) one: a javascript:, data: or file: "page"
+          // would reach the Inbox as a link (audit frontend-3).
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
           u.hash = '';
           // Credentials, and the contact details a link may carry (P-01).
           for (const k of ['token','access_token','refresh_token','id_token','code','otp','password','session','auth','key','secret','api_key','sig','signature','email','phone','mobile']) {
@@ -2827,8 +2830,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // Phase 6a — Bind uploaded attachment to this message + conversation.
     // Skipped on a duplicate replay — already bound by the original send.
     if (!duplicate && data.attachment_id && insertedMsg?.id) {
+      // The signed visitor's own upload only (widgetAttachments.ts UPLOADER_COLUMN).
       const ok = await attachUploadedFileToMessage(
-        config, data.attachment_id, workspaceId, convId!, insertedMsg.id
+        config, data.attachment_id, workspaceId, convId!, insertedMsg.id, { visitorId: signedVisitorId },
       );
       if (!ok) {
         // Don't fail the message; the attachment just won't be linked.
@@ -3328,7 +3332,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
 
-  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone, current_page, page_title, presence_lease } = req.body;
+  const { action, conversation_id, session_id, current_page, page_title, presence_lease } = req.body;
   const supabase = getServiceClient(config);
 
   try {
@@ -3349,14 +3353,14 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
 
 
       if (conversation_id) {
-        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
+        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, null, null, req);
         if (!ownership.valid) {
           // Task 6 — surface the precise rejection reason in logs (never to
           // the client) so 403 spikes can be diagnosed without weakening
           // auth. The client receives only the safe code.
           console.warn(
             `[widget-action] heartbeat denied: workspace=${workspaceId} conv=${conversation_id} ` +
-              `visitor=${visitor_id || 'none'} session=${session_id || 'none'}`,
+              `visitor=${(req as WidgetScopedRequest).visitorId || 'none'} session=${session_id || 'none'}`,
           );
           return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
         }
@@ -3371,6 +3375,13 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       }
 
       if (session_id) {
+        // Only the signed visitor's own session (the RPC matches it on
+        // visitor_id): a body session_id names nobody, and without the
+        // signed visitor any session of the workspace had its page and
+        // page-view history rewritten (audit widgetapi-9). The loader always
+        // carries it (the dvsid cookie or the X-Widget-Visitor credential).
+        const signedVisitorId = (req as WidgetScopedRequest).visitorId || null;
+        if (!signedVisitorId) return res.json({ ok: true, matched: false });
         // The page as the workspace tracks it (P-01: no query string unless kept).
         const page = trackedPage(current_page, (await trackingPrivacyOf(config, workspaceId)).keepQuery);
         // Liveness is coalesced server-side: the RPC only writes when the
@@ -3384,7 +3395,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
         const touch = await touchVisitorLiveness(supabase, {
           workspaceId,
           sessionId: session_id,
-          visitorId: visitor_id || null,
+          visitorId: signedVisitorId,
           currentPage: page,
           minIntervalMs: realtimePresence ? VISITOR_LIVENESS_NAVIGATION_ONLY_MS : undefined,
         });
@@ -3420,11 +3431,11 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
     }
 
     if (action === 'typing' && conversation_id) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id, req);
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, null, null, req);
       if (!ownership.valid) {
         console.warn(
           `[widget-action] typing denied: workspace=${workspaceId} conv=${conversation_id} ` +
-            `visitor=${visitor_id || 'none'} session=${session_id || 'none'}`,
+            `visitor=${(req as WidgetScopedRequest).visitorId || 'none'} session=${session_id || 'none'}`,
         );
         return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
       }
@@ -3474,7 +3485,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
     }
 
     if (action === 'reopen_conversation' && conversation_id && workspaceId) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, null, null, req);
       if (!ownership.valid) return res.json({ ok: false, not_found: true });
       const conv = ownership.conversation;
       // `pending` is intentionally excluded: reopening the panel is not a
@@ -3506,98 +3517,12 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       return res.json({ ok: true, status: 'open' });
     }
 
-    if (action === 'resolve_visitor' && workspaceId) {
-      let knownContact: { name: string | null; email: string | null; phone: string | null } | null = null;
-      let contactId: string | null = null;
-      let activeConvId = null;
-
-      if (visitor_id) {
-        const { data: contact } = await supabase
-          .from('contacts').select('id, name, email, phone, visitor_code, metadata')
-          .eq('workspace_id', workspaceId)
-          .contains('metadata', { visitor_id })
-          .limit(1).maybeSingle();
-
-        // visitor_email / visitor_phone are unverified visitor input: they
-        // may only fill this visitor's OWN contact's empty columns, and only
-        // when no other contact holds them; the claim itself is always kept
-        // in metadata (unverified_email / unverified_phone) for the operator.
-        // They never overwrite an existing (possibly verified) value.
-        const placement = await placeUnverifiedIdentifiers(
-          supabase,
-          workspaceId,
-          typeof visitor_email === 'string' ? visitor_email.trim().toLowerCase() || null : null,
-          typeof visitor_phone === 'string' ? normalizeVisitorPhone(visitor_phone) : null,
-          contact?.id ?? null,
-        );
-
-        if (contact) {
-          contactId = contact.id;
-          const updatePayload: Record<string, unknown> = {
-            updated_at: new Date().toISOString(),
-            metadata: {
-              ...((contact.metadata as Record<string, unknown> | null) || {}),
-              visitor_id,
-              source: 'widget',
-              session_id: session_id || null,
-              ...placement.metadata,
-            },
-          };
-          if (visitor_name && visitor_name !== contact.name) updatePayload.name = visitor_name;
-          if (placement.email && !contact.email) updatePayload.email = placement.email;
-          if (placement.phone && !contact.phone) updatePayload.phone = placement.phone;
-          if (Object.keys(updatePayload).length > 2 || Object.keys(placement.metadata).length > 0) {
-            const { data: updatedContact } = await supabase
-              .from('contacts')
-              .update(updatePayload)
-              .eq('id', contact.id)
-              .select('id, name, email, phone')
-              .maybeSingle();
-            if (updatedContact) {
-              knownContact = { name: updatedContact.name, email: updatedContact.email, phone: updatedContact.phone };
-            }
-          }
-          // Same lazy backfill as ensureVisitorContact/mergeVisitorIdentity —
-          // legacy contact, or one whose earlier insert exhausted its
-          // collision-retry budget.
-          if (!contact.visitor_code) await backfillVisitorCode(supabase, contact.id);
-        } else {
-          const buildPayload = (visitorCode: string | null) => ({
-            workspace_id: workspaceId,
-            // Never seed a fake real name — see anonymousContact.ts's module
-            // doc comment. `visitor_name` here is only ever populated once
-            // the visitor has actually submitted one.
-            name: visitor_name || null,
-            email: placement.email,
-            phone: placement.phone,
-            visitor_code: visitorCode,
-            metadata: { visitor_id, source: 'widget', session_id: session_id || null, ...placement.metadata },
-          });
-          const { data: createdContact } = await insertContactWithVisitorCode(
-            supabase, buildPayload, 'id, name, email, phone',
-          );
-          if (createdContact) {
-            contactId = createdContact.id;
-            knownContact = { name: createdContact.name, email: createdContact.email, phone: createdContact.phone };
-          }
-        }
-
-        if (!knownContact && contact) {
-          knownContact = { name: contact.name, email: contact.email, phone: contact.phone };
-        }
-
-        if (contactId) {
-          const { data: conv } = await supabase
-            .from('conversations').select('id')
-            .eq('workspace_id', workspaceId).eq('contact_id', contactId)
-            .order('updated_at', { ascending: false }).limit(1).maybeSingle();
-          if (conv) activeConvId = conv.id;
-        }
-      }
-
-      return res.json({ known_contact: knownContact, conversation_id: activeConvId, visitor_id, contact_id: contactId });
-    }
-
+    // `resolve_visitor` was removed (audit widgetapi-3, 2026-11-04): no
+    // client had called it for a long time, and it trusted a body visitor_id,
+    // so it told anyone whether an email or phone was a customer's (it
+    // echoed the contact's name, email and phone and their latest
+    // conversation), and renamed contacts. Identity is the bootstrap's and
+    // POST /message's (the signed visitor). It now answers Unknown action.
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
     console.error('[widget-action] Error:', err.message);
@@ -3626,9 +3551,10 @@ widgetRouter.post('/escalate', widgetRateLimit('default'), async (req: Request, 
 
   const parsed = escalateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
-  const { conversation_id, visitor_id, session_id } = parsed.data;
+  const { conversation_id } = parsed.data;
 
-  const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
+  // The signed visitor alone: a body visitor_id / session_id names nobody.
+  const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, null, null, req);
   if (!ownership.valid) {
     return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
   }
@@ -4410,6 +4336,29 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
 
   const supabase = getServiceClient(config);
 
+  // The gates of POST /message (audit widgetapi-6): the widget and its chat
+  // switched on, and the plan's chat. A token outlives them (bootstrap
+  // issues one with chat off, /session/refresh never re-checks), and each
+  // capture is an Inbox conversation, a push and an owner's email.
+  const [{ data: widgetGate }, planDenied] = await Promise.all([
+    supabase.from('widget_settings').select('enabled, chat_enabled').eq('workspace_id', workspace_id).maybeSingle(),
+    widgetPlanDenied(config, workspace_id, [WIDGET_PLAN_CHAT]),
+  ]);
+  const gate = widgetGate as { enabled?: boolean | null; chat_enabled?: boolean | null } | null;
+  if (!gate?.enabled || gate.chat_enabled === false || planDenied.has(WIDGET_PLAN_CHAT)) {
+    return res.status(403).json({ error: 'Chat not enabled' });
+  }
+
+  // Availability, server-side (re-used below). Away with `hide_widget` the
+  // loader shows no widget at all, so nothing may be left: every other mode
+  // keeps its form, `show_offline_message` included (a full monthly chat
+  // quota opens the leave-a-message form whatever the mode, runtime.js
+  // resolveEntryFlow).
+  const snap = await resolveAvailability(config, { workspaceId: workspace_id, locale });
+  if (snap.state === 'offline' && snap.offline_mode === 'hide_widget') {
+    return res.status(403).json({ error: 'offline_capture_disabled' });
+  }
+
   // The leave-a-message form's consent box, when the workspace's privacy
   // line asks for it (P-01; the away thread's typed message is a chat
   // message, as POST /message).
@@ -4466,9 +4415,8 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     }
   }
 
-  // Re-resolve availability server-side. Online, the widget should have
-  // sent a normal /message: the capture is kept, and no owner is mailed.
-  const snap = await resolveAvailability(config, { workspaceId: workspace_id, locale });
+  // Online (availability resolved above), the widget should have sent a
+  // normal /message: the capture is kept, and no owner is mailed.
   const transitioning = snap.state === 'online';
 
   // Resolve visitor identity from cookie (set during /bootstrap).
@@ -4783,11 +4731,28 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
   } catch {
     return res.status(403).json({ error: 'plan_forbidden', capability: 'call_queue', upgrade_required: true });
   }
+  // The signed visitor, its own session and its own conversation only
+  // (audit widgetapi-10): the column is a visitor_sessions id (it held the
+  // cookie's visitor id, which matches no session), and a conversation the
+  // body names must be the visitor's.
+  if (!visitorId) return res.status(401).json({ error: 'visitor_required' });
+  if (parsed.data.conversation_id) {
+    const owned = await verifyConversationOwnership(config, parsed.data.conversation_id, workspaceId, null, null, req);
+    if (!owned.valid) return res.status(403).json({ error: 'conversation_access_denied' });
+  }
+  let visitorSessionId: string | null = null;
+  try {
+    const sb = getServiceClient(config);
+    const net = await resolveSessionNetworkContext(sb, req, workspaceId);
+    visitorSessionId = await ensureVisitorSessionRow(
+      sb, workspaceId, visitorId, null, 'chat_widget', net, { config, touchPresence: true },
+    );
+  } catch { /* the entry can still be created; it is then not deduped */ }
   try {
     const entry = await enqueueCall(config, {
       workspaceId,
       channel: parsed.data.channel,
-      visitorSessionId: visitorId ?? null,
+      visitorSessionId,
       conversationId: parsed.data.conversation_id ?? null,
       requestedBy: 'visitor',
       metadata: {
@@ -4819,10 +4784,14 @@ widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), asy
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const entry = await getQueueEntry(config, workspaceId, entryId);
   if (!entry) return res.status(404).json({ error: 'not_found' });
-  // Optional safety: only owner of entry can cancel.
+  // Only the signed visitor whose entry it is cancels it (audit
+  // widgetapi-10: a request without the visitor used to pass): the entry's
+  // session is one of theirs, or (entries written before) their visitor id.
   const visitorId = (req as WidgetScopedRequest).visitorId as string | undefined;
-  if (entry.visitor_session_id && visitorId && entry.visitor_session_id !== visitorId) {
-    return res.status(403).json({ error: 'forbidden' });
+  if (!visitorId || !entry.visitor_session_id) return res.status(403).json({ error: 'forbidden' });
+  if (entry.visitor_session_id !== visitorId) {
+    const own = await signedVisitorSessionId(getServiceClient(config), workspaceId, visitorId, entry.visitor_session_id);
+    if (!own) return res.status(403).json({ error: 'forbidden' });
   }
   const updated = await cancelEntry(config, entryId, 'visitor_cancelled');
   return res.json({ entry: updated });
@@ -4883,13 +4852,20 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
     // creates one only when there is none.
     let conversationId = parsed.data.conversation_id || null;
     if (conversationId) {
-      const owned = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId || null, parsed.data.session_id || null, req);
+      const owned = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
       if (!owned.valid || !isLiveConversationStatus(owned.conversation?.status)) conversationId = null;
     }
+    // The session the body names only when it is the signed visitor's own
+    // (as POST /message): another visitor's would put the conversation the
+    // intro creates in their session, so in their widget, pinned on this
+    // visitor's contact (audit widgetapi-4).
+    const ownSessionId = parsed.data.session_id && visitorId
+      ? await signedVisitorSessionId(getServiceClient(config), workspaceId, visitorId, parsed.data.session_id)
+      : null;
     const result = await maybeSendIntro(config, {
       workspaceId,
       conversationId,
-      visitorSessionId: parsed.data.session_id || null,
+      visitorSessionId: ownSessionId,
       visitorId: visitorId || null,
       locale: parsed.data.locale,
       forceNewConversation: parsed.data.force_new_conversation === true,

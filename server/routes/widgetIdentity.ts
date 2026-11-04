@@ -383,7 +383,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     reply_to_message_id: m.reply_to_message_id || null,
   })));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-  const withAttachments = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const withAttachments = await enrichMessagesWithAttachments(config, workspaceId, baseMessages, { conversationId: conv.id });
   const withReplies = await enrichMessagesWithReplyTo(config, conv.id, withAttachments);
   // This is the endpoint the widget calls when it OPENS and replays an
   // existing thread. Without this step every restored operator and AI bubble

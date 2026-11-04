@@ -46,9 +46,11 @@ interface QueryBuilder {
   filter(path: string, op: string, val: unknown): QueryBuilder;
   order(...args: unknown[]): QueryBuilder;
   limit(...args: unknown[]): QueryBuilder;
+  range(from: number, to: number): QueryBuilder;
+  lte(col: string, val: unknown): QueryBuilder;
   insert(payload: Row | Row[]): { select(): { single(): Promise<Result> }; then(resolve: Resolve): unknown };
   update(patch: Row): UpdateBuilder;
-  delete(): DeleteBuilder;
+  delete(opts?: { count?: string }): DeleteBuilder;
   maybeSingle(): Promise<Result>;
   then(resolve: Resolve): unknown;
 }
@@ -56,6 +58,8 @@ interface QueryBuilder {
 interface UpdateBuilder {
   eq(col: string, val: unknown): UpdateBuilder;
   is(col: string, val: unknown): UpdateBuilder;
+  filter(path: string, op: string, val: unknown): UpdateBuilder;
+  in(col: string, vals: unknown[]): UpdateBuilder;
   select(cols?: string): { then(resolve: Resolve): unknown };
   then(resolve: Resolve): unknown;
 }
@@ -101,6 +105,7 @@ function fakeClient() {
       // Applied with the server's own row cap (DATABASE_MAX_ROWS, 1000), as a
       // real read is: a limit never returns more, whatever it asks for.
       let rowLimit: number | null = null;
+      let rowOffset = 0;
       const builder: QueryBuilder = {
         select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
           if (opts?.head) countMode = true;
@@ -120,6 +125,8 @@ function fakeClient() {
         // Applied, so an answer's order can be tested (the unread ids).
         order(col: string, opts?: { ascending?: boolean }) { sorts.push({ col, ascending: opts?.ascending !== false }); return builder; },
         limit(n: unknown) { rowLimit = Math.min(Number(n), 1000); return builder; },
+        range(from: number, to: number) { rowOffset = from; rowLimit = Math.min(to - from + 1, 1000); return builder; },
+        lte(col: string, val: unknown) { filters.push((r) => r[col] === undefined || String(r[col]) <= String(val)); return builder; },
         insert(payload: Row | Row[]) {
           const items = Array.isArray(payload) ? payload : [payload];
           const inserted = items.map((it) => ({ id: it.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...it }));
@@ -134,6 +141,14 @@ function fakeClient() {
           const updateBuilder: UpdateBuilder = {
             eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return updateBuilder; },
             is(col: string, val: unknown) { scoped.push((r: Row) => (val === null ? r[col] == null : r[col] === val)); return updateBuilder; },
+            // `payload->>key in (a,b)` (delete-all cancelling channel replies).
+            filter(path: string, op: string, val: unknown) {
+              const m = /^(\w+)->>(\w+)$/.exec(path);
+              const list = op === 'in' ? String(val).replace(/^\(|\)$/g, '').split(',') : [val];
+              if (m) scoped.push((r: Row) => list.includes(((r[m[1]] || {}) as Row)[m[2]]));
+              return updateBuilder;
+            },
+            in(col: string, vals: unknown[]) { scoped.push((r: Row) => vals.includes(r[col])); return updateBuilder; },
             select(cols?: string) {
               const matched = rows.filter((r) => scoped.every((f) => f(r)));
               for (const r of matched) Object.assign(r, patch);
@@ -164,8 +179,9 @@ function fakeClient() {
             eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return deleteBuilder; },
             in(col: string, vals: unknown[]) { scoped.push((r: Row) => vals.includes(r[col])); return deleteBuilder; },
             then(resolve: Resolve) {
+              const count = rows.filter((r) => scoped.every((f) => f(r))).length;
               db[table] = rows.filter((r) => !scoped.every((f) => f(r)));
-              return resolve({ data: null, error: null });
+              return resolve({ data: null, error: null, count });
             },
           };
           return deleteBuilder;
@@ -188,7 +204,7 @@ function fakeClient() {
             });
           }
           if (countMode) return resolve({ data: null, error: null, count: matched.length });
-          if (rowLimit !== null) matched = matched.slice(0, rowLimit);
+          if (rowLimit !== null) matched = matched.slice(rowOffset, rowOffset + rowLimit);
           if (table === 'conversation_messages' && holdMessageReads) {
             heldMessageReads += 1;
             const taken = matched.map((r) => ({ ...r }));
@@ -424,7 +440,7 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
       id: crypto.randomUUID(), conversation_id: cid, sender_type: sender, sender_id: sender === 'agent' ? MEMBER : null,
       body: 'x', created_at: at, seen_at: at, metadata,
     });
-    const filler = crypto.randomUUID(); // a person's, with 1000 newer messages: the window is full
+    const filler = crypto.randomUUID(); // a person's, with 2000 newer messages: the window is full
     const aiOld = crypto.randomUUID(); // the AI answered the visitor; nothing of it read
     const aiSplit = crypto.randomUUID(); // its AI answer read, the visitor's turn before it not
     const aiNoMarkers = crypto.randomUUID(); // closed before 284 (no markers); nothing read
@@ -450,14 +466,14 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
       msg(aiSplit, 'ai', '2026-03-01T00:00:00.000Z'),
       msg(greetRead, 'ai', '2026-03-02T00:00:00.000Z', greeting),
     );
-    for (let i = 0; i < 1000; i++) {
+    for (let i = 0; i < 2000; i++) {
       db.conversation_messages.push(msg(filler, i % 2 ? 'agent' : 'contact', new Date(Date.UTC(2026, 1, 1) + i * 1000).toISOString()));
     }
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main&status=closed`, { token: 'member-token' });
     expect(res.status).toBe(200);
     const rows = res.json.conversations as Array<{ id: string; last_message: unknown }>;
     expect(rows.map((r) => r.id).sort()).toEqual([filler, aiOld, aiSplit, aiNoMarkers].sort());
-    // The window really missed them (the server reads 1000 at most).
+    // The window really missed them (the list reads the newest 2000, page by page).
     expect(rows.find((r) => r.id === aiOld)?.last_message).toBeNull();
     expect(rows.find((r) => r.id === aiNoMarkers)?.last_message).toBeNull();
   });
@@ -772,11 +788,17 @@ describe('DELETE /api/conversations — delete-all is destructive, so it require
   });
 
   it('owner can delete all conversations in their workspace, and it never touches another workspace', async () => {
+    db.channel_jobs = [
+      { id: 'reply-mine', workspace_id: WS, status: 'pending', job_type: 'telegram_outbound_message' },
+      { id: 'reply-other', workspace_id: 'other-ws', status: 'pending', job_type: 'telegram_outbound_message' },
+    ];
     const res = await call('DELETE', '/api/conversations', { token: 'member-token', body: { workspace_id: WS } });
     expect(res.status).toBe(200);
     expect(res.json.deleted).toBe(5);
     expect(db.conversations.filter((c) => c.workspace_id === WS)).toHaveLength(0);
     expect(db.conversations.find((c) => c.id === convForeign)).toBeDefined();
+    // Its queued channel replies are cancelled with it; another workspace's are not.
+    expect(db.channel_jobs.map((j) => [j.id, j.status])).toEqual([['reply-mine', 'cancelled'], ['reply-other', 'pending']]);
   });
 });
 

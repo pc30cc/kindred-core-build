@@ -10,6 +10,7 @@
  * pages of the crawl, so it pre-creates one `seo_performance_results` row
  * per selected page (status='pending') for the worker to fill in.
  */
+import { cooldownRetryAfterSeconds } from './cooldown.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/queue.js';
@@ -89,6 +90,13 @@ export async function createPerformanceAudit(
   const { limits } = await resolvePerformanceLimits(config, args.workspaceId);
   if (limits.seo_performance_max_pages_per_audit <= 0) {
     throw new PerformanceAuditLimitError('module_not_available', 'Performance auditing is not available on this plan');
+  }
+  const auditWait = cooldownRetryAfterSeconds(
+    await getMostRecentPerformanceAuditStart(config, args.crawlId),
+    limits.seo_performance_audit_frequency_hours,
+  );
+  if (auditWait > 0) {
+    throw new PerformanceAuditLimitError('frequency_limit', 'This crawl was audited for performance too recently', auditWait);
   }
 
   const sb = getServiceClient(config);

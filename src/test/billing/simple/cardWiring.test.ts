@@ -593,3 +593,26 @@ describe('runSimpleBillingCard', () => {
     expect(h.lease.release).toHaveBeenCalled();
   });
 });
+
+describe('a refund reported as a running total (Stripe, PayPal)', () => {
+  const total = (n: number) => ({ type: 'refund_processed', providerEventId: `evt_${n}`, refundedTotal: n, currency: 'USD', raw: {} }) as never;
+
+  it('hands the total to SQL, which takes the difference under the payment lock (299)', async () => {
+    h.rpc.mockImplementation(async () => ({ data: { replayed: false, shortfall_minor: 0, refund_id: 'total:500', amount_minor: 200 }, error: null }));
+    // The row read before the lock says nothing was refunded yet: it is not used to compute the part.
+    const out = await account.handleAccountPaymentWebhook(CFG, {
+      providerName: 'stripe', workspaceId: W, event: total(500), payment: payment({ provider: 'stripe', status: 'succeeded' }),
+    });
+    expect(out).toBe('refunded');
+    expect(rpcNames()).toEqual(['billing_account_refund_payment_to_total']);
+    expect(h.rpc.mock.calls[0][1]).toEqual({ p_payment_id: 'p1', p_refunded_total: 500 });
+  });
+
+  it('a total already covered takes nothing', async () => {
+    h.rpc.mockImplementation(async () => ({ data: { replayed: false, ignored: true, refund_id: 'total:300', amount_minor: 0 }, error: null }));
+    const out = await account.handleAccountPaymentWebhook(CFG, {
+      providerName: 'stripe', workspaceId: W, event: total(300), payment: payment({ provider: 'stripe', status: 'succeeded' }),
+    });
+    expect(out).toBe('ignored');
+  });
+});

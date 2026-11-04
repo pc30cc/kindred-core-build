@@ -291,8 +291,19 @@ price, balance or period moved meanwhile the server answers 409
   settlement credits it and spends it on the purpose in the same
   transaction, or leaves it in the balance if the purpose can no longer be
   done; what happened is stored on the payment (`purpose_result`) and the
-  return page says it. A renewal paid after the plan ran out buys that plan
-  again. A refund of such a payment takes a prepaid next period back first.
+  return page says it. It is never bought above the price quoted at
+  checkout (299): the payment carries `purpose_detail.quoted_price_minor`
+  (plan, renewal) or `quoted_charge_minor` (upgrade, saved-card charges
+  too), and a price raised meanwhile leaves the money in the balance
+  (`billing_quote_changed`); less than quoted (an upgrade with fewer whole
+  months left) is fine. A renewal paid after the plan ran out buys that plan
+  again, at the quoted price too. A refund of such a payment takes a
+  prepaid next period back first. A refund reported as the running total
+  refunded on the payment (Stripe, PayPal) is taken in SQL under the
+  payment's lock (`billing_account_refund_payment_to_total`, 299, as
+  `total:<payment id>:<n>`), so two refunds processed at once never take
+  back more than the total. A lost Stripe dispute (`charge.dispute.closed`,
+  `lost`) is a chargeback, keyed by the dispute.
   At most 50 payment attempts an hour per workspace (owner, 2026-10-30;
   429 `TOO_MANY_CHECKOUTS`). An attempt the gateway refused before opening
   its page (`checkout_failed`, e.g. Zibal's 103 while the gateway is not

@@ -267,7 +267,7 @@ describe('every surface reads from the one localizer', () => {
     expect(CONVERSATIONS_ROUTE).toContain('system_meta: meta?.kind ? (isSystem ? withoutPlaceholderNames(meta) : meta) : null,');
     expect(CONVERSATIONS_ROUTE).not.toContain('actor_name: meta?.actor_name ? String(meta.actor_name) : null,');
     expect(CONTACTS_ROUTE).toContain('last_message_meta:');
-    expect(CONTACTS_ROUTE).toContain("select('conversation_id, sender_type, sender_id, body, created_at, metadata')");
+    expect(CONTACTS_ROUTE).toContain("select('id, conversation_id, sender_type, sender_id, body, created_at, metadata')");
   });
 
   it('the thread draws the closed line as a centred notice, not as a bubble', () => {

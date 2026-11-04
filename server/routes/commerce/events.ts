@@ -4,7 +4,7 @@
  * (same reason as the LiveKit/billing webhooks: signature verification
  * needs the exact raw bytes) with its own express.raw() parser.
  */
-import { Router, raw } from 'express';
+import { Router, raw, type NextFunction, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
@@ -13,7 +13,7 @@ import { verifyIncomingSignature, MAX_BODY_BYTES } from '../../services/commerce
 import { readInstallationSecret } from '../../services/commerce/credentials.js';
 import { ingestCommerceEvent } from '../../services/commerce/events.js';
 import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
-import { installationHeader, readSignedRequestHeaders } from '../../services/commerce/pluginDialect.js';
+import { readSignedRequestHeaders } from '../../services/commerce/pluginDialect.js';
 
 export const commerceEventsRouter = Router();
 
@@ -21,20 +21,35 @@ function serverConfigOf(req: object): ServerConfig {
   return (req as { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
-// Unsigned requests carry no installation header, so they fall back to the
-// client address: through ipKeyGenerator, which buckets an IPv6 address by its
-// /56, or one client could cycle through its own prefix to dodge the limit.
-const eventIngestLimiter = rateLimit({
+// Two limits, in this order:
+//   1. by client address, BEFORE the signature is checked, so unsigned or
+//      badly signed traffic is bounded at all (these routes are mounted ahead
+//      of the global IP-block and abuse middleware). Generous: several shops
+//      on one shared host post from the same address. ipKeyGenerator buckets
+//      an IPv6 address by its /56, or one client could cycle its own prefix.
+//   2. by installation, AFTER the signature checks out. Keying it on the
+//      unverified header let anyone spend a store's budget: its installation
+//      id is readable in the store's pages (the customer assertion), and 120
+//      bad requests a minute under it made the store's real events answer
+//      429 until the plugin dead-lettered them; random ids escaped limit 1.
+const eventIpLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`,
+});
+
+const eventInstallationLimiter = rateLimit({
   windowMs: 60_000,
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const installation = installationHeader((name) => req.header(name));
-    if (installation) return `installation:${installation}`;
-    return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
-  },
+  keyGenerator: (_req, res) => `installation:${(res.locals as VerifiedLocals).verified.installationId}`,
 });
+
+type VerifiedEvent = { installationId: string; protocolVersion: string; rawBody: string };
+type VerifiedLocals = { verified: VerifiedEvent };
 
 const eventSchema = z.object({
   event_id: z.string().min(1).max(200),
@@ -51,23 +66,37 @@ const eventSchema = z.object({
   payload: z.record(z.unknown()),
 }).strict();
 
-commerceEventsRouter.post('/', raw({ type: 'application/json', limit: '256kb' }), eventIngestLimiter, async (req, res) => {
+/** Checks the signature; answers the request itself when it fails. */
+async function verifyEventSignature(req: Request, res: Response, next: NextFunction): Promise<void> {
   const config = serverConfigOf(req);
   // Either plugin dialect (pluginDialect.ts): the Iran packages' X-WebYar-*
   // or the International packages' X-Platform-* headers, never mixed.
   const { dialect, installationId, timestamp, nonce, signature, protocolVersion } = readSignedRequestHeaders((name) => req.header(name));
 
   if (!installationId || !timestamp || !nonce || !signature || !protocolVersion) {
-    return res.status(400).json({ error: 'missing_signature_headers' });
+    res.status(400).json({ error: 'missing_signature_headers' });
+    return;
   }
-  if (protocolVersion !== dialect.protocol) return res.status(400).json({ error: 'protocol_mismatch' });
-  if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: 'empty_body' });
-  if (req.body.length > MAX_BODY_BYTES) return res.status(413).json({ error: 'body_too_large' });
+  if (protocolVersion !== dialect.protocol) {
+    res.status(400).json({ error: 'protocol_mismatch' });
+    return;
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    res.status(400).json({ error: 'empty_body' });
+    return;
+  }
+  if (req.body.length > MAX_BODY_BYTES) {
+    res.status(413).json({ error: 'body_too_large' });
+    return;
+  }
 
   const rawBody = req.body.toString('utf8');
 
   const secret = await readInstallationSecret(config, installationId).catch(() => null);
-  if (!secret) return res.status(401).json({ error: 'unknown_installation' });
+  if (!secret) {
+    res.status(401).json({ error: 'unknown_installation' });
+    return;
+  }
 
   const verify = await verifyIncomingSignature(config, {
     secret,
@@ -82,8 +111,18 @@ commerceEventsRouter.post('/', raw({ type: 'application/json', limit: '256kb' })
     direction: 'inbound',
   });
   if (verify.ok === false) {
-    return res.status(verify.reason === 'clock_skew' || verify.reason === 'replay' ? 401 : 400).json({ error: verify.reason });
+    res.status(verify.reason === 'clock_skew' || verify.reason === 'replay' ? 401 : 400).json({ error: verify.reason });
+    return;
   }
+  (res.locals as VerifiedLocals).verified = { installationId, protocolVersion, rawBody };
+  next();
+}
+
+commerceEventsRouter.post('/', raw({ type: 'application/json', limit: '256kb' }), eventIpLimiter, (req, res, next) => {
+  verifyEventSignature(req, res, next).catch(next);
+}, eventInstallationLimiter, async (req, res) => {
+  const config = serverConfigOf(req);
+  const { installationId, protocolVersion, rawBody } = (res.locals as VerifiedLocals).verified;
 
   let parsedBody: unknown;
   try {

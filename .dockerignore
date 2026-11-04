@@ -11,5 +11,13 @@ dist
 .idea
 supabase/.temp
 
+# Env files at any depth. The root-only patterns above let `COPY server/ .`
+# (Dockerfile.server) or `COPY . .` (frontend build) carry a local
+# server/.env into an image built from a working copy. The committed
+# examples hold no secrets.
+**/.env
+**/.env.*
+!**/.env*.example
+
 # Local database backups — never baked into an image
 server/data

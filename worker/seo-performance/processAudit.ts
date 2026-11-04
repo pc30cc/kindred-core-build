@@ -73,7 +73,7 @@ export async function processPerformanceAudit(
     if (hb.cancelRequested) {
       await sb.from('seo_performance_audits').update({ status: 'cancelled', finished_at: new Date().toISOString(), progress_stage: 'cancelled' }).eq('id', audit.id);
       await sb.from('seo_performance_results').update({ status: 'unavailable' }).eq('audit_id', audit.id).eq('status', 'pending');
-      await acknowledgeJobCancel(config, jobId);
+      await acknowledgeJobCancel(config, jobId, workerId);
       log('audit cancelled', { auditId: audit.id, jobId });
       return;
     }
@@ -126,6 +126,6 @@ export async function processPerformanceAudit(
     finished_at: new Date().toISOString(),
   }).eq('id', audit.id);
 
-  await completeJob(config, { jobId });
+  await completeJob(config, { jobId, workerId });
   log('audit completed', { auditId: audit.id, jobId, audited, unavailable, total: pending.length });
 }

@@ -95,20 +95,21 @@ export async function claimNextSourceSyncJob(
   if (args.jobTypes && args.jobTypes.length > 0) {
     q = q.in('job_type', args.jobTypes);
   }
-  const { data: cand } = await q.maybeSingle();
+  const { data: candRow } = await q.maybeSingle();
+  const cand = candRow as { id: string; status: string; attempts: number | null; max_attempts: number } | null;
   if (!cand) return null;
-  if ((cand as any).attempts >= (cand as any).max_attempts) {
+  if (cand.attempts >= cand.max_attempts) {
     // Burn the row out so we don't keep looping.
     await sb.from('ai_source_sync_jobs').update({
       status: 'failed',
       finished_at: nowIso,
       last_error: 'max_attempts_exceeded',
-    }).eq('id', (cand as any).id).in('status', ['queued', 'running']);
+    }).eq('id', cand.id).in('status', ['queued', 'running']);
     return null;
   }
 
   const lockExpires = new Date(Date.now() + args.lockTtlSeconds * 1000).toISOString();
-  const prevStatus = (cand as any).status;
+  const prevStatus = cand.status;
   const { data: claimed, error } = await sb
     .from('ai_source_sync_jobs')
     .update({
@@ -116,38 +117,64 @@ export async function claimNextSourceSyncJob(
       locked_by: args.workerId,
       locked_at: nowIso,
       lock_expires_at: lockExpires,
-      attempts: ((cand as any).attempts || 0) + 1,
+      attempts: (cand.attempts || 0) + 1,
       started_at: nowIso,
     })
-    .eq('id', (cand as any).id)
+    .eq('id', cand.id)
     .eq('status', prevStatus)
+    // Two workers re-claiming the same expired running job both match the
+    // status; the attempts they read tell the first from the second.
+    .eq('attempts', cand.attempts || 0)
     .select('*')
     .maybeSingle();
   if (error || !claimed) return null;
   return claimed as SourceSyncJob;
 }
 
+/**
+ * Keeps a claimed job's lease alive while its worker still holds it (audit
+ * ai-6): a claim locks the job for lockTtlSeconds and expired running jobs
+ * are re-claimed, so without a heartbeat a crawl longer than the lease was
+ * run (and its embeddings charged) twice when more than one worker polls.
+ * False when the job is no longer this worker's (re-claimed, cancelled or
+ * finished).
+ */
+export async function renewSourceSyncJobLease(
+  config: ServerConfig,
+  args: { jobId: string; workerId: string; lockTtlSeconds: number },
+): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.from('ai_source_sync_jobs').update({
+    lock_expires_at: new Date(Date.now() + args.lockTtlSeconds * 1000).toISOString(),
+  }).eq('id', args.jobId).eq('status', 'running').eq('locked_by', args.workerId)
+    .select('id').maybeSingle();
+  return !error && !!data;
+}
+
 export async function completeSourceSyncJob(
   config: ServerConfig,
-  args: { jobId: string; summary?: Record<string, unknown> },
+  args: { jobId: string; summary?: Record<string, unknown>; workerId?: string },
 ): Promise<{ updated: boolean; finalStatus?: string }> {
   const sb = getServiceClient(config);
-  const { data } = await sb.from('ai_source_sync_jobs').update({
+  let q = sb.from('ai_source_sync_jobs').update({
     status: 'completed',
     finished_at: new Date().toISOString(),
     last_error: null,
     metadata: args.summary ? { ...args.summary } : undefined,
-  }).eq('id', args.jobId).eq('status', 'running').select('id, status').maybeSingle();
+  }).eq('id', args.jobId).eq('status', 'running');
+  // Only the worker holding the job finishes it.
+  if (args.workerId) q = q.eq('locked_by', args.workerId);
+  const { data } = await q.select('id, status').maybeSingle();
   if (data) return { updated: true, finalStatus: 'completed' };
   // Reload to report actual final status.
   const { data: cur } = await sb
     .from('ai_source_sync_jobs').select('status').eq('id', args.jobId).maybeSingle();
-  return { updated: false, finalStatus: (cur as any)?.status };
+  return { updated: false, finalStatus: (cur as { status?: string } | null)?.status };
 }
 
 export async function failSourceSyncJob(
   config: ServerConfig,
-  args: { jobId: string; error: string; retryable?: boolean },
+  args: { jobId: string; error: string; retryable?: boolean; workerId?: string },
 ): Promise<{ updated: boolean; finalStatus?: string }> {
   const sb = getServiceClient(config);
   const { data: row } = await sb
@@ -156,24 +183,31 @@ export async function failSourceSyncJob(
     .eq('id', args.jobId)
     .maybeSingle();
   if (!row) return { updated: false };
-  const curStatus = (row as any).status as string;
+  const job = row as { attempts: number; max_attempts: number; status: string };
+  const curStatus = job.status;
   // Never overwrite a terminal/cancelled state.
   if (curStatus === 'cancelled' || curStatus === 'completed' || curStatus === 'failed') {
     return { updated: false, finalStatus: curStatus };
   }
-  const canRetry = !!args.retryable && row && (row as any).attempts < (row as any).max_attempts;
-  const { data: updated } = await sb.from('ai_source_sync_jobs').update({
+  const canRetry = !!args.retryable && job.attempts < job.max_attempts;
+  let q = sb.from('ai_source_sync_jobs').update({
     status: canRetry ? 'queued' : 'failed',
     last_error: (args.error || 'unknown_error').slice(0, 1000),
     finished_at: canRetry ? null : new Date().toISOString(),
     locked_by: null,
     locked_at: null,
     lock_expires_at: null,
-  }).eq('id', args.jobId).in('status', ['running', 'queued']).select('id, status').maybeSingle();
-  if (updated) return { updated: true, finalStatus: (updated as any).status };
+  }).eq('id', args.jobId);
+  // Only the worker holding the job fails it; a job another worker has
+  // re-claimed is that worker's.
+  q = args.workerId
+    ? q.eq('status', 'running').eq('locked_by', args.workerId)
+    : q.in('status', ['running', 'queued']);
+  const { data: updated } = await q.select('id, status').maybeSingle();
+  if (updated) return { updated: true, finalStatus: (updated as { status: string }).status };
   const { data: cur } = await sb
     .from('ai_source_sync_jobs').select('status').eq('id', args.jobId).maybeSingle();
-  return { updated: false, finalStatus: (cur as any)?.status };
+  return { updated: false, finalStatus: (cur as { status?: string } | null)?.status };
 }
 
 export async function cancelSourceSyncJob(

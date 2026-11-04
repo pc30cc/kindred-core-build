@@ -166,6 +166,10 @@ export async function crawlSite(args: CrawlSiteArgs): Promise<CrawlSiteResult> {
       status: 'processing',
     });
     if (hb.cancelRequested) { cancelled = true; break; }
+    // Another worker holds the job now (this one's lease lapsed): stop
+    // crawling instead of fetching the rest of the site twice. The worker's
+    // failure write is scoped to its lease, so it leaves that run alone.
+    if (hb.leaseLost) throw new Error('lease_lost');
 
     const batchSize = Math.max(1, Math.min(limits.seo_crawl_concurrency, limits.seo_max_pages_per_crawl - pagesCrawled));
     const batch = queue.splice(0, batchSize);

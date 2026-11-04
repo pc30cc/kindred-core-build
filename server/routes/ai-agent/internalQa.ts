@@ -7,6 +7,7 @@
  */
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../../lib/boundedZod.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
@@ -517,7 +518,9 @@ internalQaRouter.post('/test-cases/run-bulk', async (req: Request, res: Response
   const config = serverConfigOf(req);
   const schema = z.object({
     workspaceId: z.string().uuid(),
-    ids: z.array(z.string().uuid()).optional(),
+    // Bounded before parsing; the bulk limit itself (E6_BULK_MAX_CASES) is
+    // checked below with its own error.
+    ids: boundedArray(z.string().uuid(), 1_000).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });

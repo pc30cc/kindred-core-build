@@ -38,7 +38,10 @@ import {
 import { useAuth } from '@/features/auth/AuthContext';
 import { emailCacheScope, clearWorkspaceEmailCache } from '@/lib/emailCache';
 import { API_BASE } from '@/lib/apiBase';
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  completeMailOAuth,
+  EmailInboxApiError,
   uploadEmailAttachment,
   fileToBase64,
   type StagedEmailAttachment,
@@ -970,6 +973,39 @@ export default function EmailInboxPage() {
   // OAuth callbacks come back as ?gmail=connected|error&reason=… — tell the
   // user the outcome once, then drop the params from the URL.
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  // The provider's consent came back with a code: finish the connect with
+  // this member's own session (the server refuses anyone but the member who
+  // started it), then report it like the callbacks below.
+  const completingOAuth = useRef<string | null>(null);
+  useEffect(() => {
+    const provider = searchParams.get('mail_oauth');
+    const state = searchParams.get('state') || '';
+    const code = searchParams.get('code') || '';
+    if (provider !== 'gmail' && provider !== 'yahoo') return;
+    if (completingOAuth.current === state) return;
+    completingOAuth.current = state;
+    const next = new URLSearchParams(searchParams);
+    next.delete('mail_oauth');
+    next.delete('state');
+    next.delete('code');
+    setSearchParams(next, { replace: true });
+    if (!state || !code) return;
+    void completeMailOAuth(provider, state, code)
+      .then(() => {
+        next.set(provider, 'connected');
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof EmailInboxApiError ? err.code : `${provider}_unexpected_error`;
+        next.set(provider, 'error');
+        next.set('reason', reason);
+      })
+      .finally(() => {
+        void queryClient.invalidateQueries({ queryKey: [`${provider}-connection`] });
+        setSearchParams(next, { replace: true });
+      });
+  }, [searchParams, setSearchParams, queryClient]);
+
   useEffect(() => {
     const provider = searchParams.has('yahoo') ? 'yahoo' : searchParams.has('gmail') ? 'gmail' : null;
     if (!provider) return;

@@ -46,6 +46,17 @@ const fetchedUrls: string[] = [];
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 vi.mock('../../../server/middleware/featureGating.js', () => ({ getWorkspacePlanInfo: vi.fn(async () => null) }));
 
+/**
+ * The plan's re-audit cooldown (`seo_crawl_frequency_hours`, 24 h by
+ * default) refuses a crawl of a site audited less than a day ago: move the
+ * earlier crawls a day back, keeping their order, before the next one.
+ */
+function passCrawlCooldown(): void {
+  for (const row of tables.seo_crawls || []) {
+    row.created_at = new Date(Date.parse(String(row.created_at)) - 25 * 3_600_000).toISOString();
+  }
+}
+
 function normalizePath(url: string): string {
   const u = new URL(url);
   return `${u.origin}${u.pathname === '/' ? '/' : u.pathname}`;
@@ -216,6 +227,7 @@ describe('SEO end-to-end backend/worker pipeline', () => {
     const counts = () => Object.fromEntries(TRACKED.map((name) => [name, tables[name]?.length ?? 0]));
     const run = async () => {
       const before = counts();
+      passCrawlCooldown();
       const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
       const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
       if (!job) throw new Error('fixture_job_not_claimed');
@@ -297,6 +309,7 @@ describe('SEO end-to-end backend/worker pipeline', () => {
     const realSb = fakeSb;
     fakeSb = guarded as typeof fakeSb;
     try {
+      passCrawlCooldown();
       const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
       const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
       const row = tables.seo_crawls.find((entry) => entry.id === crawl.id);
@@ -322,6 +335,7 @@ describe('SEO end-to-end backend/worker pipeline', () => {
   it('does not duplicate the link graph across identical crawls, and stores only the changed edge', async () => {
     const edgeCount = () => tables.seo_link_edges.length;
     const run = async () => {
+      passCrawlCooldown();
       const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
       const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
       const row = tables.seo_crawls.find((entry) => entry.id === crawl.id);

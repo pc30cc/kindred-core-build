@@ -345,6 +345,21 @@ describe('POST /api/team-calls — placing a call', () => {
     expect(h.db.tables.call_sessions).toHaveLength(0);
   });
 
+  it('the limit is counted again in the placement, under the workspace lock (migration 298): a call placed meanwhile by another pair wins', async () => {
+    // The check before the placement read 1 of 2; another pair's call landed before the placement ran.
+    h.concurrency = { allowed: true, limit: 2, used: 1 };
+    ringingCall(5, OTHER, crypto.randomUUID());
+    h.db.tables.call_sessions.push({ id: crypto.randomUUID(), workspace_id: WS, entry_source: 'call_widget', state: 'pending', created_at: new Date().toISOString(), metadata: {} });
+    const r = await place();
+    expect(r.status).toBe(422);
+    expect(r.body).toMatchObject({ error: 'limit_reached', limit: 'max_concurrent_calls', reason: 'plan_limit_reached', max: 2, used: 2 });
+    expect(h.db.tables.call_sessions.filter((c) => c.initiated_by === CALLER)).toHaveLength(0);
+
+    // Unlimited (−1): the placement counts nothing.
+    h.concurrency = { allowed: true, limit: -1 };
+    expect((await place()).status).toBe(201);
+  });
+
   it('a callee already in a colleague call is busy, and so is a caller', async () => {
     ringingCall(5, OTHER, CALLEE);
     const calleeBusy = await place();

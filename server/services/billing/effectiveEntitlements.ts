@@ -88,9 +88,14 @@ function resolveLimit(
   cap: CapabilityDefinition,
   planLimits: Record<string, unknown>,
   limitOverrides: WorkspacePlanInfo['limitOverrides'] | null | undefined,
+  includeAdminNotes = false,
 ): EffectiveLimit {
   const override = limitOverrides?.[cap.key];
-  if (override) return { value: override.value, source: 'override', unit: cap.unit, note: override.note };
+  if (override) {
+    return includeAdminNotes
+      ? { value: override.value, source: 'override', unit: cap.unit, note: override.note }
+      : { value: override.value, source: 'override', unit: cap.unit };
+  }
   if (cap.key === STORAGE_LIMIT_KEY) {
     const mb = storageLimitMb(planLimits);
     if (mb !== null) return { value: mb, source: 'plan', unit: cap.unit };
@@ -122,7 +127,13 @@ export function resolveEffectiveEntitlements(
   info: Pick<WorkspacePlanInfo, 'entitlements' | 'planLimits' | 'limitOverrides'>,
   moduleOverrides: FlagOverrideRow[] | null | undefined,
   channelOverrides: FlagOverrideRow[] | null | undefined,
+  // The Super Admin's notes on an override (admin_notes, the limit
+  // override's note) are for Super Admin only: the workspace's snapshot
+  // (GET /api/plans/workspace/:id/effective) reaches every member, so they
+  // are left out unless a caller asks for them.
+  opts: { includeAdminNotes?: boolean } = {},
 ): EffectiveEntitlements {
+  const includeAdminNotes = opts.includeAdminNotes === true;
   const planEntitlements: Record<string, unknown> = info.entitlements || {};
   const planLimits: Record<string, unknown> = info.planLimits || {};
   const modules = overrideMap(moduleOverrides, (r) => r.module_key);
@@ -130,7 +141,11 @@ export function resolveEffectiveEntitlements(
   const out: EffectiveEntitlements = { features: {}, modules: {}, channels: {}, limits: {} };
 
   const flag = (key: string, fallback: unknown, override?: FlagOverrideRow): EffectiveFlag => {
-    if (override) return { value: override.enabled === true, source: 'override', note: override.admin_notes ?? null };
+    if (override) {
+      return includeAdminNotes
+        ? { value: override.enabled === true, source: 'override', note: override.admin_notes ?? null }
+        : { value: override.enabled === true, source: 'override' };
+    }
     if (key in planEntitlements) return { value: planFlag(planEntitlements[key]), source: 'plan' };
     return { value: fallback === true, source: 'default' };
   };
@@ -147,7 +162,7 @@ export function resolveEffectiveEntitlements(
         out.channels[cap.key] = flag(cap.key, cap.defaultValue, channels.get(cap.key));
         break;
       case 'limit':
-        out.limits[cap.key] = resolveLimit(cap, planLimits, info.limitOverrides);
+        out.limits[cap.key] = resolveLimit(cap, planLimits, info.limitOverrides, includeAdminNotes);
         break;
     }
   }

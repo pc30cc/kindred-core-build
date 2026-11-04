@@ -52,6 +52,7 @@ import { invalidateDepartmentCache } from '../services/calls/departments.js';
 import { afterMemberReleased, releaseMemberChats, releasedConversationIds } from '../services/chatRouting.js';
 import { canUseInbox } from '../../shared/chatRoles.js';
 import { readWithColumnFallback } from '../lib/missingColumn.js';
+import { hiddenMembersFor } from '../services/teamVisibility.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -221,7 +222,15 @@ workspaceMembersRouter.get('/', async (req, res) => {
     ['receives_chats', 'max_concurrent_chats'],
   );
   if (memberErr) return res.status(500).json({ error: (memberErr as { message?: string }).message || 'members_unreadable' });
+  // A member a pair hides from the viewer (services/teamVisibility.ts) is not listed.
+  let hidden: Set<string>;
+  try {
+    hidden = await hiddenMembersFor(config, workspaceId, auth.userId);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message || 'members_unreadable' });
+  }
   const members = ((memberRows || []) as Array<{ id: string; role: string; created_at: string; user_id: string; [k: string]: unknown }>)
+    .filter((m) => !hidden.has(m.user_id))
     .map((m) => (degraded ? { ...m, receives_chats: true, max_concurrent_chats: null } : m));
 
   const userIds = members.map((m) => m.user_id);

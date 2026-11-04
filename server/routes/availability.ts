@@ -20,6 +20,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
+import { hiddenMembersFor } from '../services/teamVisibility.js';
 import {
   computeCustomerAvailability,
   type CustomerAvailabilityReason,
@@ -294,7 +295,12 @@ availabilityRouter.get('/team/:workspaceId', async (req, res) => {
       .maybeSingle();
     if (!membership) return res.status(403).json({ error: 'Not a workspace member' });
 
-    const presence = await listWorkspacePresence(config, workspaceId);
+    // A member a pair hides from the viewer (services/teamVisibility.ts) is not listed.
+    const [everyone, hidden] = await Promise.all([
+      listWorkspacePresence(config, workspaceId),
+      hiddenMembersFor(config, workspaceId, user.id),
+    ]);
+    const presence = everyone.filter((p) => !hidden.has(p.user_id));
     return res.json({ presence, fetched_at: new Date().toISOString() });
   } catch (err: unknown) {
     return res.status(500).json({ error: errorMessage(err) || 'Failed to load team presence' });

@@ -246,8 +246,9 @@ adminManagementRouter.get('/users/:userId/deletion-status', async (req, res) => 
   ]);
   if (error) return res.status(500).json({ error: error.message });
   if (profileError) return res.status(500).json({ error: profileError.message });
-  // The final purge sweeps every user_id-keyed table, the job row included,
-  // so "no job and no profile" is what a finished deletion looks like.
+  // A finished deletion is no profile, with the job marked completed (296
+  // keeps the job's row; before it the purge deleted it, so "no job and no
+  // profile" means the same).
   return res.json({ job, user_exists: !!profile });
 });
 

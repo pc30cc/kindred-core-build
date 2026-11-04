@@ -9,6 +9,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { syncAgentActiveCallCount } from '../calls/callStateGuards.js';
 
 export type RoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
 export type AgentRole = 'agent' | 'supervisor';
@@ -28,8 +29,52 @@ const MANAGEMENT_MOVED = new DepartmentException('management_moved', 410);
  * for API compatibility (fields mirror the legacy call_center_departments
  * shape). Source of truth is workspace_departments.
  */
-function toCcDepartment(row: any): any {
-  if (!row) return row;
+interface WorkspaceDepartmentRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  sort_order?: number | null;
+  cc_voice_enabled?: boolean | null;
+  cc_video_enabled?: boolean | null;
+  cc_callback_enabled?: boolean | null;
+  cc_routing_mode?: string | null;
+  cc_fallback_department_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CcDepartment {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: null;
+  description: null;
+  color: null;
+  icon: null;
+  enabled: boolean;
+  sort_order: number;
+  routing_mode: RoutingMode;
+  fallback_department_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  cc_voice_enabled: boolean;
+  cc_video_enabled: boolean;
+  cc_callback_enabled: boolean;
+}
+
+interface DepartmentMemberRow {
+  user_id: string;
+  call_center_role: string | null;
+  call_center_priority: number | null;
+  call_center_enabled: boolean | null;
+  call_center_max_concurrent_calls: number | null;
+  call_center_metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+function toCcDepartment(row: WorkspaceDepartmentRow | null | undefined): CcDepartment | null | undefined {
+  if (!row) return row as null | undefined;
   const cc_enabled = !!(row.cc_voice_enabled || row.cc_video_enabled || row.cc_callback_enabled);
   return {
     id: row.id,
@@ -118,7 +163,7 @@ export async function listDepartmentAgents(
     .order('call_center_priority', { ascending: false })
     .order('created_at', { ascending: true });
   if (error) throw error;
-  return (data || []).map((r: any) => ({
+  return ((data || []) as DepartmentMemberRow[]).map((r) => ({
     workspace_id: workspaceId,
     department_id: departmentId,
     user_id: r.user_id,
@@ -189,44 +234,26 @@ async function ensurePresenceRow(
     );
 }
 
+/**
+ * An operator took a call: their active call count is set from the calls
+ * they hold (callStateGuards.ts syncAgentActiveCallCount), never counted up,
+ * so a call that ends any other way than the console's /end cannot leave it
+ * high forever (audit 2026-11-04, calls-6).
+ */
 export async function incrementAgentActiveCallCount(
   config: ServerConfig, workspaceId: string, userId: string,
 ): Promise<void> {
   if (!userId) return;
-  const sb = getServiceClient(config);
   await ensurePresenceRow(config, workspaceId, userId);
-  const { data: row } = await sb
-    .from('call_center_agent_presence')
-    .select('active_call_count')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  const next = Math.max(0, ((row?.active_call_count as number) || 0) + 1);
-  await sb
-    .from('call_center_agent_presence')
-    .update({ active_call_count: next, last_seen_at: new Date().toISOString() })
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId);
+  await syncAgentActiveCallCount(config, workspaceId, userId);
 }
 
+/** A call of this operator's ended or left them: their count, from the calls they still hold. */
 export async function decrementAgentActiveCallCount(
   config: ServerConfig, workspaceId: string, userId: string | null | undefined,
 ): Promise<void> {
   if (!userId) return;
-  const sb = getServiceClient(config);
-  const { data: row } = await sb
-    .from('call_center_agent_presence')
-    .select('active_call_count')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (!row) return;
-  const next = Math.max(0, ((row.active_call_count as number) || 0) - 1);
-  await sb
-    .from('call_center_agent_presence')
-    .update({ active_call_count: next, last_seen_at: new Date().toISOString() })
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId);
+  await syncAgentActiveCallCount(config, workspaceId, userId);
 }
 
 const ASSIGNABLE_ROLES = new Set(['owner', 'admin', 'agent', 'support_agent', 'team_lead']);
@@ -249,7 +276,7 @@ export async function assertAssignableAgent(
     .eq('user_id', agentId)
     .maybeSingle();
   if (!member) throw new DepartmentException('agent_not_found', 404);
-  const role = String((member as any).role || '');
+  const role = String((member as { role?: string | null }).role || '');
   const isOperatorRole = ASSIGNABLE_ROLES.has(role);
 
   if (departmentId) {
@@ -260,7 +287,7 @@ export async function assertAssignableAgent(
       .eq('department_id', departmentId)
       .eq('user_id', agentId)
       .maybeSingle();
-    const enabledInDept = !!dm && (dm as any).call_center_enabled !== false;
+    const enabledInDept = !!dm && (dm as { call_center_enabled?: boolean | null }).call_center_enabled !== false;
     const isElevated = role === 'owner' || role === 'admin';
     if (!enabledInDept && !isElevated) {
       throw new DepartmentException('operator_permission_required', 403);

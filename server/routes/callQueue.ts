@@ -6,7 +6,7 @@
  * visitor cookie — separate from these routes by design so we never
  * mix auth contexts.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -23,9 +23,11 @@ import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const callQueueRouter = Router();
 
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
 async function requireWorkspaceMember(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
@@ -36,7 +38,7 @@ async function requireWorkspaceMember(
 
 // GET /api/call-queue/:workspaceId?channel=audio|video
 callQueueRouter.get('/:workspaceId', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const workspaceId = req.params.workspaceId;
   const auth = await requireWorkspaceMember(req, res, config, workspaceId);
   if (!auth) return;
@@ -47,7 +49,7 @@ callQueueRouter.get('/:workspaceId', async (req, res) => {
 
 // POST /api/call-queue/:workspaceId/:entryId/offer
 callQueueRouter.post('/:workspaceId/:entryId/offer', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const { workspaceId, entryId } = req.params;
   const auth = await requireWorkspaceMember(req, res, config, workspaceId);
   if (!auth) return;
@@ -60,42 +62,59 @@ callQueueRouter.post('/:workspaceId/:entryId/offer', async (req, res) => {
   try {
     const updated = await offerEntry(config, entryId, auth.userId);
     res.json({ entry: updated });
-  } catch (e: any) {
-    res.status(409).json({ error: e?.message || 'offer_failed' });
+  } catch (e: unknown) {
+    res.status(409).json({ error: (e as { message?: string } | null | undefined)?.message || 'offer_failed' });
   }
 });
 
 // POST /api/call-queue/:workspaceId/:entryId/accept   { call_session_id? }
+// Only an entry of this workspace, by a member whose role may take queue
+// calls (audit 2026-11-04, calls-7).
 callQueueRouter.post('/:workspaceId/:entryId/accept', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const { workspaceId, entryId } = req.params;
   const auth = await requireWorkspaceMember(req, res, config, workspaceId);
   if (!auth) return;
   const body = z.object({ call_session_id: z.string().uuid().optional() }).safeParse(req.body || {});
   if (!body.success) return res.status(400).json({ error: 'invalid_body' });
+  const perms = await resolveUserCallPermissions(config, workspaceId, auth.userId);
+  if (!perms.can_join_queue_calls) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const entry = await getEntry(config, workspaceId, entryId);
+  if (!entry) return res.status(404).json({ error: 'not_found' });
   try {
-    const updated = await acceptEntry(config, entryId, body.data.call_session_id ?? null);
+    const updated = await acceptEntry(config, workspaceId, entryId, body.data.call_session_id ?? null);
     res.json({ entry: updated });
-  } catch (e: any) {
-    res.status(409).json({ error: e?.message || 'accept_failed' });
+  } catch (e: unknown) {
+    res.status(409).json({ error: (e as { message?: string } | null | undefined)?.message || 'accept_failed' });
   }
 });
 
 // POST /api/call-queue/:workspaceId/:entryId/cancel   { reason? }
+// Only an entry of this workspace: by whoever manages the queue, or the
+// member it is offered to.
 callQueueRouter.post('/:workspaceId/:entryId/cancel', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const { workspaceId, entryId } = req.params;
   const auth = await requireWorkspaceMember(req, res, config, workspaceId);
   if (!auth) return;
-  const reason = String((req.body && req.body.reason) || 'operator_cancelled');
-  const updated = await cancelEntry(config, entryId, reason);
+  const entry = await getEntry(config, workspaceId, entryId);
+  if (!entry) return res.status(404).json({ error: 'not_found' });
+  const perms = await resolveUserCallPermissions(config, workspaceId, auth.userId);
+  const offeredToMe = entry.offered_to_user_id === auth.userId && perms.can_join_queue_calls;
+  if (!perms.can_manage_call_queue && !offeredToMe) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const reason = String((req.body && req.body.reason) || 'operator_cancelled').slice(0, 64);
+  const updated = await cancelEntry(config, entryId, reason, { workspaceId });
   if (!updated) return res.status(404).json({ error: 'not_found_or_inactive' });
   res.json({ entry: updated });
 });
 
 // GET /api/call-queue/:workspaceId/me/permissions
 callQueueRouter.get('/:workspaceId/me/permissions', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const workspaceId = req.params.workspaceId;
   const auth = await requireWorkspaceMember(req, res, config, workspaceId);
   if (!auth) return;

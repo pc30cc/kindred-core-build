@@ -18,6 +18,7 @@ import {
   assertAssignableAgent,
   DepartmentException,
 } from './departments.js';
+import { syncAgentActiveCallCount } from '../calls/callStateGuards.js';
 
 export type RoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
 type Channel = 'audio' | 'video' | 'callback';
@@ -295,6 +296,7 @@ export async function assignCallToAgent(
   const sb = getServiceClient(config);
   const call = await getStandaloneCallCenterSession(config, args.workspaceId, args.callSessionId);
   if (!call) throw new RoutingException('call_not_found', 404);
+  const previousAgentId = (call.assigned_agent_id as string | null) || null;
   if (args.agentId) {
     try {
       await assertAssignableAgent(config, {
@@ -318,6 +320,11 @@ export async function assignCallToAgent(
     })
     .eq('call_session_id', args.callSessionId)
     .eq('workspace_id', args.workspaceId);
+  // A held call that changed hands moves in both operators' counts.
+  if (previousAgentId !== args.agentId) {
+    await syncAgentActiveCallCount(config, args.workspaceId, previousAgentId);
+    await syncAgentActiveCallCount(config, args.workspaceId, args.agentId);
+  }
   await sb.from('call_events').insert({
     call_session_id: args.callSessionId,
     event_type: 'call_assigned',
@@ -359,6 +366,8 @@ export async function routeIncomingCall(
     departmentId?: string | null;
     callType?: 'audio' | 'video' | null;
     actorId?: string;
+    /** False: route the call (queue, console) without ringing the phones. */
+    ring?: boolean;
   },
 ) {
   const sb = getServiceClient(config);
@@ -463,7 +472,7 @@ export async function routeIncomingCall(
   // A callback request is deliberately not a ring: nobody is waiting on the
   // line, and a phone that rings for one would be lying about what answering
   // it does.
-  if (channel === 'audio' || channel === 'video') {
+  if ((channel === 'audio' || channel === 'video') && args.ring !== false) {
     void ringOperators(config, {
       workspaceId: args.workspaceId,
       callSessionId: args.callSessionId,
@@ -498,6 +507,7 @@ export async function transferCall(
   }
   const call = await getStandaloneCallCenterSession(config, args.workspaceId, args.callSessionId);
   if (!call) throw new RoutingException('call_not_found', 404);
+  const previousAgentId = (call.assigned_agent_id as string | null) || null;
   if (!['active', 'ringing', 'connecting', 'pending'].includes(String(call.state ?? ''))) {
     throw new RoutingException('call_not_active', 409);
   }
@@ -577,6 +587,10 @@ export async function transferCall(
       .eq('call_session_id', args.callSessionId)
       .eq('workspace_id', args.workspaceId);
 
+    if (previousAgentId !== assignedAgentId) {
+      await syncAgentActiveCallCount(config, args.workspaceId, previousAgentId);
+      await syncAgentActiveCallCount(config, args.workspaceId, assignedAgentId);
+    }
     await sb.from('call_events').insert({
       call_session_id: args.callSessionId,
       event_type: 'call_transferred',

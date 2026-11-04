@@ -685,7 +685,7 @@ function requestCall(req: ApiRequest): Dict {
   const visitor = verifyWidgetSession(CONFIG as never, req.headers['x-cc-session'] || '');
   const id = `c0ffee00-0000-4000-8000-${String(++callSeq).padStart(12, '0')}`;
   db.call_sessions.push({
-    id, workspace_id: WS, entry_source: 'call_widget', state: 'queued', call_type: req.body?.call_type === 'video' ? 'video' : 'audio',
+    id, workspace_id: WS, entry_source: 'call_widget', state: 'pending', call_type: req.body?.call_type === 'video' ? 'video' : 'audio',
     provider: 'livekit', provider_room_id: null, assigned_agent_id: null, department_id: null, recording_enabled: false,
     recording_state: 'disabled', started_at: null, connected_at: null, ended_at: null, end_reason: null, duration_seconds: null,
     created_at: new Date().toISOString(), metadata: { call_center: true },

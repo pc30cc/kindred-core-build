@@ -84,7 +84,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var appState: AppState
 
     /** A call's picture-in-picture window, while the member is in another app. */
-    private lateinit var pictureInPicture: com.platform.app.feature.call.CallPictureInPicture
+    internal lateinit var pictureInPicture: com.platform.app.feature.call.CallPictureInPicture
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()

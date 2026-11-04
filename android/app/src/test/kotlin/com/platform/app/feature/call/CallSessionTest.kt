@@ -77,10 +77,23 @@ class CallSessionTest {
 
         /** Whether the camera starts when asked (no permission, another app has it). */
         var cameraStarts = true
+        /** Whether the microphone starts when asked. */
+        var micStarts = true
+        /** The next "camera on" answers only after this long, and fails. */
+        var slowFailingCameraMs = 0L
 
-        override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return true }
+        override suspend fun setMicrophone(enabled: Boolean): Boolean {
+            micEnabled = enabled
+            return !enabled || micStarts
+        }
         override suspend fun setCamera(enabled: Boolean): Boolean {
             cameraEnabled = enabled
+            if (enabled && slowFailingCameraMs > 0) {
+                val wait = slowFailingCameraMs
+                slowFailingCameraMs = 0
+                delay(wait)
+                return false
+            }
             return !enabled || cameraStarts
         }
         override fun setSpeaker(on: Boolean) { speaker = on }
@@ -620,6 +633,82 @@ class CallSessionTest {
         testScheduler.advanceUntilIdle()
         assertFalse(call.cameraOn.value)
         assertEquals(true, room.cameraEnabled)
+    }
+
+    /** Turned on mid-call after all (asked for and granted): the "no camera" notice goes. */
+    @Test
+    fun `a camera turned on after all clears its notice`() = runTest(dispatcher) {
+        val room = FakeRoom(CallRoom.Result.Joined(microphone = true, camera = false))
+        val call = session(ScriptedApi(listOf(invitation("joined", sessionId = "cs-1"))), room)
+        call.dial(CallChannel.VIDEO)
+        testScheduler.advanceUntilIdle()
+        assertEquals(CallDegradation.NO_CAMERA, call.degraded.value)
+        assertFalse(call.cameraOn.value)
+
+        call.toggleCamera()
+        testScheduler.advanceUntilIdle()
+        assertTrue(call.cameraOn.value)
+        assertNull(call.degraded.value)
+    }
+
+    /** Unmuting a microphone that will not start: shown muted, never live and silent. */
+    @Test
+    fun `an unmute the microphone refuses stays muted`() = runTest(dispatcher) {
+        val room = FakeRoom(CallRoom.Result.Joined(microphone = false, camera = false)).apply { micStarts = false }
+        val call = session(ScriptedApi(listOf(invitation("joined", sessionId = "cs-1"))), room)
+        call.dial()
+        testScheduler.advanceUntilIdle()
+        assertTrue(call.muted.value)
+
+        call.toggleMute()
+        testScheduler.advanceUntilIdle()
+        assertTrue(call.muted.value)
+        assertEquals(CallDegradation.NO_MICROPHONE, call.degraded.value)
+
+        // Granted after all: unmuted, and the notice goes.
+        room.micStarts = true
+        call.toggleMute()
+        testScheduler.advanceUntilIdle()
+        assertFalse(call.muted.value)
+        assertNull(call.degraded.value)
+    }
+
+    /** On, off, on in quick succession: a late failure of the first "on" changes nothing. */
+    @Test
+    fun `a late camera answer for an earlier press is ignored`() = runTest(dispatcher) {
+        val room = FakeRoom()
+        val call = session(ScriptedApi(listOf(invitation("joined", sessionId = "cs-1"))), room)
+        call.dial(CallChannel.VIDEO)
+        testScheduler.advanceUntilIdle()
+        call.toggleCamera() // off
+        testScheduler.advanceUntilIdle()
+
+        room.slowFailingCameraMs = 1_000
+        call.toggleCamera() // on: answers late, and fails
+        testScheduler.advanceTimeBy(10)
+        call.toggleCamera() // off
+        call.toggleCamera() // on: works
+        testScheduler.advanceUntilIdle()
+        assertTrue(call.cameraOn.value)
+    }
+
+    /** A permission answered after the call ended changes nothing. */
+    @Test
+    fun `the camera and microphone do nothing once the call is over`() = runTest(dispatcher) {
+        val room = FakeRoom()
+        val call = session(ScriptedApi(listOf(invitation("joined", sessionId = "cs-1"))), room)
+        call.dial(CallChannel.VIDEO)
+        testScheduler.advanceUntilIdle()
+        call.hangUp()
+        testScheduler.advanceUntilIdle()
+        val camera = call.cameraOn.value
+        val muted = call.muted.value
+
+        call.toggleCamera()
+        call.toggleMute()
+        testScheduler.advanceUntilIdle()
+        assertEquals(camera, call.cameraOn.value)
+        assertEquals(muted, call.muted.value)
     }
 
     /** A voice call has no camera to toggle, and the button is not drawn. */

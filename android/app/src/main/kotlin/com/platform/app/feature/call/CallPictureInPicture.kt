@@ -18,20 +18,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import com.platform.app.R
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.Str
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 
 /**
  * A call in the system's picture-in-picture window while the member is in
@@ -55,11 +55,37 @@ import kotlinx.coroutines.flow.map
  * the call goes on with its notification, whose End ends it. A call that ends
  * while in the window closes it.
  */
-class CallPictureInPicture(private val activity: ComponentActivity) {
-
+/** The picture-in-picture window as the host composable drives it ([CallPictureInPicture]; a fake in tests). */
+interface PipWindow {
     /** Whether the activity is in its picture-in-picture window now. */
-    var inWindow by mutableStateOf(false)
+    val inWindow: Boolean
+
+    /** The call (or none) the window would show. */
+    fun update(next: CallPictureInPicture.Spec?)
+
+    /** The call ended in the window: the window goes. */
+    fun close()
+}
+
+class CallPictureInPicture(private val activity: ComponentActivity) : PipWindow {
+
+    override var inWindow by mutableStateOf(false)
         private set
+
+    /**
+     * A permission dialog this app opened over a call in progress (the camera
+     * or the microphone, asked for mid-call): leaving for it is not leaving
+     * the app, so the call does not go into the window — before Android 12
+     * the dialog's start counts as the user leaving, and from 12 the window
+     * would enter on its own. Released when the activity is back in front.
+     */
+    private var heldForPermission = false
+
+    fun holdForPermission() {
+        if (heldForPermission) return
+        heldForPermission = true
+        update(spec)
+    }
 
     /** The call the window is for, and how to draw it; null with no call on. */
     private var spec: Spec? = null
@@ -112,6 +138,14 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        activity.lifecycle.addObserver(
+            androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME && heldForPermission) {
+                    heldForPermission = false
+                    update(spec)
+                }
+            },
+        )
         activity.addOnPictureInPictureModeChangedListener { info ->
             val was = inWindow
             inWindow = info.isInPictureInPictureMode
@@ -134,7 +168,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
     }
 
     /** The call (or none) the window would show, kept in step with the call. */
-    fun update(next: Spec?) {
+    override fun update(next: Spec?) {
         spec = next
         if (!supported) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -145,7 +179,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
     /** The member is leaving the app (Home, Recents): before Android 12, into the window with the call. */
     fun onUserLeaveHint() {
         val current = spec ?: return
-        if (!supported || activity.isInPictureInPictureMode) return
+        if (!supported || heldForPermission || activity.isInPictureInPictureMode) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return // Entered on its own.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             runCatching { activity.enterPictureInPictureMode(params(current)) }
@@ -156,7 +190,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
     }
 
     /** The call ended in the window: the window goes, the app behind with it. */
-    fun close() {
+    override fun close() {
         if (inWindow) activity.moveTaskToBack(false)
     }
 
@@ -170,7 +204,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
             builder.setActions(emptyList())
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(spec != null)
+            builder.setAutoEnterEnabled(spec != null && !heldForPermission)
             // A picture resizes smoothly; a face and a timer redraw anyway.
             builder.setSeamlessResizeEnabled(true)
         }
@@ -228,7 +262,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
  * whole app, which stays composed underneath (its call sessions with it).
  */
 @Composable
-fun CallPictureInPictureHost(controller: CallPictureInPicture, calls: ActiveCalls, language: Language) {
+fun CallPictureInPictureHost(controller: PipWindow, calls: ActiveCalls, language: Language) {
     val list by calls.calls.collectAsState()
     val pickedFlow = remember(list) {
         if (list.isEmpty()) {
@@ -237,11 +271,15 @@ fun CallPictureInPictureHost(controller: CallPictureInPicture, calls: ActiveCall
             combine(list.map { call -> call.state.map { call to it } }) { states -> ActiveCalls.pick(states.toList()) }
         }
     }
-    val picked by pickedFlow.collectAsState(initial = null)
+    // Seeded with what the calls say now, not a placeholder null: an activity
+    // recreated while in the window (a new wallpaper, language or bold text)
+    // composes this in the window at once, and a first frame reading "no
+    // call" would close the window over a live call.
+    val initial = remember(list) { ActiveCalls.pick(list.map { it to it.state.value }) }
+    val picked by pickedFlow.collectAsState(initial = initial)
     val call = picked?.first
     val state = picked?.second
-    val remoteFlow = remember(call) { call?.room?.remoteVideo ?: MutableStateFlow(null) }
-    val remote by remoteFlow.collectAsState()
+    val remote by rememberRemoteVideo(call).collectAsState()
     val aspect = rememberVideoAspect(remote?.takeIf { state?.video == true })
     val shape = aspect?.takeIf { state?.video == true } ?: VOICE_PIP_ASPECT
     val live = state?.stage == ActiveCallStage.LIVE
@@ -255,6 +293,7 @@ fun CallPictureInPictureHost(controller: CallPictureInPicture, calls: ActiveCall
             if (call != null) PipCallView(call, language) else CallBackdrop()
         }
         // Over while in the window: nothing to show, and the window goes.
-        LaunchedEffect(call) { if (call == null) controller.close() }
+        // Read again before closing, so only a call really over closes it.
+        LaunchedEffect(call) { if (call == null && pickedFlow.first() == null) controller.close() }
     }
 }

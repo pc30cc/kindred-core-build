@@ -26,7 +26,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +59,7 @@ import com.platform.app.ui.components.rememberLoop
 import com.platform.app.ui.design.Motion
 import com.platform.app.ui.design.Size
 import com.platform.app.ui.design.Space
+import androidx.compose.runtime.getValue
 
 /*
  * The visual language every call screen shares — a colleague's
@@ -123,13 +123,13 @@ internal fun VideoScrims(modifier: Modifier = Modifier) {
     )
 }
 
+/** Below this height (a phone on its side) a call screen leaves the face out. */
+internal val COMPACT_CALL_HEIGHT = 480.dp
+
 /**
  * The size of the face on a call screen: large on a tall phone, smaller on
  * a short one (or a phone on its side) so the name and the buttons still fit.
  */
-/** Below this height (a phone on its side) a call screen leaves the face out. */
-internal val COMPACT_CALL_HEIGHT = 480.dp
-
 internal fun callFaceSize(maxHeight: Dp, incoming: Boolean): Dp = when {
     maxHeight < 560.dp -> 88.dp
     maxHeight < 700.dp -> if (incoming) 120.dp else 108.dp

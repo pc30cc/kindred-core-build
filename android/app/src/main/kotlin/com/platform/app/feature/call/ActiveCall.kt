@@ -73,7 +73,8 @@ class ActiveCall(
     /** A colleague (silhouette or photo) rather than a visitor (the inbox's look). */
     val colleague: Boolean,
     val state: StateFlow<ActiveCallState>,
-    val room: LiveKitRoom,
+    /** The call's media: the other side's picture. Null only where there is no room at all (a test). */
+    val room: LiveKitRoom?,
     val toggleMute: () -> Unit,
     val hangUp: () -> Unit,
 ) {

@@ -314,6 +314,18 @@ fun AppShell(
     val pendingCall by appState.pendingCall.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? MainActivity
+    // Over the lock screen a call screen comes and goes at once: a sheet
+    // rising or sinking would show the inbox — customers' names and
+    // messages — on a locked phone for the length of the animation.
+    val keyguard = remember(context) { context.getSystemService(android.app.KeyguardManager::class.java) }
+    val keyguardLocked = { keyguard?.isKeyguardLocked == true }
+    // Leaving a call's screen (Done, Decline, minimised) on a locked phone:
+    // the keyguard comes back over the app first, then the screen changes,
+    // so the inbox is never drawn on the locked phone, not even for a frame.
+    val leaveCall = { then: () -> Unit ->
+        if (keyguardLocked()) activity?.showOverLockScreen(false)
+        then()
+    }
     // Answer pressed on a colleague's ring whose screen is already open: the
     // call it is for, until that screen has answered it.
     var answerHere by rememberSaveable { mutableStateOf<String?>(null) }
@@ -439,8 +451,8 @@ fun AppShell(
                 api = api,
                 language = language,
                 ringInFront = ringInFront,
-                onDone = { navigator.back() },
-                onMinimise = { navigator.minimise(key) },
+                onDone = { leaveCall { navigator.back() } },
+                onMinimise = { leaveCall { navigator.minimise(key) } },
             )
         }
         entry<CallKey>(metadata = tabOf(AppTab.INBOX) + callScreen()) { key ->
@@ -452,8 +464,8 @@ fun AppShell(
                 api = api,
                 conversations = conversations,
                 language = language,
-                onDone = { navigator.back() },
-                onMinimise = { navigator.minimise(key) },
+                onDone = { leaveCall { navigator.back() } },
+                onMinimise = { leaveCall { navigator.minimise(key) } },
             )
         }
         entry<TeamCallKey>(metadata = tabOf(AppTab.INBOX) + callScreen()) { key ->
@@ -464,8 +476,8 @@ fun AppShell(
                 answerRequested = key.callId != null && key.callId == answerHere,
                 onAnswerTaken = { answerHere = null },
                 ringInFront = ringInFront,
-                onDone = { navigator.back() },
-                onMinimise = { navigator.minimise(key) },
+                onDone = { leaveCall { navigator.back() } },
+                onMinimise = { leaveCall { navigator.minimise(key) } },
             )
         }
         entry<TeamThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
@@ -716,11 +728,6 @@ fun AppShell(
         backNavigationBehavior = BackNavigationBehavior.PopLatest,
     )
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    // Over the lock screen a call screen comes and goes at once: a sheet
-    // rising or sinking would show the inbox — customers' names and
-    // messages — on a locked phone for the length of the animation.
-    val keyguard = remember(context) { context.getSystemService(android.app.KeyguardManager::class.java) }
-    val keyguardLocked = { keyguard?.isKeyguardLocked == true }
 
     Box(modifier.fillMaxSize()) {
         NavigationSuiteScaffold(

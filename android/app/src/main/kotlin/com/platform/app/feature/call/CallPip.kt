@@ -26,11 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +56,8 @@ import io.livekit.android.room.track.VideoTrack
 import kotlinx.coroutines.delay
 import java.time.Instant
 import kotlin.math.roundToInt
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 
 /**
  * The call in the system's picture-in-picture window, while the member uses
@@ -71,14 +71,15 @@ import kotlin.math.roundToInt
 fun PipCallView(call: ActiveCall, language: Language, modifier: Modifier = Modifier) {
     val state by call.state.collectAsState()
     val identity by call.identity.collectAsState()
-    val remote by call.room.remoteVideo.collectAsState()
+    val remote by rememberRemoteVideo(call).collectAsState()
+    val room = call.room
     val picture = remote?.takeIf { state.video }
-    if (picture != null) {
+    if (picture != null && room != null) {
         Box(modifier.fillMaxSize().testTag(A11y.CALL_PIP)) {
             CallBackdrop()
             // A visitor's browser sends its camera mirrored; a colleague's
             // phone does not (see the two call screens).
-            VideoView(picture, call.room, Modifier.fillMaxSize(), mirror = !call.colleague)
+            VideoView(picture, room, Modifier.fillMaxSize(), mirror = !call.colleague)
             if (state.muted) MutedBadge(Modifier.align(Alignment.BottomStart).padding(Space.sm))
         }
     } else {
@@ -126,8 +127,9 @@ internal fun PipVoiceContent(
 fun FloatingCallBubble(call: ActiveCall, language: Language, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val state by call.state.collectAsState()
     val identity by call.identity.collectAsState()
-    val remote by call.room.remoteVideo.collectAsState()
-    val picture = remote?.takeIf { state.video && state.stage == ActiveCallStage.LIVE }
+    val remote by rememberRemoteVideo(call).collectAsState()
+    val room = call.room
+    val picture = remote?.takeIf { state.video && state.stage == ActiveCallStage.LIVE && room != null }
     val width = if (picture != null) 112.dp else 96.dp
     val height = if (picture != null) 152.dp else 120.dp
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -170,8 +172,8 @@ fun FloatingCallBubble(call: ActiveCall, language: Language, onOpen: () -> Unit,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 CallBackdrop(glowAt = 0.4f)
-                if (picture != null) {
-                    VideoView(picture, call.room, Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)), mirror = !call.colleague)
+                if (picture != null && room != null) {
+                    VideoView(picture, room, Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)), mirror = !call.colleague)
                     Box(Modifier.fillMaxSize().padding(bottom = Space.xs), contentAlignment = Alignment.BottomCenter) {
                         CallClock(state, language, color = Color.White)
                     }
@@ -191,6 +193,11 @@ fun FloatingCallBubble(call: ActiveCall, language: Language, onOpen: () -> Unit,
         }
     }
 }
+
+/** The other side's picture, as a flow whether or not the call has a room. */
+@Composable
+internal fun rememberRemoteVideo(call: ActiveCall?): kotlinx.coroutines.flow.StateFlow<VideoTrack?> =
+    remember(call) { call?.room?.remoteVideo ?: kotlinx.coroutines.flow.MutableStateFlow(null) }
 
 /** The timer once both are on the line; "Calling…" or "Connecting…" before. */
 @Composable

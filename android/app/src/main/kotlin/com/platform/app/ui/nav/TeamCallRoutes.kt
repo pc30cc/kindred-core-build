@@ -270,7 +270,7 @@ fun TeamCallRoute(
         onAnswer = answer,
         onAnswerVoiceOnly = if (channel == CallChannel.VIDEO) ({ answerAs(false) }) else null,
         onHangUp = { if (ringId != null && phase == TeamCallPhase.Ringing) decline() else session.hangUp() },
-        onToggleMute = session::toggleMute,
+        onToggleMute = rememberMicToggle({ session.muted.value }, session::toggleMute),
         onToggleCamera = rememberCameraToggle({ session.cameraOn.value }, session::toggleCamera),
         onSwitchCamera = session::switchCamera,
         onToggleSpeaker = session::toggleSpeaker,
@@ -280,29 +280,51 @@ fun TeamCallRoute(
 }
 
 /**
- * The call [owner] publishes for the views of it that are not its screen
- * ([ActiveCalls]): made once per session, whatever the screen does — it
- * leaves the display when minimised and comes back — and withdrawn when the
- * session is cleared. Null without the app's graph (a preview, a test).
- */
-/**
  * The camera button: turning the camera on asks for it first when it was
  * never granted (a video call answered "Audio only", or a refusal at the
  * start), and turns it on only once allowed. Turning it off asks nothing.
  */
 @Composable
-internal fun rememberCameraToggle(cameraOn: () -> Boolean, toggle: () -> Unit): () -> Unit {
+internal fun rememberCameraToggle(cameraOn: () -> Boolean, toggle: () -> Unit): () -> Unit =
+    rememberPermissionToggle(Manifest.permission.CAMERA, asksWhen = { !cameraOn() }, toggle)
+
+/**
+ * The mute button: unmuting a call whose microphone was never granted asks
+ * for it first, and unmutes only once allowed. Muting asks nothing.
+ */
+@Composable
+internal fun rememberMicToggle(muted: () -> Boolean, toggle: () -> Unit): () -> Unit =
+    rememberPermissionToggle(Manifest.permission.RECORD_AUDIO, asksWhen = muted, toggle)
+
+/**
+ * A call control that needs [permission] in one direction ([asksWhen]): asked
+ * for first when missing. The call is not sent into its picture-in-picture
+ * window by the dialog (which Android 8 to 11 count as leaving the app).
+ */
+@Composable
+private fun rememberPermissionToggle(permission: String, asksWhen: () -> Boolean, toggle: () -> Unit): () -> Unit {
     val context = LocalContext.current
     val currentToggle by rememberUpdatedState(toggle)
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) currentToggle()
     }
     return {
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        if (!cameraOn() && !granted) ask.launch(Manifest.permission.CAMERA) else toggle()
+        val granted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        if (asksWhen() && !granted) {
+            (context as? MainActivity)?.pictureInPicture?.holdForPermission()
+            ask.launch(permission)
+        } else {
+            toggle()
+        }
     }
 }
 
+/**
+ * The call [owner] publishes for the views of it that are not its screen
+ * ([ActiveCalls]): made once per session, whatever the screen does — it
+ * leaves the display when minimised and comes back — and withdrawn when the
+ * session is cleared. Null without the app's graph (a preview, a test).
+ */
 @Composable
 internal fun rememberActiveCall(owner: ViewModel, build: () -> ActiveCall): ActiveCall? {
     val graph = LocalAppGraph.current ?: return null

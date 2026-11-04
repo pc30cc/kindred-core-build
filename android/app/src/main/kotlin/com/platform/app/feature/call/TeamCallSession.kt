@@ -514,25 +514,55 @@ class TeamCallSession(
 
     // MARK: - Controls
 
+    /**
+     * The latest mute and camera presses: a late answer from the room for an
+     * earlier press (on, off, on in quick succession) changes nothing.
+     */
+    private var micPress = 0
+    private var cameraPress = 0
+
     fun toggleMute() {
+        // Over: a microphone grant that arrives after the end changes nothing.
+        if (_phase.value.isOver) return
         val next = !_muted.value
         _muted.value = next
-        viewModelScope.launch { room.setMicrophone(enabled = !next) }
+        val press = ++micPress
+        viewModelScope.launch {
+            val ok = room.setMicrophone(enabled = !next)
+            // Before the call is live there is no microphone in a room yet:
+            // the choice is applied when it joins.
+            if (press != micPress || !(_phase.value is TeamCallPhase.Live) || next) return@launch
+            if (!ok) {
+                // A microphone that would not start: shown muted, never live
+                // and silent.
+                _muted.value = true
+            } else {
+                if (_degraded.value == CallDegradation.NO_MICROPHONE) _degraded.value = null
+                // The service gains the microphone type it may not have had.
+                (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+            }
+        }
     }
 
     fun toggleCamera() {
-        if (channel != CallChannel.VIDEO) return
+        if (channel != CallChannel.VIDEO || !(_phase.value is TeamCallPhase.Live)) return
         val next = !_cameraOn.value
         _cameraOn.value = next
         // The service holds the camera only while it is on.
         (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+        val press = ++cameraPress
         viewModelScope.launch {
-            // A camera that would not start (no permission, another app has
-            // it): the button and the service say so, rather than showing a
-            // camera on that nobody sees.
-            if (!room.setCamera(enabled = next) && next && _cameraOn.value) {
+            val ok = room.setCamera(enabled = next)
+            if (press != cameraPress || !(_phase.value is TeamCallPhase.Live) || !next) return@launch
+            if (!ok) {
+                // A camera that would not start (no permission, another app
+                // has it): the button and the service say so, rather than
+                // showing a camera on that nobody sees.
                 _cameraOn.value = false
                 (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+            } else if (_degraded.value == CallDegradation.NO_CAMERA) {
+                // Turned on after all (asked for and granted mid-call).
+                _degraded.value = null
             }
         }
     }

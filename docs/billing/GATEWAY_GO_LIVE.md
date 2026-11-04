@@ -289,11 +289,11 @@ Going live since 2026-10-30: steps, probe and smoke test in section 1b. This sec
 | Field | Where to get it |
 |---|---|
 | **Secret Key** (`secret_key`, required) | dashboard.stripe.com → Developers → API keys: `sk_live_…`, or a restricted `rk_live_…` with Checkout Sessions write, Refunds write and Balance read. A `pk_…` key is refused. `sk_test_…` runs test mode, which only Super Admins are offered. |
-| **Webhook Signing Secret** (`webhook_secret`, required) | Developers → Webhooks → endpoint **`https://api.respok.app/api/billing/webhook/stripe`** → Signing secret (`whsec_…`). Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`. |
+| **Webhook Signing Secret** (`webhook_secret`, required) | Developers → Webhooks → endpoint **`https://api.respok.app/api/billing/webhook/stripe`** → Signing secret (`whsec_…`). Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, `charge.dispute.closed`. |
 
 - One Checkout Session per payment, cards only, inline `price_data` in **minor units** (cents; kuruş for TRY, 2 decimals). It expires after 31 minutes. Verified by `GET /v1/checkout/sessions/{id}`: `complete` + `paid`, with Stripe's own amount and currency.
 - Return: `…/billing?payment=<id>&provider=stripe&session_id=cs_…`; cancel adds `canceled=1`, which expires the open session.
-- Refunds made in Stripe arrive as `charge.refunded` (running total) and are taken back once.
+- Refunds made in Stripe arrive as `charge.refunded` (running total) and are taken back once. A dispute lost (`charge.dispute.closed`, status `lost`) is a chargeback: its amount is taken back once, keyed by the dispute; a dispute opened or won changes nothing.
 - Test: `GET /v1/balance`; it shows "Stripe HTTP <status>: <message>" when Stripe refuses.
 
 ### 4.7 PayPal (RESPOK, USD/EUR/GBP; no TRY)

@@ -878,29 +878,35 @@ export async function handleAccountPaymentWebhook(
   if (event.type === 'refund_processed') {
     // Paddle reports each refund (its adjustment id, its amount); Stripe,
     // PayPal and Lemon Squeezy the running total refunded on the payment, so
-    // the new part is that total minus what was already taken back.
+    // the new part is that total minus what was already taken back. That
+    // difference is taken in SQL under the payment's lock (299), never from
+    // this row read before it: two partial refunds processed at once would
+    // otherwise both count from nothing and take back too much.
     let refundId: string;
     let amount: number | null;
+    let call: { name: string; args: Record<string, unknown> };
     if (event.refundId) {
       refundId = event.refundId;
       amount = typeof event.amount === 'number' ? event.amount : null;
+      call = { name: 'billing_account_refund_payment', args: { p_payment_id: payment.id, p_refund_id: refundId, p_amount_minor: amount } };
     } else if (typeof event.refundedTotal === 'number') {
-      const refunds = asRecord(payment.purpose_detail.refunds);
-      const already = Object.values(refunds).reduce<number>((sum, r) => sum + num(asRecord(r).amount_minor), 0);
-      refundId = `total:${event.refundedTotal}`;
-      amount = event.refundedTotal - already;
+      amount = event.refundedTotal;
+      // The id SQL records it under (total:<payment id>:<n>, 299) comes back with the result.
+      refundId = `total:${payment.id}:${event.refundedTotal}`;
+      call = { name: 'billing_account_refund_payment_to_total', args: { p_payment_id: payment.id, p_refunded_total: amount } };
     } else {
       refundId = (event.providerEventId || '').trim();
       amount = typeof event.amount === 'number' ? event.amount : null;
+      call = { name: 'billing_account_refund_payment', args: { p_payment_id: payment.id, p_refund_id: refundId, p_amount_minor: amount } };
     }
     if (!refundId || amount === null || !Number.isFinite(amount) || amount <= 0) return 'ignored';
-    const { data, error } = await getServiceClient(config).rpc('billing_account_refund_payment', {
-      p_payment_id: payment.id,
-      p_refund_id: refundId,
-      p_amount_minor: amount,
-    });
+    const { data, error } = await getServiceClient(config).rpc(call.name, call.args);
     if (error) throw new Error(error.message || 'refund failed');
     const res = asRecord(data);
+    // A running total already covered (an earlier total, or this one again): nothing taken.
+    if (res.ignored === true) return 'ignored';
+    if (typeof res.amount_minor === 'number') amount = res.amount_minor;
+    if (typeof res.refund_id === 'string' && res.refund_id) refundId = res.refund_id;
     if (payment.purpose === 'ai_pack' && (num(res.pack_returned_minor) > 0 || num(res.shortfall_minor) > 0)) {
       // An AI credit pack (phase 5): its unused credit was reclaimed and its
       // price share returned to the balance first; what was already used stays a shortfall.

@@ -33,7 +33,7 @@ import { userAvatarKey, workspaceBrandingKey } from '../services/storage/keys.js
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, getClientIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
-import { requireUser as requireSessionUser, isSeatLocked } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccessFor } from '../lib/workspaceAuth.js';
 import { storageUploadAllowed } from '../services/billing/planStops.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
@@ -865,16 +865,12 @@ const workspaceIconSchema = z.object({
   fileName: z.string().max(160).optional(),
 });
 
-async function userIsWorkspaceMember(config: ServerConfig, userId: string, workspaceId: string): Promise<boolean> {
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('workspace_members')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  return !!data;
-}
+// The icon is the workspace's logo — the one the chat widget shows visitors —
+// so changing or removing it is the same act as PATCH
+// /api/workspaces/:id/branding: an owner or admin who is neither suspended
+// nor past the plan's seat limit (authorizeWorkspaceAccess). A plain
+// membership row used to be enough, which let a viewer, or a member the
+// owner had suspended, replace the logo.
 
 accountRouter.post('/workspace-icon', async (req, res) => {
   try {
@@ -886,15 +882,10 @@ accountRouter.post('/workspace-icon', async (req, res) => {
     }
 
     const { workspaceId, contentType } = parsed.data;
-    if (!(await userIsWorkspaceMember(config, user.id, workspaceId))) {
-      return res.status(403).json({ error: 'Not a member of this workspace' });
-    }
-    // Simple billing phase 4: a seat the plan paused has no say in the
-    // workspace, and storage over the limit takes no new file (the icon
-    // counts toward storage_mb). Both only while billing locks are on.
-    if (await isSeatLocked(config, workspaceId, user.id)) {
-      return res.status(403).json({ error: 'seat_locked', upgrade_required: true });
-    }
+    // Also answers 403 seat_locked for a seat the plan paused (simple billing
+    // phase 4). Storage over the limit takes no new file (the icon counts
+    // toward storage_mb), only while billing locks are on.
+    if (!(await authorizeWorkspaceAccessFor(req, res, user.id, workspaceId, { manage: true }))) return;
 
     const buffer = Buffer.from(parsed.data.data, 'base64');
     if (buffer.length === 0) return res.status(400).json({ error: 'Empty file' });
@@ -977,9 +968,7 @@ accountRouter.delete('/workspace-icon', async (req, res) => {
     const user = (req as AuthedRequest).authUser;
     const workspaceId = String(req.query.workspaceId || '').trim();
     if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
-    if (!(await userIsWorkspaceMember(config, user.id, workspaceId))) {
-      return res.status(403).json({ error: 'Not a member of this workspace' });
-    }
+    if (!(await authorizeWorkspaceAccessFor(req, res, user.id, workspaceId, { manage: true }))) return;
 
     const sb = getServiceClient(config);
     const { data: prevBranding } = await sb

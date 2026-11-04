@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { keepPreviousForSame } from '@/lib/keepPreviousForSame';
 import { useNavigate } from 'react-router-dom';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Activity, BarChart3, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, X } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/date';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
@@ -20,7 +21,17 @@ const FILTERS: Filter[] = ['all', 'answered', 'suggested', 'handoff', 'no_answer
 const PAGE_SIZES = [20, 50, 100, 200];
 const PAGE_SIZE_KEY = 'ai-activity-page-size';
 
-function describeKey(run: any): { key: 'suggested' | 'handoff' | 'no_answer' | 'blocked' | 'answered' | 'unknown'; tone: string } {
+/** The fields of an AI run this page reads. */
+interface ActivityRun {
+  id: string;
+  action?: string | null;
+  status?: string | null;
+  run_type?: string | null;
+  input_text?: string | null;
+  created_at?: string | null;
+}
+
+function describeKey(run: ActivityRun): { key: 'suggested' | 'handoff' | 'no_answer' | 'blocked' | 'answered' | 'unknown'; tone: string } {
   const action = run.action || run.status;
   if (run.run_type === 'operator_assist' || action === 'suggested') return { key: 'suggested', tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30' };
   if (action === 'handoff') return { key: 'handoff', tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30' };
@@ -30,7 +41,7 @@ function describeKey(run: any): { key: 'suggested' | 'handoff' | 'no_answer' | '
   return { key: 'unknown', tone: 'bg-muted text-muted-foreground border-border' };
 }
 
-const RunRow = memo(function RunRow({ run, label }: { run: any; label: string }) {
+const RunRow = memo(function RunRow({ run, label }: { run: ActivityRun; label: string }) {
   const d = describeKey(run);
   return (
     <div className="flex items-center gap-3 py-2.5 px-2 -mx-2 rounded-md border-b border-border/40 last:border-b-0 hover:bg-accent/30 transition-colors">
@@ -57,7 +68,7 @@ export default function ActivityPage() {
   const [search, setSearch] = useState('');
   const { t, dir } = useTranslation();
   const tr = (k: string, fb: string, params?: Record<string, string>) => {
-    const v = t(`aiAgent.activity.${k}` as any, params);
+    const v = t(`aiAgent.activity.${k}` as TranslationKey, params);
     return !v || v.includes(`aiAgent.activity.${k}`) ? fb : v;
   };
 
@@ -67,12 +78,14 @@ export default function ActivityPage() {
     return () => clearTimeout(id);
   }, [searchInput]);
 
+  const runsKey = ['ai-activity', workspace?.id, filter, search, page, pageSize];
   const runs = useQuery({
-    queryKey: ['ai-activity', workspace?.id, filter, search, page, pageSize],
+    queryKey: runsKey,
     queryFn: () => aiAgentApi.getRunsPaged(workspace!.id, { page, pageSize, filter, search }),
     enabled: !!workspace?.id,
     staleTime: 15_000,
-    placeholderData: keepPreviousData,
+    // Another page or filter of this workspace, never another workspace's runs.
+    placeholderData: keepPreviousForSame(runsKey, 2),
   });
 
   const items = runs.data?.runs || [];
@@ -182,7 +195,7 @@ export default function ActivityPage() {
             </p>
           ) : (
             <div className={cn('space-y-1 transition-opacity', runs.isFetching && 'opacity-60')}>
-              {items.map((r: any) => (
+              {items.map((r: ActivityRun) => (
                 <RunRow key={r.id} run={r} label={labels[describeKey(r).key]} />
               ))}
             </div>

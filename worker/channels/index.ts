@@ -340,47 +340,114 @@ async function describeCore(): Promise<string> {
   }
 }
 
+/**
+ * How long one call to Core may take. The worker runs its jobs one at a time,
+ * so a call that never answers would hold every tenant's queue, past the
+ * job's lease (LEASE_SECONDS) and into a second run of the same job.
+ */
+const CORE_CALL_TIMEOUT_MS = parseInt(process.env.CHANNELS_CORE_CALL_TIMEOUT_MS || '30000', 10);
+// A media upload carries up to ~30 MB over the internal network.
+const CORE_UPLOAD_TIMEOUT_MS = parseInt(process.env.CHANNELS_CORE_UPLOAD_TIMEOUT_MS || '90000', 10);
+
+/**
+ * Core's 404 answers that name a ROW that is gone (a deleted message, an
+ * operation removed), not a route. No deployment fix brings the row back, so
+ * the job must not wait for one: these end the job instead of requeueing it
+ * for free, which used to loop forever. A missing route answers
+ * `{ error: 'Not found' }` (server/index.ts) and stays an infrastructure error.
+ */
+export const CORE_GONE_ERRORS: ReadonlySet<string> = new Set(['unknown_message', 'unknown_operation']);
+
+export type CoreGoneError = Error & { permanent: true; coreGone: string };
+
+export function isCoreGone(err: unknown, code?: string): err is CoreGoneError {
+  const gone = (err as { coreGone?: unknown } | null | undefined)?.coreGone;
+  return typeof gone === 'string' && (code === undefined || gone === code);
+}
+
+/** The `error` of a JSON body, if the body is one. */
+function jsonErrorCode(detail: string): string | null {
+  try {
+    const parsed = JSON.parse(detail) as { error?: unknown } | null;
+    return typeof parsed?.error === 'string' ? parsed.error : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The failure of a non-2xx Core answer: gone, infrastructure, or plain. */
+async function coreFailure(path: string, response: Response, detail: string, label: string): Promise<Error> {
+  if (response.status === 404) {
+    const code = jsonErrorCode(detail);
+    if (code && CORE_GONE_ERRORS.has(code)) {
+      return Object.assign(new Error(`core ${path}: ${code}`), { permanent: true, coreGone: code } as const);
+    }
+  }
+  // 404 on a route this worker knows exists in the codebase means the Core
+  // it is talking to is an OLDER deployment (or not Core at all). 401/503
+  // mean the trust boundary broke mid-flight. Both are deployment problems.
+  if (response.status === 404 || response.status === 401 || response.status === 503) {
+    coreAuthReady = false;
+    const explanation =
+      label === 'post' && response.status === 404
+        ? `Core at ${coreBaseUrl} does not expose ${path} — redeploy Core with the current build, or point CORE_INTERNAL_BASE_URL at the Core service (${await describeCore()})`
+        : label === 'post'
+          ? `Core rejected the internal credential on ${path} (HTTP ${response.status})`
+          : `core ${path} unavailable [${response.status}] (${await describeCore()})`;
+    return Object.assign(new Error(explanation), { infrastructure: true } as const);
+  }
+  return Object.assign(new Error(`core ${path} failed [${response.status}]: ${detail}`), { status: response.status });
+}
+
+/**
+ * Whether a failed call to Core may succeed if made again: a transport error
+ * (no status), a 5xx, a 429, or a deployment problem. A 4xx refusal of the
+ * request itself will not.
+ */
+export function isTransientCoreFailure(err: unknown): boolean {
+  if (isInfrastructureError(err)) return true;
+  const status = (err as { status?: unknown } | null | undefined)?.status;
+  return typeof status !== 'number' || status >= 500 || status === 429 || status === 408;
+}
+
+/**
+ * The checkpoint a poll may move to: past every message it read, except that
+ * it stops just before the first one Core could not store for a reason that
+ * may pass. The poll used to move past those too, and the mail was never
+ * read again. Re-reading the ones after it is harmless: Core's upsert is
+ * idempotent on the message id.
+ */
+export function pollCheckpoint(lastUid: number | null, heldBackUids: number[]): number | null {
+  if (!heldBackUids.length) return lastUid;
+  const before = Math.min(...heldBackUids) - 1;
+  // UIDs start at 1: nothing before the first one, so no checkpoint at all.
+  return before >= 1 ? before : null;
+}
+
 async function coreCall<T = unknown>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${coreBaseUrl}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...coreAuthHeaders() },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(CORE_CALL_TIMEOUT_MS),
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
-
-    // 404 on a route this worker knows exists in the codebase means the Core
-    // it is talking to is an OLDER deployment (or not Core at all). 401/503
-    // mean the trust boundary broke mid-flight. Both are deployment problems.
-    if (response.status === 404 || response.status === 401 || response.status === 503) {
-      coreAuthReady = false;
-      const explanation =
-        response.status === 404
-          ? `Core at ${coreBaseUrl} does not expose ${path} — redeploy Core with the current build, or point CORE_INTERNAL_BASE_URL at the Core service (${await describeCore()})`
-          : `Core rejected the internal credential on ${path} (HTTP ${response.status})`;
-      throw Object.assign(new Error(explanation), { infrastructure: true } as const);
-    }
-
-    throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
+    throw await coreFailure(path, response, detail, 'post');
   }
   return (await response.json()) as T;
 }
 
 
-
 /** Authenticated GET against Core's internal boundary. */
 async function coreGet<T = unknown>(path: string): Promise<T> {
-  const response = await fetch(`${coreBaseUrl}${path}`, { headers: coreAuthHeaders() });
+  const response = await fetch(`${coreBaseUrl}${path}`, {
+    headers: coreAuthHeaders(),
+    signal: AbortSignal.timeout(CORE_CALL_TIMEOUT_MS),
+  });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
-    if (response.status === 404 || response.status === 401 || response.status === 503) {
-      coreAuthReady = false;
-      throw Object.assign(
-        new Error(`core ${path} unavailable [${response.status}] (${await describeCore()})`),
-        { infrastructure: true } as const,
-      );
-    }
-    throw new Error(`core ${path} failed [${response.status}]: ${detail}`);
+    throw await coreFailure(path, response, detail, 'get');
   }
   return (await response.json()) as T;
 }
@@ -394,6 +461,7 @@ async function coreUpload<T = unknown>(path: string, bytes: Uint8Array, contentT
     method: 'POST',
     headers: { 'Content-Type': contentType, ...coreAuthHeaders() },
     body: Buffer.from(bytes),
+    signal: AbortSignal.timeout(CORE_UPLOAD_TIMEOUT_MS),
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 300);
@@ -451,15 +519,62 @@ async function reportOutbound(
   errorCode: string | null,
 ): Promise<void> {
   if (!messageId || !job.integration_id) return;
-  await coreCall('/internal/channels/outbound-result', {
-    provider: job.provider,
-    integration_id: job.integration_id,
-    workspace_id: job.workspace_id,
-    message_id: messageId,
-    outcome,
-    external_message_id: externalMessageId,
-    error_code: errorCode,
-  });
+  try {
+    await coreCall('/internal/channels/outbound-result', {
+      provider: job.provider,
+      integration_id: job.integration_id,
+      workspace_id: job.workspace_id,
+      message_id: messageId,
+      outcome,
+      external_message_id: externalMessageId,
+      error_code: errorCode,
+    });
+  } catch (err) {
+    // The message row is gone (its conversation was deleted): there is
+    // nothing left to record the outcome on, and no retry changes that.
+    if (isCoreGone(err, 'unknown_message')) {
+      console.warn(`[channels-worker] job ${job.id}: message ${messageId} no longer exists; its ${outcome} outcome is not recorded`);
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Job payload markers of a chat reply (text or media) that reached the
+ * provider. Also read by tests.
+ *
+ * Sending and reporting to Core used to be one retried unit, so a report Core
+ * did not take (a deploy's 503, a timeout) sent the customer the same message
+ * again on every retry. The job's own row now says what went out
+ * (markChannelJob, fenced by the claim), and a later run of the same job only
+ * reports it:
+ *   - OUTBOUND_SENT: the whole reply went out; OUTBOUND_EXTERNAL_ID is the
+ *     provider's id of it.
+ *   - OUTBOUND_MEDIA_NEXT: for a media reply, how many of its attachments
+ *     went out, so a retry after the second one failed starts at the second.
+ * A crash in the instant between the provider's answer and the mark can still
+ * repeat one message; nothing short of the provider's own idempotency closes
+ * that, and none of these providers offers one.
+ */
+export const OUTBOUND_SENT = 'outbound_sent_at';
+export const OUTBOUND_EXTERNAL_ID = 'outbound_external_message_id';
+export const OUTBOUND_MEDIA_NEXT = 'outbound_media_next';
+
+/** Records chat-reply progress on the job; the claim must still be ours. */
+async function markOutboundProgress(job: ChannelJob, patch: Record<string, unknown>): Promise<void> {
+  let held: boolean;
+  try {
+    held = await markChannelJob(sb, job, patch, LEASE_SECONDS);
+  } catch {
+    // One more try for a database hiccup; failing that, the retry may repeat
+    // what was just sent, which is no worse than before.
+    held = await markChannelJob(sb, job, patch, LEASE_SECONDS).catch((markErr) => {
+      console.error(`[channels-worker] job ${job.id}: could not record the send:`, (markErr as Error)?.message || markErr);
+      return true;
+    });
+  }
+  if (!held) throw leaseLostError(job);
 }
 
 /**
@@ -675,7 +790,15 @@ type ChannelJobPayload = {
   actions?: unknown;
   mail_send_started_at?: unknown;
   mail_send_accepted_at?: unknown;
+  outbound_sent_at?: unknown;
+  outbound_external_message_id?: unknown;
+  outbound_media_next?: unknown;
 };
+
+/** A provider message id read back from a job payload. */
+function externalIdOf(value: unknown): number | string | null {
+  return typeof value === 'number' || (typeof value === 'string' && value) ? value : null;
+}
 
 /** One entry of an outbound job's `attachments` array (untrusted JSON). */
 type OutboundAttachmentPayload = {
@@ -899,24 +1022,28 @@ async function handleJob(job: ChannelJob): Promise<void> {
           spam: { sinceUid: spamSinceUid },
         });
 
+        const heldBack: { inbox: number[]; spam: number[] } = { inbox: [], spam: [] };
         for (const [list, replyOnly] of [[messages, false], [spam?.messages ?? [], true]] as const) {
           for (const msg of list) {
             try {
               await syncMessage(msg, replyOnly);
             } catch (msgErr) {
               console.error('[channels-worker] yahoo message sync failed:', (msgErr as Error)?.message || msgErr);
+              if (isTransientCoreFailure(msgErr)) heldBack[replyOnly ? 'spam' : 'inbox'].push(msg.uid);
             }
           }
         }
 
-        const spamLastUid = spam?.lastUid ?? null;
+        const inboxCheckpoint = pollCheckpoint(lastUid, heldBack.inbox);
+        const spamLastUid = pollCheckpoint(spam?.lastUid ?? null, heldBack.spam);
         const spamMoved = spamLastUid !== null && spamLastUid !== spamSinceUid;
         if (spamMoved) spamSinceUid = spamLastUid;
-        if (lastUid !== null || spamMoved) {
-          if (lastUid !== null) sinceUid = lastUid;
+        const inboxMoved = inboxCheckpoint !== null && inboxCheckpoint !== sinceUid;
+        if (inboxMoved || spamMoved) {
+          if (inboxMoved) sinceUid = inboxCheckpoint;
           await coreCall('/internal/channels/yahoo/poll-checkpoint', {
             integration_id: job.integration_id,
-            ...(lastUid !== null ? { last_uid: lastUid } : {}),
+            ...(inboxMoved ? { last_uid: inboxCheckpoint } : {}),
             ...(spamMoved ? { last_spam_uid: spamLastUid } : {}),
           }).catch(() => {});
         }
@@ -980,22 +1107,32 @@ async function handleJob(job: ChannelJob): Promise<void> {
       const messageId: string | null = payload.message_id ?? null;
       if (!chatId || !text.trim()) return; // nothing deliverable
 
+      // An earlier run already sent it: only the report is left to do.
+      if (payload.outbound_sent_at) {
+        await reportOutbound(job, messageId, 'sent', externalIdOf(payload.outbound_external_message_id), null);
+        return;
+      }
+
       const token = await credential(job.integration_id);
       // Native "typing…" bubble right before the reply lands. Best-effort:
       // a failure here must never block or retry the actual delivery.
       if (bot?.supportsChatAction) {
         await api.sendChatAction(token, chatId, 'typing').catch(() => undefined);
       }
+      let sent: { message_id: number | string };
       try {
-        const sent = await api.sendMessage(token, { chatId, text });
-
-        await reportOutbound(job, messageId, 'sent', sent.message_id, null);
+        sent = await api.sendMessage(token, { chatId, text });
       } catch (err) {
         if (err instanceof TelegramApiError && !err.retryable) {
           await reportOutbound(job, messageId, 'failed', null, `${job.provider}_${err.httpStatus}`);
         }
         throw err;
       }
+      await markOutboundProgress(job, {
+        [OUTBOUND_SENT]: new Date().toISOString(),
+        [OUTBOUND_EXTERNAL_ID]: sent.message_id ?? null,
+      });
+      await reportOutbound(job, messageId, 'sent', sent.message_id, null);
       return;
     }
 
@@ -1011,12 +1148,24 @@ async function handleJob(job: ChannelJob): Promise<void> {
       const attachments: OutboundAttachmentPayload[] = Array.isArray(payload.attachments) ? payload.attachments : [];
       if (!chatId || attachments.length === 0) return;
 
+      if (payload.outbound_sent_at) {
+        await reportOutbound(job, messageId, 'sent', externalIdOf(payload.outbound_external_message_id), null);
+        return;
+      }
+
       const token = await credential(job.integration_id);
+      // Attachments an earlier run already sent are not sent again.
+      const firstUnsent = Math.max(0, Math.min(attachments.length, Number(payload.outbound_media_next) || 0));
       try {
         // WhatsApp returns an opaque `wamid` string; Telegram a numeric id.
-        let last: { message_id: number | string } | null = null;
+        let last: { message_id: number | string } | null = firstUnsent > 0
+          ? (externalIdOf(payload.outbound_external_message_id) != null
+            ? { message_id: externalIdOf(payload.outbound_external_message_id)! }
+            : null)
+          : null;
 
         for (const [index, attachment] of attachments.entries()) {
+          if (index < firstUnsent) continue;
           const url = String(attachment?.url ?? attachment?.public_url ?? '');
           if (!/^https?:\/\//i.test(url)) continue; // never send an unsafe URL
           // Core is always reachable from the worker (that is how jobs are
@@ -1082,16 +1231,19 @@ async function handleJob(job: ChannelJob): Promise<void> {
           if (!sent) {
             last = await api.sendMedia(token, { chatId, kind, url, caption });
           }
+          await markOutboundProgress(job, {
+            [OUTBOUND_MEDIA_NEXT]: index + 1,
+            [OUTBOUND_EXTERNAL_ID]: last?.message_id ?? null,
+          });
         }
-
-
-        await reportOutbound(job, messageId, 'sent', last?.message_id ?? null, null);
+        await markOutboundProgress(job, { [OUTBOUND_SENT]: new Date().toISOString() });
       } catch (err) {
         if (err instanceof TelegramApiError && !err.retryable) {
           await reportOutbound(job, messageId, 'failed', null, `${job.provider}_${err.httpStatus}`);
         }
         throw err;
       }
+      await reportOutbound(job, messageId, 'sent', externalIdOf(job.payload?.[OUTBOUND_EXTERNAL_ID]), null);
       return;
     }
 
@@ -1156,7 +1308,7 @@ async function processBatch(): Promise<number> {
   if (!(await ensureCoreAuthReady())) return 0;
   const jobs = await claimChannelJobs(sb, WORKER_ID, BATCH_SIZE, LEASE_SECONDS, null);
 
-  for (const job of jobs) {
+  for (const [position, job] of jobs.entries()) {
     const startedAt = Date.now();
     try {
       await handleJob(job);
@@ -1180,6 +1332,14 @@ async function processBatch(): Promise<number> {
           latencyMs: Date.now() - startedAt,
         });
         console.error(`[channels-worker] job ${job.id} (${job.job_type}) requeued without penalty: ${message}`);
+        // The rest of the batch was claimed but never started: hand it back
+        // now, without spending a retry, instead of letting it sit out the
+        // lease (other workspaces' replies among it).
+        for (const untouched of jobs.slice(position + 1)) {
+          await releaseChannelJob(sb, untouched, `not started: ${message}`).catch((releaseErr) => {
+            console.error(`[channels-worker] job ${untouched.id} could not be handed back:`, (releaseErr as Error)?.message || releaseErr);
+          });
+        }
         break;
       }
 

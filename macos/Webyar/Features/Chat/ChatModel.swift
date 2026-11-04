@@ -263,7 +263,7 @@ final class ChatModel {
         poller?.stop()
         deltaSoon?.cancel()
         events?.cancelNow()
-        if recorder.isRecording { recorder.cancel() }
+        recorder.cancel()
         if box.shown === self { box.shown = nil }
     }
 
@@ -291,7 +291,7 @@ final class ChatModel {
         let wasAi = aiMode
         conversation = c
         if aiMode && !wasAi {
-            if recorder.isRecording { recorder.cancel() }
+            recorder.cancel()
             pendingFile = nil
         }
         refreshAvatars()

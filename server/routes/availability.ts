@@ -25,7 +25,7 @@ import {
   computeCustomerAvailability,
   type CustomerAvailabilityReason,
 } from '../services/widget/customerAvailability.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccessFor } from '../lib/workspaceAuth.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import type { Edition } from '../../shared/edition.js';
 import { isMissingColumnError } from '../lib/missingColumn.js';
@@ -278,22 +278,16 @@ availabilityRouter.patch('/', async (req, res) => {
 // ── GET /api/availability/team/:workspaceId ───────────────────────
 // Live presence for every member of a workspace. Used by the inbox
 // assignee dropdown and Team page so operators can see who's around.
-// Auth: must be a member of the workspace (RLS enforced via membership
-// check below; we use service client for the actual computation).
+// Auth: a member of the workspace who is neither suspended nor past the
+// plan's seat limit (authorizeWorkspaceAccess); the service client does the
+// computation.
 availabilityRouter.get('/team/:workspaceId', async (req, res) => {
   try {
     const { config, user } = ctx(req);
     const workspaceId = req.params.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
 
-    const sb = getServiceClient(config);
-    const { data: membership } = await sb
-      .from('workspace_members')
-      .select('user_id')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (!membership) return res.status(403).json({ error: 'Not a workspace member' });
+    if (!(await authorizeWorkspaceAccessFor(req, res, user.id, workspaceId))) return;
 
     // A member a pair hides from the viewer (services/teamVisibility.ts) is not listed.
     const [everyone, hidden] = await Promise.all([

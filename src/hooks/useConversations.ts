@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { keepPreviousForSame } from '@/lib/keepPreviousForSame';
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi, newClientMessageId, type InboxUnread } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
@@ -51,12 +52,14 @@ export function useConversations(
   const needsHuman = !!extra.needsHuman;
   const assignedToMe = extra.assignedToMe || null;
   const scope = extra.scope ?? 'mine';
+  const queryKey = ['conversations', workspaceId, queue, status, needsHuman, assignedToMe, scope];
   return useQuery({
-    queryKey: ['conversations', workspaceId, queue, status, needsHuman, assignedToMe, scope],
+    queryKey,
     // Tab switching must feel instant: keep showing the previous tab's rows
     // while the new one loads instead of flashing the skeleton, and treat
-    // recently fetched data as fresh so going back to a tab is free.
-    placeholderData: keepPreviousData,
+    // recently fetched data as fresh so going back to a tab is free. Never
+    // another workspace's rows, though: a workspace switch starts empty.
+    placeholderData: keepPreviousForSame(queryKey, 2),
     staleTime: 15_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
@@ -171,12 +174,13 @@ export function useInboxCounts(workspaceId: string | undefined, scope: 'mine' | 
  * threads excluded.
  */
 export function useInboxTabCounts(workspaceId: string | undefined, scope: 'mine' | 'all' = 'mine') {
+  const queryKey = ['inbox-tab-counts', workspaceId, scope];
   return useQuery({
-    queryKey: ['inbox-tab-counts', workspaceId, scope],
+    queryKey,
     enabled: !!workspaceId,
     staleTime: 15_000,
     gcTime: 5 * 60_000,
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousForSame(queryKey, 2),
     refetchOnWindowFocus: false,
     queryFn: () => conversationsApi.getInboxTabCounts(workspaceId!, scope),
   });

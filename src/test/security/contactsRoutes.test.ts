@@ -34,11 +34,13 @@ function fakeClient() {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
       let inFilter: { col: string; vals: unknown[] } | null = null;
+      let window: [number, number] | null = null;
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
         in(col: string, vals: unknown[]) { inFilter = { col, vals }; return builder; },
         order: () => builder,
+        range(from: number, to: number) { window = [from, to]; return builder; },
         insert(payload: Row | Row[]) {
           const items = Array.isArray(payload) ? payload : [payload];
           const inserted = items.map((it) => ({ id: it.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...it }));
@@ -76,6 +78,7 @@ function fakeClient() {
         then(resolve: Resolve) {
           let matched = rows.filter((r) => filters.every((f) => f(r)));
           if (inFilter) matched = matched.filter((r) => inFilter!.vals.includes(r[inFilter!.col]));
+          if (window) matched = matched.slice(window[0], window[1] + 1);
           return resolve({ data: matched, error: null });
         },
       };

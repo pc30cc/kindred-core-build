@@ -48,6 +48,7 @@ import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { authorizeInboxAccess, holdsInboxSeat, supervisesInbox } from '../lib/inboxAccess.js';
+import { readRows } from '../lib/pagedRows.js';
 import {
   announceManualAssignment,
   checkAssignmentTarget,
@@ -72,6 +73,7 @@ import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
+import { cancelWorkspaceChatReplies } from '../services/channels/jobs.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
 import { recordConversationClosed } from '../services/conversationClosedNotice.js';
@@ -617,6 +619,15 @@ conversationsRouter.post('/send-message', async (req, res) => {
       if (!ok) {
         console.warn('[conversations/send-message] failed to attach',
           parsed.data.attachment_id, 'to', inserted.id);
+        // The message names only a file that is its own: an id that did not
+        // bind (another workspace's, already used, gone) is taken back out.
+        const { attachment_id: _unbound, ...kept } = (inserted.metadata ?? {}) as Record<string, unknown>;
+        const { error: unbindErr } = await sb
+          .from('conversation_messages')
+          .update({ metadata: kept })
+          .eq('id', inserted.id);
+        if (unbindErr) console.warn('[conversations/send-message] could not drop the unbound attachment_id:', unbindErr.message);
+        else inserted = { ...inserted, metadata: kept };
       }
     }
 
@@ -1728,6 +1739,13 @@ conversationsRouter.get('/', async (req, res) => {
     // full view ONLY when they explicitly ask for it (scope=all). Otherwise
     // their Inbox behaves like an operator's.
     const canSeeAllAssignments = supervisesInbox(auth) && scope === 'all';
+    // "Assigned to me" names whose chats to list, and replaces the
+    // "unassigned or mine" filter below: anyone else's id is a supervisor's
+    // view of a colleague's chats, so it is refused to everyone else (the
+    // panel always sends the caller's own id; the native apps never send it).
+    if (assigned_to_me && assigned_to_me !== auth.userId && !supervisesInbox(auth)) {
+      return res.status(403).json({ error: 'assignment_scope_not_allowed' });
+    }
 
     const listed = await listConversationRows(config, auth, {
       workspaceId: workspace_id,
@@ -1767,6 +1785,9 @@ interface ListOptions {
  * shared by the list route and `GET /:id`, so a row fetched by id is in
  * exactly the shape the list gives it.
  */
+/** Newest messages the list reads for its previews, unread and needs-reply. */
+const LIST_MESSAGE_WINDOW = 2000;
+
 async function listConversationRows(
   config: ServerConfig,
   auth: { userId: string },
@@ -1869,16 +1890,19 @@ async function listConversationRows(
     };
     const departmentIds = Array.from(new Set(convos.map(departmentOf).filter((id): id is string => !!id)));
     const [{ data: msgs }, readerLocale, lastRead, { data: departments }] = await Promise.all([
-      sb
+      // The window's LIST_MESSAGE_WINDOW newest rows, paged: one read stops
+      // at DATABASE_MAX_ROWS (1000), which silently halved the window.
+      readRows((from, to) => sb
         .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
+        .select('id, conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
         .in('conversation_id', ids)
         // Bot menu/button taps are navigation, not chat content — keep them
         // out of the fetch window entirely so a visitor browsing the bot menu
         // can never push the real last message out of the preview.
         .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
         .order('created_at', { ascending: false })
-        .limit(2000),
+        .order('id', { ascending: false })
+        .range(from, to), LIST_MESSAGE_WINDOW),
       // The language a system preview's `body` is written in (below).
       operatorLocale(config, auth.userId),
       // When the visitor last read each thread in the widget (I-03).
@@ -1986,6 +2010,7 @@ async function listConversationRows(
       const { data: atts } = await sb
         .from('conversation_attachments')
         .select('id, mime_type')
+        .eq('workspace_id', workspaceId)
         .in('id', previewAttachmentIds);
       const mimeById = new Map<string, string>(
         ((atts || [])).map((a) => [String(a.id), String(a.mime_type || '')]),
@@ -2239,7 +2264,9 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
     if (!seesAll && resolvedCount > 0) {
       // Not the AI's (the list's own filter): the inactivity close ends AI-only
       // conversations without touching their ai_state (migration 284).
-      const { data: resolvedRows } = await sb
+      // Every row, paged (one read stops at DATABASE_MAX_ROWS without a
+      // word, and the tab showed at most 1000).
+      const { data: resolvedRows } = await readRows<{ id: string; assigned_to: string | null }>((from, to) => sb
         .from('conversations')
         .select('id, assigned_to')
         .eq('workspace_id', workspaceId)
@@ -2247,18 +2274,22 @@ conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
         .in('status', ['resolved', 'closed'])
         .or('ai_state.is.null,ai_state.neq.ai_managed')
         .or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`)
-        .limit(2000);
-      const rows = (resolvedRows || []);
+        .order('id', { ascending: true })
+        .range(from, to));
+      const rows = resolvedRows;
       const ids = rows.map((r) => r.id);
       const handled: Record<string, Set<string>> = {};
-      if (ids.length) {
-        const { data: agentMsgs } = await sb
+      // Who answered in each, by the distinct (conversation, operator) pairs.
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        const { data: agentMsgs } = await readRows<{ id: string; conversation_id: string; sender_id: string | null }>((from, to) => sb
           .from('conversation_messages')
-          .select('conversation_id, sender_id')
-          .in('conversation_id', ids)
+          .select('id, conversation_id, sender_id')
+          .in('conversation_id', chunk)
           .eq('sender_type', 'agent')
-          .limit(5000);
-        for (const m of (agentMsgs || [])) {
+          .order('id', { ascending: true })
+          .range(from, to));
+        for (const m of agentMsgs) {
           if (!m.sender_id) continue;
           (handled[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
         }
@@ -2343,6 +2374,29 @@ interface MessageRow {
   [column: string]: unknown;
 }
 
+/** Messages per full read of a thread (under the default DATABASE_MAX_ROWS). */
+export const THREAD_PAGE = 1000;
+
+const THREAD_TS = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$/;
+const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `?before=<created_at>&before_id=<id>`: the oldest message a client holds,
+ * exactly as the thread gave it (`older`). Null without one, 'invalid' when
+ * malformed. The text is kept as sent (a Date would drop the microseconds).
+ */
+export function parseThreadBefore(rawBefore: unknown, rawId: unknown): { createdAt: string; id: string } | null | 'invalid' {
+  if (rawBefore === undefined && rawId === undefined) return null;
+  if (typeof rawBefore !== 'string' || typeof rawId !== 'string') return 'invalid';
+  if (!THREAD_TS.test(rawBefore) || !Number.isFinite(Date.parse(rawBefore)) || !THREAD_ID.test(rawId)) return 'invalid';
+  return { createdAt: rawBefore, id: rawId };
+}
+
+/** The rows before (created_at, id) in thread order, as a PostgREST `or`. */
+function olderThan(createdAt: string, id: string): string {
+  return `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt.${id})`;
+}
+
 conversationsRouter.get('/:id/messages', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
@@ -2388,11 +2442,39 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
         console.warn('[conversations messages] delta read unavailable, full read instead:', deltaError.message);
       }
     }
+    // A full read is the NEWEST page of the thread, in thread order: one
+    // read stops at DATABASE_MAX_ROWS (1000), and an oldest-first read of a
+    // longer thread never showed its new messages. `?before=<created_at>`
+    // (with `before_id`, the oldest row the client holds, as `older` hands
+    // them back) reads the page before it; `older` is null once the start
+    // of the thread is reached.
+    let older: { before: string; before_id: string } | null = null;
     if (!rows) {
-      const { data, error } = await threadRows().order('created_at', { ascending: true });
+      const before = parseThreadBefore(req.query.before, req.query.before_id);
+      if (before === 'invalid') return res.status(400).json({ error: 'invalid_before' });
+      let page = threadRows();
+      if (before) {
+        page = page.or(olderThan(before.createdAt, before.id));
+      }
+      const { data, error } = await page
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(THREAD_PAGE);
       if (error) return res.status(500).json({ error: error.message });
-      rows = (data || []) as MessageRow[];
+      rows = ((data || []) as MessageRow[]).reverse();
+      const first = rows[0];
+      if (first) {
+        const { data: earlier } = await sb
+          .from('conversation_messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .or(olderThan(first.created_at, first.id))
+          .limit(1);
+        if ((earlier || []).length > 0) older = { before: first.created_at, before_id: first.id };
+      }
     }
+    // An older page (`before`) hands back a cursor no newer than the client's
+    // own: a client paging back keeps the cursor it already has.
     const syncCursor = nextSyncCursor(rows, syncMode === 'delta' ? since : null);
     let messages = rows;
 
@@ -2421,9 +2503,12 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       const orFilters: string[] = [];
       if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
       if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
+      // Only this workspace's files: `metadata.attachment_id` is whatever id
+      // the sender named, and must never describe another workspace's file.
       const { data: atts } = await sb
         .from('conversation_attachments')
         .select('id, file_name, mime_type, size_bytes, status, message_id, created_at')
+        .eq('workspace_id', conv.workspace_id)
         .or(orFilters.join(','));
       for (const a of (atts || [])) {
         if (a.status !== 'attached' && a.status !== 'uploaded') continue;
@@ -2499,7 +2584,9 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
 
     // `sync` is new: older clients ignore it. `cursor` is null until the database has
     // `updated_at` (then the client simply keeps reading in full).
-    return res.json({ messages: enriched, sync: { mode: syncMode, cursor: syncCursor } });
+    // `older` is new too: the page before this one, null at the thread's
+    // start or on a delta read.
+    return res.json({ messages: enriched, sync: { mode: syncMode, cursor: syncCursor }, older });
   } catch (err) {
     console.error('[conversations messages] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
@@ -2645,8 +2732,29 @@ conversationsRouter.post('/:id/seen', async (req, res) => {
 // membership — this requires manage:true (owner/admin), matching the
 // bar already set for other destructive workspace-wide operations
 // (member removal, invitation deletion) elsewhere in this migration.
+//
+// In batches, until none is left: one read stops at DATABASE_MAX_ROWS (1000)
+// without a word, which deleted the first 1000 and answered success. What
+// goes with them:
+//   - by cascade: messages, attachments' rows, reactions, ratings, reads,
+//     routing state, AI guidance, transcript mails, call invitations,
+//     platform support threads (callback requests and call queue entries
+//     keep the row, their conversation set to null);
+//   - here, having no foreign key: the private notes and the timeline;
+//   - here: the channel replies still waiting to be sent (`channel_jobs`
+//     pending, cancelled with `conversation_deleted`), so no worker sends a
+//     message that no longer exists. One a worker already holds is left to
+//     finish.
+// Left as they are (logs and counters, nothing acts on them): the AI's run
+// and suggestion logs, push and inbound-event logs, usage counters, and a
+// pending digest's `conversation_ids` (it reads the conversations again
+// when it is sent).
+// One started while it runs is deleted too, if a batch still finds it.
 // ═══════════════════════════════════════════════════════════════════
 const deleteAllSchema = z.object({ workspace_id: z.string().uuid() });
+
+/** Conversations per batch of the delete-all (well under DATABASE_MAX_ROWS). */
+export const DELETE_ALL_BATCH = 500;
 
 conversationsRouter.delete('/', async (req, res) => {
   try {
@@ -2656,22 +2764,40 @@ conversationsRouter.delete('/', async (req, res) => {
     const auth = await authorizeWorkspaceAccess(req, res, parsed.data.workspace_id, { manage: true });
     if (!auth) return;
 
+    const workspaceId = parsed.data.workspace_id;
     const sb = getServiceClient(config);
-    const { data: convs, error: fetchErr } = await sb
-      .from('conversations')
-      .select('id')
-      .eq('workspace_id', parsed.data.workspace_id);
-    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
-    const ids = (convs ?? []).map((c) => c.id);
-    if (ids.length === 0) return res.json({ deleted: 0 });
+    // Replies still queued for these conversations would reach the customer
+    // after their messages are gone: stop them first.
+    await cancelWorkspaceChatReplies(sb, workspaceId);
 
-    const { error: msgErr } = await sb.from('conversation_messages').delete().in('conversation_id', ids);
-    if (msgErr) return res.status(500).json({ error: msgErr.message });
+    let deleted = 0;
+    for (;;) {
+      const { data: batch, error: fetchErr } = await sb
+        .from('conversations')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .order('id', { ascending: true })
+        .limit(DELETE_ALL_BATCH);
+      if (fetchErr) return res.status(500).json({ error: fetchErr.message, deleted });
+      const ids = (batch ?? []).map((c) => c.id as string);
+      if (ids.length === 0) break;
 
-    const { error: convErr } = await sb.from('conversations').delete().in('id', ids);
-    if (convErr) return res.status(500).json({ error: convErr.message });
-
-    return res.json({ deleted: ids.length });
+      for (const table of ['conversation_notes', 'conversation_events'] as const) {
+        const { error } = await sb.from(table).delete().eq('workspace_id', workspaceId).in('conversation_id', ids);
+        if (error) return res.status(500).json({ error: error.message, deleted });
+      }
+      // Messages and the rest go by cascade.
+      const { error: convErr, count } = await sb
+        .from('conversations')
+        .delete({ count: 'exact' })
+        .eq('workspace_id', workspaceId)
+        .in('id', ids);
+      if (convErr) return res.status(500).json({ error: convErr.message, deleted });
+      // Never loop on a batch that will not go.
+      if (count === 0) return res.status(500).json({ error: 'delete_made_no_progress', deleted });
+      deleted += count ?? ids.length;
+    }
+    return res.json({ deleted });
   } catch (err) {
     console.error('[conversations delete-all] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

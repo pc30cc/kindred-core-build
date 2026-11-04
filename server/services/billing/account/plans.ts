@@ -835,7 +835,8 @@ export async function amountNeededFor(
       balance,
       // The renewal is for this period only: paid after it was renewed or
       // replaced, the money stays in the balance (billing_period_changed).
-      detail: { plan_id: target, billing_interval: interval, period_end: paid.current_period_end },
+      // The price quoted is the most the settlement pays for it (299).
+      detail: { plan_id: target, billing_interval: interval, period_end: paid.current_period_end, quoted_price_minor: price },
       periodPriceMinor: price,
     };
   }
@@ -850,7 +851,16 @@ export async function amountNeededFor(
     needed: net,
     currency,
     balance,
-    detail: { plan_id: input.planId, billing_interval: quote.billing_interval },
+    // What was quoted is the most the settlement pays for it (299): a plan's
+    // period price, or what the upgrade takes (its cost and a prepaid next
+    // period's difference).
+    detail: {
+      plan_id: input.planId,
+      billing_interval: quote.billing_interval,
+      ...(quote.kind === 'upgrade'
+        ? { quoted_charge_minor: quote.amount_minor }
+        : quote.period_price_minor !== null ? { quoted_price_minor: quote.period_price_minor } : {}),
+    },
     periodPriceMinor: quote.period_price_minor,
   };
 }

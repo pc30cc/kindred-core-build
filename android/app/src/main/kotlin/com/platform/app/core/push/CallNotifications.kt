@@ -42,6 +42,7 @@ fun IncomingCallLink.Companion.from(intent: Intent?): IncomingCallLink? {
         channel = CallChannel.from(intent.getStringExtra(CallNotifications.EXTRA_CHANNEL)),
         caller = intent.getStringExtra(CallNotifications.EXTRA_CALLER)?.take(120).orEmpty(),
         answer = answer,
+        expiresAt = intent.getLongExtra(CallNotifications.EXTRA_EXPIRES, 0L).coerceAtLeast(0L),
         colleagueId = intent.getStringExtra(CallNotifications.EXTRA_COLLEAGUE)?.takeIf { PushPayload.isId(it) },
         callerAvatarUrl = TeamCallRing.avatarUrl(intent.getStringExtra(CallNotifications.EXTRA_AVATAR)),
     )
@@ -131,7 +132,7 @@ object CallNotifications {
             decline = declineIntent(context, call.callId, ACTION_DECLINE) { putExtra(EXTRA_WORKSPACE, call.workspaceId) },
             declineLabel = StrAndroid.declineCall(language),
             answerLabel = StrAndroid.answerCall(language),
-            extras = null,
+            extras = Bundle().apply { putString(EXTRA_CALL, call.callId) },
             language = language,
             nowMillis = nowMillis,
         )
@@ -179,6 +180,7 @@ object CallNotifications {
             declineLabel = Str.teamCallDecline(language),
             answerLabel = Str.teamCallAnswer(language),
             extras = Bundle().apply {
+                putString(EXTRA_CALL, ring.callId)
                 putString(EXTRA_WORKSPACE, ring.workspaceId)
                 putString(EXTRA_COLLEAGUE, ring.callerUserId)
                 putString(EXTRA_CHANNEL, ring.channel.wire)
@@ -267,8 +269,22 @@ object CallNotifications {
         return true
     }
 
-    /** Whether this call is still ringing here. */
-    fun isRinging(context: Context, callId: String): Boolean = ringing(context, callId) != null
+    /**
+     * Whether this call is still ringing here: its ring — the colleague's
+     * when [colleague] — is on screen now, posted for this very call.
+     *
+     * What [MainActivity] asks before it acts on a ring's Answer or tap. That
+     * activity is exported (it is the launcher), so any app on the phone can
+     * hand it an intent shaped like a ring's; only one that names a call
+     * ringing here right now is the ring's own, and anything else is dropped
+     * rather than answered with the microphone live over the lock screen.
+     */
+    fun isRinging(context: Context, callId: String, colleague: Boolean = false): Boolean {
+        val active = ringing(context, callId, if (colleague) TEAM_TAG else TAG) ?: return false
+        // The notification's id is the call id's hash: the call id it carries
+        // is what makes it this call's and not another's with the same hash.
+        return active.extras?.getString(EXTRA_CALL) == callId
+    }
 
     /** Answered or declined on this phone: whatever happens to the call next, nobody missed it here. */
     fun forget(callId: String) {

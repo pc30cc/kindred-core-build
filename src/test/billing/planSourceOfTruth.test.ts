@@ -161,6 +161,7 @@ describe('the effective snapshot', () => {
       info,
       [{ module_key: 'call_center', enabled: true, admin_notes: 'pilot' }],
       [{ channel_key: 'telegram', enabled: true }],
+      { includeAdminNotes: true },
     );
     expect(eff.modules.contacts).toEqual({ value: false, source: 'plan' });
     expect(eff.modules.call_center).toEqual({ value: true, source: 'override', note: 'pilot' });
@@ -173,6 +174,18 @@ describe('the effective snapshot', () => {
     expect(eff.limits.max_contacts).toMatchObject({ value: 500, source: 'plan' });
     expect(eff.limits.max_agents).toMatchObject({ value: 9, source: 'override', note: 'deal' });
     expect(eff.limits.max_concurrent_calls).toMatchObject({ value: -1, source: 'default' });
+  });
+
+  it('leaves the Super Admin notes out unless asked (the workspace snapshot reaches every member)', () => {
+    const eff = resolveEffectiveEntitlements(
+      info,
+      [{ module_key: 'call_center', enabled: true, admin_notes: 'pilot' }],
+      [{ channel_key: 'telegram', enabled: true, admin_notes: 'trial for the CEO' }],
+    );
+    expect(eff.modules.call_center).toEqual({ value: true, source: 'override' });
+    expect(eff.channels.telegram).toEqual({ value: true, source: 'override' });
+    expect(eff.limits.max_agents).toEqual({ value: 9, source: 'override', unit: eff.limits.max_agents.unit });
+    expect(JSON.stringify(eff)).not.toMatch(/pilot|CEO|deal/);
   });
 
   it('reads the legacy KB article keys enforcement falls back to', () => {

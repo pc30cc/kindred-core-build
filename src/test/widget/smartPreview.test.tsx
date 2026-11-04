@@ -4,7 +4,7 @@
  * the header, and chat automation messages that never borrow an operator
  * identity.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import {
   WidgetLivePreview,
@@ -18,7 +18,7 @@ function scenario(
   phase: SmartPreviewPhase = 'surface_shown',
 ): SmartPreviewScenario {
   const rule = createEmptySmartRule('en', 'UTC');
-  rule.presentation_config = { ...rule.presentation_config, mode } as any;
+  rule.presentation_config = { ...rule.presentation_config, mode } as typeof rule.presentation_config;
   return {
     rule,
     content: { title: 'Need help?', body: 'We reply in a minute.', ctaLabel: 'Chat now' },
@@ -129,5 +129,33 @@ describe('smart scenario preview', () => {
     expect(doc).toContain('smart-preview:dismiss');
     expect(doc).toContain('smart-preview:cta');
     expect(doc).toContain('smart-preview:widget-opened');
+  });
+});
+
+describe('smart preview events', () => {
+  it('takes smart events only from its own frame', () => {
+    const onSmartEvent = vi.fn();
+    const { container } = render(
+      <WidgetLivePreview
+        settings={{ widget_language: 'en' }}
+        brandName="Acme"
+        view="home"
+        previewMode="smart"
+        smartScenario={scenario('launcher_nudge')}
+        onSmartEvent={onSmartEvent}
+      />,
+    );
+    const data = { source: 'gs-smart-preview', type: 'smart-preview:cta' };
+    window.dispatchEvent(new MessageEvent('message', { data, source: window }));
+    window.dispatchEvent(new MessageEvent('message', { data }));
+    expect(onSmartEvent).not.toHaveBeenCalled();
+    const frame = container.querySelector('iframe')!.contentWindow;
+    window.dispatchEvent(new MessageEvent('message', { data, source: frame }));
+    expect(onSmartEvent).toHaveBeenCalledWith('cta');
+  });
+
+  it('the frame applies a phase only from its parent', () => {
+    const doc = srcdoc(scenario('launcher_nudge'));
+    expect(doc).toContain('if (e.source !== window.parent) return;');
   });
 });

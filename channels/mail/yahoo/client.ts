@@ -306,6 +306,9 @@ export interface YahooFolderPoll {
  * costs the inbox nothing: `spam` comes back null and the next poll tries
  * again from the same watermark.
  */
+/** Also read by tests. */
+export const YAHOO_IMAP_TIMEOUTS = { connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 60_000 } as const;
+
 export async function pollYahooInbox(
   emailAddress: string,
   accessToken: string,
@@ -317,6 +320,10 @@ export async function pollYahooInbox(
     secure: true,
     auth: { user: emailAddress, accessToken },
     logger: false,
+    // ImapFlow's defaults (90 s to connect, 5 min of socket silence) let one
+    // stalled Yahoo server hold the Channels Worker, which runs one job at a
+    // time, past the job's 120 s lease and every workspace's queue with it.
+    ...YAHOO_IMAP_TIMEOUTS,
   });
 
   const maxMessages = opts.maxMessages ?? 25;

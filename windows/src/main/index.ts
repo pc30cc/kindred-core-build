@@ -21,7 +21,7 @@ import * as api from './api'
 import { checkForUpdates, configureUpdater, installUpdate, startUpdater, updateState } from './updater'
 import { desktopConfig, refreshDesktopConfig } from './desktopConfig'
 import { markFromInternet, openAttachment, safeFileName } from './safeOpen'
-import { publicSettings, readSettings, writeSettings } from './settings'
+import { publicPatch, publicSettings, readSettings, writeSettings } from './settings'
 
 const APP_ID = 'com.webyar.desktop'
 const TITLE_BAR_HEIGHT = 44
@@ -234,7 +234,8 @@ function createTray(): void {
   tray.on('click', showWindow)
 }
 
-function applySettings(patch: Partial<DesktopSettings>): DesktopSettings {
+function applySettings(input: unknown): DesktopSettings {
+  const patch = publicPatch(input)
   writeSettings(patch)
   if (patch.openAtLogin !== undefined && app.isPackaged) {
     app.setLoginItemSettings({ openAtLogin: patch.openAtLogin, args: ['--hidden'] })
@@ -260,7 +261,7 @@ function registerIpc(): void {
     supportUrl: readSettings().supportUrl ?? null,
   }))
   ipcMain.handle('app:getSettings', () => publicSettings())
-  ipcMain.handle('app:setSettings', (_e, patch: Partial<DesktopSettings>) => applySettings(patch))
+  ipcMain.handle('app:setSettings', (_e, patch: unknown) => applySettings(patch))
   ipcMain.handle('app:openExternal', (_e, url: string) => {
     if (/^(https:|mailto:)/i.test(url)) return shell.openExternal(url)
   })

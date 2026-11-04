@@ -291,6 +291,46 @@ async function resolveInboundAiOwnership(
 }
 
 
+/**
+ * How long a receipt may stay 'processing' before its claim counts as
+ * abandoned. Processing takes seconds (the AI reply runs after it, detached);
+ * only a Core killed between the claim and the message insert leaves one this
+ * old, and its message would otherwise be lost: every re-delivery read it as
+ * a duplicate, forever.
+ */
+export const INBOUND_CLAIM_LEASE_MS = 5 * 60_000;
+
+type InboundReceiptRow = {
+  status?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at?: string | null;
+  message_id?: string | null;
+};
+
+function receiptClaimedAt(row: InboundReceiptRow): string | null {
+  const value = row.payload?.claimed_at;
+  return typeof value === 'string' && value ? value : null;
+}
+
+/**
+ * What a re-delivery may do with an existing receipt:
+ *   - 'failed': processing failed; reclaim it (after the defect is repaired,
+ *     the queue's retry must not be acknowledged while the message is lost);
+ *   - 'abandoned': 'processing', no message stored, and the claim older than
+ *     the lease; reclaim it;
+ *   - 'duplicate': anything else.
+ * Receipts written before the claim time was recorded fall back to their
+ * creation time.
+ */
+export function inboundReclaimVerdict(row: InboundReceiptRow | null, nowMs: number): 'failed' | 'abandoned' | 'duplicate' {
+  if (!row) return 'duplicate';
+  if (row.status === 'failed') return 'failed';
+  if (row.status !== 'processing' || row.message_id) return 'duplicate';
+  const since = Date.parse(receiptClaimedAt(row) ?? row.created_at ?? '');
+  if (!Number.isFinite(since)) return 'duplicate';
+  return nowMs - since > INBOUND_CLAIM_LEASE_MS ? 'abandoned' : 'duplicate';
+}
+
 export async function processInboundMessage(
   config: ServerConfig,
   input: NormalizedInboundMessage,
@@ -306,6 +346,7 @@ export async function processInboundMessage(
   //    every re-delivered event (measured on PostgreSQL 16: 224 bytes of WAL
   //    per duplicate, versus none), and X polling re-posts every recent
   //    message on every poll.
+  const claimedAt = new Date().toISOString();
   const { data: claimedRows, error: dedupeError } = await sb
     .from('channel_inbound_events')
     .upsert(
@@ -314,7 +355,8 @@ export async function processInboundMessage(
         workspace_id: input.workspaceId,
         provider: input.provider,
         external_event_id: input.providerEventId,
-        payload: {},
+        // The claim's time, read by the reclaim of an abandoned claim below.
+        payload: { claimed_at: claimedAt },
         status: 'processing',
       },
       { onConflict: 'integration_id,external_event_id', ignoreDuplicates: true },
@@ -324,25 +366,41 @@ export async function processInboundMessage(
     throw new Error(`inbound dedupe failed: ${dedupeError.message}`);
   }
   if (dedupeError || !claimedRows?.length) {
-    // A processed event is a true duplicate. A previously failed event must
-    // be reclaimable after its underlying defect is repaired; otherwise the
-    // queue retry would be acknowledged while the message remains lost.
     const { data: existing, error: existingError } = await sb
       .from('channel_inbound_events')
-      .select('status')
+      .select('status, payload, created_at, message_id')
       .eq('integration_id', input.integrationId)
       .eq('external_event_id', input.providerEventId)
       .maybeSingle();
     if (existingError) throw new Error(`inbound dedupe lookup failed: ${existingError.message}`);
-    if ((existing as { status?: string } | null)?.status !== 'failed') return { status: 'duplicate' };
+    const verdict = inboundReclaimVerdict(existing as InboundReceiptRow | null, Date.now());
+    if (verdict === 'duplicate') return { status: 'duplicate' };
 
-    const { error: reclaimError } = await sb
+    // Compare-and-set on what was read, so two re-deliveries racing for the
+    // same receipt cannot both take it.
+    const row = existing as InboundReceiptRow;
+    let reclaim = sb
       .from('channel_inbound_events')
-      .update({ status: 'processing', last_error: null, processed_at: null })
+      .update({ status: 'processing', last_error: null, processed_at: null, payload: { claimed_at: claimedAt } })
       .eq('integration_id', input.integrationId)
       .eq('external_event_id', input.providerEventId)
-      .eq('status', 'failed');
+      .eq('status', row.status);
+    if (verdict === 'abandoned') {
+      const previousClaim = receiptClaimedAt(row);
+      reclaim = reclaim.is('message_id', null);
+      reclaim = previousClaim
+        ? reclaim.eq('payload->>claimed_at', previousClaim)
+        : reclaim.is('payload->>claimed_at', null);
+    }
+    const { data: reclaimed, error: reclaimError } = await reclaim.select('id');
     if (reclaimError) throw new Error(`inbound retry claim failed: ${reclaimError.message}`);
+    if (!reclaimed?.length) return { status: 'duplicate' };
+    if (verdict === 'abandoned') {
+      console.warn('[channels] reclaimed an abandoned inbound event', {
+        integrationId: input.integrationId,
+        externalEventId: input.providerEventId,
+      });
+    }
   }
 
   const finish = async (status: string, detail: Record<string, unknown> = {}) => {
@@ -417,6 +475,14 @@ export async function processInboundMessage(
       .single();
     if (msgError) throw new Error(`message insert failed: ${msgError.message}`);
     const insertedMsg = insertedRow as InsertedChannelMessage;
+    // The receipt names its message as soon as it exists: a claim abandoned
+    // after this point (Core killed mid-way) is never reclaimed, so the
+    // message is not stored twice.
+    await sb
+      .from('channel_inbound_events')
+      .update({ message_id: insertedMsg.id })
+      .eq('integration_id', input.integrationId)
+      .eq('external_event_id', input.providerEventId);
 
     // NOTE: the conversation `updated_at` bump happens after the provider
     // flow resolves, so pure menu navigation never re-floats the thread in

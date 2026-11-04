@@ -333,6 +333,31 @@ describe('stripe verifyWebhook event mapping', () => {
     expect(event?.amount).toBeUndefined();
   });
 
+  it('a lost dispute takes the disputed amount back as a chargeback, keyed by the dispute', async () => {
+    const dispute = { id: 'dp_1', object: 'dispute', charge: 'ch_1', payment_intent: 'pi_stripe_1', amount: 1500, currency: 'usd', metadata: {} };
+    const event = await map({ id: 'evt_7', type: 'charge.dispute.closed', data: { object: { ...dispute, status: 'lost' } } });
+    expect(event).toMatchObject({
+      type: 'refund_processed',
+      providerPaymentId: 'pi_stripe_1',
+      refundId: 'dispute:dp_1',
+      amount: 1500,
+      currency: 'USD',
+      chargeback: true,
+    });
+    expect(event?.refundedTotal).toBeUndefined();
+  });
+
+  it.each([
+    ['charge.dispute.created', 'needs_response'],
+    ['charge.dispute.funds_withdrawn', 'needs_response'],
+    ['charge.dispute.funds_reinstated', 'won'],
+    ['charge.dispute.closed', 'won'],
+    ['charge.dispute.closed', 'warning_closed'],
+  ])('%s (%s) changes nothing', async (type, status) => {
+    const event = await map({ id: 'evt_8', type, data: { object: { id: 'dp_2', payment_intent: 'pi_stripe_1', amount: 1500, currency: 'usd', status } } });
+    expect(event?.type).toBe('ignored');
+  });
+
   it('an event type the platform does not act on is acknowledged as ignored', async () => {
     const event = await map({ id: 'evt_6', type: 'payment_intent.created', data: { object: { id: 'pi_1' } } });
     expect(event?.type).toBe('ignored');

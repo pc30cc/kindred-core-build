@@ -258,8 +258,30 @@ export function assertSafeStorageKey(key: unknown): asserts key is string {
   }
 }
 
-export function assertWorkspaceScopedKey(workspaceId: string, key: unknown): asserts key is string {
+/**
+ * True for a key that names a folder rather than one object: empty, ending in
+ * `/`, or with an empty segment (`a//b`). Bunny Storage deletes a path that
+ * ends in `/` RECURSIVELY (its API: "In case the object is a directory all
+ * the data in it will be recursively deleted as well"), so `workspace/<id>/`
+ * handed to a delete wiped every file of the workspace.
+ */
+export function isFolderLikeKey(key: string): boolean {
+  return key.length === 0 || key.endsWith('/') || key.includes('//');
+}
+
+/**
+ * assertSafeStorageKey for one object (upload, download, delete, URL). A
+ * listing prefix stays a plain assertSafeStorageKey: it is a folder.
+ */
+export function assertSafeObjectKey(key: unknown): asserts key is string {
   assertSafeStorageKey(key);
+  if (isFolderLikeKey(key as string)) {
+    throw new StorageKeyError('Storage key must name a file, not a folder');
+  }
+}
+
+export function assertWorkspaceScopedKey(workspaceId: string, key: unknown): asserts key is string {
+  assertSafeObjectKey(key);
   const prefix = `${workspaceRoot(workspaceId)}/`;
   if (!(key as string).startsWith(prefix)) {
     throw new StorageKeyError(`Storage key must be scoped to workspace/${workspaceId}/`);
@@ -267,7 +289,7 @@ export function assertWorkspaceScopedKey(workspaceId: string, key: unknown): ass
 }
 
 export function assertUserScopedKey(userId: string, key: unknown): asserts key is string {
-  assertSafeStorageKey(key);
+  assertSafeObjectKey(key);
   const prefix = `${userRoot(userId)}/`;
   if (!(key as string).startsWith(prefix)) {
     throw new StorageKeyError(`Storage key must be scoped to users/${userId}/`);
@@ -275,7 +297,7 @@ export function assertUserScopedKey(userId: string, key: unknown): asserts key i
 }
 
 export function assertPlatformScopedKey(key: unknown): asserts key is string {
-  assertSafeStorageKey(key);
+  assertSafeObjectKey(key);
   if (!(key as string).startsWith('platform/')) {
     throw new StorageKeyError('Storage key must be scoped to platform/');
   }

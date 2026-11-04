@@ -135,6 +135,11 @@ vi.mock('../../../server/services/widget/security.js', () => ({
   getClientIp: () => '127.0.0.1',
   getRequestOrigin: () => 'https://example.com',
 }));
+// The signed visitor an upload is reserved for (widgetAttachments.ts UPLOADER_COLUMN).
+vi.mock('../../../server/services/widget/visitorIdentity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/widget/visitorIdentity.js')>()),
+  readVisitorCookie: (_req: unknown, ws?: string) => ({ v: 'visitor-1', w: ws, iat: 1, exp: 9e9 }),
+}));
 vi.mock('../../../server/services/storage/index.js', () => ({
   resolveStorageConfig: async () => ({ provider: 'local' }),
   uploadFile: async () => ({ ok: true }),

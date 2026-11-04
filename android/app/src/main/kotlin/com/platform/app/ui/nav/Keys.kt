@@ -37,6 +37,8 @@ sealed interface Screen : NavKey {
     val channel: String,
     val caller: String,
     val answer: Boolean,
+    /** When the ring runs out, epoch seconds; 0 when unknown. */
+    val expiresAt: Long = 0,
 ) : Screen {
     override val tab get() = AppTab.INBOX
 }

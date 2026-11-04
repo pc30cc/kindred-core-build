@@ -14,6 +14,7 @@ package com.platform.app.ui
 object A11y {
     const val LOGIN_EMAIL = "login.email"
     const val LOGIN_PASSWORD = "login.password"
+    const val LOGIN_PASSWORD_EYE = "login.password.eye"
     const val LOGIN_SUBMIT = "login.submit"
     const val LOGIN_ERROR = "login.error"
     const val BRAND_FOOTER = "brand.footer"
@@ -117,6 +118,10 @@ object A11y {
     const val CALL_DECLINE = "call.decline"
     const val CALL_SELF_VIEW = "call.selfView"
     const val CALL_SWITCH_CAMERA = "call.switchCamera"
+    const val CALL_ANSWER_VOICE = "call.answerVoice"
+    const val CALL_MINIMISE = "call.minimise"
+    const val CALL_PIP = "call.pip"
+    const val CALL_BUBBLE = "call.bubble"
 
     /** The phone and video buttons in a colleague's thread. */
     const val TEAM_CALL_VOICE = "team.call.voice"

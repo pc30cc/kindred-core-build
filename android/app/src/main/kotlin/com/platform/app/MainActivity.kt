@@ -83,6 +83,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var appState: AppState
 
+    /** A call's picture-in-picture window, while the member is in another app. */
+    private lateinit var pictureInPicture: com.platform.app.feature.call.CallPictureInPicture
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -104,6 +107,7 @@ class MainActivity : ComponentActivity() {
         // A notification tap that started the app. Not on a recreation: that
         // intent has already been followed.
         if (savedInstanceState == null) handleNotificationTap(intent)
+        pictureInPicture = com.platform.app.feature.call.CallPictureInPicture(this).also { it.attach() }
 
         setContent {
             val language by appState.language.collectAsState()
@@ -153,8 +157,17 @@ class MainActivity : ComponentActivity() {
             ) {
                 val languageSource = remember(appState) { { appState.language.value } }
                 CompositionLocalProvider(LocalAppGraph provides graph, LocalLanguageSource provides languageSource) {
-                    Surface(Modifier.fillMaxSize()) {
-                        RootScreen(appState, api, language)
+                    Box(Modifier.fillMaxSize()) {
+                        Surface(Modifier.fillMaxSize()) {
+                            RootScreen(appState, api, language)
+                        }
+                        // Over the app while it is in its picture-in-picture
+                        // window, which only a call on puts it in.
+                        com.platform.app.feature.call.CallPictureInPictureHost(
+                            controller = pictureInPicture,
+                            calls = graph.activeCalls,
+                            language = language,
+                        )
                     }
                 }
             }
@@ -182,6 +195,16 @@ class MainActivity : ComponentActivity() {
      * is `singleTop`, so this is the same instance and the same back stack —
      * the conversation opens on top of wherever the operator was.
      */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        pictureInPicture.onUserLeaveHint()
+    }
+
+    override fun onDestroy() {
+        pictureInPicture.detach()
+        super.onDestroy()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

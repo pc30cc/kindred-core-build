@@ -81,6 +81,12 @@ data class TeamCall(
     @SerialName("ended_at") @Serializable(InstantSerializer::class) val endedAt: Instant? = null,
     /** When the ring stops (`TEAM_CALL_RING_SECONDS` after it started). */
     @SerialName("expires_at") @Serializable(InstantSerializer::class) val expiresAt: Instant? = null,
+    /**
+     * When one of the callee's phones said it is ringing (`POST rang`); null
+     * until then. The caller shows "Calling…" without a ringback while it is
+     * null, and "Ringing…" with one once it is set.
+     */
+    @SerialName("rang_at") @Serializable(InstantSerializer::class) val rangAt: Instant? = null,
 ) {
     @Serializable
     data class Peer(

@@ -171,8 +171,11 @@ class TeamCallSessionTest {
         nudges = nudges,
         ringback = ringback,
         foreground = foreground,
+        rang = { rangs += it },
         clock = { now },
     )
+
+    private val rangs = mutableListOf<String>()
 
     private fun serverCall(
         state: TeamCallState,
@@ -180,6 +183,8 @@ class TeamCallSessionTest {
         outcome: TeamCallOutcome? = null,
         answeredDeviceId: String? = null,
         channel: CallChannel = CallChannel.AUDIO,
+        /** A phone of the colleague's said it rings; most tests start past that. */
+        rangAt: Instant? = START,
     ) = TeamCall(
         id = CALL,
         workspaceId = "ws-1",
@@ -190,6 +195,7 @@ class TeamCallSessionTest {
         peer = TeamCall.Peer(userId = "u-2", name = "Daniel Carter"),
         answeredDeviceId = answeredDeviceId,
         expiresAt = START.plusSeconds(45),
+        rangAt = rangAt,
     )
 
     private val colleague = TeamCall.Peer(userId = "u-2", name = "Daniel Carter")
@@ -245,6 +251,48 @@ class TeamCallSessionTest {
         assertTrue(api.cancelled.isEmpty())
         assertTrue(room.disconnected)
         assertEquals(1, foreground.stopped)
+    }
+
+    /** "Calling…" with no ringback until a phone of the colleague's says it rings. */
+    @Test
+    fun `the caller stays on Calling, silent, until the colleague's phone rang`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, rangAt = null))
+        val call = session(api)
+
+        call.placing()
+        runCurrent()
+        assertEquals(TeamCallPhase.Calling, call.phase.value)
+        assertEquals(0, ringback.starts)
+
+        api.reads += serverCall(TeamCallState.RINGING, rangAt = null)
+        poll()
+        assertEquals(TeamCallPhase.Calling, call.phase.value)
+        assertFalse(ringback.playing)
+
+        api.reads += serverCall(TeamCallState.RINGING, rangAt = START.plusSeconds(3))
+        poll()
+        assertEquals(TeamCallPhase.Ringing, call.phase.value)
+        assertTrue(ringback.playing)
+
+        call.hangUp()
+        runCurrent()
+        assertFalse(ringback.playing)
+        assertEquals(listOf(CALL), api.cancelled)
+    }
+
+    @Test
+    fun `an answer straight from Calling joins without a ringback`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, rangAt = null))
+        val call = session(api)
+        call.placing()
+        runCurrent()
+
+        api.reads += serverCall(TeamCallState.CONNECTING, rangAt = null)
+        poll()
+        assertEquals(TeamCallPhase.Connecting, call.phase.value)
+        assertEquals(0, ringback.starts)
+        call.hangUp()
+        runCurrent()
     }
 
     /** No event announces a participant who was there first. */
@@ -504,6 +552,8 @@ class TeamCallSessionTest {
         assertTrue(api.accepted.isEmpty())
         assertTrue(foreground.shown.isEmpty())
         assertEquals(0, ringback.starts) // The ring is the notification's; no tone here.
+        // The in-app ring screen says this phone rings (the reporter sends it once).
+        assertEquals(listOf(CALL), rangs)
         call.hangUp()
         runCurrent()
     }

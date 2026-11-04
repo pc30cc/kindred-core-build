@@ -2,6 +2,21 @@ package com.platform.app.feature.call
 
 import android.content.Context
 import android.os.PowerManager
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +28,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -79,12 +93,16 @@ fun TeamCallScreen(
     localVideo: VideoTrack? = null,
     room: LiveKitRoom? = null,
     onAnswer: () -> Unit = {},
+    /** A video call ringing here, answered with the camera off. Null: no such button. */
+    onAnswerVoiceOnly: (() -> Unit)? = null,
     onHangUp: () -> Unit = {},
     onToggleMute: () -> Unit = {},
     onToggleCamera: () -> Unit = {},
     onSwitchCamera: () -> Unit = {},
     onToggleSpeaker: () -> Unit = {},
     onDone: () -> Unit = {},
+    /** Keeps the call going in a small window over the rest of the app. Null: not offered. */
+    onMinimise: (() -> Unit)? = null,
 ) {
     val video = channel == CallChannel.VIDEO
     // A video call is watched, not touched: left to the screen timeout, the
@@ -100,10 +118,13 @@ fun TeamCallScreen(
     }
     ProximityScreenOff(active = !video && !speakerOn && !phase.isOver && !(incoming && phase == TeamCallPhase.Ringing))
 
-    Surface(
-        color = CALL_BACKGROUND,
-        contentColor = Color.White,
-        modifier = modifier.fillMaxSize().testTag(A11y.CALL_SCREEN),
+    Box(
+        // Opaque from edge to edge, on the lock screen too: the call's own
+        // backdrop under everything, never a translucent surface.
+        modifier
+            .fillMaxSize()
+            .background(CALL_BACKGROUND)
+            .testTag(A11y.CALL_SCREEN),
     ) {
         var screenTop by remember { mutableFloatStateOf(0f) }
         var headerBottom by remember { mutableFloatStateOf(0f) }
@@ -124,77 +145,93 @@ fun TeamCallScreen(
             ownMirror = frontCamera,
             swapped = swapped,
         )
-        Box(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
-            if (room != null) {
-                stage.big?.let { VideoView(it.track, room, Modifier.fillMaxSize(), mirror = it.mirror) }
-            }
+        val ringingHere = incoming && phase == TeamCallPhase.Ringing
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
+                val faceSize = callFaceSize(maxHeight, incoming = ringingHere)
+                CallBackdrop()
+                if (room != null) {
+                    stage.big?.let {
+                        VideoView(it.track, room, Modifier.fillMaxSize(), mirror = it.mirror)
+                        VideoScrims()
+                    }
+                }
 
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(horizontal = Space.screenInset),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
                 Column(
                     Modifier
-                        .padding(top = Space.xl)
-                        .onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(horizontal = Space.screenInset),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(Space.md),
                 ) {
-                    // Their face is redundant once a picture fills the
-                    // screen, and a circle over a video is in the way.
-                    if (stage.big == null) {
-                        CallHalo(ringing = !phase.isOver && phase !is TeamCallPhase.Live) {
-                            OperatorAvatar(imageUrl = peerAvatarUrl, size = Size.avatarLarge + 8.dp)
+                    CallTopBar(language, onMinimise = onMinimise?.takeIf { !phase.isOver && !ringingHere })
+                    Column(
+                        Modifier
+                            .padding(top = if (stage.big == null) Space.lg else Space.sm)
+                            .onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(Space.md),
+                    ) {
+                        // Their face is redundant once a picture fills the
+                        // screen, and a circle over a video is in the way.
+                        AnimatedVisibility(
+                            visible = stage.big == null,
+                            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                        ) {
+                            CallHalo(ringing = !phase.isOver && phase !is TeamCallPhase.Live, faceSize = faceSize) {
+                                OperatorAvatar(imageUrl = peerAvatarUrl, size = faceSize)
+                            }
                         }
+                        Text(
+                            peerName,
+                            style = if (stage.big == null) AppType.headlineMediumEmphasized else MaterialTheme.typography.titleLarge,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        TeamCallStatus(phase, incoming, channel, language)
+                        if (relayWarning) Notice(Str.callRelayWarning(language))
+                        degraded?.let { Notice(it.title(language)) }
                     }
-                    Text(
-                        peerName,
-                        style = AppType.headlineMediumEmphasized,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    TeamCallStatus(phase, incoming, channel, language)
-                    if (relayWarning) Notice(Str.callRelayWarning(language))
-                    degraded?.let { Notice(it.title(language)) }
+
+                    Spacer(Modifier.weight(1f))
+
+                    Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
+                        TeamCallControls(
+                            phase = phase,
+                            incoming = incoming,
+                            video = video,
+                            language = language,
+                            muted = muted,
+                            cameraOn = cameraOn,
+                            speakerOn = speakerOn,
+                            onAnswer = onAnswer,
+                            onAnswerVoiceOnly = onAnswerVoiceOnly,
+                            onHangUp = onHangUp,
+                            onToggleMute = onToggleMute,
+                            onToggleCamera = onToggleCamera,
+                            onSwitchCamera = onSwitchCamera,
+                            onToggleSpeaker = onToggleSpeaker,
+                            onDone = onDone,
+                        )
+                    }
                 }
 
-                Spacer(Modifier.weight(1f))
-
-                Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
-                    TeamCallControls(
-                        phase = phase,
-                        incoming = incoming,
-                        video = video,
+                if (room != null && stage.hasCard && controlsTop != Float.MAX_VALUE) {
+                    SelfView(
+                        areaTop = headerBottom - screenTop,
+                        areaBottom = controlsTop - screenTop,
                         language = language,
-                        muted = muted,
-                        cameraOn = cameraOn,
-                        speakerOn = speakerOn,
-                        onAnswer = onAnswer,
-                        onHangUp = onHangUp,
-                        onToggleMute = onToggleMute,
-                        onToggleCamera = onToggleCamera,
-                        onSwitchCamera = onSwitchCamera,
-                        onToggleSpeaker = onToggleSpeaker,
-                        onDone = onDone,
-                    )
-                }
-            }
-
-            if (room != null && stage.hasCard && controlsTop != Float.MAX_VALUE) {
-                SelfView(
-                    areaTop = headerBottom - screenTop,
-                    areaBottom = controlsTop - screenTop,
-                    language = language,
-                    swapped = stage.swapped,
-                    onSwap = { swapped = !swapped },
-                ) {
-                    // Swapped with their camera off: their photo or the
-                    // silhouette, as above — never a letter.
-                    StageCardContent(stage.small, room) { size -> OperatorAvatar(imageUrl = peerAvatarUrl, size = size) }
+                        swapped = stage.swapped,
+                        onSwap = { swapped = !swapped },
+                    ) {
+                        // Swapped with their camera off: their photo or the
+                        // silhouette, as above — never a letter.
+                        StageCardContent(stage.small, room) { size -> OperatorAvatar(imageUrl = peerAvatarUrl, size = size) }
+                    }
                 }
             }
         }
@@ -231,13 +268,22 @@ private fun TeamCallStatus(phase: TeamCallPhase, incoming: Boolean, channel: Cal
         verticalArrangement = Arrangement.spacedBy(Space.xs),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.75f),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().testTag(A11y.CALL_STATUS),
-        )
+        // "Calling…" fades into "Ringing…", then into the timer; the timer's
+        // own seconds change in place, in digits of one width.
+        val key = if (phase is TeamCallPhase.Live) "live" else text
+        AnimatedContent(
+            targetState = key,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "teamCallStatus",
+        ) { shown ->
+            Text(
+                if (shown == "live") text else shown,
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                color = Color.White.copy(alpha = 0.80f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().testTag(A11y.CALL_STATUS),
+            )
+        }
         if (detail != null) {
             Text(
                 detail,
@@ -263,6 +309,7 @@ private fun TeamCallControls(
     cameraOn: Boolean,
     speakerOn: Boolean,
     onAnswer: () -> Unit,
+    onAnswerVoiceOnly: (() -> Unit)?,
     onHangUp: () -> Unit,
     onToggleMute: () -> Unit,
     onToggleCamera: () -> Unit,
@@ -271,87 +318,77 @@ private fun TeamCallControls(
     onDone: () -> Unit,
 ) {
     if (incoming && phase == TeamCallPhase.Ringing) {
-        // A phone's own two: decline on the start side, answer on the end,
-        // far enough apart that one is never pressed for the other.
-        Row(
-            Modifier.padding(bottom = Space.xl).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CallToggle(
-                icon = Glyph.CallEnd,
-                label = Str.teamCallDecline(language),
-                tag = A11y.CALL_DECLINE,
-                on = true,
-                tint = CALL_END_RED,
-                onClick = onHangUp,
-            )
-            CallToggle(
-                icon = if (video) Glyph.Videocam else Glyph.Call,
-                label = Str.teamCallAnswer(language),
-                tag = A11y.CALL_ANSWER,
-                on = true,
-                tint = CALL_ANSWER_GREEN,
-                onClick = onAnswer,
-            )
-        }
+        IncomingCallActions(
+            language = language,
+            video = video,
+            declineLabel = Str.teamCallDecline(language),
+            answerLabel = Str.teamCallAnswer(language),
+            onDecline = onHangUp,
+            onAnswer = onAnswer,
+            onAnswerVoiceOnly = onAnswerVoiceOnly,
+        )
         return
     }
     val live = phase is TeamCallPhase.Live
-    Row(
-        Modifier.padding(bottom = Space.xl),
-        horizontalArrangement = Arrangement.spacedBy(Space.lg),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = Space.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Space.xl),
     ) {
         if (!phase.isOver) {
-            // Both states drawn as shapes, never one shape lit and unlit:
-            // see [CallScreen]'s controls.
-            CallToggle(
-                icon = if (muted) Glyph.MicOff else Glyph.Mic,
-                label = if (muted) Str.teamCallUnmute(language) else Str.teamCallMute(language),
-                tag = A11y.CALL_MUTE,
-                on = muted,
-                enabled = live,
-                onClick = onToggleMute,
-            )
-            if (video) {
+            Row(
+                Modifier.fillMaxWidth().widthIn(max = 420.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Top,
+            ) {
                 CallToggle(
-                    icon = if (cameraOn) Glyph.Videocam else Glyph.VideocamOff,
-                    label = Str.teamCallCamera(language),
-                    tag = A11y.CALL_CAMERA,
-                    on = !cameraOn,
+                    icon = if (muted) Glyph.MicOff else Glyph.Mic,
+                    label = if (muted) Str.teamCallUnmute(language) else Str.teamCallMute(language),
+                    tag = A11y.CALL_MUTE,
+                    on = muted,
                     enabled = live,
-                    onClick = onToggleCamera,
+                    onClick = onToggleMute,
                 )
-                CallToggle(
-                    icon = Glyph.CameraSwitch,
-                    label = Str.teamCallSwitchCamera(language),
-                    tag = A11y.CALL_SWITCH_CAMERA,
-                    on = false,
-                    enabled = live && cameraOn,
-                    onClick = onSwitchCamera,
-                )
-            } else {
-                // Not waiting for the answer: where the sound goes can be
-                // chosen while it rings, and the call starts there.
-                CallToggle(
-                    icon = if (speakerOn) Glyph.Speaker else Glyph.SpeakerOff,
-                    label = Str.teamCallSpeaker(language),
-                    tag = A11y.CALL_SPEAKER,
-                    on = speakerOn,
-                    onClick = onToggleSpeaker,
-                )
+                if (video) {
+                    CallToggle(
+                        icon = if (cameraOn) Glyph.Videocam else Glyph.VideocamOff,
+                        label = Str.teamCallCamera(language),
+                        tag = A11y.CALL_CAMERA,
+                        on = !cameraOn,
+                        enabled = live,
+                        onClick = onToggleCamera,
+                    )
+                    CallToggle(
+                        icon = Glyph.CameraSwitch,
+                        label = Str.teamCallSwitchCamera(language),
+                        tag = A11y.CALL_SWITCH_CAMERA,
+                        on = false,
+                        enabled = live && cameraOn,
+                        onClick = onSwitchCamera,
+                    )
+                } else {
+                    // Not waiting for the answer: where the sound goes can be
+                    // chosen while it rings, and the call starts there.
+                    CallToggle(
+                        icon = if (speakerOn) Glyph.Speaker else Glyph.SpeakerOff,
+                        label = Str.teamCallSpeaker(language),
+                        tag = A11y.CALL_SPEAKER,
+                        on = speakerOn,
+                        onClick = onToggleSpeaker,
+                    )
+                }
             }
         }
-        // Red and round, ending the call or closing a finished one: the only
-        // way off this screen either way.
+        // Red and round, ending the call; a quiet "Done" closing a finished
+        // one: the only way off this screen either way.
         CallToggle(
-            icon = Glyph.CallEnd,
+            icon = if (phase.isOver) Icons.Filled.Check else Glyph.CallEnd,
             label = if (phase.isOver) Str.done(language) else Str.teamCallHangUp(language),
             tag = A11y.CALL_HANG_UP,
             on = true,
-            tint = CALL_END_RED,
+            tint = if (phase.isOver) CALL_DONE_GREY else CALL_END_RED,
             onClick = if (phase.isOver) onDone else onHangUp,
+            diameter = PRIMARY_SIZE,
         )
     }
 }

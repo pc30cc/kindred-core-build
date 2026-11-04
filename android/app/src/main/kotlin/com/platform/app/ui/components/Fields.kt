@@ -88,3 +88,31 @@ fun filledFieldColors(): TextFieldColors = TextFieldDefaults.colors(
     errorIndicatorColor = Color.Transparent,
     focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
 )
+
+/**
+ * A password field's eye, at its end: the password shown or hidden, said to
+ * a screen reader as what tapping it will do ("Show password" / "Hide
+ * password"). [passwordTransformation] is the field's side of it.
+ */
+@Composable
+fun PasswordEye(
+    visible: Boolean,
+    onToggle: () -> Unit,
+    language: com.platform.app.i18n.Language,
+    modifier: Modifier = Modifier,
+) {
+    androidx.compose.material3.IconButton(onClick = onToggle, modifier = modifier) {
+        androidx.compose.material3.Icon(
+            if (visible) Glyph.VisibilityOff else Glyph.Visibility,
+            contentDescription = if (visible) {
+                com.platform.app.i18n.StrAndroid.hidePassword(language)
+            } else {
+                com.platform.app.i18n.StrAndroid.showPassword(language)
+            },
+        )
+    }
+}
+
+/** Dots while hidden, the password itself while [visible]. */
+fun passwordTransformation(visible: Boolean): VisualTransformation =
+    if (visible) VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation()

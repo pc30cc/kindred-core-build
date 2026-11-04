@@ -62,6 +62,12 @@ class TeamCallSession(
     private val nudges: Flow<TeamCallNudge>,
     private val ringback: Ringback,
     private val foreground: CallForeground,
+    /**
+     * Tells the server this phone is ringing for a call (`POST rang`), once
+     * per call per phone however often it is asked: the in-app ring screen
+     * asks as it shows ([TeamCallRangReporter][com.platform.app.core.push.TeamCallRangReporter]).
+     */
+    private val rang: (callId: String) -> Unit = {},
     private val clock: () -> Instant = Instant::now,
 ) : ViewModel() {
 
@@ -214,6 +220,7 @@ class TeamCallSession(
         this.callId = callId
         ringStartedAt = clock()
         _phase.value = TeamCallPhase.Ringing
+        rang(callId)
         listen()
         viewModelScope.launch {
             myDeviceId = deviceId()
@@ -246,9 +253,12 @@ class TeamCallSession(
      * a later one hears who did — or that the call is already over — and
      * says exactly that.
      */
-    fun answer() {
+    fun answer(withVideo: Boolean = true) {
         if (direction != Direction.INCOMING || _phase.value != TeamCallPhase.Ringing) return
         val id = callId ?: return
+        // A video call answered with "Audio only": the camera stays off until
+        // the member turns it on, which the call's own button still can.
+        if (channel == CallChannel.VIDEO && !withVideo) _cameraOn.value = false
         _phase.value = TeamCallPhase.Connecting
         answeredAt = clock()
         foreground.show(ongoing())
@@ -380,7 +390,11 @@ class TeamCallSession(
         }
         when {
             call.state == TeamCallState.RINGING -> {
-                if (_phase.value == TeamCallPhase.Calling) {
+                // "Calling…" with no ringback until one of the colleague's
+                // phones says it rings (`rang_at`); "Ringing…" and the
+                // ringback from then on. A server that never sets it leaves
+                // the caller on "Calling…" until the answer or the end.
+                if (_phase.value == TeamCallPhase.Calling && call.rangAt != null) {
                     _phase.value = TeamCallPhase.Ringing
                     ringback.start()
                 }
@@ -447,7 +461,8 @@ class TeamCallSession(
         }
         // Where the sound starts, said before the room exists.
         room.setSpeaker(_speakerOn.value)
-        when (val result = room.connect(url, credentials, wantsVideo = channel == CallChannel.VIDEO)) {
+        val wantsVideo = channel == CallChannel.VIDEO && _cameraOn.value
+        when (val result = room.connect(url, credentials, wantsVideo = wantsVideo)) {
             is CallRoom.Result.Failed -> finish(TeamCallEnd.FAILED, detail = result.reason, tell = true)
             is CallRoom.Result.Joined -> {
                 // Best-effort, as on a visitor's call: a camera that will
@@ -457,7 +472,7 @@ class TeamCallSession(
                     _muted.value = true
                     _degraded.value = CallDegradation.NO_MICROPHONE
                 }
-                if (channel == CallChannel.VIDEO && !result.camera) {
+                if (wantsVideo && !result.camera) {
                     _cameraOn.value = false
                     if (_degraded.value == null) _degraded.value = CallDegradation.NO_CAMERA
                 }
@@ -505,6 +520,8 @@ class TeamCallSession(
         val next = !_cameraOn.value
         _cameraOn.value = next
         viewModelScope.launch { room.setCamera(enabled = next) }
+        // The service holds the camera only while it is on.
+        (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
     }
 
     /**
@@ -616,7 +633,7 @@ class TeamCallSession(
         callId = callId.orEmpty(),
         peerName = _peer.value.name?.takeIf { it.isNotBlank() } ?: "",
         peerAvatarUrl = _peer.value.avatarUrl,
-        video = channel == CallChannel.VIDEO,
+        video = channel == CallChannel.VIDEO && _cameraOn.value,
         language = language,
         since = since,
     )

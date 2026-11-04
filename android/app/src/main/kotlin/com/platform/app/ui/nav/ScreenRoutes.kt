@@ -155,6 +155,9 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.activity.compose.BackHandler
+import com.platform.app.feature.call.activeStage
+import kotlinx.coroutines.flow.stateIn
+import androidx.lifecycle.viewModelScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Surface
@@ -1704,6 +1707,7 @@ fun EmailComposeRoute(
  */
 @Composable
 fun CallRoute(
+    key: CallKey,
     conversationId: String,
     channel: CallChannel,
     appState: AppState,
@@ -1711,6 +1715,8 @@ fun CallRoute(
     conversations: InboxViewModel,
     language: Language,
     onDone: () -> Unit,
+    /** Keeps the call going in a small bubble over the rest of the app. */
+    onMinimise: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val graph = LocalAppGraph.current
@@ -1815,6 +1821,13 @@ fun CallRoute(
     val contactAvatarUrl = conversation?.contact?.avatarUrl
     LaunchedEffect(contactName, contactAvatarUrl) { session.describe(contactName, contactAvatarUrl) }
 
+    val active = rememberCallSessionPresence(key, session, room, channel)
+    val visitor = intel[conversationId]
+    LaunchedEffect(active, contactName, contactAvatarUrl, visitor) {
+        active?.identity?.value = com.platform.app.feature.call.ActiveCallIdentity(contactName, contactAvatarUrl, visitor)
+    }
+    CallBackHandlers(phase, onMinimise = onMinimise, onDone = onDone)
+
     CallScreen(
         phase = phase,
         channel = channel,
@@ -1836,6 +1849,7 @@ fun CallRoute(
         onToggleSpeaker = session::toggleSpeaker,
         onHangUp = session::hangUp,
         onDone = onDone,
+        onMinimise = onMinimise,
     )
 }
 
@@ -1856,6 +1870,8 @@ fun IncomingCallRoute(
     /** Whether the screen now in front is a call ringing, or answered, on this phone. */
     ringInFront: () -> Boolean,
     onDone: () -> Unit,
+    /** Keeps the answered call going in a small bubble over the rest of the app. */
+    onMinimise: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val graph = LocalAppGraph.current
@@ -1906,6 +1922,12 @@ fun IncomingCallRoute(
     // the silhouette: a ring carries no photo.
     val callerName = key.caller.ifBlank { Str.unknownVisitor(language) }
     LaunchedEffect(callerName) { session.describe(callerName, avatarUrl = null) }
+
+    val active = rememberCallSessionPresence(key, session, room, channel)
+    LaunchedEffect(active, callerName) {
+        active?.identity?.value = com.platform.app.feature.call.ActiveCallIdentity(callerName)
+    }
+    CallBackHandlers(phase, onMinimise = onMinimise, onDone = onDone)
 
     val wanted = remember(channel) {
         if (channel == CallChannel.VIDEO) {
@@ -1973,6 +1995,50 @@ fun IncomingCallRoute(
             session.decline()
             onDone()
         },
+        onMinimise = onMinimise,
+    )
+}
+
+/**
+ * Back on a call's screen, which never shows the screen under it (a plain
+ * Back handler, not the predictive one): on a call placed or answered it
+ * minimises the call into its bubble; on a finished one it is Done. A ring
+ * keeps its own (Decline).
+ */
+@Composable
+internal fun CallBackHandlers(phase: com.platform.app.feature.call.CallPhase, onMinimise: () -> Unit, onDone: () -> Unit) {
+    val stage = phase.activeStage()
+    BackHandler(enabled = stage.minimisable, onBack = onMinimise)
+    BackHandler(enabled = stage == com.platform.app.feature.call.ActiveCallStage.OVER, onBack = onDone)
+}
+
+/** A visitor's or a call-centre call, published for its picture-in-picture window and bubble. */
+@Composable
+private fun rememberCallSessionPresence(
+    key: Screen,
+    session: CallSession,
+    room: com.platform.app.feature.call.LiveKitRoom,
+    channel: CallChannel,
+): com.platform.app.feature.call.ActiveCall? = rememberActiveCall(session) {
+    com.platform.app.feature.call.ActiveCall(
+        owner = session,
+        screen = key,
+        colleague = false,
+        state = kotlinx.coroutines.flow.combine(session.phase, session.connectedAt, session.muted) { p, at, m ->
+            com.platform.app.feature.call.ActiveCallState(
+                stage = p.activeStage(),
+                since = at,
+                muted = m,
+                video = channel == CallChannel.VIDEO,
+            )
+        }.stateIn(
+            session.viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            com.platform.app.feature.call.ActiveCallState(com.platform.app.feature.call.ActiveCallStage.OUTGOING),
+        ),
+        room = room,
+        toggleMute = session::toggleMute,
+        hangUp = session::hangUp,
     )
 }
 

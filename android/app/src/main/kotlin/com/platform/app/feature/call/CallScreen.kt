@@ -1,5 +1,15 @@
 package com.platform.app.feature.call
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -105,6 +115,8 @@ fun CallScreen(
     onDone: () -> Unit = {},
     onAnswer: () -> Unit = {},
     onDecline: () -> Unit = {},
+    /** Keeps the call going in a small window over the rest of the app. Null: not offered. */
+    onMinimise: (() -> Unit)? = null,
 ) {
     // Awake for as long as the call is on, and not a moment longer.
     //
@@ -123,13 +135,14 @@ fun CallScreen(
         onDispose { if (awake) view.keepScreenOn = false }
     }
 
-    Surface(
-        // Its own dark surface whatever the theme is doing. A call is a
-        // full-screen moment and a white one behind a video window reads as a
-        // bug on every phone.
-        color = CALL_BACKGROUND,
-        contentColor = Color.White,
-        modifier = modifier.fillMaxSize().testTag(A11y.CALL_SCREEN),
+    Box(
+        // Its own dark backdrop whatever the theme is doing, opaque edge to
+        // edge — on the lock screen too. A call is a full-screen moment, and
+        // nothing behind it (the inbox, a chat) may show through.
+        modifier
+            .fillMaxSize()
+            .background(CALL_BACKGROUND)
+            .testTag(A11y.CALL_SCREEN),
     ) {
         // Where the name and the timer end and the buttons begin, from the top
         // of the screen: the operator's own picture floats between the two.
@@ -153,86 +166,88 @@ fun CallScreen(
             ownMirror = true,
             swapped = swapped,
         )
-        Box(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
-            if (room != null) {
-                stage.big?.let { VideoView(it.track, room, Modifier.fillMaxSize(), mirror = it.mirror) }
-            }
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
+                val faceSize = callFaceSize(maxHeight, incoming = phase == CallPhase.Ringing)
+                CallBackdrop()
+                if (room != null) {
+                    stage.big?.let {
+                        VideoView(it.track, room, Modifier.fillMaxSize(), mirror = it.mirror)
+                        VideoScrims()
+                    }
+                }
 
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(horizontal = Space.screenInset),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
                 Column(
-                    Modifier.onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(horizontal = Space.screenInset),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Identity(
-                        phase = phase,
-                        contactName = contactName,
-                        contactAvatarUrl = contactAvatarUrl,
-                        visitor = visitor,
-                        connectedAt = connectedAt,
-                        language = language,
-                        // The face is redundant once a picture fills the screen,
-                        // and a circle over a video window is just something in
-                        // the way.
-                        compact = stage.big != null,
-                        video = channel == CallChannel.VIDEO,
-                    )
-
-                    if (relayWarning) Notice(Str.callRelayWarning(language))
-                    degraded?.let { Notice(it.title(language)) }
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
-                    Controls(
-                        phase = phase,
-                        channel = channel,
-                        language = language,
-                        muted = muted,
-                        cameraOn = cameraOn,
-                        speakerOn = speakerOn,
-                        onToggleMute = onToggleMute,
-                        onToggleCamera = onToggleCamera,
-                        onToggleSpeaker = onToggleSpeaker,
-                        onHangUp = onHangUp,
-                        onDone = onDone,
-                        onAnswer = onAnswer,
-                        onDecline = onDecline,
-                    )
-                }
-            }
-
-            // Only once the name and the buttons have been measured, so it
-            // appears in its corner rather than sliding there from the top.
-            if (room != null && stage.hasCard && controlsTop != Float.MAX_VALUE) {
-                // Over everything but where the buttons are: tap it to swap
-                // the pictures, drag it to any corner, pinch or double-tap to
-                // size it.
-                SelfView(
-                    areaTop = headerBottom - screenTop,
-                    areaBottom = controlsTop - screenTop,
-                    language = language,
-                    swapped = stage.swapped,
-                    onSwap = { swapped = !swapped },
-                ) {
-                    // Swapped with their camera off: the visitor's face as the
-                    // header draws it — their photo or their device's mark.
-                    StageCardContent(stage.small, room) { size ->
-                        Avatar(
-                            name = contactName,
-                            imageUrl = contactAvatarUrl,
-                            size = size,
-                            os = visitor?.device?.os,
-                            device = visitor?.device?.device,
-                            countryCode = visitor?.geo?.countryCode,
+                    CallTopBar(language, onMinimise = onMinimise?.takeIf { phase.isLive && phase != CallPhase.Ringing })
+                    Column(
+                        Modifier.onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Identity(
+                            phase = phase,
+                            contactName = contactName,
+                            contactAvatarUrl = contactAvatarUrl,
+                            visitor = visitor,
+                            connectedAt = connectedAt,
+                            language = language,
+                            // The face is redundant once a picture fills the screen,
+                            // and a circle over a video window is just something in
+                            // the way.
+                            compact = stage.big != null,
+                            video = channel == CallChannel.VIDEO,
+                            faceSize = faceSize,
                         )
+
+                        if (relayWarning) Notice(Str.callRelayWarning(language))
+                        degraded?.let { Notice(it.title(language)) }
+                    }
+
+                    Spacer(Modifier.weight(1f))
+
+                    Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
+                        Controls(
+                            phase = phase,
+                            channel = channel,
+                            language = language,
+                            muted = muted,
+                            cameraOn = cameraOn,
+                            speakerOn = speakerOn,
+                            onToggleMute = onToggleMute,
+                            onToggleCamera = onToggleCamera,
+                            onToggleSpeaker = onToggleSpeaker,
+                            onHangUp = onHangUp,
+                            onDone = onDone,
+                            onAnswer = onAnswer,
+                            onDecline = onDecline,
+                        )
+                    }
+                }
+
+                // Only once the name and the buttons have been measured, so it
+                // appears in its corner rather than sliding there from the top.
+                if (room != null && stage.hasCard && controlsTop != Float.MAX_VALUE) {
+                    // Over everything but where the buttons are: tap it to swap
+                    // the pictures, drag it to any corner, pinch or double-tap to
+                    // size it.
+                    SelfView(
+                        areaTop = headerBottom - screenTop,
+                        areaBottom = controlsTop - screenTop,
+                        language = language,
+                        swapped = stage.swapped,
+                        onSwap = { swapped = !swapped },
+                    ) {
+                        // Swapped with their camera off: the visitor's face as the
+                        // header draws it — their photo or their device's mark.
+                        StageCardContent(stage.small, room) { size ->
+                            CallFace(colleague = false, name = contactName, avatarUrl = contactAvatarUrl, size = size, visitor = visitor)
+                        }
                     }
                 }
             }
@@ -250,77 +265,36 @@ private fun Identity(
     language: Language,
     compact: Boolean,
     video: Boolean,
+    faceSize: androidx.compose.ui.unit.Dp,
 ) {
     Column(
-        Modifier.padding(top = Space.xl),
+        Modifier.padding(top = if (compact) Space.sm else Space.lg),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.md),
     ) {
-        if (!compact) {
-            CallHalo(ringing = phase == CallPhase.Ringing || phase == CallPhase.Waiting || phase == CallPhase.Connecting) {
-                Avatar(
-                    name = contactName,
-                    imageUrl = contactAvatarUrl,
-                    size = Size.avatarLarge + 8.dp,
-                    os = visitor?.device?.os,
-                    device = visitor?.device?.device,
-                    countryCode = visitor?.geo?.countryCode,
-                )
+        AnimatedVisibility(
+            visible = !compact,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+        ) {
+            CallHalo(
+                ringing = phase == CallPhase.Ringing || phase == CallPhase.Waiting || phase == CallPhase.Connecting,
+                faceSize = faceSize,
+            ) {
+                CallFace(colleague = false, name = contactName, avatarUrl = contactAvatarUrl, size = faceSize, visitor = visitor)
             }
         }
 
         Text(
             contactName,
-            style = AppType.headlineMediumEmphasized,
+            style = if (compact) MaterialTheme.typography.titleLarge else AppType.headlineMediumEmphasized,
             textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )
 
         Status(phase, connectedAt, language, video)
-    }
-}
-
-/**
- * The face of whoever is on the other end, on its halo.
- *
- * While it rings the face sits on a slowly turning, breathing scalloped
- * shape — Expressive's way of saying "working" without a spinner — so the
- * wait does not look like a frozen screen. Once answered the shape stops and
- * settles into a quiet halo. The same for a visitor's call and a colleague's.
- */
-@Composable
-internal fun CallHalo(ringing: Boolean, face: @Composable () -> Unit) {
-    val turn by rememberLoop(
-        label = "ring.turn",
-        from = 0f,
-        to = 360f,
-        spec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
-    )
-    val breath by rememberLoop(
-        label = "ring.breath",
-        from = 0.92f,
-        to = 1.06f,
-        spec = infiniteRepeatable(
-            animation = tween(Motion.skeletonPulse * 2),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        rest = 1f,
-    )
-    val halo = remember { PolygonShape(ExpressiveShapes.cookie9) }
-    Box(Modifier.size(Size.avatarLarge + 56.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    rotationZ = if (ringing) turn else 0f
-                    val scale = if (ringing) breath else 1f
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .clip(halo)
-                .background(Color.White.copy(alpha = if (ringing) 0.16f else 0.10f)),
-        )
-        face()
     }
 }
 
@@ -369,8 +343,8 @@ private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language, 
     ) {
         Text(
             text,
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.75f),
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            color = Color.White.copy(alpha = 0.80f),
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().testTag(A11y.CALL_STATUS),
         )
@@ -424,153 +398,81 @@ private fun Controls(
     onDecline: () -> Unit,
 ) {
     if (phase == CallPhase.Ringing) {
-        // A phone's own two: decline on the start side, answer on the end,
-        // far enough apart that one is never pressed for the other.
-        Row(
-            Modifier.padding(bottom = Space.xl).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CallToggle(
-                icon = Glyph.CallEnd,
-                label = StrAndroid.declineCall(language),
-                tag = A11y.CALL_DECLINE,
-                on = true,
-                tint = CALL_END_RED,
-                onClick = onDecline,
-            )
-            CallToggle(
-                icon = Glyph.Call,
-                label = StrAndroid.answerCall(language),
-                tag = A11y.CALL_ANSWER,
-                on = true,
-                tint = CALL_ANSWER_GREEN,
-                onClick = onAnswer,
-            )
-        }
+        IncomingCallActions(
+            language = language,
+            video = channel == CallChannel.VIDEO,
+            declineLabel = StrAndroid.declineCall(language),
+            answerLabel = StrAndroid.answerCall(language),
+            onDecline = onDecline,
+            onAnswer = onAnswer,
+        )
         return
     }
-    Row(
-        Modifier.padding(bottom = Space.xl),
-        horizontalArrangement = Arrangement.spacedBy(Space.xl),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = Space.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Space.xl),
     ) {
         if (phase.isLive) {
-            // Both states are drawn, never one shape lit and unlit. On a black
-            // screen with nothing beside it to compare against, "highlighted"
-            // is not a thing anyone can read, and reading the mute button
-            // wrong means talking to nobody.
-            CallToggle(
-                icon = if (muted) Glyph.MicOff else Glyph.Mic,
-                label = Str.mute(language),
-                tag = A11y.CALL_MUTE,
-                on = muted,
-                // Nothing to mute until there is somebody on the line. The
-                // controls are drawn while the invitation rings so the screen
-                // does not rearrange itself the instant it is answered.
-                enabled = phase == CallPhase.Connected,
-                onClick = onToggleMute,
-            )
+            Row(
+                Modifier.fillMaxWidth().widthIn(max = 420.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Top,
+            ) {
+                // Both states are drawn, never one shape lit and unlit. On a black
+                // screen with nothing beside it to compare against, "highlighted"
+                // is not a thing anyone can read, and reading the mute button
+                // wrong means talking to nobody.
+                CallToggle(
+                    icon = if (muted) Glyph.MicOff else Glyph.Mic,
+                    label = Str.mute(language),
+                    tag = A11y.CALL_MUTE,
+                    on = muted,
+                    // Nothing to mute until there is somebody on the line. The
+                    // controls are drawn while the invitation rings so the screen
+                    // does not rearrange itself the instant it is answered.
+                    enabled = phase == CallPhase.Connected,
+                    onClick = onToggleMute,
+                )
 
-            // One or the other, never both — the console and the iOS screen
-            // agree on this. A video call is on the loudspeaker by its nature
-            // and spends its second button on the camera instead.
-            if (channel == CallChannel.VIDEO) {
-                CallToggle(
-                    icon = if (cameraOn) Glyph.Videocam else Glyph.VideocamOff,
-                    label = Str.camera(language),
-                    tag = A11y.CALL_CAMERA,
-                    on = !cameraOn,
-                    enabled = phase == CallPhase.Connected,
-                    onClick = onToggleCamera,
-                )
-            } else {
-                CallToggle(
-                    icon = if (speakerOn) Glyph.Speaker else Glyph.SpeakerOff,
-                    label = Str.speaker(language),
-                    tag = A11y.CALL_SPEAKER,
-                    on = speakerOn,
-                    enabled = phase == CallPhase.Connected,
-                    onClick = onToggleSpeaker,
-                )
+                // One or the other, never both — the console and the iOS screen
+                // agree on this. A video call is on the loudspeaker by its nature
+                // and spends its second button on the camera instead.
+                if (channel == CallChannel.VIDEO) {
+                    CallToggle(
+                        icon = if (cameraOn) Glyph.Videocam else Glyph.VideocamOff,
+                        label = Str.camera(language),
+                        tag = A11y.CALL_CAMERA,
+                        on = !cameraOn,
+                        enabled = phase == CallPhase.Connected,
+                        onClick = onToggleCamera,
+                    )
+                } else {
+                    CallToggle(
+                        icon = if (speakerOn) Glyph.Speaker else Glyph.SpeakerOff,
+                        label = Str.speaker(language),
+                        tag = A11y.CALL_SPEAKER,
+                        on = speakerOn,
+                        enabled = phase == CallPhase.Connected,
+                        onClick = onToggleSpeaker,
+                    )
+                }
             }
         }
 
-        // Red, round, and the same button whether it ends a call or closes a
-        // finished one — it is the only way off this screen either way. Never
-        // a full-width blue bar, which is what a phone uses to ANSWER.
+        // Red, round, and larger than the toggles when it ends a call; a quiet
+        // "Done" closing a finished one — it is the only way off this screen
+        // either way. Never a full-width blue bar, which is what a phone uses
+        // to ANSWER.
         CallToggle(
-            icon = Glyph.CallEnd,
+            icon = if (phase.isLive) Glyph.CallEnd else androidx.compose.material.icons.Icons.Filled.Check,
             label = if (phase.isLive) Str.hangUpCall(language) else Str.done(language),
             tag = A11y.CALL_HANG_UP,
             on = true,
-            tint = CALL_END_RED,
+            tint = if (phase.isLive) CALL_END_RED else CALL_DONE_GREY,
             onClick = if (phase.isLive) onHangUp else onDone,
+            diameter = PRIMARY_SIZE,
         )
-    }
-}
-
-/**
- * One round button in the row under the call.
- *
- * [on] is the lit state and [tint] the colour it lights up in — white for a
- * toggle, red for the one that ends the call. A disabled button keeps its
- * shape and loses its contrast, so the row does not change length at the
- * moment a call connects.
- */
-@Composable
-internal fun CallToggle(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    tag: String,
-    on: Boolean,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    tint: Color? = null,
-) {
-    val lit = tint ?: Color.White
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    // Expressive toggle buttons change shape as well as colour: round at
-    // rest, a rounded square when switched on, squarer still under the
-    // finger. On a dark screen with nothing to compare against, a shape
-    // that changes is read where a tint alone is not.
-    val percent by animateFloatAsState(
-        targetValue = when {
-            pressed -> 22f
-            on && tint == null -> 30f
-            else -> 50f
-        },
-        animationSpec = Motion.fastSpatial(),
-        label = "callToggleShape",
-    )
-    Surface(
-        color = when {
-            !enabled -> Color.White.copy(alpha = 0.06f)
-            on -> lit.copy(alpha = if (tint == null) 0.22f else 1f)
-            else -> Color.White.copy(alpha = 0.10f)
-        },
-        contentColor = when {
-            !enabled -> Color.White.copy(alpha = 0.25f)
-            tint != null -> Color.White
-            on -> Color.White
-            else -> Color.White.copy(alpha = 0.75f)
-        },
-        shape = percentShape(percent),
-        enabled = enabled,
-        onClick = onClick,
-        interactionSource = interaction,
-        modifier = Modifier
-            // The one that ends the call is a wide pill — the dialler's own
-            // shape for it, and the one button here that must never be
-            // mistaken for a toggle.
-            .size(width = if (tint != null) 96.dp else Size.minTouchTarget + 16.dp, height = Size.minTouchTarget + 16.dp)
-            .semantics { if (on) selected = true }
-            .testTag(tag),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(26.dp))
-        }
     }
 }
 

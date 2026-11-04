@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Picture-in-picture: mute (the microphone is on). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12 14q-1.25 0-2.12-.88T9 11V5q0-1.25.88-2.12T12 2q1.25 0 2.13.88T15 5v6q0 1.25-.87 2.12T12 14Zm-1 7v-3.08q-2.6-.35-4.3-2.32T5 11h2q0 2.08 1.46 3.54T12 16q2.08 0 3.54-1.46T17 11h2q0 2.63-1.7 4.6T13 17.92V21h-2Z" />
+</vector>

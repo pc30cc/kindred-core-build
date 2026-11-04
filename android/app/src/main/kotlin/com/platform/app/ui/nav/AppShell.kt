@@ -15,6 +15,17 @@ import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.activity.compose.BackHandler
+import com.platform.app.LocalAppGraph
+import com.platform.app.feature.call.ActiveCall
+import com.platform.app.feature.call.ActiveCallStage
+import androidx.compose.runtime.remember
+import com.platform.app.feature.call.FloatingCallBubble
+import kotlinx.coroutines.flow.first
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -169,6 +180,29 @@ fun AppShell(
     val holdsCall = navigator.holdsCall
     val reportCall by rememberUpdatedState(onCallOnStack)
     LaunchedEffect(holdsCall) { reportCall(holdsCall) }
+
+    // The calls on this phone, as their sessions publish them: the bubble of a
+    // minimised one, its end, and the picture-in-picture window coming back
+    // full size (MainActivity), which brings the call's own screen back.
+    val graph = LocalAppGraph.current
+    val callsFlow = remember(graph) {
+        graph?.activeCalls?.calls ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<ActiveCall>())
+    }
+    val activeCalls by callsFlow.collectAsStateWithLifecycle()
+    val minimisedCall = navigator.minimised?.let { screen -> activeCalls.lastOrNull { it.screen == screen } }
+    LaunchedEffect(minimisedCall) {
+        val call = minimisedCall ?: return@LaunchedEffect
+        // Ended while minimised — the colleague hung up, the visitor left:
+        // nothing to come back to, and nothing left to show.
+        call.state.first { it.stage == ActiveCallStage.OVER }
+        if (navigator.minimised == call.screen) navigator.dropMinimised()
+    }
+    LaunchedEffect(graph, navigator) {
+        graph?.activeCalls?.showRequests?.collect { screen ->
+            val call = (screen as? Screen) ?: return@collect
+            if (navigator.stack(call.tab).contains(call)) navigator.raise(call)
+        }
+    }
 
     // A plan change can take away the tab that is open — switching workspace
     // is the ordinary way that happens.
@@ -397,17 +431,19 @@ fun AppShell(
                 onBack = { navigator.back() },
             )
         }
-        entry<IncomingCallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+        entry<IncomingCallKey>(metadata = tabOf(AppTab.INBOX) + callScreen()) { key ->
             IncomingCallRoute(
                 key = key,
                 api = api,
                 language = language,
                 ringInFront = ringInFront,
                 onDone = { navigator.back() },
+                onMinimise = { navigator.minimise(key) },
             )
         }
-        entry<CallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+        entry<CallKey>(metadata = tabOf(AppTab.INBOX) + callScreen()) { key ->
             CallRoute(
+                key = key,
                 conversationId = key.conversationId,
                 channel = CallChannel.from(key.channel),
                 appState = appState,
@@ -415,9 +451,10 @@ fun AppShell(
                 conversations = conversations,
                 language = language,
                 onDone = { navigator.back() },
+                onMinimise = { navigator.minimise(key) },
             )
         }
-        entry<TeamCallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+        entry<TeamCallKey>(metadata = tabOf(AppTab.INBOX) + callScreen()) { key ->
             TeamCallRoute(
                 key = key,
                 api = api,
@@ -426,6 +463,7 @@ fun AppShell(
                 onAnswerTaken = { answerHere = null },
                 ringInFront = ringInFront,
                 onDone = { navigator.back() },
+                onMinimise = { navigator.minimise(key) },
             )
         }
         entry<TeamThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
@@ -643,11 +681,17 @@ fun AppShell(
         }
     }
     // The inbox's root sits under every other tab, so Back from another tab's
-    // root lands there — with the predictive preview showing it.
+    // root lands there — with the predictive preview showing it. A minimised
+    // call is decorated with its stack (its session lives) but not drawn.
+    val minimised = navigator.minimised
+    fun shown(tab: AppTab) = decorated.getValue(tab).let { list ->
+        val stack = navigator.stack(tab)
+        if (minimised == null) list else list.filterIndexed { i, _ -> stack.getOrNull(i) != minimised }
+    }
     val entries = if (selectedTab == AppTab.INBOX) {
-        decorated.getValue(AppTab.INBOX)
+        shown(AppTab.INBOX)
     } else {
-        decorated.getValue(AppTab.INBOX).take(1) + decorated.getValue(selectedTab)
+        shown(AppTab.INBOX).take(1) + shown(selectedTab)
     }
 
     val adaptiveInfo = currentWindowAdaptiveInfo()
@@ -716,6 +760,13 @@ fun AppShell(
         ) {
             SharedTransitionLayout {
                 CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+                    // Back on the app's first screen with a call minimised:
+                    // the app goes behind, the call on (its service keeps
+                    // it) — rather than the activity finishing, which would
+                    // end the call with it.
+                    BackHandler(enabled = minimised != null && selectedTab == AppTab.INBOX && navigator.displayed(AppTab.INBOX).size <= 1) {
+                        activity?.moveTaskToBack(true)
+                    }
                     NavDisplay(
                         entries = entries,
                         onBack = { navigator.back() },
@@ -726,6 +777,17 @@ fun AppShell(
                     )
                 }
             }
+        }
+
+        // A minimised call, small, over the app: dragged anywhere, tapped to
+        // bring the call back. Gone with the call.
+        val bubble = minimisedCall?.takeIf { minimised != null }
+        if (bubble != null) {
+            FloatingCallBubble(
+                call = bubble,
+                language = language,
+                onOpen = { minimised?.let(navigator::raise) },
+            )
         }
 
         // Over everything, including the navigation. A full-screen promotion
@@ -748,6 +810,33 @@ private fun tabOf(tab: AppTab): Map<String, Any> = mapOf(TAB_METADATA to tab)
 
 private fun Scene<NavKey>.tab(): Any? = entries.lastOrNull()?.metadata?.get(TAB_METADATA)
 
+private const val CALL_METADATA = AppBrand.id + ".call"
+
+/** A call's screen: comes in and goes out as one opaque sheet, never by a fade. */
+private fun callScreen(): Map<String, Any> = mapOf(CALL_METADATA to true)
+
+private fun Scene<NavKey>.isCall(): Boolean = entries.lastOrNull()?.metadata?.get(CALL_METADATA) == true
+
+/**
+ * A call's screen rises from the bottom over the screen it covers, which
+ * stays put under it, and goes back down the same way (Done, or minimised).
+ * No fade either way: half-transparent, a call screen would show the inbox
+ * or a customer's chat through it — on the lock screen too.
+ */
+private fun callRises(): ContentTransform =
+    ContentTransform(
+        targetContentEnter = slideInVertically(Motion.slowSpatial()) { height -> height },
+        initialContentExit = ExitTransition.KeepUntilTransitionsFinished,
+    )
+
+private fun callSinks(): ContentTransform =
+    ContentTransform(
+        targetContentEnter = EnterTransition.None,
+        initialContentExit = slideOutVertically(Motion.slowSpatial()) { height -> height },
+        // The call stays on top of what it uncovers as it goes down.
+        targetContentZIndex = -1f,
+    )
+
 /**
  * Deeper into a tab: Material's shared axis along the reading direction —
  * the new screen comes in from the end, the old one gives way towards the
@@ -755,7 +844,13 @@ private fun Scene<NavKey>.tab(): Any? = entries.lastOrNull()?.metadata?.get(TAB_
  * fade through, which says "somewhere else" rather than "further in".
  */
 private fun AnimatedContentTransitionScope<Scene<NavKey>>.forward(rtl: Boolean): ContentTransform =
-    if (initialState.tab() != targetState.tab()) {
+    if (targetState.isCall() && !initialState.isCall()) {
+        callRises()
+    } else if (initialState.isCall() && !targetState.isCall()) {
+        // A minimised call coming off the display is a push to Navigation
+        // (the stack drawn changed at its end): it still goes down.
+        callSinks()
+    } else if (initialState.tab() != targetState.tab()) {
         fadeThrough()
     } else {
         (slideInHorizontally(Motion.slowSpatial()) { width -> if (rtl) -width / 5 else width / 5 } +
@@ -765,7 +860,11 @@ private fun AnimatedContentTransitionScope<Scene<NavKey>>.forward(rtl: Boolean):
     }
 
 private fun AnimatedContentTransitionScope<Scene<NavKey>>.backward(rtl: Boolean): ContentTransform =
-    if (initialState.tab() != targetState.tab()) {
+    if (initialState.isCall() && !targetState.isCall()) {
+        callSinks()
+    } else if (targetState.isCall() && !initialState.isCall()) {
+        callRises()
+    } else if (initialState.tab() != targetState.tab()) {
         fadeThrough()
     } else {
         (slideInHorizontally(Motion.slowSpatial()) { width -> if (rtl) width / 5 else -width / 5 } +

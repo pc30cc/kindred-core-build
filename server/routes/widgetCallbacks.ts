@@ -7,7 +7,7 @@
  * visitor cookie itself — it cannot rely on the parent to have set
  * req._widgetWorkspaceId / req.visitorId.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { createCallbackRequest } from '../services/calls/callbacks.js';
@@ -20,6 +20,19 @@ import {
   ensureVisitorSessionRow,
   resolveSessionNetworkContext,
 } from '../services/widget/crossWidgetIdentity.js';
+
+type WidgetCallbacksRequest = Request & {
+  serverConfig: ServerConfig;
+  _widgetWorkspaceId?: string;
+};
+
+interface OpenCallbackRow {
+  id: string;
+  status: string;
+  channel: string;
+  requested_at: string | null;
+  created_at: string;
+}
 
 /**
  * `callback_requests.visitor_session_id` is a relation to `visitor_sessions.id`.
@@ -42,7 +55,7 @@ async function canonicalSessionIds(
       .eq('visitor_id', visitorId)
       .order('last_seen_at', { ascending: false })
       .limit(20);
-    return (data || []).map((r: any) => r.id as string);
+    return ((data || []) as Array<{ id: string }>).map((r) => r.id as string);
   } catch {
     return [];
   }
@@ -65,8 +78,8 @@ const CALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
  * "Callback pending" badge and approximate cooldown countdown.
  */
 widgetCallbacksRouter.get('/status', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const config = (req as unknown as WidgetCallbacksRequest).serverConfig;
+  const workspaceId = (req as unknown as WidgetCallbacksRequest)._widgetWorkspaceId;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const visitorId = readVisitorCookie(req, workspaceId)?.v;
   if (!visitorId) {
@@ -88,13 +101,14 @@ widgetCallbacksRouter.get('/status', async (req, res) => {
       .limit(1)
       .maybeSingle();
     if (!data) return res.json({ has_open_callback: false });
-    const createdMs = new Date((data as any).created_at).getTime();
+    const row = data as OpenCallbackRow;
+    const createdMs = new Date(row.created_at).getTime();
     const cooldownUntil = new Date(createdMs + CALLBACK_COOLDOWN_MS).toISOString();
     res.json({
       has_open_callback: true,
-      status: (data as any).status,
-      channel: (data as any).channel,
-      requested_at: (data as any).requested_at,
+      status: row.status,
+      channel: row.channel,
+      requested_at: row.requested_at,
       cooldown_until: cooldownUntil,
     });
   } catch {
@@ -103,8 +117,8 @@ widgetCallbacksRouter.get('/status', async (req, res) => {
 });
 
 widgetCallbacksRouter.post('/request', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const config = (req as unknown as WidgetCallbacksRequest).serverConfig;
+  const workspaceId = (req as unknown as WidgetCallbacksRequest)._widgetWorkspaceId;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const visitorId = readVisitorCookie(req, workspaceId)?.v;
   // Plan composer gate — visitor-initiated callback request.
@@ -152,7 +166,7 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
   if (visitorId) {
     try {
       const sb = getServiceClient(config);
-      const net = await resolveSessionNetworkContext(sb, req as any, workspaceId);
+      const net = await resolveSessionNetworkContext(sb, req, workspaceId);
       visitorSessionId = await ensureVisitorSessionRow(
         sb, workspaceId, visitorId, null, 'chat_widget', net, { config, touchPresence: true },
       );
@@ -182,7 +196,7 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
     const createdMs = new Date(cb.created_at).getTime();
     const cooldownUntil = new Date(createdMs + CALLBACK_COOLDOWN_MS).toISOString();
     res.json({ callback: cb, cooldown_until: cooldownUntil });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'callback_failed' });
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as { message?: string } | null | undefined)?.message || 'callback_failed' });
   }
 });

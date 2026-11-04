@@ -15,6 +15,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolvePublisher } from '../realtime/resolvePublisher.js';
+import type { ConversationEventEnvelope } from '../realtime/publishers/types.js';
 import { loadEffectiveCallChannels, loadCallControlPlane } from './controlPlane.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { cancelRing } from '../push/callRing.js';
@@ -88,7 +89,7 @@ async function publishQueueEvent(
     await publisher.publish(queueChannel(workspaceId), {
       type: 'event',
       payload: { kind: 'call_queue', ...payload },
-    } as any);
+    } as ConversationEventEnvelope);
   } catch {
     // Realtime is best-effort; clients also re-poll the queue endpoint.
   }
@@ -314,7 +315,7 @@ export async function expireStaleEntries(
     });
     await writeTimelineEvent(
       config,
-      row as any,
+      row as Pick<QueueEntry, 'workspace_id' | 'conversation_id' | 'channel'>,
       'call_expired',
       { entry_id: row.id },
     );
@@ -362,7 +363,6 @@ export async function missUnansweredCalls(
     createdBefore?: string;
     entrySources?: readonly string[];
     reason: string;
-    limit?: number;
   },
 ): Promise<Array<{ id: string; workspace_id: string }>> {
   const sb = getServiceClient(config);
@@ -382,7 +382,6 @@ export async function missUnansweredCalls(
   if (args.workspaceId) q = q.eq('workspace_id', args.workspaceId);
   if (args.callIds) q = q.in('id', args.callIds);
   if (args.createdBefore) q = q.lt('created_at', args.createdBefore);
-  if (args.limit) q = q.limit(args.limit);
   const { data, error } = await q.select('id, workspace_id');
   if (error || !data) return [];
   const rows = data as Array<{ id: string; workspace_id: string }>;
@@ -415,11 +414,23 @@ export const STALE_PENDING_CALL_MS = 60 * 60_000;
  * and colleague calls have their own ticker.
  */
 export async function sweepStalePendingCalls(config: ServerConfig, now: number = Date.now()): Promise<number> {
+  const createdBefore = new Date(now - STALE_PENDING_CALL_MS).toISOString();
+  // The ids first (a bounded read), then the compare-and-set by id: an
+  // UPDATE takes no LIMIT.
+  const { data, error } = await getServiceClient(config)
+    .from('call_sessions')
+    .select('id')
+    .in('state', ['pending', 'ringing'])
+    .is('connected_at', null)
+    .in('entry_source', CALL_CENTER_ENTRY_SOURCES as string[])
+    .lt('created_at', createdBefore)
+    .limit(200);
+  if (error || !data || data.length === 0) return 0;
   const rows = await missUnansweredCalls(config, {
+    callIds: (data as Array<{ id: string }>).map((r) => r.id),
     entrySources: CALL_CENTER_ENTRY_SOURCES,
-    createdBefore: new Date(now - STALE_PENDING_CALL_MS).toISOString(),
+    createdBefore,
     reason: 'stale_pending',
-    limit: 200,
   });
   return rows.length;
 }
@@ -463,7 +474,7 @@ export async function reapStaleOffers(config: ServerConfig): Promise<{ requeued:
         missed++;
         await missCallOfEntry(config, e, slaBreach ? 'sla_breach' : 'no_answer');
         await publishQueueEvent(config, e.workspace_id, { type: 'missed', entry_id: e.id });
-        await writeTimelineEvent(config, u as QueueEntry, 'call_missed', { entry_id: e.id, reason: (u as any).ended_reason });
+        await writeTimelineEvent(config, u as QueueEntry, 'call_missed', { entry_id: e.id, reason: (u as QueueEntry).ended_reason });
       }
     } else {
       const { data: u } = await sb
@@ -516,7 +527,7 @@ export async function markEntryAsCallback(
     .select('*')
     .maybeSingle();
   if (data) {
-    await publishQueueEvent(config, (data as any).workspace_id, {
+    await publishQueueEvent(config, (data as QueueEntry).workspace_id, {
       type: 'callback_requested',
       entry_id: entryId,
       callback_request_id: callbackRequestId,

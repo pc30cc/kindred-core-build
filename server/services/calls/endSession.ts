@@ -29,6 +29,7 @@ import {
   publishOperatorEvent,
   publishConversationEvent,
   buildMessageEnvelope,
+  type OperatorEventPayload,
 } from '../realtime/publish.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { clearInCall } from './availability.js';
@@ -71,7 +72,14 @@ export interface EndCallNotFound {
 
 export type EndCallResult = EndCallSummary | EndCallNotFound;
 
-function pickAnchorMs(row: any): number {
+/** The timestamps of a call_sessions row the duration is measured from. */
+interface CallTimingRow {
+  connected_at?: unknown;
+  started_at?: unknown;
+  created_at?: unknown;
+}
+
+function pickAnchorMs(row: CallTimingRow | null | undefined): number {
   const candidates = [row?.connected_at, row?.started_at, row?.created_at];
   for (const c of candidates) {
     if (typeof c === 'string') {
@@ -82,7 +90,7 @@ function pickAnchorMs(row: any): number {
   return Date.now();
 }
 
-function computeDuration(row: any, endedAtMs: number): number {
+function computeDuration(row: CallTimingRow | null | undefined, endedAtMs: number): number {
   const anchor = pickAnchorMs(row);
   return Math.max(0, Math.round((endedAtMs - anchor) / 1000));
 }
@@ -253,7 +261,7 @@ export async function endCallSession(
       if (msgErr) {
         // 23505 = unique_violation → another worker already wrote the
         // summary; that's the desired idempotent outcome.
-        if ((msgErr as any).code !== '23505') {
+        if ((msgErr as { code?: string }).code !== '23505') {
           // eslint-disable-next-line no-console
           console.warn('[call:end] system message insert failed:', msgErr.message);
         }
@@ -272,14 +280,15 @@ export async function endCallSession(
             metadata:
               ((msgRow.metadata as Record<string, unknown>) ??
                 (msgMeta as unknown as Record<string, unknown>)),
-            seen_at: (msgRow as any).seen_at ?? null,
+            seen_at: (msgRow as { seen_at?: string | null }).seen_at ?? null,
           }),
         );
       }
-    } catch (err: any) {
-      if (err?.code !== '23505') {
+    } catch (err: unknown) {
+      const thrown = err as { code?: string; message?: string } | null | undefined;
+      if (thrown?.code !== '23505') {
         // eslint-disable-next-line no-console
-        console.warn('[call:end] system message threw:', err?.message || err);
+        console.warn('[call:end] system message threw:', thrown?.message || err);
       }
     }
 
@@ -321,7 +330,7 @@ export async function endCallSession(
       reason: input.reason,
       duration_seconds: finalRow.duration_seconds ?? duration,
       ended_at: finalRow.ended_at,
-    } as any).catch(() => { /* publish never throws */ });
+    } as unknown as OperatorEventPayload).catch(() => { /* publish never throws */ });
   }
 
   return {

@@ -4,6 +4,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { resolvePublisher } from '../realtime/resolvePublisher.js';
+import type { ConversationEventEnvelope } from '../realtime/publishers/types.js';
 
 export type CallCenterEventType =
   | 'call_requested'
@@ -41,7 +42,7 @@ export async function publishQueueEvent(
     await pub.publish(queueChannel(workspaceId), {
       type: 'message',
       payload: { kind: 'call_center', event: type, ...payload },
-    } as any);
+    } as ConversationEventEnvelope);
   } catch {/* polling fallback */}
 }
 
@@ -57,6 +58,6 @@ export async function publishCallEvent(
     await pub.publish(callChannel(workspaceId, callId), {
       type: 'message',
       payload: { kind: 'call_center', event: type, ...payload },
-    } as any);
+    } as ConversationEventEnvelope);
   } catch {/* polling fallback */}
 }

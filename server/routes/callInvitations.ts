@@ -9,7 +9,7 @@
  * Auth: first-party session cookie + workspace membership. All writes go
  * through the service-role-backed invitations service.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import {
@@ -26,9 +26,11 @@ import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../
 
 export const callInvitationsRouter = Router();
 
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
 async function requireAuth(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   _config: ServerConfig,
 ): Promise<{ userId: string } | null> {
   const userId = await requireSessionUser(req, res);
@@ -42,8 +44,8 @@ async function requireAuth(
  * which `is_workspace_member` alone did not do. Writes the refusal itself.
  */
 async function assertWorkspaceMember(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   workspaceId: string,
 ): Promise<boolean> {
   return !!(await authorizeWorkspaceAccess(req, res, workspaceId));
@@ -63,7 +65,7 @@ const createSchema = z.object({
 });
 
 callInvitationsRouter.post('/', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const parsed = createSchema.safeParse(req.body);
@@ -103,7 +105,7 @@ callInvitationsRouter.post('/', async (req, res) => {
 });
 
 callInvitationsRouter.post('/:id/cancel', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const inv = await getInvitationById(config, req.params.id);
@@ -115,7 +117,7 @@ callInvitationsRouter.post('/:id/cancel', async (req, res) => {
 });
 
 callInvitationsRouter.get('/:id', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const inv = await getInvitationById(config, req.params.id);
@@ -125,7 +127,7 @@ callInvitationsRouter.get('/:id', async (req, res) => {
 });
 
 callInvitationsRouter.get('/', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as unknown as ReqWithConfig).serverConfig;
   const auth = await requireAuth(req, res, config);
   if (!auth) return;
   const conversationId = (req.query.conversation_id as string) || '';

@@ -7,7 +7,45 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const state: { effective: any } = { effective: null };
+/** Minimal stand-ins for the Express objects the handler touches. */
+interface MockReq {
+  body: unknown;
+  params: Record<string, string>;
+  query: Record<string, string>;
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+  serverConfig: { supabaseUrl: string; supabaseServiceRoleKey: string };
+}
+type MockJsonBody = Record<string, unknown> & {
+  error?: unknown;
+  capability?: unknown;
+  invitation?: { id?: unknown } | null;
+};
+interface MockRes {
+  status(code: number): MockRes;
+  json(body: MockJsonBody): MockRes;
+}
+type Handler = (req: MockReq, res: MockRes, next: () => void) => Promise<unknown> | unknown;
+interface RouteLayer {
+  route?: {
+    path?: string;
+    methods: Record<string, boolean>;
+    stack: Array<{ handle: Handler }>;
+  };
+}
+
+interface Chain {
+  _row: Record<string, unknown>;
+  select(): Chain;
+  eq(): Chain;
+  in(): Chain;
+  maybeSingle(): Promise<{ data: Record<string, unknown>; error: null }>;
+  single(): Promise<{ data: Record<string, unknown>; error: null }>;
+  insert(row: unknown): Chain;
+  update(): Chain;
+}
+
+const state: { effective: Record<string, unknown> | null } = { effective: null };
 
 vi.mock("../../../server/services/calls/entitlementComposer.js", () => ({
   loadEffectiveCallEntitlements: async () => state.effective,
@@ -19,7 +57,7 @@ vi.mock("../../../server/services/calls/entitlementComposer.js", () => ({
 // not the concurrency gate, so we stub the helper to always allow.
 vi.mock("../../../server/services/calls/concurrencyLimit.js", () => ({
   checkPlanConcurrencyCeiling: async () => ({ allowed: true, limit: -1 }),
-  planConcurrencyDenialBody: (d: any) => ({ error: d.reason, capability: "max_concurrent_calls" }),
+  planConcurrencyDenialBody: (d: { reason?: string }) => ({ error: d.reason, capability: "max_concurrent_calls" }),
 }));
 
 // Phase: max_call_minutes_per_month — Final Activation.
@@ -28,11 +66,11 @@ vi.mock("../../../server/services/calls/concurrencyLimit.js", () => ({
 // here we stub it to allow so the composer gate is what is under test.
 vi.mock("../../../server/services/calls/monthlyMinutesLimit.js", () => ({
   checkPlanMonthlyMinutesCeiling: async () => ({ allowed: true, limit: -1 }),
-  planMinutesDenialBody: (d: any) => ({ error: d.reason, capability: "max_call_minutes_per_month" }),
+  planMinutesDenialBody: (d: { reason?: string }) => ({ error: d.reason, capability: "max_call_minutes_per_month" }),
 }));
 
-const insertedRows: any[] = [];
-const sbMock: any = {
+const insertedRows: unknown[] = [];
+const sbMock = {
   auth: { getUser: async () => ({ data: { user: { id: "u-1" } }, error: null }) },
   rpc: async (name: string) => {
     if (name === "is_workspace_member") return { data: true, error: null };
@@ -41,7 +79,7 @@ const sbMock: any = {
     return { data: null, error: null };
   },
   from(_t: string) {
-    const chain: any = {
+    const chain: Chain = {
       _row: {
         id: "call-1",
         workspace_id: "11111111-1111-1111-1111-111111111111",
@@ -58,7 +96,7 @@ const sbMock: any = {
       in() { return chain; },
       maybeSingle: async () => ({ data: chain._row, error: null }),
       single: async () => ({ data: { ...chain._row, id: "call-new" }, error: null }),
-      insert(row: any) { insertedRows.push(row); return chain; },
+      insert(row: unknown) { insertedRows.push(row); return chain; },
       update() { return chain; },
     };
     return chain;
@@ -87,14 +125,14 @@ vi.mock("../../../server/services/calls/controlPlane.js", () => ({
   }),
 }));
 
-const resolveProviderMock = vi.fn(async (..._args: any[]) => ({
+const resolveProviderMock = vi.fn(async (..._args: unknown[]) => ({
   id: "livekit",
   provider: {
     createRoom: async () => ({ providerRoomId: "room-x" }),
   },
 }));
 vi.mock("../../../server/services/calls/providerResolver.js", () => ({
-  resolveEffectiveCallProvider: (...a: any[]) => resolveProviderMock(...a),
+  resolveEffectiveCallProvider: (...a: unknown[]) => resolveProviderMock(...a),
   resolveCallProvider: () => ({ supportsRecording: () => true }),
   resolveCallProviderOrder: vi.fn(),
 }));
@@ -112,16 +150,16 @@ vi.mock("../../../server/services/realtime/publish.js", () => ({
 import { callsRouter } from "../../../server/routes/calls";
 
 function findHandler(method: string, path: string) {
-  const layer = callsRouter.stack.find(
-    (l: any) => l.route?.path === path && l.route.methods[method],
+  const layer = (callsRouter.stack as unknown as RouteLayer[]).find(
+    (l) => l.route?.path === path && l.route.methods[method],
   );
   if (!layer) throw new Error(`route ${method} ${path} not found`);
-  const stk = (layer as any).route.stack;
+  const stk = layer.route!.stack;
   return stk[stk.length - 1].handle;
 }
 
-function makeReqRes(body: any) {
-  const req: any = {
+function makeReqRes(body: unknown) {
+  const req: MockReq = {
     params: { id: "call-1" },
     query: {},
     body,
@@ -130,10 +168,10 @@ function makeReqRes(body: any) {
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: MockJsonBody | undefined;
+  const res: MockRes = {
     status(c: number) { statusCode = c; return res; },
-    json(b: any) { jsonBody = b; return res; },
+    json(b: MockJsonBody) { jsonBody = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, jsonBody }) };
 }
@@ -143,7 +181,7 @@ const fullEff = {
   visitor_voice_enabled: true, visitor_video_enabled: true,
   recording_enabled: true, queue_enabled: true,
   callbacks_enabled: true, call_center_enabled: true,
-  plan: {} as any, runtime: {} as any,
+  plan: {} as Record<string, unknown>, runtime: {} as Record<string, unknown>,
 };
 
 const WS = "11111111-1111-1111-1111-111111111111";

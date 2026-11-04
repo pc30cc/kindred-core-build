@@ -334,6 +334,27 @@ export const stripeProvider: BillingProviderHandler = {
       };
     }
 
+    // A dispute the customer won (closed as `lost` for us) takes the money
+    // back like a refund, keyed by the dispute, as Paddle's chargeback and
+    // PayPal's PAYMENT.CAPTURE.REVERSED do (docs/billing/SIMPLE_BILLING.md).
+    // Every other dispute event (opened, funds withdrawn while it runs, won)
+    // changes nothing here: the credit stays until the dispute is lost.
+    if (eventType.startsWith('charge.dispute.')) {
+      const disputeId = readStripeId(obj?.id);
+      if (eventType === 'charge.dispute.closed' && obj?.status === 'lost' && disputeId) {
+        return {
+          ...base,
+          type: 'refund_processed',
+          // Payments are recorded under their PaymentIntent id; the dispute names it.
+          providerPaymentId: readStripeId(obj?.payment_intent) || readStripeId(obj?.charge),
+          refundId: `dispute:${disputeId}`,
+          amount: minorFromProvider(obj?.amount),
+          chargeback: true,
+        };
+      }
+      return { ...base, type: 'ignored' };
+    }
+
     // Subscription-mode objects: legacy, this platform no longer creates them.
     const legacyMap: Record<string, WebhookEvent['type']> = {
       'invoice.paid': 'invoice_paid',

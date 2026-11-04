@@ -186,12 +186,26 @@ function subToken(sub: string, channel: string): string {
   });
 }
 
+/** A reply frame of the Centrifugo v5 JSON protocol, as far as these checks read it. */
+interface Reply {
+  id?: number;
+  error?: { code?: number; message?: string };
+  connect?: Record<string, unknown>;
+  subscribe?: { recoverable?: boolean } & Record<string, unknown>;
+  push?: { channel: string; pub?: { data?: Publication['data'] } };
+}
+
+interface Publication {
+  channel: string;
+  data?: { nonce?: number } & Record<string, unknown>;
+}
+
 /** Minimal Centrifugo v5 JSON-protocol client (no SDK needed). */
 class RawClient {
   private ws: WebSocket;
   private nextId = 1;
-  private pending = new Map<number, (v: any) => void>();
-  readonly publications: any[] = [];
+  private pending = new Map<number, (v: Reply) => void>();
+  readonly publications: Publication[] = [];
 
   constructor(private readonly port: number) {
     this.ws = new WebSocket(`ws://127.0.0.1:${port}/connection/websocket`);
@@ -205,7 +219,7 @@ class RawClient {
     this.ws.on('message', (raw) => {
       for (const line of String(raw).split('\n')) {
         if (!line.trim()) continue;
-        let msg: any;
+        let msg: Reply;
         try {
           msg = JSON.parse(line);
         } catch {
@@ -221,7 +235,7 @@ class RawClient {
     });
   }
 
-  private send(payload: Record<string, unknown>): Promise<any> {
+  private send(payload: Record<string, unknown>): Promise<Reply> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`timeout on ${JSON.stringify(payload)}`)), 8000);
@@ -308,7 +322,7 @@ async function main() {
   );
   const payload = { kind: 'integration', nonce: Date.now() };
   const pub = await d1.publish(convChannel, payload);
-  let received: any = null;
+  let received: Publication | null = null;
   for (let i = 0; i < 40 && !received; i += 1) {
     await sleep(100);
     received = subscriber.publications.find((p) => p.data?.nonce === payload.nonce) ?? null;
@@ -328,7 +342,7 @@ async function main() {
   const outsider = new RawClient(8001);
   await outsider.open();
   await outsider.connect(connToken('visitor-of-another-workspace'));
-  const refused = (r: any) => !!r?.error;
+  const refused = (r: { error?: unknown } | undefined) => !!r?.error;
   const outsiderHistory = await outsider.history(convChannel);
   const outsiderPresence = await outsider.presence(convChannel);
   const subscriberHistory = await subscriber.history(convChannel);
@@ -394,9 +408,9 @@ async function main() {
 
   // A visitor must never be able to read presence itself — the namespace
   // forbids it, so shard-mates (and everyone else) stay unobservable.
-  const clientPresence: any = await vpClient
+  const clientPresence: Reply = await vpClient
     .presence(vpChannel)
-    .catch((e: any) => ({ error: { message: String(e?.message || e) } }));
+    .catch((e: unknown) => ({ error: { message: String((e as Error)?.message || e) } }));
   record(
     'visitor_cannot_read_presence',
     !!clientPresence?.error,
@@ -484,7 +498,7 @@ async function main() {
   await recoverSub.subscribe(recoveredChannel, subToken('visitor-2', recoveredChannel));
   const nonce2 = Date.now();
   const pub2 = await d1.publish(recoveredChannel, { kind: 'recovery', nonce: nonce2 });
-  let got2: any = null;
+  let got2: Publication | null = null;
   for (let i = 0; i < 50 && !got2; i += 1) {
     await sleep(100);
     got2 = recoverSub.publications.find((p) => p.data?.nonce === nonce2) ?? null;

@@ -385,11 +385,25 @@ describe('WidgetLivePreview — the effective template', () => {
 
   it('the parent maps a frame navigation to its view (list = Messages)', () => {
     const onViewChange = vi.fn();
-    render(<WidgetLivePreview settings={{ widget_language: 'en' }} brandName="Acme" view="home" onViewChange={onViewChange} />);
+    const { container } = render(<WidgetLivePreview settings={{ widget_language: 'en' }} brandName="Acme" view="home" onViewChange={onViewChange} />);
+    const frame = container.querySelector('iframe')!.contentWindow;
     for (const [nav, view] of [['list', 'list'], ['help', 'kb'], ['home', 'home'], ['chat', 'chat']] as const) {
-      window.dispatchEvent(new MessageEvent('message', { data: { source: 'gs-widget-preview', nav } }));
+      window.dispatchEvent(new MessageEvent('message', { data: { source: 'gs-widget-preview', nav }, source: frame }));
       expect(onViewChange).toHaveBeenLastCalledWith(view);
     }
+  });
+
+  it('the parent ignores a navigation that does not come from its own frame', () => {
+    const onViewChange = vi.fn();
+    render(<WidgetLivePreview settings={{ widget_language: 'en' }} brandName="Acme" view="home" onViewChange={onViewChange} />);
+    // No sender, the panel's own window, another frame: all refused, whatever the payload says.
+    const other = document.createElement('iframe');
+    document.body.appendChild(other);
+    for (const source of [null, window, other.contentWindow]) {
+      window.dispatchEvent(new MessageEvent('message', { data: { source: 'gs-widget-preview', nav: 'chat' }, source }));
+    }
+    expect(onViewChange).not.toHaveBeenCalled();
+    other.remove();
   });
 });
 

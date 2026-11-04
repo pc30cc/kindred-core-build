@@ -104,7 +104,8 @@ function missingError(table: string) {
 export function fakeServiceClient(db: FakeServiceDb) {
   function builder(table: string) {
     const filters: Array<(r: Row) => boolean> = [];
-    let sort: { col: string; asc: boolean } | null = null;
+    /** Successive `.order()` calls: the first decides, the next ones break its ties. */
+    const sorts: Array<{ col: string; asc: boolean }> = [];
     let max = Infinity;
     let skip = 0;
     let head = false;
@@ -120,9 +121,14 @@ export function fakeServiceClient(db: FakeServiceDb) {
       : db.failing.has(table) ? { code: 'XX000', message: `${table} unavailable`, details: null } : null);
     const matching = () => {
       let rows = (db.tables[table] || []).filter((r) => filters.every((f) => f(r)));
-      if (sort) {
-        const { col, asc } = sort;
-        rows = rows.slice().sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
+      if (sorts.length) {
+        rows = rows.slice().sort((a, b) => {
+          for (const { col, asc } of sorts) {
+            const d = String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0;
+            if (d) return d * (asc ? 1 : -1);
+          }
+          return 0;
+        });
       }
       return rows.slice(skip, skip + max);
     };
@@ -217,7 +223,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
         return b;
       },
       or: (expr: string) => { if (db.honourOr) filters.push(orFilter(String(expr || ''))); return b; },
-      order: (col: string, opts?: { ascending?: boolean }) => { sort = { col, asc: opts?.ascending !== false }; return b; },
+      order: (col: string, opts?: { ascending?: boolean }) => { sorts.push({ col, asc: opts?.ascending !== false }); return b; },
       limit: (n: number) => { max = n; return b; },
       range: (from: number, to: number) => { skip = from; max = to - from + 1; return b; },
       insert: (rows: Row | Row[]) => { mode = 'insert'; payload = Array.isArray(rows) ? rows : [rows]; return b; },

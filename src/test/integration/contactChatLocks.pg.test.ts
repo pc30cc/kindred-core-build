@@ -302,6 +302,14 @@ suite('contacts, chats and widget over the plan (phase 4)', () => {
     expect(Number(used.n)).toBe(1);
     const avail = await (await import('../../../server/services/widget/availability.js')).resolveConversationQuotaFull(config, ws);
     expect(avail).toBe(true);
+    // The form, like a first message, needs the workspace's widget switched on
+    // (audit widgetapi, #405).
+    await q(`INSERT INTO public.widget_settings (workspace_id, enabled) VALUES ($1, true)
+             ON CONFLICT (workspace_id) DO UPDATE SET enabled = true`, [ws]);
+    // A direct SQL write publishes no widget invalidation (the settings API
+    // does), and the inbox reads above already cached this workspace's widget
+    // snapshot without a widget_settings row.
+    (await import('../../../server/services/widget/configSnapshot.js')).__resetWidgetConfigCachesForTests();
     const res = await request(app).post('/api/widget/offline-messages')
       .send({ workspace_id: ws, message: 'Please call me back', email: 'new@example.com', name: 'Nia' });
     expect(res.status).toBe(200);
@@ -309,12 +317,6 @@ suite('contacts, chats and widget over the plan (phase 4)', () => {
     const row = await one(`SELECT tags FROM public.conversations WHERE id = $1`, [res.body.conversation_id]);
     expect(row.tags).toEqual(['offline', 'over_quota']);
     // A first message over the quota is still refused (the form takes it).
-    await q(`INSERT INTO public.widget_settings (workspace_id, enabled) VALUES ($1, true)
-             ON CONFLICT (workspace_id) DO UPDATE SET enabled = true`, [ws]);
-    // A direct SQL write publishes no widget invalidation (the settings API
-    // does), and the inbox reads above already cached this workspace's widget
-    // snapshot without a widget_settings row.
-    (await import('../../../server/services/widget/configSnapshot.js')).__resetWidgetConfigCachesForTests();
     const cfg = await request(app).get('/api/widget/config').query({ workspace_id: ws });
     expect(cfg.status).toBe(200);
     expect(cfg.body.availability.quota_full).toBe(true);

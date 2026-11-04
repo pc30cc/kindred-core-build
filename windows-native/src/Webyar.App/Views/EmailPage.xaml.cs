@@ -441,16 +441,22 @@ public sealed partial class EmailPage : Page
             Body.CoreWebView2.Settings.IsScriptEnabled = false;
             Body.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             Body.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            // Links open in the browser, never inside the app.
+            // A mail is never granted anything (camera, microphone, location, notifications…).
+            Body.CoreWebView2.PermissionRequested += (w, a) => a.State = Microsoft.Web.WebView2.Core.CoreWebView2PermissionState.Deny;
+            // Links open in the browser, never inside the app, and only the ones
+            // the operator clicked: a mail's own navigation (a meta refresh, a
+            // redirect) is cancelled and goes nowhere.
             Body.CoreWebView2.NewWindowRequested += (w, a) =>
             {
                 a.Handled = true;
+                if (!a.IsUserInitiated) return;
                 if (Uri.TryCreate(a.Uri, UriKind.Absolute, out var u) && u.Scheme is "https" or "http" or "mailto") _ = Launcher.LaunchUriAsync(u);
             };
             Body.CoreWebView2.NavigationStarting += (w, a) =>
             {
                 if (a.Uri.StartsWith("data:", StringComparison.Ordinal) || a.Uri.StartsWith("about:", StringComparison.Ordinal)) return;
                 a.Cancel = true;
+                if (!a.IsUserInitiated) return;
                 if (Uri.TryCreate(a.Uri, UriKind.Absolute, out var u) && u.Scheme is "https" or "http" or "mailto") _ = Launcher.LaunchUriAsync(u);
             };
             _webReady = true;
@@ -546,7 +552,7 @@ public sealed partial class EmailPage : Page
     private static void AppendBody(StringBuilder sb, EmailMessageView m, Strings s)
     {
         sb.Append("<div class=\"b\" dir=\"auto\">");
-        if (!string.IsNullOrWhiteSpace(m.HtmlBody)) sb.Append(m.HtmlBody);
+        if (!string.IsNullOrWhiteSpace(m.HtmlBody)) sb.Append(MailHtml.Sanitize(m.HtmlBody));
         else sb.Append("<pre>").Append(WebUtility.HtmlEncode(m.TextBody ?? m.Snippet ?? string.Empty)).Append("</pre>");
         sb.Append("</div>");
         if (m.Attachments is { Count: > 0 } files)
@@ -619,16 +625,12 @@ public sealed partial class EmailPage : Page
             var sameHost = string.Equals(target.Host, origin.Host, StringComparison.OrdinalIgnoreCase);
             if (sameHost && target.AbsolutePath.StartsWith("/api/", StringComparison.Ordinal))
             {
-                // Our own API needs the session: fetch it here, then open the file with its app.
+                // Our own API needs the session: fetch it here, then open it the way
+                // every other attachment is opened (only passive types, with the
+                // Mark of the Web; anything that could run code is offered "Save as").
                 var data = await Host.Client.GetBytesAsync(target.PathAndQuery);
-                var dir = Path.Combine(Path.GetTempPath(), Webyar.Core.Config.Brand.ExeName, "mail", string.Join("_", a.Id.Split(Path.GetInvalidFileNameChars())));
-                Directory.CreateDirectory(dir);
-                var name = string.Join("_", a.FileName.Split(Path.GetInvalidFileNameChars()));
-                if (!Path.HasExtension(name) && a.ContentType is { Length: > 0 } type) name += Mime.Extension(type);
-                var path = Path.Combine(dir, name);
-                await File.WriteAllBytesAsync(path, data);
-                var stored = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-                await Launcher.LaunchFileAsync(stored);
+                if (await OpenedFiles.OpenAsync("mail_" + a.Id, a.FileName, a.ContentType ?? string.Empty, data) == OpenedFiles.Outcome.Saved)
+                    ShowNotice(OpenedFiles.SavedInsteadMessage(Host.Strings), InfoBarSeverity.Informational);
             }
             else if (target.Scheme is "https" or "http")
             {

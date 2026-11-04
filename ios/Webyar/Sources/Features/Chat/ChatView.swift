@@ -331,6 +331,9 @@ struct ChatView: View {
                     set: { if !$0 { model.dismissSendError() } }
                 )
             ) {
+                if model.failedAttachment != nil {
+                    Button(Str.retry(language)) { model.retryFailedAttachment(appState: appState) }
+                }
                 Button(Str.cancel(language), role: .cancel) { model.dismissSendError() }
             } message: {
                 Text(Str.offlineBody(language))

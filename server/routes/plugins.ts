@@ -46,6 +46,7 @@ import {
 } from '../services/channels/gmail/oauth.js';
 import { isGmailError } from '../services/channels/gmail/types.js';
 import { getGmailPlatformEnvStatus } from '../services/channels/gmail/oauthConfig.js';
+import { readMailOAuthState } from '../services/channels/mailOAuthState.js';
 import { getYahooPlatformEnvStatus } from '../services/channels/yahoo/oauthConfig.js';
 import {
   startYahooOAuth,
@@ -1298,21 +1299,44 @@ pluginsRouter.get('/gmail/oauth/callback', async (req, res) => {
     console.error(`[gmail] oauth callback without code/state: ${reason}${typeof req.query.error_description === 'string' ? ` (${req.query.error_description.slice(0, 300)})` : ''}`);
     return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=${encodeURIComponent(reason)}`);
   }
+  // The connect is finished by the panel, with the signed-in member's own
+  // session (POST /gmail/oauth/complete below): this unauthenticated
+  // callback only hands the code on. Bound to nobody, a state let anyone who
+  // started a connect send the consent link to someone else and connect
+  // THEIR mailbox to the starter's workspace (services/channels/mailOAuthState.ts).
+  const pending = await readMailOAuthState(config, 'gmail', state).catch(() => null);
+  if (!pending) {
+    console.error('[gmail] oauth callback with an unknown, used or expired state');
+    return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=gmail_invalid_state`);
+  }
+  const sb = getServiceClient(config);
+  const { data: ws } = await sb.from('workspaces').select('slug').eq('id', pending.workspace_id).maybeSingle();
+  const slug = (ws as { slug?: string } | null)?.slug;
+  const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
+  const params = new URLSearchParams({ mail_oauth: 'gmail', state, code });
+  return res.redirect(`${base}/email?${params.toString()}`);
+});
+
+/**
+ * Finishes a Gmail connect from the panel, as the signed-in member who started
+ * it (the state's `initiated_by`), in the workspace the state names.
+ */
+pluginsRouter.post('/gmail/oauth/complete', async (req, res) => {
+  const config = serverConfigOf(req);
+  const code = typeof req.body?.code === 'string' ? req.body.code : '';
+  const state = typeof req.body?.state === 'string' ? req.body.state : '';
+  if (!code || !state || code.length > 2048 || state.length > 512) return res.status(400).json({ error: 'missing_params' });
+  const pending = await readMailOAuthState(config, 'gmail', state).catch(() => null);
+  if (!pending) return res.status(401).json({ error: 'gmail_invalid_state' });
+  const auth = await requireManager(req, res, pending.workspace_id);
+  if (!auth) return;
   try {
-    const { workspaceId } = await handleGmailOAuthCallback(config, code, state);
-    const sb = getServiceClient(config);
-    const { data: ws } = await sb.from('workspaces').select('slug').eq('id', workspaceId).maybeSingle();
-    const slug = (ws as { slug?: string } | null)?.slug;
-    const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
-    return res.redirect(`${base}/email?gmail=connected`);
+    const { workspaceId } = await handleGmailOAuthCallback(config, code, state, auth.userId);
+    res.json({ ok: true, workspace_id: workspaceId });
   } catch (err) {
-    const code2 = isGmailError(err) ? err.code : 'gmail_unexpected_error';
-    // The redirect only ever carries the normalized code (never a credential
-    // or raw provider payload — see channels/mail/gmail/client.ts's file
-    // header), so this is the ONLY place an operator can see WHY a
-    // connection attempt failed instead of the user's generic toast.
-    console.error(`[gmail] oauth callback failed: ${code2}${isGmailError(err) ? '' : ` (${(err as Error)?.message || 'no message'})`}`);
-    return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=${encodeURIComponent(code2)}`);
+    // Only the normalized code reaches the panel; the reason stays in the log.
+    console.error(`[gmail] oauth completion failed: ${isGmailError(err) ? err.code : (err as Error)?.message || 'no message'}`);
+    sendGmailError(res, err);
   }
 });
 
@@ -1402,17 +1426,44 @@ pluginsRouter.get('/yahoo/oauth/callback', async (req, res) => {
     console.error(`[yahoo] oauth callback without code/state: ${reason}${typeof req.query.error_description === 'string' ? ` (${req.query.error_description.slice(0, 300)})` : ''}`);
     return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=${encodeURIComponent(reason)}`);
   }
+  // The connect is finished by the panel, with the signed-in member's own
+  // session (POST /yahoo/oauth/complete below): this unauthenticated
+  // callback only hands the code on. Bound to nobody, a state let anyone who
+  // started a connect send the consent link to someone else and connect
+  // THEIR mailbox to the starter's workspace (services/channels/mailOAuthState.ts).
+  const pending = await readMailOAuthState(config, 'yahoo', state).catch(() => null);
+  if (!pending) {
+    console.error('[yahoo] oauth callback with an unknown, used or expired state');
+    return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=yahoo_invalid_state`);
+  }
+  const sb = getServiceClient(config);
+  const { data: ws } = await sb.from('workspaces').select('slug').eq('id', pending.workspace_id).maybeSingle();
+  const slug = (ws as { slug?: string } | null)?.slug;
+  const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
+  const params = new URLSearchParams({ mail_oauth: 'yahoo', state, code });
+  return res.redirect(`${base}/email?${params.toString()}`);
+});
+
+/**
+ * Finishes a Yahoo connect from the panel, as the signed-in member who started
+ * it (the state's `initiated_by`), in the workspace the state names.
+ */
+pluginsRouter.post('/yahoo/oauth/complete', async (req, res) => {
+  const config = serverConfigOf(req);
+  const code = typeof req.body?.code === 'string' ? req.body.code : '';
+  const state = typeof req.body?.state === 'string' ? req.body.state : '';
+  if (!code || !state || code.length > 2048 || state.length > 512) return res.status(400).json({ error: 'missing_params' });
+  const pending = await readMailOAuthState(config, 'yahoo', state).catch(() => null);
+  if (!pending) return res.status(401).json({ error: 'yahoo_invalid_state' });
+  const auth = await requireManager(req, res, pending.workspace_id);
+  if (!auth) return;
   try {
-    const { workspaceId } = await handleYahooOAuthCallback(config, code, state);
-    const sb = getServiceClient(config);
-    const { data: ws } = await sb.from('workspaces').select('slug').eq('id', workspaceId).maybeSingle();
-    const slug = (ws as { slug?: string } | null)?.slug;
-    const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
-    return res.redirect(`${base}/email?yahoo=connected`);
+    const { workspaceId } = await handleYahooOAuthCallback(config, code, state, auth.userId);
+    res.json({ ok: true, workspace_id: workspaceId });
   } catch (err) {
-    const code2 = isYahooError(err) ? err.code : 'yahoo_unexpected_error';
-    console.error(`[yahoo] oauth callback failed: ${code2}${isYahooError(err) ? '' : ` (${(err as Error)?.message || 'no message'})`}`);
-    return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=${encodeURIComponent(code2)}`);
+    // Only the normalized code reaches the panel; the reason stays in the log.
+    console.error(`[yahoo] oauth completion failed: ${isYahooError(err) ? err.code : (err as Error)?.message || 'no message'}`);
+    sendYahooError(res, err);
   }
 });
 

@@ -32,10 +32,21 @@ only while unassigned).
   a handoff, an assignment, an email or a mention in a conversation (a
   colleague's direct message still reaches them), no conversation in the
   app icon's badge, no realtime conversation or inbox channel (403
-  `inbox_not_allowed`), and no unread digest email.
+  `inbox_not_allowed`), no contact's conversations
+  (`GET /api/contacts/:id/conversations`, 403 `inbox_not_allowed`; the
+  contact itself stays readable), and no unread digest email.
 - Supervisors (`owner`, `admin`, `team_lead`) see "All conversations" and may
   move anyone's chat. Everyone else may take an unassigned chat or transfer
-  their own.
+  their own. The list's `assigned_to_me` takes the caller's own id; a
+  colleague's is for supervisors only (403 `assignment_scope_not_allowed`).
+- A thread (`GET /api/conversations/:id/messages`) answers its newest 1000
+  messages (fewer when `DATABASE_MAX_ROWS` is lower), in thread order, with
+  `older: { before, before_id }` while there are earlier ones; the same
+  route with `?before=…&before_id=…` reads the page before. The notes and
+  the timeline keep the plan's retention lock (403 `conversation_locked`;
+  deleting a note stays allowed). "Delete all conversations" deletes every
+  one in batches, with its notes and timeline, and cancels the channel
+  replies still waiting to be sent (`channel_jobs`, `conversation_deleted`).
 - A suspended, seat-paused or removed member is never routed a chat. When a
   member is removed, suspended or moved to a role without the Inbox, their
   open chats are released (278b); those active in the last 24 hours are

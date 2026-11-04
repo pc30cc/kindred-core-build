@@ -197,10 +197,14 @@ export async function getGlobalDefaultProvider(
     // its credentials live in the canonical billing_provider_credentials store.
     if (type === 'billing') {
       try {
-        const credentials = await apiFetch<{ config: Record<string, unknown> }>(
+        // Like every other provider screen, the gateway's credentials stay on
+        // the server: they are named in secretKeysSet (top-level fields of the
+        // config), shown as saved, and a save that leaves one blank keeps it.
+        const credentials = await apiFetch<{ config: Record<string, unknown>; secretKeysSet?: string[] }>(
           `/api/admin/billing/providers/${encodeURIComponent(pointer.provider_name)}`,
         );
-        return { provider_name: pointer.provider_name, config: credentials.config ?? {}, secretKeysSet: [] };
+        const gatewaySecrets = (credentials.secretKeysSet ?? []).filter((field) => !field.includes('.'));
+        return { provider_name: pointer.provider_name, config: credentials.config ?? {}, secretKeysSet: gatewaySecrets };
       } catch {
         return { provider_name: pointer.provider_name, config: {}, secretKeysSet: [] };
       }

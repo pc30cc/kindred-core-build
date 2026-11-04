@@ -56,11 +56,14 @@ x-centrifugo-env: &centrifugo-env
   CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-*}
   CENTRIFUGO_CLIENT_ANONYMOUS: "false"
   CENTRIFUGO_CLIENT_CHANNEL_LIMIT: "64"
+  # Client-side history and presence stay OFF in every namespace (see
+  # docker-compose.centrifugo.yml and
+  # src/test/realtime/centrifugoNamespaces.test.ts).
   CENTRIFUGO_NAMESPACES: >-
     [{"name":"ws","presence":true,"join_leave":true,"force_push_join_leave":false,
     "history_size":50,"history_ttl":"300s","force_recovery":true,
     "allow_subscribe_for_client":false,"allow_publish_for_client":false,
-    "allow_presence_for_client":true,"allow_history_for_client":true,
+    "allow_presence_for_client":false,"allow_history_for_client":false,
     "subscribe_for_anonymous":false},
     {"name":"vp","presence":true,"join_leave":false,"history_size":0,"allow_subscribe_for_client":false,"allow_publish_for_client":false,"allow_presence_for_client":false,"allow_history_for_client":false,"subscribe_for_anonymous":false}]
   CENTRIFUGO_WEBSOCKET_COMPRESSION: "true"

@@ -176,6 +176,28 @@ export async function seedPollLoop(sb: SupabaseClient, input: PollLoopJobInput):
   return enqueueChannelJob(sb, input);
 }
 
+/** Chat replies to a customer: the job types that carry a conversation_messages id. */
+export const CHAT_OUTBOUND_JOB_TYPES: readonly ChannelJobType[] = CHANNEL_JOB_TYPES.filter(
+  (type) => /_outbound_(message|media)$/.test(type) && type !== 'gmail_outbound_message' && type !== 'yahoo_outbound_message',
+);
+
+/**
+ * Cancels a workspace's chat replies still waiting to be sent. Called when its
+ * conversations are deleted: the messages they would deliver are gone, and a
+ * waiting reply used to reach the customer anyway (and, before the worker
+ * learnt that a deleted message is final, again every 30 s). A reply already
+ * in flight finishes; its report finds the row gone and ends there.
+ */
+export async function cancelWorkspaceChatReplies(sb: SupabaseClient, workspaceId: string): Promise<void> {
+  const { error } = await sb
+    .from('channel_jobs')
+    .update({ status: 'cancelled', last_error: 'conversation_deleted', updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'pending')
+    .in('job_type', [...CHAT_OUTBOUND_JOB_TYPES]);
+  if (error) throw new Error(`channel job cancel failed: ${error.message}`);
+}
+
 export async function claimChannelJobs(
   sb: SupabaseClient,
   workerId: string,

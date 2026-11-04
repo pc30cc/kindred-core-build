@@ -127,6 +127,8 @@ beforeEach(() => {
   state.db = createFakeServiceDb();
   state.db.now = () => new Date().toISOString();
   state.db.tables.workspace_members = [{ workspace_id: WS, user_id: SARA, role: 'owner' }];
+  // The widget and its chat on (POST /offline-messages checks them, as /message).
+  (state.db.tables.widget_settings ||= []).push({ workspace_id: WS, enabled: true, chat_enabled: true });
   state.db.tables.profiles = [{ id: SARA, email: 'owner@example.com' }];
   state.visitor = 'visitor-1';
   state.sent.length = 0;

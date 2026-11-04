@@ -9,7 +9,9 @@
  *     thread and sending (as if the other were not a member);
  *   - colleague calls: neither can ring the other;
  *   - the team list (GET /api/workspace-members) and the team's presence
- *     (GET /api/availability/team/:workspaceId), for the two of them only.
+ *     (GET /api/availability/team/:workspaceId), for the two of them only;
+ *   - the app icon's badge (push/recipients.ts): a hidden colleague's unread
+ *     lines are not counted, since the reader cannot open that thread.
  * Everyone else, the owner and admins included, still sees both. A pair
  * goes with either membership (ON DELETE CASCADE).
  *
@@ -68,4 +70,36 @@ export async function areHiddenFromEachOther(
 ): Promise<boolean> {
   if (!a || !b || a === b) return false;
   return (await hiddenMembersFor(config, workspaceId, a)).has(b);
+}
+
+/**
+ * For each of [workspaceIds], the members hidden from [userId] (both ways).
+ * Only workspaces where [userId] is in a pair are in the map, so it is empty
+ * for nearly everyone. One read for every workspace, for the app icon's
+ * badge (push/recipients.ts), which counts across a member's workspaces.
+ */
+export async function hiddenMembersByWorkspace(
+  config: ServerConfig,
+  workspaceIds: readonly string[],
+  userId: string,
+): Promise<Map<string, Set<string>>> {
+  const byWorkspace = new Map<string, Set<string>>();
+  const ids = [...new Set(workspaceIds.filter(Boolean))];
+  if (!ids.length || !userId) return byWorkspace;
+  const { data, error } = await getServiceClient(config)
+    .from(TABLE)
+    .select('workspace_id, user_a, user_b')
+    .in('workspace_id', ids);
+  if (error) {
+    if (isMissingTable(error)) return byWorkspace;
+    throw new Error(`team_visibility_read_failed: ${(error as { message?: string }).message ?? 'unknown'}`);
+  }
+  for (const row of (data ?? []) as Array<PairRow & { workspace_id: string }>) {
+    const other = row.user_a === userId ? row.user_b : row.user_b === userId ? row.user_a : null;
+    if (!other || !row.workspace_id) continue;
+    const set = byWorkspace.get(row.workspace_id) ?? new Set<string>();
+    set.add(other);
+    byWorkspace.set(row.workspace_id, set);
+  }
+  return byWorkspace;
 }

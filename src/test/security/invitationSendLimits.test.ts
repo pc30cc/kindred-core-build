@@ -39,7 +39,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeServiceClient(state.db) }));
-vi.mock('../../../server/lib/workspaceAuth.js', () => ({ requireUser: async () => state.user }));
+// The quotas are what this file is about; every actor here is an active admin
+// (the management gate itself: src/test/security/workspaceActorSuspension.test.ts).
+vi.mock('../../../server/lib/workspaceAuth.js', () => ({
+  requireUser: async () => state.user,
+  authorizeWorkspaceAccessFor: async (_req: unknown, _res: unknown, userId: string) => ({ userId, isAdmin: false, role: 'admin' }),
+}));
 vi.mock('../../../server/services/auth/sessions.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/auth/sessions.js')>()),
   verifyOriginForMutation: () => true,

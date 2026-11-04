@@ -399,6 +399,37 @@ Both last seconds and fix themselves on a reload:
 - Visible at merge for every customer, with no setting changed: the new design; stored `bottom-left` rows on the left;
   WebYar's footer drawn as designed; WebYar English launchers in InterWY.
 
+## Call state guards (audit 2026-11-04)
+
+The server side of the widget's calls, as it stands after the audit (no widget, console or app change; the answers
+below are ones the shipped clients already handle):
+
+- A call that is over (`ended`, `missed`, `cancelled`, `failed`) never moves again (`server/services/calls/
+  callStateGuards.ts`; migration 298 holds the same line in the database). A visitor keeping their join token can no
+  longer bring an ended call back: LiveKit's `room_started` for it closes the room instead of making the call `active`,
+  and its `room_finished` does not end (and bill) it a second time. Every end (`/end`, `/reject`, the visitor's
+  cancel, `room_finished`, `endCallSession`) is a compare-and-set from a live state.
+- A call nobody answered is `missed` when its queue entry expires or is missed, and the queue ticker misses any
+  call-centre call left `pending` for an hour (`queue.ts sweepStalePendingCalls`; after the deploy this also closes the
+  old ones). Before, they stayed `pending` for ever, counted in `max_concurrent_calls` and resumed the visitor into a
+  dead call. The widget's status then reads `missed`, which it treats as over.
+- The visitor's cancel is a compare-and-set: it closes the room and frees the operator; a second cancel (another tab)
+  answers `{ ok: true, already: true }` and moves nothing.
+- `POST /calls/request` has limits of its own (`server/services/calls/callRequestLimiter.ts`): per visitor, no new call
+  within 3 s of the last and at most 10 an hour; per address, 8 in ten minutes and 30 an hour; past them `429
+  too_many_call_requests` with `retry_after` (the widget shows its "failed to start" sentence). A visitor's new call
+  rings the phones at most once a minute (request → cancel → request queues the call, the console shows it, the phones
+  ring once). A resumed call is not counted.
+- The console's accept claims the call (a compare-and-set on the operator it was read with) before any token is
+  minted: of two operators accepting at once, one gets it, the other `409 call_already_accepted`. `/assign` and
+  `/transfer` of a call another operator holds need an elevated role, as a takeover does.
+- `/api/calls/:id/*` on a call-centre call follows the console's rule (`services/callCenter/callOwnership.ts`): an
+  operator role, and the call held by the caller (or offered to them, or an elevated role). `/token` is always the
+  caller's own: `participant_id` is ignored, `participant_type: 'visitor'` is refused (`403 visitor_token_not_allowed`),
+  and a call that is over answers `409 call_not_active`. `/recording/stop` stops only an egress of that call.
+- `call_center_agent_presence.active_call_count` is set from the call-centre calls the operator holds (ringing,
+  connecting, active) on every accept, end, reject, cancel, transfer and `room_finished`, instead of counted up and down.
+
 ## Reported to the owner (decided here, reversible later)
 
 DM Mono for Respok's reference code (a 1,780 B subset would give the exact glyphs on one element of one screen); the

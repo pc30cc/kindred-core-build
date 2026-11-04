@@ -13,6 +13,7 @@ import {
   resolveStorageConfig,
   type StorageConfig,
 } from '../services/storage/index.js';
+import { isFolderLikeKey } from '../services/storage/keys.js';
 import { logSecurityEvent } from '../middleware/security.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
@@ -88,6 +89,8 @@ function workspaceKeyError(workspaceId: string, fileKey: unknown): string | null
   if (!fileKey.startsWith(`workspace/${workspaceId}/`)) {
     return 'File key must be scoped to the workspace';
   }
+  // One file, never a folder: Bunny deletes `workspace/<id>/` recursively.
+  if (isFolderLikeKey(fileKey)) return 'File key must name a file, not a folder';
   return null;
 }
 

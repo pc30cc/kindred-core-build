@@ -29,8 +29,11 @@ export const INTERNAL_SECRET_HEADER = 'x-core-internal-secret';
 
 export function constantTimeEquals(a: string | null | undefined, b: string | null | undefined): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+  // Byte lengths, not string lengths: a non-ASCII header of the same
+  // character length would hand timingSafeEqual unequal buffers (it throws).
+  const left = Buffer.from(a, 'utf8');
+  const right = Buffer.from(b, 'utf8');
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 function bearerOf(header: unknown): string | null {
@@ -51,7 +54,11 @@ export function internalSecretFingerprint(secret: string | null | undefined): st
 }
 
 /** Reads the presented secret from either accepted transport. */
-export function presentedInternalSecret(req: any): string | null {
+/** The request fields the guard reads (an Express request satisfies it). */
+type InternalRequest = { headers?: Record<string, unknown>; serverConfig?: ServerConfig };
+type InternalResponse = { status(code: number): { json(body: unknown): unknown } };
+
+export function presentedInternalSecret(req: InternalRequest | null | undefined): string | null {
   const direct = req?.headers?.[INTERNAL_SECRET_HEADER];
   if (typeof direct === 'string' && direct.trim()) return direct.trim();
   return bearerOf(req?.headers?.authorization);
@@ -64,8 +71,8 @@ export type InternalAuthFailure = 'not_configured' | 'missing_credential' | 'sec
  * Writes the response and returns false otherwise — the body names WHICH of
  * the three failure modes occurred, but never any part of either secret.
  */
-export function requireInternalService(req: any, res: any): boolean {
-  const config = (req as any).serverConfig as ServerConfig | undefined;
+export function requireInternalService(req: object, res: InternalResponse): boolean {
+  const config = (req as InternalRequest).serverConfig;
   const expected = config?.coreInternalSecret;
 
   if (!expected) {
@@ -77,7 +84,7 @@ export function requireInternalService(req: any, res: any): boolean {
     return false;
   }
 
-  const presented = presentedInternalSecret(req);
+  const presented = presentedInternalSecret(req as InternalRequest);
   if (!presented) {
     // No credential arrived at all — almost always a proxy stripping headers,
     // NOT a wrong value. Saying so saves hours of misdirected debugging.

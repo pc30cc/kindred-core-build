@@ -11,7 +11,44 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const state: { effective: any; sessionCallType: "audio" | "video" } = {
+/** Minimal stand-ins for the Express objects the handler touches. */
+interface MockReq {
+  body: unknown;
+  params: Record<string, string>;
+  query: Record<string, string>;
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+  serverConfig: { supabaseUrl: string; supabaseServiceRoleKey: string };
+}
+type MockJsonBody = Record<string, unknown> & {
+  error?: unknown;
+  capability?: unknown;
+  invitation?: { id?: unknown } | null;
+};
+interface MockRes {
+  status(code: number): MockRes;
+  json(body: MockJsonBody): MockRes;
+}
+type Handler = (req: MockReq, res: MockRes, next: () => void) => Promise<unknown> | unknown;
+interface RouteLayer {
+  route?: {
+    path?: string;
+    methods: Record<string, boolean>;
+    stack: Array<{ handle: Handler }>;
+  };
+}
+
+interface Chain {
+  _row: Record<string, unknown>;
+  select(): Chain;
+  eq(): Chain;
+  in(): Chain;
+  maybeSingle(): Promise<{ data: Record<string, unknown>; error: null }>;
+  insert(row: unknown): { error: null };
+  update(): Chain;
+}
+
+const state: { effective: Record<string, unknown> | null; sessionCallType: "audio" | "video" } = {
   effective: null,
   sessionCallType: "audio",
 };
@@ -20,15 +57,17 @@ vi.mock("../../../server/services/calls/entitlementComposer.js", () => ({
   loadEffectiveCallEntitlements: async () => state.effective,
 }));
 
-const inserted: any[] = [];
-const sbMock: any = {
+const inserted: Array<{ _t: string; row: unknown }> = [];
+const sbMock = {
   auth: { getUser: async () => ({ data: { user: { id: "u-1" } }, error: null }) },
   rpc: async (name: string) => {
     if (name === "is_workspace_member") return { data: true, error: null };
+    // The member operates calls (calls.ts asks the role since calls-3).
+    if (name === "get_workspace_role") return { data: "agent", error: null };
     return { data: null, error: null };
   },
   from(_t: string) {
-    const chain: any = {
+    const chain: Chain = {
       _row: {
         id: "call-1",
         workspace_id: "11111111-1111-1111-1111-111111111111",
@@ -41,8 +80,9 @@ const sbMock: any = {
       },
       select() { return chain; },
       eq() { return chain; },
+      in() { return chain; },
       maybeSingle: async () => ({ data: chain._row, error: null }),
-      insert(row: any) { inserted.push({ _t, row }); return { error: null }; },
+      insert(row: unknown) { inserted.push({ _t, row }); return { error: null }; },
       update() { return chain; },
     };
     return chain;
@@ -77,26 +117,26 @@ vi.mock("../../../server/services/calls/providerResolver.js", () => ({
 import { callsRouter } from "../../../server/routes/calls";
 
 function findHandler(method: string, path: string) {
-  const layer = (callsRouter as any).stack.find(
-    (l: any) => l.route?.path === path && l.route.methods[method],
+  const layer = (callsRouter.stack as unknown as RouteLayer[]).find(
+    (l) => l.route?.path === path && l.route.methods[method],
   );
   if (!layer) throw new Error(`route ${method} ${path} not found`);
-  const stk = layer.route.stack;
+  const stk = layer.route!.stack;
   return stk[stk.length - 1].handle;
 }
 
-function makeReqRes(body: any) {
-  const req: any = {
+function makeReqRes(body: unknown) {
+  const req: MockReq = {
     params: { id: "call-1" },
     query: {}, body,
     headers: { authorization: "Bearer t" },
     cookies: { gs_session: "t" },
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
-  let statusCode: number | undefined; let jsonBody: any;
-  const res: any = {
+  let statusCode: number | undefined; let jsonBody: MockJsonBody | undefined;
+  const res: MockRes = {
     status(c: number) { statusCode = c; return res; },
-    json(b: any) { jsonBody = b; return res; },
+    json(b: MockJsonBody) { jsonBody = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, jsonBody }) };
 }
@@ -106,7 +146,7 @@ const fullEff = {
   visitor_voice_enabled: true, visitor_video_enabled: true,
   recording_enabled: true, queue_enabled: true,
   callbacks_enabled: true, call_center_enabled: true,
-  plan: {} as any, runtime: {} as any,
+  plan: {} as Record<string, unknown>, runtime: {} as Record<string, unknown>,
 };
 
 describe("POST /api/calls/:id/invite — route-shape split + selective gating", () => {

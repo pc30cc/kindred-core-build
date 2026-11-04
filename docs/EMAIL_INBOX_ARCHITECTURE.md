@@ -59,7 +59,12 @@ adaptive polling only while a client needs fresh data, and follow rules 2–8.
 Flow:
 
 1. **Connect:** OAuth stores the refresh token and starts `users.watch`
-   (`INBOX`). Nothing is imported.
+   (`INBOX`). Nothing is imported. The provider's callback exchanges
+   nothing: it hands the code and state to the panel (`/email?mail_oauth=`),
+   which finishes with the signed-in member's session
+   (`POST /api/plugins/{gmail,yahoo}/oauth/complete`), and only the member
+   who started the connect can (`server/services/channels/mailOAuthState.ts`;
+   a consent link sent to someone else connects nothing).
 2. **List:** `threads.list` (25 per page) + `threads.get?format=metadata` per
    row. The response carries `nextPageToken` and a `historyId` cursor.
 3. **Open:** `threads.get?format=full` (drafts are left out). Attachments are

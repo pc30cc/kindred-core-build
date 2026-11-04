@@ -127,7 +127,7 @@ final class ColleaguesModel {
         requests?.cancelNow()
         requests = nil
         if app.visibleColleagueId == peer?.userId { app.visibleColleagueId = nil }
-        if recorder.isRecording { recorder.cancel() }
+        recorder.cancel()
     }
 
     func stop() {
@@ -236,7 +236,7 @@ final class ColleaguesModel {
         newestServerAt = nil
         pendingFile = files.removeValue(forKey: id)
         draft = drafts[id] ?? ""
-        if recorder.isRecording { recorder.cancel() }
+        recorder.cancel()
         startThread(id)
     }
 

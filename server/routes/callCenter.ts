@@ -52,7 +52,7 @@ import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
   getAgentPresence, updateMyAgentPresence, type PresenceStatus,
-  incrementAgentActiveCallCount, decrementAgentActiveCallCount,
+  incrementAgentActiveCallCount,
   DepartmentException,
 } from '../services/callCenter/departments.js';
 import {
@@ -62,6 +62,19 @@ import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspace
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { cancelRing } from '../services/push/callRing.js';
+import type { CallProviderId, ParticipantTokenResult } from '../services/calls/providers/types.js';
+import {
+  OPERATOR_ROLES,
+  canOperateCall,
+  getWorkspaceRole,
+  isHttpStatusError,
+  type OwnershipDecision,
+} from '../services/callCenter/callOwnership.js';
+import {
+  LIVE_CALL_STATES,
+  isTerminalCallState,
+  syncAgentActiveCallCount,
+} from '../services/calls/callStateGuards.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
 import { flagContactAsSpam, clearContactSpamFlag } from '../services/spam/state.js';
 import {
@@ -205,85 +218,8 @@ async function requireWorkspaceAdmin(req: Request, res: Response, workspaceId: s
   return ctx;
 }
 
-// Roles allowed to operate calls (accept/reject/end/availability).
-// Viewer/analyst/billing/seo/marketing are explicitly denied.
-const OPERATOR_ROLES = new Set([
-  'owner', 'admin', 'agent', 'support_agent', 'team_lead',
-]);
-
-// Roles allowed to take over / force-end a call already assigned to another
-// operator. Keep this strictly conservative.
-const ELEVATED_CALL_ROLES = new Set(['owner', 'admin', 'team_lead']);
-
-async function getWorkspaceRole(
-  config: ServerConfig, workspaceId: string, userId: string,
-): Promise<string | null> {
-  const sb = getServiceClient(config);
-  const { data } = await sb.rpc('get_workspace_role', {
-    _workspace_id: workspaceId, _user_id: userId,
-  });
-  return data ? String(data) : null;
-}
-
-/**
- * Decide whether the current user can perform a call action on a standalone
- * call. Returns the resolved role and whether this is an elevated takeover.
- * Throws an HTTP-shaped error code that callers translate into a response.
- */
-type CallAction = 'accept' | 'reject' | 'end';
-interface OwnershipDecision {
-  role: string | null;
-  isElevated: boolean;
-  isAssignedToMe: boolean;
-  isTakeover: boolean;
-}
-interface HttpStatusError extends Error {
-  httpStatus: number;
-}
-function isHttpStatusError(e: unknown): e is HttpStatusError {
-  return e instanceof Error && typeof (e as { httpStatus?: unknown }).httpStatus === 'number';
-}
-function makeHttpStatusError(message: string, httpStatus: number): HttpStatusError {
-  const err = new Error(message) as HttpStatusError;
-  err.httpStatus = httpStatus;
-  return err;
-}
-
-async function canOperateCall(
-  config: ServerConfig,
-  workspaceId: string,
-  userId: string,
-  call: { assigned_agent_id?: string | null } | null | undefined,
-  action: CallAction,
-  queueRow?: { offered_to_user_id?: string | null } | null,
-): Promise<OwnershipDecision> {
-  const role = await getWorkspaceRole(config, workspaceId, userId);
-  const isElevated = !!role && ELEVATED_CALL_ROLES.has(role);
-  const assigned = (call?.assigned_agent_id as string | null) || null;
-  const isAssignedToMe = !!assigned && assigned === userId;
-
-  if (assigned && assigned !== userId) {
-    if (!isElevated) {
-      throw makeHttpStatusError('call_assigned_to_another_operator', 403);
-    }
-    return { role, isElevated, isAssignedToMe: false, isTakeover: true };
-  }
-
-  if (!assigned) {
-    if (action === 'accept') {
-      // Any operator may accept an unassigned call.
-      return { role, isElevated, isAssignedToMe: false, isTakeover: false };
-    }
-    // reject/end on an unassigned call: elevated, OR the user is the one
-    // currently being offered the call in the queue.
-    const offeredToMe = !!queueRow && queueRow.offered_to_user_id === userId;
-    if (!isElevated && !offeredToMe) {
-      throw makeHttpStatusError('operator_permission_required', 403);
-    }
-  }
-  return { role, isElevated, isAssignedToMe, isTakeover: false };
-}
-
+// Who may act on a call: one rule, shared with routes/calls.ts
+// (services/callCenter/callOwnership.ts).
 function sendOwnershipError(res: Response, e: unknown): boolean {
   if (isHttpStatusError(e)) {
     res.status(e.httpStatus).json({ error: e.message });
@@ -792,18 +728,28 @@ async function transitionCall(
   patch: Record<string, unknown>,
   eventType: 'call_accepted' | 'call_rejected' | 'call_ended',
   actorId: string,
-  opts: { expectedState?: string } = {},
+  opts: { expectedState?: string; expectedAssignedAgentId?: string | null } = {},
 ) {
   const sb = getServiceClient(config);
+  // A call moves only from a live state: one that is over (ended, missed,
+  // cancelled, failed) is never revived or ended a second time, which would
+  // bill its minutes again (callStateGuards.ts). When it has moved on (e.g.
+  // answered or ended meanwhile) nothing is written and no events fire; the
+  // caller sees `null`.
   let q = sb.from('call_sessions')
-    .update(patch).eq('id', callId).eq('workspace_id', wid);
-  // Optional guard: only transition if the call is still in this state.
-  // When it has moved on (e.g. answered meanwhile) nothing is written and
-  // no events fire; the caller sees `null`.
+    .update(patch).eq('id', callId).eq('workspace_id', wid)
+    .in('state', LIVE_CALL_STATES as unknown as string[]);
+  // Optional guards: only transition if the call is still in this state, or
+  // still held by this operator.
   if (opts.expectedState) q = q.eq('state', opts.expectedState);
+  if (opts.expectedAssignedAgentId !== undefined) {
+    q = opts.expectedAssignedAgentId === null
+      ? q.is('assigned_agent_id', null)
+      : q.eq('assigned_agent_id', opts.expectedAssignedAgentId);
+  }
   const { data: updated, error } = await q.select('*').maybeSingle();
   if (error) throw error;
-  if (opts.expectedState && !updated) return null;
+  if (!updated) return null;
   await sb.from('call_events').insert({
     call_session_id: callId, event_type: eventType, actor_type: 'operator', actor_id: actorId, payload: patch,
   });
@@ -945,7 +891,7 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     if (!callRaw) return res.status(404).json({ error: 'not_found' });
     const call = callRaw as CallSessionRow;
     const prevState = String(call.state || '');
-    if (['ended', 'cancelled', 'failed', 'missed'].includes(prevState)) {
+    if (isTerminalCallState(prevState)) {
       return res.status(409).json({ error: 'call_not_active' });
     }
     const { data: queueRowRaw } = await sb.from('call_queue_entries')
@@ -964,30 +910,70 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       previousAssigned === ctx.userId &&
       ['active', 'ringing', 'connecting'].includes(prevState);
 
-    // Resolve provider and create room if needed
-    const { id: providerId, provider } = await resolveEffectiveCallProvider(ctx.config, wid);
-    let providerRoomId = call.provider_room_id as string | null;
-    if (!providerRoomId) {
-      const room = await provider.createRoom(ctx.config, {
-        workspaceId: wid,
-        callSessionId: req.params.id,
-        callType: (call.call_type === 'video' ? 'video' : 'audio'),
-        maxParticipants: 4,
-        recordingEnabled: false,
-      });
-      providerRoomId = room.providerRoomId;
+    // Claim the call before anything is minted (audit 2026-11-04, calls-5):
+    // a compare-and-set on the operator it had when it was read, so of two
+    // operators accepting the same unassigned call at once (broadcast) one
+    // gets it and the other a 409, and nobody joins a call someone else
+    // took. A takeover claims it from the operator it was read with, and
+    // the call must still be live.
+    if (previousAssigned !== ctx.userId) {
+      let claim = sb.from('call_sessions')
+        .update({ assigned_agent_id: ctx.userId })
+        .eq('id', req.params.id).eq('workspace_id', wid)
+        .in('state', LIVE_CALL_STATES as unknown as string[]);
+      claim = previousAssigned === null
+        ? claim.is('assigned_agent_id', null)
+        : claim.eq('assigned_agent_id', previousAssigned);
+      const { data: claimed, error: claimErr } = await claim.select('id').maybeSingle();
+      if (claimErr) throw claimErr;
+      if (!claimed) {
+        return res.status(409).json({ error: 'call_already_accepted' });
+      }
     }
-    // The visitor is in this room: the operator joins under the opaque
-    // reference of their user on this call and their own name, never their id.
-    const tok = await provider.createParticipantToken(ctx.config, {
-      callSessionId: req.params.id,
-      providerRoomId,
-      participantId: ctx.userId,
-      participantType: 'operator',
-      displayName: await publicMemberName(ctx.config, ctx.userId),
-      canPublish: true, canSubscribe: true, canPublishData: true,
-      ttlSeconds: 60 * 60,
-    });
+    /** Gives the call back to whoever had it when this accept cannot go on. */
+    const releaseClaim = async () => {
+      if (previousAssigned === ctx.userId) return;
+      try {
+        await sb.from('call_sessions')
+          .update({ assigned_agent_id: previousAssigned })
+          .eq('id', req.params.id).eq('workspace_id', wid)
+          .eq('assigned_agent_id', ctx.userId);
+      } catch {/* best-effort */}
+    };
+
+    // Resolve provider and create room if needed
+    let providerId: CallProviderId;
+    let providerRoomId = call.provider_room_id as string | null;
+    let tok: ParticipantTokenResult;
+    try {
+      const resolved = await resolveEffectiveCallProvider(ctx.config, wid);
+      providerId = resolved.id;
+      const provider = resolved.provider;
+      if (!providerRoomId) {
+        const room = await provider.createRoom(ctx.config, {
+          workspaceId: wid,
+          callSessionId: req.params.id,
+          callType: (call.call_type === 'video' ? 'video' : 'audio'),
+          maxParticipants: 4,
+          recordingEnabled: false,
+        });
+        providerRoomId = room.providerRoomId;
+      }
+      // The visitor is in this room: the operator joins under the opaque
+      // reference of their user on this call and their own name, never their id.
+      tok = await provider.createParticipantToken(ctx.config, {
+        callSessionId: req.params.id,
+        providerRoomId,
+        participantId: ctx.userId,
+        participantType: 'operator',
+        displayName: await publicMemberName(ctx.config, ctx.userId),
+        canPublish: true, canSubscribe: true, canPublishData: true,
+        ttlSeconds: 60 * 60,
+      });
+    } catch (e) {
+      await releaseClaim();
+      throw e;
+    }
     // Build accept patch. connected_at is NOT set here: the call is answered,
     // but it starts when the visitor is in it — the visitor's join token
     // (call-widget /calls/:id/join-token) or LiveKit's participant_joined
@@ -998,7 +984,14 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       provider_room_id: providerRoomId,
       assigned_agent_id: ctx.userId,
     };
-    await transitionCall(ctx.config, wid, req.params.id, acceptPatch, 'call_accepted', ctx.userId);
+    // Still this operator's and still live: a visitor who hung up meanwhile,
+    // or an elevated takeover, wins over this accept.
+    const accepted = await transitionCall(ctx.config, wid, req.params.id, acceptPatch, 'call_accepted', ctx.userId, {
+      expectedAssignedAgentId: ctx.userId,
+    });
+    if (!accepted) {
+      return res.status(409).json({ error: 'call_not_active' });
+    }
 
     // Keep queue + session assignment consistent.
     const queuePatch: Record<string, unknown> = {
@@ -1025,9 +1018,8 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
           reason: 'operator_takeover_accept',
         },
       });
-      // TODO: do not decrement previous agent's active_call_count here —
-      // we cannot reliably detect whether their session was actually active.
-      // A later pass with LiveKit participant-kick will handle handoff.
+      // The previous operator no longer holds it: their count follows.
+      void syncAgentActiveCallCount(ctx.config, wid, previousAssigned);
     } else if (!previousAssigned) {
       await sb.from('call_events').insert({
         call_session_id: req.params.id,
@@ -1096,8 +1088,8 @@ async function removeCallFromQueue(
     ended_by: 'operator',
     ended_by_user_id: actorId,
   }, 'call_rejected', actorId, opts);
-  // Guarded transition lost the race (call moved on) — leave it alone.
-  if (opts.expectedState && !updated) return false;
+  // Guarded transition lost the race (call moved on, or is over) — leave it alone.
+  if (!updated) return false;
   // Annotate detailed reason in metadata (constraint allows 4 canonical
   // values only). Compare-and-set so a concurrent metadata writer (notes,
   // spam flag, recording pipeline) is never clobbered.
@@ -1125,7 +1117,10 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
     if (!existingRaw) return res.status(404).json({ error: 'not_found' });
     const existing = existingRaw as CallSessionRow;
     const prevState = String(existing.state || '');
-    if (['ended', 'cancelled', 'failed'].includes(prevState)) {
+    if (isTerminalCallState(prevState)) {
+      // Over already (the visitor hung up, the room closed): whoever held it
+      // holds it no more.
+      void syncAgentActiveCallCount(ctx.config, wid, existing.assigned_agent_id as string | null);
       return res.status(409).json({ error: 'call_not_active' });
     }
     const { data: qRowRaw } = await sb.from('call_queue_entries')
@@ -1138,18 +1133,15 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
-    await removeCallFromQueue(ctx.config, wid, req.params.id, ctx.userId, {
+    const removed = await removeCallFromQueue(ctx.config, wid, req.params.id, ctx.userId, {
       callCenterReason: 'operator_rejected',
       queueEndedReason: 'rejected',
     });
-    // Reject only decrements active_call_count if this operator had actually
-    // accepted the call previously (call was in active/connecting/ringing
-    // and assigned to them). Pre-accept reject does NOT touch the counter.
+    // The active call count follows the calls the operator still holds
+    // (callStateGuards.ts): a pre-accept reject leaves it as it was.
     const assigned = (existing.assigned_agent_id as string | null) || null;
-    if (assigned === ctx.userId && ['active', 'connecting', 'ringing'].includes(prevState)) {
-      try { await decrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
-      catch {/* best-effort */}
-    }
+    await syncAgentActiveCallCount(ctx.config, wid, assigned);
+    if (!removed) return res.status(409).json({ error: 'call_not_active' });
     res.json({ ok: true });
   } catch (e) {
     if (sendOwnershipError(res, e)) return;
@@ -1169,7 +1161,10 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
     if (!callRaw) return res.status(404).json({ error: 'not_found' });
     const call = callRaw as CallSessionRow;
     const prevState = String(call.state || '');
-    if (['ended', 'cancelled', 'failed'].includes(prevState)) {
+    if (isTerminalCallState(prevState)) {
+      // The visitor or the room ended it first: the operator who held it is
+      // released all the same (calls-6).
+      void syncAgentActiveCallCount(ctx.config, wid, call.assigned_agent_id as string | null);
       return res.status(409).json({ error: 'call_not_active' });
     }
     const { data: qRowRaw } = await sb.from('call_queue_entries')
@@ -1186,13 +1181,9 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
     const duration = call.connected_at
       ? Math.max(0, Math.round((Date.now() - new Date(call.connected_at).getTime()) / 1000))
       : 0;
-    if (call.provider && call.provider_room_id) {
-      try {
-        const { provider } = await resolveEffectiveCallProvider(ctx.config, wid);
-        await provider.closeRoom(ctx.config, call.provider_room_id);
-      } catch {/* best effort */}
-    }
-    await transitionCall(ctx.config, wid, req.params.id, {
+    // Ended first, then the room closed: the room's room_finished then finds
+    // the call over (and never ends it a second time, callStateGuards.ts).
+    const ended = await transitionCall(ctx.config, wid, req.params.id, {
       state: 'ended',
       ended_at: new Date().toISOString(),
       duration_seconds: duration,
@@ -1200,17 +1191,15 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       ended_by: 'operator',
       ended_by_user_id: ctx.userId,
     }, 'call_ended', ctx.userId);
-    // Decrement presence counter only for an operator who actually owned an
-    // active call. Floor-at-zero is enforced inside the helper.
-    const assigned = (call.assigned_agent_id as string | null) || null;
-    const wasActive = ['active', 'connecting', 'ringing'].includes(prevState);
-    let owner: string | null = null;
-    if (assigned && wasActive) owner = assigned;
-    else if (!assigned && wasActive) owner = ctx.userId;
-    if (owner) {
-      try { await decrementAgentActiveCallCount(ctx.config, wid, owner); }
-      catch {/* best-effort */}
+    if (call.provider && call.provider_room_id) {
+      try {
+        const { provider } = await resolveEffectiveCallProvider(ctx.config, wid);
+        await provider.closeRoom(ctx.config, call.provider_room_id);
+      } catch {/* best effort */}
     }
+    // The count follows the calls the operator still holds (calls-6).
+    await syncAgentActiveCallCount(ctx.config, wid, (call.assigned_agent_id as string | null) || null);
+    if (!ended) return res.status(409).json({ error: 'call_not_active' });
     res.json({ ok: true });
   } catch (e) {
     if (sendOwnershipError(res, e)) return;
@@ -2775,6 +2764,39 @@ const assignSchema = z.object({
   reason: z.string().max(200).optional(),
 });
 
+/**
+ * The ownership rule for a reassignment (audit 2026-11-04, calls-8): a call
+ * held by another operator is moved (assigned, transferred) only by an
+ * elevated role, the same as a takeover on accept; an unassigned call by any
+ * operator. False when the answer has been written.
+ */
+async function mayReassignCall(
+  ctx: { config: ServerConfig; userId: string },
+  res: Response,
+  wid: string,
+  callId: string,
+  action: 'assign' | 'transfer',
+): Promise<boolean> {
+  const sb = getServiceClient(ctx.config);
+  const { data: call } = await sb.from('call_sessions')
+    .select('id, assigned_agent_id, state')
+    .eq('id', callId).eq('workspace_id', wid)
+    .in('entry_source', CALL_CENTER_ENTRY_SOURCES).maybeSingle();
+  if (!call) {
+    res.status(404).json({ error: 'call_not_found' });
+    return false;
+  }
+  try {
+    await canOperateCall(ctx.config, wid, ctx.userId, call as { assigned_agent_id?: string | null }, action, null, {
+      globalAdmin: await isGlobalAdmin(ctx.config, ctx.userId),
+    });
+  } catch (e) {
+    if (sendOwnershipError(res, e)) return false;
+    throw e;
+  }
+  return true;
+}
+
 callCenterRouter.post('/calls/:id/assign', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
   if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
@@ -2783,6 +2805,7 @@ callCenterRouter.post('/calls/:id/assign', async (req, res) => {
   const parsed = assignSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   try {
+    if (!(await mayReassignCall(ctx, res, wid, req.params.id, 'assign'))) return;
     const r = await assignCallToAgent(ctx.config, {
       workspaceId: wid,
       callSessionId: req.params.id,
@@ -2814,6 +2837,7 @@ callCenterRouter.post('/calls/:id/transfer', async (req, res) => {
     return res.status(400).json({ error: 'transfer_target_required' });
   }
   try {
+    if (!(await mayReassignCall(ctx, res, wid, req.params.id, 'transfer'))) return;
     const r = await transferCall(ctx.config, {
       workspaceId: wid,
       callSessionId: req.params.id,

@@ -43,12 +43,80 @@ import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { visitorSystemPreview, type VisitorSystemPreview } from '../../shared/systemMessages.js';
 import { isResolveClosedLine } from '../services/widget/visitorConversations.js';
+import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import { isMissingColumnError } from '../lib/missingColumn.js';
 
 export const widgetAttachmentsRouter = Router();
 
 /** ServerConfig attached to every request by the app bootstrap middleware. */
 function serverConfigOf(req: Request): ServerConfig {
   return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
+}
+
+/**
+ * The visitor who uploaded a widget file (migration 301): the signed visitor
+ * of /init. A file no conversation holds yet (status `uploading` or
+ * `uploaded`) is only that visitor's, to upload into, to attach to their
+ * message and to download (audit widgetapi-5, 2026-11-04). Before it, any
+ * widget token of the workspace could do all three with a file's id,
+ * operators' team-chat files (conversation_id NULL) included.
+ */
+const UPLOADER_COLUMN = 'uploaded_by_visitor_id';
+
+/** The request's signed visitor in `workspaceId` (dvsid cookie or visitor credential), or null. */
+function signedVisitorOf(req: Request, workspaceId: string): string | null {
+  try {
+    return readVisitorCookie(req, workspaceId)?.v || null;
+  } catch {
+    return null;
+  }
+}
+
+interface UploaderRow {
+  uploaded_by_type?: string | null;
+  uploaded_by_visitor_id?: string | null;
+}
+
+/**
+ * Whether `visitorId` uploaded this row through the widget. On a database
+ * without migration 301 yet (`legacy`: RESPOK's migrator runs with the
+ * deploy) the uploader is unknown, and `legacyAllowed` decides: a visitor's
+ * upload then passes as it did before, never an operator's file.
+ */
+export function isVisitorsOwnUpload(
+  row: UploaderRow,
+  visitorId: string | null,
+  legacy = false,
+  legacyAllowed = false,
+): boolean {
+  if (!visitorId || row.uploaded_by_type !== 'visitor') return false;
+  if (legacy) return legacyAllowed;
+  return !!row.uploaded_by_visitor_id && row.uploaded_by_visitor_id === visitorId;
+}
+
+/**
+ * One attachment row with the uploader column, or (before 301) without it:
+ * `legacy` says the column is not there yet.
+ */
+async function readAttachmentRow<T>(
+  config: ServerConfig,
+  attachmentId: string,
+  columns: string,
+): Promise<{ row: (T & UploaderRow) | null; legacy: boolean }> {
+  const sb = getServiceClient(config);
+  const first = await sb
+    .from('conversation_attachments')
+    .select(`${columns}, uploaded_by_type, ${UPLOADER_COLUMN}`)
+    .eq('id', attachmentId)
+    .maybeSingle();
+  if (!first.error) return { row: (first.data as unknown as (T & UploaderRow) | null) ?? null, legacy: false };
+  if (!isMissingColumnError(first.error, [UPLOADER_COLUMN])) return { row: null, legacy: false };
+  const second = await sb
+    .from('conversation_attachments')
+    .select(`${columns}, uploaded_by_type`)
+    .eq('id', attachmentId)
+    .maybeSingle();
+  return { row: (second.data as unknown as (T & UploaderRow) | null) ?? null, legacy: true };
 }
 
 // Mounted BEFORE the parent widgetRouter's own enforceWidgetToken/
@@ -188,12 +256,18 @@ widgetAttachmentsRouter.post('/init', widgetRateLimit('upload'), async (req: Req
     return res.status(413).json({ error: 'File too large', max_bytes: settings.maxBytes });
   }
 
-  // If conversation_id is provided, verify ownership. If invalid, drop it
+  // The file is the signed visitor's (see UPLOADER_COLUMN): a request
+  // without one could never attach or read it back.
+  const visitorId = signedVisitorOf(req, workspaceId);
+  if (!visitorId) return res.status(401).json({ error: 'Visitor identity required', code: 'VISITOR_REQUIRED' });
+
+  // If conversation_id is provided, verify ownership (by the signed visitor
+  // alone: a body visitor_id / session_id names nobody). If invalid, drop it
   // (we'll attach to a freshly created conversation when /message is sent).
   let convId: string | null = null;
   if (data.conversation_id) {
     const ownership = await verifyConversationOwnership(
-      config, data.conversation_id, workspaceId, data.visitor_id, data.session_id, req
+      config, data.conversation_id, workspaceId, null, null, req
     );
     if (ownership.valid) convId = data.conversation_id;
   }
@@ -206,23 +280,43 @@ widgetAttachmentsRouter.post('/init', widgetRateLimit('upload'), async (req: Req
 
   const storagePath = buildStoragePath(workspaceId, data.file_name, data.mime_type);
 
-  const { data: row, error } = await sb
+  // The visitor's own session only: a body session_id names nobody.
+  let ownSessionId: string | null = null;
+  if (data.session_id) {
+    const { data: ownSession } = await sb
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_id', visitorId)
+      .eq('id', data.session_id)
+      .maybeSingle();
+    ownSessionId = (ownSession?.id as string | undefined) ?? null;
+  }
+  const insertRow: Record<string, unknown> = {
+    workspace_id: workspaceId,
+    conversation_id: convId,
+    storage_provider: providerName,
+    storage_path: storagePath,
+    file_name: safeFileName(data.file_name, data.mime_type),
+    mime_type: data.mime_type,
+    size_bytes: data.size_bytes,
+    uploaded_by_type: 'visitor',
+    uploaded_by_id: null,
+    visitor_session_id: ownSessionId,
+    status: 'uploading',
+    [UPLOADER_COLUMN]: visitorId,
+  };
+  const insertAttachment = (values: Record<string, unknown>) => sb
     .from('conversation_attachments')
-    .insert({
-      workspace_id: workspaceId,
-      conversation_id: convId,
-      storage_provider: providerName,
-      storage_path: storagePath,
-      file_name: safeFileName(data.file_name, data.mime_type),
-      mime_type: data.mime_type,
-      size_bytes: data.size_bytes,
-      uploaded_by_type: 'visitor',
-      uploaded_by_id: null,
-      visitor_session_id: data.session_id || null,
-      status: 'uploading',
-    })
+    .insert(values)
     .select('id, storage_path, mime_type, size_bytes, file_name')
     .single();
+  let { data: row, error } = await insertAttachment(insertRow);
+  if (error && isMissingColumnError(error, [UPLOADER_COLUMN])) {
+    // Before migration 301: the row as it was written before.
+    const { [UPLOADER_COLUMN]: _uploader, ...legacyRow } = insertRow;
+    ({ data: row, error } = await insertAttachment(legacyRow));
+  }
 
   if (error || !row) {
     return res.status(500).json({ error: 'Failed to create attachment record' });
@@ -257,14 +351,17 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
   if (!parsed.success) return res.status(400).json({ error: 'Invalid body' });
 
   const sb = getServiceClient(config);
-  const { data: row } = await sb
-    .from('conversation_attachments')
-    .select('id, workspace_id, storage_path, storage_provider, mime_type, size_bytes, status')
-    .eq('id', req.params.id)
-    .maybeSingle();
+  const { row, legacy } = await readAttachmentRow<{
+    id: string; workspace_id: string; storage_path: string; storage_provider: string;
+    mime_type: string; size_bytes: number; status: string;
+  }>(config, String(req.params.id), 'id, workspace_id, storage_path, storage_provider, mime_type, size_bytes, status');
 
   if (!row) return res.status(404).json({ error: 'Attachment not found' });
   if (row.workspace_id !== workspaceId) return res.status(403).json({ error: 'Forbidden' });
+  // Only the visitor who reserved it writes its bytes.
+  if (!isVisitorsOwnUpload(row, signedVisitorOf(req, workspaceId), legacy, true)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   if (row.status !== 'uploading') return res.status(409).json({ error: 'Attachment not in uploading state' });
 
   // Defense in depth: re-verify the workspace path scope
@@ -345,15 +442,10 @@ widgetAttachmentsRouter.get('/:id', widgetRateLimit('default'), async (req: Requ
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
-  const visitorId = (req.query.visitor_id as string) || undefined;
-  const sessionId = (req.query.session_id as string) || undefined;
-
-  const sb = getServiceClient(config);
-  const { data: row } = await sb
-    .from('conversation_attachments')
-    .select('id, workspace_id, conversation_id, storage_path, mime_type, file_name, status')
-    .eq('id', req.params.id)
-    .maybeSingle();
+  const { row, legacy } = await readAttachmentRow<{
+    id: string; workspace_id: string; conversation_id: string | null; storage_path: string;
+    mime_type: string; file_name: string; status: string;
+  }>(config, String(req.params.id), 'id, workspace_id, conversation_id, storage_path, mime_type, file_name, status');
 
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.workspace_id !== workspaceId) return res.status(403).json({ error: 'Forbidden' });
@@ -361,12 +453,18 @@ widgetAttachmentsRouter.get('/:id', widgetRateLimit('default'), async (req: Requ
     return res.status(404).json({ error: 'Attachment not available' });
   }
 
-  // If the attachment is bound to a conversation, the visitor must own it.
   if (row.conversation_id) {
+    // Bound to a conversation: the signed visitor must own it (a query
+    // visitor_id / session_id names nobody).
     const ownership = await verifyConversationOwnership(
-      config, row.conversation_id, workspaceId, visitorId, sessionId, req
+      config, row.conversation_id, workspaceId, null, null, req
     );
     if (!ownership.valid) return res.status(403).json({ error: 'Forbidden' });
+  } else if (!isVisitorsOwnUpload(row, signedVisitorOf(req, workspaceId), legacy, false)) {
+    // Bound to nothing: only its uploader's (never an operator's team-chat
+    // file). The widget never reads its own file back before sending it, so
+    // without migration 301 nobody's is served.
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   const dl = await downloadFile(config, workspaceId, row.storage_path);
@@ -423,7 +521,17 @@ export async function enrichMessagesWithAttachments<T extends { id?: string; met
   config: ServerConfig,
   workspaceId: string,
   messages: T[],
+  /**
+   * The one conversation all of `messages` belong to, when the caller knows
+   * it (the widget's reads): a file is then described only when it is bound
+   * to that conversation, so a visitor's message naming another file's id
+   * (POST /message stores the id it is given) never shows its name, type
+   * and size (audit widgetapi-5).
+   */
+  opts?: { conversationId?: string | null },
 ): Promise<Array<T | (T & { attachment: PublicAttachmentMeta })>> {
+  const scopeConversationId = opts?.conversationId || null;
+  const inScope = (r: { conversation_id?: string | null }) => !scopeConversationId || r.conversation_id === scopeConversationId;
   if (!messages || messages.length === 0) return messages || [];
 
   const idsFromMeta = new Set<string>();
@@ -443,11 +551,12 @@ export async function enrichMessagesWithAttachments<T extends { id?: string; met
   if (idsFromMeta.size > 0) {
     const { data } = await sb
       .from('conversation_attachments')
-      .select('id, file_name, mime_type, size_bytes, message_id, status, workspace_id')
+      .select('id, file_name, mime_type, size_bytes, message_id, status, workspace_id, conversation_id')
       .in('id', Array.from(idsFromMeta))
       .eq('workspace_id', workspaceId);
     for (const r of (data || [])) {
       if (r.status !== 'attached' && r.status !== 'uploaded') continue;
+      if (!inScope(r)) continue;
       const meta: PublicAttachmentMeta = {
         id: r.id,
         file_name: r.file_name,
@@ -464,12 +573,13 @@ export async function enrichMessagesWithAttachments<T extends { id?: string; met
   if (messageIds.size > 0) {
     const { data } = await sb
       .from('conversation_attachments')
-      .select('id, file_name, mime_type, size_bytes, message_id, status, workspace_id')
+      .select('id, file_name, mime_type, size_bytes, message_id, status, workspace_id, conversation_id')
       .in('message_id', Array.from(messageIds))
       .eq('workspace_id', workspaceId)
       .eq('status', 'attached');
     for (const r of (data || [])) {
       if (!r.message_id || byMsgId[r.message_id]) continue;
+      if (!inScope(r)) continue;
       byMsgId[r.message_id] = {
         id: r.id,
         file_name: r.file_name,
@@ -650,16 +760,21 @@ export async function attachUploadedFileToMessage(
   workspaceId: string,
   conversationId: string,
   messageId: string,
+  /**
+   * A visitor's message (POST /message): the file must be this signed
+   * visitor's own upload (see UPLOADER_COLUMN), never another visitor's or
+   * an operator's. Omitted for an operator's reply (routes/conversations.ts).
+   */
+  visitor?: { visitorId: string | null },
 ): Promise<boolean> {
   const sb = getServiceClient(config);
-  const { data: row } = await sb
-    .from('conversation_attachments')
-    .select('id, workspace_id, status')
-    .eq('id', attachmentId)
-    .maybeSingle();
+  const { row, legacy } = await readAttachmentRow<{ id: string; workspace_id: string; status: string }>(
+    config, attachmentId, 'id, workspace_id, status',
+  );
 
   if (!row || row.workspace_id !== workspaceId) return false;
   if (row.status !== 'uploaded') return false;
+  if (visitor && !isVisitorsOwnUpload(row, visitor.visitorId, legacy, true)) return false;
 
   const { error } = await sb
     .from('conversation_attachments')
@@ -668,7 +783,8 @@ export async function attachUploadedFileToMessage(
       message_id: messageId,
       status: 'attached',
     })
-    .eq('id', attachmentId);
+    .eq('id', attachmentId)
+    .eq('status', 'uploaded');
 
   return !error;
 }

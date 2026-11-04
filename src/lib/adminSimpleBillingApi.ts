@@ -8,6 +8,7 @@
  * `['admin-simple-billing', ...]`.
  */
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { keepPreviousForSame } from './keepPreviousForSame';
 import { API_BASE } from './apiBase';
 import type { CardTransferRequest, CardTransferSettings, CardTransferStatus } from '../../shared/cardTransfer';
 import type { Edition } from '../../shared/edition';
@@ -276,21 +277,25 @@ export function useAdminAccount(workspaceId: string | null | undefined) {
 }
 
 export function useAdminLedger(workspaceId: string, params: PageParams = {}) {
+  const queryKey = adminSimpleBillingKeys.ledger(workspaceId, params);
   return useQuery({
-    queryKey: adminSimpleBillingKeys.ledger(workspaceId, params),
+    queryKey,
     queryFn: () => adminSimpleBillingApi.getLedger(workspaceId, params),
     retry: retryUnlessClientError,
-    placeholderData: keepPreviousData,
+    // Another page of this account, never another account's rows.
+    placeholderData: keepPreviousForSame(queryKey, 3),
     enabled: Boolean(workspaceId),
   });
 }
 
 export function useAdminPayments(workspaceId: string, params: PageParams = {}) {
+  const queryKey = adminSimpleBillingKeys.payments(workspaceId, params);
   return useQuery({
-    queryKey: adminSimpleBillingKeys.payments(workspaceId, params),
+    queryKey,
     queryFn: () => adminSimpleBillingApi.getPayments(workspaceId, params),
     retry: retryUnlessClientError,
-    placeholderData: keepPreviousData,
+    // Another page of this account, never another account's rows.
+    placeholderData: keepPreviousForSame(queryKey, 3),
     enabled: Boolean(workspaceId),
   });
 }

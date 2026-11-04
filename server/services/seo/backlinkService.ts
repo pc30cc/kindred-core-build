@@ -8,6 +8,7 @@
  * payload — everything else the worker needs lives in the
  * `seo_backlink_scans` row this module creates.
  */
+import { cooldownRetryAfterSeconds } from './cooldown.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/queue.js';
@@ -67,6 +68,13 @@ export async function createBacklinkScan(
   const workspaceActive = await countActiveWorkspaceBacklinkScans(config, args.workspaceId);
   if (workspaceActive >= limits.seo_backlinks_workspace_concurrent_scans) {
     throw new BacklinkScanLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent backlink scan limit');
+  }
+  const scanWait = cooldownRetryAfterSeconds(
+    await getMostRecentBacklinkScanStart(config, site.id),
+    limits.seo_backlinks_scan_frequency_hours,
+  );
+  if (scanWait > 0) {
+    throw new BacklinkScanLimitError('frequency_limit', 'This site was scanned too recently', scanWait);
   }
 
   const sb = getServiceClient(config);

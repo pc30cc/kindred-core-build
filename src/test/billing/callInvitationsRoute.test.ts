@@ -7,10 +7,43 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+/** Minimal stand-ins for the Express objects the handler touches. */
+interface MockReq {
+  body: unknown;
+  params: Record<string, string>;
+  query: Record<string, string>;
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+  serverConfig: { supabaseUrl: string; supabaseServiceRoleKey: string };
+}
+type MockJsonBody = Record<string, unknown> & {
+  error?: unknown;
+  capability?: unknown;
+  invitation?: { id?: unknown } | null;
+};
+interface MockRes {
+  status(code: number): MockRes;
+  json(body: MockJsonBody): MockRes;
+}
+type Handler = (req: MockReq, res: MockRes, next: () => void) => Promise<unknown> | unknown;
+interface RouteLayer {
+  route?: {
+    path?: string;
+    methods: Record<string, boolean>;
+    stack: Array<{ handle: Handler }>;
+  };
+}
+
+interface Chain {
+  select(): Chain;
+  eq(): Chain;
+  maybeSingle(): Promise<{ data: unknown; error: null }>;
+}
+
 const state: {
-  user: any;
-  isMember: any;
-  effective: any;
+  user: { data: { user: { id: string } | null }; error: unknown } | null;
+  isMember: { data: boolean; error: unknown } | null;
+  effective: Record<string, unknown> | null;
   createCalled: boolean;
 } = {
   user: null,
@@ -19,17 +52,30 @@ const state: {
   createCalled: false,
 };
 
+/** The member's row as authorizeWorkspaceAccess reads it (null: not a member). */
+let memberRow: { role: string; suspended_at: string | null } | null = null;
 const sbMock = {
   auth: { getUser: async () => state.user },
   rpc: async (name: string) => {
     if (name === "is_workspace_member") return state.isMember;
     return { data: null, error: null };
   },
+  from: (_table: string) => {
+    const chain: Chain = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => ({ data: memberRow, error: null }),
+    };
+    return chain;
+  },
 };
 
 vi.mock("../../../server/supabase.js", () => ({
   getServiceClient: () => sbMock,
 }));
+vi.mock("../../../server/middleware/adminBypass.js", () => ({ isGlobalAdmin: async () => false }));
+vi.mock("../../../server/services/billing/locks/state.js", () => ({ resolveLockState: async () => ({}) }));
+vi.mock("../../../server/services/billing/locks/predicates.js", () => ({ isMemberLocked: () => false }));
 
 vi.mock("../../../server/services/auth/sessions.js", () => ({
   SESSION_COOKIE_NAME: "gs_session",
@@ -62,16 +108,16 @@ vi.mock("../../../server/services/calls/invitations.js", () => ({
 import { callInvitationsRouter } from "../../../server/routes/callInvitations";
 
 function getHandler(method: string, path: string) {
-  const layer: any = (callInvitationsRouter as any).stack.find(
-    (l: any) => l.route?.path === path && l.route.methods[method],
+  const layer = (callInvitationsRouter.stack as unknown as RouteLayer[]).find(
+    (l) => l.route?.path === path && l.route.methods[method],
   );
   if (!layer) throw new Error(`route ${method} ${path} not found`);
-  const stack = layer.route.stack;
+  const stack = layer.route!.stack;
   return stack[stack.length - 1].handle;
 }
 
-function makeReqRes(body: any) {
-  const req: any = {
+function makeReqRes(body: unknown) {
+  const req: MockReq = {
     body,
     params: {},
     query: {},
@@ -80,10 +126,10 @@ function makeReqRes(body: any) {
     serverConfig: { supabaseUrl: "http://x", supabaseServiceRoleKey: "k" },
   };
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: MockJsonBody | undefined;
+  const res: MockRes = {
     status(code: number) { statusCode = code; return res; },
-    json(b: any) { jsonBody = b; return res; },
+    json(b: MockJsonBody) { jsonBody = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, jsonBody }) };
 }
@@ -97,8 +143,8 @@ const allEffective = {
   queue_enabled: true,
   callbacks_enabled: true,
   call_center_enabled: true,
-  plan: {} as any,
-  runtime: {} as any,
+  plan: {} as Record<string, unknown>,
+  runtime: {} as Record<string, unknown>,
 };
 
 const WS = "22222222-2222-2222-2222-222222222222";
@@ -108,6 +154,7 @@ describe("callInvitations POST / — composed plan+runtime gate", () => {
   beforeEach(() => {
     state.user = { data: { user: { id: "u-1" } }, error: null };
     state.isMember = { data: true, error: null };
+    memberRow = { role: "agent", suspended_at: null };
     state.effective = { ...allEffective };
     state.createCalled = false;
     createInvitationMock.mockReset();
@@ -151,6 +198,29 @@ describe("callInvitations POST / — composed plan+runtime gate", () => {
     await handler(req, res, () => {});
     expect(createInvitationMock).toHaveBeenCalledTimes(1);
     expect(get().jsonBody?.invitation?.id).toBe("inv-1");
+  });
+
+  it("a suspended member is refused, though is_workspace_member says yes (calls-11)", async () => {
+    memberRow = { role: "agent", suspended_at: "2026-11-01T00:00:00Z" };
+    const handler = getHandler("post", "/");
+    const { req, res, get } = makeReqRes({
+      workspace_id: WS, conversation_id: CONV, channel: "audio",
+    });
+    await handler(req, res, () => {});
+    expect(get().statusCode).toBe(403);
+    expect(get().jsonBody?.error).toBe("membership_suspended");
+    expect(createInvitationMock).not.toHaveBeenCalled();
+  });
+
+  it("a non-member is refused", async () => {
+    memberRow = null;
+    const handler = getHandler("post", "/");
+    const { req, res, get } = makeReqRes({
+      workspace_id: WS, conversation_id: CONV, channel: "audio",
+    });
+    await handler(req, res, () => {});
+    expect(get().statusCode).toBe(403);
+    expect(createInvitationMock).not.toHaveBeenCalled();
   });
 
   it("proceeds to createInvitation when composed entitlement allows", async () => {

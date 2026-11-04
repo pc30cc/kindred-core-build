@@ -444,6 +444,11 @@ final class CallCenterModel {
         }
         do {
             let accept = try await app.api.acceptCall(workspaceId: ws.id, callId: id)
+            // Signed out or moved to another workspace while the answer was on its way.
+            guard app.isCurrent(ws.id) else {
+                app.abandonAcceptedCall(workspaceId: ws.id, callId: id)
+                return
+            }
             onCallId = id
             if accept.connect?.supported != true {
                 showNotice("\(s["ccAcceptedNoMedia"]) — \(s["ccAcceptedNoMediaHint"])", severity: .warning)

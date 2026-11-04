@@ -12,6 +12,7 @@ import com.platform.app.core.model.CallChannel
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.Str
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -135,5 +136,15 @@ class TeamCallNotificationsTest {
             link,
         )
         assertTrue(link!!.isColleague)
+    }
+
+    /** A colleague's ring is asked for as one: what MainActivity checks before it answers. */
+    @Test
+    fun `a colleague's ring is ringing as a colleague's`() {
+        CallNotifications.showTeamIncoming(context, ring(), Language.EN, photo = null, nowMillis = now)
+        assertTrue(CallNotifications.isRinging(context, "team-1", colleague = true))
+        assertFalse(CallNotifications.isRinging(context, "team-1"))
+        CallNotifications.stopTeam(context, "team-1", missed = false, language = Language.EN)
+        assertFalse(CallNotifications.isRinging(context, "team-1", colleague = true))
     }
 }

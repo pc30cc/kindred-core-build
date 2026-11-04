@@ -13454,6 +13454,7 @@ const tr: TranslationKeys = {
       errors: {
         addFailed: 'Bu anahtar kelime takibe eklenemedi. Lütfen biraz sonra tekrar deneyin.',
         checkFailed: 'Sıra kontrolü başarısız oldu. Lütfen biraz sonra tekrar deneyin.',
+        checkTooSoon: 'Bu anahtar kelime kısa süre önce kontrol edildi. Yaklaşık {{minutes}} dakika sonra tekrar kontrol edebilirsiniz.',
       },
       empty: {
         notAvailableTitle: 'Sıralama takibi planınızda yok',

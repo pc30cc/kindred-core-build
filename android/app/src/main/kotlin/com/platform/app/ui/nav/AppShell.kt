@@ -331,6 +331,7 @@ fun AppShell(
                     channel = call.channel.wire,
                     caller = call.caller,
                     answer = call.answer,
+                    expiresAt = call.expiresAt,
                 )
             }
         )

@@ -26,7 +26,10 @@ import { loadPublicCallPresence, operatorOwnName } from '../services/callCenter/
 import { issuePresenceTicket, readPresenceTicket } from '../services/callCenter/presenceTicket.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { takeAnonymousCallBootstrap } from '../services/widget/security.js';
-import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
+import { resolveEffectiveCallProvider, resolveCallProvider } from '../services/calls/providerResolver.js';
+import { clearInCall } from '../services/calls/availability.js';
+import { LIVE_CALL_STATES, isLiveCallState, syncAgentActiveCallCount } from '../services/calls/callStateGuards.js';
+import { takeCallRequest, giveBackCallRequest, mayRingForVisitor } from '../services/calls/callRequestLimiter.js';
 import type { CallProviderId } from '../services/calls/providers/types.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
@@ -1253,6 +1256,18 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       contact: identity.contact,
     });
   }
+  // A new call rings the operators' phones: its own limits, per visitor and
+  // per address (services/calls/callRequestLimiter.ts). A refusal further
+  // down gives its share back, so only calls that were made count.
+  const visitorKey = identity.visitorId ? `${ws.workspace_id}:${identity.visitorId}` : null;
+  const limit = takeCallRequest(visitorKey, getClientIp(req) || null);
+  if ('retryAfterSeconds' in limit) {
+    res.setHeader('Retry-After', String(limit.retryAfterSeconds));
+    return res.status(429).json({ error: 'too_many_call_requests', retry_after: limit.retryAfterSeconds });
+  }
+  const ticket = limit.ticket;
+  let madeCall = false;
+  res.once('finish', () => { if (!madeCall) giveBackCallRequest(ticket); });
   // Provider check (fail closed)
   let providerId: string;
   try {
@@ -1374,6 +1389,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     return res.status(500).json({ error: 'call_create_failed', message: callErr?.message || 'insert_returned_no_row' });
   }
 
+  madeCall = true;
   await sb.from('call_queue_entries').insert({
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
@@ -1427,6 +1443,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       callSessionId: call!.id,
       departmentId: chosenDepartmentId,
       callType: dbCallType,
+      // The same visitor calling again within a minute (a request, cancel,
+      // request loop) is queued but does not ring the phones again.
+      ring: mayRingForVisitor(visitorKey),
     });
   } catch (e) { /* best-effort: queue entry already created */ }
 
@@ -1449,33 +1468,62 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   const sb = getServiceClient(config);
   // Preserve detailed reason in metadata; constraint allows only the four canonical end_reason values.
   const { data: prev } = await sb.from('call_sessions')
-    .select('metadata, connected_at, started_at, created_at, state')
-    .eq('id', req.params.id).maybeSingle();
-  const prevMeta = (prev?.metadata as Record<string, unknown>) || {};
+    .select('metadata, connected_at, started_at, created_at, state, provider, provider_room_id, assigned_agent_id')
+    .eq('id', req.params.id).eq('workspace_id', session.workspace_id).maybeSingle();
+  if (!prev) {
+    clearActiveCallCookie(res, req);
+    return res.status(404).json({ error: 'not_found' });
+  }
+  // A call that is over keeps its end (audit 2026-11-04, calls-9): a second
+  // cancel never moves its ended_at or duration, nor ends it a second time.
+  if (!isLiveCallState(prev.state)) {
+    clearActiveCallCookie(res, req);
+    return res.json({ ok: true, already: true, state: prev.state });
+  }
+  const prevMeta = (prev.metadata as Record<string, unknown>) || {};
   // If the call had already connected to an operator, treat the visitor
-  // hangup as a normal "ended" call and compute duration_seconds from the
-  // earliest known anchor. Otherwise it's a true pre-connect cancel.
-  const anchorIso = prev?.connected_at
-    || prev?.started_at
-    || prev?.created_at
-    || null;
-  const wasConnected = !!prev?.connected_at;
+  // hangup as a normal "ended" call: its time runs from when the visitor was
+  // in it. Otherwise it's a true pre-connect cancel.
+  const wasConnected = !!prev.connected_at;
   const endedAtMs = Date.now();
   const endedAtIso = new Date(endedAtMs).toISOString();
-  const duration = anchorIso
-    ? Math.max(0, Math.round((endedAtMs - new Date(anchorIso).getTime()) / 1000))
+  const duration = wasConnected
+    ? Math.max(0, Math.round((endedAtMs - new Date(String(prev.connected_at)).getTime()) / 1000))
     : 0;
-  await sb.from('call_sessions').update({
+  // From a live state only: a cancel that races the operator's end, the
+  // room's end or another tab's cancel moves nothing a second time.
+  const { data: moved, error: moveErr } = await sb.from('call_sessions').update({
     state: wasConnected ? 'ended' : 'cancelled',
     ended_at: endedAtIso,
     duration_seconds: wasConnected ? duration : null,
     end_reason: 'visitor_ended',
     ended_by: 'visitor',
     metadata: { ...prevMeta, call_center_reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled' },
-  }).eq('id', req.params.id).eq('workspace_id', session.workspace_id);
+  }).eq('id', req.params.id).eq('workspace_id', session.workspace_id)
+    .in('state', LIVE_CALL_STATES as unknown as string[])
+    .select('id').maybeSingle();
+  if (moveErr) return res.status(500).json({ error: 'cancel_failed' });
+  if (!moved) {
+    clearActiveCallCookie(res, req);
+    return res.json({ ok: true, already: true });
+  }
   await sb.from('call_queue_entries').update({
     state: 'cancelled', ended_at: endedAtIso, ended_reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled',
-  }).eq('call_session_id', req.params.id).eq('workspace_id', session.workspace_id);
+  }).eq('call_session_id', req.params.id).eq('workspace_id', session.workspace_id)
+    .in('state', ['queued', 'offered', 'accepted']);
+  // The room goes with the call: the operator is not left alone in it, and a
+  // kept token cannot meet in it again.
+  if (prev.provider && prev.provider_room_id) {
+    try {
+      await resolveCallProvider(prev.provider as CallProviderId).closeRoom(config, String(prev.provider_room_id));
+    } catch { /* best-effort: the room's own empty timeout closes it */ }
+  }
+  // The operator who held it is free again (their busy lock and their count).
+  const heldBy = (prev.assigned_agent_id as string | null) || null;
+  if (heldBy) {
+    void clearInCall(config, session.workspace_id, heldBy).catch(() => {});
+    void syncAgentActiveCallCount(config, session.workspace_id, heldBy);
+  }
   await sb.from('call_events').insert({
     call_session_id: req.params.id, event_type: wasConnected ? 'call_ended' : 'call_cancelled', actor_type: 'visitor',
     payload: { reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled', duration_seconds: wasConnected ? duration : null },

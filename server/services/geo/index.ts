@@ -218,6 +218,22 @@ async function writeCache(
 
 type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<Omit<GeoResult, 'source'> | null>;
 
+/**
+ * Ceiling of one provider lookup, its body included (audit widgetapi-11):
+ * the lookups run unawaited on every new visitor session, so a provider
+ * that stops answering must not pile up open sockets. A timeout throws
+ * (AbortError), which the caller logs and treats as "no geo".
+ */
+export const GEO_PROVIDER_TIMEOUT_MS = 3000;
+function providerSignal(): AbortSignal {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(GEO_PROVIDER_TIMEOUT_MS);
+  // A runtime without AbortSignal.timeout (a test DOM): the same, by hand.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEO_PROVIDER_TIMEOUT_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return controller.signal;
+}
+
 // The fields each vendor's JSON response is read for — nothing else is used.
 type Str = string | null | undefined;
 interface IpapiPayload { error?: unknown; country_name?: Str; country_code?: Str; region?: Str; city?: Str; latitude?: unknown; longitude?: unknown; timezone?: Str }
@@ -234,7 +250,7 @@ interface MaxmindPayload {
 const ipapiAdapter: Adapter = async (ip, cfg) => {
   const apiKey = (cfg?.api_key as string) || '';
   const url = `https://ipapi.co/${encodeURIComponent(ip)}/json/${apiKey ? `?key=${apiKey}` : ''}`;
-  const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' } });
+  const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' }, signal: providerSignal() });
   if (!r.ok) return null;
   const j = await r.json() as IpapiPayload;
   if (j.error) return null;
@@ -253,7 +269,7 @@ const ipinfoAdapter: Adapter = async (ip, cfg) => {
   const token = (cfg?.api_token as string) || '';
   if (!token) return null;
   const url = `https://ipinfo.io/${encodeURIComponent(ip)}?token=${token}`;
-  const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' } });
+  const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' }, signal: providerSignal() });
   if (!r.ok) return null;
   const j = await r.json() as IpinfoPayload;
   let lat: number | null = null, lng: number | null = null;
@@ -276,7 +292,7 @@ const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
   const apiKey = (cfg?.api_key as string) || '';
   if (!apiKey) return null;
   const url = `https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}&ip=${encodeURIComponent(ip)}`;
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: providerSignal() });
   if (!r.ok) return null;
   const j = await r.json() as IpgeolocationPayload;
   return normalizeGeoPayload({
@@ -296,7 +312,7 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
   if (!accountId || !license) return null;
   const url = `https://geoip.maxmind.com/geoip/v2.1/city/${encodeURIComponent(ip)}`;
   const auth = Buffer.from(`${accountId}:${license}`).toString('base64');
-  const r = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
+  const r = await fetch(url, { headers: { Authorization: `Basic ${auth}` }, signal: providerSignal() });
   if (!r.ok) return null;
   const j = await r.json() as MaxmindPayload;
   return normalizeGeoPayload({

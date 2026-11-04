@@ -22,6 +22,7 @@ import * as sessions from '../services/auth/sessions.js';
 import { verifyOriginForMutation, validateSessionToken } from '../services/auth/sessions.js';
 import { readSessionToken } from './sessionTransport.js';
 import { coalesce } from './inflight.js';
+import { mutationOrigins } from '../services/platformOrigins.js';
 import { resolveLockState } from '../services/billing/locks/state.js';
 import { isMemberLocked } from '../services/billing/locks/predicates.js';
 
@@ -128,7 +129,7 @@ export async function requireUser(req: AuthRequest, res: AuthResponse): Promise<
   if (
     transport === 'cookie' &&
     MUTATING_METHODS.has(req.method ?? '') &&
-    !verifyOriginForMutation({ headers: req.headers ?? {} }, config.corsOrigins)
+    !verifyOriginForMutation({ headers: req.headers ?? {} }, mutationOrigins(config))
   ) {
     res.status(403).json({ error: 'Origin not allowed' });
     return null;
@@ -151,6 +152,26 @@ export async function isSeatLocked(config: ServerConfig, workspaceId: string, us
 }
 
 /**
+ * Silent form of the membership half of `authorizeWorkspaceAccess`, for
+ * routes that answer 404 for both "not found" and "forbidden": true when
+ * `userId` is a member of `workspaceId` who is neither suspended nor past
+ * the plan's seat limit. Writes nothing; a failed read answers false.
+ * (Global admins are the caller's to decide, as before.)
+ */
+export async function isActiveWorkspaceMember(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
+  if (!UUID_RE.test(workspaceId)) return false;
+  const { data, error } = await getServiceClient(config)
+    .from('workspace_members')
+    .select('suspended_at')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error || !data) return false;
+  if ((data as { suspended_at?: string | null }).suspended_at) return false;
+  return !(await isSeatLocked(config, workspaceId, userId));
+}
+
+/**
  * Authenticates the caller and verifies they may act on `workspaceId`.
  * `manage: true` additionally requires workspace owner/admin.
  *
@@ -167,7 +188,22 @@ export async function authorizeWorkspaceAccess(
 ): Promise<WorkspaceAuth | null> {
   const userId = await requireUser(req, res);
   if (!userId) return null;
+  return authorizeWorkspaceAccessFor(req, res, userId, workspaceId, opts);
+}
 
+/**
+ * `authorizeWorkspaceAccess` for a caller a route has already authenticated
+ * (with `requireUser`): the same membership, suspension, seat-lock and role
+ * verdict, without validating the session a second time. Writes the same
+ * 400/403/500 and returns null on refusal.
+ */
+export async function authorizeWorkspaceAccessFor(
+  req: AuthRequest,
+  res: AuthResponse,
+  userId: string,
+  workspaceId: unknown,
+  opts: { manage?: boolean; allowSeatLocked?: boolean } = {},
+): Promise<WorkspaceAuth | null> {
   if (typeof workspaceId !== 'string' || !UUID_RE.test(workspaceId)) {
     res.status(400).json({ error: 'Invalid workspaceId' });
     return null;

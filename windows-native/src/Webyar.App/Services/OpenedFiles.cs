@@ -40,16 +40,22 @@ public static class OpenedFiles
     }
 
     /// <summary>Opens a passive file with whatever Windows opens it with, or offers to save anything else.</summary>
-    public static async Task<Outcome> OpenAsync(AttachmentItem a)
+    public static async Task<Outcome> OpenAsync(AttachmentItem a) =>
+        await OpenAsync(a.Id, a.FileName, a.MimeType, await a.BytesAsync());
+
+    /// <summary>
+    /// The same for a file fetched elsewhere (an e-mail attachment): its id
+    /// names its folder, the sender's name and type are cleaned as above.
+    /// </summary>
+    public static async Task<Outcome> OpenAsync(string id, string fileName, string mimeType, byte[] data)
     {
-        var data = await a.BytesAsync();
-        var name = SafeName(a.FileName, a.MimeType);
+        var name = SafeName(fileName, mimeType);
         var ext = Path.GetExtension(name);
         var passive = Passive.Contains(ext);
         if (passive || NeedsMarkOfTheWeb.Contains(ext))
         {
             // %TEMP%\Webyar\<id>: swept by Clear cache and on sign-out (see Clear).
-            var dir = Path.Combine(AppPaths.OpenedFiles, a.Id.Replace(':', '_'));
+            var dir = Path.Combine(AppPaths.OpenedFiles, string.Join("_", id.Replace(':', '_').Split(Path.GetInvalidFileNameChars())));
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, name);
             if (!File.Exists(path) || new FileInfo(path).Length == 0)

@@ -13,8 +13,8 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { checkOutboundUrl } from '../../../shared/net/hostGuard.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
-import { installPlugin } from '../plugins/state.js';
-import { storeInstallationSecret } from './credentials.js';
+import { installPlugin, setInstallationStatus } from '../plugins/state.js';
+import { revokeInstallationSecrets, storeInstallationSecret } from './credentials.js';
 import { getProviderDescriptor, isKnownProvider } from './connectors/registry.js';
 import { OpenCartConnector, claimUpdateNudge, isOlderConnector } from './connectors/opencart.js';
 import { writeCommerceAudit } from './audit.js';
@@ -237,6 +237,74 @@ export interface ExchangeResult {
   usesCatalogIndex: boolean;
 }
 
+/**
+ * One store (provider, store_id) has one active connection across all
+ * workspaces (148_commerce_platform.sql, commerce_connections_store_unique).
+ * Nothing in pairing proves the caller controls the store: the register call
+ * is public and the consent happens in the approver's own workspace. So
+ * anyone could pair a shop's URL first, and the real owner's pairing then hit
+ * the unique index (a 500), for good.
+ *
+ * A claim counts once it is PROVEN: a signed handshake with the store
+ * succeeded (`last_success_at`), which only a store holding that
+ * installation's secret can answer (the plugins check the signature on
+ * /health). When a pairing reaches the exchange:
+ *   - another workspace's proven claim on the store refuses it, as a clear
+ *     `store_already_connected` instead of the 500;
+ *   - another workspace's unproven claim is revoked (and its secret), so the
+ *     store's real owner always gets through. A squatter can at most undo a
+ *     pairing in the seconds before its first handshake; the owner's retry
+ *     then wins and, once proven, stays.
+ * The released plugins see no change: the exchange answers as before.
+ */
+export async function clearUnprovenStoreClaims(
+  config: ServerConfig,
+  input: { providerType: string; storeId: string; workspaceId: string },
+): Promise<{ revoked: string[] }> {
+  const sb = getServiceClient(config);
+  const { data: holders, error } = await sb
+    .from('commerce_connections')
+    .select('id, workspace_id, installation_id, last_success_at')
+    .eq('provider_type', input.providerType)
+    .eq('store_id', input.storeId)
+    .is('revoked_at', null);
+  if (error) throw new Error(`store claim lookup failed: ${error.message}`);
+
+  const revoked: string[] = [];
+  for (const holder of (holders ?? []) as Array<{ id: string; workspace_id: string; installation_id: string; last_success_at: string | null }>) {
+    // The workspace's own connection is the one this pairing updates.
+    if (holder.workspace_id === input.workspaceId) continue;
+    if (holder.last_success_at) {
+      throw new PairingError('store_already_connected', 'this store is connected to another workspace; disconnect it there first');
+    }
+    // Compare-and-set: a handshake that proves the claim meanwhile keeps it.
+    const { data: lifted, error: liftError } = await sb
+      .from('commerce_connections')
+      .update({ revoked_at: new Date().toISOString(), health: 'disconnected', catalog_ready: false })
+      .eq('id', holder.id)
+      .is('revoked_at', null)
+      .is('last_success_at', null)
+      .select('id');
+    if (liftError) throw new Error(`store claim revoke failed: ${liftError.message}`);
+    if (!(lifted ?? []).length) {
+      throw new PairingError('store_already_connected', 'this store is connected to another workspace; disconnect it there first');
+    }
+    revoked.push(holder.id);
+    publishCacheInvalidation([`widget:${holder.workspace_id}`]);
+    await revokeInstallationSecrets(config, holder.installation_id);
+    await setInstallationStatus(config, holder.installation_id, 'uninstalled');
+    await sb.from('commerce_sync_jobs').delete().eq('connection_id', holder.id).in('status', ['queued', 'running']);
+    await writeCommerceAudit(config, {
+      workspaceId: holder.workspace_id,
+      userId: null,
+      action: 'commerce.connection.unproven_claim_revoked',
+      entityType: 'commerce_connection',
+      entityId: holder.id,
+    });
+  }
+  return { revoked };
+}
+
 /** Step 3 — server-to-server code exchange using the PKCE verifier. */
 export async function exchangePairingCode(
   config: ServerConfig,
@@ -267,6 +335,18 @@ export async function exchangePairingCode(
   const computedChallenge = sha256Base64Url(input.codeVerifier);
   if (computedChallenge !== data.code_challenge) throw new PairingError('invalid_verifier', 'PKCE verification failed');
 
+  // The store this pairing claims (see storeId below), checked before the
+  // code is consumed: a store another workspace holds and has proven is
+  // refused here, and a claim nobody ever proved is lifted.
+  const claimedStoreId = descriptor.usesCatalogIndex
+    ? String(data.requested_origin)
+    : String(data.requested_base_url || data.requested_origin);
+  await clearUnprovenStoreClaims(config, {
+    providerType: descriptor.providerType,
+    storeId: claimedStoreId,
+    workspaceId: String(data.workspace_id),
+  });
+
   // Single-use: consume atomically before creating anything. A concurrent
   // duplicate exchange loses this race and gets already_used.
   const { data: consumed, error: consumeError } = await sb
@@ -296,9 +376,7 @@ export async function exchangePairingCode(
   // OpenCart) uses its base URL instead, which is still on — and re-checked
   // against — that origin; for OpenCart that keeps two stores of one install
   // on one host apart, with the numeric OpenCart store id alongside.
-  const storeId = descriptor.usesCatalogIndex
-    ? data.requested_origin
-    : String(data.requested_base_url || data.requested_origin);
+  const storeId = claimedStoreId;
   // Which build of the plugin is pairing (pluginDialect.ts): its callback URL
   // names its module code. Every later call to the store uses that dialect;
   // the handshake then records the protocol the store itself reports.

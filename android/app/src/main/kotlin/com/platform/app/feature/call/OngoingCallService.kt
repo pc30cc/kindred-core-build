@@ -128,6 +128,39 @@ object OngoingCallTypes {
 }
 
 /**
+ * The calls in progress the service holds, in the order they were first
+ * shown. Two can be live at once: a call-centre call answered, or a colleague
+ * call picked up, on top of a visitor call whose screen stays underneath. The
+ * service runs while any is left, shows the newest, and keeps the camera while
+ * any of them has it on — so the end of one never takes the microphone from
+ * another (review of #408).
+ */
+class OngoingCalls {
+    private val calls = LinkedHashMap<String, OngoingCall>()
+
+    /** The call the notification shows: the one most recently first shown. */
+    val newest: OngoingCall? get() = calls.values.lastOrNull()
+
+    val isEmpty: Boolean get() = calls.isEmpty()
+
+    /** Some call still has its camera on: the service keeps the camera type. */
+    val video: Boolean get() = calls.values.any { it.video }
+
+    /** Adds [call], or brings it up to date where it already is. */
+    fun put(call: OngoingCall) { calls[call.callId] = call }
+
+    /** [callId] is over. False when it was not held. */
+    fun remove(callId: String?): Boolean = callId != null && calls.remove(callId) != null
+
+    fun snapshot(): List<OngoingCall> = calls.values.toList()
+
+    fun restore(snapshot: List<OngoingCall>) {
+        calls.clear()
+        snapshot.forEach { calls[it.callId] = it }
+    }
+}
+
+/**
  * Keeps a call alive while the screen is off — or the app behind another —
  * and says so: [show] at the start of the call, again once it is live and
  * whenever the camera turns on or off, [stop] at its end. Behind an
@@ -147,8 +180,8 @@ object NoCallForeground : CallForeground {
 /**
  * [CallForeground] as [OngoingCallService], for one session. The service is
  * one for the whole app, so a stop names the call this session showed: a
- * session ending after another call took the service over — or one that
- * only rang and never showed anything — leaves that call its service.
+ * session ending while another call is live — or one that only rang and
+ * never showed anything — leaves that call its service ([OngoingCalls]).
  */
 class ServiceCallForeground(private val context: Context) : CallForeground {
     private var shown: String? = null
@@ -190,15 +223,21 @@ class ServiceCallForeground(private val context: Context) : CallForeground {
  * 12 and later refuse for a service of these types, and which would crash
  * the app if the promotion then failed. Not sticky: a process that died has
  * no call to come back to, and its notification goes with it.
+ *
+ * It holds every call in progress ([OngoingCalls]), not just the last one
+ * shown: it stops when the last of them is over.
  */
 class OngoingCallService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    /** The call as last shown: what a photo that lands later is drawn into. */
-    private var current: OngoingCall? = null
+    /** Every call in progress; the notification shows the newest. */
+    private val calls = OngoingCalls()
 
-    /** The other side's photo, fetched once per call. */
+    /** The call the notification shows now: what a photo that lands later is drawn into. */
+    private var shownId: String? = null
+
+    /** The shown call's other side's photo, fetched once per call. */
     private var photo: Bitmap? = null
     private var photoFor: String? = null
     private var photoJob: Job? = null
@@ -207,36 +246,53 @@ class OngoingCallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            // Only the call it is for. Stopped by this start's own id, so a
-            // start for another call that came in behind it still runs.
-            val callId = intent.getStringExtra(CallNotifications.EXTRA_CALL)
-            if (current == null || current?.callId == callId) stopSelf(startId)
+            // Only the call it is for: another call still live keeps the
+            // service, and the notification moves to it. Stopped by this
+            // start's own id, so a start that came in behind it still runs.
+            val held = calls.remove(intent.getStringExtra(CallNotifications.EXTRA_CALL))
+            val next = calls.newest
+            when {
+                next == null -> stopSelf(startId)
+                held -> display(next)
+            }
             return START_NOT_STICKY
         }
         val call = intent?.let(::callOf)
-        if (call == null || !promote(call)) {
-            // An update Android would not take — the camera turned on with
-            // the app behind, say — leaves the same call as it was shown,
-            // still holding the microphone. Anything else has no service.
-            if (call == null || current?.callId != call.callId) stopSelf()
+        if (call == null) {
+            if (calls.isEmpty) stopSelf()
             return START_NOT_STICKY
         }
-        if (current?.callId != call.callId) {
-            photo = null
-            photoFor = null
-            photoJob?.cancel()
-        }
-        current = call
-        val url = call.peerAvatarUrl
-        if (url != null && url != photoFor) {
-            photoFor = url
-            photoJob?.cancel()
-            photoJob = scope.launch {
-                photo = CallerFace.photo(applicationContext, url)
-                if (photo != null) current?.let(::promote)
-            }
+        val before = calls.snapshot()
+        calls.put(call)
+        if (!display(calls.newest ?: call)) {
+            // An update Android would not take — the camera turned on with
+            // the app behind, say — leaves every call as it was shown, still
+            // holding the microphone; a new call it refused is dropped alone.
+            // No call left: no service.
+            calls.restore(before)
+            if (calls.isEmpty) stopSelf()
         }
         return START_NOT_STICKY
+    }
+
+    /** [call] in the notification, the service typed for every call held; false when Android will not have it. */
+    private fun display(call: OngoingCall): Boolean {
+        val face = if (call.callId == shownId && call.peerAvatarUrl == photoFor) photo else null
+        if (!promote(call, face)) return false
+        if (call.callId != shownId || call.peerAvatarUrl != photoFor) {
+            shownId = call.callId
+            photo = null
+            photoFor = call.peerAvatarUrl
+            photoJob?.cancel()
+            val url = call.peerAvatarUrl ?: return true
+            photoJob = scope.launch {
+                val fetched = CallerFace.photo(applicationContext, url) ?: return@launch
+                val shown = calls.newest?.takeIf { it.callId == shownId && it.peerAvatarUrl == url } ?: return@launch
+                photo = fetched
+                promote(shown, fetched)
+            }
+        }
+        return true
     }
 
     override fun onDestroy() {
@@ -246,27 +302,28 @@ class OngoingCallService : Service() {
     }
 
     /** In the foreground with [call]'s notification, or false when Android will not have it. */
-    private fun promote(call: OngoingCall): Boolean {
+    private fun promote(call: OngoingCall, face: Bitmap?): Boolean {
         val types = OngoingCallTypes.of(
             sdk = Build.VERSION.SDK_INT,
-            video = call.video,
+            // The camera stays while any call held still has it on.
+            video = call.video || calls.video,
             microphoneGranted = granted(Manifest.permission.RECORD_AUDIO),
             cameraGranted = granted(Manifest.permission.CAMERA),
         )
         if (types == OngoingCallTypes.NONE) return false
         ensureChannel(this, call.language)
         return runCatching {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(call), types)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(call, face), types)
         }.isSuccess
     }
 
     private fun granted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
-    private fun notification(call: OngoingCall): android.app.Notification {
+    private fun notification(call: OngoingCall, face: Bitmap?): android.app.Notification {
         val person = Person.Builder()
             .setName(call.peerName)
-            .setIcon(IconCompat.createWithBitmap(CallerFace.face(photo)))
+            .setIcon(IconCompat.createWithBitmap(CallerFace.face(face)))
             .setImportant(true)
             .build()
         val back = PendingIntent.getActivity(
@@ -366,10 +423,10 @@ class OngoingCallService : Service() {
         }
 
         /**
-         * [callId] is over: the service stops if that is the call it is
-         * showing, and carries on for any other. Through the service's own
-         * queue, behind every start sent before it, so it is judged against
-         * the call as last shown. A service in the foreground lets the app
+         * [callId] is over: the service lets it go, and stops once no call
+         * is left; another call still live keeps it, in the notification.
+         * Through the service's own queue, behind every start sent before
+         * it, so it is judged against the calls as last shown. A service in the foreground lets the app
          * send it from the background too; with no service running there is
          * nothing to stop, and a refusal is swallowed.
          */

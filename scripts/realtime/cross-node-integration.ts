@@ -12,6 +12,9 @@
  *
  *   1. cross-node publish   — subscriber on node 2 receives a publish issued
  *                             through node 1's HTTP API
+ *   1b. no client history   — neither an outsider nor the subscriber may call
+ *                             history/presence on a ws:* channel, and the
+ *                             subscription is still recoverable
  *   2. cross-node presence  — a presence query on node 1 sees the client
  *                             attached to node 2
  *   3. per-node counts      — each node reports its OWN client count, and the
@@ -60,8 +63,8 @@ const NAMESPACES = JSON.stringify([
     force_recovery: true,
     allow_subscribe_for_client: false,
     allow_publish_for_client: false,
-    allow_presence_for_client: true,
-    allow_history_for_client: true,
+    allow_presence_for_client: false,
+    allow_history_for_client: false,
     subscribe_for_anonymous: false,
   },
   {
@@ -242,6 +245,10 @@ class RawClient {
     return this.send({ presence: { channel } });
   }
 
+  history(channel: string) {
+    return this.send({ history: { channel, limit: 50 } });
+  }
+
   get isOpen() {
     return this.ws.readyState === WebSocket.OPEN;
   }
@@ -311,6 +318,33 @@ async function main() {
     pub.ok && !!received,
     `published via node1 (${pub.ok}), received on node2 subscriber: ${JSON.stringify(received?.data ?? null)}`,
   );
+
+  // ── 1b. no client-side history or presence on `ws` ───────────────────
+  // allow_history_for_client / allow_presence_for_client would let any
+  // connection with a user id (any widget visitor of any tenant) read any
+  // ws:* channel without subscribing (audit 2026-11-04). Both must be
+  // refused, for an outsider and for the subscriber alike, while the
+  // subscription itself stays recoverable through force_recovery.
+  const outsider = new RawClient(8001);
+  await outsider.open();
+  await outsider.connect(connToken('visitor-of-another-workspace'));
+  const refused = (r: any) => !!r?.error;
+  const outsiderHistory = await outsider.history(convChannel);
+  const outsiderPresence = await outsider.presence(convChannel);
+  const subscriberHistory = await subscriber.history(convChannel);
+  const subscriberPresence = await subscriber.presence(convChannel);
+  record(
+    'ws_client_history_presence_refused',
+    refused(outsiderHistory) && refused(outsiderPresence) && refused(subscriberHistory) && refused(subscriberPresence),
+    `outsider history=${JSON.stringify(outsiderHistory?.error ?? 'ALLOWED')} presence=${JSON.stringify(outsiderPresence?.error ?? 'ALLOWED')}; ` +
+      `subscriber history=${JSON.stringify(subscriberHistory?.error ?? 'ALLOWED')} presence=${JSON.stringify(subscriberPresence?.error ?? 'ALLOWED')}`,
+  );
+  record(
+    'ws_subscription_still_recoverable',
+    sub.subscribe?.recoverable === true,
+    `subscribe reply recoverable=${sub.subscribe?.recoverable}`,
+  );
+  outsider.close();
 
   // ── 2. cross-node presence ───────────────────────────────────────────
   const opChannel = `ws:${WORKSPACE}:operators`;

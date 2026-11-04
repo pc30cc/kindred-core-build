@@ -14,7 +14,7 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 | Path | Purpose |
 |---|---|
 | `docker-compose.centrifugo.yml` | Coolify-compatible, **fully env-driven** compose file for the Centrifugo container |
-| `deploy/centrifugo/config.json` | Reference-only config (NOT mounted in production — kept in repo as documentation of the intended namespace/channel model) |
+| `deploy/centrifugo/config.json` | Reference-only config (NOT mounted in production — kept in repo as documentation of the intended namespace/channel model; must match `CENTRIFUGO_NAMESPACES` in the compose files, see §2.4) |
 | `DEPLOY_CENTRIFUGO_COOLIFY.md` | This guide |
 
 > ⚠️ **No bind mount in production.** Earlier versions mounted `./deploy/centrifugo/config.json` into the container. In Coolify's Docker Compose build pack the working directory at runtime is not guaranteed, so the mount silently failed (`config file not found` in the container logs) and Centrifugo started with an empty config. The current compose file is **100% env-driven** — every setting (auth, namespaces, transport, engine) is supplied via `CENTRIFUGO_*` environment variables. The JSON file in `deploy/centrifugo/` is kept only as human-readable reference for what those env vars produce.
@@ -67,6 +67,71 @@ After this, the following endpoints must be reachable over HTTPS (these are the 
 | `CENTRIFUGO_ADMIN_SECRET` | optional | — | Required if `CENTRIFUGO_ADMIN=true`. |
 
 Click **Deploy**. The container should reach `Running` state within a few seconds. Because there is no Docker healthcheck, Coolify will simply show `Running` (not `Running (healthy)`) — that is correct.
+
+### 2.4 Channel namespaces: where they come from, and the client-access rule
+
+The namespaces (`ws`, `vp`) are **not** a Coolify environment variable you
+type in: `CENTRIFUGO_NAMESPACES` is written inline, as a literal JSON value,
+in `docker-compose.centrifugo.yml` (Mode 1; the multi-node files
+`docker-compose.centrifugo-redis.yml` and `docker-compose.realtime-cluster.yml`
+carry the same value). Coolify reads that compose file from the repository at
+the commit it deploys, so a change to the namespaces reaches the running
+Centrifugo only when the Centrifugo resource itself is **redeployed** from a
+commit that has it. In production that resource is Coolify app 15 (WebYar),
+which does **not** auto-deploy on a push; RESPOK's Centrifugo resource is
+separate and needs the same redeploy. `deploy/centrifugo/config.json` is a
+reference copy and is never read by the container.
+
+If somebody ever added `CENTRIFUGO_NAMESPACES` in the resource's
+**Environment Variables** in Coolify, that copy is stale by definition:
+delete it there, so the compose file stays the one source.
+
+**Rule (audit 2026-11-04): clients may not call history or presence.** Every
+namespace sets `allow_history_for_client` and `allow_presence_for_client` to
+`false`, and sets no `allow_history_for_subscriber`,
+`allow_presence_for_subscriber` or `*_for_anonymous`. In Centrifugo v5.4.5
+(`internal/client/handler.go`, `hasAccessToHistory` / `hasAccessToPresence`)
+the `_for_client` options let **any connection with a user id** call history
+and presence on **any** channel of the namespace without subscribing. Every
+widget visitor of every workspace gets such a connection from
+`/api/realtime/connect`, so with those options on, a visitor of one workspace
+could read another workspace's `ws:<ws>:inbox` history (the last 50 message
+envelopes, 300 s) and the presence of `ws:<ws>:operators`, around the
+subscription tokens the backend checks. `_for_subscriber` stays off as well:
+every subscriber of `ws:<ws>:operators` would see the whole team's user ids,
+a member's hidden peer included.
+
+Nothing needs these options: no client (operator panel, widget, call widget,
+the native and desktop apps) sends a `history` or `presence` command, the
+backend reads presence with the API key (server API, not affected), resubscribe
+recovery comes from `force_recovery: true` (Centrifugo turns recovery on from
+the namespace for token subscriptions, without a history permission), and
+join/leave pushes were already off (`force_push_join_leave: false`; no client
+asks for them). The guard is `src/test/realtime/centrifugoNamespaces.test.ts`
+(it also keeps the four copies and the cross-node integration script
+identical); the live proof is the cross-node integration script's
+`ws_client_history_presence_refused` check
+(`scripts/realtime/cross-node-integration.ts`).
+
+#### Rolling the rule out on an existing Centrifugo (app 15, then RESPOK's)
+
+1. Merge the change to `main` (the backend and the clients need nothing new).
+2. In Coolify, open the Centrifugo resource → **Environment Variables** and
+   make sure there is **no** `CENTRIFUGO_NAMESPACES` entry (see above).
+3. At a quiet hour, press **Deploy** on the resource (or queue it through the
+   move kit's `deploy.php` with the resource's uuid and the merge commit).
+   With the memory engine the restart drops every realtime connection for a
+   few seconds and its 300 s history; clients reconnect on their own and
+   reconcile over REST.
+4. Check the running container carries the new value, on the host:
+   `docker inspect <centrifugo container> --format '{{range .Config.Env}}{{println .}}{{end}}' | grep NAMESPACES`
+   must show `"allow_presence_for_client":false,"allow_history_for_client":false`
+   in the `ws` namespace.
+5. Check §5.5 (widget end to end) and that the operator Inbox still updates
+   live; then do the same for RESPOK's Centrifugo resource.
+
+Way back: redeploy the previous commit of the resource, only on the owner's say, since it
+re-opens the cross-tenant read.
 
 ---
 

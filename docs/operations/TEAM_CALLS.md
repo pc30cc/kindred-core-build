@@ -269,9 +269,18 @@ uncounted time.
   says "Calling…" with no sound until `rang_at` is set, then "Ringing…" with
   the ringback until the answer (the call button's click only unlocks the
   page's audio: `primeCallAudio`).
-- `rang` (`platform: "web"`, `device_id` the tab's): when the tab's ringing
-  card shows (`IncomingCard`, once per call per tab; retried twice 3 s apart
-  on a failure, then dropped). A tab's call screen stays above the panel as the
+- `rang` (`platform: "web"`, `device_id` the tab's): once the tab's ring is
+  perceivable, never before: its ringing card is on screen and the tab is
+  visible, or its ringtone is really sounding (the page's audio unlocked, not
+  merely waiting for the member's first gesture), or its system notification
+  was shown. A background tab without any of these (restored at browser
+  start, reloaded after a deploy, notifications not allowed) waits for the
+  first of them (`visibilitychange`, the ringtone starting) while the call
+  still rings, and never sends it after. Once per call per tab; retried twice
+  3 s apart on a failure, then dropped.
+- The caller's `rang_at` only goes from null to a time: a read of the call
+  that left before the stamp and answers after a newer one never takes it
+  back; the realtime event's own `rang_at` is used at once. A tab's call screen stays above the panel as the
   member moves around in it; closing the tab ends the call through the
   webhook.
 - Ending follows the apps' rule: the caller hangs up (`/hangup`); the callee

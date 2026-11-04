@@ -62,7 +62,15 @@ import {
 } from '@/lib/team-calls-api';
 // The colleague call's own ringback switch: a visitor call's surface never
 // stops it, and this call never stops the visitor's (callSound.ts).
-import { primeCallAudio, startRingtone, startTeamRingback, stopRingtone, stopTeamRingback } from '@/features/calls/callSound';
+import {
+  isRingtonePlaying,
+  onRingtonePlaying,
+  primeCallAudio,
+  startRingtone,
+  startTeamRingback,
+  stopRingtone,
+  stopTeamRingback,
+} from '@/features/calls/callSound';
 import { teamCallDeviceId } from './deviceId';
 import {
   peerDisplayName,
@@ -123,6 +131,7 @@ interface TeamCallEvent {
   workspace_id?: unknown;
   call_id?: unknown;
   state?: unknown;
+  rang_at?: unknown;
 }
 
 export function TeamCallProvider({
@@ -149,6 +158,12 @@ export function TeamCallProvider({
   const toldRef = useRef<Set<string>>(new Set());
   /** Calls this tab has said `rang` for (once per call per tab). */
   const rangSentRef = useRef<Set<string>>(new Set());
+  /** The call whose ringing card is on screen in this tab. */
+  const cardShownRef = useRef<string | null>(null);
+  /** Calls whose system notification this tab showed. */
+  const notifiedRef = useRef<Set<string>>(new Set());
+  /** A call whose `rang` waits for the ring to become perceivable here. */
+  const [rangPending, setRangPending] = useState<string | null>(null);
   /** A hang-up asked for while this tab's answer was in flight. */
   const hangUpAfterAnswerRef = useRef(false);
   const tRef = useRef(t);
@@ -203,7 +218,9 @@ export function TeamCallProvider({
     if (!s || !s.call || s.call.id !== call.id || s.phase === 'ended') return;
     const peer = call.peer?.name || call.peer?.avatar_url ? call.peer : s.peer;
     if (call.state === 'ringing') {
-      setSession({ ...s, call, peer });
+      // `rang_at` only ever goes from null to a time: a read that left
+      // before the stamp and answers after a newer one must not undo it.
+      setSession({ ...s, call: { ...call, rang_at: call.rang_at ?? s.call.rang_at ?? null }, peer });
       return;
     }
     if (call.state === 'connecting' || call.state === 'active') {
@@ -325,6 +342,11 @@ export function TeamCallProvider({
     if (workspaceId && typeof payload.workspace_id === 'string' && payload.workspace_id !== workspaceId) return;
     const s = sessionRef.current;
     if (s?.call?.id === callId) {
+      // The event's own `rang_at` turns "Calling…" into "Ringing…" at once;
+      // the read that follows confirms the rest.
+      if (s.call && !s.call.rang_at && s.phase !== 'ended' && typeof payload.rang_at === 'string' && payload.rang_at) {
+        setSession({ ...s, call: { ...s.call, rang_at: payload.rang_at } });
+      }
       if (s.phase !== 'ended') void refresh(callId);
       return;
     }
@@ -441,6 +463,65 @@ export function TeamCallProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callId, phase, finish, tellMissed]);
 
+  // ─── `rang`: this tab says the call rang here, once it really did ───
+  // Sent once per call per tab, and only once the ring is perceivable here:
+  // the ringtone is sounding (the page's audio unlocked), the system
+  // notification was shown, or the tab is visible with the ringing card on
+  // screen. Until then it waits for the first of those while the call still
+  // rings, and is never sent after (owner, 2026-11-04: no "Ringing…" for the
+  // caller while nothing rang). A failure is tried again
+  // TEAM_CALL_RANG_RETRIES times, then dropped; a refusal is final.
+  const sendRang = useCallback((rangCallId: string) => {
+    if (rangSentRef.current.has(rangCallId)) return;
+    rangSentRef.current.add(rangCallId);
+    const deviceId = teamCallDeviceId();
+    void (async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await teamCallsApi.rang(rangCallId, deviceId);
+          return;
+        } catch (err) {
+          const final = err instanceof TeamCallApiError && [400, 401, 403, 404, 409].includes(err.status);
+          if (final || attempt >= TEAM_CALL_RANG_RETRIES) return;
+          await new Promise((resolve) => setTimeout(resolve, TEAM_CALL_RANG_RETRY_MS));
+          const s = sessionRef.current;
+          if (!s || s.call?.id !== rangCallId || s.phase !== 'incoming') return;
+        }
+      }
+    })();
+  }, []);
+
+  const tryRang = useCallback((rangCallId: string) => {
+    const s = sessionRef.current;
+    if (!s || s.call?.id !== rangCallId || s.phase !== 'incoming') return;
+    if (rangSentRef.current.has(rangCallId)) return;
+    const visibleCard = cardShownRef.current === rangCallId
+      && typeof document !== 'undefined' && document.visibilityState === 'visible';
+    if (visibleCard || isRingtonePlaying() || notifiedRef.current.has(rangCallId)) {
+      setRangPending((pending) => (pending === rangCallId ? null : pending));
+      sendRang(rangCallId);
+      return;
+    }
+    setRangPending(rangCallId);
+  }, [sendRang]);
+
+  /** The ringing card is on screen for [rangCallId]. */
+  const ringShown = useCallback((rangCallId: string) => {
+    cardShownRef.current = rangCallId;
+    tryRang(rangCallId);
+  }, [tryRang]);
+
+  useEffect(() => {
+    if (!rangPending || rangPending !== callId || phase !== 'incoming') return;
+    const check = () => tryRang(rangPending);
+    document.addEventListener('visibilitychange', check);
+    const off = onRingtonePlaying(check);
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+      off();
+    };
+  }, [rangPending, callId, phase, tryRang]);
+
   // ─── The ringtone and the system notification of a ring here ───
   const ringingHere = phase === 'incoming';
   const ringPeerName = session?.peer?.name ?? null;
@@ -454,12 +535,16 @@ export function TeamCallProvider({
       body: tRef.current(ringChannel === 'video' ? 'teamCall.incomingVideo' : 'teamCall.incomingVoice'),
       tag: `team-call-${callId}`,
       icon: ringPeerAvatar,
+      onShown: () => {
+        notifiedRef.current.add(callId);
+        tryRang(callId);
+      },
     });
     return () => {
       stopRingtone('ring_over');
       stopNotice();
     };
-  }, [ringingHere, callId, ringPeerName, ringPeerAvatar, ringChannel]);
+  }, [ringingHere, callId, ringPeerName, ringPeerAvatar, ringChannel, tryRang]);
 
   // ─── An ended window closes on its own ───
   const sessionKey = session?.key ?? null;
@@ -498,31 +583,6 @@ export function TeamCallProvider({
   }, [callerRinging]);
 
   // ─── Actions ───
-  /**
-   * The ringing card is on screen: tell the server this tab rang, once per
-   * call. A failure is tried again TEAM_CALL_RANG_RETRIES times, then
-   * dropped; a refusal (the call moved on, not this member's) is final.
-   */
-  const ringShown = useCallback((callId: string) => {
-    if (rangSentRef.current.has(callId)) return;
-    rangSentRef.current.add(callId);
-    const deviceId = teamCallDeviceId();
-    void (async () => {
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          await teamCallsApi.rang(callId, deviceId);
-          return;
-        } catch (err) {
-          const final = err instanceof TeamCallApiError && [400, 401, 403, 404, 409].includes(err.status);
-          if (final || attempt >= TEAM_CALL_RANG_RETRIES) return;
-          await new Promise((resolve) => setTimeout(resolve, TEAM_CALL_RANG_RETRY_MS));
-          const s = sessionRef.current;
-          if (!s || s.call?.id !== callId || s.phase !== 'incoming') return;
-        }
-      }
-    })();
-  }, []);
-
   const placeCall = useCallback(async (input: { workspaceId: string; peer: TeamCallPeer; channel: TeamCallChannel }) => {
     const current = sessionRef.current;
     if (current && current.phase !== 'ended') return;

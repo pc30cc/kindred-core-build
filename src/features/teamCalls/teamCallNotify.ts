@@ -35,6 +35,8 @@ export interface RingNotice {
   /** One notification per call: a second one for the same call replaces it. */
   tag: string;
   icon?: string | null;
+  /** Called when the notification is actually shown. */
+  onShown?: () => void;
 }
 
 /**
@@ -69,6 +71,9 @@ export function watchRingNotification(notice: RingNotice): () => void {
       };
     } catch {
       shown = null;
+    }
+    if (shown) {
+      try { notice.onShown?.(); } catch { /* the caller's own failure */ }
     }
   };
   sync();

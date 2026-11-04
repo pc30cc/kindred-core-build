@@ -197,10 +197,29 @@ function ringtoneOnce() {
   }
 }
 
+const ringtonePlayingListeners = new Set<() => void>();
+
 function startRingtoneInternal() {
   if (ringtoneTimer) return;
   ringtoneOnce();
   ringtoneTimer = setInterval(ringtoneOnce, 3000);
+  for (const listener of [...ringtonePlayingListeners]) {
+    try { listener(); } catch { /* a listener's own failure */ }
+  }
+}
+
+/**
+ * True while the ringtone is really sounding: started, and the page's audio
+ * unlocked (not merely asked for and waiting for the member's first gesture).
+ */
+export function isRingtonePlaying(): boolean {
+  return ringtoneTimer !== null;
+}
+
+/** Called each time the ringtone starts sounding; returns the unsubscribe. */
+export function onRingtonePlaying(listener: () => void): () => void {
+  ringtonePlayingListeners.add(listener);
+  return () => { ringtonePlayingListeners.delete(listener); };
 }
 
 /**

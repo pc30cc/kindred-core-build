@@ -39,8 +39,8 @@ import {
   resolveEffectiveCallProvider,
   resolveCallProvider,
 } from '../services/calls/providerResolver.js';
-import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
-import { mintTurnCreds } from '../services/calls/turnAuth.js';
+import { buildTokenNetworkBundle } from '../services/calls/participantToken.js';
+import { loadLiveKitConfig, providesOwnRelay } from '../services/calls/livekitConfig.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import {
   loadCallControlPlane,
@@ -361,28 +361,21 @@ widgetCallInvitationsRouter.post(
         return res.status(mapped.status).json(mapped.body);
       }
 
-      // Network bundle (URLs from resolver) + dynamic TURN creds.
-      const network = await getCallNetworkBundle(config);
-      const turn = { ...network.turn };
-      if (turn.static_secret_present && turn.urls.length > 0) {
-        try {
-          const { data: rtcRow } = await sb
-            .from('app_runtime_config')
-            .select('value')
-            .eq('key', 'call_rtc_endpoints')
-            .maybeSingle();
-          const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
-          if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
-            const m = mintTurnCreds({
-              sharedSecret,
-              identity: 'call:' + inserted.id,
-              ttlSeconds: 600,
-            });
-            turn.username = m.username;
-            turn.credential = m.credential;
-          }
-        } catch { /* fallback to static creds */ }
-      }
+      // Network bundle (URLs from resolver) + the relay, through the builder
+      // every token route shares: it reads the stored secret (encrypted or
+      // not), mints credentials for the whole call rather than this token's
+      // ten minutes, and gives a visitor outside the relay's countries
+      // `urls: []`, so they keep LiveKit's own TURN instead of losing it to
+      // a relay they were not meant to use.
+      const { network, turn, withheld } = await buildTokenNetworkBundle(config, inserted.id, 600, req);
+      // A visitor the gate kept out of our relay is on LiveKit's own TURN
+      // when LiveKit has a TURN domain (as issueParticipantToken reasons), so
+      // their `urls: []` is no missing relay and must not be reported as one.
+      // With no relay stored at all the warning stays what this route has
+      // always answered, so a deployment without one (RESPOK) answers as before.
+      const relayMissing =
+        turn.urls.length === 0 &&
+        !(withheld && providerId === 'livekit' && providesOwnRelay(await loadLiveKitConfig(config)));
 
       // Mark invitation joined + link to the new call_session. This also
       // patches the system card so other UIs see the terminal state.
@@ -399,7 +392,7 @@ widgetCallInvitationsRouter.post(
         turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
         ice_policy: network.ice_policy,
         warnings: [
-          ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+          ...(relayMissing ? [CALL_ERROR_CODES.TURN_MISSING] : []),
         ],
       });
     } catch (err: any) {

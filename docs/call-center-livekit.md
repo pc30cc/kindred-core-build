@@ -137,16 +137,30 @@ certificate means LiveKit is terminating, "no peer certificate available"
 means it is expecting a proxy to.
 
 LiveKit mints a TURN credential per participant and delivers it over the
-signalling connection. **Nothing goes in the admin RTC endpoint settings** —
-a `turn:` URL pasted there has no credentials, which is a broken ICE server
-rather than a spare route. Enter the hostname at Super Admin -> Providers ->
-Calls -> LiveKit -> TURN domain instead; that is what tells the backend a
-relay exists and stops `turn_missing` being reported about a deployment
-that has one.
+signalling connection. **LiveKit's own TURN never goes in the admin RTC
+endpoint settings** — a `turn:` URL pasted there has no credentials, which
+is a broken ICE server rather than a spare route, and any URL there
+replaces LiveKit's ICE servers for the callers it is given to (below).
+Enter the hostname at Super Admin -> Providers -> Calls -> LiveKit -> TURN
+domain instead; that is what tells the backend a relay exists and stops
+`turn_missing` being reported about a deployment that has one.
 
 An external TURN service (Cloudflare, Twilio, coturn elsewhere) is the
-other way, and that one does go in the RTC endpoint settings, with its own
-credentials. `mintTurnCreds` implements coturn's `use-auth-secret` scheme:
-put the same string in `static-auth-secret` and in the config row's
-`turn.shared_secret`, and the backend issues a time-limited credential per
-call.
+other way, and that one does go in the RTC endpoint settings (Super Admin
+-> Voice & Video -> Channels and recording -> RTC and TURN endpoints).
+`mintTurnCreds` implements coturn's `use-auth-secret` scheme: put the same
+string in coturn's `static-auth-secret` and in that page's Shared secret,
+and the backend gives each token its own time-limited credential (a random
+username, valid for the page's credential lifetime, 6 h by default). Since
+2026-11-04 the page saves the secret encrypted under
+`PLUGIN_SECRETS_MASTER_KEY` (`turn.shared_secret_enc`) and shows only
+whether one is set and its fingerprint. Never write it into the config row
+by hand: it would sit there in clear, and in every backup. An older row's
+plain `turn.shared_secret` is still read, and the next save from the page
+encrypts it (when the key is set).
+
+A client handed TURN URLs uses them instead of the ICE servers LiveKit
+offers, its own TURN among them, so the page's relay countries decide who
+gets them (by the country Cloudflare saw; empty is everyone), and everyone
+else keeps LiveKit's own TURN. WebYar's coturn inside Iran is set up this
+way, for callers in Iran only: `deploy/iran-relay/README.md`.

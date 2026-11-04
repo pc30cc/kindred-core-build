@@ -194,6 +194,25 @@ that calls back. The contract between the server
 and both apps (API, payloads, states, ring and stop, webhook and ticker
 rules, rollout) is `docs/operations/TEAM_CALLS.md`: change it with the code.
 
+## Iran relay (owner, 2026-11-04)
+
+Iranian mobile data passes no call media to LiveKit abroad (its own TURN
+included), so WebYar's calls from Iran go through a coturn relay inside Iran:
+`185.213.167.216:3478` (Desktop Commander device `webyar`, which also runs the
+owner's other services), relaying only to LiveKit (`5.39.70.213`). WebYar
+only: RESPOK's `call_rtc_endpoints` lists no relay. Super Admin → Voice &
+Video → Channels and recording → RTC and TURN endpoints is the only place to
+change its address, its shared secret (saved encrypted under
+`PLUGIN_SECRETS_MASTER_KEY`, shown only as a fingerprint) and the relay
+countries; never write `call_rtc_endpoints` by hand. The countries are `IR`
+(empty is everyone), so callers elsewhere keep LiveKit's own TURN: a client
+handed TURN URLs uses them instead of LiveKit's ICE servers. Never list
+LiveKit's own TURN (`turn.webyar.ai`) in those URLs, and `ws_url` stays
+`wss://rt.webyar.ai`. Each token gets its own credential (a random username,
+valid 6 h, the page's lifetime). Rotate the secret on the relay and in Super
+Admin together, at a quiet hour. Runbook (server, firewall, probe, changes):
+`deploy/iran-relay/README.md`.
+
 ## The mobile apps as a plan feature (owner, 2026-11-02)
 
 The Super Admin turns the iPhone and Android apps on or off per plan (plan
@@ -277,7 +296,8 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   `/data/coolify/proxy/dynamic/livekit-signal-cf.yaml`. The backend keeps
   `rtc_url` `wss://livekit.webyar.ai`. A direct WebSocket from an Iranian
   mobile network dies after its first few KB, so calls failed there. Media
-  still goes direct. Do not point `ws_url` back at `livekit.webyar.ai`
+  still goes direct (callers in Iran: through the Iran relay, above). Do not
+  point `ws_url` back at `livekit.webyar.ai`
   (`deploy/livekit/README.md` §4.1).
 - Coolify builds two apps at a time, so after a merge the whole set (with
   RESPOK's) takes about 15 minutes. A deploy that has not appeared yet is

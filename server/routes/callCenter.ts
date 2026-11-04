@@ -24,6 +24,7 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import { buildTokenNetworkBundle } from '../services/calls/participantToken.js';
 import { memberParticipantIdentity, publicMemberName } from '../services/calls/operatorIdentity.js';
 import {
   loadLiveKitConfig,
@@ -893,6 +894,37 @@ async function autoStartRecordingOnAccept(
   }
 }
 
+/**
+ * The relay an operator's console may use for a call, from the builder every
+ * token route shares (the stored secret, credentials minted for the whole
+ * call, the countries gate on this request's country), as `turn` and
+ * `ice_policy`.
+ *
+ * Nothing at all when this operator gets no relay (outside its countries, or
+ * a deployment with none): the console hands LiveKit ICE servers only for a
+ * non-empty list, so an absent `turn` keeps LiveKit's own TURN exactly as
+ * `urls: []` would, and the accept stays byte for byte what it was before the
+ * relay existed. The call is already accepted when this runs, so a failure to
+ * read the relay must not fail the accept: the operator joins as before.
+ */
+async function operatorRelay(
+  config: ServerConfig,
+  callId: string,
+  req: Request,
+): Promise<{ turn?: { urls: string[]; username: string | null; credential: string | null }; ice_policy?: string }> {
+  try {
+    const { network, turn } = await buildTokenNetworkBundle(config, callId, 60 * 60, req);
+    if (turn.urls.length === 0) return {};
+    return {
+      turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
+      ice_policy: network.ice_policy,
+    };
+  } catch (err) {
+    console.warn('[call-center/accept] relay unavailable:', err instanceof Error ? err.message : String(err));
+    return {};
+  }
+}
+
 callCenterRouter.post('/calls/:id/accept', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
   const ctx = await requireCallOperator(req, res, wid);
@@ -1006,13 +1038,18 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     }
     const identity = tok.identity ?? memberParticipantIdentity(ctx.config, req.params.id, 'operator', ctx.userId);
     const connect = await buildClientConnectInfo(ctx.config, providerId, providerRoomId, identity);
+    const relay = await operatorRelay(ctx.config, req.params.id, req);
     res.json({
       ok: true,
       provider: providerId,
       provider_room_id: providerRoomId,
       token: tok.token,
       expires_at: tok.expiresAt,
-      connect,
+      // The relay rides inside `connect` too: the queue page hands the
+      // console `connect` and the token, on the first accept and on the
+      // console's Reconnect (which accepts again), and nothing else.
+      connect: { ...connect, ...relay },
+      ...relay,
       idempotent: wasAlreadyActiveForMe,
       takeover: decision.isTakeover,
     });

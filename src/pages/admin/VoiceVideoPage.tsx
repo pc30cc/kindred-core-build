@@ -68,6 +68,7 @@ function OverviewTab() {
   const cp = cpQuery.data?.control_plane;
   const readiness = cpQuery.data?.readiness ?? {};
   const network = cpQuery.data?.network;
+  const relayCountries = network?.turn?.countries ?? [];
 
   if (cpQuery.isLoading) {
     return (
@@ -219,12 +220,34 @@ function OverviewTab() {
               <span className="font-mono">{network.turn?.urls?.length ?? 0}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('admin.voiceVideo.overview.turnCredentials' as any)}</span>
+              <span className="text-muted-foreground">{t('admin.voiceVideo.overview.turnCredentials')}</span>
               <span className="font-mono">
-                {network.turn?.username ? t('admin.voiceVideo.set' as any) : t('admin.voiceVideo.unset' as any)}
-                {network.turn?.static_secret_present ? ` + ${t('admin.voiceVideo.overview.staticSecret' as any)}` : ''}
+                {/* A shared secret is stored, to mint each call's credentials
+                    from (an older backend sends only static_secret_present);
+                    the static pair is the username and password typed in as
+                    they are. */}
+                {[
+                  (network.turn?.shared_secret_present ?? network.turn?.static_secret_present)
+                    ? t('admin.voiceVideo.overview.staticSecret')
+                    : null,
+                  network.turn?.username ? t('admin.voiceVideo.overview.staticPair') : null,
+                ]
+                  .filter(Boolean)
+                  .join(' + ') || t('admin.voiceVideo.unset')}
               </span>
             </div>
+            {(network.turn?.urls?.length ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t('admin.voiceVideo.overview.relayFor')}</span>
+                <span className="font-mono" data-testid="overview-relay-countries">
+                  {/* Empty or '*' is everyone; anyone outside a listed
+                      country keeps LiveKit's own relay. */}
+                  {relayCountries.length > 0 && !relayCountries.includes('*')
+                    ? relayCountries.join(', ')
+                    : t('admin.voiceVideo.overview.relayEveryone')}
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -690,6 +713,9 @@ function CallbacksTab() {
 
 export default function VoiceVideoPage() {
   const { t } = useTranslation();
+  // Controlled, so "Open RTC, TURN and network settings" on the Providers tab
+  // can move to the Channels tab, where those settings live.
+  const [tab, setTab] = useState('overview');
   return (
     <div className="space-y-6">
       <div>
@@ -700,7 +726,7 @@ export default function VoiceVideoPage() {
         <p className="text-sm text-muted-foreground mt-1">{t('admin.voiceVideo.subtitle' as any)}</p>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="bg-secondary/50 border border-border flex-wrap h-auto">
           <TabsTrigger value="overview" className="gap-1.5 text-xs">
             <Activity className="h-3.5 w-3.5" />
@@ -772,16 +798,10 @@ export default function VoiceVideoPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button asChild variant="outline" size="sm">
-                <Link
-                  to="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document.querySelector<HTMLButtonElement>('[data-state][value="channels"]')?.click();
-                  }}
-                >
-                  {t('admin.voiceVideo.providers.openNetwork' as any)}
-                </Link>
+              {/* It used to click a tab found by a `value` attribute, which
+                  the tab buttons do not have, so it did nothing. */}
+              <Button type="button" variant="outline" size="sm" onClick={() => setTab('channels')}>
+                {t('admin.voiceVideo.providers.openNetwork')}
               </Button>
             </CardContent>
           </Card>

@@ -3786,8 +3786,8 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
     // Lazy import to avoid pulling provider modules into the widget request
     // path on cold start when calls are disabled.
     const { resolveCallProvider } = await import('../services/calls/providerResolver.js');
-    const { getCallNetworkBundle } = await import('../services/calls/rtcResolver.js');
-    const { mintTurnCreds } = await import('../services/calls/turnAuth.js');
+    const { buildTokenNetworkBundle } = await import('../services/calls/participantToken.js');
+    const { loadLiveKitConfig, providesOwnRelay } = await import('../services/calls/livekitConfig.js');
     const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody, callErrorFromUnknown } =
       await import('../services/calls/errorCodes.js');
 
@@ -3824,23 +3824,21 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
       return res.status(mapped.status).json(mapped.body);
     }
 
-    const network = await getCallNetworkBundle(config);
-    const turn = { ...network.turn };
-    if (turn.static_secret_present && turn.urls.length > 0) {
-      try {
-        const { data: rtcRow } = await supabase
-          .from('app_runtime_config')
-          .select('value')
-          .eq('key', 'call_rtc_endpoints')
-          .maybeSingle();
-        const sharedSecret = rtcRow?.value?.turn?.shared_secret;
-        if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
-          const m = mintTurnCreds({ sharedSecret, identity: 'call:' + session.id, ttlSeconds: 600 });
-          turn.username = m.username;
-          turn.credential = m.credential;
-        }
-      } catch { /* fallback to static */ }
-    }
+    // The relay goes through the one builder every token route uses: it
+    // reads the stored secret (encrypted or not), mints credentials that
+    // outlive this short token (the widget keeps its ICE servers for the
+    // whole call), and leaves the relay out for a visitor outside the
+    // configured countries. That visitor gets `urls: []`, which keeps
+    // LiveKit's own TURN; a list here would replace it.
+    const { network, turn, withheld } = await buildTokenNetworkBundle(config, session.id, 600, req);
+    // A visitor the gate kept out of our relay is on LiveKit's own TURN when
+    // LiveKit has a TURN domain (as issueParticipantToken reasons), so they
+    // are not missing a relay and must not be warned that they are. With no
+    // relay stored at all the warning stays what this route has always
+    // answered, so a deployment without one (RESPOK) answers as before.
+    const relayMissing =
+      turn.urls.length === 0 &&
+      !(withheld && session.provider === 'livekit' && providesOwnRelay(await loadLiveKitConfig(config)));
 
     res.json({
       token: minted.token,
@@ -3852,7 +3850,7 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
       call_type: session.call_type,
       recording: !!session.recording_enabled,
       warnings: [
-        ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+        ...(relayMissing ? [CALL_ERROR_CODES.TURN_MISSING] : []),
       ],
     });
   } catch (err) {

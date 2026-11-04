@@ -17,12 +17,13 @@
 #   PORT         client port, UDP and TCP (default 3478)
 #   MIN_PORT/MAX_PORT  relay port range (default 49160-49999)
 #   MAX_BPS      bytes per second per session, each direction (default 1000000)
-#   TOTAL_QUOTA  concurrent allocations on the server (default 600)
+#   TOTAL_QUOTA  concurrent allocations on the server (default 3000)
 #
 # The shared secret is /etc/webyar-turn/secret (root, 0600): the same value as
-# Super Admin → Voice & Video → network → TURN shared secret. It is never
-# printed. To rotate it, write a new one there, run this again, and save the
-# same value in Super Admin.
+# Super Admin → Voice & Video → Channels and recording → RTC and TURN
+# endpoints → Shared secret (stored there encrypted). It is never printed. To
+# rotate it, write a new one there, run this again, and save the same value
+# in Super Admin, at a quiet hour (README.md, "Changing it").
 set -euo pipefail
 
 PUBLIC_IP=${PUBLIC_IP:?set PUBLIC_IP}
@@ -32,7 +33,7 @@ PORT=${PORT:-3478}
 MIN_PORT=${MIN_PORT:-49160}
 MAX_PORT=${MAX_PORT:-49999}
 MAX_BPS=${MAX_BPS:-1000000}
-TOTAL_QUOTA=${TOTAL_QUOTA:-600}
+TOTAL_QUOTA=${TOTAL_QUOTA:-3000}
 SECRET_FILE=/etc/webyar-turn/secret
 CONF=/etc/turnserver.conf
 
@@ -74,8 +75,16 @@ chmod 640 "$tmp"
   echo "denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
   for ip in $PEER_IPS; do echo "allowed-peer-ip=$ip"; done
   echo "max-bps=$MAX_BPS"
+  # The server-wide cap is the only one (0 is coturn's "no limit" per user).
+  # Each call token carries its own random username (`<expiry>:r<16 hex>`)
+  # and a client keeps it for the whole call: every reconnect allocates again
+  # while the allocations left on the old network live out their lifetime
+  # (10 min), so a per-username cap would cut the relay off from a caller on
+  # a flaky network, the one it is for. The peer rules above already keep
+  # anyone from using it for anything but LiveKit. A caller holds about one
+  # allocation per TURN URL for each of LiveKit's two peer connections.
   echo "total-quota=$TOTAL_QUOTA"
-  echo "user-quota=12"
+  echo "user-quota=0"
   echo "syslog"
   echo "simple-log"
   echo "no-stdout-log"

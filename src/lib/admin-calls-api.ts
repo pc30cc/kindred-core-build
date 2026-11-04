@@ -46,7 +46,24 @@ export interface CallTurnConfig {
   username: string | null;
   credential: string | null;
   credential_type: 'password' | 'oauth';
+  /** A shared secret is stored to mint per-call credentials from (worked out by the server). */
   static_secret_present: boolean;
+  /**
+   * Who is given the URLs in their call token: two-letter country codes.
+   * Empty or `['*']` is everyone. Optional because a backend older than the
+   * field does not send it, and that means everyone.
+   */
+  countries?: string[];
+  /** Lifetime of minted relay credentials, in seconds (server default 6 h). */
+  credential_ttl_seconds?: number;
+  /** Super Admin's view only (GET /control-plane): the same flag, under its own name. */
+  shared_secret_present?: boolean;
+  /**
+   * Super Admin's view only: the first 12 hex digits of the secret's
+   * SHA-256, to compare with the TURN server's copy. Null when none is
+   * stored, or when the server cannot decrypt the stored one.
+   */
+  shared_secret_fingerprint?: string | null;
 }
 
 export interface CallNetworkBundle {
@@ -130,15 +147,46 @@ export async function updateCallControlPlane(
   return res.json();
 }
 
+/**
+ * A save of Super Admin → Voice & Video → network. The server merges it onto
+ * the stored row, so a field left out keeps its stored value: the form sends
+ * only what was changed.
+ */
+export interface RtcTurnPatch {
+  urls?: string[];
+  username?: string | null;
+  credential?: string | null;
+  /**
+   * Write-only. Omit to keep the stored secret, send '' to remove it, send
+   * text to replace it. It is never read back: the GET answers whether one
+   * is stored and its fingerprint.
+   */
+  shared_secret?: string;
+  countries?: string[];
+  credential_ttl_seconds?: number;
+}
+
+export interface RtcEndpointsPatch {
+  rtc_url?: string | null;
+  ws_url?: string | null;
+  recording_url?: string | null;
+  ice_policy?: 'all' | 'relay';
+  region?: string | null;
+  turn?: RtcTurnPatch;
+}
+
 export async function updateRtcEndpoints(
-  patch: Partial<CallNetworkBundle>,
+  patch: RtcEndpointsPatch,
 ): Promise<{ ok: boolean }> {
-  const res = await fetch(`${API_BASE}/api/admin/calls/rtc-endpoints`, {credentials: 'include', 
+  const res = await fetch(`${API_BASE}/api/admin/calls/rtc-endpoints`, {credentials: 'include',
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  // The server's refusal names the field and what is wrong with it (a bare
+  // hostname as a TURN URL, a country that is not a code, a secret without
+  // PLUGIN_SECRETS_MASTER_KEY); "Failed: 400" would leave the admin guessing.
+  if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
 

@@ -610,6 +610,7 @@ callsRouter.post('/:id/token', async (req, res) => {
       participantId,
       displayName,
       ttlSeconds: body.ttl_seconds,
+      req,
     });
     res.status(answer.status).json(answer.body);
   } catch (err) {

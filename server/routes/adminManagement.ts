@@ -1387,6 +1387,19 @@ adminManagementRouter.get('/login-attempts', async (req, res) => {
 
 // ── Runtime config writes (admin-only keys) ────────────────────────────
 const RUNTIME_CONFIG_KEY_RE = /^[a-z0-9_]{3,80}$/;
+
+/**
+ * The call network row (signalling URLs, the TURN relay) has its own route,
+ * PUT /api/admin/calls/rtc-endpoints (Super Admin → Voice & Video), which
+ * keeps the relay's shared secret encrypted, works out whether one is
+ * stored, validates the ICE URLs a browser would refuse and audits the
+ * change. Written or removed raw from here it would lose the secret's
+ * envelope or store one in clear, and a removed row takes every call's
+ * signalling URL with it. No page writes it through this route.
+ */
+const CALL_RTC_ENDPOINTS_KEY = 'call_rtc_endpoints';
+const CALL_RTC_ENDPOINTS_REFUSAL = 'call_rtc_endpoints is saved from Super Admin: use the Voice & Video settings.';
+
 /**
  * Keys the cached widget config is derived from (storage URLs, the AI
  * provider check, the legacy pre-chat policy, call channels): a write
@@ -1542,6 +1555,7 @@ adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
   if (req.params.key === 'default_auth_provider') {
     return res.status(400).json({ error: 'The auth provider cannot be changed at runtime.' });
   }
+  if (req.params.key === CALL_RTC_ENDPOINTS_KEY) return res.status(400).json({ error: CALL_RTC_ENDPOINTS_REFUSAL });
   const config = serverConfigOf(req);
   if (isEmailProviderKey(req.params.key)) {
     const value = body.value as { provider_name?: unknown; config?: unknown };
@@ -1582,6 +1596,7 @@ adminManagementRouter.delete('/runtime-config/:key', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   if (!RUNTIME_CONFIG_KEY_RE.test(req.params.key)) return res.status(400).json({ error: 'Invalid key' });
+  if (req.params.key === CALL_RTC_ENDPOINTS_KEY) return res.status(400).json({ error: CALL_RTC_ENDPOINTS_REFUSAL });
   const config = serverConfigOf(req);
   if (isEmailProviderKey(req.params.key)) {
     // Through the store, so removing the platform's mail transport is

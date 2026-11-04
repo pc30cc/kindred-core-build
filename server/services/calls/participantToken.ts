@@ -15,9 +15,16 @@
  * member into the opaque `<type>:<ref>` identity (operatorIdentity.ts), so no
  * user id reaches the room either way.
  */
+import { randomBytes } from 'node:crypto';
+import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
-import { getCallNetworkBundle } from './rtcResolver.js';
+import { getClientCountry } from '../../utils/clientIp.js';
+import {
+  getCallNetworkBundle,
+  getTurnSharedSecret,
+  type CallRtcConfig,
+  type CallTurnConfig,
+} from './rtcResolver.js';
 import { mintTurnCreds } from './turnAuth.js';
 import { resolveCallProvider } from './providerResolver.js';
 import { loadLiveKitConfig, providesOwnRelay } from './livekitConfig.js';
@@ -27,34 +34,96 @@ import type { CallProviderId } from './providers/types.js';
 import type { ParticipantType } from './operatorIdentity.js';
 
 /**
+ * Whether this caller is one the relay is for. An empty list or `*` is
+ * everyone (every row written before the list existed). Otherwise the
+ * caller's country as Cloudflare saw it (server/utils/clientIp.ts believes
+ * the header only from a Cloudflare hop), and an unknown country, or no
+ * request at all, is not on any list.
+ */
+function relayServesCaller(countries: readonly string[] | undefined, req: Request | null | undefined): boolean {
+  if (!Array.isArray(countries) || countries.length === 0 || countries.includes('*')) return true;
+  const country = req ? getClientCountry(req) : null;
+  return country !== null && countries.includes(country);
+}
+
+/** The relay withheld: the client then keeps LiveKit's own ICE servers, its TURN among them. */
+function withoutRelay(turn: CallTurnConfig): CallTurnConfig {
+  return { ...turn, urls: [], username: null, credential: null, static_secret_present: false };
+}
+
+/**
+ * The `turn` a client is handed: the fields a token carried before the relay
+ * settings existed, in the same order. The country list and the lifetime are
+ * the server's own settings: no client reads them, the list would tell a
+ * caller who the relay is for, and leaving them out keeps every token answer
+ * of a deployment without a relay (RESPOK) exactly what it was.
+ */
+export type ClientTurnConfig = Pick<
+  CallTurnConfig,
+  'urls' | 'username' | 'credential' | 'credential_type' | 'static_secret_present'
+>;
+
+function clientTurn(turn: CallTurnConfig): ClientTurnConfig {
+  return {
+    urls: turn.urls,
+    username: turn.username,
+    credential: turn.credential,
+    credential_type: turn.credential_type,
+    static_secret_present: turn.static_secret_present,
+  };
+}
+
+export interface TokenNetworkBundle {
+  /** The resolver's bundle, with `turn` replaced by what this caller got. */
+  network: Omit<CallRtcConfig, 'turn'> & { turn: ClientTurnConfig };
+  turn: ClientTurnConfig;
+  /**
+   * A relay is stored but this caller is not handed it (outside its
+   * countries, or no credentials to give). The caller is then on LiveKit's
+   * own TURN, which is what decides whether a `turn_missing` is true.
+   */
+  withheld: boolean;
+}
+
+/**
  * Build the network bundle for a token response, including dynamically-minted
- * RFC 7635-style TURN credentials when a static_secret is present. Shared by
+ * RFC 7635-style TURN credentials when a shared secret is stored. Shared by
  * the token endpoints and the /invite envelope so visitors and operators see
  * an identical TURN/ICE shape. URLs always come from the resolver — no
  * hardcoded hostnames.
+ *
+ * What a client does with `turn` decides who may get it: every client hands
+ * a non-empty `turn.urls` to LiveKit as its ICE servers, which REPLACES the
+ * servers LiveKit offers (its own TURN included), and leaves them alone for
+ * an empty list. So the relay goes only to the callers its country list
+ * names, everyone else gets no URLs, and `network.turn` is always what the
+ * caller got: a client reading either sees the same thing.
+ *
+ * `req` is the caller's request, for the country; without it a relay limited
+ * to some countries is withheld. `callSessionId` and `ttlSeconds` no longer
+ * shape the credentials (see below); they stay for the routes that pass them.
  */
 export async function buildTokenNetworkBundle(
   config: ServerConfig,
   callSessionId: string,
   ttlSeconds: number,
-) {
+  req?: Request | null,
+): Promise<TokenNetworkBundle> {
   const network = await getCallNetworkBundle(config);
-  const turn = { ...network.turn };
-  if (turn.static_secret_present && turn.urls.length > 0) {
+  let turn: CallTurnConfig = { ...network.turn };
+  if (turn.urls.length > 0 && !relayServesCaller(turn.countries, req)) turn = withoutRelay(turn);
+  if (turn.urls.length > 0 && turn.static_secret_present) {
     try {
-      const sb = getServiceClient(config);
-      const { data: rtcRow } = await sb
-        .from('app_runtime_config')
-        .select('value')
-        .eq('key', 'call_rtc_endpoints')
-        .maybeSingle();
-      const rtcValue = rtcRow?.value as Record<string, unknown> | undefined;
-      const sharedSecret = (rtcValue?.turn as Record<string, unknown> | undefined)?.shared_secret;
-      if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
+      const sharedSecret = await getTurnSharedSecret(config);
+      if (sharedSecret) {
+        // The username is all the relay logs and all a packet capture shows,
+        // so it names nothing: not the call, not the member. Its lifetime is
+        // the relay setting's, not the LiveKit token's: clients keep these
+        // credentials for the whole call and reuse them on every reconnect.
         const minted = mintTurnCreds({
           sharedSecret,
-          identity: 'call:' + callSessionId,
-          ttlSeconds: Math.min(ttlSeconds, 3600),
+          identity: 'r' + randomBytes(8).toString('hex'),
+          ttlSeconds: turn.credential_ttl_seconds,
         });
         turn.username = minted.username;
         turn.credential = minted.credential;
@@ -64,7 +133,24 @@ export async function buildTokenNetworkBundle(
       /* fall back to static creds */
     }
   }
-  return { network, turn };
+  // A turn: URL nobody can sign in to is not a spare route: the browser
+  // refuses it while building the peer connection and the call never starts
+  // (assertUsableTurn). It is what a stored secret that cannot be read (the
+  // master key missing or changed) would hand out, so the relay is withheld
+  // instead and LiveKit's own TURN stays in place.
+  if (
+    turn.urls.some((u) => /^turns?:/i.test(u)) &&
+    !(typeof turn.username === 'string' && turn.username.length > 0 &&
+      typeof turn.credential === 'string' && turn.credential.length > 0)
+  ) {
+    turn = withoutRelay(turn);
+  }
+  const handed = clientTurn(turn);
+  return {
+    network: { ...network, turn: handed },
+    turn: handed,
+    withheld: network.turn.urls.length > 0 && handed.urls.length === 0,
+  };
 }
 
 /** The call row columns a token needs. */
@@ -82,6 +168,8 @@ export interface ParticipantTokenRequest {
   /** What the room shows; for a member, their own profile name or empty. */
   displayName: string | undefined;
   ttlSeconds?: number;
+  /** The caller's own request: its country decides whether the relay is in the answer. */
+  req?: Request;
 }
 
 /** An HTTP answer, ready for `res.status(status).json(body)`. */
@@ -152,6 +240,7 @@ export async function issueParticipantToken(
     config,
     session.id,
     request.ttlSeconds ?? 600,
+    request.req,
   );
   // A relay can come from either side. LiveKit's built-in TURN mints its
   // own per-participant credentials and delivers them over signalling, so

@@ -15,11 +15,31 @@
  * MUST surface a "RTC endpoint not configured" error in that case so an
  * operator can fix the admin config rather than silently degrading.
  */
+import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import {
+  PLUGIN_SECRET_ALGORITHM,
+  decryptPluginSecret,
+  encryptPluginSecret,
+  isPluginCryptoConfigured,
+} from '../../lib/pluginCrypto.js';
 
 const RUNTIME_KEY = 'call_rtc_endpoints';
 const CACHE_TTL_MS = 15_000;
+
+/**
+ * How long minted relay credentials last when the row does not say.
+ *
+ * Not the LiveKit token's TTL: every client freezes its ICE servers for the
+ * whole call and reuses them on each reconnect, and coturn refuses a new
+ * allocation once the username's expiry has passed. A call that outlives its
+ * credentials loses the relay at its first network change, which is exactly
+ * when a phone in Iran needs it.
+ */
+export const TURN_CREDENTIAL_TTL_DEFAULT_SECONDS = 6 * 3600;
+const TURN_CREDENTIAL_TTL_MIN_SECONDS = 600;
+const TURN_CREDENTIAL_TTL_MAX_SECONDS = 24 * 3600;
 
 export interface CallTurnConfig {
   /** Array of stun:/turn:/turns: URLs. Never empty when used. */
@@ -27,8 +47,23 @@ export interface CallTurnConfig {
   username: string | null;
   credential: string | null;
   credential_type: 'password' | 'oauth';
-  /** True if admin configured a static shared secret (handled server-side). */
+  /**
+   * True when a shared secret is stored to mint credentials from. Derived
+   * on save, never taken from a client. This object goes to browsers and
+   * into token bodies, so the secret itself (and its envelope) never
+   * travels in it: getTurnSharedSecret reads it from the row when minting.
+   */
   static_secret_present: boolean;
+  /**
+   * Who gets these URLs in their token: ISO 3166-1 alpha-2 codes, upper
+   * case. Empty or `['*']` is everyone, as before the field existed.
+   * Otherwise only a caller whose Cloudflare country is listed; everyone
+   * else gets no URLs and keeps LiveKit's own TURN (a client that is handed
+   * URLs replaces LiveKit's ICE servers with them).
+   */
+  countries: string[];
+  /** Lifetime of minted relay credentials, 600..86400 s. */
+  credential_ttl_seconds: number;
 }
 
 export interface CallRtcConfig {
@@ -49,11 +84,72 @@ const SAFE_DEFAULT: CallRtcConfig = {
   rtc_url: null,
   ws_url: null,
   recording_url: null,
-  turn: { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false },
+  turn: {
+    urls: [],
+    username: null,
+    credential: null,
+    credential_type: 'password',
+    static_secret_present: false,
+    countries: [],
+    credential_ttl_seconds: TURN_CREDENTIAL_TTL_DEFAULT_SECONDS,
+  },
   ice_policy: 'all',
   region: null,
   provider: null,
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+/**
+ * The relay's country list as the gate reads it: trimmed, upper case, each
+ * code once, and only two-letter codes or `*`. Anything else is dropped
+ * rather than refused here: a hand-edited row must not take calls down, and
+ * the admin route refuses a bad code before it gets this far.
+ */
+export function normalizeTurnCountries(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const code = item.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code) && code !== '*') continue;
+    if (!out.includes(code)) out.push(code);
+  }
+  return out;
+}
+
+/** A credential lifetime inside 600..86400 s; anything unreadable is the default. */
+export function clampTurnCredentialTtl(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return TURN_CREDENTIAL_TTL_DEFAULT_SECONDS;
+  return Math.max(TURN_CREDENTIAL_TTL_MIN_SECONDS, Math.min(Math.round(n), TURN_CREDENTIAL_TTL_MAX_SECONDS));
+}
+
+/** The encrypted shared secret as stored: the email store's envelope fields. */
+interface StoredTurnSecret {
+  algorithm: string;
+  key_version: number;
+  nonce: string;
+  ciphertext: string;
+  auth_tag: string;
+}
+
+function isStoredTurnSecret(value: unknown): value is StoredTurnSecret {
+  const v = value as Partial<StoredTurnSecret> | null;
+  return !!v && typeof v === 'object' && typeof v.algorithm === 'string' && typeof v.nonce === 'string'
+    && typeof v.ciphertext === 'string' && typeof v.auth_tag === 'string';
+}
+
+/**
+ * Whether a stored `turn` block holds a secret: the envelope, or the plain
+ * text older rows carry (put there by hand before the field was encrypted).
+ */
+function holdsTurnSecret(turnRaw: Record<string, unknown>): boolean {
+  return isStoredTurnSecret(turnRaw.shared_secret_enc)
+    || (typeof turnRaw.shared_secret === 'string' && turnRaw.shared_secret.length > 0);
+}
 
 let cache: { value: CallRtcConfig; loadedAt: number } | null = null;
 
@@ -159,7 +255,14 @@ async function loadRawRtcConfig(config: ServerConfig): Promise<CallRtcConfig> {
     credential: typeof turnRaw.credential === 'string' ? turnRaw.credential : null,
     credential_type:
       turnRaw.credential_type === 'oauth' ? 'oauth' : 'password',
+    // The stored flag, read as it always was: every save works it out from
+    // whether a secret is stored, and a token answer of a row no save has
+    // touched since (RESPOK's) must stay what it was. A flag left on by hand
+    // over no secret mints nothing, and Super Admin shows it as stored but
+    // unreadable (no fingerprint), which a save of the secret puts right.
     static_secret_present: !!turnRaw.static_secret_present,
+    countries: normalizeTurnCountries(turnRaw.countries),
+    credential_ttl_seconds: clampTurnCredentialTtl(turnRaw.credential_ttl_seconds),
   };
 
   const value: CallRtcConfig = {
@@ -441,23 +544,226 @@ export function assertUsableTurn(turn: Partial<CallTurnConfig> & { shared_secret
   }
 }
 
+/**
+ * The stored row itself, uncached and unparsed. Throws when it cannot be
+ * read: a save that went ahead over an unread row would write the defaults
+ * over it, the relay's secret and the signalling URL included.
+ */
+async function readStoredRtcRow(config: ServerConfig): Promise<Record<string, unknown> | null> {
+  const { data, error } = await getServiceClient(config)
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', RUNTIME_KEY)
+    .maybeSingle();
+  if (error) throw new Error(`The call network settings could not be read: ${error.message}`);
+  const value = (data as { value?: unknown } | null)?.value;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+/**
+ * The encrypted form of the secret, in the email store's envelope. The
+ * envelope's own fingerprint (an unsalted hash) is left out, as it is there:
+ * nothing reads it, and a dump of the row should not carry one.
+ */
+function sealTurnSecret(plaintext: string, masterKey: string | undefined): StoredTurnSecret {
+  const { algorithm, key_version, nonce, ciphertext, auth_tag } = encryptPluginSecret(plaintext, masterKey);
+  return { algorithm, key_version, nonce, ciphertext, auth_tag };
+}
+
+/**
+ * The secret in a stored `turn` block: the envelope decrypted, else the
+ * plain text an older row carries, else none. An envelope that cannot be
+ * opened (PLUGIN_SECRETS_MASTER_KEY missing or changed) is none, never the
+ * plain text beside it: the envelope is the one a save wrote last.
+ */
+function openTurnSecret(turnRaw: Record<string, unknown>, masterKey: string | undefined): string | null {
+  const sealed = turnRaw.shared_secret_enc;
+  if (isStoredTurnSecret(sealed)) {
+    try {
+      const plain = sealed.algorithm === PLUGIN_SECRET_ALGORITHM ? decryptPluginSecret(sealed, masterKey) : '';
+      if (plain.length > 0) return plain;
+    } catch { /* reported below */ }
+    console.warn('[calls] the stored TURN shared secret cannot be decrypted (PLUGIN_SECRETS_MASTER_KEY missing or changed); relay credentials are not minted');
+    return null;
+  }
+  const legacy = turnRaw.shared_secret;
+  return typeof legacy === 'string' && legacy.length > 0 ? legacy : null;
+}
+
+/**
+ * The relay's shared secret, for minting per-call credentials. Read from the
+ * row every time, past the 15 s cache: the cached view goes to browsers and
+ * into token bodies, so it never holds the secret. Null when there is none
+ * or it cannot be read; never throws.
+ */
+export async function getTurnSharedSecret(config: ServerConfig): Promise<string | null> {
+  try {
+    const row = await readStoredRtcRow(config);
+    return openTurnSecret(asRecord(row?.turn), config.pluginSecretsMasterKey);
+  } catch (err) {
+    console.warn('[calls] TURN shared secret lookup failed:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/**
+ * What Super Admin shows for the stored secret: the first 12 hex digits of
+ * its SHA-256, which the owner can compare with the relay's own file
+ * (`printf %s "$(cat /etc/webyar-turn/secret)" | sha256sum`). Never the
+ * secret. Null when there is none.
+ */
+export async function turnSecretFingerprint(config: ServerConfig): Promise<string | null> {
+  return (await turnSecretStatus(config)).fingerprint;
+}
+
+/**
+ * Super Admin's view of the secret in one read of the row: whether one is
+ * stored at all (the envelope or an older row's plain text), and the
+ * fingerprint of the one that can be read. Stored with no fingerprint is a
+ * secret the server cannot decrypt. Never throws.
+ */
+export async function turnSecretStatus(config: ServerConfig): Promise<{ stored: boolean; fingerprint: string | null }> {
+  try {
+    const turnRaw = asRecord((await readStoredRtcRow(config))?.turn);
+    const secret = openTurnSecret(turnRaw, config.pluginSecretsMasterKey);
+    return {
+      stored: holdsTurnSecret(turnRaw),
+      fingerprint: secret ? createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 12) : null,
+    };
+  } catch (err) {
+    console.warn('[calls] TURN shared secret lookup failed:', err instanceof Error ? err.message : String(err));
+    return { stored: false, fingerprint: null };
+  }
+}
+
+/**
+ * A save from Super Admin → Voice & Video → network. `turn.shared_secret` is
+ * write-only: absent keeps the stored one, '' removes it, text replaces it.
+ * `turn.static_secret_present` is accepted and ignored: the save works it
+ * out from what is stored.
+ */
+export interface RtcEndpointsPatch extends Partial<Omit<CallRtcConfig, 'turn'>> {
+  turn?: Partial<CallTurnConfig> & { shared_secret?: string };
+}
+
+export interface RtcEndpointsSaveResult {
+  /** What the save changed, by path (`ws_url`, `turn.urls`, `turn.shared_secret`); never a value. */
+  changed_fields: string[];
+}
+
+/**
+ * Keys of the stored `turn` block a patch never writes as given: the flag is
+ * derived, the secret goes through the rules below, and the admin view's own
+ * presence fields are not part of the row.
+ */
+const TURN_KEYS_NOT_PATCHED = new Set([
+  'static_secret_present',
+  'shared_secret',
+  'shared_secret_enc',
+  'shared_secret_present',
+  'shared_secret_fingerprint',
+]);
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Merges a patch onto the STORED row and writes it.
+ *
+ * The stored row, read uncached, not the parsed view: the view drops every
+ * key it does not know and the secret's envelope, and writing it back would
+ * erase both. So a turn-only patch leaves ws_url as it is, and a key a later
+ * release adds survives a save from this one.
+ *
+ * The secret is never stored in clear from here: a typed one is encrypted
+ * under PLUGIN_SECRETS_MASTER_KEY (refused without it), and a plain one an
+ * older row carries is encrypted by the next save that can.
+ */
 export async function saveRtcEndpoints(
   config: ServerConfig,
-  next: Partial<CallRtcConfig>,
-): Promise<void> {
+  next: RtcEndpointsPatch,
+): Promise<RtcEndpointsSaveResult> {
   const sb = getServiceClient(config);
-  const current = await loadRawRtcConfig(config);
-  const merged: CallRtcConfig = { ...current, ...next, turn: { ...current.turn, ...(next.turn || {}) } };
+  const stored = (await readStoredRtcRow(config)) ?? {};
+  const storedTurn = asRecord(stored.turn);
+  const masterKey = config.pluginSecretsMasterKey;
+
+  const merged: Record<string, unknown> = { ...stored };
+  for (const [field, value] of Object.entries(next ?? {})) {
+    if (field === 'turn' || value === undefined) continue;
+    merged[field] = value;
+  }
+  const patchTurn = asRecord(next?.turn);
+  const turn: Record<string, unknown> = { ...storedTurn };
+  for (const [field, value] of Object.entries(patchTurn)) {
+    if (TURN_KEYS_NOT_PATCHED.has(field) || value === undefined) continue;
+    turn[field] = value;
+  }
+
+  const typed = patchTurn.shared_secret;
+  let secretTyped = false;
+  let secretSealed = false;
+  if (typeof typed === 'string' && typed === '') {
+    secretTyped = holdsTurnSecret(storedTurn);
+    delete turn.shared_secret_enc;
+    delete turn.shared_secret;
+  } else if (typeof typed === 'string') {
+    if (!typed.trim()) throw new Error('The TURN shared secret is only spaces. Send an empty value to remove it.');
+    if (!isPluginCryptoConfigured(masterKey)) throw new Error('TURN shared secret needs PLUGIN_SECRETS_MASTER_KEY');
+    turn.shared_secret_enc = sealTurnSecret(typed, masterKey);
+    delete turn.shared_secret;
+    secretTyped = true;
+  } else if (typeof turn.shared_secret === 'string' && turn.shared_secret.length > 0) {
+    // Kept. An envelope already wins over the plain text on every read, so
+    // the plain text goes; without one it is sealed now when the key is
+    // there, and kept as it is when not (an unrelated save is no reason to
+    // lose the relay).
+    if (isStoredTurnSecret(turn.shared_secret_enc)) {
+      delete turn.shared_secret;
+      secretSealed = true;
+    } else if (isPluginCryptoConfigured(masterKey)) {
+      turn.shared_secret_enc = sealTurnSecret(turn.shared_secret, masterKey);
+      delete turn.shared_secret;
+      secretSealed = true;
+    }
+  }
+
+  const secretStored = holdsTurnSecret(turn);
+  turn.static_secret_present = secretStored;
+  if ('countries' in turn) turn.countries = normalizeTurnCountries(turn.countries);
+  if ('credential_ttl_seconds' in turn) turn.credential_ttl_seconds = clampTurnCredentialTtl(turn.credential_ttl_seconds);
+
   // Validated on the MERGED value, not the patch: credentials already stored
   // still count, and a patch that adds only a URL must be judged against what
-  // the row will actually hold.
-  assertUsableTurn(merged.turn as Parameters<typeof assertUsableTurn>[0]);
+  // the row will actually hold. It asks only whether there is a secret to
+  // mint from, so a stored one is not decrypted for it.
+  assertUsableTurn({
+    urls: Array.isArray(turn.urls) ? (turn.urls as unknown[]).map((u) => String(u)) : [],
+    username: typeof turn.username === 'string' ? turn.username : null,
+    credential: typeof turn.credential === 'string' ? turn.credential : null,
+    shared_secret: secretStored ? 'stored' : undefined,
+  });
+
+  const value: Record<string, unknown> = { ...merged, turn };
+  const changed: string[] = [];
+  for (const field of new Set([...Object.keys(stored), ...Object.keys(value)])) {
+    if (field !== 'turn' && !sameValue(stored[field], value[field])) changed.push(field);
+  }
+  for (const field of new Set([...Object.keys(storedTurn), ...Object.keys(turn)])) {
+    if (field === 'shared_secret' || field === 'shared_secret_enc') continue;
+    if (!sameValue(storedTurn[field], turn[field])) changed.push(`turn.${field}`);
+  }
+  if (secretTyped) changed.push('turn.shared_secret');
+  else if (secretSealed) changed.push('turn.shared_secret_encrypted');
+
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: RUNTIME_KEY, value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
+      { key: RUNTIME_KEY, value, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
   invalidateRtcCache();
+  return { changed_fields: changed };
 }

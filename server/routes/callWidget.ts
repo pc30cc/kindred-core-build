@@ -39,6 +39,7 @@ import {
 } from '../services/calls/monthlyMinutesLimit.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import { buildTokenNetworkBundle } from '../services/calls/participantToken.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
 import { routeIncomingCall } from '../services/callCenter/routing.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
@@ -1617,6 +1618,7 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   // LiveKit identity is `<participantType>:<participantId>` (see livekitProvider).
   const identity = `visitor:visitor:${c.id}`;
   const connect = await buildClientConnectInfo(config, c.provider, c.provider_room_id, identity);
+  const relay = await visitorRelay(config, c.id, req);
   // The visitor is joining the call now: this is when it starts (duration and
   // billable minutes), not when the operator accepted. First writer wins, so a
   // reconnect keeps the original start.
@@ -1627,8 +1629,39 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
     provider_room_id: c.provider_room_id,
     expires_at: tok.expiresAt,
     connect,
+    ...relay,
   });
 });
+
+/**
+ * The relay a call-widget visitor may use, from the builder every token route
+ * shares (the stored secret, credentials minted for the whole call, the
+ * countries gate on this request's country), as `turn` and `ice_policy`.
+ *
+ * Nothing at all when this visitor gets no relay (outside its countries, or
+ * a deployment with none): the runtime hands LiveKit ICE servers only for a
+ * non-empty list, so an absent `turn` keeps LiveKit's own TURN exactly as
+ * `urls: []` would, and the answer stays byte for byte what it was before the
+ * relay existed. Reading it never keeps a visitor out of the call: on a
+ * failure they join as they did before.
+ */
+async function visitorRelay(
+  config: ServerConfig,
+  callId: string,
+  req: ExpressRequest,
+): Promise<{ turn?: { urls: string[]; username: string | null; credential: string | null }; ice_policy?: string }> {
+  try {
+    const { network, turn } = await buildTokenNetworkBundle(config, callId, 60 * 60, req);
+    if (turn.urls.length === 0) return {};
+    return {
+      turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
+      ice_policy: network.ice_policy,
+    };
+  } catch (err) {
+    console.warn('[call-widget/join-token] relay unavailable:', err instanceof Error ? err.message : String(err));
+    return {};
+  }
+}
 
 /**
  * Stamps call_sessions.connected_at the first time the visitor joins, and

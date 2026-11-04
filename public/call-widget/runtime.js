@@ -1323,6 +1323,18 @@
     });
   }
 
+  // The relay the join token carries (`turn`, gated by the visitor's country
+  // on the server). ICE servers given at connect REPLACE the ones LiveKit
+  // sends, its own TURN among them, so only a non-empty list goes in: with
+  // none (no relay, or a visitor it is not meant for) LiveKit keeps its own.
+  function relayOptions(info) {
+    var t = info.turn || {};
+    return t.urls && t.urls.length ? { rtcConfig: {
+      iceServers: [{ urls: t.urls, username: t.username || undefined, credential: t.credential || undefined }],
+      iceTransportPolicy: info.ice_policy === 'relay' ? 'relay' : 'all',
+    } } : undefined;
+  }
+
   CallCenterWidgetCtor.prototype.connectMedia = function () {
     var self = this;
     var info = this.joinInfo || {};
@@ -1517,7 +1529,7 @@
         });
       };
       self._afterMic = afterMic;
-      room.connect(connect.server_url, info.token).then(function () {
+      room.connect(connect.server_url, info.token, relayOptions(info)).then(function () {
         if (self.lkRoom !== room) { pre.dispose(); return; }
         return publishEarlyOr(room, pre, 'audio', SRC.Microphone, function () {
           return room.localParticipant.setMicrophoneEnabled(true);

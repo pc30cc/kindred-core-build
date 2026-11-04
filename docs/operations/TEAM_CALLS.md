@@ -387,6 +387,35 @@ Voice calls, and the first, slower seconds of a video call, were fine.
   `android.yml`). Change the numbers in both apps, the tests and this table
   together.
 
+## The Iran relay (owner, 2026-11-04)
+
+On 2026-11-04 Iranian mobile data passed a call's signalling (through
+Cloudflare) but no media to LiveKit abroad, its own TURN included. WebYar's
+calls from Iran now carry their media through a coturn relay on a server
+inside Iran, which forwards only to LiveKit. WebYar only: RESPOK's settings
+list no relay. Server, firewall, probe and changes:
+`deploy/iran-relay/README.md`.
+
+- `POST /:id/token` answers `turn` with the relay's URLs and a credential of
+  its own only when the caller's country (as Cloudflare saw it) is in the
+  relay countries of Super Admin → Voice & Video → Channels and recording →
+  RTC and TURN endpoints (WebYar: `IR`). Anyone else gets `turn.urls` empty,
+  and `network.turn` says the same. The apps hand a non-empty `turn.urls` to
+  LiveKit as the ICE servers, which replaces LiveKit's own (its TURN among
+  them), and leave LiveKit's alone for an empty list: so a caller abroad
+  keeps LiveKit's TURN, and the apps need no change.
+- The credential: username `<expiry>:r<16 random hex>` (nothing about the
+  call or the member), password the base64 HMAC-SHA1 of it under the relay's
+  shared secret (`server/services/calls/turnAuth.ts`). It is valid for the
+  page's credential lifetime, 6 hours by default (10 minutes to 24 hours),
+  not for the LiveKit token's 10 minutes: the apps keep a call's ICE servers
+  for the whole call and reuse them on every reconnect, and the relay refuses
+  a new allocation once the username's expiry has passed. With the token's
+  10 minutes, a call that changed network after that lost the relay.
+- ICE still picks the path (`ice_policy` `all`): a phone that reaches LiveKit
+  directly is not relayed. Signalling is unchanged (`ws_url`
+  `wss://rt.webyar.ai`).
+
 ## Rollout
 
 1. Migration `293_team_calls.sql` by hand on WebYar before the merge (App
@@ -405,3 +434,6 @@ Voice calls, and the first, slower seconds of a video call, were fine.
    Android with its next release (`versionCode` above 28, see
    `docs/ANDROID_RELEASE.md`). A call between an updated app and an older one
    is still lighter: the updated side sends less, so the other receives less.
+7. The Iran relay: nothing in the apps. After the merge's backend (25) is
+   live, the relay countries `IR` in Super Admin and a save (the steps are
+   `deploy/iran-relay/README.md`, "Rollout").

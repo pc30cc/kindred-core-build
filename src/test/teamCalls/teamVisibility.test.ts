@@ -4,10 +4,13 @@
  * hides nobody, any other failed read throws; the team chat leaves the other
  * out of the colleague list and answers the thread and a send as if they
  * were not a member; colleague calls, the team list and team presence ask
- * the same rule.
+ * the same rule. And it lives in the code only (owner, 2026-11-04: "nobody,
+ * not in the workspace and not in Super Admin, sees this; bring nothing into
+ * the settings"): no page, admin route or app reads the pairs.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import express from 'express';
 import http from 'node:http';
 
@@ -165,5 +168,30 @@ describe('every other surface asks the same rule', () => {
   it('the team list and the team presence leave them out for the viewer', () => {
     expect(src('server/routes/workspaceMembers.ts')).toMatch(/hiddenMembersFor\(config, workspaceId, auth\.userId\)[\s\S]{0,400}\.filter\(\(m\) => !hidden\.has\(m\.user_id\)\)/);
     expect(src('server/routes/availability.ts')).toMatch(/hiddenMembersFor\(config, workspaceId, user\.id\)[\s\S]{0,200}everyone\.filter\(\(p\) => !hidden\.has\(p\.user_id\)\)/);
+  });
+});
+
+describe('the pairs live in the code only (owner, 2026-11-04)', () => {
+  /** Every source file under [dir], tests and dependencies left out. */
+  function sources(dir: string): string[] {
+    const out: string[] = [];
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === 'build' || name === 'dist' || name.startsWith('.')) continue;
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) {
+        if (path === join('src', 'test')) continue;
+        out.push(...sources(path));
+      } else if (/\.(ts|tsx|js|mjs|swift|kt)$/.test(name)) {
+        out.push(path);
+      }
+    }
+    return out;
+  }
+
+  it('only server/services/teamVisibility.ts reads workspace_member_hidden_pairs: no screen, admin route or app', () => {
+    const readers = ['server', 'shared', 'src', 'ios', 'android', 'public', 'worker']
+      .flatMap((dir) => sources(dir))
+      .filter((path) => readFileSync(path, 'utf8').includes('workspace_member_hidden_pairs'));
+    expect(readers).toEqual([join('server', 'services', 'teamVisibility.ts')]);
   });
 });

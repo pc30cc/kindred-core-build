@@ -127,8 +127,11 @@ Two members of a workspace can be hidden from each other, both ways
 `server/services/teamVisibility.ts`): neither is in the other's team chat
 colleague list (web panel and both apps), team list or team presence, and
 neither can open a thread with, message or call the other. Everyone else, the
-owner included, sees both. There is no screen for it yet: a pair is written by
-hand (user_a < user_b, both members). Guard: `src/test/teamCalls/teamVisibility.test.ts`.
+owner included, sees both. It lives in the code only (owner, 2026-11-04):
+nobody sees it, in the workspace or in Super Admin; never add a setting,
+screen or admin route for it. A pair is written by hand on the database
+(user_a < user_b, both members). Guard (only `teamVisibility.ts` reads the
+table): `src/test/teamCalls/teamVisibility.test.ts`.
 
 ## Chat routing
 

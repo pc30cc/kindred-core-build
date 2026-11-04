@@ -14,6 +14,7 @@ import type { StrategyDecision, GroundingMode } from './answerStrategy.js';
 import { languageDisplayName } from './language.js';
 import type { ExtendedInstructions, GuidanceRule } from './runtimeConfig.js';
 import { resolveClarificationPolicy, type ClarificationPolicy } from './clarification.js';
+import { httpPageUrl } from '../../../shared/callCenter/visitorPageUrl.js';
 
 /** Legacy persisted persona key, read when present. */
 type PersonaInstructions = ExtendedInstructions & { personality?: string };
@@ -366,9 +367,12 @@ export function buildUserPrompt(
     lines.push('');
   }
   const pc = opts?.pageContext || null;
-  if (pc?.currentPageUrl) {
+  // The page is the visitor's to write: only an http(s) address reaches the
+  // prompt, its user name and password dropped (never a `javascript:` URL).
+  const pageUrl = httpPageUrl(pc?.currentPageUrl)?.toString() || null;
+  if (pc && pageUrl) {
     lines.push('Current visitor page:');
-    lines.push(`  URL: ${pc.currentPageUrl}`);
+    lines.push(`  URL: ${pageUrl}`);
     if (pc.currentPageTitle) lines.push(`  Title: ${pc.currentPageTitle}`);
     if (opts?.pageMatched) {
       lines.push('The first source below is the indexed content of this exact page. If the visitor asks about "this page" or "the current page", answer from that source first. Use the other sources only as secondary context.');

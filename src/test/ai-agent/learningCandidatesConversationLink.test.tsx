@@ -71,6 +71,7 @@ vi.mock('@/lib/ai-agent-api', () => ({
 }));
 
 const LearningCandidatesPage = (await import('@/pages/app/ai-agent/LearningCandidatesPage')).default;
+const { aiAgentApi } = await import('@/lib/ai-agent-api');
 
 describe('LearningCandidatesPage — View conversation', () => {
   it("opens the conversation under the workspace's slug, never its id", async () => {
@@ -87,5 +88,34 @@ describe('LearningCandidatesPage — View conversation', () => {
     expect(await screen.findByText('No answer found')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'https://example.com/shipping' }))
       .toHaveAttribute('href', 'https://example.com/shipping');
+  });
+
+  // The page is the visitor's to write (audit frontend-3, 2026-11-04): only
+  // an http(s) address becomes a link.
+  it.each([
+    'javascript://x/%0aalert(1)',
+    'JAVASCRIPT:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+  ])('never links a visitor page that is not http(s): %s', async (url) => {
+    vi.mocked(aiAgentApi.listLearningCandidates).mockResolvedValueOnce({
+      items: [{ ...CANDIDATE, metadata: { reason: 'no_answer', page_context: { current_page_url: url } } }],
+    } as never);
+    render(<LearningCandidatesPage />, { wrapper: MemoryRouter });
+
+    expect(await screen.findByText('No answer found')).toBeInTheDocument();
+    for (const link of screen.queryAllByRole('link')) {
+      expect(link.getAttribute('href') || '').toMatch(/^(\/|https?:)/);
+    }
+    expect(screen.queryByText(url)).toBeNull();
+  });
+
+  it('drops a user name and password from the page link', async () => {
+    vi.mocked(aiAgentApi.listLearningCandidates).mockResolvedValueOnce({
+      items: [{ ...CANDIDATE, metadata: { reason: 'no_answer', page_context: { current_page_url: 'https://shop.example@evil.example/p' } } }],
+    } as never);
+    render(<LearningCandidatesPage />, { wrapper: MemoryRouter });
+
+    expect(await screen.findByRole('link', { name: 'https://evil.example/p' }))
+      .toHaveAttribute('href', 'https://evil.example/p');
   });
 });

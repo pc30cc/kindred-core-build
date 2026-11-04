@@ -58,36 +58,44 @@ async function callRuntime<T>(
 ): Promise<T> {
   const { baseUrl, secret } = runtimeTarget(config);
   const ctrl = new AbortController();
+  // The deadline covers the whole call, the body included: a runtime that
+  // sends its headers and then stalls must not hold the request forever
+  // (audit ai-7; the timer used to be cleared once the headers arrived).
   const timer = setTimeout(() => ctrl.abort(), RUNTIME_TIMEOUT_MS);
   let res: Response;
-  try {
-    res = await fetch(`${baseUrl}${route}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // The same value twice: proxies in front of the runtime often consume
-        // or rewrite `Authorization`, which makes a correct secret look wrong.
-        Authorization: `Bearer ${secret}`,
-        [AI_RUNTIME_SECRET_HEADER]: secret,
-        [AI_RUNTIME_CONTRACT_HEADER]: AI_RUNTIME_CONTRACT_VERSION,
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-  } catch (err: unknown) {
-    throw new AiRuntimeError(
-      'runtime_unreachable',
-      `AI runtime unreachable: ${redactSecrets((err as { message?: string } | null | undefined)?.message || String(err))}`,
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
   let payload: { ok?: unknown; error?: AiRuntimeErrorCode; message?: string } | null = null;
   try {
-    payload = (await res.json()) as typeof payload;
-  } catch {
-    payload = null;
+    try {
+      res = await fetch(`${baseUrl}${route}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // The same value twice: proxies in front of the runtime often consume
+          // or rewrite `Authorization`, which makes a correct secret look wrong.
+          Authorization: `Bearer ${secret}`,
+          [AI_RUNTIME_SECRET_HEADER]: secret,
+          [AI_RUNTIME_CONTRACT_HEADER]: AI_RUNTIME_CONTRACT_VERSION,
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+    } catch (err: unknown) {
+      throw new AiRuntimeError(
+        'runtime_unreachable',
+        `AI runtime unreachable: ${redactSecrets((err as { message?: string } | null | undefined)?.message || String(err))}`,
+      );
+    }
+
+    try {
+      payload = (await res.json()) as typeof payload;
+    } catch {
+      if (ctrl.signal.aborted) {
+        throw new AiRuntimeError('runtime_unreachable', 'AI runtime unreachable: response timed out');
+      }
+      payload = null;
+    }
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!res.ok || payload?.ok !== true) {

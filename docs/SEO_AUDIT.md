@@ -243,6 +243,26 @@ server/index.ts (Backend API process)
   that ever calls the vendor and writes `seo_rank_checks` /
   `seo_tracked_keywords.last_position`. A per-keyword provider error bumps
   `next_check_at` by 1 hour rather than leaving the keyword perpetually due.
+  The one exception is the row's "check now" button
+  (`POST /:workspaceId/tracked-keywords/:keywordId/check`), a synchronous
+  vendor call: it is throttled to one check per keyword per hour, counted
+  from the keyword's last check, and one at a time (429 `frequency_limit`
+  with `retryAfterSeconds`; audit 2026-11-04).
+
+### Cooldowns (enforced since 2026-11-04)
+
+The plan cooldowns are checked when a run is started, before any job is
+queued, and a run inside one is refused with 429 `frequency_limit` and
+`retryAfterSeconds` (`server/services/seo/cooldown.ts`). Each counts from the
+last run of its kind started for the same subject, whatever its outcome:
+`seo_crawl_frequency_hours` (a site's audits), `seo_backlinks_scan_frequency_hours`
+(a site's backlink scans), `seo_keywords_lookup_frequency_hours` (a site's
+keyword lookups), `seo_performance_audit_frequency_hours` (a crawl's
+performance audits), `seo_explorer_scan_frequency_hours` (a domain's last
+completed Site Explorer lookup) and `brand_radar_check_frequency_hours` (a workspace's AI
+and Web Brand Radar runs, each on its own; Brand Radar also never runs twice
+at once). A value of 0 or -1 waits for nothing. Until then only Site
+Explorer's was checked.
 
 ## Known V1 limitations
 

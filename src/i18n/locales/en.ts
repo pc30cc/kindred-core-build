@@ -13473,6 +13473,7 @@ const en = {
       errors: {
         addFailed: 'Could not add this keyword to tracking. Please try again in a moment.',
         checkFailed: 'Rank check failed. Please try again in a moment.',
+        checkTooSoon: 'This keyword was checked recently. You can check it again in about {{minutes}} minute(s).',
       },
       empty: {
         notAvailableTitle: 'Rank tracking is not on your plan',

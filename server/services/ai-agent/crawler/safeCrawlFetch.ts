@@ -31,6 +31,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { lookup as dnsLookupCb } from 'node:dns';
 import type { LookupAddress } from 'node:dns';
+import type { LookupFunction } from 'node:net';
 import http from 'node:http';
 import https from 'node:https';
 import { Readable } from 'node:stream';
@@ -84,13 +85,22 @@ function allowLocal(): boolean {
  * returned address is non-public, so the socket can only ever be established
  * against an address that passed validation (anti DNS-rebinding).
  */
-export function createPinnedLookup(): any {
-  return (hostname: string, options: any, callback: any) => {
-    const cb = typeof options === 'function' ? options : callback;
-    const wantAll = typeof options === 'object' && options !== null && options.all === true;
-    dnsLookupCb(hostname, { all: true, verbatim: true }, (err, addresses: any) => {
+type PinnedLookupCallback = (
+  err: NodeJS.ErrnoException | Error | null,
+  address?: string | LookupAddress[],
+  family?: number,
+) => void;
+export type PinnedLookup = (hostname: string, options: unknown, callback?: PinnedLookupCallback) => void;
+
+export function createPinnedLookup(): PinnedLookup {
+  return (hostname: string, options: unknown, callback?: PinnedLookupCallback) => {
+    const cb = (typeof options === 'function' ? options : callback) as PinnedLookupCallback;
+    const wantAll = typeof options === 'object' && options !== null && (options as { all?: unknown }).all === true;
+    dnsLookupCb(hostname, { all: true, verbatim: true }, (err, addresses: LookupAddress[] | LookupAddress | string) => {
       if (err) return cb(err);
-      const list: LookupAddress[] = Array.isArray(addresses) ? addresses : [addresses];
+      const list: LookupAddress[] = Array.isArray(addresses)
+        ? addresses
+        : [typeof addresses === 'string' ? { address: addresses, family: 0 } : addresses];
       if (!list.length) return cb(new Error('dns_no_answer'));
       if (!allowLocal()) {
         for (const a of list) {
@@ -121,7 +131,12 @@ export function pinnedFetch(input: string | URL, init: RequestInit = {}): Promis
     for (const [k, v] of Object.entries((init.headers || {}) as Record<string, string>)) headers[k] = v;
     const req = mod.request(
       url,
-      { method: init.method || 'GET', headers, lookup, agent: new mod.Agent({ keepAlive: false, lookup } as any) },
+      {
+        method: init.method || 'GET',
+        headers,
+        lookup: lookup as unknown as LookupFunction,
+        agent: new mod.Agent({ keepAlive: false, lookup: lookup as unknown as LookupFunction }),
+      },
       (res) => {
         const outHeaders = new Headers();
         for (const [k, v] of Object.entries(res.headers)) {
@@ -136,7 +151,7 @@ export function pinnedFetch(input: string | URL, init: RequestInit = {}): Promis
     );
     const onAbort = () => req.destroy(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     signal?.addEventListener('abort', onAbort, { once: true });
-    req.on('error', (err: any) => {
+    req.on('error', (err: Error) => {
       signal?.removeEventListener('abort', onAbort);
       reject(signal?.aborted ? Object.assign(new Error('aborted'), { name: 'AbortError' }) : err);
     });
@@ -179,7 +194,7 @@ export async function assertHopAllowed(
 
 /** Reads a response body with a hard streaming byte cap. Exported for other hardened-transport callers (e.g. the SEO crawler). */
 export async function readCapped(res: Response, maxBytes: number): Promise<string | null> {
-  const body = res.body as any;
+  const body = res.body as ReadableStream<Uint8Array> | null;
   if (!body || typeof body.getReader !== 'function') {
     const buf = await res.arrayBuffer();
     if (buf.byteLength > maxBytes) return null;
@@ -203,6 +218,11 @@ export async function readCapped(res: Response, maxBytes: number): Promise<strin
   let offset = 0;
   for (const c of chunks) { merged.set(c, offset); offset += c.byteLength; }
   return new TextDecoder('utf-8', { fatal: false }).decode(merged);
+}
+
+/** Cancels a response body that will not be read, releasing its socket. Never throws. */
+async function discardBody(res: Response): Promise<void> {
+  try { await res.body?.cancel(); } catch { /* ignore */ }
 }
 
 export async function safeCrawlFetch(
@@ -239,7 +259,8 @@ export async function safeCrawlFetch(
             accept: opts.accept || 'text/html,application/xhtml+xml',
           },
         });
-      } catch (err: any) {
+      } catch (caught: unknown) {
+        const err = caught as { name?: string; message?: string } | null;
         return {
           ok: false,
           finalUrl: url,
@@ -256,22 +277,30 @@ export async function safeCrawlFetch(
         continue;
       }
 
-      if (!res.ok) return { ok: false, status: res.status, error: `http_${res.status}`, finalUrl: url };
+      // Every answer refused before its body is read has its body cancelled,
+      // as a redirect's is: an unread body keeps the pinned socket open
+      // (audit ai-5).
+      if (!res.ok) {
+        await discardBody(res);
+        return { ok: false, status: res.status, error: `http_${res.status}`, finalUrl: url };
+      }
 
       const ct = (res.headers.get('content-type') || '').toLowerCase();
       if (!contentTypeAllowed(ct)) {
+        await discardBody(res);
         return { ok: false, status: res.status, error: 'unsupported_content_type', finalUrl: url };
       }
       const declared = parseInt(res.headers.get('content-length') || '', 10);
       if (Number.isFinite(declared) && declared > opts.maxBytes) {
+        await discardBody(res);
         return { ok: false, status: res.status, error: 'page_too_large', finalUrl: url };
       }
 
       let html: string | null;
       try {
         html = await readCapped(res, opts.maxBytes);
-      } catch (err: any) {
-        const aborted = err?.name === 'AbortError' || ctrl.signal.aborted;
+      } catch (caught: unknown) {
+        const aborted = (caught as { name?: string } | null)?.name === 'AbortError' || ctrl.signal.aborted;
         return {
           ok: false,
           status: res.status,

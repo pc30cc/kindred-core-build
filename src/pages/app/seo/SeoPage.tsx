@@ -1874,7 +1874,11 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
                       onClick={(e) => {
                         e.stopPropagation();
                         checkNow.mutate(k.id, {
-                          onError: () => toast.error(t('seo.rankTracking.errors.checkFailed')),
+                          onError: (err) => toast.error(
+                            err instanceof SeoApiError && err.code === 'frequency_limit'
+                              ? t('seo.rankTracking.errors.checkTooSoon', { minutes: Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 60)) })
+                              : t('seo.rankTracking.errors.checkFailed'),
+                          ),
                         });
                       }}
                     >

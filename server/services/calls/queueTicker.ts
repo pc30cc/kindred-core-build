@@ -12,6 +12,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { expireStaleEntries, reapStaleOffers, offerEntry, sweepStalePendingCalls, type QueueEntry } from './queue.js';
+import { sweepStaleConnectingCalls } from './staleConnectingSweep.js';
 import { pickOperatorForOffer } from './routing.js';
 
 const INTERVAL_MS = 10_000;
@@ -120,7 +121,8 @@ let passCount = 0;
 /**
  * Every SWEEP_EVERY passes (a minute), the call-centre calls abandoned in
  * `pending` are missed (queue.ts sweepStalePendingCalls, audit calls-2),
- * whether or not anything is in the line now.
+ * and calls of any entry source left `connecting` with nobody in them fail
+ * (staleConnectingSweep.ts), whether or not anything is in the line now.
  */
 const SWEEP_EVERY = 6;
 
@@ -134,6 +136,9 @@ export function startCallQueueTicker(config: ServerConfig): void {
       if (passCount++ % SWEEP_EVERY === 0) {
         try { await sweepStalePendingCalls(config); } catch (err) {
           console.warn('[callQueue] stale pending sweep failed:', err?.message || err);
+        }
+        try { await sweepStaleConnectingCalls(config); } catch (err) {
+          console.warn('[callQueue] stale connecting sweep failed:', err?.message || err);
         }
       }
       if (!(await hasActiveEntries(config))) return;

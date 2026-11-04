@@ -30,6 +30,9 @@ final class ConversationActionsModel {
     /// The microphone is off for this app in iOS Settings, so no call was
     /// offered: the visitor would have answered and heard nothing.
     var callNeedsMicrophone = false
+    /// A colleague call is on (minimised over the app): a visitor call would
+    /// share its audio, so none is offered until it ends.
+    var callBlockedByColleagueCall = false
     /// Set once the server has actually handed the thread over, so the menu
     /// stops offering a row with nothing left to do.
     ///
@@ -211,6 +214,10 @@ final class ConversationActionsModel {
     /// once the visitor accepts — which is why this ends in "waiting", not in
     /// a ringing tone.
     func invite(_ channel: CallChannel, appState: AppState) async {
+        guard !CallManager.shared.isOnCall else {
+            callBlockedByColleagueCall = true
+            return
+        }
         // Asked before the visitor is: iOS records silence rather than
         // failing when the microphone is refused, and its own question
         // arriving after the visitor answers lands in the middle of the call.

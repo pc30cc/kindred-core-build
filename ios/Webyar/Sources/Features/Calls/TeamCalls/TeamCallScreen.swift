@@ -123,6 +123,7 @@ struct TeamCallScreen: View {
             name: call.peerName(language),
             avatarURL: call.peerAvatarURL,
             subject: .member,
+            owner: call.uuid.uuidString,
             restore: { TeamCallPresentation.shared.expand() }
         )
     }
@@ -207,16 +208,22 @@ struct TeamCallScreen: View {
 
     private var chrome: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                if canMinimize {
-                    CallCornerButton(icon: "chevron.down", label: Str.teamCallMinimize(language)) {
-                        TeamCallPresentation.shared.minimize()
+            // The name, the clock and any warning in the flow, so they size
+            // the bar (and its measured frame) and stay inside the safe
+            // area; centred, clear of the chevron.
+            ZStack(alignment: .top) {
+                header
+                    .padding(.horizontal, Theme.Size.minTouchTarget + Theme.Space.sm)
+                    .frame(maxWidth: .infinity)
+                HStack(alignment: .top) {
+                    if canMinimize {
+                        CallCornerButton(icon: "chevron.down", label: Str.teamCallMinimize(language)) {
+                            TeamCallPresentation.shared.minimize()
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
             }
-            // The name and the clock centred, clear of the chevron.
-            .overlay { header.padding(.horizontal, Theme.Size.minTouchTarget + Theme.Space.sm) }
             .padding(.horizontal, Theme.Space.lg)
             .padding(.top, Theme.Space.sm)
             .padding(.bottom, Theme.Space.xl)
@@ -465,6 +472,7 @@ struct TeamCallBubble: View {
             name: call.peerName(language),
             avatarURL: call.peerAvatarURL,
             subject: .member,
+            owner: call.uuid.uuidString,
             restore: { TeamCallPresentation.shared.expand() }
         )
     }

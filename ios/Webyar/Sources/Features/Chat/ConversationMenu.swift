@@ -32,6 +32,9 @@ struct ConversationMenu: View {
     /// Called with what the conversation should become: `true` to mark it as
     /// spam, `false` to take it back out.
     var onSpam: (Bool) -> Void = { _ in }
+    /// A colleague call on (minimised) holds the audio: no visitor call
+    /// beside it, as the colleague thread's own call buttons.
+    @State private var calls = CallManager.shared
 
     var body: some View {
         Menu {
@@ -123,6 +126,7 @@ struct ConversationMenu: View {
                         }
                     }
                 }
+                .disabled(calls.isOnCall)
             }
 
             // Last and on its own, as on the web: the operator's way to

@@ -208,6 +208,11 @@ final class CallManager {
     /// A call holds the audio: one that has not ended.
     private var holdsAudio: Bool { call.map { !$0.phase.isOver } ?? false }
 
+    /// A colleague call is on (ringing, placed, connecting or live), even
+    /// minimised: no visitor call may start beside it — the two rooms would
+    /// share the audio CallKit owns (`ConversationActionsModel.invite`).
+    var isOnCall: Bool { holdsAudio }
+
     /// The language CallKit names the colleague in: the app's, as stored —
     /// a ring can launch the app with no scene and no `AppState`.
     private static var language: Language { AppState.storedLanguage() }
@@ -931,6 +936,27 @@ final class CallManager {
 
     // MARK: - Ending
 
+    /// Signing out with a colleague call on (reachable once it is
+    /// minimised): the call ends here and the server is told — and awaited,
+    /// while the session that may tell it still exists — so the colleague's
+    /// phones stop ringing, or the colleague is not left in an empty room.
+    /// Bounded: sign-out never waits on it for more than a few seconds.
+    func endForSignOut() async {
+        guard let call, !call.phase.isOver else { return }
+        let notice = TeamCallNotice.leaving(call)
+        let callID = call.callID
+        let answering = self.answering
+        finish(call.uuid, Self.endedHere(call), tellServer: false, reportToCallKit: true)
+        guard let callID else { return }
+        let api = self.api, deviceID = self.deviceID
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await Self.notify(notice, callID: callID, answering: answering, api: api, deviceID: deviceID) }
+            group.addTask { try? await Task.sleep(for: .seconds(5)) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
     /// The call `callID` names ended as the server said — so the server is
     /// not told again.
     private func endCall(_ callID: String, _ end: TeamCallEnd) {
@@ -989,21 +1015,33 @@ final class CallManager {
     private func tell(_ notice: TeamCallNotice, callID: String, answering: Task<TeamCallAcceptance?, Never>?) {
         let deviceID = self.deviceID
         BackgroundGrace.run("Colleague call end") { [api] in
-            switch notice {
-            case .hangUp:
-                try? await api.hangUpTeamCall(id: callID)
-            case .decline:
-                try? await api.declineTeamCall(id: callID)
-            case .afterTheAnswer:
-                let won: Bool
-                if let answer = await answering?.value {
-                    won = answer.isWon(by: deviceID)
-                } else {
-                    won = (try? await api.teamCall(id: callID))?.isAnswered(on: deviceID) == true
-                }
-                guard won else { return }
-                try? await api.hangUpTeamCall(id: callID)
+            await Self.notify(notice, callID: callID, answering: answering, api: api, deviceID: deviceID)
+        }
+    }
+
+    /// The request `notice` names — the one place a call's end reaches the
+    /// server (`tell`, `endForSignOut`).
+    nonisolated private static func notify(
+        _ notice: TeamCallNotice,
+        callID: String,
+        answering: Task<TeamCallAcceptance?, Never>?,
+        api: any WebyarAPI,
+        deviceID: String
+    ) async {
+        switch notice {
+        case .hangUp:
+            try? await api.hangUpTeamCall(id: callID)
+        case .decline:
+            try? await api.declineTeamCall(id: callID)
+        case .afterTheAnswer:
+            let won: Bool
+            if let answer = await answering?.value {
+                won = answer.isWon(by: deviceID)
+            } else {
+                won = (try? await api.teamCall(id: callID))?.isAnswered(on: deviceID) == true
             }
+            guard won else { return }
+            try? await api.hangUpTeamCall(id: callID)
         }
     }
 
@@ -1051,7 +1089,9 @@ final class CallManager {
     private func teardown() {
         ringback.stop()
         audioActive = false
-        CallPictureInPicture.shared.end()
+        if let owner = call?.uuid.uuidString {
+            CallPictureInPicture.shared.end(owner: owner)
+        }
         let leaving = room
         room = nil
         remoteVideo = nil

@@ -77,10 +77,10 @@ struct CallScreen: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
-            CallPictureInPicture.shared.end()
+            CallPictureInPicture.shared.end(owner: pictureInPictureOwner)
         }
         .onChange(of: isFullScreenVideo) { _, video in
-            if !video { CallPictureInPicture.shared.end() }
+            if !video { CallPictureInPicture.shared.end(owner: pictureInPictureOwner) }
         }
         .onChange(of: session.phase) { _, phase in
             // An ended call lingers for a moment so the outcome can be read,
@@ -117,12 +117,18 @@ struct CallScreen: View {
 
     private var faceSize: CGFloat { min(scaledFace, 200) }
 
+    /// This call's claim on the shared PiP: only its own end closes it.
+    private var pictureInPictureOwner: String {
+        "visitor-\(ObjectIdentifier(session).hashValue)"
+    }
+
     private var pictureInPicture: CallPictureInPicture.Call {
         CallPictureInPicture.Call(
             track: session.remoteVideoTrack,
             name: session.contactName,
             avatarURL: session.contactAvatarURL,
             subject: .person,
+            owner: pictureInPictureOwner,
             // The cover is still up under PiP: coming back is enough.
             restore: {}
         )

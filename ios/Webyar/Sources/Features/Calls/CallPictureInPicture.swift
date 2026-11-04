@@ -39,6 +39,9 @@ final class CallPictureInPicture: NSObject {
         var name: String
         var avatarURL: String?
         var subject: AvatarSkeleton.Subject
+        /// Whose PiP this is — the colleague call's uuid, or the visitor
+        /// call's screen — so one call's end never closes another's.
+        var owner: String
         /// The call screen, full, when the member taps the PiP window to
         /// come back (the colleague call's floating view expands).
         var restore: @MainActor () -> Void
@@ -85,9 +88,14 @@ final class CallPictureInPicture: NSObject {
     /// The same call, changed: the remote camera came or went, or the call
     /// screen's restore changed.
     func update(_ call: Call) {
-        guard self.call != nil else { return }
+        guard self.call?.owner == call.owner else { return }
         self.call = call
         content?.show(call)
+    }
+
+    /// The PiP is armed for `owner`'s call, with `view` as its source.
+    func holds(_ owner: String, source view: UIView) -> Bool {
+        call?.owner == owner && source === view && controller != nil
     }
 
     /// `view` left the screen. A PiP window already up stays up — the member
@@ -100,9 +108,11 @@ final class CallPictureInPicture: NSObject {
         controller = nil
     }
 
-    /// The call is over, or is no longer a video call on screen: the PiP
-    /// window closes and lets go of the picture.
-    func end() {
+    /// `owner`'s call is over, or is no longer a video call on screen: its
+    /// PiP window closes and lets go of the picture. Another call's PiP is
+    /// left alone.
+    func end(owner: String) {
+        guard call?.owner == owner else { return }
         controller?.stopPictureInPicture()
         controller?.canStartPictureInPictureAutomaticallyFromInline = false
         controller = nil
@@ -240,24 +250,24 @@ struct CallPiPSource: UIViewRepresentable {
 
     final class Anchor: UIView {
         var call: CallPictureInPicture.Call?
-        private var attached = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            attached = false
             sync()
         }
 
+        /// Updates its own PiP, and arms it again whenever the shared one
+        /// is not (or no longer) this call's from this view — another call's
+        /// end, or a view that took over and left.
         func sync() {
             guard let call else { return }
             guard window != nil else {
                 CallPictureInPicture.shared.detach(self)
                 return
             }
-            if attached {
+            if CallPictureInPicture.shared.holds(call.owner, source: self) {
                 CallPictureInPicture.shared.update(call)
             } else {
-                attached = true
                 CallPictureInPicture.shared.attach(self, call: call)
             }
         }

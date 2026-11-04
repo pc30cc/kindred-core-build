@@ -100,7 +100,7 @@ final class TeamCallWindow {
     fileprivate func minimize() -> Bool {
         guard let window, !window.isHidden, let appWindow else { return false }
         let frame = bubbleFrame(in: appWindow)
-        UIView.animate(withDuration: 0.38, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: []) {
+        UIView.animate(withDuration: Self.resizeDuration, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: []) {
             window.frame = frame
         }
         if pan == nil {
@@ -118,7 +118,7 @@ final class TeamCallWindow {
     fileprivate func expand() {
         guard let window, !window.isHidden else { return }
         pan?.isEnabled = false
-        UIView.animate(withDuration: 0.38, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
+        UIView.animate(withDuration: Self.resizeDuration, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.restoreFullFrame(window)
         }
         window.makeKey()
@@ -139,6 +139,11 @@ final class TeamCallWindow {
         let top = insets.top + 4
         let bottom = bounds.height - insets.bottom - Theme.Size.floatingBarHeight - Theme.Size.floatingBarBottomGap - size.height
         return CGRect(x: insets.left + 2, y: top, width: max(0, bounds.width - insets.left - insets.right - 4 - size.width), height: max(0, bottom - top))
+    }
+
+    /// No zoom under Reduce Motion: the window changes size at once.
+    private static var resizeDuration: TimeInterval {
+        UIAccessibility.isReduceMotionEnabled ? 0 : 0.38
     }
 
     private static var windowSize: CGSize {
@@ -235,6 +240,13 @@ private struct TeamCallLayer: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: presentation.isMinimized)
+        // A different call opens full, even when the last one was left
+        // minimised and is replaced within the same turn (its `nil` never
+        // drawn): a ring here must show its Answer and Decline.
+        .onChange(of: manager.call?.uuid) { old, new in
+            guard new != nil, old != new else { return }
+            TeamCallPresentation.shared.expand()
+        }
         .environment(\.locale, appState.language.locale)
         .environment(\.layoutDirection, appState.language.layoutDirection)
         .font(.app(.body))

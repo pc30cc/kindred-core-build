@@ -2377,6 +2377,16 @@ extension Str {
         }
     }
 
+    /// A visitor call asked for while a colleague call is on.
+    static func callAlreadyOn(_ l: Language) -> String {
+        switch l {
+        case .en: "You're already on a call"
+        case .fa: "در حال حاضر در یک تماس هستید"
+        case .tr: "Zaten bir aramadasınız"
+        case .ar: "أنت في مكالمة بالفعل"
+        }
+    }
+
     /// The floating view of a minimised call, as VoiceOver reads it.
     static func teamCallReturnToCall(_ l: Language) -> String {
         switch l {

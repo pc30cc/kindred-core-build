@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 463 of 483 strings are generated.
+// 464 of 484 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1552,6 +1552,13 @@ object Str {
         Language.EN -> "Minimize"
         Language.FA -> "کوچک کردن"
         Language.TR -> "Küçült"
+    }
+
+    /** A visitor call asked for while a colleague call is on. */
+    fun callAlreadyOn(l: Language): String = when (l) {
+        Language.EN -> "You're already on a call"
+        Language.FA -> "در حال حاضر در یک تماس هستید"
+        Language.TR -> "Zaten bir aramadasınız"
     }
 
     /** The floating view of a minimised call, as VoiceOver reads it. */

@@ -25,6 +25,7 @@ function fakeClient() {
       const filters: Array<(r: Row) => boolean> = [];
       const described: string[] = [];
       let patch: Row | null = null;
+      let window: [number, number] | null = null;
       const rows = () => (TABLES[table] || []).filter((r) => filters.every((f) => f(r)));
       const apply = () => {
         const hit = rows();
@@ -38,6 +39,7 @@ function fakeClient() {
         select: () => q,
         order: () => q,
         limit: () => q,
+        range: (from: number, to: number) => { window = [from, to]; return q; },
         or: () => q,
         upsert: async (row: Row) => {
           (TABLES[table] ||= []).push(row);
@@ -70,8 +72,9 @@ function fakeClient() {
         maybeSingle: async () => ({ data: apply()[0] ?? null, error: null }),
         single: async () => ({ data: apply()[0] ?? null, error: null }),
         then: (resolve: (v: { data: Row[]; error: null; count: number }) => unknown) => {
-          const hit = apply();
-          return resolve({ data: hit, error: null, count: hit.length });
+          const all = apply();
+          const hit = window ? all.slice(window[0], window[1] + 1) : all;
+          return resolve({ data: hit, error: null, count: all.length });
         },
       };
       return q;

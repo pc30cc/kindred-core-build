@@ -22,9 +22,19 @@ vi.mock('../../../server/services/callCenter/realtime.js', () => ({ publishQueue
 vi.mock('../../../server/services/push/index.js', () => ({ notifyCallbackRequest: async () => {} }));
 // What /calls/request asks beyond the page: a provider, the plan's ceilings, recording, routing.
 vi.mock('../../../server/services/calls/providerResolver.js', () => ({ resolveEffectiveCallProvider: async () => ({ id: 'livekit' }) }));
+type FakeInsertClient = {
+  from: (t: string) => { insert: (r: unknown) => { select: (c: string) => { maybeSingle: () => Promise<{ data: unknown; error: { message?: string } | null }> } } };
+};
 vi.mock('../../../server/services/calls/concurrencyLimit.js', () => ({
   checkPlanConcurrencyCeiling: async () => ({ allowed: true }),
   planConcurrencyDenialBody: () => ({}),
+  planConcurrencyLimitReached: () => ({}),
+  // The guarded insert (migration 302) is proven on a real database in
+  // serverRowCaps.pg.test.ts; here it writes through the fake client.
+  insertCallSessionWithinCeiling: async (sb: FakeInsertClient, row: Record<string, unknown>) => {
+    const r = await sb.from('call_sessions').insert(row).select('*').maybeSingle();
+    return r.data ? { verdict: 'created', call: r.data } : { verdict: 'error', message: r.error?.message || 'insert_returned_no_row' };
+  },
 }));
 vi.mock('../../../server/services/calls/monthlyMinutesLimit.js', () => ({
   checkPlanMonthlyMinutesCeiling: async () => ({ allowed: true }),

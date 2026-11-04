@@ -100,7 +100,13 @@ final class NotePlayer: NSObject, AVAudioPlayerDelegate {
     private(set) var position: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
 
+    /// Cleared by `stop()`: a note still loading when its bubble went away is not played.
+    @ObservationIgnored private var wanted = false
+
     func toggle(_ a: AttachmentInfo) async {
+        // A second tap while the note loads would build a second player.
+        guard !loading else { return }
+        wanted = true
         if player == nil {
             loading = true
             defer { loading = false }
@@ -120,6 +126,7 @@ final class NotePlayer: NSObject, AVAudioPlayerDelegate {
             }
         }
         guard let player else { return }
+        guard wanted else { return }
         if player.isPlaying {
             player.pause()
             setPlaying(false)
@@ -138,6 +145,7 @@ final class NotePlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func stop() {
+        wanted = false
         player?.pause()
         setPlaying(false)
     }

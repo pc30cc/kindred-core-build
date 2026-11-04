@@ -20,13 +20,19 @@ final class VoiceRecorder {
     @ObservationIgnored private var timer: Timer?
     /// Called once the cap is reached, to take the note (the file itself stops growing there).
     @ObservationIgnored var onLimit: (() -> Void)?
+    /// Counts starts and cancels: a start that waited on the microphone prompt records only if
+    /// nothing cancelled it (the thread closed) or started again meanwhile.
+    @ObservationIgnored private var attempt = 0
 
     func start() async throws {
         guard !isRecording else { return }
+        attempt += 1
+        let mine = attempt
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: break
         case .notDetermined:
             guard await AVCaptureDevice.requestAccess(for: .audio) else { throw Failure.denied }
+            guard attempt == mine, !isRecording else { return }
         default: throw Failure.denied
         }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).m4a")
@@ -64,6 +70,7 @@ final class VoiceRecorder {
     }
 
     func cancel() {
+        attempt += 1
         recorder?.stop()
         if let url { try? FileManager.default.removeItem(at: url) }
         finish()

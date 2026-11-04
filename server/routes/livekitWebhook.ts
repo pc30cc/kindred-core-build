@@ -25,6 +25,15 @@
  * call is over is closed at once (a kept token must not buy uncounted time).
  * The participants are recorded as for any call.
  *
+ * Every other call (chat calls, the call widget's) follows the same rule
+ * (audit 2026-11-04, calls-1; services/calls/callStateGuards.ts): a call
+ * that is over never comes back. `room_started` makes a live call `active`;
+ * for a call that is over (a visitor kept their join token and LiveKit made
+ * the room again, `auto_create`) it closes the room and moves nothing, as a
+ * `participant_joined` does. `room_finished` ends a live call once, from a
+ * live state only, so the billing trigger adds its minutes once, and the
+ * operator who held it is released (their active call count follows).
+ *
  * A connection LiveKit drops because the same identity joined again
  * (`disconnectReason: DUPLICATE_IDENTITY` — a client's full reconnect after a
  * network change, or an app rejoining with a fresh token) is not that
@@ -64,6 +73,12 @@ import {
   onTeamCallParticipantLeft,
   onTeamCallRoomFinished,
 } from '../services/calls/teamCallLifecycle.js';
+import {
+  LIVE_CALL_STATES,
+  closeRoomOfFinishedCall,
+  isTerminalCallState,
+  syncAgentActiveCallCount,
+} from '../services/calls/callStateGuards.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -190,6 +205,22 @@ async function resolveCallSession(
   return null;
 }
 
+/** The call's state and room, read fresh: whether it is over decides what an event may move. */
+async function loadCallStateRow(
+  config: ServerConfig,
+  callId: string,
+): Promise<{ state: string | null; provider: string | null; provider_room_id: string | null } | null> {
+  const sb = getServiceClient(config);
+  return mustDb(
+    await sb
+      .from('call_sessions')
+      .select('state, provider, provider_room_id')
+      .eq('id', callId)
+      .maybeSingle(),
+    'call_sessions.select:loadCallStateRow',
+  ) as Promise<{ state: string | null; provider: string | null; provider_room_id: string | null } | null>;
+}
+
 /**
  * Apply effects to DB. Each handler is idempotent.
  */
@@ -229,6 +260,16 @@ export async function applyEvent(
         await closeRoomOfFinishedTeamCall(config, session.id, ev.room?.name);
         return { applied: true };
       }
+      // A call that is over never comes back (calls-1): a visitor keeping
+      // their join token makes the room again (`auto_create`), and setting
+      // the call `active` then would end it, and bill its minutes, a second
+      // time on room_finished. Its room is closed instead.
+      const current = await loadCallStateRow(config, session.id);
+      if (!current || isTerminalCallState(current.state)) {
+        await recordEvent('room_started', { sid: ev.room?.sid, after_end: true });
+        await closeRoomOfFinishedCall(config, current, ev.room?.name);
+        return { applied: true };
+      }
       // The room exists (the operator may be in it); the call itself starts
       // when the visitor joins — participant_joined below, or the visitor's
       // join token — so connected_at is not stamped here.
@@ -240,7 +281,8 @@ export async function applyEvent(
         started_at: startedIso,
       };
       await mustDb(
-        await sb.from('call_sessions').update(patch).eq('id', session.id),
+        await sb.from('call_sessions').update(patch).eq('id', session.id)
+          .in('state', LIVE_CALL_STATES as unknown as string[]),
         'call_sessions.update:room_started',
       );
       await recordEvent('room_started', { sid: ev.room?.sid });
@@ -255,23 +297,35 @@ export async function applyEvent(
       }
       const { data: cur } = await sb
         .from('call_sessions')
-        .select('started_at')
+        .select('started_at, connected_at, assigned_agent_id, entry_source')
         .eq('id', session.id)
         .maybeSingle();
-      const startedAt = cur?.started_at ? new Date(cur.started_at).getTime() : null;
-      const duration = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
+      // The call's time runs from when the visitor was in it (as the
+      // console's /end counts it), else from the room's start.
+      const anchorIso = cur?.connected_at || cur?.started_at || null;
+      const anchor = anchorIso ? new Date(anchorIso).getTime() : null;
+      const duration = anchor ? Math.max(0, Math.round((Date.now() - anchor) / 1000)) : null;
+      // Ended once, from a live state only: an over call keeps its end (and
+      // the billing trigger adds its minutes once, calls-1).
       await mustDb(
         await sb
           .from('call_sessions')
           .update({
             state: 'ended',
             ended_at: new Date().toISOString(),
+            ended_by: 'system',
+            end_reason: 'system_ended',
             ...(duration !== null ? { duration_seconds: duration } : {}),
           })
-          .eq('id', session.id),
+          .eq('id', session.id)
+          .in('state', LIVE_CALL_STATES as unknown as string[]),
         'call_sessions.update:room_finished',
       );
       await recordEvent('room_finished', { sid: ev.room?.sid });
+      // The operator who held it holds it no more (calls-6).
+      if (cur?.assigned_agent_id) {
+        await syncAgentActiveCallCount(config, session.workspace_id, cur.assigned_agent_id as string);
+      }
       // Phase 8D — release any operator availability locks tied to this session.
       try {
         const { data: parts } = await sb
@@ -320,13 +374,23 @@ export async function applyEvent(
         });
       }
       await recordEvent('participant_joined', { identity, ...(memberId ? { user_id: memberId } : {}) });
+      // Someone joined the room of a call that is over (a kept token): the
+      // room is closed, which puts them out, and nothing of the call moves.
+      if (!teamCall) {
+        const current = await loadCallStateRow(config, session.id);
+        if (current && isTerminalCallState(current.state)) {
+          await closeRoomOfFinishedCall(config, current, ev.room?.name);
+          return { applied: true };
+        }
+      }
       // The visitor is in the call: it starts now (duration, billable minutes),
       // unless their join token already stamped it. First writer wins.
       if (ptype === 'visitor') {
         await sb.from('call_sessions')
           .update({ connected_at: new Date().toISOString() })
           .eq('id', session.id)
-          .is('connected_at', null);
+          .is('connected_at', null)
+          .in('state', LIVE_CALL_STATES as unknown as string[]);
       }
       // Phase 8D — when an operator actually joins media, lock them as in-call.
       if (ptype === 'operator' && memberId) {

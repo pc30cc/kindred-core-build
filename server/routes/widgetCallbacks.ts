@@ -172,8 +172,12 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
         ? { department_id: parsed.data.department_id }
         : undefined,
     });
-    if (parsed.data.queue_entry_id) {
-      await markEntryAsCallback(config, parsed.data.queue_entry_id, cb.id);
+    if (parsed.data.queue_entry_id && visitorId) {
+      // Only this workspace's entry, of this signed visitor (calls-7).
+      await markEntryAsCallback(config, parsed.data.queue_entry_id, cb.id, {
+        workspaceId,
+        visitorSessionIds: await canonicalSessionIds(config, workspaceId, visitorId),
+      });
     }
     const createdMs = new Date(cb.created_at).getTime();
     const cooldownUntil = new Date(createdMs + CALLBACK_COOLDOWN_MS).toISOString();

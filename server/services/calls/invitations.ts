@@ -475,6 +475,28 @@ export async function markInvitationJoined(
 }
 
 /**
+ * A join that claimed the invitation (markInvitationJoined) and then could
+ * not make the call (the room, the token): the invitation is pending again,
+ * so the visitor can try once more. Only while it still names that call.
+ */
+export async function releaseInvitationJoin(
+  config: ServerConfig,
+  invitationId: string,
+  callSessionId: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: updated } = await sb
+    .from('call_invitations')
+    .update({ status: 'pending', joined_at: null, call_session_id: null })
+    .eq('id', invitationId)
+    .eq('status', 'joined')
+    .eq('call_session_id', callSessionId)
+    .select('*')
+    .maybeSingle();
+  if (updated) await syncCardForStatus(config, updated as CallInvitationRow);
+}
+
+/**
  * Sweeper: flips pending invitations whose TTL passed into 'expired' and
  * patches their card. Idempotent. Called by a background ticker.
  */

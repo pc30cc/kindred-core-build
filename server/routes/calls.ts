@@ -64,6 +64,15 @@ import { TEAM_CALL_ENTRY_SOURCE } from '../services/calls/teamCall.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { mustDb } from '../utils/mustDb.js';
 import { isMemberParticipantType, publicMemberName } from '../services/calls/operatorIdentity.js';
+import { LIVE_CALL_STATES, isTerminalCallState } from '../services/calls/callStateGuards.js';
+import {
+  OPERATOR_ROLES,
+  canOperateCall,
+  getWorkspaceRole,
+  isHttpStatusError,
+} from '../services/callCenter/callOwnership.js';
+import { isCallCenterEntrySource } from '../../shared/callCenter/entrySources.js';
+import { canUseInbox } from '../../shared/chatRoles.js';
 
 export const callsRouter = Router();
 
@@ -102,11 +111,23 @@ async function requireWorkspaceMember(
   return { userId: auth.userId };
 }
 
+/**
+ * What a member asks of a call on these routes (audit 2026-11-04, calls-3):
+ * `read` its state; `operate` it (a room token, an accept, an invite, a
+ * reject, an end, a recording). Reading needs membership; operating needs a
+ * role that handles calls, and on a call-centre call (the call widget's)
+ * the call-centre rule as the console has it (services/callCenter/
+ * callOwnership.ts): only the operator holding it, the one it is offered
+ * to, or an elevated role (owner, admin, team lead).
+ */
+type CallRouteAccess = 'read' | 'operate';
+
 async function loadSessionWithMembership(
   req: Request,
   res: Response,
   config: ServerConfig,
   callId: string,
+  access: CallRouteAccess = 'operate',
 ) {
   const sb = getServiceClient(config);
   const { data: session, error } = await sb
@@ -123,9 +144,41 @@ async function loadSessionWithMembership(
     res.status(404).json({ error: 'Call session not found' });
     return null;
   }
-  const auth = await requireWorkspaceMember(req, res, config, session.workspace_id);
+  const auth = await authorizeWorkspaceAccess(req, res, session.workspace_id);
   if (!auth) return null;
+  if (access === 'operate' && !auth.isAdmin) {
+    const role = await getWorkspaceRole(config, session.workspace_id, auth.userId);
+    const callCentre = isCallCenterEntrySource(session.entry_source);
+    // A chat call is the Inbox's: the roles that answer chats; a call-centre
+    // call the call-centre operators'.
+    const roleHandlesCalls = callCentre ? OPERATOR_ROLES.has(String(role)) : canUseInbox(role);
+    if (!roleHandlesCalls) {
+      res.status(403).json({ error: 'operator_permission_required' });
+      return null;
+    }
+    if (callCentre) {
+      const { data: queueRow } = await sb.from('call_queue_entries')
+        .select('offered_to_user_id')
+        .eq('call_session_id', session.id).eq('workspace_id', session.workspace_id).maybeSingle();
+      try {
+        await canOperateCall(config, session.workspace_id, auth.userId, session, 'join', queueRow, { role });
+      } catch (e) {
+        if (isHttpStatusError(e)) {
+          res.status(e.httpStatus).json({ error: e.message });
+          return null;
+        }
+        throw e;
+      }
+    }
+  }
   return { session, userId: auth.userId, sb };
+}
+
+/** A call that is over takes no token, accept or invite (it would come back, and bill again). */
+function refuseFinishedCall(res: Response, session: { state?: string | null }): boolean {
+  if (!isTerminalCallState(session.state)) return false;
+  res.status(409).json({ error: 'call_not_active', state: session.state });
+  return true;
 }
 
 function recordEvent(
@@ -441,6 +494,7 @@ const inviteSchema = z.object({
 callsRouter.post('/:id/invite', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
+  if (refuseFinishedCall(res, ctx.session)) return;
   try {
     const body = inviteSchema.parse(req.body);
     // Compatibility default: missing `reason` → continuity-safe 'reissue'.
@@ -476,7 +530,10 @@ callsRouter.post('/:id/invite', async (req, res) => {
       participant_id: body.participant_id ?? null,
     });
     if (error) return res.status(500).json({ error: error.message });
-    await ctx.sb.from('call_sessions').update({ state: 'ringing' }).eq('id', ctx.session.id);
+    // Ringing only while nobody has answered: an invite to a call in
+    // progress adds a participant and leaves the call as it is.
+    await ctx.sb.from('call_sessions').update({ state: 'ringing' }).eq('id', ctx.session.id)
+      .in('state', ['pending', 'ringing']);
     await recordEvent(ctx.sb, ctx.session.id, 'invited', 'operator', ctx.userId, {
       participant_type: body.participant_type,
       participant_id: body.participant_id ?? null,
@@ -513,10 +570,14 @@ callsRouter.post('/:id/invite', async (req, res) => {
 callsRouter.post('/:id/accept', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
+  if (refuseFinishedCall(res, ctx.session)) return;
+  // Answered once, from a call still waiting: an accept of a call in
+  // progress changes nothing (its start stays its start).
   await ctx.sb
     .from('call_sessions')
     .update({ state: 'connecting', started_at: new Date().toISOString() })
-    .eq('id', ctx.session.id);
+    .eq('id', ctx.session.id)
+    .in('state', ['pending', 'ringing']);
   await recordEvent(ctx.sb, ctx.session.id, 'accepted', 'operator', ctx.userId);
   // Phase 8D — operator becomes busy automatically.
   void markInCall((req as unknown as ReqWithConfig).serverConfig, ctx.session.workspace_id, ctx.userId, ctx.session.id)
@@ -528,11 +589,22 @@ callsRouter.post('/:id/accept', async (req, res) => {
 callsRouter.post('/:id/reject', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
-  await ctx.sb
+  // From a live state only: a call that is over keeps its end (and is not
+  // billed a second time).
+  const { data: rejected } = await ctx.sb
     .from('call_sessions')
     .update({ state: 'ended', ended_at: new Date().toISOString() })
-    .eq('id', ctx.session.id);
+    .eq('id', ctx.session.id)
+    .in('state', LIVE_CALL_STATES as unknown as string[])
+    .select('id')
+    .maybeSingle();
+  if (!rejected) return res.status(409).json({ error: 'call_not_active' });
   await recordEvent(ctx.sb, ctx.session.id, 'rejected', 'operator', ctx.userId);
+  if (ctx.session.provider_room_id) {
+    try {
+      await resolveCallProvider(ctx.session.provider).closeRoom((req as unknown as ReqWithConfig).serverConfig, ctx.session.provider_room_id);
+    } catch { /* best-effort */ }
+  }
   res.json({ ok: true });
 });
 
@@ -586,6 +658,7 @@ callsRouter.post('/:id/end', async (req, res) => {
 // ─── POST /api/calls/:id/token ────────────────────────────────────────────
 const tokenSchema = z.object({
   participant_type: z.enum(['visitor', 'operator', 'admin', 'internal']).default('operator'),
+  /** Ignored: a member's token is always their own (calls-3). Kept so older clients still parse. */
   participant_id: z.string().uuid().optional(),
   display_name: z.string().max(100).optional(),
   ttl_seconds: z.number().int().min(60).max(3600).optional(),
@@ -594,21 +667,25 @@ callsRouter.post('/:id/token', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
+  if (refuseFinishedCall(res, ctx.session)) return;
   try {
     const body = tokenSchema.parse(req.body ?? {});
-    const participantId = body.participant_id ?? ctx.userId;
+    // A member asks for their own token only (audit 2026-11-04, calls-3):
+    // never a visitor's (whose identity would carry the member's user id,
+    // and who gets theirs from the widget's own routes), never another
+    // member's (the same opaque identity would put that member out of the
+    // room, LiveKit's DUPLICATE_IDENTITY). Whatever participant_id a client
+    // sends, the token is the caller's.
+    if (!isMemberParticipantType(body.participant_type)) {
+      return res.status(403).json({ error: 'visitor_token_not_allowed' });
+    }
+    const participantId = ctx.userId;
     // The visitor may be in this room and sees every participant's identity
     // and name: a member joins under the opaque reference of their user on
-    // this call (livekitProvider) and under their own name or none, never the
-    // name a client asks for (the desktop apps send the e-mail when there is
-    // no name). Only the caller's own profile name: a token asked for another
-    // user's id carries none (the route never reads someone else's name for
-    // the caller).
-    const displayName = isMemberParticipantType(body.participant_type)
-      ? (participantId === ctx.userId
-        ? await publicMemberName(config, participantId)
-        : '')
-      : body.display_name;
+    // this call (livekitProvider) and under their own profile name or none,
+    // never the name a client asks for (the desktop apps send the e-mail when
+    // there is no name).
+    const displayName = await publicMemberName(config, participantId);
     const answer = await issueParticipantToken(config, ctx.session, {
       participantType: body.participant_type,
       participantId,
@@ -633,7 +710,7 @@ callsRouter.post('/:id/token', async (req, res) => {
 
 // ─── GET /api/calls/:id/state ─────────────────────────────────────────────
 callsRouter.get('/:id/state', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id, 'read');
   if (!ctx) return;
   try {
     let providerState = null;
@@ -657,6 +734,7 @@ callsRouter.get('/:id/state', async (req, res) => {
 callsRouter.post('/:id/recording/start', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
+  if (refuseFinishedCall(res, ctx.session)) return;
   try {
     // Phase: Call Route Enforcement Expansion — strict deny-on-create.
     // Recording start is a pure new-action boundary; recording stop and
@@ -813,6 +891,23 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
   }
 });
 
+/** Whether `recordingId` is a recording of this call: the one its start stored, or one of its call_recordings rows. */
+async function isRecordingOfCall(
+  sb: ReturnType<typeof getServiceClient>,
+  session: { id: string; metadata?: Record<string, unknown> | null },
+  recordingId: string,
+): Promise<boolean> {
+  const stored = (session.metadata?.recording as { recording_id?: unknown } | undefined)?.recording_id;
+  if (typeof stored === 'string' && stored === recordingId) return true;
+  const { data } = await sb
+    .from('call_recordings')
+    .select('id')
+    .eq('call_session_id', session.id)
+    .eq('provider_recording_id', recordingId)
+    .maybeSingle();
+  return !!data;
+}
+
 // ─── POST /api/calls/:id/recording/stop ───────────────────────────────────
 const stopSchema = z.object({ recording_id: z.string().min(1) });
 callsRouter.post('/:id/recording/stop', async (req, res) => {
@@ -820,6 +915,11 @@ callsRouter.post('/:id/recording/stop', async (req, res) => {
   if (!ctx) return;
   try {
     const body = stopSchema.parse(req.body);
+    // Only this call's recording (audit 2026-11-04, calls-10): the provider's
+    // stop takes any egress id, so the id must be one this call recorded.
+    if (!(await isRecordingOfCall(ctx.sb, ctx.session, body.recording_id))) {
+      return res.status(404).json({ error: 'recording_not_found' });
+    }
     const provider = resolveCallProvider(ctx.session.provider);
     const handle = await provider.stopRecording((req as unknown as ReqWithConfig).serverConfig, body.recording_id);
     await ctx.sb.from('call_sessions').update({ recording_state: 'finalizing' })

@@ -25,6 +25,8 @@ const sbMock: any = {
   auth: { getUser: async () => ({ data: { user: { id: "u-1" } }, error: null }) },
   rpc: async (name: string) => {
     if (name === "is_workspace_member") return { data: true, error: null };
+    // The member operates calls (calls.ts asks the role since calls-3).
+    if (name === "get_workspace_role") return { data: "agent", error: null };
     return { data: null, error: null };
   },
   from(_t: string) {
@@ -41,6 +43,7 @@ const sbMock: any = {
       },
       select() { return chain; },
       eq() { return chain; },
+      in() { return chain; },
       maybeSingle: async () => ({ data: chain._row, error: null }),
       insert(row: any) { inserted.push({ _t, row }); return { error: null }; },
       update() { return chain; },

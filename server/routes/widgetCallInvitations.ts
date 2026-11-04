@@ -33,6 +33,7 @@ import {
   validateInvitationForJoin,
   declineInvitation,
   markInvitationJoined,
+  releaseInvitationJoin,
   getInvitationById,
 } from '../services/calls/invitations.js';
 import {
@@ -53,6 +54,7 @@ import {
   callErrorFromUnknown,
 } from '../services/calls/errorCodes.js';
 import { endCallSession } from '../services/calls/endSession.js';
+import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 
 export const widgetCallInvitationsRouter = Router();
 
@@ -99,17 +101,21 @@ async function loadOwnedInvitation(
     return null;
   }
 
-  // Visitor must own the conversation the invitation belongs to.
-  const visitorId = (req.body?.visitor_id as string) || null;
-  const sessionId = (req.body?.session_id as string) || null;
-  const ownership = await verifyConversationOwnership(
-    config,
-    inv.conversation_id,
-    workspaceId,
-    visitorId,
-    sessionId,
-    req,
-  );
+  // Visitor must own the conversation the invitation belongs to, proved by
+  // the signed visitor only (the dvsid cookie or the visitor credential
+  // header the widget sends): a visitor_id or session_id in the body is
+  // anyone's to write, so it proves nothing (audit 2026-11-04, widgetapi-4).
+  const signedVisitorId = readVisitorCookie(req, workspaceId)?.v ?? null;
+  const ownership = signedVisitorId
+    ? await verifyConversationOwnership(
+      config,
+      inv.conversation_id,
+      workspaceId,
+      signedVisitorId,
+      null,
+      req,
+    )
+    : { valid: false };
   if (!ownership.valid) {
     res.status(CALL_ERROR_HTTP_STATUS.invitation_access_denied).json(
       callErrorBody(
@@ -302,6 +308,31 @@ widgetCallInvitationsRouter.post(
         );
       }
 
+      // Claim the invitation for this call before anything else is made
+      // (audit 2026-11-04, widgetapi-7): a compare-and-set from 'pending', so
+      // a double click or a second tab makes one call, and the other gets
+      // "already joined" with its own row closed at once (it never counts as
+      // a live call). Every later failure gives the invitation back.
+      const claim = await markInvitationJoined(config, invitation.id, inserted.id);
+      if (!claim.ok) {
+        await sb.from('call_sessions')
+          .update({ state: 'failed', ended_at: new Date().toISOString(), end_reason: 'failed', ended_by: 'system' })
+          .eq('id', inserted.id);
+        return res.status(CALL_ERROR_HTTP_STATUS.invitation_already_joined).json(
+          callErrorBody(
+            CALL_ERROR_CODES.INVITATION_ALREADY_JOINED,
+            'Invitation has already been joined.',
+          ),
+        );
+      }
+      const giveBack = async () => {
+        await sb.from('call_sessions')
+          .update({ state: 'failed', ended_at: new Date().toISOString(), end_reason: 'failed', ended_by: 'system' })
+          .eq('id', inserted.id)
+          .in('state', ['pending', 'ringing', 'connecting', 'active']);
+        await releaseInvitationJoin(config, invitation.id, inserted.id);
+      };
+
       // Provision the provider room.
       let room;
       try {
@@ -313,6 +344,7 @@ widgetCallInvitationsRouter.post(
           recordingEnabled: false,
         });
       } catch (roomErr) {
+        await giveBack();
         const mapped = callErrorFromUnknown(roomErr, {
           code: CALL_ERROR_CODES.ROOM_CREATE_FAILED,
           message: 'Provider room creation failed.',
@@ -354,6 +386,7 @@ widgetCallInvitationsRouter.post(
           ttlSeconds: 600,
         });
       } catch (mintErr) {
+        await giveBack();
         const mapped = callErrorFromUnknown(mintErr, {
           code: CALL_ERROR_CODES.TOKEN_MINT_FAILED,
           message: 'Failed to mint participant token.',
@@ -377,10 +410,6 @@ widgetCallInvitationsRouter.post(
       const relayMissing =
         turn.urls.length === 0 &&
         !(withheld && providerId === 'livekit' && providesOwnRelay(await loadLiveKitConfig(config)));
-
-      // Mark invitation joined + link to the new call_session. This also
-      // patches the system card so other UIs see the terminal state.
-      await markInvitationJoined(config, invitation.id, inserted.id);
 
       return res.json({
         invitation_id: invitation.id,

@@ -126,7 +126,7 @@ let seq = 0;
 function queuedCall(): { id: string; session: string } {
   const id = `c0ffee00-0000-4000-8000-${String(++seq).padStart(12, '0')}`;
   db.call_sessions.push({
-    id, workspace_id: WS, entry_source: 'call_widget', state: 'queued', call_type: 'audio', provider: 'livekit', provider_room_id: null,
+    id, workspace_id: WS, entry_source: 'call_widget', state: 'pending', call_type: 'audio', provider: 'livekit', provider_room_id: null,
     assigned_agent_id: null, department_id: null, recording_enabled: false, recording_state: 'disabled', started_at: null,
     connected_at: null, ended_at: null, end_reason: null, duration_seconds: null, created_at: new Date().toISOString(), metadata: { call_center: true },
   });

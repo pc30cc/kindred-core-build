@@ -12,6 +12,7 @@ export type CallCenterEventType =
   | 'call_accepted'
   | 'call_rejected'
   | 'call_cancelled'
+  | 'call_missed'
   | 'call_started'
   | 'call_ended'
   | 'callback_requested'

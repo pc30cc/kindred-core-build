@@ -19,17 +19,30 @@ const state: {
   createCalled: false,
 };
 
+/** The member's row as authorizeWorkspaceAccess reads it (null: not a member). */
+let memberRow: { role: string; suspended_at: string | null } | null = null;
 const sbMock = {
   auth: { getUser: async () => state.user },
   rpc: async (name: string) => {
     if (name === "is_workspace_member") return state.isMember;
     return { data: null, error: null };
   },
+  from: (_table: string) => {
+    const chain: any = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => ({ data: memberRow, error: null }),
+    };
+    return chain;
+  },
 };
 
 vi.mock("../../../server/supabase.js", () => ({
   getServiceClient: () => sbMock,
 }));
+vi.mock("../../../server/middleware/adminBypass.js", () => ({ isGlobalAdmin: async () => false }));
+vi.mock("../../../server/services/billing/locks/state.js", () => ({ resolveLockState: async () => ({}) }));
+vi.mock("../../../server/services/billing/locks/predicates.js", () => ({ isMemberLocked: () => false }));
 
 vi.mock("../../../server/services/auth/sessions.js", () => ({
   SESSION_COOKIE_NAME: "gs_session",
@@ -108,6 +121,7 @@ describe("callInvitations POST / — composed plan+runtime gate", () => {
   beforeEach(() => {
     state.user = { data: { user: { id: "u-1" } }, error: null };
     state.isMember = { data: true, error: null };
+    memberRow = { role: "agent", suspended_at: null };
     state.effective = { ...allEffective };
     state.createCalled = false;
     createInvitationMock.mockReset();
@@ -151,6 +165,29 @@ describe("callInvitations POST / — composed plan+runtime gate", () => {
     await handler(req, res, () => {});
     expect(createInvitationMock).toHaveBeenCalledTimes(1);
     expect(get().jsonBody?.invitation?.id).toBe("inv-1");
+  });
+
+  it("a suspended member is refused, though is_workspace_member says yes (calls-11)", async () => {
+    memberRow = { role: "agent", suspended_at: "2026-11-01T00:00:00Z" };
+    const handler = getHandler("post", "/");
+    const { req, res, get } = makeReqRes({
+      workspace_id: WS, conversation_id: CONV, channel: "audio",
+    });
+    await handler(req, res, () => {});
+    expect(get().statusCode).toBe(403);
+    expect(get().jsonBody?.error).toBe("membership_suspended");
+    expect(createInvitationMock).not.toHaveBeenCalled();
+  });
+
+  it("a non-member is refused", async () => {
+    memberRow = null;
+    const handler = getHandler("post", "/");
+    const { req, res, get } = makeReqRes({
+      workspace_id: WS, conversation_id: CONV, channel: "audio",
+    });
+    await handler(req, res, () => {});
+    expect(get().statusCode).toBe(403);
+    expect(createInvitationMock).not.toHaveBeenCalled();
   });
 
   it("proceeds to createInvitation when composed entitlement allows", async () => {

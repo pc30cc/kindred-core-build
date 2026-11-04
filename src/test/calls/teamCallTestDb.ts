@@ -16,7 +16,8 @@
  * `rpc('is_workspace_member')` reads `tables.workspace_members`.
  *
  * `rpc('team_call_place')` is migration 293's function as these suites need
- * it: the same busy rule over the rows here, then the insert. JavaScript runs
+ * it (with 298's concurrency limit when `p_max_concurrent` is passed): the
+ * same busy rule over the rows here, then the insert. JavaScript runs
  * it to the end without a pause, which is what the function's locks make of
  * it in PostgreSQL; the locks themselves are proven against a real database
  * (src/test/integration/teamCalls293.pg.test.ts).
@@ -230,6 +231,13 @@ export function createFakeDb(): FakeDb {
       valueAt(r, 'metadata->team_call->>caller_user_id'),
       valueAt(r, 'metadata->team_call->>callee_user_id'),
     ].includes(userId));
+    // 298's overload: the workspace's live calls against the plan's limit first.
+    const max = args.p_max_concurrent;
+    if (typeof max === 'number' && max >= 0) {
+      const used = (tables.call_sessions ||= []).filter((r) => r.workspace_id === args.p_workspace_id
+        && ['pending', 'ringing', 'connecting', 'active'].includes(String(r.state))).length;
+      if (used >= max) return { data: { verdict: 'limit_reached', used, max }, error: null };
+    }
     if (holds(caller)) return { data: { verdict: 'caller_busy' }, error: null };
     if (holds(callee)) return { data: { verdict: 'callee_busy' }, error: null };
     const row: Row = {

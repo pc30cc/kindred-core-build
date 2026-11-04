@@ -111,7 +111,7 @@ let seq = 0;
 function queuedCall(): { id: string; session: string } {
   const id = `c0ffee00-0000-4000-8000-${String(++seq).padStart(12, '0')}`;
   db.call_sessions.push({
-    id, workspace_id: WS, entry_source: 'call_widget', state: 'queued', call_type: 'audio', provider: 'livekit', provider_room_id: null,
+    id, workspace_id: WS, entry_source: 'call_widget', state: 'pending', call_type: 'audio', provider: 'livekit', provider_room_id: null,
     assigned_agent_id: null, department_id: null, recording_enabled: false, recording_state: 'disabled', started_at: null,
     connected_at: null, ended_at: null, end_reason: null, duration_seconds: null, created_at: new Date().toISOString(), metadata: { call_center: true },
   });
@@ -197,6 +197,8 @@ describe('the operator\'s token: what the visitor\'s room shows of them', () => 
     expect(ca.name).toBe('Sara Ahmadi');
     expectNoMember(JSON.stringify(ca));
 
+    // A team lead may join a colleague's call (a takeover, supervision): under their own identity and own name, or none.
+    db.workspace_members.find((m) => m.user_id === C)!.role = 'team_lead';
     const c = await as(C, 'calls').post<{ token: string }>(`/api/calls/${call.id}/token`, { display_name: 'c.agent@shop.example' });
     expect(c.status).toBe(200);
     const cc = claims(c.body.token);
@@ -206,26 +208,48 @@ describe('the operator\'s token: what the visitor\'s room shows of them', () => 
     expectNoMember(JSON.stringify(cc));
   });
 
-  it('a member token minted for someone else\'s id carries no name: the route never looks up another user\'s profile name for the caller', async () => {
+  it('a plain agent gets no token for a call another operator holds (calls-3)', async () => {
     const call = queuedCall();
     await accept(A, call.id);
-    // C asks for a token naming A (C has no name of their own): A's profile name must not come back in it.
+    const r = await as(B, 'calls').post<Dict>(`/api/calls/${call.id}/token`, { participant_type: 'operator' });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toBe('call_assigned_to_another_operator');
+    expect(r.text).not.toContain('token');
+  });
+
+  it('a token asked for someone else\'s id is the caller\'s own: never the other member\'s identity (which would put them out of the room) nor their name', async () => {
+    const call = queuedCall();
+    const ofA = claims((await accept(A, call.id)).body.token);
+    db.workspace_members.find((m) => m.user_id === C)!.role = 'team_lead';
+    // C asks for a token naming A: it comes back as C's own.
     const r = await as(C, 'calls').post<{ token: string }>(`/api/calls/${call.id}/token`, { participant_type: 'operator', participant_id: A });
     expect(r.status).toBe(200);
     const c = claims(r.body.token);
+    expect(c.sub).not.toBe(ofA.sub);
     expect(c.name).toBe('');
     expect(r.text).not.toContain('Sara');
     expect(JSON.stringify(c)).not.toContain('Sara');
     expectNoMember(JSON.stringify(c));
   });
 
-  it('a visitor token minted by a member keeps its form and the name given', async () => {
+  it('a member is never given a visitor token (it would carry their user id); the visitor gets theirs from the widget', async () => {
     const call = queuedCall();
     await accept(A, call.id);
     const visitorId = '44444444-4444-4444-8444-444444444444';
-    const r = await as(A, 'calls').post<{ token: string }>(`/api/calls/${call.id}/token`, { participant_type: 'visitor', participant_id: visitorId, display_name: 'Guest' });
-    expect(r.status).toBe(200);
-    expect(claims(r.body.token)).toMatchObject({ sub: `visitor:${visitorId}`, name: 'Guest' });
+    for (const body of [{ participant_type: 'visitor', participant_id: visitorId, display_name: 'Guest' }, { participant_type: 'visitor' }]) {
+      const r = await as(A, 'calls').post<Dict>(`/api/calls/${call.id}/token`, body);
+      expect(r.status).toBe(403);
+      expect(r.body.error).toBe('visitor_token_not_allowed');
+    }
+  });
+
+  it('a call that is over takes no token (a kept call cannot be joined again)', async () => {
+    const call = queuedCall();
+    await accept(A, call.id);
+    db.call_sessions.find((c) => c.id === call.id)!.state = 'ended';
+    const r = await as(A, 'calls').post<Dict>(`/api/calls/${call.id}/token`, { participant_type: 'operator' });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('call_not_active');
   });
 });
 

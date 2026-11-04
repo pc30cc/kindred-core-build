@@ -19,6 +19,7 @@
  * conversation checks are passed through; the database is the call-widget
  * tests' in-memory one.
  */
+process.env.WIDGET_VISITOR_SECRET = process.env.WIDGET_VISITOR_SECRET || 'test-visitor-secret-relay-widget';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -77,7 +78,7 @@ vi.mock('../../../server/services/calls/invitations.js', async (importOriginal) 
     ...(await importOriginal<typeof import('../../../server/services/calls/invitations.js')>()),
     getInvitationById: async () => invitation,
     validateInvitationForJoin: async () => ({ ok: true, invitation }),
-    markInvitationJoined: async () => {},
+    markInvitationJoined: async () => ({ ok: true }),
   };
 });
 vi.mock('../../../server/services/calls/participantToken.js', async (importOriginal) => ({
@@ -98,6 +99,7 @@ vi.mock('../../../server/services/calls/participantToken.js', async (importOrigi
 const { widgetRouter } = await import('../../../server/routes/widget.js');
 const { widgetCallInvitationsRouter } = await import('../../../server/routes/widgetCallInvitations.js');
 const { invalidateLiveKitConfigCache } = await import('../../../server/services/calls/livekitConfig.js');
+const { issueVisitorCredential, VISITOR_CREDENTIAL_HEADER } = await import('../../../server/services/widget/visitorIdentity.js');
 
 function serve(mount: string, router: Router) {
   const app = express();
@@ -113,12 +115,12 @@ const widgetServer = serve('/api/widget', widgetRouter);
 const invitationServer = serve('/api/widget/call-invitations', widgetCallInvitationsRouter);
 afterAll(() => { widgetServer.close(); invitationServer.close(); });
 
-function post(server: http.Server, path: string, body: Dict, probe: string): Promise<{ status: number; body: Dict & { turn: Turn; warnings: string[] }; text: string }> {
+function post(server: http.Server, path: string, body: Dict, probe: string, extraHeaders: Record<string, string> = {}): Promise<{ status: number; body: Dict & { turn: Turn; warnings: string[] }; text: string }> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = http.request({
       host: '127.0.0.1', port: (server.address() as AddressInfo).port, path, method: 'POST',
-      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)), 'x-relay-probe': probe },
+      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)), 'x-relay-probe': probe, ...extraHeaders },
     }, (res) => {
       let text = '';
       res.on('data', (c) => (text += c));
@@ -161,8 +163,14 @@ beforeEach(() => {
 
 const visitorToken = (probe: string) =>
   post(widgetServer, '/api/widget/calls/call-1/visitor-token', { workspace_id: WS, visitor_id: 'v-1', session_id: SESSION }, probe);
+// The signed visitor the widget sends (its credential header): an invitation
+// is the conversation owner's, and only a signed visitor proves that.
+const signedVisitor = () => {
+  const now = Math.floor(Date.now() / 1000);
+  return { [VISITOR_CREDENTIAL_HEADER]: issueVisitorCredential({ v: 'v-1', w: WS, iat: now, exp: now + 3600 }) };
+};
 const invitationJoin = (probe: string) =>
-  post(invitationServer, '/api/widget/call-invitations/inv-1/join', { workspace_id: WS, visitor_id: 'v-1', session_id: SESSION }, probe);
+  post(invitationServer, '/api/widget/call-invitations/inv-1/join', { workspace_id: WS }, probe, signedVisitor());
 
 describe('POST /api/widget/calls/:id/visitor-token', () => {
   it('answers the relay the builder gave for this call and this visitor\'s request, in the same shape', async () => {

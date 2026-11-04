@@ -17,6 +17,12 @@ import { getServiceClient } from '../../supabase.js';
 import { resolvePublisher } from '../realtime/resolvePublisher.js';
 import { loadEffectiveCallChannels, loadCallControlPlane } from './controlPlane.js';
 import { recordConversationEvent } from '../conversationEvents.js';
+import { cancelRing } from '../push/callRing.js';
+import { CALL_CENTER_ENTRY_SOURCES } from '../../../shared/callCenter/entrySources.js';
+import {
+  publishCallEvent as publishCallCenterCallEvent,
+  publishQueueEvent as publishCallCenterQueueEvent,
+} from '../callCenter/realtime.js';
 
 export type QueueChannel = 'audio' | 'video';
 export type QueueState =
@@ -203,10 +209,21 @@ export async function offerEntry(
 /** Mark accepted (operator picked up). Optionally link the call session. */
 export async function acceptEntry(
   config: ServerConfig,
+  workspaceId: string,
   entryId: string,
   callSessionId: string | null,
 ): Promise<QueueEntry> {
   const sb = getServiceClient(config);
+  // The linked call must be this workspace's too (audit 2026-11-04, calls-7).
+  if (callSessionId) {
+    const { data: call } = await sb
+      .from('call_sessions')
+      .select('id')
+      .eq('id', callSessionId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (!call) throw new Error('call_session_not_found');
+  }
   const { data, error } = await sb
     .from('call_queue_entries')
     .update({
@@ -215,6 +232,7 @@ export async function acceptEntry(
       call_session_id: callSessionId,
     })
     .eq('id', entryId)
+    .eq('workspace_id', workspaceId)
     .in('state', ['queued', 'offered'])
     .select('*')
     .single();
@@ -236,9 +254,15 @@ export async function cancelEntry(
   config: ServerConfig,
   entryId: string,
   reason: string,
+  /**
+   * The workspace the entry must belong to (audit 2026-11-04, calls-7).
+   * Every caller should pass it; the visitor's cancel route (widget.ts)
+   * looks the entry up in its workspace first.
+   */
+  scope: { workspaceId?: string } = {},
 ): Promise<QueueEntry | null> {
   const sb = getServiceClient(config);
-  const { data, error } = await sb
+  let q = sb
     .from('call_queue_entries')
     .update({
       state: 'cancelled',
@@ -246,7 +270,9 @@ export async function cancelEntry(
       ended_reason: reason,
     })
     .eq('id', entryId)
-    .in('state', ['queued', 'offered'])
+    .in('state', ['queued', 'offered']);
+  if (scope.workspaceId) q = q.eq('workspace_id', scope.workspaceId);
+  const { data, error } = await q
     .select('*')
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -277,9 +303,11 @@ export async function expireStaleEntries(
     })
     .lt('expires_at', new Date().toISOString())
     .in('state', ['queued', 'offered'])
-    .select('id, workspace_id, conversation_id, channel');
+    .select('id, workspace_id, conversation_id, channel, call_session_id');
   if (error || !data) return 0;
   for (const row of data) {
+    // The call waiting behind the entry is missed with it (calls-2).
+    await missCallOfEntry(config, row as Pick<QueueEntry, 'workspace_id' | 'call_session_id'>, 'queue_timeout');
     await publishQueueEvent(config, row.workspace_id, {
       type: 'expired',
       entry_id: row.id,
@@ -292,6 +320,108 @@ export async function expireStaleEntries(
     );
   }
   return data.length;
+}
+
+/**
+ * A queue entry went out of the line without an answer (expired, missed):
+ * the call waiting behind it is `missed` too, in the same step (audit
+ * 2026-11-04, calls-2). Before, the call stayed `pending` for ever: it
+ * counted in the plan's max_concurrent_calls (which counts pending calls)
+ * until every new call was refused, the widget resumed the visitor into it,
+ * and the Overview's "missed today" read 0. Only a call nobody answered
+ * moves (`pending`, `ringing`); its phones stop ringing. Best-effort.
+ */
+async function missCallOfEntry(
+  config: ServerConfig,
+  entry: Pick<QueueEntry, 'workspace_id' | 'call_session_id'>,
+  reason: string,
+): Promise<void> {
+  if (!entry.call_session_id) return;
+  try {
+    const moved = await missUnansweredCalls(config, {
+      workspaceId: entry.workspace_id,
+      callIds: [entry.call_session_id],
+      reason,
+    });
+    if (moved.length) {
+      void cancelRing(config, { workspaceId: entry.workspace_id, callSessionId: entry.call_session_id, reason: 'cancelled' });
+    }
+  } catch {/* never throw from the queue path */}
+}
+
+/**
+ * Moves calls nobody answered (`pending` or `ringing`) to `missed`, from
+ * those states only, and tells the call widget and the console. Returns the
+ * ids it moved. Used by the queue (above) and by the stale-call sweep.
+ */
+export async function missUnansweredCalls(
+  config: ServerConfig,
+  args: {
+    workspaceId?: string;
+    callIds?: string[];
+    createdBefore?: string;
+    entrySources?: readonly string[];
+    reason: string;
+    limit?: number;
+  },
+): Promise<Array<{ id: string; workspace_id: string }>> {
+  const sb = getServiceClient(config);
+  const nowIso = new Date().toISOString();
+  let q = sb
+    .from('call_sessions')
+    .update({
+      state: 'missed',
+      ended_at: nowIso,
+      ended_by: 'system',
+      end_reason: 'system_ended',
+    })
+    .in('state', ['pending', 'ringing'])
+    .is('connected_at', null)
+    .neq('entry_source', 'team_call');
+  if (args.entrySources) q = q.in('entry_source', args.entrySources as string[]);
+  if (args.workspaceId) q = q.eq('workspace_id', args.workspaceId);
+  if (args.callIds) q = q.in('id', args.callIds);
+  if (args.createdBefore) q = q.lt('created_at', args.createdBefore);
+  if (args.limit) q = q.limit(args.limit);
+  const { data, error } = await q.select('id, workspace_id');
+  if (error || !data) return [];
+  const rows = data as Array<{ id: string; workspace_id: string }>;
+  for (const row of rows) {
+    try {
+      await sb.from('call_events').insert({
+        call_session_id: row.id,
+        event_type: 'call_missed',
+        actor_type: 'internal',
+        actor_id: null,
+        payload: { reason: args.reason },
+      });
+    } catch {/* best-effort */}
+    await publishCallCenterCallEvent(config, row.workspace_id, row.id, 'call_missed', { call_id: row.id, reason: args.reason });
+    await publishCallCenterQueueEvent(config, row.workspace_id, 'call_missed', { call_id: row.id });
+  }
+  return rows;
+}
+
+/** A call still `pending` after this long was abandoned (its queue entry lives 15 minutes). */
+export const STALE_PENDING_CALL_MS = 60 * 60_000;
+
+/**
+ * The sweep for call-centre calls left `pending` with no queue entry to miss
+ * them: one from before calls-2's fix, or one whose entry was never written.
+ * A call-centre call (the widget's) is `pending` only while it waits in the
+ * line (an accept makes it `active`), so one nobody answered within
+ * STALE_PENDING_CALL_MS was abandoned and is missed. Chat calls are left
+ * alone (without the webhook a chat call in progress can read `pending`),
+ * and colleague calls have their own ticker.
+ */
+export async function sweepStalePendingCalls(config: ServerConfig, now: number = Date.now()): Promise<number> {
+  const rows = await missUnansweredCalls(config, {
+    entrySources: CALL_CENTER_ENTRY_SOURCES,
+    createdBefore: new Date(now - STALE_PENDING_CALL_MS).toISOString(),
+    reason: 'stale_pending',
+    limit: 200,
+  });
+  return rows.length;
 }
 
 /**
@@ -331,6 +461,7 @@ export async function reapStaleOffers(config: ServerConfig): Promise<{ requeued:
         .maybeSingle();
       if (u) {
         missed++;
+        await missCallOfEntry(config, e, slaBreach ? 'sla_breach' : 'no_answer');
         await publishQueueEvent(config, e.workspace_id, { type: 'missed', entry_id: e.id });
         await writeTimelineEvent(config, u as QueueEntry, 'call_missed', { entry_id: e.id, reason: (u as any).ended_reason });
       }
@@ -361,7 +492,14 @@ export async function markEntryAsCallback(
   config: ServerConfig,
   entryId: string,
   callbackRequestId: string,
+  /**
+   * Whose entry it is: the widget token's workspace and the signed
+   * visitor's sessions. An entry of another workspace, or of another
+   * visitor, is never touched (audit 2026-11-04, calls-7).
+   */
+  scope: { workspaceId: string; visitorSessionIds: readonly string[] },
 ): Promise<void> {
+  if (!scope.workspaceId || !scope.visitorSessionIds.length) return;
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('call_queue_entries')
@@ -372,6 +510,8 @@ export async function markEntryAsCallback(
       callback_request_id: callbackRequestId,
     })
     .eq('id', entryId)
+    .eq('workspace_id', scope.workspaceId)
+    .in('visitor_session_id', scope.visitorSessionIds as string[])
     .in('state', ['queued', 'offered'])
     .select('*')
     .maybeSingle();

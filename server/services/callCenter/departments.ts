@@ -9,6 +9,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { syncAgentActiveCallCount } from '../calls/callStateGuards.js';
 
 export type RoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
 export type AgentRole = 'agent' | 'supervisor';
@@ -189,44 +190,26 @@ async function ensurePresenceRow(
     );
 }
 
+/**
+ * An operator took a call: their active call count is set from the calls
+ * they hold (callStateGuards.ts syncAgentActiveCallCount), never counted up,
+ * so a call that ends any other way than the console's /end cannot leave it
+ * high forever (audit 2026-11-04, calls-6).
+ */
 export async function incrementAgentActiveCallCount(
   config: ServerConfig, workspaceId: string, userId: string,
 ): Promise<void> {
   if (!userId) return;
-  const sb = getServiceClient(config);
   await ensurePresenceRow(config, workspaceId, userId);
-  const { data: row } = await sb
-    .from('call_center_agent_presence')
-    .select('active_call_count')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  const next = Math.max(0, ((row?.active_call_count as number) || 0) + 1);
-  await sb
-    .from('call_center_agent_presence')
-    .update({ active_call_count: next, last_seen_at: new Date().toISOString() })
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId);
+  await syncAgentActiveCallCount(config, workspaceId, userId);
 }
 
+/** A call of this operator's ended or left them: their count, from the calls they still hold. */
 export async function decrementAgentActiveCallCount(
   config: ServerConfig, workspaceId: string, userId: string | null | undefined,
 ): Promise<void> {
   if (!userId) return;
-  const sb = getServiceClient(config);
-  const { data: row } = await sb
-    .from('call_center_agent_presence')
-    .select('active_call_count')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (!row) return;
-  const next = Math.max(0, ((row.active_call_count as number) || 0) - 1);
-  await sb
-    .from('call_center_agent_presence')
-    .update({ active_call_count: next, last_seen_at: new Date().toISOString() })
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId);
+  await syncAgentActiveCallCount(config, workspaceId, userId);
 }
 
 const ASSIGNABLE_ROLES = new Set(['owner', 'admin', 'agent', 'support_agent', 'team_lead']);

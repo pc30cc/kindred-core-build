@@ -843,7 +843,3 @@ final class VisitorCallScreens {
         calls[invitationID] = nil
     }
 }
-
-    func opened(_ screen: UUID) { _ = open.insert(screen) }
-    func closed(_ screen: UUID) { _ = open.remove(screen) }
-}

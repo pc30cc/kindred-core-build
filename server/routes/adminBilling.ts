@@ -33,6 +33,7 @@ import { getProvider, resolveNamedBillingConfig } from '../services/billing/inde
 import { resolveAppBaseUrl } from '../services/auth-email.js';
 import { resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
 import { gatewayReturnsByPost } from '../services/billing/providerBinding.js';
+import { keepStoredRuntimeSecrets, redactRuntimeConfigValue } from '../lib/secretRedaction.js';
 
 export const adminBillingRouter = Router();
 
@@ -107,12 +108,23 @@ adminBillingRouter.put('/gateways', async (req, res) => {
 // and independent of which provider is currently the default. See
 // database/migrations/137_billing_provider_credentials.sql.
 
+/**
+ * A gateway's settings as the Providers screen may see them: every
+ * credential (API keys, merchant ids, webhook secrets) left out and named in
+ * `secretKeysSet`, the same promise as every other provider screen
+ * (redactRuntimeConfigValue). These used to come back whole.
+ */
+function credentialView(providerName: string, stored: Record<string, unknown> | null | undefined) {
+  const { value, secretKeysSet } = redactRuntimeConfigValue(stored ?? {});
+  return { provider_name: providerName, config: (value ?? {}) as Record<string, unknown>, secretKeysSet };
+}
+
 adminBillingRouter.get('/providers/:providerName', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     assertProviderAllowed(await getPlatformEdition(cfg(req)), req.params.providerName);
     const credentials = await getProviderCredentials(cfg(req), req.params.providerName);
-    res.json({ provider_name: req.params.providerName, config: credentials?.config ?? {} });
+    res.json(credentialView(req.params.providerName, credentials?.config));
   } catch (e) { fail(res, e); }
 });
 
@@ -121,16 +133,21 @@ adminBillingRouter.put('/providers/:providerName', async (req, res) => {
   try {
     const body = z.object({ config: z.record(z.unknown()) }).parse(req.body);
     assertProviderAllowed(await getPlatformEdition(cfg(req)), req.params.providerName);
+    // The form never receives the stored credentials, so a credential the
+    // save leaves blank or out keeps the stored one (keepStoredRuntimeSecrets);
+    // everything else is the save's own. Validation sees the merged result.
+    const stored = await getProviderCredentials(cfg(req), req.params.providerName);
+    const merged = keepStoredRuntimeSecrets(stored?.config ?? {}, body.config) as Record<string, unknown>;
     // Credentials of the wrong environment (a live Paddle key on the sandbox
     // gateway, a sandbox key on the live one) are refused with a message the
     // Super Admin can act on; `error` is what the Providers screen shows.
     const problem = getProvider(req.params.providerName)?.validateConfig?.({
-      ...body.config,
+      ...merged,
       provider: req.params.providerName,
     });
     if (problem) return res.status(400).json({ error: problem, code: 'invalid_provider_credentials' });
-    const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, body.config);
-    res.json({ provider_name: credentials.provider_name, config: credentials.config });
+    const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, merged);
+    res.json(credentialView(credentials.provider_name, credentials.config));
   } catch (e) { fail(res, e); }
 });
 

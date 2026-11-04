@@ -106,10 +106,32 @@ adminDatabaseRouter.get('/backup', async (req, res) => {
   );
 
 
+  // Each page is written as it arrives, so the backend holds one page
+  // (EXPORT_PAGE_SIZE rows) at a time, never a whole table: one large table
+  // used to be collected and JSON.stringify'd in one piece, which could pass
+  // V8's string limit and take down the backend both brands share. The
+  // SQL function orders every page by the table's first column.
+  let closed = false;
+  res.on('close', () => { closed = true; });
+  const write = async (chunk: string) => {
+    if (closed) throw new Error('client disconnected');
+    if (!res.write(chunk)) {
+      await new Promise<void>((resolve) => {
+        const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
+        res.on('drain', done);
+        res.on('close', done);
+      });
+    }
+  };
+
   let first = true;
+  let inTable = false;
   try {
     for (const table of tableNames) {
-      const rows: unknown[] = [];
+      await write(`${first ? '' : ','}${JSON.stringify(table)}:[`);
+      first = false;
+      inTable = true;
+      let firstRow = true;
       for (let offset = 0; ; offset += EXPORT_PAGE_SIZE) {
         const { data, error } = await sb.rpc('admin_export_table', {
           _actor_user_id: actorId,
@@ -119,18 +141,23 @@ adminDatabaseRouter.get('/backup', async (req, res) => {
         });
         if (error) throw new Error(`${table}: ${error.message}`);
         const page = (data as unknown[] | null) ?? [];
-        rows.push(...page);
+        if (page.length > 0) {
+          await write(`${firstRow ? '' : ','}${page.map((row) => JSON.stringify(row)).join(',')}`);
+          firstRow = false;
+        }
         if (page.length < EXPORT_PAGE_SIZE) break;
       }
-      res.write(`${first ? '' : ','}${JSON.stringify(table)}:${JSON.stringify(rows)}`);
-      first = false;
+      await write(']');
+      inTable = false;
     }
-    res.write('}}');
+    await write('}}');
     res.end();
   } catch (err) {
+    if (closed) return;
     // Headers are already sent — close the stream with an explicit error marker
-    // so a truncated backup can never be mistaken for a complete one.
-    res.write(`${first ? '' : ','}"__error__":${JSON.stringify(String((err as Error).message))}}}`);
+    // so a truncated backup can never be mistaken for a complete one. A table
+    // cut off mid-way is closed first so the marker is still valid JSON.
+    res.write(`${inTable ? ']' : ''}${first ? '' : ','}"__error__":${JSON.stringify(String((err as Error).message))}}}`);
     res.end();
   }
 });

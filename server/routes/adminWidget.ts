@@ -10,6 +10,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { checkOutboundUrl } from '../../shared/net/hostGuard.js';
 
 export const adminWidgetRouter = Router();
 
@@ -32,7 +33,7 @@ interface TestResult {
   response_kind: 'js' | 'json' | 'css' | 'html' | 'other' | null;
   duration_ms: number | null;
   message: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 const TIMEOUT_MS = 8000;
@@ -52,6 +53,21 @@ function classifyContentType(ct: string | null, body: string): TestResult['respo
   return 'other';
 }
 
+const MAX_REDIRECTS = 3;
+
+/** A realtime URL is a WebSocket one; its HTTP side is what is probed. */
+function httpUrlOf(url: string): string {
+  return url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+}
+
+/**
+ * Fetches a URL the Super Admin typed, for its diagnostics. Only a public
+ * https host (checkOutboundUrl), at every hop: redirects are followed by
+ * hand, each target checked again, at most MAX_REDIRECTS. It used to
+ * follow any URL and any redirect and return a preview of the body, so a
+ * stolen or forged admin session could read internal services (Coolify's
+ * dashboard, Docker service names).
+ */
 async function fetchWithTimeout(url: string, init?: RequestInit) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -64,18 +80,30 @@ async function fetchWithTimeout(url: string, init?: RequestInit) {
       signal: ctrl.signal,
       // Disable any caching so admins always see live results
       cache: 'no-store',
-      redirect: 'follow',
+      redirect: 'manual',
     };
-    const res = await fetch(url, requestInit);
-    const duration = Date.now() - start;
-    const text = await res.text();
-    return { res, text, duration };
+    let target = httpUrlOf(url);
+    for (let hop = 0; ; hop++) {
+      const check = await checkOutboundUrl(target);
+      if (!check.ok) throw new Error(`URL refused: only public https addresses can be tested (${(check as { reason?: string }).reason})`);
+      const res = await fetch(target, requestInit);
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (location) {
+        await res.body?.cancel().catch(() => undefined);
+        if (hop >= MAX_REDIRECTS) throw new Error(`Too many redirects (more than ${MAX_REDIRECTS})`);
+        target = new URL(location, target).toString();
+        continue;
+      }
+      const duration = Date.now() - start;
+      const text = await res.text();
+      return { res, text, duration };
+    }
   } finally {
     clearTimeout(timer);
   }
 }
 
-function failResult(kind: TestKind, url: string, message: string, details?: any): TestResult {
+function failResult(kind: TestKind, url: string, message: string, details?: Record<string, unknown>): TestResult {
   return {
     kind,
     url,
@@ -120,8 +148,8 @@ async function testLoader(url: string): Promise<TestResult> {
       response_kind: kind, duration_ms: duration,
       message: 'Loader script reachable and served as JavaScript.',
     };
-  } catch (err: any) {
-    return failResult('loader', url, `Loader fetch failed: ${err?.message || err}`);
+  } catch (err: unknown) {
+    return failResult('loader', url, `Loader fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -144,9 +172,9 @@ async function testManifest(url: string): Promise<TestResult> {
         message: 'Manifest URL returns HTML instead of JSON. Web server is falling back to index.html.',
       };
     }
-    let parsed: any = null;
+    let parsed: Record<string, unknown> = {};
     try {
-      parsed = JSON.parse(text);
+      parsed = (JSON.parse(text) ?? {}) as Record<string, unknown>;
     } catch {
       return {
         kind: 'manifest', url, status: 'failed', http_status: res.status, content_type: ct,
@@ -171,8 +199,8 @@ async function testManifest(url: string): Promise<TestResult> {
       message: `Manifest valid. loaderVersion=${parsed.loaderVersion || 'n/a'}.`,
       details: { manifest: parsed },
     };
-  } catch (err: any) {
-    return failResult('manifest', url, `Manifest fetch failed: ${err?.message || err}`);
+  } catch (err: unknown) {
+    return failResult('manifest', url, `Manifest fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -215,8 +243,8 @@ async function testRuntime(url: string, assetBase?: string): Promise<TestResult>
       response_kind: kind, duration_ms: duration,
       message: 'Runtime asset reachable.',
     };
-  } catch (err: any) {
-    return failResult('runtime', url, `Runtime fetch failed: ${err?.message || err}`);
+  } catch (err: unknown) {
+    return failResult('runtime', url, `Runtime fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -244,8 +272,8 @@ async function testStylesheet(url: string): Promise<TestResult> {
       response_kind: 'css', duration_ms: duration,
       message: 'Stylesheet reachable.',
     };
-  } catch (err: any) {
-    return failResult('stylesheet', url, `Stylesheet fetch failed: ${err?.message || err}`);
+  } catch (err: unknown) {
+    return failResult('stylesheet', url, `Stylesheet fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -286,8 +314,8 @@ async function testApiBootstrap(url: string): Promise<TestResult> {
       response_kind: 'json', duration_ms: duration,
       message: `API bootstrap reachable (HTTP ${res.status}).`,
     };
-  } catch (err: any) {
-    return failResult('api_bootstrap', url, `API bootstrap fetch failed: ${err?.message || err}`);
+  } catch (err: unknown) {
+    return failResult('api_bootstrap', url, `API bootstrap fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -310,8 +338,8 @@ async function testRealtime(url: string): Promise<TestResult> {
       response_kind: kind, duration_ms: duration,
       message: `Unexpected status ${res.status} from realtime endpoint.`,
     };
-  } catch (err: any) {
-    return failResult('realtime', url, `Realtime probe failed: ${err?.message || err}`);
+  } catch (err: unknown) {
+    return failResult('realtime', url, `Realtime probe failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

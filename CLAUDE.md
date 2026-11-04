@@ -600,6 +600,22 @@ over unchanged. A full disk stops Postgres too.
     on push. Its one pair (mahmod and golpari in mojtaba@webyar.ai's
     workspace) was written by hand with mahmod's account:
     `/root/test-accounts-20261104/`.
+    Then the 2026-11-04 audit's five migrations, applied by hand in one run
+    before their merges, 2026-11-04 18:46 UTC:
+    `296_admin_delete_user_keeps_shared_rows.sql` (PR #392),
+    `297_workspace_actor_suspension.sql` (#403),
+    `298_call_state_guards.sql` (#404; its index
+    `call_sessions_unanswered_created_idx` built CONCURRENTLY first, at
+    18:45), `299_billing_audit_fixes.sql` (#393) and
+    `301_widget_api_fixes.sql` (#405); 300 is unused. They only replace or add
+    functions, a trigger, an index and one nullable column, and write no
+    data. A dry run of the five inside one `BEGIN … ROLLBACK`, re-running
+    each, changed no row. A before/after diff of every replaced function
+    showed only the intended lines: the actor lookup in the invitation
+    functions and `offboard_workspace_member`, and 299's quote checks in
+    `billing_account_settle_payment` (the live body otherwise unchanged). The schema
+    dump, the dry run, the diff and the run's logs are in
+    `/root/webyar-migrate-296-301/`. RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

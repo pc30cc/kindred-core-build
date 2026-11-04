@@ -352,7 +352,7 @@ export function TeamCallProvider({
     }
     if (doneRef.current.has(callId)) return;
     if (state === 'ringing' || state === 'missed' || state === 'cancelled') void consider(callId, state);
-  }, [workspaceId, refresh, consider, queryClient]);
+  }, [workspaceId, refresh, consider, queryClient, setSession]);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 

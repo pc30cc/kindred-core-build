@@ -104,6 +104,11 @@ function asciiDigits(text: string): string {
     .replace(/[٫,]/g, '.');
 }
 
+/** What a toast shows for a failure: the server's own text when there is one. */
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** Whether a shared secret is stored. Older backends send only static_secret_present. */
 function secretStored(turn: CallNetworkBundle['turn'] | undefined): boolean {
   return !!(turn?.shared_secret_present ?? turn?.static_secret_present);
@@ -239,8 +244,8 @@ export function CallControlPlanePanel() {
       setForm(formFrom(r.network));
       setNetProblem(null);
       setReadiness(r.readiness ?? {});
-    } catch (e: any) {
-      toast({ title: t('admin.voiceVideo.control.loadFailed'), description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('admin.voiceVideo.control.loadFailed'), description: errorText(e), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -258,8 +263,8 @@ export function CallControlPlanePanel() {
       setCp(r.control_plane);
       setReadiness(r.readiness ?? {});
       toast({ title: t('admin.voiceVideo.control.saved') });
-    } catch (e: any) {
-      toast({ title: t('admin.voiceVideo.control.saveFailed'), description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('admin.voiceVideo.control.saveFailed'), description: errorText(e), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -284,8 +289,8 @@ export function CallControlPlanePanel() {
       await updateRtcEndpoints(built.patch);
       toast({ title: t('admin.voiceVideo.control.networkSaved') });
       await load();
-    } catch (e: any) {
-      toast({ title: t('admin.voiceVideo.control.saveFailed'), description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: t('admin.voiceVideo.control.saveFailed'), description: errorText(e), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -805,7 +810,7 @@ export function CallControlPlanePanel() {
                 <Label className="text-sm">{label}</Label>
                 <p className="text-xs text-muted-foreground">{hint}</p>
               </div>
-              <Switch checked={!!cp[key]} disabled={saving} onCheckedChange={(v) => saveCp({ [key]: v } as any)} />
+              <Switch checked={!!cp[key]} disabled={saving} onCheckedChange={(v) => saveCp({ [key]: v } as Partial<CallControlPlane>)} />
             </div>
           ))}
         </CardContent>

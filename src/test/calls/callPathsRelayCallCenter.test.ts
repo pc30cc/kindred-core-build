@@ -19,6 +19,10 @@
  *     a non-empty list, so this keeps LiveKit's own TURN as `urls: []` would,
  *     and the answer is byte for byte what it was before the relay existed
  *     (RESPOK, which has no relay, answers as it always has);
+ *   - so does every caller while the stored relay names no countries (no
+ *     list, WebYar's row until it is first saved with one, or `*`): these two
+ *     answers had no relay before the list existed, and a relay for every
+ *     caller would take LiveKit's own TURN from all of them;
  *   - a builder that throws keeps nobody out: the visitor still joins, the
  *     operator's accept still goes through.
  *
@@ -39,6 +43,8 @@ const relay = vi.hoisted(() => ({
   asked: [] as Array<{ callId: string; ttl: number; probe: string | null; hasReq: boolean }>,
   turn: { urls: [] as string[], username: null as string | null, credential: null as string | null },
   icePolicy: 'all' as string,
+  /** The builder's `countryLimited`: the stored relay names its countries. */
+  countryLimited: true,
   fail: false,
 }));
 
@@ -87,6 +93,8 @@ vi.mock('../../../server/services/calls/participantToken.js', async (importOrigi
     return {
       network: { rtc_url: 'wss://livekit.example', ws_url: 'wss://rt.example', ice_policy: relay.icePolicy, turn },
       turn,
+      withheld: false,
+      countryLimited: relay.countryLimited,
     };
   },
 }));
@@ -139,6 +147,7 @@ beforeEach(() => {
   relay.asked = [];
   relay.turn = { ...RELAY };
   relay.icePolicy = 'all';
+  relay.countryLimited = true;
   relay.fail = false;
   db.platform_call_center_settings = [{ singleton: true, call_center_enabled: true, call_recording_enabled: false, queue_eta_seconds_per_position: 45 }];
   db.app_runtime_config = [
@@ -199,6 +208,18 @@ describe('the visitor\'s join token', () => {
     expect(Object.keys(r.body).sort()).toEqual(['connect', 'expires_at', 'provider', 'provider_room_id', 'token']);
   });
 
+  it('a relay that names no countries (no list yet, or *) is not given to call-widget visitors: the answer is as before the relay', async () => {
+    relay.countryLimited = false;
+    const call = queuedCall();
+    await accept(call.id);
+    relay.asked = [];
+    const r = await join(call, 'visitor-in-turkey');
+    expect(r.status).toBe(200);
+    expect(r.body.token).toBeTruthy();
+    expect(Object.keys(r.body).sort()).toEqual(['connect', 'expires_at', 'provider', 'provider_room_id', 'token']);
+    expect(relay.asked).toHaveLength(1);
+  });
+
   it('a builder that throws keeps nobody out: the visitor joins, without a relay, and the call starts', async () => {
     const call = queuedCall();
     await accept(call.id);
@@ -242,6 +263,18 @@ describe('the operator\'s accept (and the console\'s Reconnect, which accepts ag
     const call = queuedCall();
     const r = await accept(call.id);
     expect(r.status).toBe(200);
+    for (const body of [r.body, r.body.connect]) {
+      expect(body).not.toHaveProperty('turn');
+      expect(body).not.toHaveProperty('ice_policy');
+    }
+  });
+
+  it('a relay that names no countries (no list yet, or *) is not given to the console: the accept is as before the relay', async () => {
+    relay.countryLimited = false;
+    const call = queuedCall();
+    const r = await accept(call.id, 'operator-in-turkey');
+    expect(r.status).toBe(200);
+    expect(r.body.token).toBeTruthy();
     for (const body of [r.body, r.body.connect]) {
       expect(body).not.toHaveProperty('turn');
       expect(body).not.toHaveProperty('ice_policy');

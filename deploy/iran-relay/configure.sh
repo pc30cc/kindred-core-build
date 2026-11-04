@@ -18,6 +18,8 @@
 #   MIN_PORT/MAX_PORT  relay port range (default 49160-49999)
 #   MAX_BPS      bytes per second per session, each direction (default 1000000)
 #   TOTAL_QUOTA  concurrent allocations on the server (default 3000)
+#   USER_QUOTA   concurrent allocations per username, that is per call token
+#                (default 32; never 0, see below)
 #
 # The shared secret is /etc/webyar-turn/secret (root, 0600): the same value as
 # Super Admin → Voice & Video → Channels and recording → RTC and TURN
@@ -34,10 +36,12 @@ MIN_PORT=${MIN_PORT:-49160}
 MAX_PORT=${MAX_PORT:-49999}
 MAX_BPS=${MAX_BPS:-1000000}
 TOTAL_QUOTA=${TOTAL_QUOTA:-3000}
+USER_QUOTA=${USER_QUOTA:-32}
 SECRET_FILE=/etc/webyar-turn/secret
 CONF=/etc/turnserver.conf
 
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+case "$USER_QUOTA" in ''|0|*[!0-9]*) echo "USER_QUOTA must be a number above 0" >&2; exit 1 ;; esac
 [ -s "$SECRET_FILE" ] || { echo "missing $SECRET_FILE" >&2; exit 1; }
 command -v turnserver >/dev/null || { echo "coturn is not installed" >&2; exit 1; }
 id turnserver >/dev/null
@@ -75,16 +79,27 @@ chmod 640 "$tmp"
   echo "denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
   for ip in $PEER_IPS; do echo "allowed-peer-ip=$ip"; done
   echo "max-bps=$MAX_BPS"
-  # The server-wide cap is the only one (0 is coturn's "no limit" per user).
-  # Each call token carries its own random username (`<expiry>:r<16 hex>`)
-  # and a client keeps it for the whole call: every reconnect allocates again
-  # while the allocations left on the old network live out their lifetime
-  # (10 min), so a per-username cap would cut the relay off from a caller on
-  # a flaky network, the one it is for. The peer rules above already keep
-  # anyone from using it for anything but LiveKit. A caller holds about one
-  # allocation per TURN URL for each of LiveKit's two peer connections.
+  # Allocations per username. Each call token carries its own random username
+  # (`<expiry>:r<16 hex>`), valid for hours (Super Admin's credential
+  # lifetime, 6 h) and handed to anonymous widget visitors too. Without a cap
+  # (coturn's 0) one such credential could hold every relay port for all
+  # those hours, after its call has ended, and leave every caller in Iran
+  # without the relay: the peer rules above keep it from reaching anything
+  # but LiveKit, not from filling the port range. The cap is sized for a
+  # caller on a flaky network, the one the relay is for: a connect holds
+  # about one allocation per TURN URL for each of LiveKit's two peer
+  # connections (more on a phone with Wi-Fi and data both up), and each
+  # reconnect allocates again while the ones left on the old network live
+  # out their lifetime, at most 10 minutes (below). 32 is several network
+  # changes within those 10 minutes, and 1/26 of the default port range.
+  echo "user-quota=$USER_QUOTA"
+  # An allocation nobody refreshes (left on a network the phone moved off)
+  # is gone within 10 minutes whatever lifetime its client asked for
+  # (coturn's own maximum is an hour), so it frees its place in the quota
+  # above that soon. A live one is refreshed before then and stays.
+  echo "max-allocate-lifetime=600"
+  # Server-wide: the relay port range (840 ports by default) runs out first.
   echo "total-quota=$TOTAL_QUOTA"
-  echo "user-quota=0"
   echo "syslog"
   echo "simple-log"
   echo "no-stdout-log"

@@ -1639,11 +1639,15 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
  * countries gate on this request's country), as `turn` and `ice_policy`.
  *
  * Nothing at all when this visitor gets no relay (outside its countries, or
- * a deployment with none): the runtime hands LiveKit ICE servers only for a
- * non-empty list, so an absent `turn` keeps LiveKit's own TURN exactly as
- * `urls: []` would, and the answer stays byte for byte what it was before the
- * relay existed. Reading it never keeps a visitor out of the call: on a
- * failure they join as they did before.
+ * a deployment with none), and nothing either while the stored relay names
+ * no countries (no list yet, or `*`): this answer carried no relay before the
+ * list existed, and a relay for every visitor would take LiveKit's own TURN
+ * (its TLS port among it) from all of them (TokenNetworkBundle.countryLimited).
+ * The runtime hands LiveKit ICE servers only for a non-empty list, so an
+ * absent `turn` keeps LiveKit's own TURN exactly as `urls: []` would, and the
+ * answer stays byte for byte what it was before the relay existed. Reading it
+ * never keeps a visitor out of the call: on a failure they join as they did
+ * before.
  */
 async function visitorRelay(
   config: ServerConfig,
@@ -1651,8 +1655,8 @@ async function visitorRelay(
   req: ExpressRequest,
 ): Promise<{ turn?: { urls: string[]; username: string | null; credential: string | null }; ice_policy?: string }> {
   try {
-    const { network, turn } = await buildTokenNetworkBundle(config, callId, 60 * 60, req);
-    if (turn.urls.length === 0) return {};
+    const { network, turn, countryLimited } = await buildTokenNetworkBundle(config, callId, 60 * 60, req);
+    if (!countryLimited || turn.urls.length === 0) return {};
     return {
       turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
       ice_policy: network.ice_policy,

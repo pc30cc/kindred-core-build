@@ -22,8 +22,8 @@ Why each of those holds, with measurements: `docs/ANDROID_LOCAL_DEV.md`.
 ## Before building an Android release
 
 WebYar 1.8 (`versionCode` 29) is on the site since the merge of #387
-(2026-11-03; Cafe Bazaar still has 1.6, `versionCode` 27, until the owner
-uploads the current file); RESPOK 1.0.4 (`versionCode` 5) is on the site only.
+(2026-11-03) and on Cafe Bazaar since 2026-11-04 (the owner uploads each new
+file there); RESPOK 1.0.4 (`versionCode` 5) is on the site only.
 Read `docs/ANDROID_RELEASE.md` → "Before the next release" first: every WebYar
 build must keep `com.webyar.ai`, be signed with `~/dev/webyar-release.jks`
 and use a `versionCode` above the last one published (29).
@@ -205,8 +205,9 @@ Video → Channels and recording → RTC and TURN endpoints is the only place to
 change its address, its shared secret (saved encrypted under
 `PLUGIN_SECRETS_MASTER_KEY`, shown only as a fingerprint) and the relay
 countries; never write `call_rtc_endpoints` by hand. The countries are `IR`
-(empty is everyone), so callers elsewhere keep LiveKit's own TURN: a client
-handed TURN URLs uses them instead of LiveKit's ICE servers. Never list
+(empty or `*` is everyone, but the call-centre widget and its console then
+carry none), so callers elsewhere keep LiveKit's own TURN: a client handed
+TURN URLs uses them instead of LiveKit's ICE servers. Never list
 LiveKit's own TURN (`turn.webyar.ai`) in those URLs, and `ws_url` stays
 `wss://rt.webyar.ai`. Each token gets its own credential (a random username,
 valid 6 h, the page's lifetime). Rotate the secret on the relay and in Super

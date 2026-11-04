@@ -224,6 +224,29 @@ describe('the relay goes only to the countries it is for', () => {
     expect((await buildTokenNetworkBundle(config, CALL_ID, 600, viaCloudflare('TR'))).withheld).toBe(true);
     expect((await buildTokenNetworkBundle(config, CALL_ID, 600, viaCloudflare('IR'))).withheld).toBe(false);
   });
+
+  /**
+   * What the call centre's two answers hang on: they had no relay before the
+   * list existed, so they carry one only for a relay that names countries.
+   */
+  it.each([
+    ['IR', ['IR'], true],
+    ['a list read in lower case', [' ir '], true],
+    ['no list (WebYar\'s row until it is saved with one)', undefined, false],
+    ['an empty list', [], false],
+    ['*', ['*'], false],
+    ['* beside a country', ['IR', '*'], false],
+  ])('says whether the stored relay names its countries: %s', async (_label, countries, limited) => {
+    h.rows.set('call_rtc_endpoints', relayRow({ countries }));
+    for (const req of [viaCloudflare('IR'), viaCloudflare('TR'), undefined]) {
+      expect((await buildTokenNetworkBundle(config, CALL_ID, 600, req)).countryLimited).toBe(limited);
+    }
+  });
+
+  it('a row with no relay names no countries either', async () => {
+    h.rows.set('call_rtc_endpoints', { rtc_url: 'wss://livekit.example', ws_url: 'wss://rt.example', turn: { urls: [] } });
+    expect((await buildTokenNetworkBundle(config, CALL_ID, 600, viaCloudflare('IR'))).countryLimited).toBe(false);
+  });
 });
 
 // ═══ What a client is handed ═══════════════════════════════════════

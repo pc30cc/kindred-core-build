@@ -128,7 +128,7 @@ widgetCallInvitationsRouter.post(
   '/:id/decline',
   widgetRateLimit('default'),
   async (req: Request, res: Response) => {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
     const owned = await loadOwnedInvitation(config, req, res);
     if (!owned) return;
 
@@ -155,7 +155,7 @@ widgetCallInvitationsRouter.post(
   '/:id/end',
   widgetRateLimit('default'),
   async (req: Request, res: Response) => {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
     const owned = await loadOwnedInvitation(config, req, res);
     if (!owned) return;
     // Resolve the call_session_id linked to this invitation.
@@ -186,7 +186,7 @@ widgetCallInvitationsRouter.post(
   '/:id/join',
   widgetRateLimit('default'),
   async (req: Request, res: Response) => {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
     const owned = await loadOwnedInvitation(config, req, res);
     if (!owned) return;
 
@@ -334,7 +334,8 @@ widgetCallInvitationsRouter.post(
             .select('visitor_id')
             .eq('id', invitation.visitor_session_id)
             .maybeSingle();
-          if ((vs as any)?.visitor_id) visitorIdentity = 'visitor:' + (vs as any).visitor_id;
+          const visitorId = (vs as { visitor_id?: string | null } | null)?.visitor_id;
+          if (visitorId) visitorIdentity = 'visitor:' + visitorId;
         }
       } catch { /* fall through */ }
 
@@ -395,7 +396,7 @@ widgetCallInvitationsRouter.post(
           ...(relayMissing ? [CALL_ERROR_CODES.TURN_MISSING] : []),
         ],
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof CallProviderNotReadyError) {
         return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
           callErrorBody(
@@ -405,7 +406,7 @@ widgetCallInvitationsRouter.post(
           ),
         );
       }
-      console.error('[widget-invitations/join] error:', err?.message || err);
+      console.error('[widget-invitations/join] error:', err instanceof Error ? err.message : err);
       return res.status(500).json({ error: 'internal_error' });
     }
   },

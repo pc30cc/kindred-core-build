@@ -162,5 +162,10 @@ encrypts it (when the key is set).
 A client handed TURN URLs uses them instead of the ICE servers LiveKit
 offers, its own TURN among them, so the page's relay countries decide who
 gets them (by the country Cloudflare saw; empty is everyone), and everyone
-else keeps LiveKit's own TURN. WebYar's coturn inside Iran is set up this
-way, for callers in Iran only: `deploy/iran-relay/README.md`.
+else keeps LiveKit's own TURN. The call centre's two answers (the call
+widget's join token and the operator's accept), which carried no TURN
+before the list existed, carry it only while the list names countries (not
+empty, not `*`): their callers are anywhere, and a relay for all of them
+would take LiveKit's own TURN from every one. The web console reads it; the
+Mac and Windows desks do not yet. WebYar's coturn inside Iran is set up
+this way, for callers in Iran only: `deploy/iran-relay/README.md`.

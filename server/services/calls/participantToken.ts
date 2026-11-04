@@ -33,6 +33,11 @@ import { CALL_ERROR_CODES, callErrorBody, callErrorFromUnknown } from './errorCo
 import type { CallProviderId } from './providers/types.js';
 import type { ParticipantType } from './operatorIdentity.js';
 
+/** The stored relay names the countries it is for: a list, without `*`. */
+function limitedToCountries(countries: readonly string[] | undefined): boolean {
+  return Array.isArray(countries) && countries.length > 0 && !countries.includes('*');
+}
+
 /**
  * Whether this caller is one the relay is for. An empty list or `*` is
  * everyone (every row written before the list existed). Otherwise the
@@ -41,7 +46,7 @@ import type { ParticipantType } from './operatorIdentity.js';
  * request at all, is not on any list.
  */
 function relayServesCaller(countries: readonly string[] | undefined, req: Request | null | undefined): boolean {
-  if (!Array.isArray(countries) || countries.length === 0 || countries.includes('*')) return true;
+  if (!limitedToCountries(countries)) return true;
   const country = req ? getClientCountry(req) : null;
   return country !== null && countries.includes(country);
 }
@@ -83,6 +88,16 @@ export interface TokenNetworkBundle {
    * own TURN, which is what decides whether a `turn_missing` is true.
    */
   withheld: boolean;
+  /**
+   * The stored relay names the countries it is for (a list without `*`).
+   * The call centre's two answers (the call widget's join token, the
+   * operator's accept) carry a relay only then. They had none before the
+   * list existed, and their callers are anywhere: a row without a list
+   * (WebYar's until the list is first saved) or one meant for everyone
+   * would take LiveKit's own TURN, its TLS port among it, away from all of
+   * them for a UDP relay that only some of them need.
+   */
+  countryLimited: boolean;
 }
 
 /**
@@ -150,6 +165,7 @@ export async function buildTokenNetworkBundle(
     network: { ...network, turn: handed },
     turn: handed,
     withheld: network.turn.urls.length > 0 && handed.urls.length === 0,
+    countryLimited: limitedToCountries(network.turn.countries),
   };
 }
 

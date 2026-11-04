@@ -325,7 +325,9 @@ class Session:
             if err[0] == 401:
                 hint = ' (the secret is not the relay\'s, or this clock and the relay\'s are far apart)'
             elif err[0] == 486:
-                hint = ' (the relay\'s total-quota is reached)'
+                hint = ' (the relay\'s total-quota, or user-quota for this username, is reached)'
+            elif err[0] == 508:
+                hint = ' (the relay has no relay port left)'
             raise ProbeError('allocate FAILED: %d %s%s' % (err[0], err[1], hint))
         relayed = read_xor_address(msg.attrs.get(XOR_RELAYED_ADDRESS), msg.txid)
         mapped = read_xor_address(msg.attrs.get(XOR_MAPPED_ADDRESS), msg.txid)

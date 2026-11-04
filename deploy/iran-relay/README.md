@@ -48,10 +48,13 @@ phone (Iran) ──UDP/TCP 3478──▶ relay (Iran) ──UDP──▶ LiveKit
   It listens on 3478 (UDP and TCP), relays on 49160-49999, uses time-limited
   credentials (`use-auth-secret`), and may send only to `PEER_IPS`: every
   other peer is denied, so nobody can use it as an open relay. No TLS (no
-  domain yet). 1 MB/s per session each way, 3000 allocations in total and no
-  cap per username: each call token has a username of its own, and a cap per
-  username would cut off a caller who reconnects often (`configure.sh` says
-  why).
+  domain yet). 1 MB/s per session each way, 3000 allocations in total (the
+  840 relay ports run out first) and 32 per username, that is per call token:
+  a credential valid for hours, an anonymous widget visitor's included, can
+  then never hold the whole port range, and 32 still leaves room for a phone
+  that changes network several times in 10 minutes, the longest an
+  allocation nobody refreshes is kept (`max-allocate-lifetime`; `configure.sh`
+  says why).
 - Shared secret: `/etc/webyar-turn/secret` (root, 0600), 48 characters. The
   same value is saved in WebYar's Super Admin (below), which stores it
   encrypted. It was made on host.respok.app (`/root/webyar-turn-ir/secret`,
@@ -80,7 +83,9 @@ values (2026-11-04):
   `PLUGIN_SECRETS_MASTER_KEY` (`turn.shared_secret_enc`); it never reaches a
   browser or a token body, and the page shows only whether one is set and its
   fingerprint (the first 12 hex digits of its SHA-256).
-- **Relay countries**: `IR`. Empty (or `*`) would be everyone.
+- **Relay countries**: `IR`. Empty (or `*`) would be everyone, but for the
+  call-centre widget and its operator console, which carry the relay only to
+  the countries listed by name (below).
 - **Credential lifetime**: 6 hours (10 minutes to 24 hours).
 
 Every call token is built by `buildTokenNetworkBundle`
@@ -94,12 +99,29 @@ password `base64(HMAC-SHA1(secret, username))`. Every other caller gets
 (`getClientCountry`, `server/utils/clientIp.ts`, believed only from a
 Cloudflare hop); an unknown country is not on the list.
 
-Why the countries: every client (web panel, Android, iPhone, Mac, both
-widgets) hands a non-empty `turn.urls` to LiveKit as its ICE servers, and
-that replaces the ones LiveKit offers, its own TURN among them; an empty list
-leaves them alone. A caller in Turkey given the relay would lose LiveKit's
-TURN for a relay that only reaches LiveKit anyway. A caller in Iran cannot
-reach LiveKit's TURN, so loses nothing.
+The call-centre widget's join token and the operator's accept had no `turn`
+before the relay. They carry one only when the countries list names countries
+(`IR`; not empty, not `*`), and then only to a caller in them; otherwise they
+carry none, which the clients read as `turn.urls` empty. Their callers are
+anywhere, and a relay for all of them would take LiveKit's own TURN, its TLS
+port among it, from every one (`countryLimited`,
+`server/services/calls/participantToken.ts`).
+
+Why the countries: every client that reads `turn` (web panel, Android,
+iPhone, the Mac and Windows apps' conversation calls, both widgets) hands a
+non-empty `turn.urls` to LiveKit as its ICE servers, and that replaces the
+ones LiveKit offers, its own TURN among them; an empty list leaves them
+alone. A caller in Turkey given the relay would lose LiveKit's TURN for a
+relay that only reaches LiveKit anyway. A caller in Iran cannot reach
+LiveKit's TURN, so loses nothing.
+
+The Mac and Windows apps do not read the relay on the call-centre desk yet:
+they join a call accepted there with LiveKit's own ICE servers only (their
+`CallAccept` has no `turn`; `macos/Webyar/Features/Calls/LiveCall.swift`,
+`windows-native/src/Webyar.App/Views/LiveCall.cs`), so an operator in Iran on
+a filtered network takes desk calls in the web panel until their next release
+reads `turn` from the accept (at the top or in `connect`), as their
+conversation calls already do from `POST /api/calls/:id/token`.
 
 Why 6 hours, and not the LiveKit token's lifetime: the clients take the ICE
 servers once, when the call starts, and reuse them on every reconnect for the
@@ -114,8 +136,9 @@ reach LiveKit directly keeps doing so, and only one that cannot is relayed.
 Signalling is unchanged: `ws_url` stays `wss://rt.webyar.ai`.
 
 RESPOK has its own database, and its `call_rtc_endpoints` lists no relay, so
-its tokens carry none. A row without the countries gives its URLs to everyone,
-as before the setting existed; one without a lifetime mints for 6 hours.
+its tokens carry none. A row without the countries gives its URLs to everyone
+on the calls that had them before the setting existed (not the call centre's
+two answers, above); one without a lifetime mints for 6 hours.
 
 ## Changing it
 
@@ -146,10 +169,12 @@ never a value. The next call uses it (the backend caches the setting for
   5. Run the probe.
 - **Who gets it**: Relay countries. Add a country only when its callers cannot
   reach LiveKit's own TURN either. Emptying it gives the relay to every caller
-  and takes LiveKit's own TURN away from all of them.
+  but the call centre's (whose two answers then carry none) and takes
+  LiveKit's own TURN away from all of them.
 - **The lifetime**: longer for calls that run longer, up to 24 hours. A
   credential that leaks is good for that long, but only to reach LiveKit (the
-  peer rules), and it is one token's.
+  peer rules), for at most 32 relay ports at once (`user-quota`), and it is
+  one token's.
 - **LiveKit moved**: run `configure.sh` with the new `PEER_IPS`, or the relay
   refuses to forward (403), and change the firewall rule for the relay ports.
 - **Turn it off**: remove the URLs in Super Admin (every caller then uses
@@ -210,8 +235,11 @@ header).
 1. On the relay, at a quiet hour: the drop-in from this folder in place of
    the one there (the same condition), then `configure.sh` from this folder
    again, for the new quotas (coturn restarts). The firewall as above.
-2. Merge; WebYar's backend (25) deploys. Until step 3 every caller is given
-   the relay, as on 2026-11-04 (the row has no countries yet).
+2. Merge; WebYar's backend (25) deploys. Until step 3 the calls that had the
+   relay on 2026-11-04 (colleague, members' and the chat widget's) give it to
+   every caller as they did then (the row has no countries yet), now with a
+   6-hour credential; the call-centre widget and its console carry none, as
+   then.
 3. Super Admin → Voice & Video → Channels and recording → RTC and TURN
    endpoints: Relay countries `IR`, lifetime 6 hours, save. That save also
    encrypts the secret written into the row by hand on 2026-11-04 (the audit

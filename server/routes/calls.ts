@@ -225,6 +225,10 @@ async function emitVisitorIncomingEnvelope(
     console.warn('[calls] visitor token mint failed during invite:', err instanceof Error ? err.message : err);
   }
 
+  // No request: this one is the operator's, and the relay's countries are
+  // about the visitor. A relay limited to some countries is therefore left
+  // out of this envelope; the visitor's own token routes (the invitation's
+  // join, /visitor-token) pass the visitor's request and carry it.
   const { network, turn } = await buildTokenNetworkBundle(config, session.id, 600);
 
   await publishConversationEvent(

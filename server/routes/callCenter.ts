@@ -901,11 +901,19 @@ async function autoStartRecordingOnAccept(
  * `ice_policy`.
  *
  * Nothing at all when this operator gets no relay (outside its countries, or
- * a deployment with none): the console hands LiveKit ICE servers only for a
- * non-empty list, so an absent `turn` keeps LiveKit's own TURN exactly as
- * `urls: []` would, and the accept stays byte for byte what it was before the
- * relay existed. The call is already accepted when this runs, so a failure to
- * read the relay must not fail the accept: the operator joins as before.
+ * a deployment with none), and nothing either while the stored relay names
+ * no countries (no list yet, or `*`): the accept carried no relay before the
+ * list existed, and a relay for every operator would take LiveKit's own TURN
+ * (its TLS port among it) from all of them (TokenNetworkBundle.countryLimited).
+ * The console hands LiveKit ICE servers only for a non-empty list, so an
+ * absent `turn` keeps LiveKit's own TURN exactly as `urls: []` would, and the
+ * accept stays byte for byte what it was before the relay existed. The call
+ * is already accepted when this runs, so a failure to read the relay must not
+ * fail the accept: the operator joins as before.
+ *
+ * Only the web console reads it: the desktop apps' desks join an accepted
+ * call with LiveKit's own ICE servers until their next release reads it
+ * (deploy/iran-relay/README.md).
  */
 async function operatorRelay(
   config: ServerConfig,
@@ -913,8 +921,8 @@ async function operatorRelay(
   req: Request,
 ): Promise<{ turn?: { urls: string[]; username: string | null; credential: string | null }; ice_policy?: string }> {
   try {
-    const { network, turn } = await buildTokenNetworkBundle(config, callId, 60 * 60, req);
-    if (turn.urls.length === 0) return {};
+    const { network, turn, countryLimited } = await buildTokenNetworkBundle(config, callId, 60 * 60, req);
+    if (!countryLimited || turn.urls.length === 0) return {};
     return {
       turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
       ice_policy: network.ice_policy,

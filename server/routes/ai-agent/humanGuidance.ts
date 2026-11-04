@@ -7,7 +7,9 @@
  *
  * Security contract:
  *   - every route resolves workspaceId from the CONVERSATION row, never from
- *     client input, and then authorizes the caller against that workspace;
+ *     client input, and then authorizes the caller against that workspace's
+ *     Inbox (authorizeInboxAccess: the Inbox's roles only, audit ai-2), and a
+ *     conversation the plan locked is refused as the Inbox refuses it;
  *   - guidance bodies are length-clamped and stored as data, never executed;
  *   - guidance can raise the AI's knowledge for one conversation, but it can
  *     never grant a capability the workspace configuration does not allow —
@@ -24,39 +26,57 @@ import {
 } from '../../services/ai-agent/guidance.js';
 import { replyNowWithGuidance, checkReplyNowEligibility } from '../../services/ai-agent/replyNow.js';
 import { operatorSayNow, MAX_SAY_NOW_BODY } from '../../services/ai-agent/sayNow.js';
-import { authorizeMember } from './shared.js';
+import { authorizeInboxAccess } from '../../lib/inboxAccess.js';
+import { conversationLockedBody, conversationLockedNow } from '../../services/contactChatLocks.js';
 
 
 export const humanGuidanceRouter: Router = express.Router();
 
-/** Resolve the owning workspace from the conversation itself (never trust the client). */
-async function resolveConversationWorkspace(
+type ConfiguredRequest = Request & { serverConfig?: ServerConfig };
+
+/** The conversation's workspace and the dates its plan lock reads (never trust the client). */
+async function readConversation(
   config: ServerConfig,
   conversationId: string,
-): Promise<string | null> {
+): Promise<{ workspace_id: string; created_at: string | null; updated_at: string | null } | null> {
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('conversations')
-    .select('workspace_id')
+    .select('workspace_id, created_at, updated_at')
     .eq('id', conversationId)
     .maybeSingle();
-  return (data as any)?.workspace_id || null;
+  const row = data as { workspace_id?: string | null; created_at?: string | null; updated_at?: string | null } | null;
+  return row?.workspace_id
+    ? { workspace_id: row.workspace_id, created_at: row.created_at ?? null, updated_at: row.updated_at ?? null }
+    : null;
 }
 
+/**
+ * The caller may steer the AI in this conversation: they hold the Inbox of
+ * its workspace (staff roles without the Inbox, such as viewer or billing,
+ * are refused with `inbox_not_allowed`), and the plan has not locked it
+ * (conversations.ts's lock: 403 with the lock body; an unreadable lock state
+ * refuses nothing).
+ */
 async function authorizeConversation(
   req: Request,
   res: Response,
   conversationId: string,
 ): Promise<{ workspaceId: string; userId: string } | null> {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = await resolveConversationWorkspace(config, conversationId);
-  if (!workspaceId) {
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
+  const conv = await readConversation(config, conversationId);
+  if (!conv) {
     res.status(404).json({ error: 'conversation_not_found' });
     return null;
   }
-  const auth = await authorizeMember(req, res, config, workspaceId);
+  const auth = await authorizeInboxAccess(req, res, conv.workspace_id);
   if (!auth) return null;
-  return { workspaceId, userId: auth.userId };
+  const { locked, state } = await conversationLockedNow(config, conv.workspace_id, conv);
+  if (locked) {
+    res.status(403).json(conversationLockedBody(state));
+    return null;
+  }
+  return { workspaceId: conv.workspace_id, userId: auth.userId };
 }
 
 const idSchema = z.string().uuid();
@@ -64,7 +84,7 @@ const idSchema = z.string().uuid();
 // ─── GET /api/ai-agent/conversations/:id/guidance ──────────────────────
 // Operator-only view: active guidance + pending AI questions.
 humanGuidanceRouter.get('/conversations/:id/guidance', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.id);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
   const ctx = await authorizeConversation(req, res, parsedId.data);
@@ -88,7 +108,7 @@ const createSchema = z.object({
 });
 
 humanGuidanceRouter.post('/conversations/:id/guidance', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.id);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
   const ctx = await authorizeConversation(req, res, parsedId.data);
@@ -138,7 +158,7 @@ const replyNowSchema = z.object({
 });
 
 humanGuidanceRouter.post('/conversations/:id/ai-reply-now', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.id);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
   const ctx = await authorizeConversation(req, res, parsedId.data);
@@ -160,7 +180,7 @@ humanGuidanceRouter.post('/conversations/:id/ai-reply-now', async (req: Request,
     workspaceId: ctx.workspaceId,
     conversationId: parsedId.data,
     operatorId: ctx.userId,
-    operatorName: (profile as any)?.full_name || null,
+    operatorName: (profile as { full_name?: string | null } | null)?.full_name || null,
     body: parsed.data.body || null,
     kind: parsed.data.kind,
     scope: parsed.data.scope,
@@ -184,7 +204,7 @@ humanGuidanceRouter.post('/conversations/:id/ai-reply-now', async (req: Request,
 
 // ─── GET /api/ai-agent/conversations/:id/ai-reply-now/eligibility ──────
 humanGuidanceRouter.get('/conversations/:id/ai-reply-now/eligibility', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.id);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
   const ctx = await authorizeConversation(req, res, parsedId.data);
@@ -212,7 +232,7 @@ const sayNowSchema = z.object({
 });
 
 humanGuidanceRouter.post('/conversations/:id/ai-say-now', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.id);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
   const ctx = await authorizeConversation(req, res, parsedId.data);
@@ -232,7 +252,7 @@ humanGuidanceRouter.post('/conversations/:id/ai-say-now', async (req: Request, r
     workspaceId: ctx.workspaceId,
     conversationId: parsedId.data,
     operatorId: ctx.userId,
-    operatorName: (profile as any)?.full_name || null,
+    operatorName: (profile as { full_name?: string | null } | null)?.full_name || null,
     body: parsed.data.body,
     attribution: parsed.data.attribution,
     locale: parsed.data.locale || null,
@@ -245,7 +265,7 @@ humanGuidanceRouter.post('/conversations/:id/ai-say-now', async (req: Request, r
 
 // ─── DELETE /api/ai-agent/guidance/:guidanceId ─────────────────────────
 humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.guidanceId);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_guidance_id' });
 
@@ -255,14 +275,15 @@ humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Re
     .select('workspace_id,conversation_id')
     .eq('id', parsedId.data)
     .maybeSingle();
-  const workspaceId = (data as any)?.workspace_id;
+  const guidance = data as { workspace_id?: string | null; conversation_id?: string } | null;
+  const workspaceId = guidance?.workspace_id;
   if (!workspaceId) return res.status(404).json({ error: 'guidance_not_found' });
-  const auth = await authorizeMember(req, res, config, workspaceId);
+  const auth = await authorizeInboxAccess(req, res, workspaceId);
   if (!auth) return;
 
   const ok = await revokeGuidance(config, {
     workspaceId,
-    conversationId: (data as any).conversation_id,
+    conversationId: guidance?.conversation_id as string,
     guidanceId: parsedId.data,
   });
   if (!ok) return res.status(400).json({ error: 'guidance_revoke_failed' });
@@ -273,7 +294,7 @@ humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Re
 // Operator declines to answer the AI's question. The AI must then continue
 // with what it already knows (or escalate through the normal policy).
 humanGuidanceRouter.post('/guidance-requests/:requestId/dismiss', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const parsedId = idSchema.safeParse(req.params.requestId);
   if (!parsedId.success) return res.status(400).json({ error: 'invalid_request_id' });
 
@@ -283,9 +304,9 @@ humanGuidanceRouter.post('/guidance-requests/:requestId/dismiss', async (req: Re
     .select('workspace_id')
     .eq('id', parsedId.data)
     .maybeSingle();
-  const workspaceId = (data as any)?.workspace_id;
+  const workspaceId = (data as { workspace_id?: string | null } | null)?.workspace_id;
   if (!workspaceId) return res.status(404).json({ error: 'request_not_found' });
-  const auth = await authorizeMember(req, res, config, workspaceId);
+  const auth = await authorizeInboxAccess(req, res, workspaceId);
   if (!auth) return;
 
   const ok = await resolveGuidanceRequest(config, {

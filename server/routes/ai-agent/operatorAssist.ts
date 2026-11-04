@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
+import { canUseInbox } from '../../../shared/chatRoles.js';
 import { getServiceClient } from '../../supabase.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
@@ -83,10 +84,14 @@ const TONE_HINTS: Record<string, string> = {
   detailed: 'Provide a thorough reply that covers the question completely while staying grounded in the sources.',
 };
 
-/** Operator inbox permission: owner / admin / agent (or global admin). */
-function e7_isOperator(role: string | null, isGlobalAdmin: boolean): boolean {
+/**
+ * Operator inbox permission: the Inbox's roles (shared/chatRoles.ts: the
+ * owner, admins and the chat team) or a global admin. Was owner/admin/agent
+ * only, which refused team leads, support and sales agents (audit ai-8).
+ */
+export function e7_isOperator(role: string | null, isGlobalAdmin: boolean): boolean {
   if (isGlobalAdmin) return true;
-  return role === 'owner' || role === 'admin' || role === 'agent';
+  return canUseInbox(role);
 }
 
 /** Schema-aware visitor message detection. Conversation messages use

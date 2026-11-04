@@ -711,6 +711,7 @@ struct CallHost: View {
     ) {
         self.language = language
         self.onClose = onClose
+        self.invitation = invitation
         _session = State(
             initialValue: CallSession(
                 invitation: invitation,
@@ -721,14 +722,17 @@ struct CallHost: View {
         )
     }
 
-    /// This screen in `VisitorCallScreens`, for as long as it is up.
-    @State private var presence = UUID()
+    /// The invitation this screen is for, its key in `VisitorCallScreens`.
+    private let invitation: CallInvitation
 
     var body: some View {
         CallScreen(session: session, language: language, onClose: onClose)
-            .onAppear { VisitorCallScreens.shared.opened(presence) }
+            .onAppear { VisitorCallScreens.shared.opened(invitation, phase: session.phase) }
+            .onChange(of: session.phase) { _, phase in
+                VisitorCallScreens.shared.changed(invitation.id, phase: phase)
+            }
             .onDisappear {
-                VisitorCallScreens.shared.closed(presence)
+                VisitorCallScreens.shared.closed(invitation.id)
                 // Taken off screen from outside (a workspace switch or a sign-out pops the
                 // conversation it was presented from): nothing would be left to hang up with,
                 // the room and microphone would stay open and the server would keep the call.
@@ -751,16 +755,94 @@ struct CallHost: View {
 final class VisitorCallScreens {
     static let shared = VisitorCallScreens()
 
-    private(set) var open: Set<UUID> = []
-    /// Invitations on their way (`ConversationActionsModel.invite`): a
-    /// visitor call that is about to have a screen already holds the audio,
-    /// so a colleague's ring meanwhile is busy (`CallManager.reportIncoming`).
-    private(set) var starting = 0
+    /// One visitor call, from its invitation request to its screen closing.
+    struct Entry: Equatable {
+        var phase: CallPhase
+        /// When the invitation runs out; nil while it is being requested.
+        var expiresAt: Date?
+        /// A screen has taken this entry over (`CallHost`).
+        var claimed = false
+    }
 
-    var isOn: Bool { !open.isEmpty || starting > 0 }
+    /// What a visitor call means for a colleague's ring
+    /// (`CallManager.reportIncoming`, docs/operations/TEAM_CALLS.md, "iOS").
+    enum Busy: Equatable {
+        /// No visitor call this phone is in: the ring rings.
+        case none
+        /// The visitor is being invited (the request, or an unexpired
+        /// invitation): the ring is ended on this phone only — no room, no
+        /// audio yet, and the member's other phones may still answer.
+        case inviting
+        /// Joining or in the visitor's room: the ring is declined.
+        case live
+    }
 
-    func beganStarting() { starting += 1 }
-    func endedStarting() { starting = max(0, starting - 1) }
+    private(set) var calls: [String: Entry] = [:]
+
+    /// A visitor call's screen is up, or about to be: what the plan lock
+    /// waits on (`SignedInRoot`).
+    var isOn: Bool { !calls.isEmpty }
+
+    /// Busy, for a colleague's ring arriving `now`. A screen left behind by
+    /// suspension — a waiting invitation that has run out, an ended call —
+    /// is not a call.
+    func busy(now: Date) -> Busy {
+        var result = Busy.none
+        for entry in calls.values {
+            switch entry.phase {
+            case .connecting, .connected:
+                return .live
+            case .waiting:
+                if entry.expiresAt.map({ now < $0 }) ?? true { result = .inviting }
+            case .ended:
+                break
+            }
+        }
+        return result
+    }
+
+    /// The invitation request is on its way (`ConversationActionsModel.invite`).
+    func requesting(_ key: String) {
+        calls[key] = Entry(phase: .waiting, expiresAt: nil)
+    }
+
+    /// The request came back with an invitation: the mark moves to its id,
+    /// for the screen to take over. A screen that never comes (the cover was
+    /// not presented) lets it go after a few seconds.
+    func handOver(_ key: String, to invitation: CallInvitation) {
+        calls[key] = nil
+        let id = invitation.id
+        calls[id] = calls[id] ?? Entry(
+            phase: .waiting,
+            expiresAt: invitation.expiresAt ?? Date().addingTimeInterval(120)
+        )
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self, let entry = self.calls[id], !entry.claimed else { return }
+            self.calls[id] = nil
+        }
+    }
+
+    func dropped(_ key: String) {
+        calls[key] = nil
+    }
+
+    /// A screen for the invitation is up, in `phase`.
+    func opened(_ invitation: CallInvitation, phase: CallPhase) {
+        var entry = calls[invitation.id] ?? Entry(phase: phase, expiresAt: invitation.expiresAt)
+        entry.phase = phase
+        entry.claimed = true
+        calls[invitation.id] = entry
+    }
+
+    func changed(_ invitationID: String, phase: CallPhase) {
+        calls[invitationID]?.phase = phase
+    }
+
+    func closed(_ invitationID: String) {
+        calls[invitationID] = nil
+    }
+}
 
     func opened(_ screen: UUID) { _ = open.insert(screen) }
     func closed(_ screen: UUID) { _ = open.remove(screen) }

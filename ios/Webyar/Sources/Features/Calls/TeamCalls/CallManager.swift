@@ -173,6 +173,9 @@ final class CallManager {
     /// call id yet: what a sign-out waits on to hang the ring up
     /// (`endForSignOut`).
     @ObservationIgnored private var placing: Task<Result<TeamCall, Error>, Never>?
+    /// The call whose placement a sign-out took over (`endForSignOut`): its
+    /// hang-up is the sign-out's to send, once, not `startOnServer`'s too.
+    @ObservationIgnored private var placementHandedOff: UUID?
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var ringTimer: Task<Void, Never>?
     @ObservationIgnored private var joinTimer: Task<Void, Never>?
@@ -309,7 +312,8 @@ final class CallManager {
         // A visitor call on this phone — its screen up, or its invitation
         // on the way — holds the audio as much as a colleague call: LiveKit's
         // engine is that call's, and handing it to CallKit would mute it.
-        let visitorCallOn = VisitorCallScreens.shared.isOn
+        let visitorCall = VisitorCallScreens.shared.busy(now: now)
+        let visitorCallOn = visitorCall != .none
         let accepted: TeamCallRing? = ring.flatMap { ring in
             guard ring.mayRing(
                 now: now,
@@ -322,10 +326,12 @@ final class CallManager {
         report(uuid, update)
         guard let ring = accepted else {
             callKit.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
-            // Busy on a visitor call: declined, so the caller hears busy at
-            // once rather than ringing out. Nothing here touches the audio,
-            // and no `rang` is sent: the call was never this phone's.
-            if let ring, visitorCallOn, !holdsAudio, !ring.isExpired(now: now), TokenStore.read() != nil {
+            // In a visitor's room (joining or talking): declined — the call
+            // ends `declined` for the caller and the member's other phones.
+            // Only inviting a visitor (no room yet): ended on this phone
+            // alone, and the other phones may still answer. Either way
+            // nothing touches the audio, and no `rang` is sent.
+            if let ring, visitorCall == .live, !holdsAudio, !ring.isExpired(now: now), TokenStore.read() != nil {
                 tell(.decline, callID: ring.callID, answering: nil)
             }
             // Ended for what this phone last read of that workspace's plan,
@@ -476,7 +482,11 @@ final class CallManager {
         // cancel while it rings and an end should the colleague already have
         // answered.
         guard var call, call.uuid == uuid, !call.phase.isOver else {
-            tell(.hangUp, callID: placed.id, answering: nil)
+            if placementHandedOff == uuid {
+                placementHandedOff = nil
+            } else {
+                tell(.hangUp, callID: placed.id, answering: nil)
+            }
             return
         }
         call.callID = placed.id
@@ -978,6 +988,7 @@ final class CallManager {
         let knownID = call.callID
         let answering = self.answering
         let placing = knownID == nil ? self.placing : nil
+        if placing != nil { placementHandedOff = call.uuid }
         finish(call.uuid, Self.endedHere(call), tellServer: false, reportToCallKit: true)
         let api = self.api, deviceID = self.deviceID
         let deadline = Date().addingTimeInterval(5)

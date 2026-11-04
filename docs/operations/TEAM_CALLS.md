@@ -194,6 +194,20 @@ uncounted time.
   realtime), then "Ringing…" with the ringback (the web's two-tone pattern,
   made in memory, `TeamCallRingback`). CallKit: started connecting at the
   start action, connected only when both are in the room.
+- Busy with a visitor call: a colleague's VoIP ring is reported to CallKit
+  and ended at once, and never touches the audio or sends `rang`, while this
+  phone is in a visitor call. In the visitor's room (connecting or connected)
+  it is also declined on the server (`POST /decline`), so the call ends
+  `declined` for the caller and the member's other phones. While only
+  inviting a visitor (the request, or an invitation not yet expired) it ends
+  on this phone alone, and the other phones may still answer. A visitor
+  screen left behind by suspension (an expired invitation, an ended call) is
+  not busy (`VisitorCallScreens.busy`).
+- Signing out with a colleague call on (reachable once it is minimised) ends
+  it with the server told first, within 5 s, a call still being placed
+  included. Deleting the account ends it on the server
+  (`endTeamCallsOfMember` in `DELETE /api/account`, after the password and
+  owner checks and before the sessions are revoked), for every client.
 - The call screens (colleague and visitor) are opaque (`CallBackdrop`: black,
   the brand's deep tone, the caller's photo blurred), never the app behind.
 - Minimise: the chevron shrinks the call's window to a draggable floating view

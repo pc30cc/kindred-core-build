@@ -236,19 +236,24 @@ final class ConversationActionsModel {
             callBlockedByColleagueCall = true
             return
         }
-        // From here the visitor call holds the audio, before its screen is
-        // up: a colleague's ring is busy (`VisitorCallScreens`).
-        VisitorCallScreens.shared.beganStarting()
-        defer { VisitorCallScreens.shared.endedStarting() }
+        // From here a visitor call is starting, before its screen is up: a
+        // colleague's ring meanwhile is not rung here (`VisitorCallScreens`).
+        // The mark is handed to the invitation, which the screen takes over.
+        let mark = "request-\(UUID().uuidString)"
+        VisitorCallScreens.shared.requesting(mark)
         do {
-            pendingInvitation = try await api.inviteToCall(
+            let invitation = try await api.inviteToCall(
                 conversationID: conversationID,
                 workspaceID: workspaceID,
                 channel: channel
             )
+            VisitorCallScreens.shared.handOver(mark, to: invitation)
+            pendingInvitation = invitation
         } catch APIError.unauthorized {
+            VisitorCallScreens.shared.dropped(mark)
             await appState.handleUnauthorized()
         } catch {
+            VisitorCallScreens.shared.dropped(mark)
             inviteFailed = true
         }
     }

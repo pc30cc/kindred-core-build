@@ -4,6 +4,7 @@
  * only ever carries `{ siteId }` in its payload — everything else the SEO
  * worker needs lives in the `seo_crawls` row this module creates.
  */
+import { cooldownRetryAfterSeconds } from './cooldown.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/queue.js';
@@ -83,6 +84,13 @@ export async function createCrawl(
   }
   if (siteActive >= limits.seo_site_concurrent_jobs) {
     throw new CrawlLimitError('site_concurrency_limit', 'This site already has a crawl in progress');
+  }
+  const crawlWait = cooldownRetryAfterSeconds(
+    await getMostRecentCrawlStart(config, site.id),
+    limits.seo_crawl_frequency_hours,
+  );
+  if (crawlWait > 0) {
+    throw new CrawlLimitError('frequency_limit', 'This site was audited too recently', crawlWait);
   }
 
   const job = await enqueueJob(config, {

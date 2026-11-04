@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { Check, X, FileText, Loader2, RefreshCw, GraduationCap, Save } from 'lucide-react';
 import { formatDateTime } from '@/lib/date';
+import { httpPageUrl } from '../../../../shared/callCenter/visitorPageUrl';
 
 type Tab = 'pending' | 'approved' | 'rejected' | 'converted';
 type ListStatus = Parameters<typeof aiAgentApi.listLearningCandidates>[1];
@@ -158,7 +159,9 @@ function CandidateRow({ candidate, onChanged, readOnly, tr, enumLabel }: {
   const wsPath = useWorkspacePath();
   const meta: Record<string, unknown> = candidate.metadata || {};
   const reason = textOrUndefined((candidate as { reason?: unknown }).reason) || textOrUndefined(meta.reason);
-  const pageUrl = textOrUndefined((meta.page_context as { current_page_url?: unknown } | null | undefined)?.current_page_url);
+  // The visitor's page is theirs to write (it can be `javascript:`): linked
+  // only as an http(s) address, its user name and password dropped.
+  const pageUrl = httpPageUrl((meta.page_context as { current_page_url?: unknown } | null | undefined)?.current_page_url)?.toString();
   const answerEmpty = !answer || !answer.trim();
   const questionEmpty = !question || !question.trim();
 

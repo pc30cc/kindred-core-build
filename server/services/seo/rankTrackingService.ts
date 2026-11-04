@@ -9,16 +9,33 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolveWorkspaceSite, SiteResolutionError } from './siteResolver.js';
 import { resolveRankTrackingLimits, countActiveTrackedKeywords } from './rankTrackingLimits.js';
+import { cooldownRetryAfterSeconds } from './cooldown.js';
 
-export type TrackedKeywordLimitReason = 'module_not_available' | 'max_keywords_reached' | 'duplicate_keyword';
+export type TrackedKeywordLimitReason =
+  | 'module_not_available'
+  | 'max_keywords_reached'
+  | 'duplicate_keyword'
+  | 'keyword_not_found'
+  | 'frequency_limit';
 
 export class TrackedKeywordLimitError extends Error {
   reason: TrackedKeywordLimitReason;
-  constructor(reason: TrackedKeywordLimitReason, message: string) {
+  retryAfterSeconds?: number;
+  constructor(reason: TrackedKeywordLimitReason, message: string, retryAfterSeconds?: number) {
     super(message);
     this.reason = reason;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
+
+/**
+ * A manual "check now" of one tracked keyword is a synchronous paid SERP
+ * call, so it is throttled (audit ai-3): once per keyword per hour, counted
+ * from its last check (the ticker's included), and never two at once. The
+ * schedule (`seo_rank_tracking_check_frequency_hours`) stays the ticker's.
+ */
+export const MANUAL_RANK_CHECK_COOLDOWN_HOURS = 1;
+const manualChecksInFlight = new Set<string>();
 
 export interface SeoTrackedKeywordRow {
   id: string;
@@ -96,17 +113,29 @@ export async function checkTrackedKeywordNow(
     .eq('id', keywordId)
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  if (!row) throw new TrackedKeywordLimitError('duplicate_keyword', 'Tracked keyword not found');
+  if (!row) throw new TrackedKeywordLimitError('keyword_not_found', 'Tracked keyword not found');
   const kw = row as SeoTrackedKeywordRow;
-  const { checkOneKeyword } = await import('./rankTrackingTicker.js');
-  await checkOneKeyword(config, {
-    id: kw.id,
-    workspace_id: kw.workspace_id,
-    website_id: kw.website_id,
-    keyword: kw.keyword,
-    device: kw.device,
-    location_code: kw.location_code,
-  });
+  const wait = cooldownRetryAfterSeconds(kw.last_checked_at, MANUAL_RANK_CHECK_COOLDOWN_HOURS);
+  if (wait > 0) {
+    throw new TrackedKeywordLimitError('frequency_limit', 'This keyword was checked too recently', wait);
+  }
+  if (manualChecksInFlight.has(kw.id)) {
+    throw new TrackedKeywordLimitError('frequency_limit', 'This keyword is being checked', 60);
+  }
+  manualChecksInFlight.add(kw.id);
+  try {
+    const { checkOneKeyword } = await import('./rankTrackingTicker.js');
+    await checkOneKeyword(config, {
+      id: kw.id,
+      workspace_id: kw.workspace_id,
+      website_id: kw.website_id,
+      keyword: kw.keyword,
+      device: kw.device,
+      location_code: kw.location_code,
+    });
+  } finally {
+    manualChecksInFlight.delete(kw.id);
+  }
   const { data: fresh } = await sb.from('seo_tracked_keywords').select('*').eq('id', keywordId).maybeSingle();
   return (fresh || kw) as SeoTrackedKeywordRow;
 }

@@ -584,6 +584,10 @@ seoRouter.post('/:workspaceId/tracked-keywords/:keywordId/check', requireModule(
     const keyword = await checkTrackedKeywordNow(configOf(req), workspaceId, keywordId);
     res.json({ keyword });
   } catch (err) {
+    if (err instanceof TrackedKeywordLimitError) {
+      const status = err.reason === 'keyword_not_found' ? 404 : 429;
+      return res.status(status).json({ error: err.reason, retryAfterSeconds: err.retryAfterSeconds, message: err.message });
+    }
     const message = err instanceof Error ? err.message : 'rank_check_failed';
     res.status(502).json({ error: 'rank_check_failed', detail: message });
   }

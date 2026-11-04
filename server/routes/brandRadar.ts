@@ -4,17 +4,18 @@
  * Every route calls `authorizeWorkspaceAccess` first; writes (settings,
  * topics, "run checks now") additionally require `{ manage: true }`. Reads
  * AND the "run checks now" triggers are gated by `requireModule('brand_radar')`.
- * AI-visibility runs are additionally throttled by
+ * Both "run checks now" triggers (AI and Web) are throttled by
  * `brand_radar_check_frequency_hours` (bounds AI-credit and rank-tracking-
  * provider spend) — each domain (AI / Web) is throttled independently,
  * measured from that domain's own last stored check.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import type { ServerConfig } from '../config.js';
 import { requireModule } from '../middleware/featureGating.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveBrandRadarLimits } from '../services/brandRadar/limits.js';
+import { cooldownRetryAfterSeconds } from '../services/seo/cooldown.js';
 import {
   getSettings, upsertSettings, listTopics, createTopic, deleteTopic, BrandRadarValidationError,
 } from '../services/brandRadar/settingsService.js';
@@ -30,13 +31,13 @@ import { AiBillingError } from '../services/ai-billing/errors.js';
 
 export const brandRadarRouter = Router();
 
-function configOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function parseRange(req: any): { startDate: string; endDate: string } | null {
+function parseRange(req: Request): { startDate: string; endDate: string } | null {
   const q = req.query as Record<string, string | undefined>;
   if (q.startDate && q.endDate) {
     if (!DATE_RE.test(q.startDate) || !DATE_RE.test(q.endDate)) return null;
@@ -55,8 +56,38 @@ async function lastCheckAt(config: ServerConfig, workspaceId: string, table: 'br
   return (data as { created_at: string } | null)?.created_at ?? null;
 }
 
-function hoursSince(iso: string): number {
-  return (Date.now() - new Date(iso).getTime()) / (60 * 60 * 1000);
+/** One "run checks now" per workspace and domain at a time (this process). */
+const runsInFlight = new Set<string>();
+
+/**
+ * The plan's `brand_radar_check_frequency_hours`, measured from that
+ * domain's last stored check, and one run at a time per workspace and
+ * domain. Writes the 429 (`frequency_limit`, with retryAfterHours and
+ * retryAfterSeconds) and returns null when the run must not start; else the
+ * key to release with runsInFlight.delete once the run ends. Configured but
+ * never checked before (audit ai-3, 2026-11-04).
+ */
+async function claimBrandRadarRun(
+  res: Response,
+  config: ServerConfig,
+  workspaceId: string,
+  table: 'brand_radar_ai_checks' | 'brand_radar_web_checks',
+  cooldownHours: number,
+): Promise<string | null> {
+  const key = `${workspaceId}:${table}`;
+  const wait = runsInFlight.has(key)
+    ? 60
+    : cooldownRetryAfterSeconds(await lastCheckAt(config, workspaceId, table), cooldownHours);
+  if (wait > 0 || runsInFlight.has(key)) {
+    res.status(429).json({
+      error: 'frequency_limit',
+      retryAfterSeconds: wait,
+      retryAfterHours: Math.max(1, Math.ceil(wait / 3600)),
+    });
+    return null;
+  }
+  runsInFlight.add(key);
+  return key;
 }
 
 brandRadarRouter.get('/:workspaceId/limits', async (req, res) => {
@@ -166,6 +197,8 @@ brandRadarRouter.post('/:workspaceId/ai-visibility/run', requireModule('brand_ra
   ]);
   if (!settings) return res.status(400).json({ error: 'brand_radar_settings_required' });
   if (topics.length === 0) return res.status(400).json({ error: 'no_topics_configured' });
+  const runKey = await claimBrandRadarRun(res, config, workspaceId, 'brand_radar_ai_checks', limits.brand_radar_check_frequency_hours);
+  if (!runKey) return;
 
   try {
     const { results, errors } = await runAllTopicsAiVisibility(config, { workspaceId, topics, settings, userId: auth.userId });
@@ -174,6 +207,8 @@ brandRadarRouter.post('/:workspaceId/ai-visibility/run', requireModule('brand_ra
     if (err instanceof AiBillingError) return res.status(err.httpStatus).json({ error: err.code, upgrade_required: err.code === 'ai_allowance_exhausted' });
     console.error('[BrandRadar] AI visibility run failed:', (err as Error)?.message);
     res.status(500).json({ error: 'brand_radar_ai_run_failed' });
+  } finally {
+    runsInFlight.delete(runKey);
   }
 });
 
@@ -214,6 +249,8 @@ brandRadarRouter.post('/:workspaceId/web-visibility/run', requireModule('brand_r
   const sb = getServiceClient(config);
   const { data: site } = await sb.from('workspace_domains').select('domain').eq('id', settings.siteId).maybeSingle();
   if (!site) return res.status(400).json({ error: 'brand_radar_site_required' });
+  const runKey = await claimBrandRadarRun(res, config, workspaceId, 'brand_radar_web_checks', limits.brand_radar_check_frequency_hours);
+  if (!runKey) return;
 
   try {
     const { results, errors } = await runAllTermsWebVisibility(config, {
@@ -224,6 +261,8 @@ brandRadarRouter.post('/:workspaceId/web-visibility/run', requireModule('brand_r
   } catch (err) {
     console.error('[BrandRadar] Web visibility run failed:', (err as Error)?.message);
     res.status(500).json({ error: 'brand_radar_web_run_failed' });
+  } finally {
+    runsInFlight.delete(runKey);
   }
 });
 

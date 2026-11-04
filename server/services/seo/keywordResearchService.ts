@@ -4,6 +4,7 @@
  * shape exactly (resolve site → resolve limits → check concurrency/
  * frequency → enqueue a background_jobs row → return the created run row).
  */
+import { cooldownRetryAfterSeconds } from './cooldown.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/queue.js';
@@ -84,6 +85,13 @@ export async function createKeywordResearchRun(
   const workspaceActive = await countActiveWorkspaceKeywordRuns(config, args.workspaceId);
   if (workspaceActive >= limits.seo_keywords_workspace_concurrent_runs) {
     throw new KeywordRunLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent keyword lookup limit');
+  }
+  const lookupWait = cooldownRetryAfterSeconds(
+    await getMostRecentKeywordRunStart(config, site.id),
+    limits.seo_keywords_lookup_frequency_hours,
+  );
+  if (lookupWait > 0) {
+    throw new KeywordRunLimitError('frequency_limit', 'Keywords were looked up for this site too recently', lookupWait);
   }
 
   const sb = getServiceClient(config);

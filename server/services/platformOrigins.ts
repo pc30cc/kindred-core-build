@@ -22,6 +22,8 @@ import { getServiceClient } from '../supabase.js';
 const TTL_MS = 60_000;
 
 let cache: string[] = [];
+/** The dashboard's own hosts from `platform_domains` (app and API, not public). */
+let dashboardCache: string[] = [];
 let cachedAt = 0;
 let inFlight: Promise<void> | null = null;
 
@@ -51,12 +53,15 @@ async function refresh(config: ServerConfig): Promise<void> {
       .filter((o): o is string => !!o);
 
     cache = Array.from(new Set(next));
+    dashboardCache = Array.from(new Set(
+      [data?.app_base_url, data?.api_base_url].map(toOrigin).filter((o): o is string => !!o),
+    ));
     cachedAt = Date.now();
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Keep the previous cache; only push the retry forward a little so a hard
     // DB failure cannot turn into a per-request query storm.
     cachedAt = Date.now() - TTL_MS + 5_000;
-    console.warn('[platformOrigins] refresh failed:', err?.message || err);
+    console.warn('[platformOrigins] refresh failed:', err instanceof Error ? err.message : err);
   } finally {
     inFlight = null;
   }
@@ -78,6 +83,22 @@ export function allowedOrigins(config: ServerConfig): string[] {
     inFlight = refresh(config);
   }
   return Array.from(new Set([...staticOrigins(config), ...cache]));
+}
+
+/**
+ * The origins a cookie-authenticated mutation may come from (the CSRF check
+ * in requireUser and the session routes, `verifyOriginForMutation`):
+ * `CORS_ORIGINS` plus the dashboard's own app and API hosts set in Super
+ * Admin → Domains. Using `CORS_ORIGINS` alone refused every mutation from a
+ * dashboard domain added there (403 "Origin not allowed") although CORS let
+ * it in. The public host (`public_base_url`) is left out on purpose: it is
+ * not the dashboard, and adding it would let a page there change state with
+ * a member's cookie. An empty list (no `CORS_ORIGINS`, no domains) still
+ * refuses every mutation that carries an Origin.
+ */
+export function mutationOrigins(config: ServerConfig): string[] {
+  allowedOrigins(config); // refreshes the cache out of band when stale
+  return Array.from(new Set([...staticOrigins(config), ...dashboardCache]));
 }
 
 /**
@@ -145,6 +166,7 @@ export function primePlatformOrigins(config: ServerConfig): void {
 /** Test-only. */
 export function __resetPlatformOriginsCache(): void {
   cache = [];
+  dashboardCache = [];
   cachedAt = 0;
   inFlight = null;
 }

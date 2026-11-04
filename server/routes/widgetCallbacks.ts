@@ -120,7 +120,6 @@ widgetCallbacksRouter.post('/request', widgetRateLimit('message'), async (req, r
   const workspaceId = (req as WidgetCallbackRequest)._widgetWorkspaceId;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const visitorId = readVisitorCookie(req, workspaceId)?.v;
-  if (!visitorId) return res.status(401).json({ error: 'visitor_required' });
   // Plan composer gate — visitor-initiated callback request.
   // Deny-on-create only; the GET /status path above stays reachable so
   // visitors with already-created callbacks can still see their state.
@@ -136,6 +135,9 @@ widgetCallbacksRouter.post('/request', widgetRateLimit('message'), async (req, r
   } catch {
     return res.status(403).json({ error: 'plan_forbidden', capability: 'call_callbacks', upgrade_required: true });
   }
+  // After the plan's answer, so plan_forbidden stays what a plan without
+  // callbacks gets.
+  if (!visitorId) return res.status(401).json({ error: 'visitor_required' });
   const parsed = z.object({
     channel: z.enum(['audio', 'video']),
     conversation_id: z.string().uuid().optional(),

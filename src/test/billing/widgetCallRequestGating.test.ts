@@ -36,6 +36,15 @@ vi.mock("../../../server/supabase.js", () => ({
   }),
 }));
 
+// The signed visitor (a callback is keyed on their session) and its session writer.
+vi.mock("../../../server/services/widget/visitorIdentity.js", () => ({
+  readVisitorCookie: () => ({ v: "v-1", w: "11111111-1111-1111-1111-111111111111", iat: 1, exp: 9e9 }),
+}));
+vi.mock("../../../server/services/widget/crossWidgetIdentity.js", () => ({
+  resolveSessionNetworkContext: async () => ({}),
+  ensureVisitorSessionRow: async () => "s-1",
+}));
+
 import { widgetCallbacksRouter } from "../../../server/routes/widgetCallbacks";
 
 function findHandler(router: any, method: string, path: string) {

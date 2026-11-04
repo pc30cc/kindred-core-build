@@ -18,7 +18,8 @@ import { getServiceClient } from '../../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
+import { checkOutboundUrl } from '../../../shared/net/hostGuard.js';
+import { assertOwnerScopedKey, assertSafeObjectKey, assertSafeStorageKey, isFolderLikeKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
 import { withOwnerWriteLease } from './writerLease.js';
 import {
   readStoragePool, replicaEntries, persistReplicaSync, markReplicaDirty, markReplicationUncertain,
@@ -147,7 +148,7 @@ function enforceOwnerScope(owner: StorageOwner, fileKey: string, allowLegacyKey?
         : owner.kind === 'user' && LEGACY_USER_AVATAR_PATTERN.test(fileKey);
     if (allowLegacyKey || autoLegacyOk) {
       try {
-        assertSafeStorageKey(fileKey);
+        assertSafeObjectKey(fileKey);
         return null;
       } catch (err2) {
         return err2 instanceof StorageKeyError ? err2.message : 'Invalid file key';
@@ -333,14 +334,26 @@ async function bunnyUpload(config: StorageConfig, req: ProviderUploadRequest): P
   return { success: true, url: `${cdnBase}/${req.fileKey}`, fileKey: req.fileKey };
 }
 
+/**
+ * A ceiling for Bunny's delete and listing calls. A hung call used to keep a
+ * deletion worker on its lease indefinitely (the uploads already had one).
+ */
+const PROVIDER_METADATA_TIMEOUT_MS = 60_000;
+
 async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
+  // Bunny deletes a path ending in `/` recursively: a folder-like key (the
+  // empty key included, which is the zone's root) is never sent, whoever
+  // the caller is (routes, workers, replicas, stored keys read back).
+  if (typeof fileKey !== 'string' || isFolderLikeKey(fileKey)) {
+    return { success: false, error: 'Refusing to delete a folder: the key must name a file' };
+  }
   const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
   const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
 
-  const res = await fetch(`${baseUrl}/${fileKey}`, {
+  const res = await fetchWithTimeout(`${baseUrl}/${fileKey}`, {
     method: 'DELETE',
     headers: { 'AccessKey': config.apiKey! },
-  });
+  }, PROVIDER_METADATA_TIMEOUT_MS);
 
   return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}`, httpStatus: res.ok ? undefined : res.status };
 }
@@ -385,16 +398,29 @@ async function bunnyList(config: StorageConfig, prefix: string): Promise<ListRes
       return { success: false, error: `bunnyList exceeded ${MAX_DIRS} directory walks under ${prefix}` };
     }
     const dir = dirsToWalk.shift()!;
-    const res = await fetch(`${baseUrl}/${dir}`, {
-      method: 'GET',
-      headers: { AccessKey: config.apiKey!, Accept: 'application/json' },
-    });
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(`${baseUrl}/${dir}`, {
+        method: 'GET',
+        headers: { AccessKey: config.apiKey!, Accept: 'application/json' },
+      }, PROVIDER_METADATA_TIMEOUT_MS);
+    } catch (err) {
+      return { success: false, error: `BunnyCDN list failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
     if (!res.ok) {
       if (res.status === 404) continue; // empty/nonexistent directory — nothing under it
       return { success: false, error: `BunnyCDN list failed: ${res.status} ${res.statusText}`, httpStatus: res.status };
     }
-    const entries = (await res.json().catch(() => [])) as BunnyListEntry[];
+    // An answer that is not a JSON array is a failure, never "empty": the
+    // scope cleanup marks a scope verified empty on an empty listing.
+    const entries = (await res.json().catch(() => null)) as BunnyListEntry[] | null;
+    if (!Array.isArray(entries)) {
+      return { success: false, error: `BunnyCDN list failed: unreadable listing for ${dir}` };
+    }
     for (const entry of entries) {
+      if (!entry || typeof entry.ObjectName !== 'string' || entry.ObjectName === '') {
+        return { success: false, error: `BunnyCDN list failed: unreadable entry under ${dir}` };
+      }
       const childPath = `${dir}${entry.ObjectName}`;
       if (entry.IsDirectory) dirsToWalk.push(`${childPath}/`);
       else keys.push(childPath);
@@ -2074,6 +2100,27 @@ export async function syncStorageReplica(
 /**
  * Test storage connection with a real upload + delete.
  */
+const BUNNY_REGION_RE = /^[a-z0-9]{1,10}$/i;
+const BUNNY_ZONE_RE = /^[a-z0-9_-]{1,64}$/i;
+
+/**
+ * Why a "Test" may not send this config's request, or null. The test routes
+ * take the endpoint from the Super Admin's form (/api/storage/test straight
+ * from the request body) and answer with part of the response body, so the
+ * address must be a public https host (checkOutboundUrl) and Bunny's region
+ * and zone, which go into its host name and path, plain names.
+ */
+async function storageTestTargetError(config: StorageConfig): Promise<string | null> {
+  if (config.provider === 'local') return null;
+  if (config.provider === 'bunny_storage') {
+    if (config.region && !BUNNY_REGION_RE.test(config.region)) return 'Invalid Bunny region';
+    if (!config.storageZone || !BUNNY_ZONE_RE.test(config.storageZone)) return 'Invalid Bunny storage zone';
+    return null;
+  }
+  const check = await checkOutboundUrl(getS3Endpoint(config));
+  return check.ok ? null : `Storage endpoint refused: it must be a public https address (${(check as { reason?: string }).reason})`;
+}
+
 export async function testStorageConnection(config: StorageConfig): Promise<{
   success: boolean;
   latencyMs: number;
@@ -2087,6 +2134,9 @@ export async function testStorageConnection(config: StorageConfig): Promise<{
   const delHandler = deleteHandlers[config.provider];
 
   if (!handler) return { success: false, latencyMs: 0, error: `Unknown provider: ${config.provider}` };
+
+  const targetError = await storageTestTargetError(config);
+  if (targetError) return { success: false, latencyMs: 0, error: targetError };
 
   try {
     const result = await handler(config, {

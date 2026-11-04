@@ -255,6 +255,17 @@ describe("storage routes — workspace authorization", () => {
     expect(deleteFileMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [`workspace/${WS_A}/`],
+    [`workspace/${WS_A}/attachments/`],
+    [`workspace/${WS_A}//x.png`],
+  ])("5b'. an owner cannot delete a folder (%s): Bunny deletes it recursively", async (fileKey) => {
+    const { req, res, get } = makeReqRes({ token: "valid.jwt", body: { workspaceId: WS_A, fileKey } });
+    await getHandler("post", "/delete")(req, res, () => {});
+    expect(get().statusCode).toBe(400);
+    expect(deleteFileMock).not.toHaveBeenCalled();
+  });
+
   it("5c. a plain agent cannot delete (owner/admin required)", async () => {
     state.role = "agent";
     const { req, res, get } = makeReqRes({

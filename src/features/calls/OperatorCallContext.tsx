@@ -65,7 +65,11 @@ export type TerminalStatus =
   | null;
 
 /** What sendInvite did: sent, or refused with the server's error code. */
-export type SendInviteResult = { ok: true } | { ok: false; code: string | null };
+export interface SendInviteResult {
+  ok: boolean;
+  /** The server's error code when refused (`plan_limit_reached`, …); null when sent. */
+  code: string | null;
+}
 
 export interface LastEndedSummary {
   ended_by: 'operator' | 'visitor' | 'system';
@@ -525,7 +529,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
         connectedAtRef.current = Date.now();
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
-      } catch (err: any) {
+      } catch (caught) {
+        const err = caught as { message?: string } | null;
         if (cancelled) return;
         liveConnectPendingRef.current = false;
         startedConnectInvitationIdRef.current = null;
@@ -557,7 +562,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     contactName: string | null;
     channel: InvitationChannel;
     ttlSeconds: number;
-  }) => {
+  }): Promise<SendInviteResult> => {
     if (creating || surface.phase !== 'idle') return { ok: false, code: 'busy' };
     resetPerCallLifecycleRefs();
     lastActiveCallSessionIdRef.current = null;
@@ -583,7 +588,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         contactName: args.contactName,
         workspaceId: args.workspaceId,
       });
-      return { ok: true };
+      return { ok: true, code: null };
     } catch (e) {
       const err = e as { code?: string; message?: string } | null;
       const code = err?.code ?? null;
@@ -621,7 +626,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           terminalStatus: 'cancelled',
         };
       });
-    } catch (err: any) {
+    } catch (caught) {
+      const err = caught as { message?: string } | null;
       toast({
         title: 'Could not cancel invitation',
         description: err?.message || String(err),
@@ -653,7 +659,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           conversation_id: conversationId,
         });
       } catch (err) {
-        rtDebug('call', 'operator end api failed', { error: (err as any)?.message });
+        rtDebug('call', 'operator end api failed', { error: (err as { message?: string } | null)?.message });
       }
     }
     try { await disconnectLive('explicit_hangup'); } catch { /* ignore */ }
@@ -986,7 +992,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         })
         .catch((err) => {
           callWarn('visitor-ended fallback /end failed', {
-            error: (err as any)?.message,
+            error: (err as { message?: string } | null)?.message,
           });
         });
     }, 1500);

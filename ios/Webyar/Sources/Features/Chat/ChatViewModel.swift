@@ -71,6 +71,9 @@ final class ChatViewModel {
     /// reached the server even though its answer never reached us.
     @ObservationIgnored private var lastFailedSend: (body: String, clientID: String, attachmentID: String?)?
     @ObservationIgnored private var lastSeenMarked: String?
+    /// The file whose send just failed — a voice note exists nowhere else once
+    /// recorded — kept for "Try again" with its key and, once uploaded, its id.
+    private(set) var failedAttachment: PendingAttachment?
 
     init(conversation: Conversation, api: any WebyarAPI = Backend.current, sync: SyncCoordinator = .shared) {
         self.conversation = conversation
@@ -429,24 +432,47 @@ final class ChatViewModel {
         mimeType: String,
         appState: AppState
     ) async {
-        self.appState = appState
-        guard !isSending else { return }
         let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         // One key for this message, whatever happens between the steps.
-        let clientID = UUID().uuidString
+        let pending = PendingAttachment(data: data, fileName: fileName, mimeType: mimeType, caption: caption, clientID: UUID().uuidString)
+        await send(pending, appState: appState)
+    }
+
+    /// "Try again" on the failed send's alert: the same file, caption and key.
+    func retryFailedAttachment(appState: AppState) {
+        guard let pending = failedAttachment else { return }
+        failedAttachment = nil
+        // The caption handed back to the composer goes with the file, not twice.
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines) == pending.caption { draft = "" }
+        Task { await send(pending, appState: appState) }
+    }
+
+    private func send(_ pending: PendingAttachment, appState: AppState) async {
+        self.appState = appState
+        guard !isSending else { return }
+        var pending = pending
+        let caption = pending.caption
+        let clientID = pending.clientID
 
         isSending = true
         sendFailed = false
+        failedAttachment = nil
         draft = ""
 
         do {
-            let attachmentID = try await api.uploadAttachment(
-                conversationID: conversation.id,
-                workspaceID: conversation.workspaceId,
-                fileName: fileName,
-                mimeType: mimeType,
-                data: data
-            )
+            let attachmentID: String
+            if let uploaded = pending.attachmentID {
+                attachmentID = uploaded
+            } else {
+                attachmentID = try await api.uploadAttachment(
+                    conversationID: conversation.id,
+                    workspaceID: conversation.workspaceId,
+                    fileName: pending.fileName,
+                    mimeType: pending.mimeType,
+                    data: pending.data
+                )
+                pending.attachmentID = attachmentID
+            }
             try await api.send(
                 body: caption,
                 conversationID: conversation.id,
@@ -461,6 +487,7 @@ final class ChatViewModel {
             await appState.handleUnauthorized()
         } catch {
             if draft.isEmpty { draft = caption }
+            failedAttachment = pending
             sendFailed = true
         }
 
@@ -476,5 +503,19 @@ final class ChatViewModel {
 
     func dismissSendError() {
         sendFailed = false
+        // Cancel on the alert lets the file go: the operator chose not to retry.
+        failedAttachment = nil
     }
+}
+
+/// A file on its way into a thread, kept whole until it has gone.
+struct PendingAttachment {
+    let data: Data
+    let fileName: String
+    let mimeType: String
+    let caption: String
+    /// The message key (visitor chat); the same on every try.
+    let clientID: String
+    /// Set once the upload went through, so a retry only sends the message.
+    var attachmentID: String?
 }

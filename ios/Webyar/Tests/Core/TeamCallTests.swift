@@ -59,6 +59,40 @@ final class TeamCallTests: XCTestCase {
         XCTAssertEqual(expires.timeIntervalSince(created), 45, accuracy: 0.001)
     }
 
+    /// `rang_at`: nil until a phone of the callee's says it rings, and absent
+    /// on a server that does not send it yet — the caller's phone then stays
+    /// on "Calling…" with no ringback, never on "Ringing…" too early.
+    func testRangAtIsReadAndMayBeAbsent() throws {
+        let rang = try decode(#"""
+        {"call": {"id": "c1", "workspace_id": "w1", "channel": "audio", "state": "ringing",
+          "role": "caller", "peer": {"user_id": "u2", "name": "Daniel"},
+          "created_at": "2026-11-01T10:00:00.000Z", "rang_at": "2026-11-01T10:00:01.500Z"}}
+        """#)
+        let created = try XCTUnwrap(rang.createdAt)
+        let rangAt = try XCTUnwrap(rang.rangAt)
+        XCTAssertEqual(rangAt.timeIntervalSince(created), 1.5, accuracy: 0.001)
+
+        let notYet = try decode(#"""
+        {"call": {"id": "c1", "workspace_id": "w1", "channel": "audio", "state": "ringing",
+          "role": "caller", "peer": {"user_id": "u2"}, "rang_at": null}}
+        """#)
+        XCTAssertNil(notYet.rangAt)
+
+        let older = try decode(#"""
+        {"call": {"id": "c1", "workspace_id": "w1", "channel": "audio", "state": "ringing",
+          "role": "caller", "peer": {"user_id": "u2"}}}
+        """#)
+        XCTAssertNil(older.rangAt)
+    }
+
+    /// The ringback is a playable WAV of one 1.9 s cycle.
+    func testTheRingbackToneIsAWaveFile() {
+        let wav = RingbackTone.wav
+        XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
+        XCTAssertEqual(String(decoding: wav.subdata(in: 8..<12), as: UTF8.self), "WAVE")
+        XCTAssertEqual(wav.count, 44 + Int(22_050 * 1.9) * 2)
+    }
+
     /// A value this build does not know never fails the whole answer: an
     /// unknown state is over, an unknown outcome a failure, an unknown
     /// channel a voice call — and a member without a name is "Colleague",

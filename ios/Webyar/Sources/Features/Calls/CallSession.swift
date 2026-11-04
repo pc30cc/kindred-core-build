@@ -245,6 +245,7 @@ final class CallSession {
             if channel == .video {
                 do {
                     try await room.localParticipant.setCamera(enabled: true)
+                    CallCamera.allowWhileMultitasking(room.localParticipant)
                 } catch {
                     isCameraOn = false
                     if degraded == nil { degraded = .noCamera }
@@ -312,7 +313,10 @@ final class CallSession {
         guard let room, channel == .video else { return }
         let next = !isCameraOn
         isCameraOn = next
-        Task { try? await room.localParticipant.setCamera(enabled: next) }
+        Task {
+            _ = try? await room.localParticipant.setCamera(enabled: next)
+            if next { CallCamera.allowWhileMultitasking(room.localParticipant) }
+        }
     }
 
     /// Earpiece or loudspeaker. A voice call starts on the loudspeaker

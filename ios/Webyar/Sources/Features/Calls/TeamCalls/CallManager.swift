@@ -18,9 +18,12 @@ struct ActiveTeamCall: Equatable, Sendable {
     }
 
     enum Phase: Equatable, Sendable {
-        /// Outgoing: the request to ring is on its way.
+        /// Outgoing: the request to ring is on its way, or the server has it
+        /// but no phone of the colleague's has said it rings yet ("Calling…",
+        /// no ringback).
         case calling
-        /// The colleague's phones are ringing (outgoing), or this one is.
+        /// A phone of the colleague's rings — the server's `rang_at` is set
+        /// ("Ringing…", with the ringback) — or, incoming, this one does.
         case ringing
         /// Answered; the room is being joined.
         case connecting
@@ -171,6 +174,14 @@ final class CallManager {
     @ObservationIgnored private var joinTimer: Task<Void, Never>?
     @ObservationIgnored private var clearTimer: Task<Void, Never>?
     @ObservationIgnored private var signals: Task<Void, Never>?
+    /// The caller's tone while the colleague's phone rings.
+    @ObservationIgnored private let ringback = TeamCallRingback()
+    /// CallKit has activated the audio session for the call: the ringback
+    /// can be heard (and LiveKit's engine may run).
+    @ObservationIgnored private var audioActive = false
+    /// The call this phone last told the server it rings for (`POST /rang`):
+    /// once per call.
+    @ObservationIgnored private var rangSent: String?
 
     /// Asked every two seconds while ringing, as the contract says; once
     /// answered, every ten — a safety net under the room's own events, for a
@@ -327,10 +338,55 @@ final class CallManager {
         ringUntil(TeamCallTiming.deadline(expiresAt: ring.expiresAt, receivedAt: now), uuid: uuid)
     }
 
+    /// Reports the ring to CallKit, at once. Its answer comes back later: a
+    /// refusal ends the call here, an acceptance is when this phone really
+    /// rings — what the caller's phone waits for to say "Ringing…"
+    /// (`incomingReported`). Nothing here waits for the server.
     private func report(_ uuid: UUID, _ update: CXCallUpdate) {
         callKit.provider.reportNewIncomingCall(with: uuid, update: update) { @Sendable error in
-            guard let error else { return }
-            Task { @MainActor in CallManager.shared.incomingReportFailed(uuid: uuid, error: error) }
+            Task { @MainActor in
+                if let error {
+                    CallManager.shared.incomingReportFailed(uuid: uuid, error: error)
+                } else {
+                    CallManager.shared.incomingReported(uuid: uuid)
+                }
+            }
+        }
+    }
+
+    /// CallKit took the ring: this phone is ringing. Tells the server so,
+    /// once per call (`POST /:id/rang`), when the call is still the ringing
+    /// one here — a ring reported only to be ended at once (not for this
+    /// member, a locked workspace, another call on) is never "rang".
+    private func incomingReported(uuid: UUID) {
+        guard let call, call.uuid == uuid, call.direction == .incoming, call.phase == .ringing,
+              let callID = call.callID, rangSent != callID
+        else { return }
+        rangSent = callID
+        sendRang(callID)
+    }
+
+    /// `POST /rang`, retried twice a few seconds apart, then dropped: the
+    /// caller's phone then says "Calling…" a little longer, nothing worse.
+    /// Stops as soon as the call is no longer ringing here. With iOS's leave
+    /// to finish: a VoIP push may have launched the app in the background.
+    private func sendRang(_ callID: String) {
+        let deviceID = self.deviceID
+        BackgroundGrace.run("Colleague call rang") { [api] in
+            for attempt in 0..<3 {
+                if attempt > 0 {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard let call = CallManager.shared.call, call.callID == callID, call.phase == .ringing else { return }
+                }
+                do {
+                    try await api.markTeamCallRang(id: callID, deviceID: deviceID)
+                    return
+                } catch APIError.unauthorized {
+                    return
+                } catch {
+                    continue
+                }
+            }
         }
     }
 
@@ -461,11 +517,15 @@ final class CallManager {
                 call.answered = true
                 self.call = call
                 ringTimer?.cancel()
+                syncRingback()
                 Task { await join(fresh.id) }
             } else if let end = TeamCallEnd.resolve(fresh, deviceID: deviceID) {
                 endCall(fresh.id, end)
-            } else if call.phase == .calling {
+            } else if call.phase == .calling, fresh.rangAt != nil {
+                // A phone of the colleague's says it rings: only now
+                // "Ringing…", and the ringback.
                 self.call?.phase = .ringing
+                syncRingback()
             }
         case .incoming:
             if call.answered || call.phase != .ringing {
@@ -723,6 +783,8 @@ final class CallManager {
     /// CallKit activated the session: LiveKit's engine may run now.
     fileprivate func audioActivated() {
         guard holdsAudio else { return }
+        audioActive = true
+        defer { syncRingback() }
         do {
             try TeamCallAudio.activated()
         } catch {
@@ -735,6 +797,8 @@ final class CallManager {
     /// CallKit deactivated it: mid-call, the engine waits for it back; after
     /// the call, the session goes back to LiveKit for visitor calls.
     fileprivate func audioDeactivated() {
+        audioActive = false
+        syncRingback()
         if holdsAudio {
             TeamCallAudio.deactivated()
         } else {
@@ -943,6 +1007,17 @@ final class CallManager {
         }
     }
 
+    /// The ringback plays while the caller's phone shows "Ringing…" — the
+    /// colleague's phone rings, nobody answered yet — and CallKit has given
+    /// the call its audio. Called wherever one of those changes.
+    private func syncRingback() {
+        guard let call, call.direction == .outgoing, call.phase == .ringing, !call.answered, audioActive else {
+            ringback.stop()
+            return
+        }
+        ringback.start()
+    }
+
     private func stopTimers() {
         watcher?.cancel()
         ringTimer?.cancel()
@@ -974,6 +1049,9 @@ final class CallManager {
     /// left half-way would keep the colleague listening to silence until
     /// LiveKit noticed this phone had gone.
     private func teardown() {
+        ringback.stop()
+        audioActive = false
+        CallPictureInPicture.shared.end()
         let leaving = room
         room = nil
         remoteVideo = nil

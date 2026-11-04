@@ -20,9 +20,14 @@ struct CallScreen: View {
     /// Where the header, the controls and the safe area are over the
     /// picture, for the small picture to settle clear of them.
     @State private var frames = CallScreenFrames()
+    @ScaledMetric(relativeTo: .largeTitle) private var scaledFace: CGFloat = 152
 
     var body: some View {
         ZStack {
+            // Opaque from the first layer: nothing of the conversation under
+            // the cover shows through (owner, 2026-11-04).
+            CallBackdrop(photoURL: session.contactAvatarURL)
+
             if isFullScreenVideo {
                 // The safe area, measured: what the small picture keeps
                 // inside while the controls are away.
@@ -44,11 +49,13 @@ struct CallScreen: View {
                     visitor: session.visitor,
                     freeArea: frames.free(chromeVisible: chromeVisible)
                 )
+                // iOS's picture-in-picture takes the visitor's picture over
+                // when the operator leaves the app (`CallPictureInPicture`).
+                .background(CallPiPSource(call: pictureInPicture))
                 .ignoresSafeArea()
                 .callScreenFrame { frames.stage = $0 }
                 .onTapGesture { revealChrome() }
             } else {
-                backdrop
                 portrait
             }
 
@@ -68,7 +75,13 @@ struct CallScreen: View {
         .onChange(of: keepsScreenAwake, initial: true) { _, awake in
             UIApplication.shared.isIdleTimerDisabled = awake
         }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            CallPictureInPicture.shared.end()
+        }
+        .onChange(of: isFullScreenVideo) { _, video in
+            if !video { CallPictureInPicture.shared.end() }
+        }
         .onChange(of: session.phase) { _, phase in
             // An ended call lingers for a moment so the outcome can be read,
             // then gets out of the way on its own. Nobody wants to dismiss a
@@ -102,18 +115,39 @@ struct CallScreen: View {
         session.channel == .video && session.phase.isLive
     }
 
-    /// The audio layout, and every layout before the picture arrives: name at
-    /// the top, face in the middle, controls at the bottom.
+    private var faceSize: CGFloat { min(scaledFace, 200) }
+
+    private var pictureInPicture: CallPictureInPicture.Call {
+        CallPictureInPicture.Call(
+            track: session.remoteVideoTrack,
+            name: session.contactName,
+            avatarURL: session.contactAvatarURL,
+            subject: .person,
+            // The cover is still up under PiP: coming back is enough.
+            restore: {}
+        )
+    }
+
+    /// The audio layout, and every layout before the picture arrives: the
+    /// kind of call at the top, the face in the middle with the name and the
+    /// state under it, the controls on their tray at the bottom — the
+    /// colleague call's layout (`TeamCallScreen`).
     private var portrait: some View {
         VStack(spacing: 0) {
-            header
+            CallPill(
+                text: session.channel == .video ? Str.teamCallLogVideo(language) : Str.teamCallLogVoice(language),
+                icon: session.channel.icon
+            )
+            .padding(.top, Theme.Space.sm)
             Spacer(minLength: Theme.Space.lg)
             stage
+            header
+                .padding(.top, Theme.Space.xxl)
             Spacer(minLength: Theme.Space.lg)
-            controls
+            CallControlTray { controls }
         }
-        .padding(.horizontal, Theme.Space.xl)
-        .padding(.vertical, Theme.Space.xxl)
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.bottom, Theme.Space.lg)
     }
 
     /// What floats over the picture: the same header and controls, with just
@@ -174,26 +208,17 @@ struct CallScreen: View {
 
     // MARK: - Pieces
 
-    private var backdrop: some View {
-        LinearGradient(
-            colors: [Color(uiColor: .systemIndigo).opacity(0.5), .black],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
-
     private var header: some View {
-        VStack(spacing: Theme.Space.xs) {
+        VStack(spacing: Theme.Space.sm) {
             Text(session.contactName)
-                .font(.app(.title2, .semibold))
+                .font(.app(.title, .bold))
                 .foregroundStyle(.white)
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .lineLimit(isFullScreenVideo ? 1 : 2)
+                .minimumScaleFactor(0.75)
+                .accessibilityAddTraits(.isHeader)
 
             statusLine
-                .font(.app(.subheadline, design: .rounded))
-                .foregroundStyle(.white.opacity(0.75))
-                .monospacedDigit()
 
             // Two different warnings, both worth saying out loud rather than
             // only in a log: one explains why a call fails on a train, the
@@ -218,41 +243,46 @@ struct CallScreen: View {
     private var statusLine: some View {
         switch session.phase {
         case .waiting:
-            Text(Str.inviteSent(language))
+            statusText(Str.inviteSent(language))
         case .connecting:
-            Text(Str.connectingCall(language))
+            statusText(Str.connectingCall(language))
         case .connected:
             if let connectedAt = session.connectedAt {
                 TimelineView(.periodic(from: connectedAt, by: 1)) { context in
-                    Text(Format.callDuration(from: connectedAt, to: context.date, locale: language.locale))
+                    CallPill(text: Format.callDuration(from: connectedAt, to: context.date, locale: language.locale))
+                        .monospacedDigit()
                 }
             }
         case .ended(let outcome):
-            Text(outcome.title(language))
+            statusText(outcome.title(language))
         }
+    }
+
+    private func statusText(_ text: String) -> some View {
+        Text(text)
+            .font(.app(.headline, .regular))
+            .foregroundStyle(.white.opacity(0.78))
+            .multilineTextAlignment(.center)
+            .contentTransition(.opacity)
     }
 
     /// The middle of the audio layout: their face, and a ring while the
     /// invitation is still out.
     private var stage: some View {
-        Avatar(
-            name: session.contactName,
-            imageURL: session.contactAvatarURL,
-            size: 140,
-            os: session.visitor?.device?.os,
-            device: session.visitor?.device?.device,
-            countryCode: session.visitor?.geo?.countryCode
-        )
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-        .overlay(alignment: .bottom) {
-            if session.phase == .waiting {
-                PulsingRing()
-            }
+        CallHalo(diameter: faceSize, ringing: session.phase == .waiting) {
+            Avatar(
+                name: session.contactName,
+                imageURL: session.contactAvatarURL,
+                size: faceSize,
+                os: session.visitor?.device?.os,
+                device: session.visitor?.device?.device,
+                countryCode: session.visitor?.geo?.countryCode
+            )
         }
     }
 
     private var controls: some View {
-        HStack(spacing: Theme.Space.xl) {
+        HStack(alignment: .top, spacing: Theme.Space.xl) {
             if session.phase.isLive {
                 CallButton(
                     icon: session.isMuted ? "mic.slash.fill" : "mic.fill",
@@ -560,64 +590,85 @@ extension View {
     }
 }
 
-/// A slow ring while the invitation is out — the visual equivalent of a
-/// ringing tone, so the wait does not look like a frozen screen.
-struct PulsingRing: View {
-    @State private var expanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Circle()
-            .stroke(.white.opacity(0.35), lineWidth: 2)
-            .frame(width: 150, height: 150)
-            .scaleEffect(expanded ? 1.25 : 1)
-            .opacity(expanded ? 0 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
-                    expanded = true
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
 /// One round control with its label, sized for a thumb.
 ///
 /// The label has a width of its own and may take two lines, so four of these
 /// in a row — a colleague's video call — still fit the narrowest iPhone in
 /// every language ("Kamerayı değiştir").
+///
+/// `prominent` is a ring's Answer and Decline: larger, so neither is missed
+/// and neither is hit by mistake; `beckons` makes Answer breathe gently (not
+/// under Reduce Motion).
 struct CallButton: View {
     let icon: String
     let title: String
     var isOn: Bool = false
     var tint: Color?
+    var prominent: Bool = false
+    var beckons: Bool = false
     let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var diameter: CGFloat { prominent ? 78 : 62 }
 
     var body: some View {
         VStack(spacing: Theme.Space.sm) {
             Button(action: action) {
                 Image(systemName: icon)
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: prominent ? 30 : 23, weight: .semibold))
                     .foregroundStyle(tint == nil && isOn ? .black : .white)
-                    .frame(width: 66, height: 66)
+                    .frame(width: diameter, height: diameter)
                     .background(
-                        Circle().fill(tint ?? (isOn ? .white : .white.opacity(0.18)))
+                        Circle().fill(tint ?? (isOn ? .white : .white.opacity(0.16)))
                     )
+                    .overlay(
+                        Circle().strokeBorder(.white.opacity(tint == nil && !isOn ? 0.12 : 0), lineWidth: 1)
+                    )
+                    .shadow(color: (tint ?? .clear).opacity(prominent ? 0.45 : 0), radius: 14, y: 6)
+                    .modifier(Beckon(active: beckons && !reduceMotion))
+                    .opacity(isEnabled ? 1 : 0.45)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(CallButtonPress())
 
             Text(title)
-                .font(Theme.Typo.meta)
-                .foregroundStyle(.white.opacity(0.8))
+                .font(prominent ? .app(.subheadline, .semibold) : Theme.Typo.meta)
+                .foregroundStyle(.white.opacity(prominent ? 0.95 : 0.8))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .frame(width: 76)
+                .minimumScaleFactor(0.75)
+                .frame(width: prominent ? 96 : 78)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// A press shrinks the control a little, as the system's call buttons do.
+private struct CallButtonPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// Answer's slow breath while a call rings.
+private struct Beckon: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content.phaseAnimator([false, true]) { view, up in
+                view.scaleEffect(up ? 1.07 : 1)
+            } animation: { _ in
+                .easeInOut(duration: 0.9)
+            }
+        } else {
+            content
+        }
     }
 }
 

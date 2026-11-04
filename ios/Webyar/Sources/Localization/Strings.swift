@@ -2366,6 +2366,27 @@ extension Str {
         }
     }
 
+    /// The call screen's chevron: the call goes to a small floating view so
+    /// the rest of the app can be used.
+    static func teamCallMinimize(_ l: Language) -> String {
+        switch l {
+        case .en: "Minimize"
+        case .fa: "کوچک کردن"
+        case .tr: "Küçült"
+        case .ar: "تصغير"
+        }
+    }
+
+    /// The floating view of a minimised call, as VoiceOver reads it.
+    static func teamCallReturnToCall(_ l: Language) -> String {
+        switch l {
+        case .en: "Return to call"
+        case .fa: "بازگشت به تماس"
+        case .tr: "Aramaya dön"
+        case .ar: "العودة إلى المكالمة"
+        }
+    }
+
     /// Answered: joining the call's room.
     static func teamCallConnecting(_ l: Language) -> String {
         switch l {

@@ -159,6 +159,7 @@ final class TeamCallRoom {
         guard let room else { return false }
         do {
             try await room.localParticipant.setCamera(enabled: enabled)
+            if enabled { CallCamera.allowWhileMultitasking(room.localParticipant) }
             return true
         } catch {
             return false

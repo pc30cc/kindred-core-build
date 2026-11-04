@@ -220,6 +220,20 @@ struct RemoteImage<Placeholder: View, Fallback: View>: View {
     /// for it and the placeholder does not — until the link changes.
     @State private var missing: URL?
 
+    /// Any placeholder and fallback — the call screens' blurred backdrop
+    /// wants nothing at all while the photo comes (`CallBackdrop`).
+    init(
+        url: URL?,
+        maxPixel: Int = 256,
+        @ViewBuilder placeholder: () -> Placeholder,
+        @ViewBuilder fallback: () -> Fallback
+    ) {
+        self.url = url
+        self.maxPixel = maxPixel
+        self.placeholder = placeholder()
+        self.fallback = fallback()
+    }
+
     var body: some View {
         content
             // The picture fades in over its placeholder rather than cutting

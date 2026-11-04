@@ -186,6 +186,26 @@ uncounted time.
 - Entry: phone and video buttons in the colleague thread's toolbar, shown when
   the plan allows that kind of call.
 - The missed-call notification (`team_call_missed`) opens the thread.
+- Ring state (owner, 2026-11-04): the callee's phone sends `POST /:id/rang`
+  (`{device_id, platform: "ios"}`) once per call when CallKit accepts the
+  report of the ring, never before or instead of that report; retried twice,
+  3 s apart; `409`, `404` and `405` are ignored. The caller's screen says
+  "Calling…" with no ringback until the call's `rang_at` is set (poll or
+  realtime), then "Ringing…" with the ringback (the web's two-tone pattern,
+  made in memory, `TeamCallRingback`). CallKit: started connecting at the
+  start action, connected only when both are in the room.
+- The call screens (colleague and visitor) are opaque (`CallBackdrop`: black,
+  the brand's deep tone, the caller's photo blurred), never the app behind.
+- Minimise: the chevron shrinks the call's window to a draggable floating view
+  (`TeamCallBubble`) so the rest of the app works; a tap, PiP's return or the
+  app's return from the background opens the call full again.
+- Picture-in-picture on a video call (colleague or visitor): the remote video
+  in iOS's video-call PiP (`CallPictureInPicture`, LiveKit's `VideoView` in
+  sample-buffer mode), started automatically when the app goes to the
+  background. The member's own camera pauses in the background until the app
+  holds Apple's `com.apple.developer.avfoundation.multitasking-camera-access`
+  entitlement (not requested yet); with it, `CallCamera` turns multitasking on
+  by itself.
 
 ## Android
 

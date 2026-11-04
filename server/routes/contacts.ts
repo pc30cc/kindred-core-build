@@ -20,6 +20,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -130,7 +131,7 @@ const createSchema = contactSchema.extend({
 
 const bulkSchema = z.object({
   workspace_id: z.string().uuid(),
-  contacts: z.array(contactSchema).min(1).max(5_000),
+  contacts: boundedArray(contactSchema, 5_000, 1),
 });
 
 async function authorizeWorkspaceMember(

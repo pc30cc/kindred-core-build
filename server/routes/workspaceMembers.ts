@@ -37,6 +37,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
@@ -618,7 +619,7 @@ workspaceMembersRouter.get('/user/:userId/departments', async (req, res) => {
   return res.json({ department_ids: (data || []).map((r) => r.department_id) });
 });
 
-const setMemberDeptsSchema = z.object({ department_ids: z.array(z.string().uuid()) });
+const setMemberDeptsSchema = z.object({ department_ids: boundedArray(z.string().uuid(), 500) });
 
 // PUT /api/workspace-members/user/:userId/departments?workspaceId=... — replace a
 // member's full department assignment set.

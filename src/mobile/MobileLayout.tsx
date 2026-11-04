@@ -51,7 +51,7 @@ export function MobileLayout() {
     void initNativePush(workspace.id);
     setPushNavigationHandler((target) => {
       if (target.workspaceId !== workspace.id) return;
-      navigate(`/${slug}/inbox/${target.conversationId}`);
+      navigate(`/${slug}/inbox/${encodeURIComponent(target.conversationId)}`);
     });
     return () => setPushNavigationHandler(null);
   }, [workspace?.id, slug, navigate]);

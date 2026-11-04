@@ -106,6 +106,16 @@ Mode 3 is the same deployment plus one public load balancer hostname in
 front of all nodes; sticky sessions are **not** required, because Redis
 carries cross-node publish, presence and history.
 
+Every node gets its namespaces from `CENTRIFUGO_NAMESPACES` in its compose
+file (`docker-compose.centrifugo-redis.yml`, or the local
+`docker-compose.realtime-cluster.yml`), not from a Coolify variable, so a
+change reaches a node only when that node is redeployed. The namespaces are
+the same as Mode 1's, including the rule that clients may not call history
+or presence (`allow_*_for_client` and `allow_*_for_subscriber` off): see
+[`DEPLOY_CENTRIFUGO_COOLIFY.md` §2.4](./DEPLOY_CENTRIFUGO_COOLIFY.md#24-channel-namespaces-where-they-come-from-and-the-client-access-rule).
+Redis keeps history and presence for the backend and for recovery; that
+does not need the client options either.
+
 ---
 
 ## 6. Super Admin configuration

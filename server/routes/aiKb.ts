@@ -24,7 +24,7 @@ import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { requireUser as requireSessionUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccess, isActiveWorkspaceMember, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   checkAiKbAccess,
   readAiKbCapabilities,
@@ -124,11 +124,10 @@ async function isAuthorizedForWorkspace(
   workspaceId: string,
 ): Promise<boolean> {
   if (auth.isAdmin) return true;
-  const { data, error } = await getServiceClient(config).rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: auth.userId,
-  });
-  return !error && data === true;
+  // A suspended or seat-locked member is no member here: `is_workspace_member`,
+  // used before, ignored both, so such a member could still read a job's
+  // crawled pages and accept or publish drafts into the live knowledge base.
+  return isActiveWorkspaceMember(config, workspaceId, auth.userId);
 }
 
 async function authorizeMember(

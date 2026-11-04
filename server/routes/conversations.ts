@@ -73,6 +73,7 @@ import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
+import { cancelWorkspaceChatReplies } from '../services/channels/jobs.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
 import { recordConversationClosed } from '../services/conversationClosedNotice.js';
@@ -2765,6 +2766,10 @@ conversationsRouter.delete('/', async (req, res) => {
 
     const workspaceId = parsed.data.workspace_id;
     const sb = getServiceClient(config);
+    // Replies still queued for these conversations would reach the customer
+    // after their messages are gone: stop them first.
+    await cancelWorkspaceChatReplies(sb, workspaceId);
+
     let deleted = 0;
     for (;;) {
       const { data: batch, error: fetchErr } = await sb
@@ -2777,13 +2782,6 @@ conversationsRouter.delete('/', async (req, res) => {
       const ids = (batch ?? []).map((c) => c.id as string);
       if (ids.length === 0) break;
 
-      const { error: jobsErr } = await sb
-        .from('channel_jobs')
-        .update({ status: 'cancelled', last_error: 'conversation_deleted', updated_at: new Date().toISOString() })
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'pending')
-        .filter('payload->>conversation_id', 'in', `(${ids.join(',')})`);
-      if (jobsErr) return res.status(500).json({ error: jobsErr.message, deleted });
       for (const table of ['conversation_notes', 'conversation_events'] as const) {
         const { error } = await sb.from(table).delete().eq('workspace_id', workspaceId).in('conversation_id', ids);
         if (error) return res.status(500).json({ error: error.message, deleted });

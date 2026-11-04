@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- the database test double is intentionally untyped. */
 /**
  * Event ingestion — idempotency (spec §16/§62) and out-of-order protection
  * (spec §61/§65). A fake DB simulates the two invariants the real Postgres
@@ -14,6 +15,7 @@ type Row = Record<string, any>;
 const receipts: Row[] = [];
 const products: Row[] = [];
 let upsertCallCount = 0;
+let failNextUpsert = false;
 
 function fakeClient() {
   return {
@@ -30,12 +32,32 @@ function fakeClient() {
           }
           return { select: () => ({ maybeSingle: async () => ({ data: {}, error: null }) }) };
         },
-        update() { return { eq: () => ({ eq: async () => ({ error: null }) }) }; },
+        // A filtered update of the receipts: eq() filters, then awaited
+        // directly or through .select() (the reclaim's compare-and-set).
+        update(values: Row) {
+          const filters: Array<[string, unknown]> = [];
+          const apply = () => {
+            if (table !== 'commerce_event_receipts') return [];
+            const hit = receipts.filter((r) => filters.every(([k, v]) => r[k] === v));
+            for (const r of hit) Object.assign(r, values);
+            return hit;
+          };
+          const chain: any = {
+            eq(k: string, v: unknown) { filters.push([k, v]); return chain; },
+            select: async () => ({ data: apply().map((r) => ({ id: r.event_id })), error: null }),
+            then: (resolve: (v: unknown) => void) => { apply(); resolve({ error: null }); },
+          };
+          return chain;
+        },
         eq() { return builder; },
       };
       return builder;
     },
     rpc: async (fn: string, params: Record<string, any>) => {
+      if (fn === 'commerce_upsert_product' && failNextUpsert) {
+        failNextUpsert = false;
+        return { data: null, error: { message: 'connection reset' } };
+      }
       if (fn === 'commerce_upsert_product') {
         upsertCallCount += 1;
         const existing = products.find((p) => p.connection_id === params.p_connection_id && p.external_id === params.p_external_id);
@@ -81,6 +103,7 @@ beforeEach(() => {
   receipts.length = 0;
   products.length = 0;
   upsertCallCount = 0;
+  failNextUpsert = false;
 });
 
 describe('commerce event ingestion', () => {
@@ -125,6 +148,24 @@ describe('commerce event ingestion', () => {
       payload: { externalId: '101', title: 'v2', currency: 'IRR', updatedAt: '2026-03-01T00:00:00.000Z' },
     }));
     expect(products[0].title).toBe('v2');
+  });
+
+  it('an event whose change failed to apply is applied by the plugin\'s retry, once', async () => {
+    failNextUpsert = true;
+    await expect(ingestCommerceEvent(config, WORKSPACE_ID, CONNECTION_ID, productEvent())).rejects.toThrow();
+    expect(receipts[0].status).toBe('error');
+    expect(products).toHaveLength(0);
+
+    // The plugin retries the same event (it got a 500): applied now.
+    const retry = await ingestCommerceEvent(config, WORKSPACE_ID, CONNECTION_ID, productEvent());
+    expect(retry.status).toBe('processed');
+    expect(products).toHaveLength(1);
+    expect(receipts[0].status).toBe('processed');
+
+    // And a third delivery is a plain duplicate.
+    const third = await ingestCommerceEvent(config, WORKSPACE_ID, CONNECTION_ID, productEvent());
+    expect(third.status).toBe('duplicate');
+    expect(products).toHaveLength(1);
   });
 
   it('order events are receipted for idempotency but never mirrored into the product index (PII minimization, spec §31)', async () => {

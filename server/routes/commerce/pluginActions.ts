@@ -14,7 +14,7 @@
  * Mounted BEFORE express.json() in server/index.ts (signature verification
  * needs the exact raw bytes) with its own express.raw() parser.
  */
-import { Router, raw, type Request, type Response } from 'express';
+import { Router, raw, type NextFunction, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -24,7 +24,7 @@ import { enqueueSyncJob } from '../../services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../services/commerce/pairing.js';
 import { disconnectConnection } from '../../services/commerce/lifecycle.js';
 import { providerProfile } from '../../services/commerce/providers.js';
-import { installationHeader, readSignedRequestHeaders } from '../../services/commerce/pluginDialect.js';
+import { readSignedRequestHeaders } from '../../services/commerce/pluginDialect.js';
 
 export const commercePluginActionsRouter = Router();
 
@@ -34,16 +34,25 @@ function serverConfigOf(req: Request): ServerConfig {
 
 // A store asking for its own handshake or resync is cheap but not free —
 // a sync job walks the whole catalogue, so keep it well below the event rate.
+// Two limits: by client address BEFORE the signature is checked (unsigned
+// traffic is bounded at all; ipKeyGenerator buckets IPv6 by prefix, or one
+// client could rotate inside its own /64), then by installation AFTER it.
+// Keyed on the unverified header, anyone who read a store's installation id
+// in its pages could spend that store's budget, and random ids escaped both.
+const actionIpLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? '')}`,
+});
+
 const actionLimiter = rateLimit({
   windowMs: 60_000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  // Keyed by installation when there is one. The IP fallback goes through
-  // ipKeyGenerator so an IPv6 caller is bucketed by prefix — keying on the
-  // raw address would let one client rotate freely inside its own /64 and
-  // never hit the limit.
-  keyGenerator: (req) => installationHeader((name) => req.header(name)) || ipKeyGenerator(req.ip ?? ''),
+  keyGenerator: (_req, res) => `installation:${(res.locals as { who: Resolved }).who.installationId}`,
 });
 
 type Resolved = { installationId: string; connectionId: string; workspaceId: string; providerType: string };
@@ -117,10 +126,24 @@ async function authenticate(req: Request, res: Response, canonicalPath: string):
 
 const rawJson = raw({ type: '*/*', limit: '8kb' });
 
+/** authenticate() as middleware: the caller's connection in res.locals.who. */
+function signedBy(canonicalPath: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    authenticate(req, res, canonicalPath)
+      .then((who) => {
+        if (!who) return;
+        res.locals.who = who;
+        next();
+      })
+      .catch(next);
+  };
+}
+
+const whoOf = (res: Response): Resolved => res.locals.who as Resolved;
+
 /** Re-runs the capability handshake — Web Yar calls the store's /health. */
-commercePluginActionsRouter.post('/test', rawJson, actionLimiter, async (req, res) => {
-  const who = await authenticate(req, res, '/api/commerce/connection/test');
-  if (!who) return;
+commercePluginActionsRouter.post('/test', rawJson, actionIpLimiter, signedBy('/api/commerce/connection/test'), actionLimiter, async (req, res) => {
+  const who = whoOf(res);
   try {
     await runCapabilityHandshake(serverConfigOf(req), who.connectionId);
     res.json({ ok: true });
@@ -131,9 +154,8 @@ commercePluginActionsRouter.post('/test', rawJson, actionLimiter, async (req, re
 });
 
 /** Queues a full catalogue resync for the calling store. */
-commercePluginActionsRouter.post('/sync', rawJson, actionLimiter, async (req, res) => {
-  const who = await authenticate(req, res, '/api/commerce/connection/sync');
-  if (!who) return;
+commercePluginActionsRouter.post('/sync', rawJson, actionIpLimiter, signedBy('/api/commerce/connection/sync'), actionLimiter, async (req, res) => {
+  const who = whoOf(res);
   if (!providerProfile(who.providerType).catalogSync) return res.status(400).json({ error: 'sync_not_applicable' });
   try {
     const job = await enqueueSyncJob(serverConfigOf(req), who.workspaceId, who.connectionId, 'manual_resync');
@@ -149,9 +171,8 @@ commercePluginActionsRouter.post('/sync', rawJson, actionLimiter, async (req, re
  * the network), so this only stops Web Yar from holding a connection whose
  * store has already walked away.
  */
-commercePluginActionsRouter.post('/disconnect', rawJson, actionLimiter, async (req, res) => {
-  const who = await authenticate(req, res, '/api/commerce/connection/disconnect');
-  if (!who) return;
+commercePluginActionsRouter.post('/disconnect', rawJson, actionIpLimiter, signedBy('/api/commerce/connection/disconnect'), actionLimiter, async (req, res) => {
+  const who = whoOf(res);
   try {
     await disconnectConnection(serverConfigOf(req), who.workspaceId, who.connectionId, null);
     res.json({ ok: true });

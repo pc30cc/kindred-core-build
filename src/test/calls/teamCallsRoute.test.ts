@@ -239,6 +239,7 @@ describe('POST /api/team-calls — placing a call', () => {
       answered_device_id: null, answered_at: null,
       rung_android_device_ids: ['android-install-1', 'android-install-2'],
       rung_ios_device_ids: ['ios-install'],
+      rang_at: null, rang_device_id: null, rang_platform: null,
     });
     // The room carries no one: no metadata of the route's own, no user id.
     expect(h.roomsCreated).toHaveLength(1);
@@ -266,7 +267,7 @@ describe('POST /api/team-calls — placing a call', () => {
       expect(m.ttlSeconds).toBe(45);
       expect(m.collapseKey).toBe(call.id);
     }
-    expect(h.published).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: call.id, state: 'ringing', outcome: null } }]);
+    expect(h.published).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: call.id, state: 'ringing', outcome: null, rang_at: null } }]);
   });
 
   it('a caller without a name rings as nobody in particular, never by their e-mail', async () => {
@@ -613,7 +614,7 @@ describe('decline, cancel and hang-up', () => {
     expect(h.fcm.map((m) => m.data.reason)).toEqual(['declined', 'declined']);
     expect(h.missed).toHaveLength(0);
     expect(h.roomsClosed).toEqual([`room-${body.call.id}`]);
-    expect(h.published.filter((p) => p.payload.kind === 'team_call').at(-1)).toEqual({ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: body.call.id, state: 'ended', outcome: 'declined' } });
+    expect(h.published.filter((p) => p.payload.kind === 'team_call').at(-1)).toEqual({ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: body.call.id, state: 'ended', outcome: 'declined', rang_at: null } });
 
     const again = await request(app).post(`/api/team-calls/${body.call.id}/decline`).set(as(CALLEE));
     expect(again.status).toBe(200);
@@ -754,5 +755,153 @@ describe('the generic call routes', () => {
     const chatCall = crypto.randomUUID();
     h.db.tables.call_sessions.push({ id: chatCall, workspace_id: WS, provider: 'livekit', provider_room_id: null, state: 'active', entry_source: 'chat', metadata: {} });
     expect((await request(app).get(`/api/calls/${chatCall}/state`).set(as(OTHER))).status).toBe(200);
+  });
+});
+
+// ═══ POST /api/team-calls/:id/rang (owner, 2026-11-04) ═════════════════
+// "Ringing…" only once a phone of the callee really rang: the first `rang`
+// of the callee while the call rings stamps it, and nothing else moves.
+describe('POST /api/team-calls/:id/rang', () => {
+  const rang = (id: string, userId: string, body: Record<string, unknown> = { device_id: 'android-install-1', platform: 'android' }) =>
+    request(app).post(`/api/team-calls/${id}/rang`).set(as(userId)).send(body);
+  const teamCallEvents = () => h.published.filter((p) => p.payload.kind === 'team_call');
+
+  it('the first stamps rang_at, its device and platform, and tells both members; nothing else changes', async () => {
+    const id = ringingCall(5);
+    const before = JSON.parse(JSON.stringify(callRow(id))) as Row;
+    const get = await request(app).get(`/api/team-calls/${id}`).set(as(CALLER));
+    expect(get.body.call.rang_at).toBeNull();
+
+    const res = await rang(id, CALLEE);
+    expect(res.status).toBe(200);
+    expect(res.body.call).toMatchObject({ id, state: 'ringing', outcome: null, role: 'callee' });
+    expect(typeof res.body.call.rang_at).toBe('string');
+    expect(new Date(res.body.call.rang_at).toISOString()).toBe(res.body.call.rang_at);
+    expect(Math.abs(Date.parse(res.body.call.rang_at) - Date.now())).toBeLessThan(5_000);
+    expect(res.body.call.expires_at).toBe(new Date(Date.parse(String(before.created_at)) + 45_000).toISOString());
+
+    const row = callRow(id);
+    expect(row.state).toBe('ringing');
+    for (const column of ['created_at', 'connected_at', 'ended_at', 'provider_room_id', 'initiated_by']) {
+      expect(row[column], column).toEqual(before[column]);
+    }
+    expect(teamMeta(id)).toEqual({
+      ...(before.metadata as Record<string, Row>).team_call,
+      rang_at: res.body.call.rang_at, rang_device_id: 'android-install-1', rang_platform: 'android',
+    });
+    await settle();
+    expect(teamCallEvents()).toEqual([{
+      users: [CALLER, CALLEE],
+      payload: { kind: 'team_call', workspace_id: WS, call_id: id, state: 'ringing', outcome: null, rang_at: res.body.call.rang_at },
+    }]);
+    // No phone told to stop, nothing missed, no room closed.
+    expect([h.fcm, h.voip, h.missed, h.roomsClosed].map((l) => l.length)).toEqual([0, 0, 0, 0]);
+
+    // The caller reads it on the call from now on.
+    const after = await request(app).get(`/api/team-calls/${id}`).set(as(CALLER));
+    expect(after.body.call).toMatchObject({ role: 'caller', state: 'ringing', rang_at: res.body.call.rang_at });
+  });
+
+  it('the first wins: a later rang, from any device, changes nothing and tells nobody', async () => {
+    const id = ringingCall(5);
+    const first = await rang(id, CALLEE, { device_id: 'ios-install', platform: 'ios' });
+    await settle();
+    h.published.length = 0;
+    const second = await rang(id, CALLEE, { device_id: 'web-abcdefghijkl', platform: 'web' });
+    const third = await rang(id, CALLEE, { platform: 'android' });
+    for (const res of [second, third]) {
+      expect(res.status).toBe(200);
+      expect(res.body.call.rang_at).toBe(first.body.call.rang_at);
+    }
+    expect(teamMeta(id)).toMatchObject({ rang_at: first.body.call.rang_at, rang_device_id: 'ios-install', rang_platform: 'ios' });
+    await settle();
+    expect(teamCallEvents()).toEqual([]);
+  });
+
+  it('takes a rang without a device id', async () => {
+    const id = ringingCall(5);
+    const res = await rang(id, CALLEE, { platform: 'web' });
+    expect(res.status).toBe(200);
+    expect(teamMeta(id)).toMatchObject({ rang_device_id: null, rang_platform: 'web' });
+  });
+
+  it('is the callee\'s only: 403 forbidden for the caller, 404 for anyone else, nothing written', async () => {
+    const id = ringingCall(5);
+    expect((await rang(id, CALLER)).body).toEqual({ error: 'forbidden' });
+    expect((await rang(id, CALLER)).status).toBe(403);
+    for (const user of [OTHER, STRANGER, THIRD]) {
+      const res = await rang(id, user);
+      expect(res.status, user).toBe(404);
+      expect(res.body).toEqual({ error: 'not_found' });
+    }
+    expect((await rang(crypto.randomUUID(), CALLEE)).status).toBe(404);
+    expect((await rang('not-a-call', CALLEE)).status).toBe(404);
+    expect((await request(app).post(`/api/team-calls/${id}/rang`).send({ platform: 'ios' })).status).toBe(401);
+    expect(teamMeta(id).rang_at ?? null).toBeNull();
+    await settle();
+    expect(teamCallEvents()).toEqual([]);
+  });
+
+  it('refuses a malformed body', async () => {
+    const id = ringingCall(5);
+    for (const body of [{}, { platform: 'windows' }, { platform: 'ios', device_id: 'x'.repeat(129) }, { platform: 'ios', device_id: 42 }]) {
+      const res = await rang(id, CALLEE, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(res.body).toEqual({ error: 'invalid_params' });
+    }
+    expect((await rang(id, CALLEE, { platform: 'ios', device_id: 'x'.repeat(128) })).status).toBe(200);
+  });
+
+  it('409 not_ringing with { call } once the call is past ringing, and nothing is written', async () => {
+    const id = ringingCall(5);
+    await request(app).post(`/api/team-calls/${id}/accept`).set(as(CALLEE)).send({ device_id: 'android-install-2' });
+    await settle();
+    h.published.length = 0;
+    const before = JSON.parse(JSON.stringify(callRow(id))) as Row;
+    const res = await rang(id, CALLEE);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('not_ringing');
+    expect(res.body.call).toMatchObject({ id, state: 'connecting', rang_at: null });
+    expect(callRow(id)).toEqual(before);
+    await settle();
+    expect(teamCallEvents()).toEqual([]);
+
+    const declined = ringingCall(5, CALLER, THIRD);
+    await request(app).post(`/api/team-calls/${declined}/decline`).set(as(THIRD));
+    const late = await rang(declined, THIRD);
+    expect(late.status).toBe(409);
+    expect(late.body.call).toMatchObject({ state: 'ended', outcome: 'declined', rang_at: null });
+  });
+
+  it('a ring that ran out is missed, not stamped: 409', async () => {
+    const id = ringingCall(50);
+    const res = await rang(id, CALLEE);
+    expect(res.status).toBe(409);
+    expect(res.body.call).toMatchObject({ state: 'missed', outcome: 'missed', rang_at: null });
+    expect(teamMeta(id).rang_at ?? null).toBeNull();
+  });
+
+  it('every later team_call event carries rang_at, and every move keeps it', async () => {
+    const id = ringingCall(5);
+    const stamp = (await rang(id, CALLEE)).body.call.rang_at;
+    const accepted = await request(app).post(`/api/team-calls/${id}/accept`).set(as(CALLEE)).send({ device_id: 'android-install-1' });
+    expect(accepted.body.call).toMatchObject({ state: 'connecting', rang_at: stamp });
+    const ended = await request(app).post(`/api/team-calls/${id}/hangup`).set(as(CALLER));
+    expect(ended.body.call).toMatchObject({ state: 'ended', outcome: 'completed', rang_at: stamp });
+    await settle();
+    const states = teamCallEvents().map((p) => [p.payload.state, p.payload.rang_at]);
+    expect(states).toEqual([['ringing', stamp], ['connecting', stamp], ['ended', stamp]]);
+    expect(teamMeta(id)).toMatchObject({ rang_at: stamp, rang_device_id: 'android-install-1', rang_platform: 'android' });
+  });
+
+  it('a move read before the stamp neither loses its turn nor wipes the stamp', async () => {
+    const { loadTeamCall, acceptTeamCall } = await import('../../../server/services/calls/teamCallLifecycle.js');
+    const id = ringingCall(5);
+    const stale = await loadTeamCall(config as never, id);
+    const stamp = (await rang(id, CALLEE)).body.call.rang_at;
+    const move = await acceptTeamCall(config as never, stale!, { userId: CALLEE, deviceId: 'ios-install' });
+    expect(move.moved).toBe(true);
+    expect(move.row.state).toBe('connecting');
+    expect(teamMeta(id)).toMatchObject({ rang_at: stamp, rang_platform: 'android', answered_device_id: 'ios-install' });
   });
 });

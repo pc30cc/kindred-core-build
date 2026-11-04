@@ -40,10 +40,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!--
-      A colleague call in progress runs under a foreground service
-      (`TeamCallService`), or Android hands the app silence for a microphone
-      and no camera the moment the screen goes off — which a voice call at the
-      ear does on purpose. Android 14 makes a service name what it uses, and
+      Every call in progress (a colleague's, a visitor's, a call-centre call)
+      runs under a foreground service (`OngoingCallService`), or Android hands
+      the app silence for a microphone and no camera the moment it goes behind
+      another app or the screen goes off — which a voice call at the ear does
+      on purpose. Android 14 makes a service name what it uses, and
       the app hold the matching permission: the microphone always, the camera
       on a video call. Granted at install; the runtime permissions they stand
       on (RECORD_AUDIO, CAMERA above) are still asked for when a call starts.
@@ -160,12 +161,13 @@
             android:exported="false" />
 
         <!--
-          A colleague call in progress: started from the call screen while
-          the app is in front, stopped when the call ends. Not exported:
-          nothing outside the app starts a call's service.
+          A call in progress (colleague, visitor or call centre): started
+          from the call screen while the app is in front, stopped when the
+          call ends. Not exported: nothing outside the app starts a call's
+          service.
         -->
         <service
-            android:name=".feature.call.TeamCallService"
+            android:name=".feature.call.OngoingCallService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera" />
 

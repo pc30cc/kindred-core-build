@@ -126,7 +126,7 @@ describe('team call ticker', () => {
     expect(h.fcm).toEqual([expect.objectContaining({ token: 'fcm-1', data: { type: 'team_call_cancel', callId: 'expired', reason: 'missed' } })]);
     expect(h.voip).toHaveLength(0);
     expect(h.missed).toEqual([{ workspaceId: WS, callerId: CALLER, calleeId: CALLEE, callId: 'expired', channel: 'video' }]);
-    expect(h.published.filter((p) => p.payload.kind === 'team_call')).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: 'expired', state: 'missed', outcome: 'missed' } }]);
+    expect(h.published.filter((p) => p.payload.kind === 'team_call')).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: 'expired', state: 'missed', outcome: 'missed', rang_at: null } }]);
     expect(h.closed).toEqual(['room-expired']);
     // Its line in the team chat, unread for the callee (teamCallChat.test.ts has the rest).
     expect(h.db.tables.team_messages).toEqual([expect.objectContaining({ call_session_id: 'expired', sender_id: CALLER, recipient_id: CALLEE, read_at: null })]);
@@ -164,7 +164,7 @@ describe('team call room check', () => {
     expect(await runTeamCallRoomCheckOnce(config)).toEqual({ checked: 2, activated: 1, ended: 0 });
     expect(byId('talking').state).toBe('active');
     expect(byId('joining').state).toBe('active');
-    expect(h.published).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: 'joining', state: 'active', outcome: null } }]);
+    expect(h.published).toEqual([{ users: [CALLER, CALLEE], payload: { kind: 'team_call', workspace_id: WS, call_id: 'joining', state: 'active', outcome: null, rang_at: null } }]);
     expect(h.fcm).toHaveLength(0);
   });
 

@@ -14,7 +14,12 @@
  * answer of the callee's phones wins and the others are told so, a decline
  * racing an answer loses cleanly, and two replicas of the ring ticker never
  * miss a call twice. `metadata.team_call` only ever changes together with the
- * state, so the metadata a move writes is the one it read. The one move from
+ * state, so the metadata a move writes is the one it read — with one
+ * exception: the ring's stamp (`rang_at`, `rang_device_id`, `rang_platform`,
+ * markTeamCallRang), written once while the call rings without moving it.
+ * Every move therefore also compares the `rang_at` it read, and one that lost
+ * to the stamp alone tries again from the stamped row, so a move never wipes
+ * it and the stamp never costs a move its turn. The one move from
  * a live state to another live state is connecting → active, so an end that
  * lost to it (a hang-up at the moment the second member joined) tries again
  * from `active` rather than being dropped.
@@ -59,6 +64,7 @@ import {
   type TeamCallCancelReason,
   type TeamCallMeta,
   type TeamCallOutcome,
+  type TeamCallRangPlatform,
   type TeamCallRow,
   type TeamCallState,
 } from './teamCall.js';
@@ -109,6 +115,26 @@ interface Transition {
  * the row had moved on in the meantime. Throws on a failed write.
  */
 async function transition(config: ServerConfig, row: TeamCallRow, t: Transition): Promise<TeamCallRow | null> {
+  let current = row;
+  for (let attempt = 0; attempt < STAMP_RETRIES; attempt++) {
+    const written = await transitionOnce(config, current, t);
+    if (written) return written;
+    // Lost: to a move (the row's state changed: the caller's to handle), or
+    // only to the ring's stamp written since this row was read (the same
+    // state, a `rang_at` it did not have): then again, from the stamped row.
+    const latest = await loadTeamCall(config, current.id);
+    if (!latest || latest.state !== current.state) return null;
+    if (readTeamCallMeta(latest).rang_at === readTeamCallMeta(current).rang_at) return null;
+    current = latest;
+  }
+  return null;
+}
+
+/** A move that lost only to the ring's stamp tries again this many times in all. */
+const STAMP_RETRIES = 2;
+
+/** One compare-and-set: on the state and on the ring's stamp as [row] has them. */
+async function transitionOnce(config: ServerConfig, row: TeamCallRow, t: Transition): Promise<TeamCallRow | null> {
   const meta = readTeamCallMeta(row);
   const nextMeta: TeamCallMeta = { ...meta, ...(t.meta ?? {}), ...(t.outcome ? { outcome: t.outcome } : {}) };
   const metadata = { ...(row.metadata ?? {}), team_call: nextMeta };
@@ -118,6 +144,9 @@ async function transition(config: ServerConfig, row: TeamCallRow, t: Transition)
     .eq('id', row.id)
     .eq('entry_source', TEAM_CALL_ENTRY_SOURCE)
     .eq('state', row.state);
+  query = meta.rang_at === null
+    ? query.is(RANG_AT_PATH, null)
+    : query.eq(RANG_AT_PATH, meta.rang_at);
   const cutoff = teamCallRingCutoff().toISOString();
   if (t.ring === 'on') query = query.gt('created_at', cutoff);
   if (t.ring === 'over') query = query.lte('created_at', cutoff);
@@ -158,17 +187,28 @@ interface Effects {
   actorId: string | null;
 }
 
+/**
+ * The realtime `team_call` event to both members (`ws:<workspace>:user:<uid>`):
+ * the call's state and outcome, and `rang_at` (null until the callee's phone
+ * or tab said it rang).
+ */
+function publishTeamCallEvent(config: ServerConfig, row: TeamCallRow): Promise<void> {
+  const meta = readTeamCallMeta(row);
+  return publishTeamEvent(config, [meta.caller_user_id, meta.callee_user_id], {
+    kind: 'team_call',
+    workspace_id: row.workspace_id,
+    call_id: row.id,
+    state: row.state,
+    outcome: meta.outcome,
+    rang_at: meta.rang_at,
+  });
+}
+
 /** A move's notices. Never rejects, and waits for none of them to succeed. */
 export function announceTeamCall(config: ServerConfig, row: TeamCallRow, effects: Effects): Promise<void> {
   const meta = readTeamCallMeta(row);
   const tasks: Array<Promise<unknown>> = [
-    publishTeamEvent(config, [meta.caller_user_id, meta.callee_user_id], {
-      kind: 'team_call',
-      workspace_id: row.workspace_id,
-      call_id: row.id,
-      state: row.state,
-      outcome: meta.outcome,
-    }),
+    publishTeamCallEvent(config, row),
     recordTeamCallEvent(getServiceClient(config), row, effects.actorId),
   ];
   if (effects.cancel && meta.rung_android_device_ids.length) {
@@ -221,6 +261,72 @@ async function recordTeamCallEvent(sb: Db, row: TeamCallRow, actorId: string | n
       payload: { outcome: meta.outcome, channel: meta.channel },
     });
   } catch { /* the move stands without its log line */ }
+}
+
+/** The JSON path of the ring's stamp, as a filter reads it. */
+const RANG_AT_PATH = 'metadata->team_call->>rang_at';
+
+/** The outcome of `rang`: the call as it now is, and whether this call stamped it. */
+export interface TeamCallRang {
+  row: TeamCallRow;
+  /** True only for the first `rang` of the call, the one that wrote the stamp. */
+  stamped: boolean;
+  /** The stamp's realtime event to both members. Never rejects. */
+  effects: Promise<void>;
+}
+
+/**
+ * A phone or a tab of the callee says the call rang there (`POST /:id/rang`):
+ * the first such word, while the call still rings, stamps `rang_at` (server
+ * time), `rang_device_id` and `rang_platform` into `metadata.team_call`, and
+ * both members hear it on their channels (the caller now shows "Ringing…"
+ * and plays its ringback). Any later word changes nothing.
+ *
+ * It is not a move: the state, the ring's end, the billing columns and the
+ * timers stay as they are. A compare-and-set on `ringing` with no stamp yet,
+ * so two phones saying it together write it once, and a call that moved on
+ * meanwhile is not written. The caller of this reads the returned row's
+ * state: anything but `ringing` is the route's `409 not_ringing`.
+ */
+export async function markTeamCallRang(
+  config: ServerConfig,
+  row: TeamCallRow,
+  input: { deviceId: string | null; platform: TeamCallRangPlatform },
+): Promise<TeamCallRang> {
+  const meta = readTeamCallMeta(row);
+  if (row.state !== 'ringing' || meta.rang_at) return { row, stamped: false, effects: NOTHING };
+  const nextMeta: TeamCallMeta = {
+    ...meta,
+    rang_at: new Date().toISOString(),
+    rang_device_id: input.deviceId,
+    rang_platform: input.platform,
+  };
+  const { data, error } = await getServiceClient(config)
+    .from('call_sessions')
+    .update({ metadata: { ...(row.metadata ?? {}), team_call: nextMeta } })
+    .eq('id', row.id)
+    .eq('entry_source', TEAM_CALL_ENTRY_SOURCE)
+    .eq('state', 'ringing')
+    .is(RANG_AT_PATH, null)
+    .gt('created_at', teamCallRingCutoff().toISOString())
+    .select(TEAM_CALL_COLUMNS)
+    .maybeSingle();
+  if (error) throw new Error(`team_call_write_failed: ${error.message}`);
+  const updated = (data as TeamCallRow | null) ?? null;
+  if (updated) {
+    const effects = publishTeamCallEvent(config, updated).catch((err: unknown) => {
+      console.warn('[team-call] notice failed:', err instanceof Error ? err.message : String(err));
+    });
+    return { row: updated, stamped: true, effects };
+  }
+  // Another phone stamped it first, the call moved on, or its ring ran out
+  // (which is a miss nobody marked yet: marked now).
+  const latest = await reload(config, row);
+  if (latest.state === 'ringing' && !readTeamCallMeta(latest).rang_at) {
+    const expired = await expireTeamCall(config, latest);
+    return { row: expired.row, stamped: false, effects: expired.effects };
+  }
+  return { row: latest, stamped: false, effects: NOTHING };
 }
 
 /** A move that found the row already past it: the row as it is, nothing set off. */

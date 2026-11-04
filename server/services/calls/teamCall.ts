@@ -35,6 +35,11 @@ export type TeamCallOutcome = 'completed' | 'declined' | 'cancelled' | 'missed' 
 /** Why an Android phone that was rung is told to stop (`team_call_cancel`). */
 export type TeamCallCancelReason = 'answered_elsewhere' | 'declined' | 'cancelled' | 'missed' | 'ended';
 
+/** Which kind of the callee's surfaces said it rang (`POST /:id/rang`). */
+export type TeamCallRangPlatform = 'ios' | 'android' | 'web';
+
+export const TEAM_CALL_RANG_PLATFORMS: readonly TeamCallRangPlatform[] = ['ios', 'android', 'web'];
+
 /** The states in which a colleague call holds both of its members. */
 export const TEAM_CALL_LIVE_STATES: readonly TeamCallState[] = ['ringing', 'connecting', 'active'];
 
@@ -58,6 +63,15 @@ export interface TeamCallMeta {
    */
   rung_android_device_ids: string[];
   rung_ios_device_ids: string[];
+  /**
+   * When a phone or a tab of the callee first said it rang (`POST /:id/rang`,
+   * server time), and which: null until one did. The caller shows "Calling…"
+   * until then and "Ringing…" (with the ringback) after (owner, 2026-11-04).
+   * Stamped once, while the call rings; nothing else ever writes it.
+   */
+  rang_at: string | null;
+  rang_device_id: string | null;
+  rang_platform: TeamCallRangPlatform | null;
 }
 
 /** The `call_sessions` columns a colleague call is read and moved by. */
@@ -102,6 +116,8 @@ export interface TeamCallView {
   answered_at: string | null;
   ended_at: string | null;
   expires_at: string;
+  /** Null until some phone or tab of the callee has rung (`POST /:id/rang`). */
+  rang_at: string | null;
 }
 
 export function isTeamCallRow(row: { entry_source?: string | null } | null | undefined): boolean {
@@ -141,6 +157,11 @@ export function readTeamCallMeta(row: Pick<TeamCallRow, 'metadata' | 'initiated_
     answered_at: text(raw.answered_at),
     rung_android_device_ids: ids(raw.rung_android_device_ids),
     rung_ios_device_ids: ids(raw.rung_ios_device_ids),
+    rang_at: text(raw.rang_at),
+    rang_device_id: text(raw.rang_device_id),
+    rang_platform: (TEAM_CALL_RANG_PLATFORMS as readonly unknown[]).includes(raw.rang_platform)
+      ? raw.rang_platform as TeamCallRangPlatform
+      : null,
   };
 }
 
@@ -192,5 +213,6 @@ export function teamCallView(row: TeamCallRow, viewerId: string, peer: TeamCallP
     answered_at: meta.answered_at,
     ended_at: row.ended_at,
     expires_at: teamCallExpiresAt(row).toISOString(),
+    rang_at: meta.rang_at,
   };
 }

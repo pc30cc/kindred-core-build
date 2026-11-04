@@ -120,6 +120,19 @@ designated branch (only while no PR is open from it) that the Mac fetches
 then `git archive FETCH_HEAD knowledge-base | tar -x -C ~/Desktop/WebYar-RESPOK/`),
 after which the branch is reset. Never write a secret there.
 
+## Members hidden from each other (owner, 2026-11-04)
+
+Two members of a workspace can be hidden from each other, both ways
+(`workspace_member_hidden_pairs`, migration 295; one rule,
+`server/services/teamVisibility.ts`): neither is in the other's team chat
+colleague list (web panel and both apps), team list or team presence, and
+neither can open a thread with, message or call the other. Everyone else, the
+owner included, sees both. It lives in the code only (owner, 2026-11-04):
+nobody sees it, in the workspace or in Super Admin; never add a setting,
+screen or admin route for it. A pair is written by hand on the database
+(user_a < user_b, both members). Guard (only `teamVisibility.ts` reads the
+table): `src/test/teamCalls/teamVisibility.test.ts`.
+
 ## Chat routing
 
 Who may receive and answer chats is `shared/chatRoles.ts` only: the owner and
@@ -579,6 +592,14 @@ over unchanged. A full disk stops Postgres too.
     messages unchanged, a re-run a no-op; a dump of `team_messages`, a
     schema dump, the dry run's and the run's logs: `/root/webyar-migrate-294/`);
     RESPOK by its migrator on push.
+    Then `295_workspace_member_hidden_pairs.sql` (two members of a workspace
+    hidden from each other; server-only table, it writes no data), applied by
+    hand before its merge, 2026-11-04 10:44 UTC, after a dry run inside
+    `BEGIN … ROLLBACK` (a schema dump of `workspace_members`, the dry run's
+    and the run's logs: `/root/webyar-migrate-295/`); RESPOK by its migrator
+    on push. Its one pair (mahmod and golpari in mojtaba@webyar.ai's
+    workspace) was written by hand with mahmod's account:
+    `/root/test-accounts-20261104/`.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

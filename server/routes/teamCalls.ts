@@ -27,7 +27,9 @@
  * read early (busyMembers) and decided for good where the row is written
  * (public.team_call_place, migration 293: the busy check and the insert
  * under a lock per member), so two calls placed at the same moment that
- * share a member never both ring. Deny on create, allow on continuity:
+ * share a member never both ring. Two members a pair hides from each other
+ * (services/teamVisibility.ts, migration 295) cannot call each other: the
+ * callee answers as not a member. Deny on create, allow on continuity:
  * nothing after the create looks at the plan again — a token asked for again
  * mid-call does not look at the member's seat either — so a plan change
  * never cuts a call in flight.
@@ -56,6 +58,7 @@ import { CallProviderNotReadyError } from '../services/calls/providers/types.js'
 import { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody } from '../services/calls/errorCodes.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { publicMemberName } from '../services/calls/operatorIdentity.js';
+import { areHiddenFromEachOther } from '../services/teamVisibility.js';
 import { issueParticipantToken } from '../services/calls/participantToken.js';
 import {
   TEAM_CALL_COLUMNS,
@@ -258,11 +261,12 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
     // Two active members of this workspace. The caller's own check is not
     // authorizeWorkspaceAccess: a platform admin passes that without being a
     // member, and a colleague call is between members.
-    const [callerActive, calleeActive] = await Promise.all([
+    const [callerActive, calleeActive, hidden] = await Promise.all([
       isActiveMember(config, workspaceId, callerId),
       isActiveMember(config, workspaceId, calleeId),
+      areHiddenFromEachOther(config, workspaceId, callerId, calleeId),
     ]);
-    if (!callerActive || !calleeActive) return res.status(403).json({ error: 'not_a_member' });
+    if (!callerActive || !calleeActive || hidden) return res.status(403).json({ error: 'not_a_member' });
 
     // The plan: `team_calls`, and the call composer for the channel.
     const [feature, eff] = await Promise.all([

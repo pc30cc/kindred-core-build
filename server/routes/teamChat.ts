@@ -27,6 +27,10 @@
  * devices. Fire-and-forget — the response never waits on realtime. A send
  * is also pushed to the recipient's phones, which realtime does not reach
  * once the app is closed; that never holds up the response either.
+ *
+ * Two members a pair hides from each other (services/teamVisibility.ts,
+ * migration 295) are not in each other's colleague list, and the thread and
+ * a send between them answer as if the other were not a member.
  */
 
 import { Router } from 'express';
@@ -39,6 +43,7 @@ import { publishTeamEvent } from '../services/realtime/publish.js';
 import { notifyTeamMessage } from '../services/push/index.js';
 import { readWithColumnFallback } from '../lib/missingColumn.js';
 import { teamCallChatViews } from '../services/calls/teamCallChat.js';
+import { hiddenMembersFor, areHiddenFromEachOther } from '../services/teamVisibility.js';
 
 export const teamChatRouter = Router();
 
@@ -131,13 +136,17 @@ teamChatRouter.get('/colleagues', async (req, res) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const { data: members, error: memErr } = await sb
-      .from('workspace_members')
-      .select('user_id, role')
-      .eq('workspace_id', workspaceId);
+    const [{ data: memberRows, error: memErr }, hidden] = await Promise.all([
+      sb
+        .from('workspace_members')
+        .select('user_id, role')
+        .eq('workspace_id', workspaceId),
+      hiddenMembersFor(config, workspaceId, auth.userId),
+    ]);
     if (memErr) return res.status(500).json({ error: memErr.message });
+    const members = (memberRows ?? []).filter((m) => !hidden.has(m.user_id));
 
-    const ids = (members ?? []).map((m) => m.user_id).filter(Boolean);
+    const ids = members.map((m) => m.user_id).filter(Boolean);
     const [{ data: profiles }, { data: msgRows }] = await Promise.all([
       ids.length
         ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', ids)
@@ -183,7 +192,7 @@ teamChatRouter.get('/colleagues', async (req, res) => {
       Array.from(previewAtts.entries()).map(([id, a]) => [id, a.kind]),
     );
 
-    const colleagues = (members ?? [])
+    const colleagues = members
       .filter((m) => m.user_id !== auth.userId)
       .map((m) => {
         const p = profileById.get(m.user_id) ?? {};
@@ -237,6 +246,9 @@ teamChatRouter.get('/thread', async (req, res) => {
     if (!z.string().uuid().safeParse(peerId).success) return res.status(400).json({ error: 'invalid peer_id' });
     const auth = await authorizeMember(req, res, config, workspaceId);
     if (!auth) return;
+    if (await areHiddenFromEachOther(config, workspaceId, auth.userId, peerId)) {
+      return res.status(404).json({ error: 'Peer is not a workspace member' });
+    }
 
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const sb = getServiceClient(config);
@@ -306,7 +318,9 @@ teamChatRouter.post('/messages', async (req, res) => {
       _user_id: recipient_id,
     });
     if (peerErr) return res.status(500).json({ error: 'Membership check failed' });
-    if (!peerIsMember) return res.status(404).json({ error: 'Recipient is not a workspace member' });
+    if (!peerIsMember || await areHiddenFromEachOther(config, workspace_id, auth.userId, recipient_id)) {
+      return res.status(404).json({ error: 'Recipient is not a workspace member' });
+    }
 
     // The attachment must belong to this workspace, be uploaded by THIS
     // operator and not already be bound to a visitor conversation.

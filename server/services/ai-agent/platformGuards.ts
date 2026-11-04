@@ -34,10 +34,27 @@ export type PlatformFeatureKey =
   | 'test_harness'
   | 'source_health';
 
-/** Maps a feature key to (settings flag name, error code) */
+/**
+ * The Advanced tools' features. A plan feature since 2026-11-03 (owner):
+ * the advanced-tools guard of server/routes/ai-agent/index.ts, which runs
+ * before this one on every one of their routes, opens them (the Super
+ * Admin, or the plan's `ai_advanced_tools` and the workspace's owner or an
+ * admin; shared/aiAdvancedTools.ts). The platform switches that used to
+ * decide them for customers (advanced_tools_enabled, regression_runner_enabled,
+ * source_health_visible_to_customers, test_harness_visible_to_customers)
+ * no longer open or close anything: a plan with the key gets every tab.
+ */
+type AdvancedFeatureKey = 'regression' | 'test_harness' | 'source_health';
+const ADVANCED_FEATURES: ReadonlySet<PlatformFeatureKey> = new Set<AdvancedFeatureKey>([
+  'regression',
+  'test_harness',
+  'source_health',
+]);
+
+/** Maps a platform-switched feature key to (settings flag name, error code). */
 const FEATURE_FLAG: Record<
-  PlatformFeatureKey,
-  { flag: string; error: string; customerVisibilityFlag?: string }
+  Exclude<PlatformFeatureKey, AdvancedFeatureKey>,
+  { flag: keyof PlatformAiAgentSettings; error: string }
 > = {
   operator_assist: { flag: 'operator_assist_enabled', error: 'operator_assist_disabled_by_platform' },
   auto_answer:    { flag: 'auto_answer_enabled',     error: 'auto_answer_disabled_by_platform' },
@@ -46,9 +63,6 @@ const FEATURE_FLAG: Record<
   websites:       { flag: 'websites_enabled',        error: 'websites_disabled_by_platform' },
   qna:            { flag: 'qna_enabled',             error: 'qna_disabled_by_platform' },
   kb:             { flag: 'kb_enabled',              error: 'kb_disabled_by_platform' },
-  regression:     { flag: 'regression_runner_enabled', error: 'regression_disabled_by_platform' },
-  test_harness:   { flag: 'advanced_tools_enabled',  error: 'test_harness_disabled_by_platform', customerVisibilityFlag: 'test_harness_visible_to_customers' },
-  source_health:  { flag: 'advanced_tools_enabled',  error: 'source_health_disabled_by_platform', customerVisibilityFlag: 'source_health_visible_to_customers' },
 };
 
 /**
@@ -103,39 +117,21 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
 }
 
 /**
- * Per-feature platform gate. Super admins bypass for advanced features
- * (test_harness, source_health, regression) so they can keep operating.
+ * Per-feature platform gate: the Super Admin's per-feature switches. The
+ * Advanced tools' features (regression, test harness, source health) are not
+ * switched here any more: their guard is the plan rule (ADVANCED_FEATURES
+ * above), so they always pass this one. `opts.userId` is kept for callers.
  */
 export async function assertFeatureEnabled(
   config: ServerConfig,
   feature: PlatformFeatureKey,
-  opts: { userId?: string | null } = {},
+  _opts: { userId?: string | null } = {},
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (ADVANCED_FEATURES.has(feature)) return { ok: true };
   try {
     const platform = await getPlatformAiAgentSettings(config);
-    const def = FEATURE_FLAG[feature];
-    const enabled = !!platform[def.flag as keyof PlatformAiAgentSettings];
-    const isAdmin = opts.userId
-      ? await isGlobalAdmin(config, opts.userId).catch(() => false)
-      : false;
-
-    if (feature === 'test_harness' || feature === 'source_health') {
-      // Allowed when: admin OR (advanced_tools_enabled AND customer-visibility flag).
-      if (isAdmin) return { ok: true };
-      const customerOk =
-        enabled &&
-        !!platform[def.customerVisibilityFlag as keyof PlatformAiAgentSettings];
-      return customerOk
-        ? { ok: true }
-        : { ok: false, status: 403, error: def.error };
-    }
-    if (feature === 'regression') {
-      if (isAdmin) return { ok: true };
-      return enabled
-        ? { ok: true }
-        : { ok: false, status: 403, error: def.error };
-    }
-    return enabled
+    const def = FEATURE_FLAG[feature as Exclude<PlatformFeatureKey, AdvancedFeatureKey>];
+    return platform[def.flag]
       ? { ok: true }
       : { ok: false, status: 403, error: def.error };
   } catch {
@@ -178,44 +174,115 @@ const FEATURE_ROUTES: Array<{ rx: RegExp; feature: PlatformFeatureKey }> = [
   { rx: /^\/suggested-test-cases(\/|$)/, feature: 'test_harness' },
 ];
 
-/** Best-effort workspace_id resolver from common `:id` route params. */
-async function resolveWorkspaceFromIdParam(
+/**
+ * The AI Agent resources a path names by id below another segment, and the
+ * table that says whose workspace each belongs to: regression batches and
+ * schedules, and the suggestions made from an operator-assist feedback or a
+ * test run. Checked before the flat `/<resource>/<id>` map below, which
+ * cannot read them (its second segment is not an id).
+ */
+const NESTED_RESOURCE_ROUTES: Array<{ rx: RegExp; table: string }> = [
+  { rx: /^\/regression\/batches\/([^/]+)(\/|$)/i, table: 'ai_agent_regression_batches' },
+  { rx: /^\/regression\/schedules\/([^/]+)(\/|$)/i, table: 'ai_agent_regression_schedules' },
+  { rx: /^\/suggested-test-cases\/from-feedback\/([^/]+)(\/|$)/i, table: 'ai_operator_assist_feedback' },
+  { rx: /^\/suggested-test-cases\/from-test-run\/([^/]+)(\/|$)/i, table: 'ai_agent_test_runs' },
+];
+
+/**
+ * The id a path segment names, read as its route handler will read it:
+ * Express hands `req.params` percent-decoded, and Postgres takes a uuid in
+ * any case, with or without its hyphens, in braces. So the segment is
+ * decoded, and anything uuid-shaped (32 hex digits among hyphens, braces or
+ * spaces) is an id, looked up as written: the same row the handler reads.
+ * Matching only the canonical 36-character form let a re-spelled id
+ * (`%62…`, no hyphens, `{…}`) skip the lookup, so the guard judged the
+ * workspace the query named while the handler read another one's row.
+ * null: not an id (a literal sub-route such as `run-bulk` or `default`);
+ * undefined: not decodable (Express refuses such a param too).
+ */
+function resourceIdOfSegment(segment: string): string | null | undefined {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+  if (!/^[0-9a-f{}\s-]+$/i.test(decoded)) return null;
+  return /^[0-9a-f]{32}$/i.test(decoded.replace(/[{}\s-]/g, '')) ? decoded : null;
+}
+
+// NOTE: file uploads live in ai_data_sources with source_type='file'.
+// There is no separate ai_agent_files table in this schema.
+const FLAT_RESOURCE_TABLES: Record<string, string | { table: string; filter?: { col: string; eq: string } }> = {
+  'files': { table: 'ai_data_sources', filter: { col: 'source_type', eq: 'file' } },
+  'data-sources': { table: 'ai_data_sources' },
+  'qna': 'ai_agent_qna',
+  'learning-candidates': 'ai_agent_learning_candidates',
+  'test-cases': 'ai_agent_test_cases',
+  'test-runs': 'ai_agent_test_runs',
+  'suggested-test-cases': 'ai_agent_suggested_test_cases',
+  // Operator assist run ids live in their own table (ai_operator_assist_runs),
+  // NOT ai_agent_runs — otherwise feedback POSTs fail workspace resolution.
+  'operator-assist': 'ai_operator_assist_runs',
+  'conversations': 'conversations',
+  'suggestions': 'ai_agent_suggestions',
+  'guidance': 'ai_agent_guidance_rules',
+  'routing': 'ai_agent_routing_rules',
+  'topics': 'ai_agent_topics',
+  'workflows': 'ai_agent_workflows',
+  'message-triggers': 'ai_agent_message_triggers',
+  'tools': 'ai_agent_tools',
+  'tool-servers': 'ai_agent_tool_servers',
+  'runs': 'ai_agent_runs',
+};
+
+/** What the resource a path names by id says about its workspace. */
+export type AiAgentResourceWorkspace =
+  /** The path names no resource by id. */
+  | { kind: 'none' }
+  | { kind: 'found'; workspaceId: string }
+  /** No such row. */
+  | { kind: 'missing' }
+  /** The read failed. */
+  | { kind: 'error' };
+
+/**
+ * The workspace of the resource `reqPath` names by id (`/<resource>/<id>`,
+ * or one of NESTED_RESOURCE_ROUTES). Matched case-insensitively on the path
+ * with repeated and trailing slashes folded, as Express routes it; the id is
+ * read as its handler reads it (resourceIdOfSegment).
+ */
+export async function lookupAiAgentResourceWorkspace(
   config: ServerConfig,
   reqPath: string,
-): Promise<string | null> {
-  // Match /<resource>/<id>(/...)
-  const m = reqPath.match(/^\/([^/]+)\/([0-9a-fA-F-]{36})(\/|$)/);
-  if (!m) return null;
-  const resource = m[1];
-  const id = m[2];
-  // NOTE: file uploads live in ai_data_sources with source_type='file'.
-  // There is no separate ai_agent_files table in this schema.
-  const tableMap: Record<string, string | { table: string; filter?: { col: string; eq: string } }> = {
-    'files': { table: 'ai_data_sources', filter: { col: 'source_type', eq: 'file' } },
-    'data-sources': { table: 'ai_data_sources' },
-    'qna': 'ai_agent_qna',
-    'learning-candidates': 'ai_agent_learning_candidates',
-    'test-cases': 'ai_agent_test_cases',
-    'test-runs': 'ai_agent_test_runs',
-    'suggested-test-cases': 'ai_agent_suggested_test_cases',
-    // Operator assist run ids live in their own table (ai_operator_assist_runs),
-    // NOT ai_agent_runs — otherwise feedback POSTs fail workspace resolution.
-    'operator-assist': 'ai_operator_assist_runs',
-    'conversations': 'conversations',
-    'suggestions': 'ai_agent_suggestions',
-    'guidance': 'ai_agent_guidance_rules',
-    'routing': 'ai_agent_routing_rules',
-    'topics': 'ai_agent_topics',
-    'workflows': 'ai_agent_workflows',
-    'message-triggers': 'ai_agent_message_triggers',
-    'tools': 'ai_agent_tools',
-    'tool-servers': 'ai_agent_tool_servers',
-    'runs': 'ai_agent_runs',
-  };
-  const entry = tableMap[resource];
-  if (!entry) return null;
-  const table = typeof entry === 'string' ? entry : entry.table;
-  const filter = typeof entry === 'string' ? null : entry.filter || null;
+): Promise<AiAgentResourceWorkspace> {
+  let path = String(reqPath || '/').replace(/\/{2,}/g, '/');
+  while (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+  let table: string | null = null;
+  let filter: { col: string; eq: string } | null = null;
+  let id: string | null = null;
+  for (const route of NESTED_RESOURCE_ROUTES) {
+    const m = path.match(route.rx);
+    if (!m) continue;
+    const nestedId = resourceIdOfSegment(m[1]);
+    if (nestedId === undefined) return { kind: 'missing' };
+    if (nestedId === null) continue;
+    table = route.table;
+    id = nestedId;
+    break;
+  }
+  if (!table) {
+    // Match /<resource>/<id>(/...)
+    const m = path.match(/^\/([^/]+)\/([^/]+)(\/|$)/);
+    const entry = m ? FLAT_RESOURCE_TABLES[m[1].toLowerCase()] : undefined;
+    if (!m || !entry) return { kind: 'none' };
+    const flatId = resourceIdOfSegment(m[2]);
+    if (flatId === undefined) return { kind: 'missing' };
+    if (flatId === null) return { kind: 'none' };
+    table = typeof entry === 'string' ? entry : entry.table;
+    filter = typeof entry === 'string' ? null : entry.filter || null;
+    id = flatId;
+  }
   try {
     const sb = getServiceClient(config);
     let q = sb
@@ -223,11 +290,79 @@ async function resolveWorkspaceFromIdParam(
       .select('workspace_id')
       .eq('id', id);
     if (filter) q = q.eq(filter.col, filter.eq);
-    const { data } = await q.maybeSingle();
-    return ((data as { workspace_id?: unknown } | null)?.workspace_id as string) || null;
+    const { data, error } = await q.maybeSingle();
+    if (error) return { kind: 'error' };
+    const workspaceId = (data as { workspace_id?: unknown } | null)?.workspace_id;
+    return typeof workspaceId === 'string' && workspaceId
+      ? { kind: 'found', workspaceId }
+      : { kind: 'missing' };
   } catch {
-    return null;
+    return { kind: 'error' };
   }
+}
+
+/** Best-effort workspace_id resolver from common `:id` route params. */
+async function resolveWorkspaceFromIdParam(
+  config: ServerConfig,
+  reqPath: string,
+): Promise<string | null> {
+  const r = await lookupAiAgentResourceWorkspace(config, reqPath);
+  return r.kind === 'found' ? r.workspaceId : null;
+}
+
+/** The workspace ids a request names (query and body), all of them, as written. */
+function namedWorkspaceIds(req: Request): { ok: true; ids: string[] } | { ok: false } {
+  const query = (req.query || {}) as Record<string, unknown>;
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const ids: string[] = [];
+  for (const value of [query.workspaceId, query.workspace_id, body.workspaceId, body.workspace_id]) {
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value !== 'string') return { ok: false };
+    ids.push(value);
+  }
+  return { ok: true, ids };
+}
+
+export type AiAgentRequestWorkspace =
+  | { ok: true; workspaceId: string }
+  | { ok: false; status: number; error: string };
+
+/**
+ * The one workspace an AI Agent request reads or writes, for a guard that
+ * judges that workspace (the Advanced tools' plan rule). Its handlers act on
+ * either the workspace the request names (query `workspaceId` /
+ * `workspace_id`, body `workspaceId`) or, for a path naming a resource by id,
+ * that resource's own workspace. So:
+ *   - every workspace id the request names must be the same one (400
+ *     `workspace_id_mismatch`), so the guard and the handler cannot read
+ *     different ones;
+ *   - a resource named by id decides, and a named workspace must be its
+ *     (403 `workspace_id_mismatch`); a missing resource is 404, an
+ *     unreadable one 503;
+ *   - otherwise the named workspace; none at all is 400
+ *     `ai_agent_workspace_unresolved`, as aiAgentPlatformGuard answers.
+ */
+export async function resolveAiAgentRequestWorkspace(
+  config: ServerConfig,
+  req: Request,
+): Promise<AiAgentRequestWorkspace> {
+  const named = namedWorkspaceIds(req);
+  if (!named.ok) return { ok: false, status: 400, error: 'invalid_workspace_id' };
+  const distinct = new Set(named.ids.map((id) => id.toLowerCase()));
+  if (distinct.size > 1) return { ok: false, status: 400, error: 'workspace_id_mismatch' };
+  const explicit = named.ids[0] ?? null;
+
+  const resource = await lookupAiAgentResourceWorkspace(config, req.path);
+  if (resource.kind === 'error') return { ok: false, status: 503, error: PLATFORM_STATUS_UNAVAILABLE };
+  if (resource.kind === 'missing') return { ok: false, status: 404, error: 'not_found' };
+  if (resource.kind === 'found') {
+    if (explicit && explicit.toLowerCase() !== resource.workspaceId.toLowerCase()) {
+      return { ok: false, status: 403, error: 'workspace_id_mismatch' };
+    }
+    return { ok: true, workspaceId: resource.workspaceId };
+  }
+  if (!explicit) return { ok: false, status: 400, error: 'ai_agent_workspace_unresolved' };
+  return { ok: true, workspaceId: explicit };
 }
 
 /**

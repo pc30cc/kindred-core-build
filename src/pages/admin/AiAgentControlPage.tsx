@@ -1,12 +1,15 @@
 /**
  * E12 — Super Admin AI Agent Control Center.
- * Single source of truth for the platform-wide AI Agent kill switch,
- * advanced/QA/regression visibility, and per-feature toggles.
- * Backend access is enforced by the advanced-tools guard middleware
- * in server/routes/aiAgent.ts (admin-only).
+ * Single source of truth for the platform-wide AI Agent kill switch and
+ * per-feature toggles. The Advanced tools are not switched here: they are
+ * the plan feature `ai_advanced_tools` (Super Admin → Plans; owner,
+ * 2026-11-03), and the card says so. Backend access to this page's
+ * endpoints is enforced by the advanced-tools guard in
+ * server/routes/ai-agent/index.ts (Super Admin only).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Loader2, Save, Power, ShieldAlert, Sparkles, Wrench, Rocket } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -24,7 +27,7 @@ type Patch = Partial<PlatformAiAgentSettings>;
 
 function Section({
   icon: Icon, title, description, children,
-}: { icon: any; title: string; description?: string; children: React.ReactNode }) {
+}: { icon: React.ElementType; title: string; description?: string; children: React.ReactNode }) {
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-start gap-3">
@@ -88,10 +91,10 @@ export default function AiAgentControlPage() {
       qc.invalidateQueries({ queryKey: ['admin-ai-agent-platform-settings'] });
       qc.invalidateQueries({ queryKey: ['ai-agent-capabilities'] });
       setDraft({});
-      toast({ title: t('admin.aiAgentControl.saved' as any), description: t('admin.aiAgentControl.savedDescription' as any) });
+      toast({ title: t('admin.aiAgentControl.saved'), description: t('admin.aiAgentControl.savedDescription') });
     },
-    onError: (e: any) => {
-      toast({ title: t('admin.aiAgentControl.saveFailed' as any), description: e?.message || t('admin.aiAgentControl.unableToSave' as any), variant: 'destructive' });
+    onError: (e: unknown) => {
+      toast({ title: t('admin.aiAgentControl.saveFailed'), description: (e as { message?: string } | null)?.message || t('admin.aiAgentControl.unableToSave'), variant: 'destructive' });
     },
   });
 
@@ -107,8 +110,8 @@ export default function AiAgentControlPage() {
     return (
       <div className="p-6">
         <Card className="p-6 border-destructive/40">
-          <p className="text-sm text-destructive">{t('admin.aiAgentControl.loadFailed' as any)}</p>
-          <p className="text-xs text-muted-foreground mt-1">{(error as any)?.message}</p>
+          <p className="text-sm text-destructive">{t('admin.aiAgentControl.loadFailed')}</p>
+          <p className="text-xs text-muted-foreground mt-1">{(error as { message?: string } | null)?.message}</p>
         </Card>
       </div>
     );
@@ -124,68 +127,68 @@ export default function AiAgentControlPage() {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('admin.aiAgentControl.title' as any)}</h1>
-          <p className="text-sm text-muted-foreground mt-1">{t('admin.aiAgentControl.subtitle' as any)}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('admin.aiAgentControl.title')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('admin.aiAgentControl.subtitle')}</p>
         </div>
         <Button
           onClick={() => update.mutate(draft)}
           disabled={!dirty || update.isPending}
         >
           {update.isPending ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
-          {t('admin.aiAgentControl.saveChanges' as any)}
+          {t('admin.aiAgentControl.saveChanges')}
         </Button>
       </div>
 
-      <Section icon={Power} title={t('admin.aiAgentControl.killSwitch.title' as any)} description={t('admin.aiAgentControl.killSwitch.description' as any)}>
+      <Section icon={Power} title={t('admin.aiAgentControl.killSwitch.title')} description={t('admin.aiAgentControl.killSwitch.description')}>
         <Toggle
-          label={t('admin.aiAgentControl.killSwitch.enabled' as any)}
-          description={t('admin.aiAgentControl.killSwitch.enabledHint' as any)}
+          label={t('admin.aiAgentControl.killSwitch.enabled')}
+          description={t('admin.aiAgentControl.killSwitch.enabledHint')}
           checked={merged.ai_agent_enabled}
           onChange={(v) => set('ai_agent_enabled', v)}
         />
         <Toggle
-          label={t('admin.aiAgentControl.killSwitch.navigation' as any)}
-          description={t('admin.aiAgentControl.killSwitch.navigationHint' as any)}
+          label={t('admin.aiAgentControl.killSwitch.navigation')}
+          description={t('admin.aiAgentControl.killSwitch.navigationHint')}
           checked={merged.customer_ai_agent_visible}
           onChange={(v) => set('customer_ai_agent_visible', v)}
           disabled={killSwitchOff}
         />
         <div className="space-y-1.5">
-          <Label className="text-sm font-medium">{t('admin.aiAgentControl.killSwitch.disabledMessage' as any)}</Label>
+          <Label className="text-sm font-medium">{t('admin.aiAgentControl.killSwitch.disabledMessage')}</Label>
           <Textarea
             value={merged.disabled_message ?? ''}
             onChange={(e) => set('disabled_message', e.target.value || null)}
-            placeholder={t('admin.aiAgentControl.killSwitch.disabledMessagePlaceholder' as any)}
+            placeholder={t('admin.aiAgentControl.killSwitch.disabledMessagePlaceholder')}
             rows={3}
           />
         </div>
       </Section>
 
-      <Section icon={Sparkles} title={t('admin.aiAgentControl.customer.title' as any)} description={t('admin.aiAgentControl.customer.description' as any)}>
+      <Section icon={Sparkles} title={t('admin.aiAgentControl.customer.title')} description={t('admin.aiAgentControl.customer.description')}>
         <Toggle
-          label={t('admin.aiAgentControl.customer.operatorAssist' as any)}
+          label={t('admin.aiAgentControl.customer.operatorAssist')}
           checked={merged.operator_assist_enabled}
           onChange={(v) => set('operator_assist_enabled', v)}
           disabled={killSwitchOff}
         />
         <Toggle
-          label={t('admin.aiAgentControl.customer.autoAnswer' as any)}
+          label={t('admin.aiAgentControl.customer.autoAnswer')}
           checked={merged.auto_answer_enabled}
           onChange={(v) => set('auto_answer_enabled', v)}
           disabled={killSwitchOff}
         />
         <Toggle
-          label={t('admin.aiAgentControl.customer.learning' as any)}
+          label={t('admin.aiAgentControl.customer.learning')}
           checked={merged.learning_enabled}
           onChange={(v) => set('learning_enabled', v)}
           disabled={killSwitchOff}
         />
-        <Toggle label={t('admin.aiAgentControl.customer.files' as any)} checked={merged.files_enabled} onChange={(v) => set('files_enabled', v)} disabled={killSwitchOff} />
-        <Toggle label={t('admin.aiAgentControl.customer.websites' as any)} checked={merged.websites_enabled} onChange={(v) => set('websites_enabled', v)} disabled={killSwitchOff} />
-        <Toggle label={t('admin.aiAgentControl.customer.qna' as any)} checked={merged.qna_enabled} onChange={(v) => set('qna_enabled', v)} disabled={killSwitchOff} />
-        <Toggle label={t('admin.aiAgentControl.customer.knowledgeBase' as any)} checked={merged.kb_enabled} onChange={(v) => set('kb_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.files')} checked={merged.files_enabled} onChange={(v) => set('files_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.websites')} checked={merged.websites_enabled} onChange={(v) => set('websites_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.qna')} checked={merged.qna_enabled} onChange={(v) => set('qna_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.knowledgeBase')} checked={merged.kb_enabled} onChange={(v) => set('kb_enabled', v)} disabled={killSwitchOff} />
         <div className="space-y-1.5">
-          <Label className="text-sm font-medium">{t('admin.aiAgentControl.customer.maxNavItems' as any)}</Label>
+          <Label className="text-sm font-medium">{t('admin.aiAgentControl.customer.maxNavItems')}</Label>
           <Input
             type="number"
             min={1}
@@ -196,46 +199,33 @@ export default function AiAgentControlPage() {
         </div>
       </Section>
 
-      <Section icon={Wrench} title={t('admin.aiAgentControl.advanced.title' as any)} description={t('admin.aiAgentControl.advanced.description' as any)}>
-        <Toggle
-          label={t('admin.aiAgentControl.advanced.enabled' as any)}
-          description={t('admin.aiAgentControl.advanced.enabledHint' as any)}
-          checked={merged.advanced_tools_enabled}
-          onChange={(v) => set('advanced_tools_enabled', v)}
-        />
-        <Toggle
-          label={t('admin.aiAgentControl.advanced.regression' as any)}
-          checked={merged.regression_runner_enabled}
-          onChange={(v) => set('regression_runner_enabled', v)}
-          disabled={!merged.advanced_tools_enabled}
-        />
-        <Toggle
-          label={t('admin.aiAgentControl.advanced.sourceHealth' as any)}
-          checked={merged.source_health_visible_to_customers}
-          onChange={(v) => set('source_health_visible_to_customers', v)}
-          disabled={!merged.advanced_tools_enabled}
-        />
-        <Toggle
-          label={t('admin.aiAgentControl.advanced.testHarness' as any)}
-          checked={merged.test_harness_visible_to_customers}
-          onChange={(v) => set('test_harness_visible_to_customers', v)}
-          disabled={!merged.advanced_tools_enabled}
-        />
+      {/* The Advanced tools are a plan feature (ai_advanced_tools, owner,
+          2026-11-03): turned on per plan in Super Admin → Plans, not here.
+          The old platform switches (advanced_tools_enabled and the three
+          *_visible_to_customers / regression_runner_enabled) no longer
+          decide anything, so they are not offered. */}
+      <Section icon={Wrench} title={t('admin.aiAgentControl.advanced.title')} description={t('admin.aiAgentControl.advanced.description')}>
+        <div data-ai-advanced-plan-note className="flex flex-wrap items-center justify-between gap-3">
+          <p className="min-w-0 text-xs text-muted-foreground">{t('admin.aiAgentControl.advanced.planNote')}</p>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/plans">{t('admin.aiAgentControl.advanced.openPlans')}</Link>
+          </Button>
+        </div>
       </Section>
 
       <Section
         icon={Rocket}
-        title={t('admin.aiAgentControl.proactive.title' as any)}
-        description={t('admin.aiAgentControl.proactive.description' as any)}
+        title={t('admin.aiAgentControl.proactive.title')}
+        description={t('admin.aiAgentControl.proactive.description')}
       >
         <Toggle
-          label={t('admin.aiAgentControl.proactive.enabled' as any)}
-          description={t('admin.aiAgentControl.proactive.enabledHint' as any)}
+          label={t('admin.aiAgentControl.proactive.enabled')}
+          description={t('admin.aiAgentControl.proactive.enabledHint')}
           checked={merged.ai_proactive_nudge_enabled}
           onChange={(v) => set('ai_proactive_nudge_enabled', v)}
         />
         <div className="space-y-1.5">
-          <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.defaultMode' as any)}</Label>
+          <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.defaultMode')}</Label>
           <Select
             value={merged.ai_proactive_default_mode}
             onValueChange={(v) => set('ai_proactive_default_mode', v as PlatformAiAgentSettings['ai_proactive_default_mode'])}
@@ -243,16 +233,16 @@ export default function AiAgentControlPage() {
           >
             <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="off">{t('admin.aiAgentControl.proactive.mode.off' as any)}</SelectItem>
-              <SelectItem value="conservative">{t('admin.aiAgentControl.proactive.mode.conservative' as any)}</SelectItem>
-              <SelectItem value="balanced">{t('admin.aiAgentControl.proactive.mode.balanced' as any)}</SelectItem>
-              <SelectItem value="active">{t('admin.aiAgentControl.proactive.mode.active' as any)}</SelectItem>
+              <SelectItem value="off">{t('admin.aiAgentControl.proactive.mode.off')}</SelectItem>
+              <SelectItem value="conservative">{t('admin.aiAgentControl.proactive.mode.conservative')}</SelectItem>
+              <SelectItem value="balanced">{t('admin.aiAgentControl.proactive.mode.balanced')}</SelectItem>
+              <SelectItem value="active">{t('admin.aiAgentControl.proactive.mode.active')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.maxPerSessionCeiling' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.maxPerSessionCeiling')}</Label>
             <Input
               type="number" min={0} max={20}
               value={merged.ai_proactive_max_per_session_ceiling}
@@ -261,7 +251,7 @@ export default function AiAgentControlPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.minCooldownCeiling' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.minCooldownCeiling')}</Label>
             <Input
               type="number" min={0}
               value={merged.ai_proactive_min_cooldown_seconds_ceiling}
@@ -270,7 +260,7 @@ export default function AiAgentControlPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.maxEvalsPerSessionCeiling' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.maxEvalsPerSessionCeiling')}</Label>
             <Input
               type="number" min={0}
               value={merged.ai_proactive_max_evaluations_per_session_ceiling}
@@ -279,7 +269,7 @@ export default function AiAgentControlPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.maxMessageLength' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.maxMessageLength')}</Label>
             <Input
               type="number" min={40} max={600}
               value={merged.ai_proactive_max_message_length}
@@ -288,7 +278,7 @@ export default function AiAgentControlPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.minConfidenceFloor' as any)}</Label>
+            <Label className="text-sm font-medium">{t('admin.aiAgentControl.proactive.minConfidenceFloor')}</Label>
             <Input
               type="number" min={0} max={1} step={0.05}
               value={merged.ai_proactive_min_confidence_floor}
@@ -302,16 +292,16 @@ export default function AiAgentControlPage() {
           <>
             <Separator />
             <div>
-              <p className="text-xs font-semibold text-muted-foreground mb-2">{t('admin.aiAgentControl.proactive.analytics' as any)}</p>
+              <p className="text-xs font-semibold text-muted-foreground mb-2">{t('admin.aiAgentControl.proactive.analytics')}</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.workspacesUsing' as any)} value={proactiveStats.workspacesUsing} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.shown' as any)} value={proactiveStats.counters.shown} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.ctaClicked' as any)} value={proactiveStats.counters.cta_clicked} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.conversations' as any)} value={proactiveStats.counters.conversation_started} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.cost' as any)} value={`$${proactiveStats.aiUsage.costUsd.toFixed(2)}`} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.charge' as any)} value={proactiveStats.aiUsage.chargeIrr.toLocaleString()} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.evaluated24h' as any)} value={proactiveStats.last24h.evaluated} />
-                <StatTile label={t('admin.aiAgentControl.proactive.stats.suppressed24h' as any)} value={proactiveStats.last24h.suppressed} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.workspacesUsing')} value={proactiveStats.workspacesUsing} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.shown')} value={proactiveStats.counters.shown} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.ctaClicked')} value={proactiveStats.counters.cta_clicked} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.conversations')} value={proactiveStats.counters.conversation_started} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.cost')} value={`$${proactiveStats.aiUsage.costUsd.toFixed(2)}`} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.charge')} value={proactiveStats.aiUsage.chargeIrr.toLocaleString()} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.evaluated24h')} value={proactiveStats.last24h.evaluated} />
+                <StatTile label={t('admin.aiAgentControl.proactive.stats.suppressed24h')} value={proactiveStats.last24h.suppressed} />
               </div>
             </div>
           </>
@@ -321,7 +311,7 @@ export default function AiAgentControlPage() {
       <Card className="p-4 border-amber-500/30 bg-amber-500/5 flex items-start gap-3">
         <ShieldAlert className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
         <div className="text-xs text-muted-foreground">
-          {t('admin.aiAgentControl.adminNotice' as any)}
+          {t('admin.aiAgentControl.adminNotice')}
         </div>
       </Card>
     </div>

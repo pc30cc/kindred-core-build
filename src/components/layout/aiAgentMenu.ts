@@ -45,7 +45,11 @@ export interface AiMenuSection {
   tabs: AiMenuTab[];
   /** Other first path segments that belong here (detail pages, no tab). */
   also?: string[];
-  /** Platform admins only (AdvancedAiAgentGuard's rule). */
+  /**
+   * The Advanced tools: AdvancedAiAgentGuard's rule (shared/aiAdvancedTools.ts),
+   * the Super Admin, or a plan with `ai_advanced_tools` and the workspace's
+   * owner or an admin.
+   */
   advanced?: boolean;
 }
 
@@ -125,8 +129,10 @@ export function aiTabOffered(tab: AiMenuTab, navFlags: Partial<Record<CustomerNa
 
 /**
  * The sections a member sees: the Super Admin's flags hide tabs, empty
- * sections drop out, the advanced one needs AdvancedAiAgentGuard's access,
- * and the cap (customers only) counts the customer sections.
+ * sections drop out, the advanced one needs AdvancedAiAgentGuard's access
+ * (useAiAdvancedToolsAccess: the Super Admin, or the plan's
+ * `ai_advanced_tools` and an owner or admin), and the cap (customers only)
+ * counts the customer sections, never the advanced one.
  */
 export function visibleAiMenu(opts: {
   navFlags: Partial<Record<CustomerNavKey, boolean>>;

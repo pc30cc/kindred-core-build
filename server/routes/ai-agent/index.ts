@@ -16,8 +16,15 @@
  */
 import express, { type Request, type Response, type Router } from 'express';
 import type { ServerConfig } from '../../config.js';
-import { canAccessAiAgentAdvancedToolsServer } from '../../services/ai-agent/customerSafe.js';
-import { aiAgentPlatformGuard, normalizeAiAgentGuardPath } from '../../services/ai-agent/platformGuards.js';
+import {
+  canAccessAiAgentAdvancedToolsServer,
+  canAccessAiAgentPlatformPagesServer,
+} from '../../services/ai-agent/customerSafe.js';
+import {
+  aiAgentPlatformGuard,
+  normalizeAiAgentGuardPath,
+  resolveAiAgentRequestWorkspace,
+} from '../../services/ai-agent/platformGuards.js';
 import { resolveCurrentUserId } from './shared.js';
 import { platformRouter } from './platform.js';
 import { assistantRouter } from './assistant.js';
@@ -31,10 +38,18 @@ import { humanGuidanceRouter } from './humanGuidance.js';
 export const aiAgentRouter: Router = express.Router();
 
 // ─── Backend advanced-tools guard ───
-// Mirrors the frontend AdvancedAiAgentGuard. Endpoints that expose internal
-// QA/debug/regression data MUST go through this guard.
-// Registered IMMEDIATELY after router creation so it runs before every
-// matching route handler.
+// The rule of the frontend AdvancedAiAgentGuard (shared/aiAdvancedTools.ts).
+// Endpoints that expose internal QA/debug/regression data MUST go through
+// this guard. Registered IMMEDIATELY after router creation so it runs before
+// every matching route handler.
+//   - `/platform/*` (the Super Admin's AI Control Center settings and
+//     counters): the Super Admin only, never a plan's.
+//   - everything else here (the Advanced tools): the Super Admin, or the
+//     workspace's plan has `ai_advanced_tools` and the caller is its owner or
+//     an admin (owner, 2026-11-03). The workspace judged is the one the
+//     handler acts on (resolveAiAgentRequestWorkspace: the resource named by
+//     id, or the one workspace id the request names), so a member of a
+//     workspace with the key never reaches another workspace's QA data.
 const ADVANCED_PATH_PATTERNS: RegExp[] = [
   /^\/runs\/[^/]+\/inspect$/i,
   /^\/debug\/retrieval$/i,
@@ -57,10 +72,25 @@ aiAgentRouter.use(async (req: Request, res: Response, next) => {
   const config = (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
   const { userId } = await resolveCurrentUserId(req, config);
   if (!userId) return res.status(401).json({ error: 'unauthenticated' });
-  const workspaceId = String(
-    req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
-  );
-  const ok = await canAccessAiAgentAdvancedToolsServer(config, userId, workspaceId);
+  // The Super Admin (and the non-production override) pass everything here,
+  // whatever workspace the request names, as before.
+  if (await canAccessAiAgentPlatformPagesServer(config, userId)) return next();
+  // Platform pages are never a plan's.
+  if (guardPath.startsWith('/platform/')) {
+    return res.status(403).json({ error: 'advanced_ai_tools_not_available' });
+  }
+  const target = await resolveAiAgentRequestWorkspace(config, req);
+  if (target.ok === false) {
+    // Two different workspace ids named: said so. An unreadable resource: a
+    // retryable 503. Anything else (no workspace named, a missing resource,
+    // another workspace's resource): no, as for a plan without the key.
+    if (target.error === 'workspace_id_mismatch' && target.status === 400) {
+      return res.status(400).json({ error: target.error });
+    }
+    if (target.status === 503) return res.status(503).json({ error: target.error });
+    return res.status(403).json({ error: 'advanced_ai_tools_not_available' });
+  }
+  const ok = await canAccessAiAgentAdvancedToolsServer(config, userId, target.workspaceId);
   if (!ok) return res.status(403).json({ error: 'advanced_ai_tools_not_available' });
   return next();
 });
@@ -69,8 +99,10 @@ aiAgentRouter.use(async (req: Request, res: Response, next) => {
 // workspaceId from query/body OR from :id route params, then enforces:
 //   - global kill switch (ai_agent_enabled / customer_ai_agent_visible)
 //   - per-feature platform toggles (files/websites/qna/operator-assist/
-//     learning/regression/test-harness/source-health/kb)
-// Super admins bypass the advanced/regression/test/source-health gates.
+//     learning/kb)
+// The Advanced tools (regression/test-harness/source-health) are not
+// platform-switched any more: the guard above (the plan rule) opens them.
+// Super admins bypass the plan gate and the customer-visibility switch.
 aiAgentRouter.use(aiAgentPlatformGuard());
 
 aiAgentRouter.use(platformRouter);

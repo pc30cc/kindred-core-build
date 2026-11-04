@@ -218,11 +218,11 @@ final class CallSession {
                     iceServers: iceServers(from: credentials),
                     iceTransportPolicy: credentials.relayOnly ? .relay : .all
                 ),
+                // What the camera sends: `CallMediaBudget`, shared with
+                // colleague calls, says why.
                 roomOptions: RoomOptions(
-                    defaultCameraCaptureOptions: CameraCaptureOptions(
-                        position: .front,
-                        dimensions: .h720_169
-                    ),
+                    defaultCameraCaptureOptions: CallMediaBudget.cameraCapture,
+                    defaultVideoPublishOptions: CallMediaBudget.videoPublish,
                     adaptiveStream: true,
                     dynacast: true
                 )

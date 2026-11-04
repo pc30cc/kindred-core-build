@@ -1,8 +1,12 @@
 /**
  * E12 — Platform-wide AI Agent settings service.
  *
- * Singleton-row config that controls global kill-switch + advanced/QA tool
- * visibility + per-feature enable flags. Managed exclusively via the Super
+ * Singleton-row config that controls global kill-switch + per-feature
+ * enable flags. Its advanced/QA visibility columns (advanced_tools_enabled,
+ * regression_runner_enabled, source_health_visible_to_customers,
+ * test_harness_visible_to_customers) are kept but no longer decide anything:
+ * the Advanced tools are the plan feature `ai_advanced_tools` since
+ * 2026-11-03 (shared/aiAdvancedTools.ts). Managed exclusively via the Super
  * Admin Control Center; workspace UI must read the redacted capability
  * snapshot via getWorkspaceAiAgentCapabilities.
  *
@@ -114,7 +118,7 @@ function applyDefaults(row: Partial<PlatformAiAgentSettings>): PlatformAiAgentSe
     updated_at: row.updated_at || now,
     ...DEFAULTS,
     ...row,
-    metadata: (row.metadata as any) || {},
+    metadata: (row.metadata as Record<string, unknown> | undefined) || {},
   } as PlatformAiAgentSettings;
 }
 
@@ -129,7 +133,7 @@ export async function getPlatformAiAgentSettings(
   try {
     const sb = getServiceClient(config);
     const { data, error } = await sb
-      .from('platform_ai_agent_settings' as any)
+      .from('platform_ai_agent_settings')
       .select('*')
       .eq('singleton_key', true)
       .maybeSingle();
@@ -137,7 +141,7 @@ export async function getPlatformAiAgentSettings(
     // still defaults open. Any OTHER error is an unresolved lookup and MUST
     // be reported so security-relevant callers can fail closed.
     if (error && !isPlatformSettingsTableMissing(error)) lookupFailed = true;
-    value = applyDefaults((data as any) || {});
+    value = applyDefaults((data as Partial<PlatformAiAgentSettings> | null) || {});
   } catch {
     lookupFailed = true;
     value = applyDefaults({});
@@ -213,7 +217,7 @@ export async function updatePlatformAiAgentSettings(
 
   const sanitized: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch || {})) {
-    if (!PATCHABLE_KEYS.has(k as any)) continue;
+    if (!PATCHABLE_KEYS.has(k as keyof PlatformAiAgentSettings)) continue;
     sanitized[k] = v;
   }
   if (Object.keys(sanitized).length === 0) {
@@ -226,7 +230,7 @@ export async function updatePlatformAiAgentSettings(
   // Build audit summary: only changed keys with old → new values.
   const changes: Record<string, { old: unknown; new: unknown }> = {};
   for (const [k, v] of Object.entries(sanitized)) {
-    const oldV = (current as any)[k];
+    const oldV = (current as unknown as Record<string, unknown>)[k];
     if (JSON.stringify(oldV) !== JSON.stringify(v)) {
       changes[k] = { old: oldV, new: v };
     }
@@ -242,20 +246,20 @@ export async function updatePlatformAiAgentSettings(
 
   // Upsert by singleton_key=true (table has UNIQUE(singleton_key)).
   const { error } = await sb
-    .from('platform_ai_agent_settings' as any)
+    .from('platform_ai_agent_settings')
     .update(sanitized)
     .eq('singleton_key', true);
   if (error) throw new Error(error.message);
 
   // Belt-and-suspenders: insert canonical row if none exists.
   const { data: post } = await sb
-    .from('platform_ai_agent_settings' as any)
+    .from('platform_ai_agent_settings')
     .select('id')
     .eq('singleton_key', true)
     .maybeSingle();
   if (!post) {
     const { error: insErr } = await sb
-      .from('platform_ai_agent_settings' as any)
+      .from('platform_ai_agent_settings')
       .insert([{ ...DEFAULTS, ...sanitized, singleton_key: true }]);
     if (insErr) throw new Error(insErr.message);
   }
@@ -278,10 +282,10 @@ export async function updatePlatformAiAgentSettings(
         : !next.customer_ai_agent_visible
           ? 'customer_ai_hidden'
           : 'auto_answer_disabled';
-      await repairPlatformOffConversations(config, reason as any);
+      await repairPlatformOffConversations(config, reason);
     }
   } catch (e) {
-    console.warn('[platformSettings] repair after toggle-off failed:', (e as any)?.message || e);
+    console.warn('[platformSettings] repair after toggle-off failed:', (e as { message?: string } | null)?.message || e);
   }
   return next;
 }
@@ -297,13 +301,12 @@ export async function repairPlatformOffConversations(
 ): Promise<{ scanned: number; repaired: number; skipped_closed: number }> {
   const sb = getServiceClient(config);
   const { clearAiManagementForPlatformOff } = await import('./handoffState.js');
-  let q: any = sb
+  const managed = sb
     .from('conversations')
     .select('id, workspace_id, status, metadata, ai_state')
     .eq('ai_state', 'ai_managed');
-  if (opts?.workspaceId) q = q.eq('workspace_id', opts.workspaceId);
-  const { data } = await q;
-  const rows = (data as any[]) || [];
+  const { data } = await (opts?.workspaceId ? managed.eq('workspace_id', opts.workspaceId) : managed);
+  const rows = (data as Array<{ id: string; workspace_id: string; status: string | null }> | null) || [];
   let repaired = 0;
   let skipped_closed = 0;
   for (const r of rows) {
@@ -448,16 +451,21 @@ export async function getWorkspaceAiAgentCapabilities(
   // depend on a knowledge_base entitlement that no longer exists.
   const effectiveBuilderAvailable = effectiveAiAvailable && builderPlanEnabled;
 
-  // Nav/advanced flags describe what an *entitled* user may see. They stay
-  // driven by the platform toggles; the plan gate is applied by the client
+  // Nav flags describe what an *entitled* user may see. They stay driven by
+  // the platform toggles; the plan gate is applied by the client
   // (non-mounting PlanAccessGate) and by the server middleware.
   const killOn = !platformEnabled;
   const customerCanSee = platformEnabled && customerVisible;
-  const advVisible = (customerFlag: boolean) => {
-    if (killOn) return false;
-    if (isAdmin) return true;
-    return customerCanSee && s.advanced_tools_enabled && customerFlag;
-  };
+  // The Advanced tools: the plan rule the advanced-tools guard applies
+  // (shared/aiAdvancedTools.ts: the Super Admin, or the plan's
+  // ai_advanced_tools and the workspace's owner or an admin), never the old
+  // advanced_tools_enabled / *_visible_to_customers switches (owner,
+  // 2026-11-03). One answer for every advanced surface.
+  let advancedAllowed = false;
+  if (!killOn && (isAdmin || customerCanSee) && userId) {
+    const { canAccessAiAgentAdvancedToolsServer } = await import('./customerSafe.js');
+    advancedAllowed = isAdmin || await canAccessAiAgentAdvancedToolsServer(config, userId, workspaceId).catch(() => false);
+  }
   const navOk = (flag: boolean) => !killOn && (isAdmin || (customerCanSee && flag));
 
   const planName = aiPlan.plan || builderPlan.plan || null;
@@ -493,10 +501,10 @@ export async function getWorkspaceAiAgentCapabilities(
       settings: !killOn && (isAdmin || customerCanSee),
     },
     advanced: {
-      debug_visible: advVisible(false),
-      regression_visible: advVisible(s.regression_runner_enabled),
-      source_health_visible: advVisible(s.source_health_visible_to_customers),
-      test_harness_visible: advVisible(s.test_harness_visible_to_customers),
+      debug_visible: advancedAllowed,
+      regression_visible: advancedAllowed,
+      source_health_visible: advancedAllowed,
+      test_harness_visible: advancedAllowed,
     },
     disabled_message: s.disabled_message,
     max_customer_visible_nav_items: s.max_customer_visible_nav_items,

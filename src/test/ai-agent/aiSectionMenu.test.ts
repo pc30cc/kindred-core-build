@@ -122,7 +122,7 @@ describe('no knowledge entry in the AI section', () => {
   });
 });
 
-describe('advanced pages stay in the platform-admin section only', () => {
+describe('advanced pages stay in the Advanced section only', () => {
   const guarded = routes.filter((r) => r.guarded);
 
   it('every advanced tab is an AdvancedAiAgentGuard route', () => {
@@ -138,14 +138,20 @@ describe('advanced pages stay in the platform-admin section only', () => {
     }
   });
 
-  it('a customer never sees the advanced section', () => {
+  it('a member without the access (no plan key, or not owner/admin) never sees the advanced section', () => {
     const ids = visibleAiMenu({ navFlags: ALL_ON, advancedAllowed: false, cap: null }).map((s) => s.id);
     expect(ids).not.toContain('advanced');
   });
 
-  it('a platform admin does', () => {
+  it('a platform admin, or an owner/admin on a plan with ai_advanced_tools, does', () => {
     const ids = visibleAiMenu({ navFlags: ALL_ON, advancedAllowed: true, cap: null }).map((s) => s.id);
     expect(ids).toContain('advanced');
+  });
+
+  it('the Advanced section has no Super Admin switch: every tab shows with the access, whatever the flags', () => {
+    const none = Object.fromEntries(Object.keys(ALL_ON).map((k) => [k, false])) as Record<CustomerNavKey, boolean>;
+    const advanced = visibleAiMenu({ navFlags: none, advancedAllowed: true, cap: 1 }).find((s) => s.id === 'advanced');
+    expect(advanced?.tabs.map((t) => t.path)).toEqual(['test-cases', 'suggested-tests', 'regression-runs', 'source-health', 'debug/retrieval']);
   });
 });
 

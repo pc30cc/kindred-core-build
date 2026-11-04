@@ -30,7 +30,18 @@ navigation3 = "1.2.0"
 # Material Adaptive: window size classes, list-detail scenes for Navigation 3.
 # Resolved from Google Maven 2026-09-25 (1.4.0 is alpha).
 adaptive = "1.3.0"
-livekit = "2.29.0"
+# 2.29.2: simulcast layers that dynacast had paused started uploading again
+# after any renegotiation, and a call renegotiates when the camera is
+# published after the microphone; 2.29.2 keeps them paused. 2.29.1 seeds the
+# bandwidth estimate for VP8 too, so the picture is sharp in the first seconds
+# instead of ramping up from ~300 kbps. The same dependencies as 2.29.0 but
+# libwebrtc (144.7559.14 to 150.7871.04), and the same consumer R8 rules.
+# What else it changes in a call's setup, all inside the SDK: 2.29.1 turns on
+# WARP (the DTLS handshake inside ICE's, and SCTP SNAP), which falls back to
+# plain DTLS when the server does not offer it, and writes no
+# x-google-max-bitrate into the SDP (the layers' own caps still hold).
+# Resolved from Maven Central 2026-11-03.
+livekit = "2.29.2"
 # The Visitors map: raster tiles from whatever the workspace's map-config
 # names (OpenStreetMap by default), as the web console draws it. No API key.
 osmdroid = "6.1.20"

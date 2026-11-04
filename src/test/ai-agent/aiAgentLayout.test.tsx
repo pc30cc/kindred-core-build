@@ -6,7 +6,8 @@
  *
  * 2026-11-01: no knowledge section (knowledge is the Knowledge Base's), and
  * the settings are one page, «شخصیت و رفتار» (`behavior`), which the chip
- * opens.
+ * opens. 2026-11-03: the Advanced tools section shows to the Super Admin, or
+ * to an owner or admin whose plan has `ai_advanced_tools`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
@@ -16,6 +17,9 @@ const state = vi.hoisted(() => ({
   caps: {} as Record<string, unknown>,
   settings: null as null | { enabled: boolean; mode: string },
   isAdmin: false,
+  /** The plan's ai_advanced_tools (owner, 2026-11-03); null: the snapshot is still loading. */
+  planAdvanced: false as boolean | null,
+  role: 'owner' as string | null,
 }));
 
 vi.mock('@/hooks/useWorkspace', () => ({
@@ -30,6 +34,18 @@ vi.mock('@/hooks/useAiAgent', () => ({
 }));
 vi.mock('@/hooks/useAdmin', () => ({
   useIsGlobalAdmin: () => ({ data: state.isAdmin }),
+}));
+vi.mock('@/hooks/useEntitlements', () => ({
+  usePlanAccess: () => ({
+    status: state.planAdvanced === null ? 'loading' : 'ready',
+    feature: (key: string) => key === 'ai_advanced_tools' && state.planAdvanced === true,
+    module: () => true,
+    channel: () => true,
+    limit: () => null,
+  }),
+}));
+vi.mock('@/hooks/useWorkspaceRole', () => ({
+  useWorkspaceRole: () => ({ data: state.role, isLoading: false, isError: false }),
 }));
 vi.mock('@/components/plan/PlanAccessGate', () => ({
   PlanAccessGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -81,6 +97,8 @@ beforeEach(() => {
   };
   state.settings = { enabled: true, mode: 'auto_reply_until_human_joins' };
   state.isAdmin = false;
+  state.planAdvanced = false;
+  state.role = 'owner';
 });
 
 describe('AiAgentLayout', () => {
@@ -163,6 +181,31 @@ describe('AiAgentLayout', () => {
     expect(sectionIds()).toContain('activity');
     const active = document.querySelector('[data-ai-section][data-active="true"]');
     expect(active?.getAttribute('data-ai-section')).toBe('advanced');
+  });
+
+  it('shows the advanced section to an owner or admin whose plan has ai_advanced_tools, uncapped', () => {
+    state.planAdvanced = true;
+    state.caps.max_customer_visible_nav_items = 2;
+    renderAt('/shop/ai-agent/test-cases');
+    expect(sectionIds()).toEqual(['overview', 'behavior', 'advanced']);
+    expect(tabPaths()).toEqual(['test-cases', 'suggested-tests', 'regression-runs', 'source-health', 'debug/retrieval']);
+    expect(document.querySelector('[data-ai-section="advanced"]')?.textContent).toContain('Testing and troubleshooting the assistant');
+    cleanup();
+    state.role = 'admin';
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).toContain('advanced');
+  });
+
+  it('never to an agent, even when the plan has it, nor while the plan is loading', () => {
+    state.planAdvanced = true;
+    state.role = 'agent';
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).not.toContain('advanced');
+    cleanup();
+    state.role = 'owner';
+    state.planAdvanced = null;
+    renderAt('/shop/ai-agent/overview');
+    expect(sectionIds()).not.toContain('advanced');
   });
 
   it.each([

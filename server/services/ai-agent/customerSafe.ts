@@ -4,7 +4,11 @@
  * - toCustomerSafeAiAgentSettings: strips metadata, storage keys, and any
  *   internal/secret-shaped fields before returning settings to the client.
  * - canAccessAiAgentAdvancedToolsServer: backend gate for advanced/QA/debug
- *   endpoints. Mirrors the frontend AdvancedAiAgentGuard.
+ *   endpoints, by the rule the frontend AdvancedAiAgentGuard applies
+ *   (shared/aiAdvancedTools.ts): the Super Admin, or the workspace's plan
+ *   key `ai_advanced_tools` and its owner or an admin.
+ * - canAccessAiAgentPlatformPagesServer: the AI section's platform pages
+ *   (/platform/*), Super Admin only, never a plan's.
  * - isAiAgentPlatformEnabled: central platform kill-switch helper. Defaults
  *   to enabled when no platform table is present (TODO: wire to Super Admin).
  * - validateAvatarBytes: extension + MIME + magic-byte validation for avatar
@@ -13,6 +17,9 @@
 import type { ServerConfig } from '../../config.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { getServiceClient } from '../../supabase.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { isUnreadableEntitlementReason } from '../billing/entitlementParse.js';
+import { AI_ADVANCED_TOOLS_KEY, aiAdvancedToolsAllowed } from '../../../shared/aiAdvancedTools.js';
 import type { AgentSettings, ReplyLanguage } from './settings.js';
 import { getPlatformAiAgentSettings } from './platformSettings.js';
 import { resolveReplyLanguage } from './replyLanguage.js';
@@ -186,28 +193,120 @@ export function toCustomerSafeAiAgentSettings(
 }
 
 /**
- * Server-side gate for advanced AI tools (regression, debug, retrieval debug,
- * source health, test cases, run inspector, etc.).
- * Allowed when the user is a global platform admin OR the
- * ENABLE_AI_ADVANCED_TOOLS env override is set (development only).
- * TODO: extend with per-workspace platform config when Super Admin pass lands.
+ * The non-production override ENABLE_AI_ADVANCED_TOOLS. MUST NOT take
+ * effect in production builds: there only the Super Admin, or the plan rule
+ * below, opens the advanced tools.
+ */
+export function aiAdvancedToolsDevOverrideServer(): boolean {
+  return process.env.NODE_ENV !== 'production' && process.env.ENABLE_AI_ADVANCED_TOOLS === 'true';
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The AI section's platform pages (GET/PATCH /platform/settings, GET
+ * /platform/ai-proactive-stats): platform-wide settings and counters, the
+ * Super Admin's only, never a plan's. The dev override keeps working outside
+ * production, as before.
+ */
+export async function canAccessAiAgentPlatformPagesServer(
+  config: ServerConfig,
+  userId: string,
+): Promise<boolean> {
+  if (aiAdvancedToolsDevOverrideServer()) return true;
+  try {
+    return await isGlobalAdmin(config, userId);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Server-side gate for advanced AI tools (regression, test cases and runs,
+ * suggested tests, source health, retrieval debug, run inspector), by the
+ * rule of shared/aiAdvancedTools.ts:
+ *   - a global platform admin (Super Admin), always;
+ *   - the ENABLE_AI_ADVANCED_TOOLS override outside production;
+ *   - otherwise `workspaceId`'s effective plan has `ai_advanced_tools`
+ *     exactly true (check_workspace_entitlement, as every plan feature is
+ *     read; a plan without the key takes the registry default, off) AND the
+ *     caller is that workspace's owner or an admin (an active, unsuspended
+ *     member). An unreadable plan or membership is a no (fail closed).
+ * `workspaceId` must be the workspace whose data the request reads or
+ * writes: the guard in server/routes/ai-agent/index.ts resolves it from the
+ * request's resource (resolveAiAgentRequestWorkspace, platformGuards.ts),
+ * so a member of one workspace with the key never reaches another
+ * workspace's QA data.
  */
 export async function canAccessAiAgentAdvancedToolsServer(
   config: ServerConfig,
   userId: string,
-  _workspaceId: string,
+  workspaceId: string,
 ): Promise<boolean> {
-  // Dev-only override. MUST NOT take effect in production builds — in
-  // production only verified global admins (or future platform config) may
-  // access advanced QA/debug/regression tools.
-  if (
-    process.env.NODE_ENV !== 'production' &&
-    process.env.ENABLE_AI_ADVANCED_TOOLS === 'true'
-  ) {
-    return true;
-  }
+  if (aiAdvancedToolsDevOverrideServer()) return true;
+  let platformAdmin = false;
   try {
-    return await isGlobalAdmin(config, userId);
+    platformAdmin = await isGlobalAdmin(config, userId);
+  } catch {
+    platformAdmin = false;
+  }
+  if (platformAdmin) return true;
+  if (!workspaceId || !UUID_RE.test(workspaceId)) return false;
+  try {
+    const { data: member, error } = await getServiceClient(config)
+      .from('workspace_members')
+      .select('role, suspended_at')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !member) return false;
+    const row = member as { role?: string | null; suspended_at?: string | null };
+    if (row.suspended_at) return false;
+    const role = row.role ?? null;
+    // The role first: an agent never costs a plan read.
+    if (!aiAdvancedToolsAllowed({ isPlatformAdmin: false, planValue: true, role })) return false;
+    const plan = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      workspaceId,
+      AI_ADVANCED_TOOLS_KEY,
+      { selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
+    );
+    if (isUnreadableEntitlementReason(plan.reason) || plan.plan === 'error') return false;
+    return aiAdvancedToolsAllowed({ isPlatformAdmin: false, planValue: plan.allowed === true, role });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a due regression schedule may run (worker/regression-runner). The
+ * Advanced tools are a plan feature, so a plan that loses `ai_advanced_tools`
+ * (turned off by the Super Admin, or a downgrade) stops its workspaces'
+ * scheduled runs too, instead of leaving them calling the AI unseen. A
+ * schedule the Super Admin set up or last changed keeps running, as every
+ * schedule did before. An unreadable plan skips this run (fail closed; the
+ * schedule has already moved on to its next time).
+ */
+export async function regressionScheduleMayRunServer(
+  config: ServerConfig,
+  schedule: { workspace_id: string; created_by?: string | null; updated_by?: string | null },
+): Promise<boolean> {
+  if (aiAdvancedToolsDevOverrideServer()) return true;
+  for (const actor of new Set([schedule.updated_by, schedule.created_by])) {
+    if (actor && (await isGlobalAdmin(config, actor).catch(() => false))) return true;
+  }
+  if (!schedule.workspace_id || !UUID_RE.test(schedule.workspace_id)) return false;
+  try {
+    const plan = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      schedule.workspace_id,
+      AI_ADVANCED_TOOLS_KEY,
+      { selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
+    );
+    if (isUnreadableEntitlementReason(plan.reason) || plan.plan === 'error') return false;
+    return plan.allowed === true;
   } catch {
     return false;
   }

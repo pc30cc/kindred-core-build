@@ -1105,6 +1105,17 @@ internalQaRouter.post('/regression/run-now', async (req: Request, res: Response)
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
     return res.status(403).json({ error: 'owner_or_admin_required' });
   }
+  // The schedule must be this workspace's: its settings decide the run, and
+  // the Advanced tools are a plan feature reachable by customers (owner,
+  // 2026-11-03), so never another workspace's.
+  if (scheduleId) {
+    const { data: schedule, error: scheduleError } = await getServiceClient(config)
+      .from('ai_agent_regression_schedules').select('workspace_id').eq('id', scheduleId).maybeSingle();
+    if (scheduleError) return res.status(500).json({ error: 'schedule_read_failed' });
+    if (!schedule || String(schedule.workspace_id).toLowerCase() !== workspaceId.toLowerCase()) {
+      return res.status(404).json({ error: 'schedule_not_found' });
+    }
+  }
   try {
     const batch = await e10_enqueueBatch(config, {
       workspaceId,

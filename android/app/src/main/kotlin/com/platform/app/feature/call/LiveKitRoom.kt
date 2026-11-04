@@ -16,7 +16,6 @@ import io.livekit.android.renderer.TextureViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.CameraPosition
 import io.livekit.android.room.track.LocalVideoTrack
-import io.livekit.android.room.track.LocalVideoTrackOptions
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.TrackPublication
 import io.livekit.android.room.track.VideoTrack
@@ -46,7 +45,8 @@ import livekit.org.webrtc.PeerConnection
 /**
  * The real room.
  *
- * Everything in this app that knows what WebRTC is lives in this file.
+ * Everything in this app that knows what WebRTC is lives in this file, but
+ * for the numbers the camera is sent at, in [CallVideoEncoding].
  */
 class LiveKitRoom(private val context: Context) : CallRoom {
 
@@ -113,9 +113,13 @@ class LiveKitRoom(private val context: Context) : CallRoom {
             options = RoomOptions(
                 adaptiveStream = true,
                 dynacast = true,
-                videoTrackCaptureDefaults = LocalVideoTrackOptions(
-                    position = CameraPosition.FRONT,
-                ),
+                // The front camera at 720p, and what it is sent at: a 1 Mbps
+                // top layer and two small ones instead of LiveKit's 2.3 Mbps,
+                // which clogged an Iranian mobile link until the call dropped
+                // (CallVideoEncoding). As room defaults, because the camera is
+                // published by `setCameraEnabled`, which takes no options.
+                videoTrackCaptureDefaults = CallVideoEncoding.captureDefaults,
+                videoTrackPublishDefaults = CallVideoEncoding.publishDefaults,
             ),
             overrides = LiveKitOverrides(audioOptions = AudioOptions(audioHandler = audio)),
         )

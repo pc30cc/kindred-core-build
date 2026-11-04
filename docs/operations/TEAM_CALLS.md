@@ -327,6 +327,66 @@ chat, as WhatsApp does, on every surface (iPhone, Android, web panel).
   | `teamCallLogOutgoing` | خروجی | Outgoing | Giden | صادرة |
   | `teamCallLogIncoming` | ورودی | Incoming | Gelen | واردة |
 
+## Media budget (2026-11-03)
+
+What the camera sends on a call, the same numbers on iOS and Android. They
+apply to every call each app makes or answers, colleague calls and visitor
+(call-centre) calls alike: each app sets them as its rooms' defaults, in one
+place (Android `CallVideoEncoding.kt`, given to the one room `LiveKitRoom.kt`
+builds; iOS `CallMediaBudget.swift`, given to `CallSession`'s room and
+`TeamCallRoom`'s). The camera is published with those defaults, never with
+options of its own.
+
+| | Size | Max bitrate (bps) | Max frame rate (fps) |
+|---|---|---|---|
+| Capture, front camera (as before) | 1280×720 | | 30 |
+| Top layer, the track's own encoding | 1280×720 | 1 000 000 | 24 |
+| Simulcast, middle layer | 640×360 | 400 000 | 20 |
+| Simulcast, low layer | 320×180 | 120 000 | 15 |
+
+Each is a ceiling, in LiveKit's units (bits and frames per second): at most
+1.52 Mbps up with every layer sending, against about 2.3 Mbps at LiveKit's
+defaults for a 720p camera, and a receiver drawing the picture full screen
+takes the top layer alone (1 Mbps instead of 1.7). Simulcast, adaptive stream
+and dynacast stay on, so a layer nobody takes is not sent. The codec is as
+before: VP8 on Android, named in the code; the iOS app names none, as it never
+did. Audio is unchanged. The web panel and the website widgets keep their own
+settings (`src/lib/livekit-tuning.ts` and the widgets' copy of it); this does
+not change them.
+
+Why: measured on the production server on 2026-11-03, colleague video calls
+between an iPhone in Turkey and an Android phone (Xiaomi, Android 16,
+LiveKit Android SDK 2.29.0) on Iranian mobile data (MCI). The phone uploaded
+about 2.3-2.4 Mbps, all three VP8 layers at LiveKit's defaults for a
+1280×720 capture (320×180 at 160 kbps, 640×360 at 450 kbps, 1280×720 at
+1.7 Mbps), although the other side shows one picture, and downloaded about
+1.8-2 Mbps (the iPhone's 720p layer at 1.7 Mbps). About 4 Mbps through an
+Iranian mobile link to a foreign server clogged it: the phone's packets
+arrived 6 s and more late, the signalling WebSocket timed out (ping timeout),
+the media's ICE dropped (`PEER_CONNECTION_DISCONNECTED`) and the call ended.
+Voice calls, and the first, slower seconds of a video call, were fine.
+
+- Android: LiveKit Android SDK 2.29.2 (`android/gradle/libs.versions.toml`)
+  for the dynacast fix: in 2.29.0 a layer dynacast had paused started
+  uploading again after any renegotiation, and a call renegotiates when the
+  camera is published after the microphone; 2.29.2 keeps it paused. 2.29.1,
+  included, seeds the bandwidth estimate (`x-google-start-bitrate`), so the
+  picture is sharp in the first seconds instead of ramping up from about
+  300 kbps. The numbers go in as the room's `videoTrackCaptureDefaults` and
+  `videoTrackPublishDefaults`, because `setCameraEnabled` takes no options.
+- iOS: the rooms' `defaultCameraCaptureOptions` and
+  `defaultVideoPublishOptions`, read against client-sdk-swift 2.17.0 (the
+  same in 2.19.0). The package's minimum is 2.19.0 (`ios/Webyar/project.yml`),
+  which has the same dynacast fix as Android's 2.29.2, and 2.18.0's faster
+  start; CI already resolved it, the minimum keeps a Mac's older package cache
+  from building 2.17.0. Build 1.0.0 (5) carries it.
+- Guards: `src/test/native/callMediaBudget.android.test.ts` and
+  `src/test/native/callMediaBudget.ios.test.ts` hold the sources to these
+  numbers and to the one place each app builds a room;
+  `CallVideoEncodingTest.kt` checks them on the SDK's own types (CI's
+  `android.yml`). Change the numbers in both apps, the tests and this table
+  together.
+
 ## Rollout
 
 1. Migration `293_team_calls.sql` by hand on WebYar before the merge (App
@@ -341,3 +401,7 @@ chat, as WhatsApp does, on every surface (iPhone, Android, web panel).
    on WebYar before its merge (a dry run inside `BEGIN … ROLLBACK` first);
    RESPOK by its migrator. Then the merge: the backends write the lines and
    the panel draws them; the apps with their next builds.
+6. The media budget: nothing on the server. iOS with build 1.0.0 (5);
+   Android with its next release (`versionCode` above 28, see
+   `docs/ANDROID_RELEASE.md`). A call between an updated app and an older one
+   is still lighter: the updated side sends less, so the other receives less.

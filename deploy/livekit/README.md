@@ -126,6 +126,50 @@ After the LiveKit service is up:
 
 The backend caches this for 30s (`livekitConfig.ts → CACHE_TTL_MS`).
 
+### 4.1 Signalling through Cloudflare (WebYar, since 2026-11-03)
+
+The two URLs are not the same on WebYar, on purpose:
+
+- **RTC URL** (`rtc_url`, what the backend uses to talk to LiveKit):
+  `wss://livekit.webyar.ai`, straight to the server.
+- **WS URL** (`ws_url`, what every app and the widget connect to for
+  signalling): `wss://rt.webyar.ai`, which is behind Cloudflare.
+
+Why: phones on Iranian mobile networks lose a direct WebSocket+TLS connection
+to this server after its first ~6-8 KB from server to phone. The server keeps
+retransmitting and nothing is acknowledged. It is a filter, not packet size:
+with `tcp_mtu_probing` on, 1024- and then 512-byte segments were dropped too.
+The phone then never receives the offer that carries the other side's audio
+or video. LiveKit drops it after 15 s (`NEGOTIATE_FAILED`, or
+`SIGNAL_SOURCE_CLOSE` when the other side's camera was on before it joined),
+and the call ends. The API and realtime already went through Cloudflare;
+LiveKit's signalling was the only direct connection. Media is not affected:
+UDP, TCP 7881 and TURN still go straight to the server.
+
+How it is wired:
+
+- **Traefik:** a hand-written file in the proxy's watched folder,
+  `/data/coolify/proxy/dynamic/livekit-signal-cf.yaml`. It sends
+  `Host(rt.webyar.ai) && PathPrefix(/rtc)` (the SDKs' `/rtc` and
+  `/rtc/validate`) to `livekit@docker`, the service this compose file names
+  itself (`traefik.http.services.livekit`). That name is stable across
+  deploys, unlike the names Coolify generates. The rest of `rt.webyar.ai`
+  stays Centrifugo (`/connection/websocket`).
+- **Setting:** `ws_url = wss://rt.webyar.ai` in both `app_runtime_config`
+  rows, `call_livekit_config` and `call_rtc_endpoints`. `rtc_url` is
+  unchanged. The client URL is reduced to its origin
+  (`normalizeClientWsUrl`), so a path prefix cannot be used; a hostname of
+  its own is the way.
+
+Check it:
+`curl -s https://rt.webyar.ai/rtc/validate` must answer LiveKit's 401
+("no permissions to access the room"), not Centrifugo's.
+
+Way back: set `ws_url` back to `wss://livekit.webyar.ai` in both rows and
+delete the file. A dedicated proxied hostname (for example `lk.webyar.ai`,
+proxied in Cloudflare) would replace the shared one, with the same file
+pointing at it.
+
 ---
 
 ## 5. Verify the deployment

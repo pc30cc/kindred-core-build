@@ -15,6 +15,7 @@ import {
   findQueuedBatchIds,
   runRegressionBatch,
 } from '../../server/services/ai-agent/regressionRunner.js';
+import { regressionScheduleMayRunServer } from '../../server/services/ai-agent/customerSafe.js';
 import { loadConfig } from '../../server/config.js';
 import { IdleBackoff, IdleIntervalSkipper, intFromEnv } from '../../server/services/jobs/idleBackoff.js';
 
@@ -49,6 +50,12 @@ async function tick(sb: SupabaseClient): Promise<boolean> {
     const claimed = await claimDueSchedule(sb, id);
     if (!claimed) continue;
     found = true;
+    // The Advanced tools are a plan feature (ai_advanced_tools, owner
+    // 2026-11-03): a plan without it runs no customer schedule.
+    if (!(await regressionScheduleMayRunServer(config, claimed))) {
+      log('schedule skipped: ai_advanced_tools not in plan', { scheduleId: id, ws: claimed.workspace_id });
+      continue;
+    }
     log('schedule due → enqueue batch', { scheduleId: id, ws: claimed.workspace_id });
     try {
       const batch = await enqueueRegressionBatch(config, {
